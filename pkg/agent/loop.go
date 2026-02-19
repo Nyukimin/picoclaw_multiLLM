@@ -606,8 +606,11 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"max":       limit,
 			})
 
-		// Build tool definitions
-		providerToolDefs := al.tools.ToProviderDefs()
+		// Kuro is a conversation-only gateway, so CHAT route runs without tool calls.
+		providerToolDefs := []providers.ToolDefinition{}
+		if strings.ToUpper(strings.TrimSpace(opts.Route)) != RouteChat {
+			providerToolDefs = al.tools.ToProviderDefs()
+		}
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",

@@ -552,6 +552,22 @@ func (m *failFirstMockProvider) GetDefaultModel() string {
 	return "mock-fail-model"
 }
 
+type captureToolsMockProvider struct {
+	lastToolsCount int
+}
+
+func (m *captureToolsMockProvider) Chat(ctx context.Context, messages []providers.Message, tools []providers.ToolDefinition, model string, opts map[string]interface{}) (*providers.LLMResponse, error) {
+	m.lastToolsCount = len(tools)
+	return &providers.LLMResponse{
+		Content:   "ok",
+		ToolCalls: []providers.ToolCall{},
+	}, nil
+}
+
+func (m *captureToolsMockProvider) GetDefaultModel() string {
+	return "capture-tools-model"
+}
+
 // TestAgentLoop_ContextExhaustionRetry verify that the agent retries on context errors
 func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test-*")
@@ -622,6 +638,98 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	// Without compression: 6 + 1 (new user msg) + 1 (assistant msg) = 8
 	if len(finalHistory) >= 8 {
 		t.Errorf("Expected history to be compressed (len < 8), got %d", len(finalHistory))
+	}
+}
+
+func TestRunAgentLoop_ChatRouteDisablesTools(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+		Loop: config.LoopConfig{
+			MaxLoops:  1,
+			MaxMillis: 5000,
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &captureToolsMockProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	_, err = al.runAgentLoop(context.Background(), processOptions{
+		SessionKey:      "chat-tools-off",
+		Channel:         "cli",
+		ChatID:          "direct",
+		UserMessage:     "こんにちは",
+		DefaultResponse: "default",
+		EnableSummary:   false,
+		SendResponse:    false,
+		Route:           RouteChat,
+		MaxLoops:        1,
+		MaxMillis:       5000,
+	})
+	if err != nil {
+		t.Fatalf("runAgentLoop failed: %v", err)
+	}
+	if provider.lastToolsCount != 0 {
+		t.Fatalf("CHAT route should disable tools, got %d", provider.lastToolsCount)
+	}
+}
+
+func TestRunAgentLoop_NonChatRouteEnablesTools(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+		Loop: config.LoopConfig{
+			MaxLoops:  1,
+			MaxMillis: 5000,
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &captureToolsMockProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	_, err = al.runAgentLoop(context.Background(), processOptions{
+		SessionKey:      "plan-tools-on",
+		Channel:         "cli",
+		ChatID:          "direct",
+		UserMessage:     "段取りを作って",
+		DefaultResponse: "default",
+		EnableSummary:   false,
+		SendResponse:    false,
+		Route:           RoutePlan,
+		MaxLoops:        1,
+		MaxMillis:       5000,
+	})
+	if err != nil {
+		t.Fatalf("runAgentLoop failed: %v", err)
+	}
+	if provider.lastToolsCount == 0 {
+		t.Fatalf("Non-CHAT route should include tools, got %d", provider.lastToolsCount)
 	}
 }
 
