@@ -110,6 +110,10 @@
       "api_key": "sk-xxx",
       "api_base": ""
     },
+    "deepseek": {
+      "api_key": "sk-xxx",
+      "api_base": "https://api.deepseek.com/v1"
+    },
     "ollama": {
       "api_key": "",
       "api_base": "http://localhost:11434/v1"
@@ -131,6 +135,28 @@
     "cron": {
       "exec_timeout_minutes": 5
     }
+  },
+  "routing": {
+    "classifier": {
+      "enabled": true,
+      "min_confidence": 0.6,
+      "min_confidence_for_code": 0.8
+    },
+    "fallback_route": "CHAT",
+    "llm": {
+      "chat_provider": "ollama",
+      "chat_model": "ollama/kuro-v1:latest",
+      "worker_provider": "ollama",
+      "worker_model": "ollama/worker-v1:latest",
+      "code_provider": "deepseek",
+      "code_model": "deepseek-chat"
+    }
+  },
+  "loop": {
+    "max_loops": 3,
+    "max_millis": 25000,
+    "allow_auto_reroute_once": true,
+    "allow_chat_propose_reroute_once": true
   },
   "heartbeat": {
     "enabled": true,

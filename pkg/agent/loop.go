@@ -33,7 +33,9 @@ import (
 
 type AgentLoop struct {
 	bus            *bus.MessageBus
+	cfg            *config.Config
 	provider       providers.LLMProvider
+	providerName   string
 	workspace      string
 	model          string
 	contextWindow  int // Maximum context window size in tokens
@@ -150,7 +152,9 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 
 	return &AgentLoop{
 		bus:            msgBus,
+		cfg:            cfg,
 		provider:       provider,
+		providerName:   strings.ToLower(strings.TrimSpace(cfg.Agents.Defaults.Provider)),
 		workspace:      workspace,
 		model:          cfg.Agents.Defaults.Model,
 		contextWindow:  cfg.Agents.Defaults.MaxTokens, // Restore context window for summarization
@@ -314,6 +318,12 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	if userMessage == "" {
 		userMessage = msg.Content
 	}
+	restoreRouteLLM, err := al.applyRouteLLM(decision.Route)
+	if err != nil {
+		return "", fmt.Errorf("failed to switch LLM for route %s: %w", decision.Route, err)
+	}
+	defer restoreRouteLLM()
+
 	response, err := al.runAgentLoop(ctx, processOptions{
 		SessionKey:      msg.SessionKey,
 		Channel:         msg.Channel,
@@ -354,6 +364,85 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			"error_reason":          decision.ErrorReason,
 		})
 	return response, err
+}
+
+func (al *AgentLoop) applyRouteLLM(route string) (func(), error) {
+	targetProvider, targetModel := al.resolveRouteLLM(route)
+	if targetModel == "" {
+		targetModel = al.model
+	}
+	if targetProvider == al.providerName && targetModel == al.model {
+		return func() {}, nil
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Providers = al.cfg.Providers
+	cfg.Agents.Defaults.Workspace = al.cfg.Agents.Defaults.Workspace
+	cfg.Agents.Defaults.RestrictToWorkspace = al.cfg.Agents.Defaults.RestrictToWorkspace
+	cfg.Agents.Defaults.Provider = targetProvider
+	cfg.Agents.Defaults.Model = targetModel
+
+	routeProvider, err := providers.CreateProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	prevProvider := al.provider
+	prevProviderName := al.providerName
+	prevModel := al.model
+
+	al.provider = routeProvider
+	al.providerName = targetProvider
+	al.model = targetModel
+
+	logger.InfoCF("agent", "route.llm.selected", map[string]interface{}{
+		"route":    route,
+		"provider": targetProvider,
+		"model":    targetModel,
+	})
+
+	return func() {
+		al.provider = prevProvider
+		al.providerName = prevProviderName
+		al.model = prevModel
+	}, nil
+}
+
+func (al *AgentLoop) resolveRouteLLM(route string) (string, string) {
+	defaultProvider := strings.ToLower(strings.TrimSpace(al.cfg.Agents.Defaults.Provider))
+	defaultModel := strings.TrimSpace(al.cfg.Agents.Defaults.Model)
+	llmCfg := al.cfg.Routing.LLM
+
+	chooseProvider := func(base, override string) string {
+		if trimmed := strings.ToLower(strings.TrimSpace(override)); trimmed != "" {
+			return trimmed
+		}
+		return strings.ToLower(strings.TrimSpace(base))
+	}
+	chooseModel := func(base, override string) string {
+		if trimmed := strings.TrimSpace(override); trimmed != "" {
+			return trimmed
+		}
+		return strings.TrimSpace(base)
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(route)) {
+	case RouteCode:
+		return chooseProvider(defaultProvider, llmCfg.CodeProvider), chooseModel(defaultModel, llmCfg.CodeModel)
+	case RouteChat:
+		return chooseProvider(defaultProvider, llmCfg.ChatProvider), chooseModel(defaultModel, llmCfg.ChatModel)
+	default:
+		workerProvider := chooseProvider(defaultProvider, llmCfg.WorkerProvider)
+		workerModel := chooseModel(defaultModel, llmCfg.WorkerModel)
+		// If worker-specific values are not configured, fall back to chat-specific settings.
+		if strings.TrimSpace(llmCfg.WorkerProvider) == "" {
+			workerProvider = chooseProvider(workerProvider, llmCfg.ChatProvider)
+		}
+		if strings.TrimSpace(llmCfg.WorkerModel) == "" {
+			workerModel = chooseModel(workerModel, llmCfg.ChatModel)
+		}
+		return workerProvider, workerModel
+	}
 }
 
 func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {

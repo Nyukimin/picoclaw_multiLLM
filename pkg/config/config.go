@@ -232,6 +232,7 @@ type ToolsConfig struct {
 type RoutingConfig struct {
 	Classifier    RoutingClassifierConfig `json:"classifier"`
 	FallbackRoute string                  `json:"fallback_route" env:"PICOCLAW_ROUTING_FALLBACK_ROUTE"`
+	LLM           RouteLLMConfig          `json:"llm"`
 }
 
 type RoutingClassifierConfig struct {
@@ -240,10 +241,19 @@ type RoutingClassifierConfig struct {
 	MinConfidenceForCode float64 `json:"min_confidence_for_code" env:"PICOCLAW_ROUTING_CLASSIFIER_MIN_CONFIDENCE_FOR_CODE"`
 }
 
+type RouteLLMConfig struct {
+	ChatProvider   string `json:"chat_provider" env:"PICOCLAW_ROUTING_LLM_CHAT_PROVIDER"`
+	ChatModel      string `json:"chat_model" env:"PICOCLAW_ROUTING_LLM_CHAT_MODEL"`
+	WorkerProvider string `json:"worker_provider" env:"PICOCLAW_ROUTING_LLM_WORKER_PROVIDER"`
+	WorkerModel    string `json:"worker_model" env:"PICOCLAW_ROUTING_LLM_WORKER_MODEL"`
+	CodeProvider   string `json:"code_provider" env:"PICOCLAW_ROUTING_LLM_CODE_PROVIDER"`
+	CodeModel      string `json:"code_model" env:"PICOCLAW_ROUTING_LLM_CODE_MODEL"`
+}
+
 type LoopConfig struct {
-	MaxLoops                   int  `json:"max_loops" env:"PICOCLAW_LOOP_MAX_LOOPS"`
-	MaxMillis                  int  `json:"max_millis" env:"PICOCLAW_LOOP_MAX_MILLIS"`
-	AllowAutoRerouteOnce       bool `json:"allow_auto_reroute_once" env:"PICOCLAW_LOOP_ALLOW_AUTO_REROUTE_ONCE"`
+	MaxLoops                    int  `json:"max_loops" env:"PICOCLAW_LOOP_MAX_LOOPS"`
+	MaxMillis                   int  `json:"max_millis" env:"PICOCLAW_LOOP_MAX_MILLIS"`
+	AllowAutoRerouteOnce        bool `json:"allow_auto_reroute_once" env:"PICOCLAW_LOOP_ALLOW_AUTO_REROUTE_ONCE"`
 	AllowChatProposeRerouteOnce bool `json:"allow_chat_propose_reroute_once" env:"PICOCLAW_LOOP_ALLOW_CHAT_PROPOSE_REROUTE_ONCE"`
 }
 
