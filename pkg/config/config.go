@@ -49,6 +49,8 @@ type Config struct {
 	Providers ProvidersConfig `json:"providers"`
 	Gateway   GatewayConfig   `json:"gateway"`
 	Tools     ToolsConfig     `json:"tools"`
+	Routing   RoutingConfig   `json:"routing"`
+	Loop      LoopConfig      `json:"loop"`
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
 	mu        sync.RWMutex
@@ -227,6 +229,24 @@ type ToolsConfig struct {
 	Cron CronToolsConfig `json:"cron"`
 }
 
+type RoutingConfig struct {
+	Classifier    RoutingClassifierConfig `json:"classifier"`
+	FallbackRoute string                  `json:"fallback_route" env:"PICOCLAW_ROUTING_FALLBACK_ROUTE"`
+}
+
+type RoutingClassifierConfig struct {
+	Enabled              bool    `json:"enabled" env:"PICOCLAW_ROUTING_CLASSIFIER_ENABLED"`
+	MinConfidence        float64 `json:"min_confidence" env:"PICOCLAW_ROUTING_CLASSIFIER_MIN_CONFIDENCE"`
+	MinConfidenceForCode float64 `json:"min_confidence_for_code" env:"PICOCLAW_ROUTING_CLASSIFIER_MIN_CONFIDENCE_FOR_CODE"`
+}
+
+type LoopConfig struct {
+	MaxLoops                   int  `json:"max_loops" env:"PICOCLAW_LOOP_MAX_LOOPS"`
+	MaxMillis                  int  `json:"max_millis" env:"PICOCLAW_LOOP_MAX_MILLIS"`
+	AllowAutoRerouteOnce       bool `json:"allow_auto_reroute_once" env:"PICOCLAW_LOOP_ALLOW_AUTO_REROUTE_ONCE"`
+	AllowChatProposeRerouteOnce bool `json:"allow_chat_propose_reroute_once" env:"PICOCLAW_LOOP_ALLOW_CHAT_PROPOSE_REROUTE_ONCE"`
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		Agents: AgentsConfig{
@@ -342,6 +362,20 @@ func DefaultConfig() *Config {
 			Cron: CronToolsConfig{
 				ExecTimeoutMinutes: 5, // default 5 minutes for LLM operations
 			},
+		},
+		Routing: RoutingConfig{
+			Classifier: RoutingClassifierConfig{
+				Enabled:              true,
+				MinConfidence:        0.6,
+				MinConfidenceForCode: 0.8,
+			},
+			FallbackRoute: "CHAT",
+		},
+		Loop: LoopConfig{
+			MaxLoops:                    3,
+			MaxMillis:                   25000,
+			AllowAutoRerouteOnce:        true,
+			AllowChatProposeRerouteOnce: true,
 		},
 		Heartbeat: HeartbeatConfig{
 			Enabled:  true,

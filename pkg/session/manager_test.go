@@ -72,3 +72,27 @@ func TestSave_RejectsPathTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionFlags_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	key := "slack:C0123"
+	flags := SessionFlags{
+		LocalOnly:        true,
+		PrevPrimaryRoute: "PLAN",
+	}
+	sm.SetFlags(key, flags)
+	if err := sm.Save(key); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	sm2 := NewSessionManager(tmpDir)
+	got := sm2.GetFlags(key)
+	if !got.LocalOnly {
+		t.Fatalf("expected LocalOnly to be true")
+	}
+	if got.PrevPrimaryRoute != "PLAN" {
+		t.Fatalf("expected PrevPrimaryRoute PLAN, got %s", got.PrevPrimaryRoute)
+	}
+}

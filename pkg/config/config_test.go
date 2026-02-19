@@ -203,4 +203,13 @@ func TestConfig_Complete(t *testing.T) {
 	if !cfg.Heartbeat.Enabled {
 		t.Error("Heartbeat should be enabled by default")
 	}
+	if !cfg.Routing.Classifier.Enabled {
+		t.Error("Routing classifier should be enabled by default")
+	}
+	if cfg.Routing.FallbackRoute != "CHAT" {
+		t.Errorf("Expected fallback route CHAT, got %s", cfg.Routing.FallbackRoute)
+	}
+	if cfg.Loop.MaxLoops == 0 || cfg.Loop.MaxMillis == 0 {
+		t.Error("Loop max settings should be initialized")
+	}
 }

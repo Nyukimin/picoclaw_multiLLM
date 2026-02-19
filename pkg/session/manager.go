@@ -15,8 +15,14 @@ type Session struct {
 	Key      string              `json:"key"`
 	Messages []providers.Message `json:"messages"`
 	Summary  string              `json:"summary,omitempty"`
+	Flags    SessionFlags        `json:"flags,omitempty"`
 	Created  time.Time           `json:"created"`
 	Updated  time.Time           `json:"updated"`
+}
+
+type SessionFlags struct {
+	LocalOnly        bool   `json:"local_only,omitempty"`
+	PrevPrimaryRoute string `json:"prev_primary_route,omitempty"`
 }
 
 type SessionManager struct {
@@ -180,6 +186,7 @@ func (sm *SessionManager) Save(key string) error {
 	snapshot := Session{
 		Key:     stored.Key,
 		Summary: stored.Summary,
+		Flags:   stored.Flags,
 		Created: stored.Created,
 		Updated: stored.Updated,
 	}
@@ -279,4 +286,32 @@ func (sm *SessionManager) SetHistory(key string, history []providers.Message) {
 		session.Messages = msgs
 		session.Updated = time.Now()
 	}
+}
+
+func (sm *SessionManager) GetFlags(key string) SessionFlags {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	session, ok := sm.sessions[key]
+	if !ok {
+		return SessionFlags{}
+	}
+	return session.Flags
+}
+
+func (sm *SessionManager) SetFlags(key string, flags SessionFlags) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	session, ok := sm.sessions[key]
+	if !ok {
+		session = &Session{
+			Key:      key,
+			Messages: []providers.Message{},
+			Created:  time.Now(),
+		}
+		sm.sessions[key] = session
+	}
+	session.Flags = flags
+	session.Updated = time.Now()
 }

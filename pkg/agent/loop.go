@@ -9,6 +9,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,10 +38,13 @@ type AgentLoop struct {
 	model          string
 	contextWindow  int // Maximum context window size in tokens
 	maxIterations  int
+	loopMaxLoops   int
+	loopMaxMillis  int
 	sessions       *session.SessionManager
 	state          *state.Manager
 	contextBuilder *ContextBuilder
 	tools          *tools.ToolRegistry
+	router         *Router
 	running        atomic.Bool
 	summarizing    sync.Map // Tracks which sessions are currently being summarized
 	channelManager *channels.Manager
@@ -56,6 +60,11 @@ type processOptions struct {
 	EnableSummary   bool   // Whether to trigger summarization
 	SendResponse    bool   // Whether to send response via bus
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
+	Route           string // Routed category for logging
+	LocalOnly       bool   // /local mode for this session
+	Declaration     string // Route declaration prefix
+	MaxLoops        int    // Max loop iterations for this turn
+	MaxMillis       int    // Max processing time for this turn
 }
 
 // createToolRegistry creates a tool registry with common tools.
@@ -146,10 +155,13 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		model:          cfg.Agents.Defaults.Model,
 		contextWindow:  cfg.Agents.Defaults.MaxTokens, // Restore context window for summarization
 		maxIterations:  cfg.Agents.Defaults.MaxToolIterations,
+		loopMaxLoops:   cfg.Loop.MaxLoops,
+		loopMaxMillis:  cfg.Loop.MaxMillis,
 		sessions:       sessionsManager,
 		state:          stateManager,
 		contextBuilder: contextBuilder,
 		tools:          toolsRegistry,
+		router:         NewRouter(cfg.Routing, NewClassifier(provider, cfg.Agents.Defaults.Model)),
 		summarizing:    sync.Map{},
 	}
 }
@@ -248,6 +260,9 @@ func (al *AgentLoop) ProcessHeartbeat(ctx context.Context, content, channel, cha
 		EnableSummary:   false,
 		SendResponse:    false,
 		NoHistory:       true, // Don't load session history for heartbeat
+		Route:           RouteChat,
+		MaxLoops:        al.maxIterations,
+		MaxMillis:       al.loopMaxMillis,
 	})
 }
 
@@ -277,16 +292,68 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		return response, nil
 	}
 
+	flags := al.sessions.GetFlags(msg.SessionKey)
+	decision := al.router.Decide(ctx, msg.Content, flags)
+	logger.InfoCF("agent", "mvp.routing",
+		map[string]interface{}{
+			"session_key":           msg.SessionKey,
+			"initial_route":         decision.Route,
+			"source":                decision.Source,
+			"classifier_confidence": decision.ClassifierConfidence,
+			"error_reason":          decision.ErrorReason,
+		})
+	flags.LocalOnly = decision.LocalOnly
+	if decision.DirectResponse != "" {
+		al.sessions.SetFlags(msg.SessionKey, flags)
+		al.sessions.Save(msg.SessionKey)
+		return decision.DirectResponse, nil
+	}
+
 	// Process as user message
-	return al.runAgentLoop(ctx, processOptions{
+	userMessage := decision.CleanUserText
+	if userMessage == "" {
+		userMessage = msg.Content
+	}
+	response, err := al.runAgentLoop(ctx, processOptions{
 		SessionKey:      msg.SessionKey,
 		Channel:         msg.Channel,
 		ChatID:          msg.ChatID,
-		UserMessage:     msg.Content,
+		UserMessage:     userMessage,
 		DefaultResponse: "I've completed processing but have no response to give.",
 		EnableSummary:   true,
 		SendResponse:    false,
+		Route:           decision.Route,
+		LocalOnly:       decision.LocalOnly,
+		Declaration:     decision.Declaration,
+		MaxLoops:        al.loopMaxLoops,
+		MaxMillis:       al.loopMaxMillis,
 	})
+	if err != nil {
+		stopReason := "error"
+		if errors.Is(err, context.DeadlineExceeded) {
+			stopReason = "timeout"
+			response = "ここまでで一度停止したよ。続けるために必要な情報を追記してね。"
+			err = nil
+		}
+		logger.WarnCF("agent", "mvp.stop",
+			map[string]interface{}{
+				"session_key":  msg.SessionKey,
+				"final_route":  decision.Route,
+				"stop_reason":  stopReason,
+				"error_reason": decision.ErrorReason,
+			})
+	}
+	flags.PrevPrimaryRoute = decision.Route
+	al.sessions.SetFlags(msg.SessionKey, flags)
+	al.sessions.Save(msg.SessionKey)
+	logger.InfoCF("agent", "mvp.route.final",
+		map[string]interface{}{
+			"session_key":           msg.SessionKey,
+			"final_route":           decision.Route,
+			"classifier_confidence": decision.ClassifierConfidence,
+			"error_reason":          decision.ErrorReason,
+		})
+	return response, err
 }
 
 func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
@@ -344,6 +411,13 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 // runAgentLoop is the core message processing logic.
 // It handles context building, LLM calls, tool execution, and response handling.
 func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (string, error) {
+	loopCtx := ctx
+	cancel := func() {}
+	if opts.MaxMillis > 0 {
+		loopCtx, cancel = context.WithTimeout(ctx, time.Duration(opts.MaxMillis)*time.Millisecond)
+	}
+	defer cancel()
+
 	// 0. Record last channel for heartbeat notifications (skip internal channels)
 	if opts.Channel != "" && opts.ChatID != "" {
 		// Don't record internal channels (cli, system, subagent)
@@ -378,7 +452,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
 
 	// 4. Run LLM iteration loop
-	finalContent, iteration, err := al.runLLMIteration(ctx, messages, opts)
+	finalContent, iteration, err := al.runLLMIteration(loopCtx, messages, opts)
 	if err != nil {
 		return "", err
 	}
@@ -389,6 +463,9 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	// 5. Handle empty response
 	if finalContent == "" {
 		finalContent = opts.DefaultResponse
+	}
+	if opts.Declaration != "" && finalContent != "" {
+		finalContent = opts.Declaration + "\n" + finalContent
 	}
 
 	// 6. Save final assistant message to session
@@ -426,14 +503,18 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.Message, opts processOptions) (string, int, error) {
 	iteration := 0
 	var finalContent string
+	limit := al.maxIterations
+	if opts.MaxLoops > 0 {
+		limit = opts.MaxLoops
+	}
 
-	for iteration < al.maxIterations {
+	for iteration < limit {
 		iteration++
 
 		logger.DebugCF("agent", "LLM iteration",
 			map[string]interface{}{
 				"iteration": iteration,
-				"max":       al.maxIterations,
+				"max":       limit,
 			})
 
 		// Build tool definitions
