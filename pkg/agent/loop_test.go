@@ -624,3 +624,91 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 		t.Errorf("Expected history to be compressed (len < 8), got %d", len(finalHistory))
 	}
 }
+
+func TestResolveRouteLLM_AllRoutes(t *testing.T) {
+	al := &AgentLoop{
+		cfg: &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{
+					Provider: "ollama",
+					Model:    "ollama/kuro-v1:latest",
+				},
+			},
+			Routing: config.RoutingConfig{
+				LLM: config.RouteLLMConfig{
+					ChatProvider:   "ollama",
+					ChatModel:      "ollama/kuro-v1:latest",
+					WorkerProvider: "ollama",
+					WorkerModel:    "ollama/worker-v1:latest",
+					CodeProvider:   "deepseek",
+					CodeModel:      "deepseek-chat",
+				},
+			},
+		},
+	}
+
+	cases := []struct {
+		route    string
+		provider string
+		model    string
+	}{
+		{RouteChat, "ollama", "ollama/kuro-v1:latest"},
+		{RoutePlan, "ollama", "ollama/worker-v1:latest"},
+		{RouteAnalyze, "ollama", "ollama/worker-v1:latest"},
+		{RouteOps, "ollama", "ollama/worker-v1:latest"},
+		{RouteResearch, "ollama", "ollama/worker-v1:latest"},
+		{RouteCode, "deepseek", "deepseek-chat"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.route, func(t *testing.T) {
+			provider, model := al.resolveRouteLLM(tc.route)
+			if provider != tc.provider || model != tc.model {
+				t.Fatalf("route=%s got (%s, %s), want (%s, %s)", tc.route, provider, model, tc.provider, tc.model)
+			}
+		})
+	}
+}
+
+func TestResolveRouteLLM_WorkerFallbacksToChatIfUnset(t *testing.T) {
+	al := &AgentLoop{
+		cfg: &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{
+					Provider: "ollama",
+					Model:    "ollama/default:latest",
+				},
+			},
+			Routing: config.RoutingConfig{
+				LLM: config.RouteLLMConfig{
+					ChatProvider: "ollama",
+					ChatModel:    "ollama/kuro-v1:latest",
+				},
+			},
+		},
+	}
+
+	provider, model := al.resolveRouteLLM(RoutePlan)
+	if provider != "ollama" || model != "ollama/kuro-v1:latest" {
+		t.Fatalf("worker fallback got (%s, %s), want (%s, %s)", provider, model, "ollama", "ollama/kuro-v1:latest")
+	}
+}
+
+func TestResolveRouteLLM_FallbacksToDefaults(t *testing.T) {
+	al := &AgentLoop{
+		cfg: &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{
+					Provider: "ollama",
+					Model:    "ollama/default:latest",
+				},
+			},
+			Routing: config.RoutingConfig{},
+		},
+	}
+
+	provider, model := al.resolveRouteLLM(RouteCode)
+	if provider != "ollama" || model != "ollama/default:latest" {
+		t.Fatalf("default fallback got (%s, %s), want (%s, %s)", provider, model, "ollama", "ollama/default:latest")
+	}
+}
