@@ -48,15 +48,16 @@ func (cb *ContextBuilder) SetToolsRegistry(registry *tools.ToolRegistry) {
 	cb.tools = registry
 }
 
-func (cb *ContextBuilder) getIdentity() string {
+func (cb *ContextBuilder) getIdentity(route string) string {
 	now := time.Now().Format("2006-01-02 15:04 (Monday)")
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
 	runtime := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())
 
 	// Build tools section dynamically
-	toolsSection := cb.buildToolsSection()
+	showTools := !strings.EqualFold(strings.TrimSpace(route), RouteChat)
+	toolsSection := cb.buildToolsSection(showTools)
 
-	return fmt.Sprintf(`# picoclaw 🦞
+	identity := fmt.Sprintf(`# picoclaw 🦞
 
 You are picoclaw, a helpful AI assistant.
 
@@ -77,15 +78,34 @@ Your workspace is at: %s
 
 ## Important Rules
 
-1. **ALWAYS use tools** - When you need to perform an action (schedule reminders, send messages, execute commands, etc.), you MUST call the appropriate tool. Do NOT just say you'll do it or pretend to do it.
+1. **TOP PRIORITY: 8GB memory constraint** - Assume a strict 8GB RAM environment. Avoid memory-heavy processing and keep in-memory data minimal.
 
-2. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
+2. **TOP PRIORITY: HDD-first persistence** - Persist logs, intermediate state, outputs, and temporary artifacts to disk by default.
 
-3. **Memory** - When remembering something, write to %s/memory/MEMORY.md`,
+3. **TOP PRIORITY: No subagents** - Do NOT use spawn or subagent tools under any circumstances.
+
+4. **ALWAYS use allowed tools** - When you need to perform an action, call an appropriate allowed tool. Do NOT pretend actions were executed.
+
+5. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
+
+6. **Memory** - When remembering something, write to %s/memory/MEMORY.md`,
 		now, runtime, workspacePath, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath)
+
+	if strings.EqualFold(strings.TrimSpace(route), RouteChat) {
+		identity += `
+
+## Chat Persona Priority
+- For CHAT route, strictly follow CHAT_PERSONA.md.
+- The chat alias is Kuro. Prefer the persona's voice, relationship, and calling style over generic assistant tone.
+- Do not answer with generic "helpdesk/tool list" self-description unless the user explicitly asks for system internals.`
+	}
+	return identity
 }
 
-func (cb *ContextBuilder) buildToolsSection() string {
+func (cb *ContextBuilder) buildToolsSection(include bool) string {
+	if !include {
+		return ""
+	}
 	if cb.tools == nil {
 		return ""
 	}
@@ -107,11 +127,11 @@ func (cb *ContextBuilder) buildToolsSection() string {
 	return sb.String()
 }
 
-func (cb *ContextBuilder) BuildSystemPrompt() string {
+func (cb *ContextBuilder) BuildSystemPrompt(route string) string {
 	parts := []string{}
 
 	// Core identity section
-	parts = append(parts, cb.getIdentity())
+	parts = append(parts, cb.getIdentity(route))
 
 	// Bootstrap files
 	bootstrapContent := cb.LoadBootstrapFiles()
@@ -159,10 +179,10 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	return result
 }
 
-func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID string) []providers.Message {
+func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID, route string) []providers.Message {
 	messages := []providers.Message{}
 
-	systemPrompt := cb.BuildSystemPrompt()
+	systemPrompt := cb.BuildSystemPrompt(route)
 
 	// Add Current Session info if provided
 	if channel != "" && chatID != "" {

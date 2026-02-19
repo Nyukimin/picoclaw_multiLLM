@@ -128,19 +128,9 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	// Create tool registry for main agent
 	toolsRegistry := createToolRegistry(workspace, restrict, cfg, msgBus)
 
-	// Create subagent manager with its own tool registry
-	subagentManager := tools.NewSubagentManager(provider, cfg.Agents.Defaults.Model, workspace, msgBus)
-	subagentTools := createToolRegistry(workspace, restrict, cfg, msgBus)
-	// Subagent doesn't need spawn/subagent tools to avoid recursion
-	subagentManager.SetTools(subagentTools)
-
-	// Register spawn tool (for main agent)
-	spawnTool := tools.NewSpawnTool(subagentManager)
-	toolsRegistry.Register(spawnTool)
-
-	// Register subagent tool (synchronous execution)
-	subagentTool := tools.NewSubagentTool(subagentManager)
-	toolsRegistry.Register(subagentTool)
+	// NOTE:
+	// spawn/subagent tools are intentionally disabled in this deployment.
+	// Top-priority operating policy requires no subagent usage.
 
 	sessionsManager := session.NewSessionManager(filepath.Join(workspace, "sessions"))
 
@@ -200,11 +190,24 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 
 				if !alreadySent {
-					al.bus.PublishOutbound(bus.OutboundMessage{
+			outbound := bus.OutboundMessage{
 						Channel: msg.Channel,
 						ChatID:  msg.ChatID,
 						Content: response,
-					})
+			}
+			// Special handling: when Worker/Coder finishes, reply to the remembered origin message ID.
+			flags := al.sessions.GetFlags(msg.SessionKey)
+			if flags.PendingOriginReply && flags.OriginMessageID != "" {
+				outbound.Metadata = map[string]string{
+					"origin_message_id": flags.OriginMessageID,
+					"origin_route":      flags.OriginRoute,
+					"reply_mode":        "origin",
+				}
+				flags.PendingOriginReply = false
+				al.sessions.SetFlags(msg.SessionKey, flags)
+				_ = al.sessions.Save(msg.SessionKey)
+			}
+			al.bus.PublishOutbound(outbound)
 				}
 			}
 		}
@@ -308,6 +311,15 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			"error_reason":          decision.ErrorReason,
 		})
 	flags.LocalOnly = decision.LocalOnly
+	// Special handling: remember origin message ID for Worker/Coder completion reply.
+	if msg.Channel == "line" {
+		originMessageID := strings.TrimSpace(msg.Metadata["message_id"])
+		if originMessageID != "" && strings.ToUpper(strings.TrimSpace(decision.Route)) != RouteChat {
+			flags.OriginMessageID = originMessageID
+			flags.OriginRoute = decision.Route
+			flags.PendingOriginReply = true
+		}
+	}
 	if decision.DirectResponse != "" {
 		al.sessions.SetFlags(msg.SessionKey, flags)
 		al.sessions.Save(msg.SessionKey)
@@ -325,6 +337,13 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	}
 	defer restoreRouteLLM()
 
+	// Keep chat conversations naturally continuous.
+	// CHAT route should prefer full per-user history over aggressive auto-summarization.
+	enableSummary := true
+	if strings.EqualFold(strings.TrimSpace(decision.Route), RouteChat) {
+		enableSummary = false
+	}
+
 	response, err := al.runAgentLoop(ctx, processOptions{
 		SessionKey:      msg.SessionKey,
 		Channel:         msg.Channel,
@@ -332,7 +351,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		UserMessage:     userMessage,
 		Media:           msg.Media,
 		DefaultResponse: "I've completed processing but have no response to give.",
-		EnableSummary:   true,
+		EnableSummary:   enableSummary,
 		SendResponse:    false,
 		Route:           decision.Route,
 		LocalOnly:       decision.LocalOnly,
@@ -572,6 +591,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		opts.Media,
 		opts.Channel,
 		opts.ChatID,
+		opts.Route,
 	)
 
 	// 3. Save user message to session
@@ -723,6 +743,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					nil,
 					opts.Channel,
 					opts.ChatID,
+					opts.Route,
 				)
 
 				// Important: If we are in the middle of a tool loop (iteration > 1),
@@ -786,6 +807,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					nil,
 					opts.Channel,
 					opts.ChatID,
+					opts.Route,
 				)
 
 				continue

@@ -49,6 +49,7 @@ type LINEChannel struct {
 	botDisplayName string   // Bot's display name for text-based mention detection
 	replyTokens    sync.Map // chatID -> replyTokenEntry
 	quoteTokens    sync.Map // chatID -> quoteToken (string)
+	originQuotes   sync.Map // "chatID|messageID" -> replyTokenEntry
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
@@ -303,6 +304,12 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 	// Store quote token for quoting the original message in reply
 	if msg.QuoteToken != "" {
 		c.quoteTokens.Store(chatID, msg.QuoteToken)
+		if msg.ID != "" {
+			c.originQuotes.Store(c.originQuoteKey(chatID, msg.ID), replyTokenEntry{
+				token:     msg.QuoteToken,
+				timestamp: time.Now(),
+			})
+		}
 	}
 
 	var content string
@@ -479,36 +486,52 @@ func (c *LINEChannel) resolveChatID(source lineSource) string {
 	}
 }
 
-// Send sends a message to LINE. It first tries the Reply API (free)
-// using a cached reply token, then falls back to the Push API.
+// Send sends a message to LINE using Push API only.
+// This avoids "reply" style responses and always emits a normal outbound message.
 func (c *LINEChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if !c.IsRunning() {
 		return fmt.Errorf("line channel not running")
 	}
 
-	// Load and consume quote token for this chat
-	var quoteToken string
-	if qt, ok := c.quoteTokens.LoadAndDelete(msg.ChatID); ok {
-		quoteToken = qt.(string)
-	}
-
-	// Try reply token first (free, valid for ~25 seconds)
-	if entry, ok := c.replyTokens.LoadAndDelete(msg.ChatID); ok {
-		tokenEntry := entry.(replyTokenEntry)
-		if time.Since(tokenEntry.timestamp) < lineReplyTokenMaxAge {
-			if err := c.sendReply(ctx, tokenEntry.token, msg.Content, quoteToken); err == nil {
-				logger.DebugCF("line", "Message sent via Reply API", map[string]interface{}{
-					"chat_id": msg.ChatID,
-					"quoted":  quoteToken != "",
+	quoteToken := ""
+	if msg.Metadata != nil {
+		if originMessageID := strings.TrimSpace(msg.Metadata["origin_message_id"]); originMessageID != "" {
+			quoteToken = c.takeOriginQuoteToken(msg.ChatID, originMessageID)
+			if quoteToken == "" {
+				logger.DebugCF("line", "Origin quote token not found, sending normal push", map[string]interface{}{
+					"chat_id":           msg.ChatID,
+					"origin_message_id": originMessageID,
 				})
-				return nil
 			}
-			logger.DebugC("line", "Reply API failed, falling back to Push API")
 		}
 	}
 
-	// Fall back to Push API
+	// Consume and drop cached per-chat tokens. Push-only mode doesn't use reply tokens.
+	c.quoteTokens.Delete(msg.ChatID)
+	c.replyTokens.Delete(msg.ChatID)
+
 	return c.sendPush(ctx, msg.ChatID, msg.Content, quoteToken)
+}
+
+func (c *LINEChannel) originQuoteKey(chatID, messageID string) string {
+	return chatID + "|" + messageID
+}
+
+func (c *LINEChannel) takeOriginQuoteToken(chatID, messageID string) string {
+	key := c.originQuoteKey(chatID, messageID)
+	raw, ok := c.originQuotes.LoadAndDelete(key)
+	if !ok {
+		return ""
+	}
+	entry, ok := raw.(replyTokenEntry)
+	if !ok {
+		return ""
+	}
+	// Keep a generous window to avoid stale token reuse.
+	if time.Since(entry.timestamp) > 24*time.Hour {
+		return ""
+	}
+	return entry.token
 }
 
 // buildTextMessage creates a text message object, optionally with quoteToken.

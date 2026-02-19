@@ -21,8 +21,11 @@ type Session struct {
 }
 
 type SessionFlags struct {
-	LocalOnly        bool   `json:"local_only,omitempty"`
-	PrevPrimaryRoute string `json:"prev_primary_route,omitempty"`
+	LocalOnly          bool   `json:"local_only,omitempty"`
+	PrevPrimaryRoute   string `json:"prev_primary_route,omitempty"`
+	OriginMessageID    string `json:"origin_message_id,omitempty"`
+	OriginRoute        string `json:"origin_route,omitempty"`
+	PendingOriginReply bool   `json:"pending_origin_reply,omitempty"`
 }
 
 type SessionManager struct {

@@ -1,13 +1,16 @@
 package cron
 
 import (
+	"errors"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -326,7 +329,25 @@ func (cs *CronService) loadStore() error {
 		return err
 	}
 
-	return json.Unmarshal(data, cs.store)
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		// Recover from empty/truncated writes by resetting to an empty store.
+		return cs.saveStoreUnsafe()
+	}
+
+	if err := json.Unmarshal(data, cs.store); err != nil {
+		// "unexpected end of JSON input" appears as EOF or syntax error depending on state.
+		if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "unexpected end of JSON input") {
+			log.Printf("[cron] corrupted store detected, auto-repairing: %v", err)
+			cs.store = &CronStore{
+				Version: 1,
+				Jobs:    []CronJob{},
+			}
+			return cs.saveStoreUnsafe()
+		}
+		return err
+	}
+	return nil
 }
 
 func (cs *CronService) saveStoreUnsafe() error {
