@@ -144,12 +144,15 @@
     },
     "fallback_route": "CHAT",
     "llm": {
+      "chat_alias": "Kuro",
       "chat_provider": "ollama",
       "chat_model": "ollama/kuro-v1:latest",
+      "worker_alias": "Shiro",
       "worker_provider": "ollama",
       "worker_model": "ollama/worker-v1:latest",
-      "code_provider": "deepseek",
-      "code_model": "deepseek-chat"
+      "coder_alias": "Aka",
+      "coder_provider": "deepseek",
+      "coder_model": "deepseek-chat"
     }
   },
   "loop": {

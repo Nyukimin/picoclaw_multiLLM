@@ -242,12 +242,18 @@ type RoutingClassifierConfig struct {
 }
 
 type RouteLLMConfig struct {
+	ChatAlias      string `json:"chat_alias" env:"PICOCLAW_ROUTING_LLM_CHAT_ALIAS"`
 	ChatProvider   string `json:"chat_provider" env:"PICOCLAW_ROUTING_LLM_CHAT_PROVIDER"`
 	ChatModel      string `json:"chat_model" env:"PICOCLAW_ROUTING_LLM_CHAT_MODEL"`
+	WorkerAlias    string `json:"worker_alias" env:"PICOCLAW_ROUTING_LLM_WORKER_ALIAS"`
 	WorkerProvider string `json:"worker_provider" env:"PICOCLAW_ROUTING_LLM_WORKER_PROVIDER"`
 	WorkerModel    string `json:"worker_model" env:"PICOCLAW_ROUTING_LLM_WORKER_MODEL"`
-	CodeProvider   string `json:"code_provider" env:"PICOCLAW_ROUTING_LLM_CODE_PROVIDER"`
-	CodeModel      string `json:"code_model" env:"PICOCLAW_ROUTING_LLM_CODE_MODEL"`
+	CoderAlias     string `json:"coder_alias" env:"PICOCLAW_ROUTING_LLM_CODER_ALIAS"`
+	CoderProvider  string `json:"coder_provider" env:"PICOCLAW_ROUTING_LLM_CODER_PROVIDER"`
+	CoderModel     string `json:"coder_model" env:"PICOCLAW_ROUTING_LLM_CODER_MODEL"`
+	// Legacy keys kept for backward compatibility.
+	CodeProvider string `json:"code_provider,omitempty" env:"PICOCLAW_ROUTING_LLM_CODE_PROVIDER"`
+	CodeModel    string `json:"code_model,omitempty" env:"PICOCLAW_ROUTING_LLM_CODE_MODEL"`
 }
 
 type LoopConfig struct {
@@ -380,6 +386,17 @@ func DefaultConfig() *Config {
 				MinConfidenceForCode: 0.8,
 			},
 			FallbackRoute: "CHAT",
+			LLM: RouteLLMConfig{
+				ChatAlias:      "Kuro",
+				WorkerAlias:    "Shiro",
+				CoderAlias:     "Aka",
+				ChatProvider:   "",
+				ChatModel:      "",
+				WorkerProvider: "",
+				WorkerModel:    "",
+				CoderProvider:  "",
+				CoderModel:     "",
+			},
 		},
 		Loop: LoopConfig{
 			MaxLoops:                    3,

@@ -744,12 +744,15 @@ func TestResolveRouteLLM_AllRoutes(t *testing.T) {
 			},
 			Routing: config.RoutingConfig{
 				LLM: config.RouteLLMConfig{
+					ChatAlias:      "Kuro",
 					ChatProvider:   "ollama",
 					ChatModel:      "ollama/kuro-v1:latest",
+					WorkerAlias:    "Shiro",
 					WorkerProvider: "ollama",
 					WorkerModel:    "ollama/worker-v1:latest",
-					CodeProvider:   "deepseek",
-					CodeModel:      "deepseek-chat",
+					CoderAlias:     "Aka",
+					CoderProvider:  "deepseek",
+					CoderModel:     "deepseek-chat",
 				},
 			},
 		},
@@ -818,5 +821,29 @@ func TestResolveRouteLLM_FallbacksToDefaults(t *testing.T) {
 	provider, model := al.resolveRouteLLM(RouteCode)
 	if provider != "ollama" || model != "ollama/default:latest" {
 		t.Fatalf("default fallback got (%s, %s), want (%s, %s)", provider, model, "ollama", "ollama/default:latest")
+	}
+}
+
+func TestResolveRouteLLM_CodeLegacyKeysAreSupported(t *testing.T) {
+	al := &AgentLoop{
+		cfg: &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{
+					Provider: "ollama",
+					Model:    "ollama/default:latest",
+				},
+			},
+			Routing: config.RoutingConfig{
+				LLM: config.RouteLLMConfig{
+					CodeProvider: "deepseek",
+					CodeModel:    "deepseek-chat",
+				},
+			},
+		},
+	}
+
+	provider, model := al.resolveRouteLLM(RouteCode)
+	if provider != "deepseek" || model != "deepseek-chat" {
+		t.Fatalf("legacy code_* fallback got (%s, %s), want (%s, %s)", provider, model, "deepseek", "deepseek-chat")
 	}
 }

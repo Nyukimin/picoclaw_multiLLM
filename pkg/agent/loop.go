@@ -369,6 +369,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 }
 
 func (al *AgentLoop) applyRouteLLM(route string) (func(), error) {
+	role, alias := al.resolveRouteRoleAlias(route)
 	targetProvider, targetModel := al.resolveRouteLLM(route)
 	if targetModel == "" {
 		targetModel = al.model
@@ -399,6 +400,8 @@ func (al *AgentLoop) applyRouteLLM(route string) (func(), error) {
 
 	logger.InfoCF("agent", "route.llm.selected", map[string]interface{}{
 		"route":    route,
+		"role":     role,
+		"alias":    alias,
 		"provider": targetProvider,
 		"model":    targetModel,
 	})
@@ -430,7 +433,15 @@ func (al *AgentLoop) resolveRouteLLM(route string) (string, string) {
 
 	switch strings.ToUpper(strings.TrimSpace(route)) {
 	case RouteCode:
-		return chooseProvider(defaultProvider, llmCfg.CodeProvider), chooseModel(defaultModel, llmCfg.CodeModel)
+		coderProvider := llmCfg.CoderProvider
+		coderModel := llmCfg.CoderModel
+		if strings.TrimSpace(coderProvider) == "" {
+			coderProvider = llmCfg.CodeProvider
+		}
+		if strings.TrimSpace(coderModel) == "" {
+			coderModel = llmCfg.CodeModel
+		}
+		return chooseProvider(defaultProvider, coderProvider), chooseModel(defaultModel, coderModel)
 	case RouteChat:
 		return chooseProvider(defaultProvider, llmCfg.ChatProvider), chooseModel(defaultModel, llmCfg.ChatModel)
 	default:
@@ -444,6 +455,30 @@ func (al *AgentLoop) resolveRouteLLM(route string) (string, string) {
 			workerModel = chooseModel(workerModel, llmCfg.ChatModel)
 		}
 		return workerProvider, workerModel
+	}
+}
+
+func (al *AgentLoop) resolveRouteRoleAlias(route string) (string, string) {
+	llmCfg := al.cfg.Routing.LLM
+	switch strings.ToUpper(strings.TrimSpace(route)) {
+	case RouteCode:
+		alias := strings.TrimSpace(llmCfg.CoderAlias)
+		if alias == "" {
+			alias = "Coder"
+		}
+		return "Coder", alias
+	case RouteChat:
+		alias := strings.TrimSpace(llmCfg.ChatAlias)
+		if alias == "" {
+			alias = "Chat"
+		}
+		return "Chat", alias
+	default:
+		alias := strings.TrimSpace(llmCfg.WorkerAlias)
+		if alias == "" {
+			alias = "Worker"
+		}
+		return "Worker", alias
 	}
 }
 

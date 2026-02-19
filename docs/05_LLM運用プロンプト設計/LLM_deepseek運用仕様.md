@@ -1,6 +1,6 @@
 # DeepSeek キャッシュ設計 仕様（Coding LLM向け）
 
-この文書は、れんさんの3モデル構成（会話用 Kuro／非コーディング Worker／コーディング用 LLM）において、DeepSeekのKVキャッシュ（Prefix cache）を最大限に効かせて **コストを下げつつ安定運用するための仕様** をMarkdownで固定する。
+この文書は、3レイヤー構成（Chat／Worker／Coder）において、DeepSeekのKVキャッシュ（Prefix cache）を最大限に効かせて **コストを下げつつ安定運用するための仕様** をMarkdownで固定する。
 
 ---
 
@@ -8,7 +8,7 @@
 
 - DeepSeek APIの **cache hit** を増やし、入力トークン単価を下げる。
 - 「同じリポジトリを反復して改修する」運用で、**毎回の巨大な文脈送信を“固定prefix化”**し、末尾に差分だけを載せる。
-- 役割分担（Kuro／Worker／Coding LLM）を崩さず、**ルーティングとI/O（JSON/Markdown）を安定**させる。
+- 役割分担（Chat／Worker／Coder）を崩さず、**ルーティングとI/O（JSON/Markdown）を安定**させる。
 
 ---
 
@@ -49,9 +49,10 @@ Coding LLM（DeepSeek）へ渡す入力は、必ず次の2層で構成する。
 
 ---
 
-## 3. ルーティング仕様（Kuro／Worker／Coding LLM）
+## 3. ルーティング仕様（Chat／Worker／Coder）
 
-### 3.1 Kuro（会話・最終整形）
+### 3.1 Chat（会話・最終整形）
+- 愛称（例：Kuro）は設定で差し替え可能
 - ユーザーとの対話窓口
 - Worker/Codingの結果を受け取り、ユーザー向けに整形
 - 原則として **コード生成をしない**（やるなら軽微な整形のみ）
@@ -62,7 +63,7 @@ Coding LLM（DeepSeek）へ渡す入力は、必ず次の2層で構成する。
 - Coding LLMに渡す **可変サフィックス（TASK等）だけ**を生成する
 - 固定prefixの生成・更新は担当しない（後述のスナップショット更新フローに従う）
 
-### 3.3 Coding LLM（DeepSeek）
+### 3.3 Coder（DeepSeek）
 - 実装・diff作成・テスト手順提示
 - 入力は必ず「固定prefix + 可変サフィックス」
 - 出力は「git diff + 実行コマンド + 注意点」を優先
