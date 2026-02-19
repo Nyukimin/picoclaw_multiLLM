@@ -320,6 +320,21 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			flags.PendingOriginReply = true
 		}
 	}
+
+	// Notify user when Kuro delegates work to Worker/Coder (or other non-chat routes).
+	// This is sent before execution so users know delegation has started.
+	if strings.ToUpper(strings.TrimSpace(decision.Route)) != RouteChat && !constants.IsInternalChannel(msg.Channel) {
+		role, alias := al.resolveRouteRoleAlias(decision.Route)
+		display := role
+		if alias != "" && !strings.EqualFold(alias, role) {
+			display = fmt.Sprintf("%s（%s）", role, alias)
+		}
+		al.bus.PublishOutbound(bus.OutboundMessage{
+			Channel: msg.Channel,
+			ChatID:  msg.ChatID,
+			Content: fmt.Sprintf("Kuroから%sに作業依頼して進めるね。完了したら報告するよ。", display),
+		})
+	}
 	if decision.DirectResponse != "" {
 		al.sessions.SetFlags(msg.SessionKey, flags)
 		al.sessions.Save(msg.SessionKey)
