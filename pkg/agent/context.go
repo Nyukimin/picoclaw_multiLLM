@@ -207,12 +207,90 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 
 	messages = append(messages, history...)
 
+	userContent := cb.buildUserContentWithMedia(currentMessage, media)
+
 	messages = append(messages, providers.Message{
 		Role:    "user",
-		Content: currentMessage,
+		Content: userContent,
 	})
 
 	return messages
+}
+
+func (cb *ContextBuilder) buildUserContentWithMedia(currentMessage string, media []string) string {
+	if len(media) == 0 {
+		return currentMessage
+	}
+
+	var b strings.Builder
+	b.WriteString(currentMessage)
+	b.WriteString("\n\n[ATTACHMENTS]\n")
+	for i, m := range media {
+		path := strings.TrimSpace(m)
+		if path == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("- #%d %s\n", i+1, path))
+		if excerpt := buildAttachmentExcerpt(path); excerpt != "" {
+			b.WriteString(excerpt)
+			if !strings.HasSuffix(excerpt, "\n") {
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+func buildAttachmentExcerpt(path string) string {
+	lower := strings.ToLower(path)
+	ext := filepath.Ext(lower)
+	textExts := map[string]bool{
+		".md":   true,
+		".txt":  true,
+		".json": true,
+		".yaml": true,
+		".yml":  true,
+		".csv":  true,
+		".go":   true,
+		".py":   true,
+		".ts":   true,
+		".tsx":  true,
+		".js":   true,
+		".jsx":  true,
+	}
+	imageExts := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".gif":  true,
+		".webp": true,
+	}
+
+	if imageExts[ext] {
+		return "  [type=image]\n"
+	}
+	if !textExts[ext] {
+		return ""
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	const maxChars = 12000
+	content := string(data)
+	if len(content) > maxChars {
+		content = content[:maxChars] + "\n... (truncated)"
+	}
+	return "  [excerpt]\n" + indentLines(content, "    ") + "\n"
+}
+
+func indentLines(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (cb *ContextBuilder) AddToolResult(messages []providers.Message, toolCallID, toolName, result string) []providers.Message {
