@@ -302,6 +302,17 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 
 	flags := al.sessions.GetFlags(msg.SessionKey)
 	decision := al.router.Decide(ctx, msg.Content, flags)
+	// LINE channel is chat-only by product rule.
+	// Force CHAT route regardless of classifier/rules output.
+	if msg.Channel == "line" && strings.ToUpper(strings.TrimSpace(decision.Route)) != RouteChat {
+		decision.Route = RouteChat
+		decision.Source = "line_forced_chat"
+		decision.Confidence = 1.0
+		decision.Reason = "line channel is chat-only"
+		decision.Evidence = []string{"channel=line"}
+		decision.Declaration = ""
+		decision.ErrorReason = ""
+	}
 	logger.InfoCF("agent", "mvp.routing",
 		map[string]interface{}{
 			"session_key":           msg.SessionKey,
