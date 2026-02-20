@@ -75,6 +75,30 @@ func TestDefaultConfig_Gateway(t *testing.T) {
 	}
 }
 
+// TestDefaultConfig_Watchdog verifies watchdog defaults
+func TestDefaultConfig_Watchdog(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Watchdog.Enabled {
+		t.Error("Watchdog should be disabled by default")
+	}
+	if cfg.Watchdog.IntervalSec != 60 {
+		t.Errorf("Expected watchdog interval 60, got %d", cfg.Watchdog.IntervalSec)
+	}
+	if cfg.Watchdog.GatewayService == "" {
+		t.Error("Watchdog gateway service should not be empty")
+	}
+	if cfg.Watchdog.RestartMaxCount != 3 {
+		t.Errorf("Expected restart max count 3, got %d", cfg.Watchdog.RestartMaxCount)
+	}
+	if cfg.Watchdog.KickEnabled {
+		t.Error("Watchdog kick should be disabled by default")
+	}
+	if cfg.Watchdog.KickToken != "" {
+		t.Error("Watchdog kick token should be empty by default")
+	}
+}
+
 // TestDefaultConfig_Providers verifies provider structure
 func TestDefaultConfig_Providers(t *testing.T) {
 	cfg := DefaultConfig()

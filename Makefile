@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test
+.PHONY: all build install uninstall clean help test install-watchdog enable-watchdog disable-watchdog watchdog-status watchdog-run-once test-watchdog-mock watchdog-kick
 
 # Build variables
 BINARY_NAME=picoclaw
@@ -27,6 +27,14 @@ PICOCLAW_HOME?=$(HOME)/.picoclaw
 WORKSPACE_DIR?=$(PICOCLAW_HOME)/workspace
 WORKSPACE_SKILLS_DIR=$(WORKSPACE_DIR)/skills
 BUILTIN_SKILLS_DIR=$(CURDIR)/skills
+SYSTEMD_USER_DIR=$(HOME)/.config/systemd/user
+PICOCLAW_SHARE_DIR=$(INSTALL_PREFIX)/share/picoclaw
+WATCHDOG_SCRIPT_SRC=$(CURDIR)/scripts/ops_watchdog.sh
+WATCHDOG_SCRIPT_DST=$(PICOCLAW_SHARE_DIR)/scripts/ops_watchdog.sh
+WATCHDOG_KICK_SCRIPT_SRC=$(CURDIR)/scripts/ops_watchdog_kick.sh
+WATCHDOG_KICK_SCRIPT_DST=$(PICOCLAW_SHARE_DIR)/scripts/ops_watchdog_kick.sh
+WATCHDOG_SERVICE_SRC=$(CURDIR)/systemd/user/picoclaw-watchdog.service
+WATCHDOG_TIMER_SRC=$(CURDIR)/systemd/user/picoclaw-watchdog.timer
 
 # OS detection
 UNAME_S:=$(shell uname -s)
@@ -97,6 +105,51 @@ install: build
 	@chmod +x $(INSTALL_BIN_DIR)/$(BINARY_NAME)
 	@echo "Installed binary to $(INSTALL_BIN_DIR)/$(BINARY_NAME)"
 	@echo "Installation complete!"
+	@echo "Tip: run 'make install-watchdog enable-watchdog' to enable ops watchdog."
+
+## install-watchdog: Install watchdog script and systemd --user units
+install-watchdog:
+	@echo "Installing watchdog script and systemd units..."
+	@mkdir -p $(PICOCLAW_SHARE_DIR)/scripts
+	@mkdir -p $(SYSTEMD_USER_DIR)
+	@cp $(WATCHDOG_SCRIPT_SRC) $(WATCHDOG_SCRIPT_DST)
+	@chmod +x $(WATCHDOG_SCRIPT_DST)
+	@cp $(WATCHDOG_KICK_SCRIPT_SRC) $(WATCHDOG_KICK_SCRIPT_DST)
+	@chmod +x $(WATCHDOG_KICK_SCRIPT_DST)
+	@sed 's#%h/.local/share/picoclaw/scripts/ops_watchdog.sh#$(WATCHDOG_SCRIPT_DST)#g' $(WATCHDOG_SERVICE_SRC) > $(SYSTEMD_USER_DIR)/picoclaw-watchdog.service
+	@cp $(WATCHDOG_TIMER_SRC) $(SYSTEMD_USER_DIR)/picoclaw-watchdog.timer
+	@systemctl --user daemon-reload
+	@echo "Installed: $(WATCHDOG_SCRIPT_DST)"
+	@echo "Installed: $(SYSTEMD_USER_DIR)/picoclaw-watchdog.service"
+	@echo "Installed: $(SYSTEMD_USER_DIR)/picoclaw-watchdog.timer"
+
+## enable-watchdog: Enable and start watchdog timer
+enable-watchdog:
+	@systemctl --user daemon-reload
+	@systemctl --user enable --now picoclaw-watchdog.timer
+	@echo "watchdog timer enabled."
+
+## disable-watchdog: Disable and stop watchdog timer
+disable-watchdog:
+	@systemctl --user disable --now picoclaw-watchdog.timer || true
+	@echo "watchdog timer disabled."
+
+## watchdog-status: Show watchdog timer/service status
+watchdog-status:
+	@systemctl --user status picoclaw-watchdog.timer --no-pager || true
+	@systemctl --user status picoclaw-watchdog.service --no-pager || true
+
+## watchdog-run-once: Run watchdog script one time
+watchdog-run-once:
+	@bash "$(WATCHDOG_SCRIPT_DST)" once
+
+## test-watchdog-mock: Run mock-based watchdog regression tests
+test-watchdog-mock:
+	@bash scripts/tests/watchdog_mock_test.sh
+
+## watchdog-kick: Queue manual watchdog action (ACTION=restart_gateway|recover_funnel|check_ollama SOURCE=line TOKEN=...)
+watchdog-kick:
+	@bash "$(WATCHDOG_KICK_SCRIPT_DST)" "$(ACTION)" "$(SOURCE)" "$(TOKEN)"
 
 ## uninstall: Remove picoclaw from system
 uninstall:

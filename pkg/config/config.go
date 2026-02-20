@@ -48,6 +48,7 @@ type Config struct {
 	Channels  ChannelsConfig  `json:"channels"`
 	Providers ProvidersConfig `json:"providers"`
 	Gateway   GatewayConfig   `json:"gateway"`
+	Watchdog  WatchdogConfig  `json:"watchdog"`
 	Tools     ToolsConfig     `json:"tools"`
 	Routing   RoutingConfig   `json:"routing"`
 	Loop      LoopConfig      `json:"loop"`
@@ -195,6 +196,28 @@ type ProviderConfig struct {
 type GatewayConfig struct {
 	Host string `json:"host" env:"PICOCLAW_GATEWAY_HOST"`
 	Port int    `json:"port" env:"PICOCLAW_GATEWAY_PORT"`
+}
+
+type WatchdogConfig struct {
+	Enabled            bool   `json:"enabled" env:"PICOCLAW_WATCHDOG_ENABLED"`
+	IntervalSec        int    `json:"interval_sec" env:"PICOCLAW_WATCHDOG_INTERVAL_SEC"`
+	GatewayService     string `json:"gateway_service" env:"PICOCLAW_WATCHDOG_GATEWAY_SERVICE"`
+	GatewayPort        int    `json:"gateway_port" env:"PICOCLAW_WATCHDOG_GATEWAY_PORT"`
+	LINEWebhookPort    int    `json:"line_webhook_port" env:"PICOCLAW_WATCHDOG_LINE_WEBHOOK_PORT"`
+	HealthURL          string `json:"health_url" env:"PICOCLAW_WATCHDOG_HEALTH_URL"`
+	ReadyURL           string `json:"ready_url" env:"PICOCLAW_WATCHDOG_READY_URL"`
+	WebhookURL         string `json:"webhook_url" env:"PICOCLAW_WATCHDOG_WEBHOOK_URL"`
+	OllamaModelsURL    string `json:"ollama_models_url" env:"PICOCLAW_WATCHDOG_OLLAMA_MODELS_URL"`
+	RestartWindowSec   int    `json:"restart_window_sec" env:"PICOCLAW_WATCHDOG_RESTART_WINDOW_SEC"`
+	RestartMaxCount    int    `json:"restart_max_count" env:"PICOCLAW_WATCHDOG_RESTART_MAX_COUNT"`
+	LocalTimeoutSec    int    `json:"local_timeout_sec" env:"PICOCLAW_WATCHDOG_LOCAL_TIMEOUT_SEC"`
+	ExternalTimeoutSec int    `json:"external_timeout_sec" env:"PICOCLAW_WATCHDOG_EXTERNAL_TIMEOUT_SEC"`
+	AlertCooldownSec   int    `json:"alert_cooldown_sec" env:"PICOCLAW_WATCHDOG_ALERT_COOLDOWN_SEC"`
+	LineNotifyEnabled  bool   `json:"line_notify_enabled" env:"PICOCLAW_WATCHDOG_LINE_NOTIFY_ENABLED"`
+	LineNotifyTo       string `json:"line_notify_to" env:"PICOCLAW_WATCHDOG_LINE_NOTIFY_TO"`
+	KickEnabled        bool   `json:"kick_enabled" env:"PICOCLAW_WATCHDOG_KICK_ENABLED"`
+	KickToken          string `json:"kick_token" env:"PICOCLAW_WATCHDOG_KICK_TOKEN"`
+	KickFile           string `json:"kick_file" env:"PICOCLAW_WATCHDOG_KICK_FILE"`
 }
 
 type BraveConfig struct {
@@ -357,6 +380,27 @@ func DefaultConfig() *Config {
 		Gateway: GatewayConfig{
 			Host: "0.0.0.0",
 			Port: 18790,
+		},
+		Watchdog: WatchdogConfig{
+			Enabled:            false,
+			IntervalSec:        60,
+			GatewayService:     "picoclaw-gateway.service",
+			GatewayPort:        18790,
+			LINEWebhookPort:    18791,
+			HealthURL:          "http://127.0.0.1:18790/health",
+			ReadyURL:           "http://127.0.0.1:18790/ready",
+			WebhookURL:         "https://fujitsu-ubunts.tailb07d8d.ts.net/webhook/line",
+			OllamaModelsURL:    "http://100.83.207.6:11434/v1/models",
+			RestartWindowSec:   600,
+			RestartMaxCount:    3,
+			LocalTimeoutSec:    3,
+			ExternalTimeoutSec: 5,
+			AlertCooldownSec:   900,
+			LineNotifyEnabled:  false,
+			LineNotifyTo:       "",
+			KickEnabled:        false,
+			KickToken:          "",
+			KickFile:           "~/.picoclaw/state/watchdog/kick_request",
 		},
 		Tools: ToolsConfig{
 			Web: WebToolsConfig{
