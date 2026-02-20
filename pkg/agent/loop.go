@@ -70,6 +70,11 @@ type processOptions struct {
 	MaxMillis       int    // Max processing time for this turn
 }
 
+type chatDelegateDirective struct {
+	Route string
+	Task  string
+}
+
 // createToolRegistry creates a tool registry with common tools.
 // This is shared between main agent and subagents.
 func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msgBus *bus.MessageBus) *tools.ToolRegistry {
@@ -385,6 +390,34 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		MaxLoops:        al.loopMaxLoops,
 		MaxMillis:       al.loopMaxMillis,
 	})
+	if err == nil && strings.EqualFold(strings.TrimSpace(decision.Route), RouteChat) {
+		if directive, ok := parseChatDelegateDirective(response); ok {
+			if !constants.IsInternalChannel(msg.Channel) {
+				role, alias := al.resolveRouteRoleAlias(directive.Route)
+				display := role
+				if alias != "" && !strings.EqualFold(alias, role) {
+					display = fmt.Sprintf("%s（%s）", role, alias)
+				}
+				al.bus.PublishOutbound(bus.OutboundMessage{
+					Channel: msg.Channel,
+					ChatID:  msg.ChatID,
+					Content: fmt.Sprintf("Kuroが%sへ依頼して進めるね。完了したらまとめて返すよ。", display),
+				})
+			}
+
+			delegateResult, delegateErr := al.executeChatDelegation(ctx, msg, directive, decision.LocalOnly)
+			if delegateErr != nil {
+				err = delegateErr
+			} else {
+				finalResponse, finalizeErr := al.finalizeDelegationWithKuro(ctx, msg, directive, delegateResult)
+				if finalizeErr != nil {
+					err = finalizeErr
+				} else {
+					response = finalResponse
+				}
+			}
+		}
+	}
 	if err != nil {
 		stopReason := "error"
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -411,6 +444,131 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			"error_reason":          decision.ErrorReason,
 		})
 	return response, err
+}
+
+func parseChatDelegateDirective(content string) (chatDelegateDirective, bool) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return chatDelegateDirective{}, false
+	}
+	lines := strings.Split(trimmed, "\n")
+
+	firstIdx := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			firstIdx = i
+			break
+		}
+	}
+	if firstIdx < 0 {
+		return chatDelegateDirective{}, false
+	}
+
+	firstLine := strings.TrimSpace(lines[firstIdx])
+	upperFirst := strings.ToUpper(firstLine)
+	if !strings.HasPrefix(upperFirst, "DELEGATE:") {
+		return chatDelegateDirective{}, false
+	}
+	routeRaw := strings.TrimSpace(firstLine[len("DELEGATE:"):])
+	route := strings.ToUpper(routeRaw)
+	switch route {
+	case RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode:
+	default:
+		return chatDelegateDirective{}, false
+	}
+
+	taskStart := -1
+	taskLineValue := ""
+	for i := firstIdx + 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(strings.ToUpper(line), "TASK:") {
+			taskStart = i
+			taskLineValue = strings.TrimSpace(line[len("TASK:"):])
+			break
+		}
+	}
+	if taskStart < 0 {
+		return chatDelegateDirective{}, false
+	}
+
+	task := taskLineValue
+	if taskStart+1 < len(lines) {
+		rest := strings.TrimSpace(strings.Join(lines[taskStart+1:], "\n"))
+		if rest != "" {
+			if task != "" {
+				task += "\n"
+			}
+			task += rest
+		}
+	}
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return chatDelegateDirective{}, false
+	}
+
+	return chatDelegateDirective{
+		Route: route,
+		Task:  task,
+	}, true
+}
+
+func (al *AgentLoop) executeChatDelegation(ctx context.Context, msg bus.InboundMessage, directive chatDelegateDirective, localOnly bool) (string, error) {
+	restoreRouteLLM, err := al.applyRouteLLM(directive.Route)
+	if err != nil {
+		return "", fmt.Errorf("failed to switch LLM for delegated route %s: %w", directive.Route, err)
+	}
+	defer restoreRouteLLM()
+
+	delegateSessionKey := fmt.Sprintf("%s:delegate:%d", msg.SessionKey, time.Now().UnixNano())
+	return al.runAgentLoop(ctx, processOptions{
+		SessionKey:      delegateSessionKey,
+		Channel:         msg.Channel,
+		ChatID:          msg.ChatID,
+		UserMessage:     directive.Task,
+		DefaultResponse: "作業は完了したけど、結果を返せなかったよ。",
+		EnableSummary:   true,
+		SendResponse:    false,
+		NoHistory:       true,
+		Route:           directive.Route,
+		LocalOnly:       localOnly,
+		MaxLoops:        al.loopMaxLoops,
+		MaxMillis:       al.loopMaxMillis,
+	})
+}
+
+func (al *AgentLoop) finalizeDelegationWithKuro(ctx context.Context, msg bus.InboundMessage, directive chatDelegateDirective, delegateResult string) (string, error) {
+	restoreRouteLLM, err := al.applyRouteLLM(RouteChat)
+	if err != nil {
+		return "", fmt.Errorf("failed to switch back to chat LLM: %w", err)
+	}
+	defer restoreRouteLLM()
+
+	finalPrompt := fmt.Sprintf(
+		"[DELEGATION_RESULT]\nRoute: %s\nTask:\n%s\n\nResult:\n%s\n\nこの結果を踏まえてユーザー向け最終回答を返して。ここでは DELEGATE 形式を絶対に出力せず、最終回答のみ返すこと。",
+		directive.Route,
+		directive.Task,
+		delegateResult,
+	)
+
+	finalResponse, err := al.runAgentLoop(ctx, processOptions{
+		SessionKey:      msg.SessionKey,
+		Channel:         msg.Channel,
+		ChatID:          msg.ChatID,
+		UserMessage:     finalPrompt,
+		DefaultResponse: delegateResult,
+		EnableSummary:   false,
+		SendResponse:    false,
+		Route:           RouteChat,
+		MaxLoops:        al.loopMaxLoops,
+		MaxMillis:       al.loopMaxMillis,
+	})
+	if err != nil {
+		return "", err
+	}
+	if _, delegatedAgain := parseChatDelegateDirective(finalResponse); delegatedAgain {
+		return delegateResult, nil
+	}
+	return finalResponse, nil
 }
 
 func (al *AgentLoop) applyRouteLLM(route string) (func(), error) {

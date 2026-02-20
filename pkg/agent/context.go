@@ -97,7 +97,17 @@ Your workspace is at: %s
 ## Chat Persona Priority
 - For CHAT route, strictly follow CHAT_PERSONA.md.
 - The chat alias is Kuro. Prefer the persona's voice, relationship, and calling style over generic assistant tone.
-- Do not answer with generic "helpdesk/tool list" self-description unless the user explicitly asks for system internals.`
+- Do not answer with generic "helpdesk/tool list" self-description unless the user explicitly asks for system internals.
+
+## CHAT Delegation Protocol
+- You are the front agent. Decide whether to solve directly or delegate to Worker/Coder.
+- Delegate ONLY when task needs heavy execution, file editing, coding, or longer structured processing.
+- If delegating, output STRICT format:
+  - First line: DELEGATE: PLAN|ANALYZE|OPS|RESEARCH|CODE
+  - Then: TASK:
+  - Then: concrete task instructions for the delegate.
+- If not delegating, respond normally.
+- Never claim delegation happened unless you emitted the strict DELEGATE format.`
 	}
 	return identity
 }
@@ -234,9 +244,44 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	messages = append(messages, providers.Message{
 		Role:    "user",
 		Content: userContent,
+		Media:   buildMediaRefs(media),
 	})
 
 	return messages
+}
+
+func buildMediaRefs(media []string) []providers.MediaRef {
+	if len(media) == 0 {
+		return nil
+	}
+	imageExts := map[string]string{
+		".jpg":  "image/jpeg",
+		".jpeg": "image/jpeg",
+		".png":  "image/png",
+		".gif":  "image/gif",
+		".webp": "image/webp",
+	}
+
+	refs := make([]providers.MediaRef, 0, len(media))
+	for _, item := range media {
+		pathOrURL := strings.TrimSpace(item)
+		if pathOrURL == "" {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(pathOrURL))
+		mimeType, ok := imageExts[ext]
+		if !ok {
+			continue
+		}
+		refs = append(refs, providers.MediaRef{
+			Path:     pathOrURL,
+			MIMEType: mimeType,
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
 }
 
 func (cb *ContextBuilder) buildUserContentWithMedia(currentMessage string, media []string) string {
@@ -260,7 +305,111 @@ func (cb *ContextBuilder) buildUserContentWithMedia(currentMessage string, media
 			}
 		}
 	}
+	if guidance := cb.buildAttachmentGuidance(currentMessage, media); guidance != "" {
+		b.WriteString("\n")
+		b.WriteString(guidance)
+	}
 	return b.String()
+}
+
+func (cb *ContextBuilder) buildAttachmentGuidance(currentMessage string, media []string) string {
+	hasImage, hasDocument := detectAttachmentKinds(media)
+	if !hasImage && !hasDocument {
+		return ""
+	}
+
+	goal := inferAttachmentGoal(currentMessage, hasImage, hasDocument)
+	knowledgeDir := filepath.Join(cb.workspace, "knowledge")
+	dataDir := filepath.Join(cb.workspace, "data", "inbox")
+
+	var b strings.Builder
+	b.WriteString("[ATTACHMENT_POLICY]\n")
+	b.WriteString("- 添付を受け取った直後は、まず内容確認をしてから次のアクションへ進む。\n")
+	if hasDocument {
+		b.WriteString("- 文書の初動: 内容の要点サマリを短く提示する。\n")
+	}
+	if hasImage {
+		b.WriteString("- 画像の初動: 写っている内容を確認・説明する。\n")
+	}
+
+	switch goal {
+	case "doc_prompt":
+		b.WriteString("- 目的: 文書をプロンプトとして利用する。文体・制約・重要語を抽出して、再利用しやすい指示文に整形する。\n")
+	case "knowledge_add":
+		b.WriteString("- 目的: ナレッジ追加。要点を構造化し、")
+		b.WriteString(knowledgeDir)
+		b.WriteString(" 配下に保存する前提で内容を整理する。\n")
+	case "save_data":
+		b.WriteString("- 目的: データ保存。添付内容を ")
+		b.WriteString(dataDir)
+		b.WriteString(" 配下に保存する前提で、保存名と用途を明示する。\n")
+	case "image_analysis":
+		b.WriteString("- 目的: 画像分析。観測事実と推定を分けて説明する。\n")
+	case "image_prompt":
+		b.WriteString("- 目的: 描画用プロンプト化。構図・被写体・色・質感・スタイルを含む生成プロンプトに変換する。\n")
+	default:
+		b.WriteString("- 明示指示が無い場合: 内容確認（文書=要約、画像=確認）まで実施し、次の希望アクションを確認する。\n")
+	}
+
+	return b.String()
+}
+
+func detectAttachmentKinds(media []string) (hasImage bool, hasDocument bool) {
+	imageExts := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".gif":  true,
+		".webp": true,
+	}
+
+	for _, m := range media {
+		path := strings.TrimSpace(m)
+		if path == "" {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if imageExts[ext] {
+			hasImage = true
+			continue
+		}
+		hasDocument = true
+	}
+	return hasImage, hasDocument
+}
+
+func inferAttachmentGoal(message string, hasImage, hasDocument bool) string {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" || strings.HasPrefix(lower, "[file:") || strings.HasPrefix(lower, "[image]") {
+		return "default"
+	}
+
+	hasAny := func(keywords ...string) bool {
+		for _, k := range keywords {
+			if strings.Contains(lower, k) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if hasAny("保存", "保管", "アーカイブ", "dataとして", "データとして", "save") {
+		return "save_data"
+	}
+	if hasAny("ナレッジ", "知識追加", "知見追加", "remember", "knowledge") {
+		return "knowledge_add"
+	}
+	if hasImage && hasAny("描画", "画像生成", "生成プロンプト", "promptにして", "プロンプトにして") {
+		return "image_prompt"
+	}
+	if hasImage && hasAny("分析", "解析", "内容確認", "見て", "describe") {
+		return "image_analysis"
+	}
+	if hasDocument && hasAny("プロンプトとして", "promptとして", "system prompt", "プロンプト化", "テンプレート化") {
+		return "doc_prompt"
+	}
+
+	return "default"
 }
 
 func buildAttachmentExcerpt(path string) string {

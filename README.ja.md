@@ -426,6 +426,8 @@ picoclaw gateway
 
 > グループチャットでは @メンション時のみ応答します。返信は元メッセージを引用する形式です。
 
+> 画像・音声・動画・ファイル（PDF/文書など）は LINE Content API 経由で一時ダウンロードされ、PicoClaw の添付情報として処理されます。
+
 > **Docker Compose**: `picoclaw-gateway` サービスに `ports: ["18791:18791"]` を追加して Webhook ポートを公開してください。
 
 </details>

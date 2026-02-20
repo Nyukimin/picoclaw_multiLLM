@@ -2,8 +2,12 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -70,8 +74,16 @@ func buildClaudeParams(messages []Message, tools []ToolDefinition, model string,
 					anthropic.NewUserMessage(anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, false)),
 				)
 			} else {
+				blocks := []anthropic.ContentBlockParamUnion{}
+				if strings.TrimSpace(msg.Content) != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+				}
+				blocks = append(blocks, buildClaudeImageBlocks(msg.Media)...)
+				if len(blocks) == 0 {
+					blocks = append(blocks, anthropic.NewTextBlock(""))
+				}
 				anthropicMessages = append(anthropicMessages,
-					anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)),
+					anthropic.NewUserMessage(blocks...),
 				)
 			}
 		case "assistant":
@@ -120,6 +132,50 @@ func buildClaudeParams(messages []Message, tools []ToolDefinition, model string,
 	}
 
 	return params, nil
+}
+
+func buildClaudeImageBlocks(media []MediaRef) []anthropic.ContentBlockParamUnion {
+	if len(media) == 0 {
+		return nil
+	}
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(media))
+	for _, m := range media {
+		path := strings.TrimSpace(m.Path)
+		if path == "" || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+			// Claude image block currently uses base64 source here.
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		const maxInlineImageBytes = 5 * 1024 * 1024
+		if len(data) > maxInlineImageBytes {
+			continue
+		}
+		mimeType := normalizeImageMime(m.MIMEType, path)
+		blocks = append(blocks, anthropic.NewImageBlockBase64(mimeType, base64.StdEncoding.EncodeToString(data)))
+	}
+	return blocks
+}
+
+func normalizeImageMime(raw, path string) string {
+	m := strings.TrimSpace(raw)
+	if m != "" {
+		return m
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }
 
 func translateToolsForClaude(tools []ToolDefinition) []anthropic.ToolUnionParam {

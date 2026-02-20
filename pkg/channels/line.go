@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,8 @@ type LINEChannel struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 }
+
+const lineTempFileRetention = 15 * time.Minute
 
 // NewLINEChannel creates a new LINE channel instance.
 func NewLINEChannel(cfg config.LINEConfig, messageBus *bus.MessageBus) (*LINEChannel, error) {
@@ -249,6 +252,7 @@ type lineMessage struct {
 	ID         string `json:"id"`
 	Type       string `json:"type"` // "text", "image", "video", "audio", "file", "sticker"
 	Text       string `json:"text"`
+	FileName   string `json:"fileName"`
 	QuoteToken string `json:"quoteToken"`
 	Mention    *struct {
 		Mentionees []lineMentionee `json:"mentionees"`
@@ -316,17 +320,6 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 	var mediaPaths []string
 	localFiles := []string{}
 
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("line", "Failed to cleanup temp file", map[string]interface{}{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
-
 	switch msg.Type {
 	case "text":
 		content = msg.Text
@@ -339,7 +332,8 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 		if localPath != "" {
 			localFiles = append(localFiles, localPath)
 			mediaPaths = append(mediaPaths, localPath)
-			content = "[image]"
+			// Trigger immediate vision-style response on image-only messages.
+			content = "[image]\nこの画像に何が写っているか、簡潔に説明して。"
 		}
 	case "audio":
 		localPath := c.downloadContent(msg.ID, "audio.m4a")
@@ -356,7 +350,16 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 			content = "[video]"
 		}
 	case "file":
-		content = "[file]"
+		filename := strings.TrimSpace(msg.FileName)
+		if filename == "" {
+			filename = "file.bin"
+		}
+		localPath := c.downloadContent(msg.ID, filename)
+		if localPath != "" {
+			localFiles = append(localFiles, localPath)
+			mediaPaths = append(mediaPaths, localPath)
+		}
+		content = fmt.Sprintf("[file: %s]", filepath.Base(filename))
 	case "sticker":
 		content = "[sticker]"
 	default:
@@ -370,6 +373,7 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 	metadata := map[string]string{
 		"platform":    "line",
 		"source_type": event.Source.Type,
+		"message_type": msg.Type,
 		"message_id":  msg.ID,
 	}
 
@@ -385,6 +389,34 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 	c.sendLoading(senderID)
 
 	c.HandleMessage(senderID, chatID, content, mediaPaths, metadata)
+	c.cleanupTempFilesLater(localFiles)
+}
+
+func (c *LINEChannel) cleanupTempFilesLater(files []string) {
+	if len(files) == 0 {
+		return
+	}
+	toDelete := append([]string(nil), files...)
+	go func() {
+		timer := time.NewTimer(lineTempFileRetention)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			for _, file := range toDelete {
+				if err := os.Remove(file); err != nil {
+					logger.DebugCF("line", "Failed to cleanup temp file", map[string]interface{}{
+						"file":  file,
+						"error": err.Error(),
+					})
+				}
+			}
+		case <-c.ctx.Done():
+			// Best effort: on shutdown, still attempt cleanup.
+			for _, file := range toDelete {
+				_ = os.Remove(file)
+			}
+		}
+	}()
 }
 
 // isBotMentioned checks if the bot is mentioned in the message.

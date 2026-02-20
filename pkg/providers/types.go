@@ -31,8 +31,14 @@ type UsageInfo struct {
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content"`
+	Media      []MediaRef `json:"-"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+type MediaRef struct {
+	Path     string
+	MIMEType string
 }
 
 type LLMProvider interface {

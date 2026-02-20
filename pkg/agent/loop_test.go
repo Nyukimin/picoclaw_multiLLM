@@ -568,6 +568,30 @@ func (m *captureToolsMockProvider) GetDefaultModel() string {
 	return "capture-tools-model"
 }
 
+type stagedMockProvider struct {
+	responses []string
+	calls     int
+	toolsLog  []int
+}
+
+func (m *stagedMockProvider) Chat(ctx context.Context, messages []providers.Message, tools []providers.ToolDefinition, model string, opts map[string]interface{}) (*providers.LLMResponse, error) {
+	m.toolsLog = append(m.toolsLog, len(tools))
+	idx := m.calls
+	m.calls++
+	resp := "ok"
+	if idx < len(m.responses) {
+		resp = m.responses[idx]
+	}
+	return &providers.LLMResponse{
+		Content:   resp,
+		ToolCalls: []providers.ToolCall{},
+	}, nil
+}
+
+func (m *stagedMockProvider) GetDefaultModel() string {
+	return "staged-mock-model"
+}
+
 // TestAgentLoop_ContextExhaustionRetry verify that the agent retries on context errors
 func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test-*")
@@ -684,6 +708,134 @@ func TestRunAgentLoop_ChatRouteDisablesTools(t *testing.T) {
 	}
 	if provider.lastToolsCount != 0 {
 		t.Fatalf("CHAT route should disable tools, got %d", provider.lastToolsCount)
+	}
+}
+
+func TestProcessMessage_ChatDelegatesThenFinalizes(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Provider:          "ollama",
+				Model:             "ollama/kuro-v1:latest",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+		Routing: config.RoutingConfig{
+			Classifier: config.RoutingClassifierConfig{Enabled: false},
+			FallbackRoute: RouteChat,
+			LLM: config.RouteLLMConfig{
+				ChatProvider:   "ollama",
+				ChatModel:      "ollama/kuro-v1:latest",
+				WorkerProvider: "ollama",
+				WorkerModel:    "ollama/kuro-v1:latest",
+				CoderProvider:  "ollama",
+				CoderModel:     "ollama/kuro-v1:latest",
+			},
+		},
+		Loop: config.LoopConfig{
+			MaxLoops:   3,
+			MaxMillis:  5000,
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &stagedMockProvider{
+		responses: []string{
+			"DELEGATE: CODE\nTASK:\n添付内容を保存して結果を返して",
+			"delegated worker result",
+			"最終回答です",
+		},
+	}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	msg := bus.InboundMessage{
+		Channel:    "line",
+		SenderID:   "u1",
+		ChatID:     "c1",
+		Content:    "このファイル保存して",
+		SessionKey: "line:c1",
+	}
+	got, err := al.processMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("processMessage failed: %v", err)
+	}
+	if got != "最終回答です" {
+		t.Fatalf("unexpected final response: %s", got)
+	}
+	if provider.calls != 3 {
+		t.Fatalf("expected 3 LLM calls (decision/delegate/finalize), got %d", provider.calls)
+	}
+	if len(provider.toolsLog) != 3 {
+		t.Fatalf("expected tools log for 3 calls, got %d", len(provider.toolsLog))
+	}
+	if provider.toolsLog[0] != 0 {
+		t.Fatalf("first chat decision call should have 0 tools, got %d", provider.toolsLog[0])
+	}
+	if provider.toolsLog[1] == 0 {
+		t.Fatalf("delegated worker call should enable tools")
+	}
+	if provider.toolsLog[2] != 0 {
+		t.Fatalf("final chat call should disable tools, got %d", provider.toolsLog[2])
+	}
+}
+
+func TestProcessMessage_ChatNoDelegateKeepsSinglePass(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Provider:          "ollama",
+				Model:             "ollama/kuro-v1:latest",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+		Routing: config.RoutingConfig{
+			Classifier:    config.RoutingClassifierConfig{Enabled: false},
+			FallbackRoute: RouteChat,
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &stagedMockProvider{responses: []string{"通常回答だけ返す"}}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	msg := bus.InboundMessage{
+		Channel:    "line",
+		SenderID:   "u1",
+		ChatID:     "c1",
+		Content:    "こんにちは",
+		SessionKey: "line:c1",
+	}
+	got, err := al.processMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("processMessage failed: %v", err)
+	}
+	if got != "通常回答だけ返す" {
+		t.Fatalf("unexpected response: %s", got)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected single LLM call, got %d", provider.calls)
+	}
+}
+
+func TestParseChatDelegateDirective_InvalidMissingTask(t *testing.T) {
+	if _, ok := parseChatDelegateDirective("DELEGATE: CODE\n理由だけ書く"); ok {
+		t.Fatalf("expected invalid directive when TASK block is missing")
 	}
 }
 

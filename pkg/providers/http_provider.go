@@ -7,18 +7,25 @@
 package providers
 
 import (
+	"encoding/base64"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/auth"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
 type HTTPProvider struct {
@@ -26,6 +33,21 @@ type HTTPProvider struct {
 	apiBase    string
 	httpClient *http.Client
 }
+
+type imagePayloadAudit struct {
+	SourcePath            string
+	URLType               string
+	ImageURL              string
+	ImageURLLength        int
+	Included              bool
+	LocalExistsBefore     bool
+	LocalSizeBeforeBytes  int64
+	DropReason            string
+	LocalExistsAfterTimer *bool
+	LocalSizeAfterBytes   *int64
+}
+
+const maxInlineImageBytes = 5 * 1024 * 1024
 
 func NewHTTPProvider(apiKey, apiBase, proxy string) *HTTPProvider {
 	client := &http.Client{
@@ -63,7 +85,24 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 
 	requestBody := map[string]interface{}{
 		"model":    model,
-		"messages": messages,
+		"messages": nil,
+	}
+	httpMessages, imageAudits := buildHTTPMessagesWithAudit(messages)
+	requestBody["messages"] = httpMessages
+	if len(imageAudits) > 0 {
+		logger.InfoCF("provider.http", "LLM image audit before request", map[string]interface{}{
+			"model":  model,
+			"images": imageAuditLogEntries(imageAudits),
+		})
+	}
+
+	// Ollama's OpenAI-compatible endpoint can default to very large context windows
+	// (e.g., 131072), which may crash/timeout under multimodal load.
+	// Set a bounded context to keep vision requests stable.
+	if isOllamaEndpoint(p.apiBase) {
+		requestBody["options"] = map[string]interface{}{
+			"num_ctx": 8192,
+		}
 	}
 
 	if len(tools) > 0 {
@@ -107,6 +146,14 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
+		if len(imageAudits) > 0 && isTimeoutError(err) {
+			timeoutAudits := enrichAuditAfterTimeout(imageAudits)
+			logger.WarnCF("provider.http", "LLM image audit after timeout", map[string]interface{}{
+				"model":  model,
+				"error":  err.Error(),
+				"images": imageAuditLogEntries(timeoutAudits),
+			})
+		}
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -121,6 +168,178 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 	}
 
 	return p.parseResponse(body)
+}
+
+func buildHTTPMessages(messages []Message) []map[string]interface{} {
+	out, _ := buildHTTPMessagesWithAudit(messages)
+	return out
+}
+
+func buildHTTPMessagesWithAudit(messages []Message) ([]map[string]interface{}, []imagePayloadAudit) {
+	out := make([]map[string]interface{}, 0, len(messages))
+	audits := []imagePayloadAudit{}
+	for _, msg := range messages {
+		entry := map[string]interface{}{
+			"role": msg.Role,
+		}
+
+		if msg.Role == "user" && len(msg.Media) > 0 {
+			parts := make([]map[string]interface{}, 0, len(msg.Media)+1)
+			if strings.TrimSpace(msg.Content) != "" {
+				parts = append(parts, map[string]interface{}{
+					"type": "text",
+					"text": msg.Content,
+				})
+			}
+			for _, media := range msg.Media {
+				imageURL, audit, ok := toImageURLPayload(media)
+				audits = append(audits, audit)
+				if !ok {
+					continue
+				}
+				parts = append(parts, map[string]interface{}{
+					"type":      "image_url",
+					"image_url": map[string]string{"url": imageURL},
+				})
+			}
+			if len(parts) > 0 {
+				entry["content"] = parts
+			} else {
+				entry["content"] = msg.Content
+			}
+		} else {
+			entry["content"] = msg.Content
+		}
+
+		if len(msg.ToolCalls) > 0 {
+			entry["tool_calls"] = msg.ToolCalls
+		}
+		if msg.ToolCallID != "" {
+			entry["tool_call_id"] = msg.ToolCallID
+		}
+		out = append(out, entry)
+	}
+	return out, audits
+}
+
+func toImageURLPayload(media MediaRef) (string, imagePayloadAudit, bool) {
+	p := strings.TrimSpace(media.Path)
+	audit := imagePayloadAudit{
+		SourcePath: p,
+		ImageURL:   "",
+	}
+	if p == "" {
+		audit.DropReason = "empty_path"
+		return "", audit, false
+	}
+	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+		audit.URLType = "remote_url"
+		audit.ImageURL = p
+		audit.ImageURLLength = len(p)
+		audit.Included = true
+		return p, audit, true
+	}
+	audit.URLType = "data_uri"
+	if st, err := os.Stat(p); err == nil {
+		audit.LocalExistsBefore = true
+		audit.LocalSizeBeforeBytes = st.Size()
+	}
+
+	data, err := os.ReadFile(p)
+	if err != nil {
+		audit.DropReason = "read_failed"
+		return "", audit, false
+	}
+	// Keep payload bounded for API compatibility.
+	if len(data) > maxInlineImageBytes {
+		audit.DropReason = "file_too_large"
+		return "", audit, false
+	}
+
+	mimeType := strings.TrimSpace(media.MIMEType)
+	if mimeType == "" {
+		mimeType = mime.TypeByExtension(strings.ToLower(filepath.Ext(p)))
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	fullURL := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
+	audit.ImageURL = fmt.Sprintf("data:%s;base64,[omitted]", mimeType)
+	audit.ImageURLLength = len(fullURL)
+	audit.Included = true
+	if !audit.LocalExistsBefore {
+		audit.LocalExistsBefore = true
+		audit.LocalSizeBeforeBytes = int64(len(data))
+	}
+	return fullURL, audit, true
+}
+
+func isOllamaEndpoint(apiBase string) bool {
+	base := strings.ToLower(strings.TrimSpace(apiBase))
+	return strings.Contains(base, ":11434") || strings.Contains(base, "localhost:11434") || strings.Contains(base, "127.0.0.1:11434")
+}
+
+func imageAuditLogEntries(entries []imagePayloadAudit) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(entries))
+	for _, e := range entries {
+		item := map[string]interface{}{
+			"source_path":              e.SourcePath,
+			"url_type":                 e.URLType,
+			"image_url":                e.ImageURL,
+			"image_url_length":         e.ImageURLLength,
+			"included":                 e.Included,
+			"local_exists_before":      e.LocalExistsBefore,
+			"local_size_before_bytes":  e.LocalSizeBeforeBytes,
+			"drop_reason":              e.DropReason,
+		}
+		if e.LocalExistsAfterTimer != nil {
+			item["local_exists_after_timeout"] = *e.LocalExistsAfterTimer
+		}
+		if e.LocalSizeAfterBytes != nil {
+			item["local_size_after_timeout_bytes"] = *e.LocalSizeAfterBytes
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func enrichAuditAfterTimeout(entries []imagePayloadAudit) []imagePayloadAudit {
+	out := make([]imagePayloadAudit, len(entries))
+	copy(out, entries)
+	for i := range out {
+		path := strings.TrimSpace(out[i].SourcePath)
+		if path == "" || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+			continue
+		}
+		st, err := os.Stat(path)
+		if err == nil {
+			exists := true
+			size := st.Size()
+			out[i].LocalExistsAfterTimer = &exists
+			out[i].LocalSizeAfterBytes = &size
+			continue
+		}
+		if os.IsNotExist(err) {
+			exists := false
+			out[i].LocalExistsAfterTimer = &exists
+		}
+	}
+	return out
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "context deadline exceeded")
 }
 
 func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
