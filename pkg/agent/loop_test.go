@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -767,8 +768,11 @@ func TestProcessMessage_ChatDelegatesThenFinalizes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("processMessage failed: %v", err)
 	}
-	if got != "最終回答です" {
+	if !strings.Contains(got, "最終回答です") {
 		t.Fatalf("unexpected final response: %s", got)
+	}
+	if !strings.Contains(got, "作業終わったって") {
+		t.Fatalf("expected delegation completion notice, got: %s", got)
 	}
 	if provider.calls != 3 {
 		t.Fatalf("expected 3 LLM calls (decision/delegate/finalize), got %d", provider.calls)
@@ -836,6 +840,17 @@ func TestProcessMessage_ChatNoDelegateKeepsSinglePass(t *testing.T) {
 func TestParseChatDelegateDirective_InvalidMissingTask(t *testing.T) {
 	if _, ok := parseChatDelegateDirective("DELEGATE: CODE\n理由だけ書く"); ok {
 		t.Fatalf("expected invalid directive when TASK block is missing")
+	}
+}
+
+func TestDelegationNotices_ContainRequiredPhrases(t *testing.T) {
+	start := buildDelegationStartNotice("line:c1", "Worker（Shiro）", "画像解析")
+	if !strings.Contains(start, "お願いするね") {
+		t.Fatalf("start notice should contain 委譲 phrase, got: %s", start)
+	}
+	done := buildDelegationDoneNotice("line:c1", "Worker（Shiro）", "画像解析")
+	if !strings.Contains(done, "作業終わったって") {
+		t.Fatalf("done notice should contain completion phrase, got: %s", done)
 	}
 }
 

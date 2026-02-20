@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strings"
@@ -398,10 +399,11 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 				if alias != "" && !strings.EqualFold(alias, role) {
 					display = fmt.Sprintf("%s（%s）", role, alias)
 				}
+				taskLabel := summarizeDelegationTask(directive.Task)
 				al.bus.PublishOutbound(bus.OutboundMessage{
 					Channel: msg.Channel,
 					ChatID:  msg.ChatID,
-					Content: fmt.Sprintf("Kuroが%sへ依頼して進めるね。完了したらまとめて返すよ。", display),
+					Content: buildDelegationStartNotice(msg.SessionKey, display, taskLabel),
 				})
 			}
 
@@ -413,7 +415,17 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 				if finalizeErr != nil {
 					err = finalizeErr
 				} else {
-					response = finalResponse
+					if !constants.IsInternalChannel(msg.Channel) {
+						role, alias := al.resolveRouteRoleAlias(directive.Route)
+						display := role
+						if alias != "" && !strings.EqualFold(alias, role) {
+							display = fmt.Sprintf("%s（%s）", role, alias)
+						}
+						taskLabel := summarizeDelegationTask(directive.Task)
+						response = buildDelegationDoneNotice(msg.SessionKey, display, taskLabel) + "\n" + finalResponse
+					} else {
+						response = finalResponse
+					}
 				}
 			}
 		}
@@ -510,6 +522,52 @@ func parseChatDelegateDirective(content string) (chatDelegateDirective, bool) {
 		Route: route,
 		Task:  task,
 	}, true
+}
+
+func summarizeDelegationTask(task string) string {
+	trimmed := strings.TrimSpace(task)
+	if trimmed == "" {
+		return "この件"
+	}
+	lines := strings.Split(trimmed, "\n")
+	first := strings.TrimSpace(lines[0])
+	if first == "" {
+		return "この件"
+	}
+	const maxRunes = 32
+	r := []rune(first)
+	if len(r) > maxRunes {
+		first = string(r[:maxRunes]) + "..."
+	}
+	return first
+}
+
+func buildDelegationStartNotice(seedKey, workerDisplay, taskLabel string) string {
+	templates := []string{
+		"%sの作業を%sにお願いするね。進んだらすぐ共有するよ。",
+		"%sについては%sにお願いするね。まとまり次第、私から伝えるよ。",
+		"%sの作業、%sにお願いするね。終わったらすぐ報告するよ。",
+	}
+	return chooseDelegationTemplate(seedKey+"|start|"+workerDisplay+"|"+taskLabel, templates, taskLabel, workerDisplay)
+}
+
+func buildDelegationDoneNotice(seedKey, workerDisplay, taskLabel string) string {
+	templates := []string{
+		"%sが%sの作業終わったって。内容をまとめて返すね。",
+		"%sから%sの作業終わったって報告きたよ。結果を共有するね。",
+		"%sが%sの作業終わったって。ここから私が最終整理して伝えるね。",
+	}
+	return chooseDelegationTemplate(seedKey+"|done|"+workerDisplay+"|"+taskLabel, templates, workerDisplay, taskLabel)
+}
+
+func chooseDelegationTemplate(seed string, templates []string, args ...interface{}) string {
+	if len(templates) == 0 {
+		return ""
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(seed))
+	idx := int(h.Sum32() % uint32(len(templates)))
+	return fmt.Sprintf(templates[idx], args...)
 }
 
 func (al *AgentLoop) executeChatDelegation(ctx context.Context, msg bus.InboundMessage, directive chatDelegateDirective, localOnly bool) (string, error) {
