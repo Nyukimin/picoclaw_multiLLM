@@ -21,11 +21,13 @@ type Session struct {
 }
 
 type SessionFlags struct {
-	LocalOnly          bool   `json:"local_only,omitempty"`
-	PrevPrimaryRoute   string `json:"prev_primary_route,omitempty"`
-	OriginMessageID    string `json:"origin_message_id,omitempty"`
-	OriginRoute        string `json:"origin_route,omitempty"`
-	PendingOriginReply bool   `json:"pending_origin_reply,omitempty"`
+	LocalOnly            bool   `json:"local_only,omitempty"`
+	PrevPrimaryRoute     string `json:"prev_primary_route,omitempty"`
+	OriginMessageID      string `json:"origin_message_id,omitempty"`
+	OriginRoute          string `json:"origin_route,omitempty"`
+	PendingOriginReply   bool   `json:"pending_origin_reply,omitempty"`
+	WorkOverlayTurnsLeft int    `json:"work_overlay_turns_left,omitempty"`
+	WorkOverlayDirective string `json:"work_overlay_directive,omitempty"`
 }
 
 type SessionManager struct {

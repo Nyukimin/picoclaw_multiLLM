@@ -2,9 +2,11 @@ package agent
 
 import (
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -176,6 +178,7 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 		"SOUL.md",
 		"USER.md",
 		"IDENTITY.md",
+		"PrimerMessage.md",
 	}
 
 	var result string
@@ -189,7 +192,88 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	return result
 }
 
-func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID, route string) []providers.Message {
+// categorizeFewShot classifies a FewShot file into one of three categories
+// based on its first line (title). Returns "work", "casual", or "ng".
+func categorizeFewShot(firstLine string) string {
+	lower := strings.ToLower(firstLine)
+	if strings.Contains(lower, "雑談") {
+		return "casual"
+	}
+	if strings.Contains(lower, "ng") || strings.Contains(lower, "危険") ||
+		strings.Contains(lower, "メンタル") || strings.Contains(lower, "依存") ||
+		strings.Contains(lower, "過度") {
+		return "ng"
+	}
+	return "work"
+}
+
+// LoadFewShotExamples reads FewShot_*.md files from the workspace,
+// categorizes them into work/casual/ng, and returns one example per
+// category (3 total). The selection rotates based on a seed string
+// so that different sessions see different examples.
+func (cb *ContextBuilder) LoadFewShotExamples() string {
+	return cb.LoadFewShotExamplesWithSeed("")
+}
+
+// LoadFewShotExamplesWithSeed is the seeded variant used by BuildMessages
+// to rotate which examples are shown per session.
+func (cb *ContextBuilder) LoadFewShotExamplesWithSeed(seed string) string {
+	pattern := filepath.Join(cb.workspace, "FewShot_*.md")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	sort.Strings(matches)
+
+	type fewShotEntry struct {
+		content  string
+		category string
+	}
+
+	categories := map[string][]string{
+		"work":   {},
+		"casual": {},
+		"ng":     {},
+	}
+
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			continue
+		}
+		firstLine := strings.SplitN(content, "\n", 2)[0]
+		cat := categorizeFewShot(firstLine)
+		categories[cat] = append(categories[cat], content)
+	}
+
+	h := fnv.New32a()
+	h.Write([]byte(seed))
+	hashVal := int(h.Sum32())
+
+	var selected []string
+	for _, cat := range []string{"work", "casual", "ng"} {
+		items := categories[cat]
+		if len(items) == 0 {
+			continue
+		}
+		idx := hashVal % len(items)
+		if idx < 0 {
+			idx = -idx
+		}
+		selected = append(selected, items[idx])
+	}
+
+	if len(selected) == 0 {
+		return ""
+	}
+	return strings.Join(selected, "\n\n---\n\n")
+}
+
+func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID, route string, workOverlay string) []providers.Message {
 	messages := []providers.Message{}
 
 	systemPrompt := cb.BuildSystemPrompt(route)
@@ -238,6 +322,17 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	})
 
 	messages = append(messages, history...)
+
+	if strings.EqualFold(strings.TrimSpace(route), RouteChat) && workOverlay != "" {
+		overlayContent := workOverlay
+		if fewShot := cb.LoadFewShotExamplesWithSeed(chatID); fewShot != "" {
+			overlayContent += "\n\n" + fewShot
+		}
+		messages = append(messages, providers.Message{
+			Role:    "user",
+			Content: overlayContent,
+		})
+	}
 
 	userContent := cb.buildUserContentWithMedia(currentMessage, media)
 

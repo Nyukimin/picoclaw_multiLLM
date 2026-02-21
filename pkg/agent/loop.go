@@ -14,6 +14,7 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,48 @@ type processOptions struct {
 	Declaration     string // Route declaration prefix
 	MaxLoops        int    // Max loop iterations for this turn
 	MaxMillis       int    // Max processing time for this turn
+}
+
+const DefaultWorkOverlayTurns = 8
+
+const WorkOverlayDirectiveText = `Kuroへ（仕事モード）：
+- れんさんの意図とゴールを1〜2文で要約
+- 結論→手順→確認（確認は1〜3件）
+- 推測は推測と明示。不明は不明と言う
+- 長文化しない。網羅を避ける
+- 追加提案は最大1件
+- 実行していない操作を実行済みと言わない
+- 機密情報は出さない`
+
+type WorkCmd struct {
+	Kind  string // "on" | "off" | "status"
+	Turns int
+	Ok    bool
+}
+
+func parseWorkCommand(text string) WorkCmd {
+	t := strings.TrimSpace(text)
+	if t == "/normal" {
+		return WorkCmd{Kind: "off", Ok: true}
+	}
+	if !strings.HasPrefix(t, "/work") {
+		return WorkCmd{Ok: false}
+	}
+	parts := strings.Fields(t)
+	if len(parts) == 1 {
+		return WorkCmd{Kind: "on", Turns: DefaultWorkOverlayTurns, Ok: true}
+	}
+	arg := strings.ToLower(parts[1])
+	if arg == "off" {
+		return WorkCmd{Kind: "off", Ok: true}
+	}
+	if arg == "status" {
+		return WorkCmd{Kind: "status", Ok: true}
+	}
+	if n, err := strconv.Atoi(arg); err == nil && n > 0 && n <= 50 {
+		return WorkCmd{Kind: "on", Turns: n, Ok: true}
+	}
+	return WorkCmd{Kind: "status", Ok: true}
 }
 
 type chatDelegateDirective struct {
@@ -826,6 +869,13 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		history = al.sessions.GetHistory(opts.SessionKey)
 		summary = al.sessions.GetSummary(opts.SessionKey)
 	}
+	workOverlay := ""
+	if !opts.NoHistory {
+		overlayFlags := al.sessions.GetFlags(opts.SessionKey)
+		if overlayFlags.WorkOverlayTurnsLeft > 0 {
+			workOverlay = overlayFlags.WorkOverlayDirective
+		}
+	}
 	messages := al.contextBuilder.BuildMessages(
 		history,
 		summary,
@@ -834,6 +884,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		opts.Channel,
 		opts.ChatID,
 		opts.Route,
+		workOverlay,
 	)
 
 	// 3. Save user message to session
@@ -856,7 +907,20 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		finalContent = opts.Declaration + "\n" + finalContent
 	}
 
-	// 6. Save final assistant message to session
+	// 6. Work Overlay ターン消費（LLM成功時のみ）
+	if strings.EqualFold(strings.TrimSpace(opts.Route), RouteChat) {
+		currentFlags := al.sessions.GetFlags(opts.SessionKey)
+		if currentFlags.WorkOverlayTurnsLeft > 0 {
+			currentFlags.WorkOverlayTurnsLeft--
+			if currentFlags.WorkOverlayTurnsLeft <= 0 {
+				currentFlags.WorkOverlayTurnsLeft = 0
+				currentFlags.WorkOverlayDirective = ""
+			}
+			al.sessions.SetFlags(opts.SessionKey, currentFlags)
+		}
+	}
+
+	// 7. Save final assistant message to session
 	al.sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
 	al.sessions.Save(opts.SessionKey)
 
@@ -986,6 +1050,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					opts.Channel,
 					opts.ChatID,
 					opts.Route,
+					"",
 				)
 
 				// Important: If we are in the middle of a tool loop (iteration > 1),
@@ -1050,6 +1115,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					opts.Channel,
 					opts.ChatID,
 					opts.Route,
+					"",
 				)
 
 				continue
@@ -1534,6 +1600,40 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		default:
 			return fmt.Sprintf("Unknown switch target: %s", target), true
 		}
+
+	case "/work":
+		wc := parseWorkCommand(content)
+		if !wc.Ok {
+			return "使い方: /work [N] | /work status | /work off", true
+		}
+		flags := al.sessions.GetFlags(msg.SessionKey)
+		switch wc.Kind {
+		case "on":
+			flags.WorkOverlayTurnsLeft = wc.Turns
+			flags.WorkOverlayDirective = WorkOverlayDirectiveText
+			al.sessions.SetFlags(msg.SessionKey, flags)
+			al.sessions.Save(msg.SessionKey)
+			return fmt.Sprintf("了解しました。以後%dターン、仕事モードで進めます。", wc.Turns), true
+		case "off":
+			flags.WorkOverlayTurnsLeft = 0
+			flags.WorkOverlayDirective = ""
+			al.sessions.SetFlags(msg.SessionKey, flags)
+			al.sessions.Save(msg.SessionKey)
+			return "了解しました。会話モードに戻します。", true
+		case "status":
+			if flags.WorkOverlayTurnsLeft > 0 {
+				return fmt.Sprintf("仕事モード残り：%dターン。解除は /normal です。", flags.WorkOverlayTurnsLeft), true
+			}
+			return "現在は会話モードです。仕事モードは /work で有効にできます。", true
+		}
+
+	case "/normal":
+		flags := al.sessions.GetFlags(msg.SessionKey)
+		flags.WorkOverlayTurnsLeft = 0
+		flags.WorkOverlayDirective = ""
+		al.sessions.SetFlags(msg.SessionKey, flags)
+		al.sessions.Save(msg.SessionKey)
+		return "了解しました。会話モードに戻します。", true
 	}
 
 	return "", false

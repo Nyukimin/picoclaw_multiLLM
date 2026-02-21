@@ -96,3 +96,51 @@ func TestSessionFlags_RoundTrip(t *testing.T) {
 		t.Fatalf("expected PrevPrimaryRoute PLAN, got %s", got.PrevPrimaryRoute)
 	}
 }
+
+func TestWorkOverlayFlags_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	key := "telegram:99999"
+	flags := SessionFlags{
+		WorkOverlayTurnsLeft: 5,
+		WorkOverlayDirective: "test directive",
+	}
+	sm.SetFlags(key, flags)
+	if err := sm.Save(key); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	sm2 := NewSessionManager(tmpDir)
+	got := sm2.GetFlags(key)
+	if got.WorkOverlayTurnsLeft != 5 {
+		t.Fatalf("expected WorkOverlayTurnsLeft 5, got %d", got.WorkOverlayTurnsLeft)
+	}
+	if got.WorkOverlayDirective != "test directive" {
+		t.Fatalf("expected WorkOverlayDirective 'test directive', got %q", got.WorkOverlayDirective)
+	}
+}
+
+func TestWorkOverlayFlags_OmitEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	key := "line:omit"
+	flags := SessionFlags{
+		WorkOverlayTurnsLeft: 0,
+		WorkOverlayDirective: "",
+	}
+	sm.SetFlags(key, flags)
+	if err := sm.Save(key); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	sm2 := NewSessionManager(tmpDir)
+	got := sm2.GetFlags(key)
+	if got.WorkOverlayTurnsLeft != 0 {
+		t.Fatalf("expected WorkOverlayTurnsLeft 0, got %d", got.WorkOverlayTurnsLeft)
+	}
+	if got.WorkOverlayDirective != "" {
+		t.Fatalf("expected empty WorkOverlayDirective, got %q", got.WorkOverlayDirective)
+	}
+}
