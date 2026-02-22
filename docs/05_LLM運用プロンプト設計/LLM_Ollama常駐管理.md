@@ -12,7 +12,7 @@
 ### Windows側
 
 -   Ollama常駐（サービス起動）
--   kuro-v1 / worker-v1 を warmup で Forever 化
+-   chat-v1 / worker-v1 を warmup で Forever 化
 -   復旧スクリプト（Task Scheduler）
 
 ### Ubuntu側
@@ -28,7 +28,7 @@
 1.  Ollama API 生存確認
     -   GET /api/tags が HTTP 200 を返す
 2.  モデル常駐確認
-    -   kuro-v1 が loaded
+    -   chat-v1 が loaded
     -   worker-v1 が loaded
 3.  応答時間監視
     -   応答 p95 を測定（例: 2秒超で警告）

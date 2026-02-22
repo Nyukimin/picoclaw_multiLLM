@@ -16,6 +16,8 @@ const (
 	RouteOps      = "OPS"
 	RouteResearch = "RESEARCH"
 	RouteCode     = "CODE"
+	RouteCode1    = "CODE1"
+	RouteCode2    = "CODE2"
 )
 
 type RoutingDecision struct {
@@ -53,7 +55,16 @@ func NewRouter(cfg config.RoutingConfig, classifier *Classifier) *Router {
 
 func isAllowedRoute(route string) bool {
 	switch route {
-	case RouteChat, RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode:
+	case RouteChat, RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode, RouteCode1, RouteCode2:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsCodeRoute(route string) bool {
+	switch route {
+	case RouteCode, RouteCode1, RouteCode2:
 		return true
 	default:
 		return false
@@ -109,7 +120,7 @@ func (r *Router) Decide(ctx context.Context, userText string, flags session.Sess
 		if ok {
 			decision.ClassifierConfidence = classification.Confidence
 			minConfidence := r.cfg.Classifier.MinConfidence
-			if strings.ToUpper(classification.Route) == RouteCode {
+			if IsCodeRoute(strings.ToUpper(classification.Route)) {
 				minConfidence = r.cfg.Classifier.MinConfidenceForCode
 				if !hasStrongCodeEvidence(clean) {
 					decision.ErrorReason = "classifier_code_without_strong_evidence"
@@ -151,6 +162,10 @@ func declarationFor(prevRoute, curRoute string) string {
 	}
 	switch curRoute {
 	case RouteCode:
+		return "コーディングするね。"
+	case RouteCode1:
+		return "設計・仕様をまとめるね。"
+	case RouteCode2:
 		return "コーディングするね。"
 	case RouteAnalyze:
 		return "整理して分析するね。"
@@ -199,6 +214,16 @@ func parseRouteCommand(text string, localOnly bool) (route string, nextLocalOnly
 			return "", nextLocalOnly, "いまは /local モード中だからCODE実行はできないよ。/cloud で解除してから試してね。", rest, true
 		}
 		return RouteCode, nextLocalOnly, "", rest, true
+	case "/code1":
+		if nextLocalOnly {
+			return "", nextLocalOnly, "いまは /local モード中だからCODE実行はできないよ。/cloud で解除してから試してね。", rest, true
+		}
+		return RouteCode1, nextLocalOnly, "", rest, true
+	case "/code2":
+		if nextLocalOnly {
+			return "", nextLocalOnly, "いまは /local モード中だからCODE実行はできないよ。/cloud で解除してから試してね。", rest, true
+		}
+		return RouteCode2, nextLocalOnly, "", rest, true
 	default:
 		return "", nextLocalOnly, "", text, false
 	}

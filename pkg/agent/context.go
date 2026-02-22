@@ -20,7 +20,8 @@ type ContextBuilder struct {
 	workspace    string
 	skillsLoader *skills.SkillsLoader
 	memory       *MemoryStore
-	tools        *tools.ToolRegistry // Direct reference to tool registry
+	tools        *tools.ToolRegistry
+	chatAlias    string
 }
 
 func getGlobalConfigDir() string {
@@ -45,9 +46,18 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 	}
 }
 
+// GetMemoryStore returns the memory store used by this context builder.
+func (cb *ContextBuilder) GetMemoryStore() *MemoryStore {
+	return cb.memory
+}
+
 // SetToolsRegistry sets the tools registry for dynamic tool summary generation.
 func (cb *ContextBuilder) SetToolsRegistry(registry *tools.ToolRegistry) {
 	cb.tools = registry
+}
+
+func (cb *ContextBuilder) SetChatAlias(alias string) {
+	cb.chatAlias = alias
 }
 
 func (cb *ContextBuilder) getIdentity(route string) string {
@@ -98,14 +108,14 @@ Your workspace is at: %s
 
 ## Chat Persona Priority
 - For CHAT route, strictly follow CHAT_PERSONA.md.
-- The chat alias is Kuro. Prefer the persona's voice, relationship, and calling style over generic assistant tone.
+- The chat alias is ` + cb.chatAlias + `. Prefer the persona's voice, relationship, and calling style over generic assistant tone.
 - Do not answer with generic "helpdesk/tool list" self-description unless the user explicitly asks for system internals.
 
 ## CHAT Delegation Protocol
 - You are the front agent. Decide whether to solve directly or delegate to Worker/Coder.
 - Delegate ONLY when task needs heavy execution, file editing, coding, or longer structured processing.
 - If delegating, output STRICT format:
-  - First line: DELEGATE: PLAN|ANALYZE|OPS|RESEARCH|CODE
+  - First line: DELEGATE: PLAN|ANALYZE|OPS|RESEARCH|CODE|CODE1|CODE2
   - Then: TASK:
   - Then: concrete task instructions for the delegate.
 - If not delegating, respond normally.
@@ -145,8 +155,8 @@ func (cb *ContextBuilder) BuildSystemPrompt(route string) string {
 	// Core identity section
 	parts = append(parts, cb.getIdentity(route))
 
-	// Bootstrap files
-	bootstrapContent := cb.LoadBootstrapFiles()
+	// Bootstrap files (route-aware)
+	bootstrapContent := cb.LoadBootstrapFilesForRoute(route)
 	if bootstrapContent != "" {
 		parts = append(parts, bootstrapContent)
 	}
@@ -171,21 +181,43 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 	return strings.Join(parts, "\n\n---\n\n")
 }
 
+// LoadBootstrapFiles loads all bootstrap files (backward compatibility).
 func (cb *ContextBuilder) LoadBootstrapFiles() string {
-	bootstrapFiles := []string{
-		"CHAT_PERSONA.md",
+	return cb.LoadBootstrapFilesForRoute(RouteChat)
+}
+
+// LoadBootstrapFilesForRoute loads bootstrap files appropriate for the given route.
+// Shared files (constraints, user info) are loaded for all routes.
+// Persona/character files are loaded only for CHAT route.
+func (cb *ContextBuilder) LoadBootstrapFilesForRoute(route string) string {
+	sharedFiles := []string{
 		"AGENTS.md",
-		"SOUL.md",
 		"USER.md",
 		"IDENTITY.md",
+	}
+
+	chatOnlyFiles := []string{
+		"CHAT_PERSONA.md",
+		"SOUL.md",
 		"PrimerMessage.md",
 	}
 
+	isChat := strings.EqualFold(strings.TrimSpace(route), RouteChat)
+
 	var result string
-	for _, filename := range bootstrapFiles {
+	for _, filename := range sharedFiles {
 		filePath := filepath.Join(cb.workspace, filename)
 		if data, err := os.ReadFile(filePath); err == nil {
 			result += fmt.Sprintf("## %s\n\n%s\n\n", filename, string(data))
+		}
+	}
+
+	if isChat {
+		for _, filename := range chatOnlyFiles {
+			filePath := filepath.Join(cb.workspace, filename)
+			if data, err := os.ReadFile(filePath); err == nil {
+				result += fmt.Sprintf("## %s\n\n%s\n\n", filename, string(data))
+			}
 		}
 	}
 

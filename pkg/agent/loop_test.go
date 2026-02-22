@@ -724,7 +724,7 @@ func TestProcessMessage_ChatDelegatesThenFinalizes(t *testing.T) {
 			Defaults: config.AgentDefaults{
 				Workspace:         tmpDir,
 				Provider:          "ollama",
-				Model:             "ollama/kuro-v1:latest",
+				Model:             "ollama/chat-v1:latest",
 				MaxTokens:         4096,
 				MaxToolIterations: 10,
 			},
@@ -734,11 +734,11 @@ func TestProcessMessage_ChatDelegatesThenFinalizes(t *testing.T) {
 			FallbackRoute: RouteChat,
 			LLM: config.RouteLLMConfig{
 				ChatProvider:   "ollama",
-				ChatModel:      "ollama/kuro-v1:latest",
+				ChatModel:      "ollama/chat-v1:latest",
 				WorkerProvider: "ollama",
-				WorkerModel:    "ollama/kuro-v1:latest",
+				WorkerModel:    "ollama/chat-v1:latest",
 				CoderProvider:  "ollama",
-				CoderModel:     "ollama/kuro-v1:latest",
+				CoderModel:     "ollama/chat-v1:latest",
 			},
 		},
 		Loop: config.LoopConfig{
@@ -803,7 +803,7 @@ func TestProcessMessage_ChatNoDelegateKeepsSinglePass(t *testing.T) {
 			Defaults: config.AgentDefaults{
 				Workspace:         tmpDir,
 				Provider:          "ollama",
-				Model:             "ollama/kuro-v1:latest",
+				Model:             "ollama/chat-v1:latest",
 				MaxTokens:         4096,
 				MaxToolIterations: 10,
 			},
@@ -906,14 +906,14 @@ func TestResolveRouteLLM_AllRoutes(t *testing.T) {
 			Agents: config.AgentsConfig{
 				Defaults: config.AgentDefaults{
 					Provider: "ollama",
-					Model:    "ollama/kuro-v1:latest",
+					Model:    "ollama/chat-v1:latest",
 				},
 			},
 			Routing: config.RoutingConfig{
 				LLM: config.RouteLLMConfig{
-					ChatAlias:      "Kuro",
+					ChatAlias:      "Mio",
 					ChatProvider:   "ollama",
-					ChatModel:      "ollama/kuro-v1:latest",
+					ChatModel:      "ollama/chat-v1:latest",
 					WorkerAlias:    "Shiro",
 					WorkerProvider: "ollama",
 					WorkerModel:    "ollama/worker-v1:latest",
@@ -930,7 +930,7 @@ func TestResolveRouteLLM_AllRoutes(t *testing.T) {
 		provider string
 		model    string
 	}{
-		{RouteChat, "ollama", "ollama/kuro-v1:latest"},
+		{RouteChat, "ollama", "ollama/chat-v1:latest"},
 		{RoutePlan, "ollama", "ollama/worker-v1:latest"},
 		{RouteAnalyze, "ollama", "ollama/worker-v1:latest"},
 		{RouteOps, "ollama", "ollama/worker-v1:latest"},
@@ -960,15 +960,15 @@ func TestResolveRouteLLM_WorkerFallbacksToChatIfUnset(t *testing.T) {
 			Routing: config.RoutingConfig{
 				LLM: config.RouteLLMConfig{
 					ChatProvider: "ollama",
-					ChatModel:    "ollama/kuro-v1:latest",
+					ChatModel:    "ollama/chat-v1:latest",
 				},
 			},
 		},
 	}
 
 	provider, model := al.resolveRouteLLM(RoutePlan)
-	if provider != "ollama" || model != "ollama/kuro-v1:latest" {
-		t.Fatalf("worker fallback got (%s, %s), want (%s, %s)", provider, model, "ollama", "ollama/kuro-v1:latest")
+	if provider != "ollama" || model != "ollama/chat-v1:latest" {
+		t.Fatalf("worker fallback got (%s, %s), want (%s, %s)", provider, model, "ollama", "ollama/chat-v1:latest")
 	}
 }
 
@@ -1012,5 +1012,87 @@ func TestResolveRouteLLM_CodeLegacyKeysAreSupported(t *testing.T) {
 	provider, model := al.resolveRouteLLM(RouteCode)
 	if provider != "deepseek" || model != "deepseek-chat" {
 		t.Fatalf("legacy code_* fallback got (%s, %s), want (%s, %s)", provider, model, "deepseek", "deepseek-chat")
+	}
+}
+
+func TestResolveRouteLLM_Code1Code2(t *testing.T) {
+	al := &AgentLoop{
+		cfg: &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{
+					Provider: "ollama",
+					Model:    "ollama/default:latest",
+				},
+			},
+			Routing: config.RoutingConfig{
+				LLM: config.RouteLLMConfig{
+					CoderAlias:     "Aka",
+					CoderProvider:  "deepseek",
+					CoderModel:     "deepseek-chat",
+					Coder2Alias:    "Midori",
+					Coder2Provider: "openai",
+					Coder2Model:    "gpt-4o",
+				},
+			},
+		},
+	}
+
+	p1, m1 := al.resolveRouteLLM(RouteCode1)
+	if p1 != "deepseek" || m1 != "deepseek-chat" {
+		t.Fatalf("CODE1 got (%s, %s), want (deepseek, deepseek-chat)", p1, m1)
+	}
+
+	p2, m2 := al.resolveRouteLLM(RouteCode2)
+	if p2 != "openai" || m2 != "gpt-4o" {
+		t.Fatalf("CODE2 got (%s, %s), want (openai, gpt-4o)", p2, m2)
+	}
+}
+
+func TestResolveRouteLLM_Code2FallbackToCoder1(t *testing.T) {
+	al := &AgentLoop{
+		cfg: &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{
+					Provider: "ollama",
+					Model:    "ollama/default:latest",
+				},
+			},
+			Routing: config.RoutingConfig{
+				LLM: config.RouteLLMConfig{
+					CoderProvider: "deepseek",
+					CoderModel:    "deepseek-chat",
+				},
+			},
+		},
+	}
+
+	p, m := al.resolveRouteLLM(RouteCode2)
+	if p != "deepseek" || m != "deepseek-chat" {
+		t.Fatalf("CODE2 fallback got (%s, %s), want (deepseek, deepseek-chat)", p, m)
+	}
+}
+
+func TestSelectCoderRoute(t *testing.T) {
+	cases := []struct {
+		task string
+		want string
+	}{
+		{"", RouteCode2},
+		{"このバグを修正して", RouteCode2},
+		{"関数を実装して", RouteCode2},
+		{"仕様を設計してください", RouteCode1},
+		{"アーキテクチャを検討", RouteCode1},
+		{"requirements documentを作成", RouteCode1},
+		{"APIの設計書を書いて", RouteCode1},
+		{"テストコードを書いて", RouteCode2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.task, func(t *testing.T) {
+			got := selectCoderRoute(tc.task)
+			if got != tc.want {
+				t.Fatalf("selectCoderRoute(%q) = %s, want %s", tc.task, got, tc.want)
+			}
+		})
 	}
 }

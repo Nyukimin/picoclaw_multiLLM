@@ -117,7 +117,8 @@
     "ollama": {
       "api_key": "",
       "api_base": "http://localhost:11434/v1"
-    }
+    },
+    "ollama_restart_command": ""
   },
   "tools": {
     "web": {
@@ -144,9 +145,9 @@
     },
     "fallback_route": "CHAT",
     "llm": {
-      "chat_alias": "Kuro",
+      "chat_alias": "Mio",
       "chat_provider": "ollama",
-      "chat_model": "ollama/kuro-v1:latest",
+      "chat_model": "ollama/chat-v1:latest",
       "worker_alias": "Shiro",
       "worker_provider": "ollama",
       "worker_model": "ollama/worker-v1:latest",

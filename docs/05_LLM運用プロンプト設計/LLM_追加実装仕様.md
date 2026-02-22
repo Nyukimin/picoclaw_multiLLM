@@ -30,7 +30,7 @@ WorkOverlayTurnsLeft == 0 なら仕事モード無効
 
 const DefaultWorkOverlayTurns = 8
 
-const WorkOverlayDirective = `Kuroへ（仕事モード）：
+const WorkOverlayDirective = `Mioへ（仕事モード）：
 - れんさんの意図とゴールを1〜2文で要約
 - 結論→手順→確認（確認は1〜3件）
 - 推測は推測と明示。不明は不明と言う
@@ -91,7 +91,7 @@ off：TurnsLeft=0、Directive=""
 
 status：残ターンを返して終了
 
-返答はKuro口調に寄せても良いが、LLMを呼ばないのでシンプルでOK。
+返答はMio口調に寄せても良いが、LLMを呼ばないのでシンプルでOK。
 
 4) BuildMessagesでの差し込み
 

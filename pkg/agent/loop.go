@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"hash/fnv"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
+	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -67,14 +69,15 @@ type processOptions struct {
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
 	Route           string // Routed category for logging
 	LocalOnly       bool   // /local mode for this session
-	Declaration     string // Route declaration prefix
-	MaxLoops        int    // Max loop iterations for this turn
-	MaxMillis       int    // Max processing time for this turn
+	Declaration       string // Route declaration prefix
+	MaxLoops          int    // Max loop iterations for this turn
+	MaxMillis         int    // Max processing time for this turn
+	SkipAddUserMessage bool  // When true, don't add user message (used on Ollama recovery retry)
 }
 
 const DefaultWorkOverlayTurns = 8
 
-const WorkOverlayDirectiveText = `Kuroへ（仕事モード）：
+const WorkOverlayDirectiveText = `Mioへ（仕事モード）：
 - れんさんの意図とゴールを1〜2文で要約
 - 結論→手順→確認（確認は1〜3件）
 - 推測は推測と明示。不明は不明と言う
@@ -189,6 +192,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	// Create context builder and set tools registry
 	contextBuilder := NewContextBuilder(workspace)
 	contextBuilder.SetToolsRegistry(toolsRegistry)
+	contextBuilder.SetChatAlias(cfg.Routing.LLM.ChatAlias)
 
 	return &AgentLoop{
 		bus:            msgBus,
@@ -344,6 +348,9 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		return al.processSystemMessage(ctx, msg)
 	}
 
+	// Daily session cutover: archive yesterday's session to daily note and reset.
+	al.maybeDailyCutover(msg.SessionKey)
+
 	// Check for commands
 	if response, handled := al.handleCommand(ctx, msg); handled {
 		return response, nil
@@ -381,18 +388,21 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		}
 	}
 
-	// Notify user when Kuro delegates work to Worker/Coder (or other non-chat routes).
-	// This is sent before execution so users know delegation has started.
+	// Notify user when Chat agent delegates work to Worker/Coder (or other non-chat routes).
 	if strings.ToUpper(strings.TrimSpace(decision.Route)) != RouteChat && !constants.IsInternalChannel(msg.Channel) {
 		role, alias := al.resolveRouteRoleAlias(decision.Route)
 		display := role
 		if alias != "" && !strings.EqualFold(alias, role) {
 			display = fmt.Sprintf("%s（%s）", role, alias)
 		}
+		chatAlias := al.cfg.Routing.LLM.ChatAlias
+		if chatAlias == "" {
+			chatAlias = "Chat"
+		}
 		al.bus.PublishOutbound(bus.OutboundMessage{
 			Channel: msg.Channel,
 			ChatID:  msg.ChatID,
-			Content: fmt.Sprintf("Kuroから%sに作業依頼して進めるね。完了したら報告するよ。", display),
+			Content: fmt.Sprintf("%sから%sに作業依頼して進めるね。完了したら報告するよ。", chatAlias, display),
 		})
 	}
 	if decision.DirectResponse != "" {
@@ -419,7 +429,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		enableSummary = false
 	}
 
-	response, err := al.runAgentLoop(ctx, processOptions{
+	opts := processOptions{
 		SessionKey:      msg.SessionKey,
 		Channel:         msg.Channel,
 		ChatID:          msg.ChatID,
@@ -433,7 +443,27 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		Declaration:     decision.Declaration,
 		MaxLoops:        al.loopMaxLoops,
 		MaxMillis:       al.loopMaxMillis,
-	})
+	}
+	response, err := al.runAgentLoop(ctx, opts)
+
+	// LINE指示ごと: ヘルスチェック（失敗してなくても実行）→Ollama落ちてたら再起動→リトライ
+	if al.routeUsesOllama(decision.Route) && al.cfg.Providers.Ollama.APIBase != "" {
+		checkURL := strings.TrimSuffix(al.cfg.Providers.Ollama.APIBase, "/v1")
+		ollamaOK, ollamaMsg := health.OllamaCheck(checkURL, 5*time.Second)()
+		logger.InfoCF("agent", "ollama health check",
+			map[string]interface{}{"ok": ollamaOK, "msg": ollamaMsg, "llm_err": err != nil})
+		// Ollama落ちてたら再起動し、LLM失敗時のみリトライ（成功時の重複を防ぐ）
+		if !ollamaOK && strings.TrimSpace(al.cfg.Providers.OllamaRestartCommand) != "" {
+			cmd := exec.CommandContext(ctx, "sh", "-c", al.cfg.Providers.OllamaRestartCommand)
+			if runErr := cmd.Run(); runErr != nil {
+				logger.WarnCF("agent", "ollama restart failed", map[string]interface{}{"error": runErr.Error()})
+			} else if err != nil {
+				time.Sleep(10 * time.Second)
+				opts.SkipAddUserMessage = true
+				response, err = al.runAgentLoop(ctx, opts)
+			}
+		}
+	}
 	if err == nil && strings.EqualFold(strings.TrimSpace(decision.Route), RouteChat) {
 		if directive, ok := parseChatDelegateDirective(response); ok {
 			if !constants.IsInternalChannel(msg.Channel) {
@@ -454,7 +484,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			if delegateErr != nil {
 				err = delegateErr
 			} else {
-				finalResponse, finalizeErr := al.finalizeDelegationWithKuro(ctx, msg, directive, delegateResult)
+				finalResponse, finalizeErr := al.finalizeDelegationWithChat(ctx, msg, directive, delegateResult)
 				if finalizeErr != nil {
 					err = finalizeErr
 				} else {
@@ -527,7 +557,7 @@ func parseChatDelegateDirective(content string) (chatDelegateDirective, bool) {
 	routeRaw := strings.TrimSpace(firstLine[len("DELEGATE:"):])
 	route := strings.ToUpper(routeRaw)
 	switch route {
-	case RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode:
+	case RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode, RouteCode1, RouteCode2:
 	default:
 		return chatDelegateDirective{}, false
 	}
@@ -614,7 +644,7 @@ func chooseDelegationTemplate(seed string, templates []string, args ...interface
 }
 
 func (al *AgentLoop) executeChatDelegation(ctx context.Context, msg bus.InboundMessage, directive chatDelegateDirective, localOnly bool) (string, error) {
-	restoreRouteLLM, err := al.applyRouteLLM(directive.Route)
+	restoreRouteLLM, err := al.applyRouteLLMWithTask(directive.Route, directive.Task)
 	if err != nil {
 		return "", fmt.Errorf("failed to switch LLM for delegated route %s: %w", directive.Route, err)
 	}
@@ -637,7 +667,7 @@ func (al *AgentLoop) executeChatDelegation(ctx context.Context, msg bus.InboundM
 	})
 }
 
-func (al *AgentLoop) finalizeDelegationWithKuro(ctx context.Context, msg bus.InboundMessage, directive chatDelegateDirective, delegateResult string) (string, error) {
+func (al *AgentLoop) finalizeDelegationWithChat(ctx context.Context, msg bus.InboundMessage, directive chatDelegateDirective, delegateResult string) (string, error) {
 	restoreRouteLLM, err := al.applyRouteLLM(RouteChat)
 	if err != nil {
 		return "", fmt.Errorf("failed to switch back to chat LLM: %w", err)
@@ -673,8 +703,16 @@ func (al *AgentLoop) finalizeDelegationWithKuro(ctx context.Context, msg bus.Inb
 }
 
 func (al *AgentLoop) applyRouteLLM(route string) (func(), error) {
-	role, alias := al.resolveRouteRoleAlias(route)
-	targetProvider, targetModel := al.resolveRouteLLM(route)
+	return al.applyRouteLLMWithTask(route, "")
+}
+
+func (al *AgentLoop) applyRouteLLMWithTask(route, taskText string) (func(), error) {
+	actualRoute := route
+	if route == RouteCode && taskText != "" {
+		actualRoute = selectCoderRoute(taskText)
+	}
+	role, alias := al.resolveRouteRoleAlias(actualRoute)
+	targetProvider, targetModel := al.resolveRouteLLMWithTask(actualRoute, taskText)
 	if targetModel == "" {
 		targetModel = al.model
 	}
@@ -718,6 +756,10 @@ func (al *AgentLoop) applyRouteLLM(route string) (func(), error) {
 }
 
 func (al *AgentLoop) resolveRouteLLM(route string) (string, string) {
+	return al.resolveRouteLLMWithTask(route, "")
+}
+
+func (al *AgentLoop) resolveRouteLLMWithTask(route, taskText string) (string, string) {
 	defaultProvider := strings.ToLower(strings.TrimSpace(al.cfg.Agents.Defaults.Provider))
 	defaultModel := strings.TrimSpace(al.cfg.Agents.Defaults.Model)
 	llmCfg := al.cfg.Routing.LLM
@@ -735,23 +777,41 @@ func (al *AgentLoop) resolveRouteLLM(route string) (string, string) {
 		return strings.TrimSpace(base)
 	}
 
+	resolveCoder1 := func() (string, string) {
+		p := chooseProvider(defaultProvider, llmCfg.CoderProvider)
+		m := chooseModel(defaultModel, llmCfg.CoderModel)
+		if strings.TrimSpace(llmCfg.CoderProvider) == "" {
+			p = chooseProvider(p, llmCfg.CodeProvider)
+		}
+		if strings.TrimSpace(llmCfg.CoderModel) == "" {
+			m = chooseModel(m, llmCfg.CodeModel)
+		}
+		return p, m
+	}
+
+	resolveCoder2 := func() (string, string) {
+		if strings.TrimSpace(llmCfg.Coder2Provider) == "" && strings.TrimSpace(llmCfg.Coder2Model) == "" {
+			return resolveCoder1()
+		}
+		return chooseProvider(defaultProvider, llmCfg.Coder2Provider), chooseModel(defaultModel, llmCfg.Coder2Model)
+	}
+
 	switch strings.ToUpper(strings.TrimSpace(route)) {
+	case RouteCode1:
+		return resolveCoder1()
+	case RouteCode2:
+		return resolveCoder2()
 	case RouteCode:
-		coderProvider := llmCfg.CoderProvider
-		coderModel := llmCfg.CoderModel
-		if strings.TrimSpace(coderProvider) == "" {
-			coderProvider = llmCfg.CodeProvider
+		selected := selectCoderRoute(taskText)
+		if selected == RouteCode1 {
+			return resolveCoder1()
 		}
-		if strings.TrimSpace(coderModel) == "" {
-			coderModel = llmCfg.CodeModel
-		}
-		return chooseProvider(defaultProvider, coderProvider), chooseModel(defaultModel, coderModel)
+		return resolveCoder2()
 	case RouteChat:
 		return chooseProvider(defaultProvider, llmCfg.ChatProvider), chooseModel(defaultModel, llmCfg.ChatModel)
 	default:
 		workerProvider := chooseProvider(defaultProvider, llmCfg.WorkerProvider)
 		workerModel := chooseModel(defaultModel, llmCfg.WorkerModel)
-		// If worker-specific values are not configured, fall back to chat-specific settings.
 		if strings.TrimSpace(llmCfg.WorkerProvider) == "" {
 			workerProvider = chooseProvider(workerProvider, llmCfg.ChatProvider)
 		}
@@ -762,15 +822,48 @@ func (al *AgentLoop) resolveRouteLLM(route string) (string, string) {
 	}
 }
 
+func selectCoderRoute(taskText string) string {
+	if taskText == "" {
+		return RouteCode2
+	}
+	lower := strings.ToLower(taskText)
+	code1Keywords := []string{
+		"仕様", "設計", "文書", "論点", "意思決定",
+		"要件定義", "アーキテクチャ", "構成案", "比較検討",
+		"spec", "design", "architecture", "requirements", "rfc",
+		"proposal", "decision",
+	}
+	for _, kw := range code1Keywords {
+		if strings.Contains(lower, kw) {
+			return RouteCode1
+		}
+	}
+	return RouteCode2
+}
+
+func (al *AgentLoop) routeUsesOllama(route string) bool {
+	provider, _ := al.resolveRouteLLM(route)
+	return strings.EqualFold(strings.TrimSpace(provider), "ollama")
+}
+
 func (al *AgentLoop) resolveRouteRoleAlias(route string) (string, string) {
 	llmCfg := al.cfg.Routing.LLM
 	switch strings.ToUpper(strings.TrimSpace(route)) {
-	case RouteCode:
+	case RouteCode, RouteCode1:
 		alias := strings.TrimSpace(llmCfg.CoderAlias)
 		if alias == "" {
 			alias = "Coder"
 		}
 		return "Coder", alias
+	case RouteCode2:
+		alias := strings.TrimSpace(llmCfg.Coder2Alias)
+		if alias == "" {
+			alias = strings.TrimSpace(llmCfg.CoderAlias)
+		}
+		if alias == "" {
+			alias = "Coder2"
+		}
+		return "Coder2", alias
 	case RouteChat:
 		alias := strings.TrimSpace(llmCfg.ChatAlias)
 		if alias == "" {
@@ -887,8 +980,10 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		workOverlay,
 	)
 
-	// 3. Save user message to session
-	al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	// 3. Save user message to session (skip on retry - already added)
+	if !opts.SkipAddUserMessage {
+		al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	}
 
 	// 4. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(loopCtx, messages, opts)
@@ -969,7 +1064,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"max":       limit,
 			})
 
-		// Kuro is a conversation-only gateway, so CHAT route runs without tool calls.
+		// Chat agent is a conversation-only gateway, so CHAT route runs without tool calls.
 		providerToolDefs := []providers.ToolDefinition{}
 		if strings.ToUpper(strings.TrimSpace(opts.Route)) != RouteChat {
 			providerToolDefs = al.tools.ToProviderDefs()
@@ -1260,6 +1355,62 @@ func (al *AgentLoop) updateToolContexts(channel, chatID string) {
 			st.SetContext(channel, chatID)
 		}
 	}
+}
+
+// maybeDailyCutover checks whether the session has crossed a daily boundary
+// (CutoverHour, default 04:00) and, if so, saves the session content as a daily
+// note and resets the session for the new day.
+func (al *AgentLoop) maybeDailyCutover(sessionKey string) {
+	updated := al.sessions.GetUpdatedTime(sessionKey)
+	if updated.IsZero() {
+		return
+	}
+
+	now := time.Now()
+	boundary := GetCutoverBoundary(now)
+
+	if !updated.Before(boundary) {
+		return
+	}
+
+	history := al.sessions.GetHistory(sessionKey)
+	summary := al.sessions.GetSummary(sessionKey)
+
+	if len(history) == 0 && summary == "" {
+		al.sessions.ResetSession(sessionKey)
+		al.sessions.Save(sessionKey)
+		return
+	}
+
+	var recentLines []string
+	for _, msg := range history {
+		if msg.Role == "user" || msg.Role == "assistant" {
+			line := fmt.Sprintf("- **%s**: %s", msg.Role, utils.Truncate(msg.Content, 200))
+			recentLines = append(recentLines, line)
+		}
+	}
+
+	note := FormatCutoverNote(summary, recentLines)
+	if note != "" {
+		noteDate := GetLogicalDate(updated)
+		ms := al.contextBuilder.GetMemoryStore()
+		if err := ms.SaveDailyNoteForDate(noteDate, note); err != nil {
+			logger.WarnCF("agent", "Failed to save daily cutover note", map[string]interface{}{
+				"session_key": sessionKey,
+				"note_date":   noteDate.Format("2006-01-02"),
+				"error":       err.Error(),
+			})
+		} else {
+			logger.InfoCF("agent", "Daily cutover: session archived to daily note", map[string]interface{}{
+				"session_key": sessionKey,
+				"note_date":   noteDate.Format("2006-01-02"),
+				"messages":    len(history),
+			})
+		}
+	}
+
+	al.sessions.ResetSession(sessionKey)
+	al.sessions.Save(sessionKey)
 }
 
 // maybeSummarize triggers summarization if the session history exceeds thresholds.

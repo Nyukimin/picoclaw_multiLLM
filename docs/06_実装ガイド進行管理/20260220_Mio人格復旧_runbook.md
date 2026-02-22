@@ -1,21 +1,21 @@
-# Kuro人格復旧 Runbook
+# Mio人格復旧 Runbook
 
 ## 目的
-LINEでKuro人格が崩れたときに、最短で復旧する。
+LINEでMio人格が崩れたときに、最短で復旧する。
 
 ## 想定する症状
-- 「くろいますか？」への返答が、汎用ヘルプデスク調になる
-- Kuro自身を認識しない文面が返る
+- 「みおいますか？」への返答が、汎用ヘルプデスク調になる
+- Mio自身を認識しない文面が返る
 - 直前まで正常だったのに急に人格が弱くなる
 
 ## 主な原因
-1. 実運用モデルが `kuro-v2` ではなく `kuro-v1` になっている
+1. 実運用モデルが `chat-v1:latest` になっていない
 2. LINEセッション履歴に崩れた応答が残り、会話文脈を汚染している
 3. サービスが古い `~/.local/bin/picoclaw` バイナリで動いている
 
 ## 復旧手順
 ### 1) 現在の設定を確認
-`~/.picoclaw/config.json` を確認し、以下を `ollama/kuro-v2:latest` にする。
+`~/.picoclaw/config.json` を確認し、以下を `ollama/chat-v1:latest` にする。
 - `agents.defaults.model`
 - `routing.llm.chat_model`
 
@@ -46,7 +46,7 @@ LINE webhookを署名付きでローカル送信し、ログを確認する。
 
 期待値:
 - `initial_route=CHAT`
-- 返答がKuro人格（例: 「れんさん！...Kuroです。」）
+- 返答がMio人格（例: 「れんさん！...Mioです。」）
 
 ## 追加チェック
 - `~/.picoclaw/workspace/CHAT_PERSONA.md` が存在し、最新ルールになっている
@@ -77,5 +77,5 @@ rg "line_forced_chat" pkg/agent/loop.go
 
 ## 対象ファイル（人格変更）
 - `~/.picoclaw/workspace/CHAT_PERSONA.md`
-- `docs/05_LLM運用プロンプト設計/Kuro_SYSTEM_prompt_v1.txt`
-- `docs/05_LLM運用プロンプト設計/Kuro_キャラクター設定_v1.md`
+- `docs/05_LLM運用プロンプト設計/Mio_SYSTEM_prompt_v1.txt`
+- `docs/05_LLM運用プロンプト設計/Mio_キャラクター設定_v1.md`

@@ -665,6 +665,44 @@ func gatewayCmd() {
 	}
 
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
+
+	if ollamaBase := cfg.Providers.Ollama.APIBase; ollamaBase != "" {
+		checkURL := strings.TrimSuffix(ollamaBase, "/v1")
+		healthServer.RunPeriodicCheck(ctx, "ollama", 30*time.Second,
+			health.OllamaCheck(checkURL, 5*time.Second))
+
+		var required []health.ModelRequirement
+		type pair struct {
+			provider, model string
+		}
+		for _, p := range []pair{
+			{cfg.Routing.LLM.ChatProvider, cfg.Routing.LLM.ChatModel},
+			{cfg.Routing.LLM.WorkerProvider, cfg.Routing.LLM.WorkerModel},
+			{cfg.Routing.LLM.CoderProvider, cfg.Routing.LLM.CoderModel},
+			{cfg.Routing.LLM.Coder2Provider, cfg.Routing.LLM.Coder2Model},
+		} {
+			if p.provider != "ollama" || p.model == "" {
+				continue
+			}
+			name := p.model
+			if idx := strings.Index(name, "/"); idx != -1 {
+				name = name[idx+1:]
+			}
+			required = append(required, health.ModelRequirement{Name: name})
+		}
+		if len(required) > 0 {
+			names := make([]string, len(required))
+			for i, r := range required {
+				names[i] = r.Name
+			}
+			healthServer.RunPeriodicCheck(ctx, "ollama_models", 30*time.Second,
+				health.OllamaModelsCheck(checkURL, 5*time.Second, required))
+			fmt.Printf("✓ Ollama model check registered (%s, every 30s)\n", strings.Join(names, ", "))
+		}
+
+		fmt.Printf("✓ Ollama health check registered (%s, every 30s)\n", checkURL)
+	}
+
 	go func() {
 		if err := healthServer.Start(); err != nil && err != http.ErrServerClosed {
 			logger.ErrorCF("health", "Health server error", map[string]interface{}{"error": err.Error()})

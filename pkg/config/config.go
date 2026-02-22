@@ -183,6 +183,7 @@ type ProvidersConfig struct {
 	ShengSuanYun  ProviderConfig `json:"shengsuanyun"`
 	DeepSeek      ProviderConfig `json:"deepseek"`
 	GitHubCopilot ProviderConfig `json:"github_copilot"`
+	OllamaRestartCommand string `json:"ollama_restart_command" env:"PICOCLAW_PROVIDERS_OLLAMA_RESTART_COMMAND"`
 }
 
 type ProviderConfig struct {
@@ -274,6 +275,9 @@ type RouteLLMConfig struct {
 	CoderAlias     string `json:"coder_alias" env:"PICOCLAW_ROUTING_LLM_CODER_ALIAS"`
 	CoderProvider  string `json:"coder_provider" env:"PICOCLAW_ROUTING_LLM_CODER_PROVIDER"`
 	CoderModel     string `json:"coder_model" env:"PICOCLAW_ROUTING_LLM_CODER_MODEL"`
+	Coder2Alias    string `json:"coder2_alias" env:"PICOCLAW_ROUTING_LLM_CODER2_ALIAS"`
+	Coder2Provider string `json:"coder2_provider" env:"PICOCLAW_ROUTING_LLM_CODER2_PROVIDER"`
+	Coder2Model    string `json:"coder2_model" env:"PICOCLAW_ROUTING_LLM_CODER2_MODEL"`
 	// Legacy keys kept for backward compatibility.
 	CodeProvider string `json:"code_provider,omitempty" env:"PICOCLAW_ROUTING_LLM_CODE_PROVIDER"`
 	CodeModel    string `json:"code_model,omitempty" env:"PICOCLAW_ROUTING_LLM_CODE_MODEL"`
@@ -431,15 +435,18 @@ func DefaultConfig() *Config {
 			},
 			FallbackRoute: "CHAT",
 			LLM: RouteLLMConfig{
-				ChatAlias:      "Kuro",
-				WorkerAlias:    "Shiro",
-				CoderAlias:     "Aka",
-				ChatProvider:   "",
-				ChatModel:      "",
-				WorkerProvider: "",
-				WorkerModel:    "",
-				CoderProvider:  "",
-				CoderModel:     "",
+			ChatAlias:      "Mio",
+			WorkerAlias:    "Shiro",
+			CoderAlias:     "Aka",
+			Coder2Alias:    "",
+			ChatProvider:   "",
+			ChatModel:      "",
+			WorkerProvider: "",
+			WorkerModel:    "",
+			CoderProvider:  "",
+			CoderModel:     "",
+			Coder2Provider: "",
+			Coder2Model:    "",
 			},
 		},
 		Loop: LoopConfig{

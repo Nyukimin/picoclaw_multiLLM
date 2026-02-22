@@ -29,8 +29,8 @@
   - 通知・復旧フロー（検知 -> 通知 -> 復旧トリガー -> 再確認）
 
 - `docs/05_LLM運用プロンプト設計/LLM_ollama世代管理.md`
-  - `kuro-vN` / `worker-vN` の世代運用
-  - 安定時に `kuro` / `worker` へ上書き
+  - `chat-vN` / `worker-vN` の世代運用
+  - 安定時に `chat-v1` / `worker` へ上書き
   - 不要世代の掃除（`ollama rm`）
 
 - `docs/05_LLM運用プロンプト設計/LLM_deepseek運用仕様.md` のうち運用部分
@@ -50,7 +50,7 @@
   - 上記4つを固定順で連結し、末尾に可変suffixを付加
 
 - `docs/05_LLM運用プロンプト設計/LLM_ollama世代管理.md`
-  - `Modelfile.kuro` の `SYSTEM ...` 文
+  - `Modelfile.chat` の `SYSTEM ...` 文
   - `Modelfile.worker` の `SYSTEM ...` 文（JSON専用）
 
 ## 実装/運用/プロンプトの境界ルール（重複防止）

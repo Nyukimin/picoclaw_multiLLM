@@ -99,7 +99,9 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 	// Ollama's OpenAI-compatible endpoint can default to very large context windows
 	// (e.g., 131072), which may crash/timeout under multimodal load.
 	// Set a bounded context to keep vision requests stable.
+	// keep_alive: -1 keeps Chat/Worker models loaded (永続).
 	if isOllamaEndpoint(p.apiBase) {
+		requestBody["keep_alive"] = -1
 		requestBody["options"] = map[string]interface{}{
 			"num_ctx": 8192,
 		}

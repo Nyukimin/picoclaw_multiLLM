@@ -46,6 +46,59 @@ func TestRouter_RuleRouteCode(t *testing.T) {
 	}
 }
 
+func TestRouter_Code1Command(t *testing.T) {
+	r := NewRouter(config.RoutingConfig{}, nil)
+	d := r.Decide(context.Background(), "/code1 設計書を作って", session.SessionFlags{})
+	if d.Route != RouteCode1 || d.Source != "command" {
+		t.Fatalf("expected CODE1 command route, got route=%s source=%s", d.Route, d.Source)
+	}
+	if d.CleanUserText != "設計書を作って" {
+		t.Fatalf("expected cleaned text, got %q", d.CleanUserText)
+	}
+}
+
+func TestRouter_Code2Command(t *testing.T) {
+	r := NewRouter(config.RoutingConfig{}, nil)
+	d := r.Decide(context.Background(), "/code2 実装して", session.SessionFlags{})
+	if d.Route != RouteCode2 || d.Source != "command" {
+		t.Fatalf("expected CODE2 command route, got route=%s source=%s", d.Route, d.Source)
+	}
+}
+
+func TestRouter_Code1RejectedWhenLocalOnly(t *testing.T) {
+	r := NewRouter(config.RoutingConfig{}, nil)
+	d := r.Decide(context.Background(), "/code1 fix this", session.SessionFlags{LocalOnly: true})
+	if d.DirectResponse == "" {
+		t.Fatalf("expected rejection response for /code1 in local mode")
+	}
+}
+
+func TestParseChatDelegateDirective_Code1Code2(t *testing.T) {
+	for _, route := range []string{"CODE1", "CODE2"} {
+		input := "DELEGATE: " + route + "\nTASK:\ndo something"
+		d, ok := parseChatDelegateDirective(input)
+		if !ok {
+			t.Fatalf("expected valid directive for %s", route)
+		}
+		if d.Route != route {
+			t.Fatalf("expected route %s, got %s", route, d.Route)
+		}
+	}
+}
+
+func TestIsCodeRoute(t *testing.T) {
+	for _, r := range []string{RouteCode, RouteCode1, RouteCode2} {
+		if !IsCodeRoute(r) {
+			t.Fatalf("IsCodeRoute(%s) should be true", r)
+		}
+	}
+	for _, r := range []string{RouteChat, RoutePlan, RouteAnalyze} {
+		if IsCodeRoute(r) {
+			t.Fatalf("IsCodeRoute(%s) should be false", r)
+		}
+	}
+}
+
 func TestRouter_ClassifierRoute(t *testing.T) {
 	cfg := config.RoutingConfig{
 		Classifier: config.RoutingClassifierConfig{

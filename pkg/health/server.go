@@ -9,12 +9,22 @@ import (
 	"time"
 )
 
+type CheckFunc func() (bool, string)
+
+type periodicCheck struct {
+	name     string
+	fn       CheckFunc
+	interval time.Duration
+	cancel   context.CancelFunc
+}
+
 type Server struct {
-	server    *http.Server
-	mu        sync.RWMutex
-	ready     bool
-	checks    map[string]Check
-	startTime time.Time
+	server         *http.Server
+	mu             sync.RWMutex
+	ready          bool
+	checks         map[string]Check
+	startTime      time.Time
+	periodicChecks []periodicCheck
 }
 
 type Check struct {
@@ -80,6 +90,10 @@ func (s *Server) StartContext(ctx context.Context) error {
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	s.ready = false
+	for _, pc := range s.periodicChecks {
+		pc.cancel()
+	}
+	s.periodicChecks = nil
 	s.mu.Unlock()
 	return s.server.Shutdown(ctx)
 }
@@ -101,6 +115,42 @@ func (s *Server) RegisterCheck(name string, checkFn func() (bool, string)) {
 		Message:   msg,
 		Timestamp: time.Now(),
 	}
+}
+
+func (s *Server) RunPeriodicCheck(ctx context.Context, name string, interval time.Duration, checkFn CheckFunc) {
+	childCtx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	s.periodicChecks = append(s.periodicChecks, periodicCheck{
+		name: name, fn: checkFn, interval: interval, cancel: cancel,
+	})
+	s.mu.Unlock()
+
+	s.updateCheck(name, checkFn)
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-childCtx.Done():
+				return
+			case <-ticker.C:
+				s.updateCheck(name, checkFn)
+			}
+		}
+	}()
+}
+
+func (s *Server) updateCheck(name string, checkFn CheckFunc) {
+	ok, msg := checkFn()
+	s.mu.Lock()
+	s.checks[name] = Check{
+		Name:      name,
+		Status:    statusString(ok),
+		Message:   msg,
+		Timestamp: time.Now(),
+	}
+	s.mu.Unlock()
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
