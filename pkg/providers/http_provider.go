@@ -146,9 +146,27 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 
+	// メッセージがLLMに届いたことを保証するログ（送信直前にINFOで出力）
+	lastUserContent := lastUserContentPreview(messages, 200)
+	logger.InfoCF("provider.http", "LLM request sent",
+		map[string]interface{}{
+			"endpoint":           p.apiBase + "/chat/completions",
+			"model":              model,
+			"messages_count":     len(messages),
+			"last_user_preview":  lastUserContent,
+		})
+
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		if len(imageAudits) > 0 && isTimeoutError(err) {
+		isTimeout := isTimeoutError(err)
+		logger.InfoCF("provider.http", "LLM request failed (no response received)",
+			map[string]interface{}{
+				"model":      model,
+				"error":      err.Error(),
+				"is_timeout": isTimeout,
+				"note":       "Ollama may have responded but PicoClaw timed out before reading",
+			})
+		if len(imageAudits) > 0 && isTimeout {
 			timeoutAudits := enrichAuditAfterTimeout(imageAudits)
 			logger.WarnCF("provider.http", "LLM image audit after timeout", map[string]interface{}{
 				"model":  model,
@@ -162,14 +180,74 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logger.InfoCF("provider.http", "LLM response body read failed",
+			map[string]interface{}{"model": model, "error": err.Error()})
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		logger.InfoCF("provider.http", "LLM response non-OK",
+			map[string]interface{}{
+				"model":       model,
+				"status_code": resp.StatusCode,
+				"body_preview": truncateForLog(string(body), 200),
+			})
 		return nil, fmt.Errorf("API request failed:\n  Status: %d\n  Body:   %s", resp.StatusCode, string(body))
 	}
 
-	return p.parseResponse(body)
+	logger.InfoCF("provider.http", "LLM response received (HTTP 200)",
+		map[string]interface{}{
+			"model":     model,
+			"body_len":  len(body),
+		})
+
+	llmResp, err := p.parseResponse(body)
+	if err != nil {
+		logger.InfoCF("provider.http", "LLM response parse failed",
+			map[string]interface{}{
+				"model":       model,
+				"error":       err.Error(),
+				"body_preview": truncateForLog(string(body), 300),
+			})
+		return nil, err
+	}
+
+	if llmResp.Content == "" && len(llmResp.ToolCalls) == 0 {
+		logger.InfoCF("provider.http", "LLM response empty (no content, no tool_calls)",
+			map[string]interface{}{"model": model, "finish_reason": llmResp.FinishReason})
+	}
+	logger.InfoCF("provider.http", "LLM response parsed",
+		map[string]interface{}{
+			"model":         model,
+			"content_len":   len(llmResp.Content),
+			"tool_calls":    len(llmResp.ToolCalls),
+			"finish_reason": llmResp.FinishReason,
+		})
+
+	return llmResp, nil
+}
+
+// truncateForLog returns s truncated to maxLen with "..." suffix for safe logging.
+func truncateForLog(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// lastUserContentPreview returns the content of the last user message, truncated for log.
+func lastUserContentPreview(messages []Message, maxLen int) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" && messages[i].Content != "" {
+			s := strings.TrimSpace(messages[i].Content)
+			if len(s) > maxLen {
+				return s[:maxLen] + "..."
+			}
+			return s
+		}
+	}
+	return ""
 }
 
 func buildHTTPMessages(messages []Message) []map[string]interface{} {

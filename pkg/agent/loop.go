@@ -1221,10 +1221,15 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		}
 
 		if err != nil {
+			isTimeout := errors.Is(err, context.DeadlineExceeded) ||
+				strings.Contains(strings.ToLower(err.Error()), "context deadline exceeded") ||
+				strings.Contains(strings.ToLower(err.Error()), "timeout")
 			logger.ErrorCF("agent", "LLM call failed",
 				map[string]interface{}{
-					"iteration": iteration,
-					"error":     err.Error(),
+					"iteration":   iteration,
+					"error":       err.Error(),
+					"is_timeout":  isTimeout,
+					"note":        "If is_timeout: PicoClaw gave up before Ollama responded; Ollama may have responded",
 				})
 			return "", iteration, fmt.Errorf("LLM call failed after retries: %w", err)
 		}
