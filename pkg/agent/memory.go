@@ -10,8 +10,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
+
+const CutoverHour = 4
+const CutoverTimezone = "Asia/Tokyo"
+
+// cutoverLocation returns the timezone used for daily cutover calculations.
+// Falls back to UTC if the configured timezone cannot be loaded.
+func cutoverLocation() *time.Location {
+	loc, err := time.LoadLocation(CutoverTimezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
 
 // MemoryStore manages persistent memory for the agent.
 // - Long-term memory: memory/MEMORY.md
@@ -126,6 +140,74 @@ func (ms *MemoryStore) GetRecentDailyNotes(days int) string {
 		result += note
 	}
 	return result
+}
+
+// GetCutoverBoundary returns the most recent daily cutover boundary.
+// The cutover boundary is CutoverHour (04:00 JST) of today or yesterday,
+// whichever is the most recent past time. All calculations use CutoverTimezone.
+func GetCutoverBoundary(now time.Time) time.Time {
+	loc := cutoverLocation()
+	nowLocal := now.In(loc)
+	today := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), CutoverHour, 0, 0, 0, loc)
+	if nowLocal.Before(today) {
+		return today.AddDate(0, 0, -1)
+	}
+	return today
+}
+
+// GetLogicalDate returns the "logical date" for a given time, accounting
+// for the cutover hour. Activity before CutoverHour (JST) belongs to the
+// previous calendar day. All calculations use CutoverTimezone.
+func GetLogicalDate(t time.Time) time.Time {
+	loc := cutoverLocation()
+	tLocal := t.In(loc)
+	if tLocal.Hour() < CutoverHour {
+		tLocal = tLocal.AddDate(0, 0, -1)
+	}
+	return time.Date(tLocal.Year(), tLocal.Month(), tLocal.Day(), 0, 0, 0, 0, loc)
+}
+
+// SaveDailyNoteForDate writes content to the daily note for a specific date.
+func (ms *MemoryStore) SaveDailyNoteForDate(date time.Time, content string) error {
+	dateStr := date.Format("20060102")
+	monthDir := dateStr[:6]
+	dirPath := filepath.Join(ms.memoryDir, monthDir)
+	os.MkdirAll(dirPath, 0755)
+
+	filePath := filepath.Join(dirPath, dateStr+".md")
+
+	var existingContent string
+	if data, err := os.ReadFile(filePath); err == nil {
+		existingContent = string(data)
+	}
+
+	var newContent string
+	if existingContent == "" {
+		header := fmt.Sprintf("# %s\n\n", date.Format("2006-01-02"))
+		newContent = header + content
+	} else {
+		newContent = existingContent + "\n\n" + content
+	}
+
+	return os.WriteFile(filePath, []byte(newContent), 0644)
+}
+
+// FormatCutoverNote builds a daily note from a session summary and recent messages.
+func FormatCutoverNote(summary string, recentMessages []string) string {
+	var parts []string
+
+	if summary != "" {
+		parts = append(parts, "## Session Summary\n\n"+summary)
+	}
+
+	if len(recentMessages) > 0 {
+		parts = append(parts, "## Last Messages\n\n"+strings.Join(recentMessages, "\n"))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // GetMemoryContext returns formatted memory context for the agent prompt.

@@ -293,6 +293,34 @@ func (sm *SessionManager) SetHistory(key string, history []providers.Message) {
 	}
 }
 
+// GetUpdatedTime returns the last updated time for a session.
+// Returns zero time if the session does not exist.
+func (sm *SessionManager) GetUpdatedTime(key string) time.Time {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	session, ok := sm.sessions[key]
+	if !ok {
+		return time.Time{}
+	}
+	return session.Updated
+}
+
+// ResetSession clears the messages and summary of a session, keeping
+// the key, flags, and timestamps. Created is preserved; Updated is set to now.
+func (sm *SessionManager) ResetSession(key string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	session, ok := sm.sessions[key]
+	if !ok {
+		return
+	}
+	session.Messages = []providers.Message{}
+	session.Summary = ""
+	session.Updated = time.Now()
+}
+
 func (sm *SessionManager) GetFlags(key string) SessionFlags {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSanitizeFilename(t *testing.T) {
@@ -143,4 +144,72 @@ func TestWorkOverlayFlags_OmitEmpty(t *testing.T) {
 	if got.WorkOverlayDirective != "" {
 		t.Fatalf("expected empty WorkOverlayDirective, got %q", got.WorkOverlayDirective)
 	}
+}
+
+func TestGetUpdatedTime(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	key := "line:U12345"
+	got := sm.GetUpdatedTime(key)
+	if !got.IsZero() {
+		t.Fatalf("expected zero time for non-existent session, got %v", got)
+	}
+
+	sm.GetOrCreate(key)
+	got = sm.GetUpdatedTime(key)
+	if got.IsZero() {
+		t.Fatal("expected non-zero time after GetOrCreate")
+	}
+}
+
+func TestResetSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	key := "line:U99999"
+	sm.GetOrCreate(key)
+	sm.AddMessage(key, "user", "hello")
+	sm.AddMessage(key, "assistant", "hi there")
+	sm.SetSummary(key, "User greeted assistant.")
+
+	if len(sm.GetHistory(key)) != 2 {
+		t.Fatalf("expected 2 messages before reset, got %d", len(sm.GetHistory(key)))
+	}
+	if sm.GetSummary(key) == "" {
+		t.Fatal("expected non-empty summary before reset")
+	}
+
+	beforeReset := sm.GetUpdatedTime(key)
+	time.Sleep(10 * time.Millisecond)
+
+	sm.ResetSession(key)
+
+	history := sm.GetHistory(key)
+	if len(history) != 0 {
+		t.Fatalf("expected 0 messages after reset, got %d", len(history))
+	}
+	if sm.GetSummary(key) != "" {
+		t.Fatalf("expected empty summary after reset, got %q", sm.GetSummary(key))
+	}
+
+	afterReset := sm.GetUpdatedTime(key)
+	if !afterReset.After(beforeReset) {
+		t.Error("expected Updated to advance after reset")
+	}
+
+	// Flags should be preserved
+	sm.SetFlags(key, SessionFlags{PrevPrimaryRoute: "CHAT"})
+	sm.ResetSession(key)
+	if sm.GetFlags(key).PrevPrimaryRoute != "CHAT" {
+		t.Error("expected flags to be preserved after reset")
+	}
+}
+
+func TestResetSession_NonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	// Should not panic
+	sm.ResetSession("nonexistent:key")
 }
