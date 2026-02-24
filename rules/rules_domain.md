@@ -682,9 +682,93 @@ func LogApprovalDenied(jobID, approver string) {
 
 ---
 
-## 8. テストパターン
+## 8. テストパターンと TDD
 
-### 8.1 ユニットテストの構造
+### 8.1 TDD サイクル（必須）
+
+すべての新機能追加・バグ修正は TDD サイクルに従う。
+
+#### 8.1.1 Red-Green-Refactor サイクル
+
+```
+1. Red（失敗するテストを書く）
+   ↓
+2. Green（テストを通す最小実装）
+   ↓
+3. Refactor（リファクタリング）
+   ↓
+4. LINT チェック
+   ↓
+   繰り返し
+```
+
+#### 8.1.2 Red フェーズの例
+
+```go
+// pkg/approval/manager_test.go
+func TestManager_CreateJob_Duplicate(t *testing.T) {
+    // Arrange
+    mgr := NewManager()
+    jobID := "test-job-001"
+
+    // 最初のジョブ作成は成功
+    err := mgr.CreateJob(jobID, "plan", "patch", nil)
+    if err != nil {
+        t.Fatalf("First CreateJob should succeed: %v", err)
+    }
+
+    // Act: 同じ job_id で再度作成を試みる
+    err = mgr.CreateJob(jobID, "plan2", "patch2", nil)
+
+    // Assert: エラーが返されることを期待（Red）
+    if err == nil {
+        t.Error("Expected error for duplicate job_id, got nil")
+    }
+    if !errors.Is(err, ErrJobExists) {
+        t.Errorf("Expected ErrJobExists, got %v", err)
+    }
+}
+```
+
+#### 8.1.3 Green フェーズの例
+
+```go
+// pkg/approval/manager.go
+func (m *Manager) CreateJob(jobID, plan, patch string, risk map[string]interface{}) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    // 重複チェックを追加（Green: テストを通す）
+    if _, exists := m.jobs[jobID]; exists {
+        return fmt.Errorf("%w: %s", ErrJobExists, jobID)
+    }
+
+    m.jobs[jobID] = &Job{
+        JobID:       jobID,
+        Status:      StatusPending,
+        Plan:        plan,
+        Patch:       patch,
+        Risk:        risk,
+        RequestedAt: time.Now().Format(time.RFC3339),
+    }
+    return nil
+}
+```
+
+#### 8.1.4 Refactor フェーズ
+
+- コードの重複を排除
+- 変数名・関数名を改善
+- 構造を最適化
+- **LINT チェック実行**（必須）
+
+```bash
+# Refactor 後に必ず実行
+golangci-lint run ./pkg/approval/...
+go test ./pkg/approval/... -v
+```
+
+### 8.2 ユニットテストの構造
 
 **ファイル命名**: `*_test.go`
 
@@ -724,7 +808,7 @@ func TestManager_CreateJob(t *testing.T) {
 }
 ```
 
-### 8.2 テーブル駆動テスト
+### 8.3 テーブル駆動テスト
 
 ```go
 func TestGenerateJobID(t *testing.T) {
@@ -751,7 +835,7 @@ func TestGenerateJobID(t *testing.T) {
 }
 ```
 
-### 8.3 モックの使用
+### 8.4 モックの使用
 
 **httptest の使用例**:
 
@@ -776,9 +860,168 @@ func TestOllamaCheck(t *testing.T) {
 
 ---
 
-## 9. パフォーマンス最適化
+### 8.5 テストカバレッジの測定
 
-### 9.1 メモリ使用量の監視
+```bash
+# カバレッジ測定
+go test ./pkg/approval/... -coverprofile=coverage.out
+
+# HTML レポート生成
+go tool cover -html=coverage.out
+
+# カバレッジ率を表示
+go test ./pkg/approval/... -cover
+```
+
+**目標カバレッジ**:
+- 重要パッケージ（`agent`, `approval`, `session`）: 80% 以上
+- その他のパッケージ: 70% 以上
+
+---
+
+## 9. LINT チェック（必須）
+
+### 9.1 golangci-lint のセットアップ
+
+#### 9.1.1 インストール
+
+```bash
+# 最新版をインストール
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# バージョン確認
+golangci-lint version
+```
+
+#### 9.1.2 設定ファイル
+
+**`.golangci.yml`** をプロジェクトルートに配置:
+
+```yaml
+linters:
+  enable:
+    - errcheck      # エラーチェック漏れ
+    - govet         # 疑わしいコード構造
+    - staticcheck   # 静的解析
+    - gosimple      # コード簡素化提案
+    - unused        # 未使用コード検出
+    - ineffassign   # 無駄な代入
+    - gofmt         # フォーマット確認
+    - goimports     # import 整理
+    - goconst       # 定数化可能な文字列
+    - misspell      # スペルチェック
+    - unconvert     # 不要な型変換
+    - unparam       # 未使用パラメータ
+
+linters-settings:
+  errcheck:
+    check-blank: true
+    check-type-assertions: true
+
+  govet:
+    check-shadowing: true
+
+  staticcheck:
+    checks: ["all"]
+
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+    - .serena
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+```
+
+### 9.2 LINT チェックの実行
+
+#### 9.2.1 基本実行
+
+```bash
+# すべてのパッケージをチェック
+golangci-lint run
+
+# 特定パッケージのみ
+golangci-lint run ./pkg/approval/...
+
+# 自動修正（可能な場合）
+golangci-lint run --fix
+```
+
+#### 9.2.2 CI/CD での実行
+
+```bash
+# エラーがある場合は失敗させる
+golangci-lint run --max-issues-per-linter=0 --max-same-issues=0
+```
+
+### 9.3 LINT エラーの対処
+
+#### 9.3.1 優先度
+
+1. **エラー**: 必ず修正（コミット禁止）
+2. **警告**: 可能な限り修正
+3. **情報**: 確認して判断
+
+#### 9.3.2 例外的に無視する場合
+
+**nolint ディレクティブ**（最小限に使用）:
+
+```go
+// 特定の Linter のみ無視
+// nolint:errcheck // 理由: この戻り値は常に nil
+_ = file.Close()
+
+// 複数の Linter を無視
+// nolint:errcheck,gosec
+password := os.Getenv("PASSWORD")
+
+// 1 行全体を無視
+//nolint
+func legacyFunction() { /* ... */ }
+```
+
+**重要**: nolint を使う場合は**必ずコメントで理由を記載**する。
+
+#### 9.3.3 よくある LINT エラーと対処
+
+| エラー | 原因 | 対処 |
+|--------|------|------|
+| `Error return value not checked` | エラーチェック漏れ | `if err != nil` で適切にハンドリング |
+| `Unused variable` | 未使用変数 | 削除するか `_` で明示的に無視 |
+| `Should have comment` | 公開関数のコメント不足 | godoc 形式でコメント追加 |
+| `Cognitive complexity too high` | 関数が複雑すぎる | 小さな関数に分割 |
+| `Magic number` | マジックナンバー | 定数として定義 |
+
+### 9.4 コミット前チェック（必須手順）
+
+```bash
+# 1. LINT チェック
+golangci-lint run
+# → エラーがある場合はすべて修正
+
+# 2. テスト実行
+go test ./pkg/... -v
+# → すべてのテストが通ることを確認
+
+# 3. カバレッジ確認
+go test ./pkg/... -cover
+# → 目標カバレッジを満たしているか確認
+
+# 4. すべて OK ならコミット
+git add .
+git commit -m "feat: 機能追加"
+```
+
+---
+
+## 10. パフォーマンス最適化
+
+### 10.1 メモリ使用量の監視
 
 ```go
 import "runtime"
@@ -794,7 +1037,7 @@ func logMemoryUsage() {
 }
 ```
 
-### 9.2 ガベージコレクション制御
+### 10.2 ガベージコレクション制御
 
 ```go
 import "runtime/debug"
@@ -809,7 +1052,7 @@ func (m *Manager) performCutover() {
 }
 ```
 
-### 9.3 goroutine リーク防止
+### 10.3 goroutine リーク防止
 
 ```go
 // ✅ Good: context でキャンセル可能
@@ -842,11 +1085,11 @@ func (p *Provider) SendMessage(ctx context.Context, req *Request) (*Response, er
 
 ---
 
-## 10. デバッグとトラブルシューティング
+## 11. デバッグとトラブルシューティング
 
-### 10.1 よくある問題
+### 11.1 よくある問題
 
-#### 10.1.1 Ollama 接続エラー
+#### 11.1.1 Ollama 接続エラー
 
 **症状**: `connection failed: dial tcp [::1]:11434: connect: connection refused`
 
@@ -867,7 +1110,7 @@ systemctl --user restart ollama
 curl http://localhost:11434/api/tags
 ```
 
-#### 10.1.2 MaxContext 超過エラー
+#### 11.1.2 MaxContext 超過エラー
 
 **症状**: `context_length 131072 exceeds max 8192`
 
@@ -884,7 +1127,7 @@ EOF
 ollama create chat-v1:latest -f Modelfile
 ```
 
-#### 10.1.3 job_id not found エラー
+#### 11.1.3 job_id not found エラー
 
 **症状**: `job test-job-001 not found`
 
