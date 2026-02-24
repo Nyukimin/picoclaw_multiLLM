@@ -688,7 +688,8 @@ func gatewayCmd() {
 			if idx := strings.Index(name, "/"); idx != -1 {
 				name = name[idx+1:]
 			}
-			required = append(required, health.ModelRequirement{Name: name})
+			// MaxContext=8192: num_ctx を超えるロード（例: 131072）は NG
+			required = append(required, health.ModelRequirement{Name: name, MaxContext: 8192})
 		}
 		if len(required) > 0 {
 			names := make([]string, len(required))

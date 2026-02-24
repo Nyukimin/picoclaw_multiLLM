@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "serena": {
+      "command": "/home/nyukimi/.local/bin/uvx",
+      "args": [
+        "--from",
+        "/home/nyukimi/serena",
+        "serena-mcp-server",
+        "--project-from-cwd"
+      ]
+    }
+  }
+}

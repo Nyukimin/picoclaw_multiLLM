@@ -79,7 +79,7 @@ const DefaultWorkOverlayTurns = 8
 
 const WorkOverlayDirectiveText = `Mioへ（仕事モード）：
 - れんさんの意図とゴールを1〜2文で要約
-- 結論→手順→確認（確認は1〜3件）
+- 要点→手順→確認の順だが、見出し（結論・手順・確認）は出力しない。自然な文で構成
 - 推測は推測と明示。不明は不明と言う
 - 長文化しない。網羅を避ける
 - 追加提案は最大1件
@@ -446,14 +446,23 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	}
 	response, err := al.runAgentLoop(ctx, opts)
 
-	// LINE指示ごと: ヘルスチェック（失敗してなくても実行）→Ollama落ちてたら再起動→リトライ
+	// LINE指示ごと: ヘルスチェック（失敗してなくても実行）→Ollama落ち/モデル未ロードなら再起動→リトライ
 	if al.routeUsesOllama(decision.Route) && al.cfg.Providers.Ollama.APIBase != "" {
 		checkURL := strings.TrimSuffix(al.cfg.Providers.Ollama.APIBase, "/v1")
 		ollamaOK, ollamaMsg := health.OllamaCheck(checkURL, 5*time.Second)()
+		required := al.buildOllamaRequiredModels()
+		modelsOK, modelsMsg := true, ""
+		if len(required) > 0 {
+			modelsOK, modelsMsg = health.OllamaModelsCheck(checkURL, 5*time.Second, required)()
+		}
 		logger.InfoCF("agent", "ollama health check",
-			map[string]interface{}{"ok": ollamaOK, "msg": ollamaMsg, "llm_err": err != nil})
-		// Ollama落ちてたら再起動し、LLM失敗時のみリトライ（成功時の重複を防ぐ）
-		if !ollamaOK && strings.TrimSpace(al.cfg.Providers.OllamaRestartCommand) != "" {
+			map[string]interface{}{
+				"ollama_ok": ollamaOK, "ollama_msg": ollamaMsg,
+				"models_ok": modelsOK, "models_msg": modelsMsg,
+				"llm_err":   err != nil,
+			})
+		needsRestart := !ollamaOK || !modelsOK
+		if needsRestart && strings.TrimSpace(al.cfg.Providers.OllamaRestartCommand) != "" {
 			cmd := exec.CommandContext(ctx, "sh", "-c", al.cfg.Providers.OllamaRestartCommand)
 			if runErr := cmd.Run(); runErr != nil {
 				logger.WarnCF("agent", "ollama restart failed", map[string]interface{}{"error": runErr.Error()})
@@ -844,6 +853,30 @@ func selectCoderRoute(taskText string) string {
 func (al *AgentLoop) routeUsesOllama(route string) bool {
 	provider, _ := al.resolveRouteLLM(route)
 	return strings.EqualFold(strings.TrimSpace(provider), "ollama")
+}
+
+func (al *AgentLoop) buildOllamaRequiredModels() []health.ModelRequirement {
+	var required []health.ModelRequirement
+	type pair struct {
+		provider, model string
+	}
+	llm := al.cfg.Routing.LLM
+	for _, p := range []pair{
+		{llm.ChatProvider, llm.ChatModel},
+		{llm.WorkerProvider, llm.WorkerModel},
+		{llm.CoderProvider, llm.CoderModel},
+		{llm.Coder2Provider, llm.Coder2Model},
+	} {
+		if !strings.EqualFold(strings.TrimSpace(p.provider), "ollama") || p.model == "" {
+			continue
+		}
+		name := p.model
+		if idx := strings.Index(name, "/"); idx != -1 {
+			name = name[idx+1:]
+		}
+		required = append(required, health.ModelRequirement{Name: name, MaxContext: 8192})
+	}
+	return required
 }
 
 func (al *AgentLoop) resolveRouteRoleAlias(route string) (string, string) {

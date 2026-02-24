@@ -189,6 +189,7 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 // LoadBootstrapFilesForRoute loads bootstrap files appropriate for the given route.
 // Shared files (constraints, user info) are loaded for all routes.
 // Persona/character files are loaded only for CHAT route.
+// For CHAT, CHAT_PERSONA is loaded first so personality takes priority.
 func (cb *ContextBuilder) LoadBootstrapFilesForRoute(route string) string {
 	sharedFiles := []string{
 		"AGENTS.md",
@@ -205,19 +206,19 @@ func (cb *ContextBuilder) LoadBootstrapFilesForRoute(route string) string {
 	isChat := strings.EqualFold(strings.TrimSpace(route), RouteChat)
 
 	var result string
-	for _, filename := range sharedFiles {
-		filePath := filepath.Join(cb.workspace, filename)
-		if data, err := os.ReadFile(filePath); err == nil {
-			result += fmt.Sprintf("## %s\n\n%s\n\n", filename, string(data))
-		}
-	}
-
 	if isChat {
+		// CHAT: load persona first so 個性 takes priority
 		for _, filename := range chatOnlyFiles {
 			filePath := filepath.Join(cb.workspace, filename)
 			if data, err := os.ReadFile(filePath); err == nil {
 				result += fmt.Sprintf("## %s\n\n%s\n\n", filename, string(data))
 			}
+		}
+	}
+	for _, filename := range sharedFiles {
+		filePath := filepath.Join(cb.workspace, filename)
+		if data, err := os.ReadFile(filePath); err == nil {
+			result += fmt.Sprintf("## %s\n\n%s\n\n", filename, string(data))
 		}
 	}
 
