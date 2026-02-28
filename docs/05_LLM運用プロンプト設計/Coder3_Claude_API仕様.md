@@ -10,8 +10,10 @@ md_content = """# Coder3 仕様（Claude API 専用・PicoClaw用）
 - OAuthトークンは使わない（決定）
 - PicoClawはユーザー承認を求めるタイプの自動化を行う（決定）
 - 自動承認モード（Auto-Approve）を付ける（決定）
-- Coder3は **Claude APIキー** による **APIアクセスのみ** を行う
-- Claude in Chrome / Claude Code は **人間が手で使うツールとして分離**（Coder3に組み込まない）
+- Coder3は **Claude APIキー** による **APIアクセス** を行う
+- Coder3は **Chrome 操作の提案（plan）** を生成できる
+- Chrome 操作の実行は **承認フロー（job_id）を通した場合のみ** 可能
+- 承認方式: 都度承認（`/approve <job_id>`）または 永続承認（期限付き・Scope 制限）
 
 ---
 
@@ -28,6 +30,7 @@ md_content = """# Coder3 仕様（Claude API 専用・PicoClaw用）
 - Worker（実行・道具係）
   - 定型処理・分解・集約・変換・検証の実務（ツール実行）
   - Web取得、ファイル編集、ログ整理、差分適用、テスト実行など
+  - **ブラウザ操作**（MCP Chrome 経由で Chrome を制御）
   - “作業を進める”が、破壊的操作は承認ゲートに従う
   - 失敗時は原因を構造化し、Chatに「次の打ち手」を返す
 
@@ -68,9 +71,11 @@ md_content = """# Coder3 仕様（Claude API 専用・PicoClaw用）
 - 複雑なリファクタ、テスト設計、レビュー指摘（根拠付き）
 - 依存関係や既存コードの整合性を維持した修正案の作成
 
-### 3-2. 非担当（やらない）
-- ブラウザUIの自動操作（ログイン状態の利用、クリック自動化等）
-- OAuth/セッション/クッキーの取得や流用
+### 3-2. 非担当（直接実行しない）
+- ブラウザ UI 操作、ファイル編集、コマンド実行などの**直接実行**
+  - これらは **plan（提案）として生成** し、Worker に渡す
+  - Worker が **承認済み job_id** を確認してから実行
+- OAuth/セッション/クッキーの取得や流用（セキュリティリスク）
 - 破壊的操作（削除/上書き）を **承認なし** で実行
 
 ---
@@ -221,10 +226,64 @@ approval:
 ```
 ---
 
-## 13. 受け入れ条件（Acceptance）
+## 13. MCP Chrome 統合（ブラウザ操作）
 
-OAuthトークン/ブラウザセッションを一切使わずに動作する
-承認フローなしに破壊的変更が適用されない
-Auto-ApproveはScopeとTTLで事故範囲が限定され、即OFFできる
-すべての処理が job_id で追跡できる
-Chat/Worker/Coderの責務が混ざらず、実行はWorker、意思決定はChat、設計/生成はCoderで運用できる
+### 13-1. 目的
+Coder3 が Web サイトの情報収集やブラウザ操作を必要とする場合、MCP Chrome 経由で Chrome を制御する。
+
+### 13-2. アーキテクチャ
+```
+Ubuntu (PicoClaw)
+  │
+  ├─ Coder3: Chrome 操作の plan を生成（例: "example.com にアクセスしてタイトルを取得"）
+  │           ↓
+  ├─ Chat: 承認要求を送信（job_id 付き）
+  │           ↓
+  └─ 人間: /approve <job_id> または 永続承認（期限付き）
+              ↓
+Ubuntu (Worker)
+  ↓ HTTP
+Win11 (mcp-chrome-bridge)
+  ↓ Native Messaging
+Chrome: 承認された操作のみ実行
+```
+
+### 13-3. 承認フローの必須化
+- Chrome 操作は **すべて job_id で追跡**
+- 承認なしでは実行されない
+- 承認要求メッセージには以下を含む:
+  - `job_id`
+  - 操作内容（URL、クリック対象、入力内容等）
+  - リスク（外部送信、個人情報、セッション利用等）
+  - `uses_browser: true` フラグ
+
+### 13-4. 利用可能な Chrome 操作
+MCP Chrome 経由で以下の操作が可能:
+- **chrome_navigate**: 指定 URL に移動
+- **chrome_click**: 指定セレクタの要素をクリック
+- **chrome_get_text**: 指定セレクタのテキストを取得
+- **chrome_screenshot**: ページのスクリーンショットを取得
+- **chrome_execute_script**: JavaScript を実行（高リスク・要明示承認）
+
+### 13-5. セキュリティ制約
+- ログイン状態の流用は **原則禁止**（例外: 明示的承認が必要）
+- 機密情報（パスワード、トークン等）の入力は **高リスク承認**
+- 外部送信を伴う操作は **必ず承認要求に明記**
+- セッション/クッキーの取得・送信は **禁止**
+
+### 13-6. Auto-Approve 対象外
+Chrome 操作は Auto-Approve の対象外（例外なく承認必須）。
+理由: ブラウザ操作は予期しない副作用（外部送信、ログイン状態変更等）のリスクが高いため。
+
+---
+
+## 14. 受け入れ条件（Acceptance）
+
+- OAuthトークン/ブラウザセッションを一切使わずに動作する
+- 承認フローなしに破壊的変更が適用されない
+- **Chrome 操作は job_id で追跡され、承認なしで実行されない**
+- **ブラウザ操作の承認要求には `uses_browser: true` フラグが含まれる**
+- Auto-ApproveはScopeとTTLで事故範囲が限定され、即OFFできる
+- **Chrome 操作は Auto-Approve の対象外**（例外なく承認必須）
+- すべての処理が job_id で追跡できる
+- Chat/Worker/Coderの責務が混ざらず、実行はWorker、意思決定はChat、設計/生成はCoderで運用できる
