@@ -1,0 +1,156 @@
+# PicoClaw プロジェクト解析プロファイル
+# generated_at: 2026-02-28
+# purpose: PicoClaw マルチ LLM ルーティングシステムの階層的解析
+
+profile_schema_version: "1.0"
+name: picoclaw_multiLLM
+
+module_groups:
+  # 1. エントリポイントと設定
+  - id: core
+    name: コア（エントリポイント・設定）
+    dirs:
+      - "cmd/"
+      - "config/"
+    focus:
+      - "アプリケーションエントリポイント（main.go）"
+      - "設定ファイル構造とデフォルト値"
+      - "起動フロー"
+
+  # 2. ルーティングとエージェント制御
+  - id: agent
+    name: エージェント（ルーティング・ループ）
+    dirs:
+      - "pkg/agent/"
+    focus:
+      - "ルーティング決定ロジック（明示コマンド・辞書・分類器）"
+      - "エージェントループとセッション管理"
+      - "Chat/Worker/Coder の役割分離"
+
+  # 3. LLM プロバイダー
+  - id: llm_provider
+    name: LLM プロバイダー
+    dirs:
+      - "pkg/provider/"
+    focus:
+      - "Ollama, DeepSeek, OpenAI, Anthropic Claude API の統合"
+      - "モデル選択とヘルスチェック"
+      - "リトライ・タイムアウト戦略"
+      - "ストリーム対応"
+
+  # 4. 承認フロー
+  - id: approval
+    name: 承認フロー
+    dirs:
+      - "pkg/approval/"
+    focus:
+      - "job_id ベースの承認追跡"
+      - "Auto-Approve モード（Scope/TTL）"
+      - "承認要求の生成とステータス管理"
+      - "破壊的操作の検出"
+
+  # 5. セッション管理
+  - id: session
+    name: セッション管理
+    dirs:
+      - "pkg/session/"
+    focus:
+      - "日次カットオーバーとメモリ管理"
+      - "セッション永続化（Obsidian 連携）"
+      - "セッション状態（メッセージ履歴、コンテキスト）"
+
+  # 6. MCP 統合
+  - id: mcp
+    name: MCP 統合
+    dirs:
+      - "pkg/mcp/"
+    focus:
+      - "MCP サーバー接続管理"
+      - "Chrome DevTools Protocol 統合"
+      - "Tool 定義とルーティング"
+
+  # 7. インフラ層
+  - id: infra
+    name: インフラ層（ログ・設定）
+    dirs:
+      - "pkg/logger/"
+      - "pkg/config/"
+    focus:
+      - "構造化ログと観測性"
+      - "ログマスキング（API キー等）"
+      - "設定読み込みとバリデーション"
+
+# 外部資料のマッピングヒント
+refs_keywords:
+  core:
+    - "起動"
+    - "エントリポイント"
+    - "設定"
+  agent:
+    - "ルーティング"
+    - "エージェント"
+    - "分類器"
+  llm_provider:
+    - "LLM"
+    - "プロバイダー"
+    - "Ollama"
+    - "Claude"
+    - "DeepSeek"
+  approval:
+    - "承認"
+    - "Auto-Approve"
+    - "job_id"
+  session:
+    - "セッション"
+    - "カットオーバー"
+    - "永続化"
+  mcp:
+    - "MCP"
+    - "Chrome"
+    - "DevTools"
+  infra:
+    - "ログ"
+    - "logger"
+    - "config"
+
+# ユースケース定義
+use_cases:
+  - id: uc1
+    name: "LINE/Slack からの指示受信 → ルーティング → LLM 実行 → 応答返却"
+  - id: uc2
+    name: "Coder3 による plan/patch 生成 → 承認要求 → 承認後に Worker が実行"
+  - id: uc3
+    name: "Auto-Approve モード ON → Scope/TTL 内で自動承認 → 即時 OFF"
+  - id: uc4
+    name: "Ollama ヘルスチェック → モデル常駐確認 → 異常時再起動"
+  - id: uc5
+    name: "日次カットオーバー → セッションメモリリセット → 新セッション開始"
+
+# 出力設定
+output:
+  modules_subdir: "modules"
+  anomaly_file: "潜在バグ一覧.md"
+
+# 異常カテゴリ（Phase 2 で使用）
+anomaly_categories:
+  - name: "メモリリーク懸念"
+    pattern: "無限ループ、メモリ解放なし"
+  - name: "並行処理の競合"
+    pattern: "goroutine、mutex なし、共有変数"
+  - name: "エラーハンドリング不足"
+    pattern: "error 無視、panic 未対応"
+  - name: "設定バリデーション不足"
+    pattern: "型チェック、範囲チェック欠如"
+  - name: "API キー露出リスク"
+    pattern: "平文保存、ログ出力"
+
+# 深刻度レベル
+severity_levels:
+  - level: "Critical"
+    criteria: "セキュリティ侵害、データ損失、システム停止"
+  - level: "High"
+    criteria: "機能不全、パフォーマンス劣化"
+  - level: "Medium"
+    criteria: "保守性低下、コード品質問題"
+  - level: "Low"
+    criteria: "軽微な改善提案"
