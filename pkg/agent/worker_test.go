@@ -386,3 +386,76 @@ func TestExecuteWorkerPatch_Integration(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePatch_MarkdownFormat(t *testing.T) {
+	tests := []struct {
+		name       string
+		patch      string
+		wantCount  int
+		wantType   string
+		wantTarget string
+	}{
+		{
+			name:       "Markdown file edit with go syntax",
+			patch:      "```go:pkg/agent/test.go\npackage agent\n\nfunc Test() {}\n```",
+			wantCount:  1,
+			wantType:   "file_edit",
+			wantTarget: "pkg/agent/test.go",
+		},
+		{
+			name:       "Markdown shell command with bash",
+			patch:      "```bash\ngo test ./pkg/...\n```",
+			wantCount:  1,
+			wantType:   "shell_command",
+			wantTarget: "go test ./pkg/...",
+		},
+		{
+			name:       "Markdown shell command with sh",
+			patch:      "```sh\necho hello\n```",
+			wantCount:  1,
+			wantType:   "shell_command",
+			wantTarget: "echo hello",
+		},
+		{
+			name: "Mixed markdown with multiple blocks",
+			patch: `## Changes
+
+` + "```go:pkg/agent/loop.go\n" + `package agent
+` + "```\n\n" + `Run tests:
+` + "```bash\n" + `go test
+` + "```",
+			wantCount: 2,
+		},
+		{
+			name:      "Markdown with no code blocks",
+			patch:     "Just some text\nNo code here",
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			commands, err := parsePatch(tt.patch)
+
+			if tt.wantCount == 0 {
+				if err == nil {
+					t.Errorf("Expected error for patch with no code blocks")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if len(commands) != tt.wantCount {
+				t.Errorf("Count mismatch: got %d, want %d", len(commands), tt.wantCount)
+			}
+			if tt.wantType != "" && commands[0].Type != tt.wantType {
+				t.Errorf("Type mismatch: got %s, want %s", commands[0].Type, tt.wantType)
+			}
+			if tt.wantTarget != "" && commands[0].Target != tt.wantTarget {
+				t.Errorf("Target mismatch: got %s, want %s", commands[0].Target, tt.wantTarget)
+			}
+		})
+	}
+}

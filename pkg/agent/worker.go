@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -25,9 +26,47 @@ func parsePatch(patch string) ([]PatchCommand, error) {
 		return nil, fmt.Errorf("empty patch")
 	}
 
+	// JSON パースを試行
+	trimmed := strings.TrimSpace(patch)
+	if strings.HasPrefix(trimmed, "[") {
+		var commands []PatchCommand
+		if err := json.Unmarshal([]byte(patch), &commands); err != nil {
+			return nil, fmt.Errorf("failed to parse patch as JSON: %w", err)
+		}
+		return commands, nil
+	}
+
+	// Markdown パース
+	return parseMarkdownPatch(patch)
+}
+
+// parseMarkdownPatch は Markdown 形式の patch を解析する
+func parseMarkdownPatch(patch string) ([]PatchCommand, error) {
 	var commands []PatchCommand
-	if err := json.Unmarshal([]byte(patch), &commands); err != nil {
-		return nil, fmt.Errorf("failed to parse patch as JSON: %w", err)
+
+	// ```go:<filepath> または ```<lang>:<filepath> パターン
+	fileEditRe := regexp.MustCompile("```(?:go|python|js|java|rust|cpp|c):([^\n]+)\n([\\s\\S]*?)```")
+	for _, match := range fileEditRe.FindAllStringSubmatch(patch, -1) {
+		commands = append(commands, PatchCommand{
+			Type:    "file_edit",
+			Action:  "update",
+			Target:  strings.TrimSpace(match[1]),
+			Content: match[2],
+		})
+	}
+
+	// ```bash または ```sh パターン（シェルコマンド）
+	shellRe := regexp.MustCompile("```(?:bash|sh)\n([\\s\\S]*?)```")
+	for _, match := range shellRe.FindAllStringSubmatch(patch, -1) {
+		commands = append(commands, PatchCommand{
+			Type:   "shell_command",
+			Action: "run",
+			Target: strings.TrimSpace(match[1]),
+		})
+	}
+
+	if len(commands) == 0 {
+		return nil, fmt.Errorf("no valid commands found in Markdown patch")
 	}
 
 	return commands, nil
