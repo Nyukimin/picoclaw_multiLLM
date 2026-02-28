@@ -237,3 +237,21 @@ func FatalF(message string, fields map[string]interface{}) {
 func FatalCF(component string, message string, fields map[string]interface{}) {
 	logMessage(FATAL, component, message, fields)
 }
+
+// Worker-related logging helpers
+
+// LogWorkerSuccess は Worker 実行成功のログを記録
+func LogWorkerSuccess(patch, result string) {
+	InfoCF("worker", "worker.success", map[string]interface{}{
+		"patch":  patch,
+		"result": result,
+	})
+}
+
+// LogWorkerFail は Worker 実行失敗のログを記録
+func LogWorkerFail(patch string, err error) {
+	ErrorCF("worker", "worker.fail", map[string]interface{}{
+		"patch": patch,
+		"error": err.Error(),
+	})
+}

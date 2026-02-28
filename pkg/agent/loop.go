@@ -28,6 +28,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/mcp"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/state"
@@ -54,6 +55,7 @@ type AgentLoop struct {
 	running        atomic.Bool
 	summarizing    sync.Map // Tracks which sessions are currently being summarized
 	channelManager *channels.Manager
+	mcpClient      *mcp.Client
 }
 
 // processOptions configures how a message is processed
@@ -194,6 +196,12 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	contextBuilder.SetToolsRegistry(toolsRegistry)
 	contextBuilder.SetChatAlias(cfg.Routing.LLM.ChatAlias)
 
+	// Initialize MCP client if enabled
+	var mcpClient *mcp.Client
+	if cfg.MCP.Chrome.Enabled {
+		mcpClient = mcp.NewClient(cfg.MCP.Chrome.BaseURL)
+	}
+
 	return &AgentLoop{
 		bus:            msgBus,
 		cfg:            cfg,
@@ -211,6 +219,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		tools:          toolsRegistry,
 		router:         NewRouter(cfg.Routing, NewClassifier(provider, cfg.Agents.Defaults.Model)),
 		summarizing:    sync.Map{},
+		mcpClient:      mcpClient,
 	}
 }
 
@@ -473,6 +482,21 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			}
 		}
 	}
+
+	// CODE3 の出力処理：plan/patch を解析して承認要求を生成
+	if err == nil && strings.EqualFold(strings.TrimSpace(decision.Route), RouteCode3) {
+		coderOutput, parseErr := parseCoder3Output(response)
+		if parseErr != nil {
+			logger.WarnCF("agent", "coder3.parse_error", map[string]interface{}{
+				"error": parseErr.Error(),
+			})
+			response = fmt.Sprintf("Coder3 の出力解析に失敗しました: %v", parseErr)
+		} else {
+			// TODO: Worker による即時実行ロジックをここに実装（Task #15）
+			response = fmt.Sprintf("Coder3 の plan/patch を受け取りました。Worker による即時実行は未実装です。\n\nPlan:\n%s\n\nPatch:\n%s", coderOutput.Plan, coderOutput.Patch)
+		}
+	}
+
 	if err == nil && strings.EqualFold(strings.TrimSpace(decision.Route), RouteChat) {
 		if directive, ok := parseChatDelegateDirective(response); ok {
 			if !constants.IsInternalChannel(msg.Channel) {
@@ -566,7 +590,7 @@ func parseChatDelegateDirective(content string) (chatDelegateDirective, bool) {
 	routeRaw := strings.TrimSpace(firstLine[len("DELEGATE:"):])
 	route := strings.ToUpper(routeRaw)
 	switch route {
-	case RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode, RouteCode1, RouteCode2:
+	case RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode, RouteCode1, RouteCode2, RouteCode3:
 	default:
 		return chatDelegateDirective{}, false
 	}
@@ -805,15 +829,27 @@ func (al *AgentLoop) resolveRouteLLMWithTask(route, taskText string) (string, st
 		return chooseProvider(defaultProvider, llmCfg.Coder2Provider), chooseModel(defaultModel, llmCfg.Coder2Model)
 	}
 
+	resolveCoder3 := func() (string, string) {
+		if strings.TrimSpace(llmCfg.Coder3Provider) == "" && strings.TrimSpace(llmCfg.Coder3Model) == "" {
+			return resolveCoder2()
+		}
+		return chooseProvider(defaultProvider, llmCfg.Coder3Provider), chooseModel(defaultModel, llmCfg.Coder3Model)
+	}
+
 	switch strings.ToUpper(strings.TrimSpace(route)) {
 	case RouteCode1:
 		return resolveCoder1()
 	case RouteCode2:
 		return resolveCoder2()
+	case RouteCode3:
+		return resolveCoder3()
 	case RouteCode:
 		selected := selectCoderRoute(taskText)
 		if selected == RouteCode1 {
 			return resolveCoder1()
+		}
+		if selected == RouteCode3 {
+			return resolveCoder3()
 		}
 		return resolveCoder2()
 	case RouteChat:
@@ -836,6 +872,20 @@ func selectCoderRoute(taskText string) string {
 		return RouteCode2
 	}
 	lower := strings.ToLower(taskText)
+
+	// CODE3: 高品質コーディング/推論向け
+	code3Keywords := []string{
+		"高品質", "仕様策定", "複雑な推論", "重大バグ", "失敗コスト",
+		"クリティカル", "本番環境", "production",
+		"high quality", "critical", "complex reasoning",
+	}
+	for _, kw := range code3Keywords {
+		if strings.Contains(lower, kw) {
+			return RouteCode3
+		}
+	}
+
+	// CODE1: 仕様設計向け
 	code1Keywords := []string{
 		"仕様", "設計", "文書", "論点", "意思決定",
 		"要件定義", "アーキテクチャ", "構成案", "比較検討",
@@ -847,6 +897,8 @@ func selectCoderRoute(taskText string) string {
 			return RouteCode1
 		}
 	}
+
+	// CODE2: デフォルト
 	return RouteCode2
 }
 
@@ -897,6 +949,12 @@ func (al *AgentLoop) resolveRouteRoleAlias(route string) (string, string) {
 			alias = "Coder2"
 		}
 		return "Coder2", alias
+	case RouteCode3:
+		alias := strings.TrimSpace(llmCfg.Coder3Alias)
+		if alias == "" {
+			alias = "Coder3"
+		}
+		return "Coder3", alias
 	case RouteChat:
 		alias := strings.TrimSpace(llmCfg.ChatAlias)
 		if alias == "" {
@@ -1823,7 +1881,35 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		al.sessions.SetFlags(msg.SessionKey, flags)
 		al.sessions.Save(msg.SessionKey)
 		return "了解しました。会話モードに戻します。", true
+
 	}
 
 	return "", false
+}
+
+// Coder3Output は Coder3 の出力フォーマット
+type Coder3Output struct {
+	JobID    string                 `json:"job_id"`
+	Plan     string                 `json:"plan"`
+	Patch    string                 `json:"patch"`
+	Risk     map[string]interface{} `json:"risk"`
+	CostHint map[string]interface{} `json:"cost_hint"`
+}
+
+// parseCoder3Output は Coder3 のレスポンスを解析
+func parseCoder3Output(response string) (*Coder3Output, error) {
+	var output Coder3Output
+	if err := json.Unmarshal([]byte(response), &output); err != nil {
+		return nil, fmt.Errorf("failed to parse Coder3 output: %w", err)
+	}
+
+	// 必須フィールドのチェック
+	if output.JobID == "" {
+		return nil, fmt.Errorf("missing required field: job_id")
+	}
+	if output.Plan == "" {
+		return nil, fmt.Errorf("missing required field: plan")
+	}
+
+	return &output, nil
 }

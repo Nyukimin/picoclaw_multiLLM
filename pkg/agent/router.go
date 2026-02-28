@@ -18,6 +18,7 @@ const (
 	RouteCode     = "CODE"
 	RouteCode1    = "CODE1"
 	RouteCode2    = "CODE2"
+	RouteCode3    = "CODE3"
 )
 
 type RoutingDecision struct {
@@ -55,7 +56,7 @@ func NewRouter(cfg config.RoutingConfig, classifier *Classifier) *Router {
 
 func isAllowedRoute(route string) bool {
 	switch route {
-	case RouteChat, RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode, RouteCode1, RouteCode2:
+	case RouteChat, RoutePlan, RouteAnalyze, RouteOps, RouteResearch, RouteCode, RouteCode1, RouteCode2, RouteCode3:
 		return true
 	default:
 		return false
@@ -64,7 +65,7 @@ func isAllowedRoute(route string) bool {
 
 func IsCodeRoute(route string) bool {
 	switch route {
-	case RouteCode, RouteCode1, RouteCode2:
+	case RouteCode, RouteCode1, RouteCode2, RouteCode3:
 		return true
 	default:
 		return false
@@ -167,6 +168,8 @@ func declarationFor(prevRoute, curRoute string) string {
 		return "設計・仕様をまとめるね。"
 	case RouteCode2:
 		return "コーディングするね。"
+	case RouteCode3:
+		return "高品質なコードを作るね。"
 	case RouteAnalyze:
 		return "整理して分析するね。"
 	case RoutePlan:
@@ -224,6 +227,11 @@ func parseRouteCommand(text string, localOnly bool) (route string, nextLocalOnly
 			return "", nextLocalOnly, "いまは /local モード中だからCODE実行はできないよ。/cloud で解除してから試してね。", rest, true
 		}
 		return RouteCode2, nextLocalOnly, "", rest, true
+	case "/code3":
+		if nextLocalOnly {
+			return "", nextLocalOnly, "いまは /local モード中だからCODE実行はできないよ。/cloud で解除してから試してね。", rest, true
+		}
+		return RouteCode3, nextLocalOnly, "", rest, true
 	default:
 		return "", nextLocalOnly, "", text, false
 	}

@@ -153,7 +153,13 @@
       "worker_model": "ollama/worker-v1:latest",
       "coder_alias": "Aka",
       "coder_provider": "deepseek",
-      "coder_model": "deepseek-chat"
+      "coder_model": "deepseek-chat",
+      "coder2_alias": "Ao",
+      "coder2_provider": "openai",
+      "coder2_model": "gpt-4",
+      "coder3_alias": "Claude",
+      "coder3_provider": "anthropic",
+      "coder3_model": "claude-sonnet-4-5-20250929"
     }
   },
   "loop": {
@@ -169,6 +175,13 @@
   "devices": {
     "enabled": false,
     "monitor_usb": true
+  },
+  "mcp": {
+    "chrome": {
+      "enabled": false,
+      "base_url": "http://100.83.235.65:12306",
+      "timeout_sec": 30
+    }
   },
   "gateway": {
     "host": "0.0.0.0",
