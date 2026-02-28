@@ -54,6 +54,8 @@ type Config struct {
 	Loop      LoopConfig      `json:"loop"`
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
+	MCP       MCPConfig       `json:"mcp"`
+	Worker    WorkerConfig    `json:"worker"`
 	mu        sync.RWMutex
 }
 
@@ -169,6 +171,16 @@ type DevicesConfig struct {
 	MonitorUSB bool `json:"monitor_usb" env:"PICOCLAW_DEVICES_MONITOR_USB"`
 }
 
+type MCPConfig struct {
+	Chrome MCPChromeConfig `json:"chrome"`
+}
+
+type MCPChromeConfig struct {
+	Enabled    bool   `json:"enabled" env:"PICOCLAW_MCP_CHROME_ENABLED"`
+	BaseURL    string `json:"base_url" env:"PICOCLAW_MCP_CHROME_BASE_URL"`
+	TimeoutSec int    `json:"timeout_sec" env:"PICOCLAW_MCP_CHROME_TIMEOUT_SEC"`
+}
+
 type ProvidersConfig struct {
 	Anthropic     ProviderConfig `json:"anthropic"`
 	OpenAI        ProviderConfig `json:"openai"`
@@ -278,6 +290,9 @@ type RouteLLMConfig struct {
 	Coder2Alias    string `json:"coder2_alias" env:"PICOCLAW_ROUTING_LLM_CODER2_ALIAS"`
 	Coder2Provider string `json:"coder2_provider" env:"PICOCLAW_ROUTING_LLM_CODER2_PROVIDER"`
 	Coder2Model    string `json:"coder2_model" env:"PICOCLAW_ROUTING_LLM_CODER2_MODEL"`
+	Coder3Alias    string `json:"coder3_alias" env:"PICOCLAW_ROUTING_LLM_CODER3_ALIAS"`
+	Coder3Provider string `json:"coder3_provider" env:"PICOCLAW_ROUTING_LLM_CODER3_PROVIDER"`
+	Coder3Model    string `json:"coder3_model" env:"PICOCLAW_ROUTING_LLM_CODER3_MODEL"`
 	// Legacy keys kept for backward compatibility.
 	CodeProvider string `json:"code_provider,omitempty" env:"PICOCLAW_ROUTING_LLM_CODE_PROVIDER"`
 	CodeModel    string `json:"code_model,omitempty" env:"PICOCLAW_ROUTING_LLM_CODE_MODEL"`
@@ -288,6 +303,15 @@ type LoopConfig struct {
 	MaxMillis                   int  `json:"max_millis" env:"PICOCLAW_LOOP_MAX_MILLIS"`
 	AllowAutoRerouteOnce        bool `json:"allow_auto_reroute_once" env:"PICOCLAW_LOOP_ALLOW_AUTO_REROUTE_ONCE"`
 	AllowChatProposeRerouteOnce bool `json:"allow_chat_propose_reroute_once" env:"PICOCLAW_LOOP_ALLOW_CHAT_PROPOSE_REROUTE_ONCE"`
+}
+
+// WorkerConfig は Worker の設定
+type WorkerConfig struct {
+	AutoCommit          bool   `json:"auto_commit" env:"PICOCLAW_WORKER_AUTO_COMMIT"`
+	CommitMessagePrefix string `json:"commit_message_prefix" env:"PICOCLAW_WORKER_COMMIT_PREFIX"`
+	CommandTimeout      int    `json:"command_timeout" env:"PICOCLAW_WORKER_COMMAND_TIMEOUT"`
+	GitTimeout          int    `json:"git_timeout" env:"PICOCLAW_WORKER_GIT_TIMEOUT"`
+	StopOnError         bool   `json:"stop_on_error" env:"PICOCLAW_WORKER_STOP_ON_ERROR"`
 }
 
 func DefaultConfig() *Config {
@@ -439,6 +463,7 @@ func DefaultConfig() *Config {
 			WorkerAlias:    "Shiro",
 			CoderAlias:     "Aka",
 			Coder2Alias:    "",
+			Coder3Alias:    "Claude",
 			ChatProvider:   "",
 			ChatModel:      "",
 			WorkerProvider: "",
@@ -447,6 +472,8 @@ func DefaultConfig() *Config {
 			CoderModel:     "",
 			Coder2Provider: "",
 			Coder2Model:    "",
+			Coder3Provider: "",
+			Coder3Model:    "",
 			},
 		},
 		Loop: LoopConfig{
@@ -462,6 +489,20 @@ func DefaultConfig() *Config {
 		Devices: DevicesConfig{
 			Enabled:    false,
 			MonitorUSB: true,
+		},
+		MCP: MCPConfig{
+			Chrome: MCPChromeConfig{
+				Enabled:    false,
+				BaseURL:    "http://100.83.235.65:12306",
+				TimeoutSec: 30,
+			},
+		},
+		Worker: WorkerConfig{
+			AutoCommit:          false,
+			CommitMessagePrefix: "[Worker Auto-Commit]",
+			CommandTimeout:      300, // 5 minutes
+			GitTimeout:          30,  // 30 seconds
+			StopOnError:         false,
 		},
 	}
 }
