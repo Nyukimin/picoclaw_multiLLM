@@ -11,9 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"hash/fnv"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,9 +24,9 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
+	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/mcp"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -60,21 +60,21 @@ type AgentLoop struct {
 
 // processOptions configures how a message is processed
 type processOptions struct {
-	SessionKey      string // Session identifier for history/context
-	Channel         string // Target channel for tool execution
-	ChatID          string // Target chat ID for tool execution
-	UserMessage     string // User message content (may include prefix)
-	Media           []string
-	DefaultResponse string // Response when LLM returns empty
-	EnableSummary   bool   // Whether to trigger summarization
-	SendResponse    bool   // Whether to send response via bus
-	NoHistory       bool   // If true, don't load session history (for heartbeat)
-	Route           string // Routed category for logging
-	LocalOnly       bool   // /local mode for this session
-	Declaration       string // Route declaration prefix
-	MaxLoops          int    // Max loop iterations for this turn
-	MaxMillis         int    // Max processing time for this turn
-	SkipAddUserMessage bool  // When true, don't add user message (used on Ollama recovery retry)
+	SessionKey         string // Session identifier for history/context
+	Channel            string // Target channel for tool execution
+	ChatID             string // Target chat ID for tool execution
+	UserMessage        string // User message content (may include prefix)
+	Media              []string
+	DefaultResponse    string // Response when LLM returns empty
+	EnableSummary      bool   // Whether to trigger summarization
+	SendResponse       bool   // Whether to send response via bus
+	NoHistory          bool   // If true, don't load session history (for heartbeat)
+	Route              string // Routed category for logging
+	LocalOnly          bool   // /local mode for this session
+	Declaration        string // Route declaration prefix
+	MaxLoops           int    // Max loop iterations for this turn
+	MaxMillis          int    // Max processing time for this turn
+	SkipAddUserMessage bool   // When true, don't add user message (used on Ollama recovery retry)
 }
 
 const DefaultWorkOverlayTurns = 8
@@ -252,24 +252,24 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 
 				if !alreadySent {
-			outbound := bus.OutboundMessage{
+					outbound := bus.OutboundMessage{
 						Channel: msg.Channel,
 						ChatID:  msg.ChatID,
 						Content: response,
-			}
-			// Special handling: when Worker/Coder finishes, reply to the remembered origin message ID.
-			flags := al.sessions.GetFlags(msg.SessionKey)
-			if flags.PendingOriginReply && flags.OriginMessageID != "" {
-				outbound.Metadata = map[string]string{
-					"origin_message_id": flags.OriginMessageID,
-					"origin_route":      flags.OriginRoute,
-					"reply_mode":        "origin",
-				}
-				flags.PendingOriginReply = false
-				al.sessions.SetFlags(msg.SessionKey, flags)
-				_ = al.sessions.Save(msg.SessionKey)
-			}
-			al.bus.PublishOutbound(outbound)
+					}
+					// Special handling: when Worker/Coder finishes, reply to the remembered origin message ID.
+					flags := al.sessions.GetFlags(msg.SessionKey)
+					if flags.PendingOriginReply && flags.OriginMessageID != "" {
+						outbound.Metadata = map[string]string{
+							"origin_message_id": flags.OriginMessageID,
+							"origin_route":      flags.OriginRoute,
+							"reply_mode":        "origin",
+						}
+						flags.PendingOriginReply = false
+						al.sessions.SetFlags(msg.SessionKey, flags)
+						_ = al.sessions.Save(msg.SessionKey)
+					}
+					al.bus.PublishOutbound(outbound)
 				}
 			}
 		}
@@ -468,7 +468,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			map[string]interface{}{
 				"ollama_ok": ollamaOK, "ollama_msg": ollamaMsg,
 				"models_ok": modelsOK, "models_msg": modelsMsg,
-				"llm_err":   err != nil,
+				"llm_err": err != nil,
 			})
 		needsRestart := !ollamaOK || !modelsOK
 		if needsRestart && strings.TrimSpace(al.cfg.Providers.OllamaRestartCommand) != "" {
@@ -492,8 +492,37 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			})
 			response = fmt.Sprintf("Coder3 の出力解析に失敗しました: %v", parseErr)
 		} else {
-			// TODO: Worker による即時実行ロジックをここに実装（Task #15）
-			response = fmt.Sprintf("Coder3 の plan/patch を受け取りました。Worker による即時実行は未実装です。\n\nPlan:\n%s\n\nPatch:\n%s", coderOutput.Plan, coderOutput.Patch)
+			// Worker による即時実行
+			logger.InfoCF("worker", "worker.patch_execution_start", map[string]interface{}{
+				"job_id":      coderOutput.JobID,
+				"patch_type":  detectPatchType(coderOutput.Patch),
+				"session_key": msg.SessionKey,
+			})
+
+			result, execErr := al.executeWorkerPatch(ctx, coderOutput.Patch, msg.SessionKey)
+			if execErr != nil {
+				response = fmt.Sprintf("patch の実行に失敗したよ😢\n\nエラー: %v\n\nPlan:\n%s", execErr, coderOutput.Plan)
+				logger.ErrorCF("worker", "worker.patch_execution_error", map[string]interface{}{
+					"job_id": coderOutput.JobID,
+					"error":  execErr.Error(),
+				})
+			} else {
+				response = fmt.Sprintf("実行完了！✨\n\n%s\n\n詳細:\n%s\n\nPlan:\n%s",
+					result.Summary,
+					formatExecutionResults(result.Results),
+					coderOutput.Plan)
+
+				if result.GitCommit != "" {
+					response += fmt.Sprintf("\n\nGit コミット: %s", result.GitCommit)
+				}
+
+				logger.InfoCF("worker", "worker.patch_execution_complete", map[string]interface{}{
+					"job_id":        coderOutput.JobID,
+					"success":       result.Success,
+					"executed_cmds": result.ExecutedCmds,
+					"failed_cmds":   result.FailedCmds,
+				})
+			}
 		}
 	}
 
@@ -1317,10 +1346,10 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				strings.Contains(strings.ToLower(err.Error()), "timeout")
 			logger.ErrorCF("agent", "LLM call failed",
 				map[string]interface{}{
-					"iteration":   iteration,
-					"error":       err.Error(),
-					"is_timeout":  isTimeout,
-					"note":        "If is_timeout: PicoClaw gave up before Ollama responded; Ollama may have responded",
+					"iteration":  iteration,
+					"error":      err.Error(),
+					"is_timeout": isTimeout,
+					"note":       "If is_timeout: PicoClaw gave up before Ollama responded; Ollama may have responded",
 				})
 			return "", iteration, fmt.Errorf("LLM call failed after retries: %w", err)
 		}
@@ -1912,4 +1941,34 @@ func parseCoder3Output(response string) (*Coder3Output, error) {
 	}
 
 	return &output, nil
+}
+
+// detectPatchType は patch の形式を判定する
+func detectPatchType(patch string) string {
+	trimmed := strings.TrimSpace(patch)
+	if strings.HasPrefix(trimmed, "[") {
+		return "json"
+	}
+	if strings.Contains(patch, "```") {
+		return "markdown"
+	}
+	return "unknown"
+}
+
+// formatExecutionResults は Worker の実行結果を整形して返す
+func formatExecutionResults(results []CommandResult) string {
+	var lines []string
+	for i, r := range results {
+		status := "✓"
+		if !r.Success {
+			status = "✗"
+		}
+		line := fmt.Sprintf("%s [%d] %s %s %s (%dms)",
+			status, i+1, r.Command.Type, r.Command.Action, r.Command.Target, r.Duration)
+		if r.Error != "" {
+			line += fmt.Sprintf("\n    エラー: %s", r.Error)
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }

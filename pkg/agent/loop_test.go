@@ -730,7 +730,7 @@ func TestProcessMessage_ChatDelegatesThenFinalizes(t *testing.T) {
 			},
 		},
 		Routing: config.RoutingConfig{
-			Classifier: config.RoutingClassifierConfig{Enabled: false},
+			Classifier:    config.RoutingClassifierConfig{Enabled: false},
 			FallbackRoute: RouteChat,
 			LLM: config.RouteLLMConfig{
 				ChatProvider:   "ollama",
@@ -742,8 +742,8 @@ func TestProcessMessage_ChatDelegatesThenFinalizes(t *testing.T) {
 			},
 		},
 		Loop: config.LoopConfig{
-			MaxLoops:   3,
-			MaxMillis:  5000,
+			MaxLoops:  3,
+			MaxMillis: 5000,
 		},
 	}
 
@@ -1092,6 +1092,134 @@ func TestSelectCoderRoute(t *testing.T) {
 			got := selectCoderRoute(tc.task)
 			if got != tc.want {
 				t.Fatalf("selectCoderRoute(%q) = %s, want %s", tc.task, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDetectPatchType(t *testing.T) {
+	tests := []struct {
+		name  string
+		patch string
+		want  string
+	}{
+		{
+			name:  "JSON format",
+			patch: `[{"type": "file_edit"}]`,
+			want:  "json",
+		},
+		{
+			name:  "JSON with leading whitespace",
+			patch: "  \n  [{}]",
+			want:  "json",
+		},
+		{
+			name:  "Markdown format with code block",
+			patch: "```go:file.go\ncode\n```",
+			want:  "markdown",
+		},
+		{
+			name:  "Markdown with bash",
+			patch: "Some text\n```bash\ncommand\n```",
+			want:  "markdown",
+		},
+		{
+			name:  "Unknown format",
+			patch: "Just plain text",
+			want:  "unknown",
+		},
+		{
+			name:  "Empty string",
+			patch: "",
+			want:  "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectPatchType(tt.patch)
+			if got != tt.want {
+				t.Errorf("detectPatchType() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatExecutionResults(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []CommandResult
+		want    string
+	}{
+		{
+			name: "Single successful command",
+			results: []CommandResult{
+				{
+					Command: PatchCommand{
+						Type:   "file_edit",
+						Action: "create",
+						Target: "test.go",
+					},
+					Success:  true,
+					Output:   "File created",
+					Duration: 150,
+				},
+			},
+			want: "✓ [1] file_edit create test.go (150ms)",
+		},
+		{
+			name: "Single failed command",
+			results: []CommandResult{
+				{
+					Command: PatchCommand{
+						Type:   "shell_command",
+						Action: "run",
+						Target: "go test",
+					},
+					Success:  false,
+					Error:    "exit code 1",
+					Duration: 2500,
+				},
+			},
+			want: "✗ [1] shell_command run go test (2500ms)\n    エラー: exit code 1",
+		},
+		{
+			name: "Multiple mixed results",
+			results: []CommandResult{
+				{
+					Command: PatchCommand{
+						Type:   "file_edit",
+						Action: "update",
+						Target: "main.go",
+					},
+					Success:  true,
+					Duration: 100,
+				},
+				{
+					Command: PatchCommand{
+						Type:   "shell_command",
+						Action: "run",
+						Target: "make test",
+					},
+					Success:  false,
+					Error:    "compilation failed",
+					Duration: 3000,
+				},
+			},
+			want: "✓ [1] file_edit update main.go (100ms)\n✗ [2] shell_command run make test (3000ms)\n    エラー: compilation failed",
+		},
+		{
+			name:    "Empty results",
+			results: []CommandResult{},
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatExecutionResults(tt.results)
+			if got != tt.want {
+				t.Errorf("formatExecutionResults() =\n%v\n\nwant:\n%v", got, tt.want)
 			}
 		})
 	}

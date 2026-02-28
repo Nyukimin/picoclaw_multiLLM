@@ -117,4 +117,3 @@ func TestRouter_ClassifierRoute(t *testing.T) {
 		t.Fatalf("expected classifier PLAN route, got route=%s source=%s", d.Route, d.Source)
 	}
 }
-

@@ -299,7 +299,7 @@ func TestParseWorkCommand(t *testing.T) {
 		{"/normal", "off", 0, true},
 		{"hello", "", 0, false},
 		{"/work 0", "status", 0, true},   // invalid number, falls to status
-		{"/work 100", "status", 0, true},  // over limit, falls to status
+		{"/work 100", "status", 0, true}, // over limit, falls to status
 	}
 
 	for _, tt := range tests {
@@ -319,4 +319,3 @@ func TestParseWorkCommand(t *testing.T) {
 		})
 	}
 }
-

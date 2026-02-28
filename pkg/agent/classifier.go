@@ -86,4 +86,3 @@ func extractFirstJSONText(text string) string {
 	}
 	return ""
 }
-

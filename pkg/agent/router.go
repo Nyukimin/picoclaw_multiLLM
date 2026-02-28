@@ -22,17 +22,17 @@ const (
 )
 
 type RoutingDecision struct {
-	Route               string
-	Source              string
-	Confidence          float64
-	Reason              string
-	Evidence            []string
-	LocalOnly           bool
-	PrevRoute           string
-	CleanUserText       string
-	Declaration         string
-	DirectResponse      string
-	ErrorReason         string
+	Route                string
+	Source               string
+	Confidence           float64
+	Reason               string
+	Evidence             []string
+	LocalOnly            bool
+	PrevRoute            string
+	CleanUserText        string
+	Declaration          string
+	DirectResponse       string
+	ErrorReason          string
 	ClassifierConfidence float64
 }
 
@@ -268,4 +268,3 @@ func hasStrongCodeEvidence(text string) bool {
 	}
 	return regexp.MustCompile(`(?i)\b(go\.mod|dockerfile|package\.json|\.go|\.py|\.ts|\.tsx|\.yaml|\.yml)\b`).MatchString(text)
 }
-
