@@ -32,6 +32,19 @@ func NewSession(id, channel, chatID string) *Session {
 	}
 }
 
+// ReconstructSession は永続化層から復元する際に使用（タイムスタンプを保持）
+func ReconstructSession(id, channel, chatID string, createdAt, updatedAt time.Time) *Session {
+	return &Session{
+		id:        id,
+		channel:   channel,
+		chatID:    chatID,
+		history:   make([]task.Task, 0),
+		memory:    make(map[string]interface{}),
+		createdAt: createdAt,
+		updatedAt: updatedAt,
+	}
+}
+
 // ID はセッションIDを返す
 func (s *Session) ID() string {
 	return s.id
@@ -86,6 +99,15 @@ func (s *Session) SetMemory(key string, value interface{}) {
 func (s *Session) GetMemory(key string) (interface{}, bool) {
 	value, ok := s.memory[key]
 	return value, ok
+}
+
+// GetAllMemory はメモリのコピーを返す
+func (s *Session) GetAllMemory() map[string]interface{} {
+	result := make(map[string]interface{}, len(s.memory))
+	for k, v := range s.memory {
+		result[k] = v
+	}
+	return result
 }
 
 // ClearMemory はメモリをクリア
