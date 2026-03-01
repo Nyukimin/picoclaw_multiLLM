@@ -1,7 +1,7 @@
 # 承認フロー廃止プロジェクト - 進捗状況
 
 **最終更新**: 2026-03-01
-**ステータス**: ✅ v3.0実装仕様修正完了、実装準備完了
+**ステータス**: ✅ v3.0実装仕様 100%完成、実装即開始可能
 
 ---
 
@@ -53,6 +53,52 @@
 - PatchCommand: 全Action対応（file_edit 7種、shell_command、git_operation 4種）
 
 **変更量**: 778行追加、786行削除（実質-8行、構造改善による最適化）
+
+### Phase 4: 実装詳細補完とエラーハンドリング ✓
+**完了日**: 2026-03-01
+**コミット**: `1635afb` (proposal/clean-architecture)
+
+**主要変更**:
+1. **未定義関数実装** (Category C):
+   - parseExplicitCommand: 9種の明示コマンド解析
+   - buildMessages/buildRequest: LLMリクエスト構築
+   - extractProposalFromResponse: Coderルート用Proposal抽出
+   - extract関数群: Plan/Patch/Risk/CostHint セクション抽出
+
+2. **レイヤー分離修正** (Category D):
+   - ParsePatch を Domain 層に移動 (section 4.9)
+   - Application 層の重複実装削除 (parsePatch/parseJSONPatch/parseMarkdownPatch)
+
+3. **欠落実装詳細** (Category F):
+   - Session エンティティ追加 (section 4.10)
+     - NewSession/AddTask/GetHistory/SetMemory/GetMemory/ClearMemory
+     - SessionRepository インターフェース
+     - 日次カットオーバー対応（セッションIDフォーマット: `YYYYMMDD-{channel}-{chatID}`）
+   - LLMIteratorService/MemoryService: 既存実装確認（完全実装済み）
+
+4. **エラーハンドリング詳細** (Category G):
+   - Worker 失敗時のロールバック処理
+     - Git auto-commit ON: `git reset --hard HEAD~1` でロールバック
+     - Git auto-commit OFF: 手動リカバリ促進メッセージ
+     - 詳細ログ記録（failed_command, error, rollback_commit）
+   - 分類器エラー時の詳細ログ
+     - エラー型 (`fmt.Sprintf("%T", err)`)
+     - メッセージ先頭100文字
+     - フォールバック先ルート（CHAT固定）
+   - MCP 部分失敗時のロールバック
+     - 継続モード: 失敗スキップ、残り実行、成功数/失敗数記録
+     - 中断モード: 即座に中断、Git ロールバック
+     - 部分成功カウントログ記録
+
+**変更量**: 200行追加、107行削除（実質+93行）
+
+**実装準備完了度**: 100%
+- ✅ 全インターフェース定義完了 (7個)
+- ✅ 全データ型定義完了 (Task, JobID, Proposal, PatchCommand, etc.)
+- ✅ 全関数シグネチャ定義完了
+- ✅ エラーハンドリング詳細仕様完備
+- ✅ セッション管理仕様完備
+- ✅ 実装可能状態達成
 
 ---
 
