@@ -3,7 +3,7 @@ package session
 import (
 	"time"
 
-	"github.com/sipeed/picoclaw/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
 // Session はユーザーセッションを表すエンティティ

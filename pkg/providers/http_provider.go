@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/auth"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/logger"
 )
 
 type HTTPProvider struct {

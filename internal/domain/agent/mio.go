@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/sipeed/picoclaw/internal/domain/llm"
-	"github.com/sipeed/picoclaw/internal/domain/routing"
-	"github.com/sipeed/picoclaw/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
 // MioAgent は Chat（会話・意思決定）を担当するエンティティ
@@ -71,22 +71,26 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 
 // parseExplicitCommand は明示コマンドを解析
 func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
-	commands := map[string]routing.Route{
-		"/chat":     routing.RouteCHAT,
-		"/plan":     routing.RoutePLAN,
-		"/analyze":  routing.RouteANALYZE,
-		"/ops":      routing.RouteOPS,
-		"/research": routing.RouteRESEARCH,
-		"/code":     routing.RouteCODE,
-		"/code1":    routing.RouteCODE1,
-		"/code2":    routing.RouteCODE2,
-		"/code3":    routing.RouteCODE3,
+	// 長いコマンドから順にチェック（/code3 を /code より先に判定）
+	commands := []struct {
+		cmd   string
+		route routing.Route
+	}{
+		{"/analyze", routing.RouteANALYZE},
+		{"/research", routing.RouteRESEARCH},
+		{"/code3", routing.RouteCODE3},
+		{"/code2", routing.RouteCODE2},
+		{"/code1", routing.RouteCODE1},
+		{"/code", routing.RouteCODE},
+		{"/plan", routing.RoutePLAN},
+		{"/chat", routing.RouteCHAT},
+		{"/ops", routing.RouteOPS},
 	}
 
 	trimmed := strings.TrimSpace(message)
-	for cmd, route := range commands {
-		if strings.HasPrefix(trimmed, cmd) {
-			return route
+	for _, c := range commands {
+		if strings.HasPrefix(trimmed, c.cmd) {
+			return c.route
 		}
 	}
 

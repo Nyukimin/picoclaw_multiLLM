@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/internal/domain/routing"
-	"github.com/sipeed/picoclaw/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
 // Classifier はタスク分類器のインターフェース

@@ -58,10 +58,13 @@ func NewPatchCommand(cmdType Type, action Action, target, content string) PatchC
 
 // WithMetadata はメタデータを追加した新しいPatchCommandを返す
 func (c PatchCommand) WithMetadata(key, value string) PatchCommand {
-	if c.Metadata == nil {
-		c.Metadata = make(map[string]string)
+	// 新しいmapを作成（イミュータブル）
+	newMetadata := make(map[string]string)
+	for k, v := range c.Metadata {
+		newMetadata[k] = v
 	}
-	c.Metadata[key] = value
+	newMetadata[key] = value
+	c.Metadata = newMetadata
 	return c
 }
 

@@ -1,6 +1,6 @@
 package task
 
-import "github.com/sipeed/picoclaw/internal/domain/routing"
+import "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 
 // Task はユーザーからの指示を表す値オブジェクト
 type Task struct {

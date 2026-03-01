@@ -11,9 +11,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/logger"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/providers"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/utils"
 )
 
 // ToolLoopConfig configures the tool execution loop.

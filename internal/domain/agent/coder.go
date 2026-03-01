@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/sipeed/picoclaw/internal/domain/llm"
-	"github.com/sipeed/picoclaw/internal/domain/proposal"
-	"github.com/sipeed/picoclaw/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
 // CoderAgent は Coder（設計・実装）を担当するエンティティ

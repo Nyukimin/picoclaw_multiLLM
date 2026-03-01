@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/internal/domain/llm"
-	"github.com/sipeed/picoclaw/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
 // ShiroAgent は Worker（実行・道具係）を担当するエンティティ
