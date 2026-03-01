@@ -1,11 +1,62 @@
 # 承認フロー廃止プロジェクト - 進捗状況
 
-**最終更新**: 2026-02-28
-**ステータス**: 設計完了、実装準備完了
+**最終更新**: 2026-03-01
+**ステータス**: ✅ v3.0実装仕様修正完了、実装準備完了
 
 ---
 
 ## 完了したタスク
+
+### Task #16: v3.0実装仕様を承認フロー廃止後の設計に修正 ✓
+**完了日**: 2026-03-01
+**コミット**: `9d6a5ad` (proposal/clean-architecture)
+**ファイル**: `docs/01_正本仕様/実装仕様_v3_クリーンアーキテクチャ版.md`
+
+**主要変更**:
+1. **削除**（承認フロー関連）:
+   - ApprovalFlow アグリゲート（4.7章）
+   - AutoApprovePolicy（4.8章）
+   - Event Sourcing for approval tracking（10章）
+   - ApprovalService（17.3章）
+   - データベーススキーマ（20章: events/jobs/auto_approve_policies）
+
+2. **追加**（Worker即時実行）:
+   - Worker即時実行仕様（9章）
+   - PatchCommand 値オブジェクト（4.7章）
+   - WorkerExecutionService 完全実装（17.3章）
+     - executeFileEdit: 7種のAction（create/update/delete/append/rename/mkdir/copy）
+     - executeShellCommand: Env/WorkDir/Shell対応
+     - executeGitOperation: 4種のGit操作
+     - parsePatch/parseJSONPatch/parseMarkdownPatch: 完全実装
+   - セーフガード設計（1.2章）
+     - Git auto-commit（実行前後、失敗時は中断）
+     - 保護ファイルパターン（.env*, *credentials*, *.key, *.pem）
+     - 実行前サマリ表示
+     - ワークスペース制限
+     - ドライモード
+
+3. **修正**（フロー整合性）:
+   - MessageOrchestrator: ApprovalService削除、Worker即時実行追加
+   - Package構成: approval/削除、patch/追加
+   - テスト観点: 承認テスト削除、Worker即時実行テスト追加
+   - 実装プラン: Phase 1-4をWorker即時実行中心に再構成
+
+**技術詳細**:
+- PatchCommand拡張: mkdir/rename/copy + Env/WorkDir/Shell
+- parseJSONPatch: JSON配列バリデーション、必須フィールドチェック
+- parseMarkdownPatch: 正規表現パターンマッチ（```言語:ファイルパス\n内容\n```）
+- エラーハンドリング: 継続モード（デフォルト）/中断モード（StopOnError=true）
+
+**実装完全性**:
+- WorkerExecutionService: 100%コーディング可能（全メソッド実装詳細あり）
+- セーフガード: 6種類実装（必須3、推奨2、オプション1）
+- PatchCommand: 全Action対応（file_edit 7種、shell_command、git_operation 4種）
+
+**変更量**: 778行追加、786行削除（実質-8行、構造改善による最適化）
+
+---
+
+## 以前完了したタスク
 
 ### Task #13: 仕様変更ドキュメント作成 ✓
 **ファイル**: `docs/06_実装ガイド進行管理/20260228_承認フロー廃止プラン.md`
@@ -145,8 +196,9 @@ type WorkerConfig struct {
 - ユニットテスト: parsePatch, executeFileEdit, executeShell, executeGit
 - 統合テスト: End-to-End patch実行シナリオ
 
-### ステップ4: ドキュメント更新
-- `docs/01_正本仕様/実装仕様.md` を更新
+### ステップ4: ドキュメント更新 ✓ (v3.0仕様のみ完了)
+- ✅ `docs/01_正本仕様/実装仕様_v3_クリーンアーキテクチャ版.md` を更新（完了）
+- ⏳ `docs/01_正本仕様/実装仕様.md` を更新（未実施、既存仕様）
 - 承認フロー関連記述を削除、Worker即時実行に置き換え
 
 ---
