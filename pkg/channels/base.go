@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/bus"
 )
 
 type Channel interface {

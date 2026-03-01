@@ -11,7 +11,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/sipeed/picoclaw/pkg/auth"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/auth"
 )
 
 type ClaudeProvider struct {

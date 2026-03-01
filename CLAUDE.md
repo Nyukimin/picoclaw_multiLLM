@@ -20,7 +20,7 @@
 
 ### 1.3 主要機能
 
-- **マルチ LLM ルーティング**: Chat（Mio）、Worker（Shiro）、Coder1（Aka）、Coder2（Ao）、Coder3（Claude）の自動振り分け
+- **マルチ LLM ルーティング**: Chat（Mio）、Worker（Shiro）、Coder1（Aka）、Coder2（Ao）、Coder3（Gin）の自動振り分け
 - **承認フロー**: 破壊的操作には承認が必須（job_id ベースの追跡）
 - **Auto-Approve モード**: Scope/TTL 付き自動承認（即時 OFF 可能）
 - **ヘルスチェック**: Ollama 常駐監視、自動再起動
@@ -92,22 +92,35 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 
 ### 3.3 重要な設計原則
 
-#### 3.3.1 責務の分離（Chat/Worker/Coder）
+#### 3.3.1 エージェント共通コア設計（2026-03-01追加）
 
-| 役割 | 責務 | 実行内容 |
-|------|------|----------|
-| **Chat** | 意思決定・承認管理 | ユーザー対話、ルーティング決定、承認要求送信 |
-| **Worker** | 実行・道具係 | ファイル編集、コマンド実行、テスト実行、差分適用 |
-| **Coder** | 設計・実装案作成 | 仕様策定、コード生成、`plan` と `patch` の生成 |
+**基本原則**: 5つのエージェント（Chat/Worker/Order1/Order2/Order3）は同じコアを共有し、機能モジュールで個性を付ける。
+
+| エージェント | 愛称 | 責務 | 主要モジュール |
+|-------------|------|------|---------------|
+| **Chat** | Mio | 軽量受領・最終決定・承認UI | LightweightReception, FinalDecision, ApprovalUI |
+| **Worker** | Shiro | ルーティング・集約・Heartbeat・実行 | Routing, LoopControl, Heartbeat, Aggregation, Execution |
+| **Order1** | Aka | 低コスト大量処理（DeepSeek） | ProposalGeneration, CodeAnalysis |
+| **Order2** | Ao | コーディング中核（OpenAI） | ProposalGeneration, CodeAnalysis |
+| **Order3** | Gin | 高品質推論（Claude API） | ProposalGeneration, ApprovalFlow, CodeAnalysis |
+
+**動作フロー**:
+1. LINE入力 → Chat が受領、JobID 付与
+2. Chat が Worker へタスク委譲
+3. Worker がルーティング決定（RoutingModule）
+4. 必要に応じて Order1/2/3 へ振り分け
+5. Worker が結果を集約（AggregationModule）
+6. Chat が最終決定・応答
 
 **不変ルール**:
-- Coder は原則として破壊的操作を**直接実行せず**、`plan` と `patch` を生成
+- すべての作業・応答に **JobID を必須**
+- Order（旧Coder）は原則として破壊的操作を**直接実行せず**、`plan` と `patch` を生成
 - 実行は Worker が承認後に担当
-- Chat が承認フローを管理
+- Chat は軽量・最終決定に特化、ルーティングは Worker が担当
 
 #### 3.3.2 承認フロー（必須）
 
-- Coder3（Claude API）による提案には**承認が必須**
+- Coder3（Gin / Claude API）による提案には**承認が必須**
 - job_id でジョブを追跡（ログ、承認状態）
 - 承認コマンド: `/approve <job_id>`, `/deny <job_id>`
 - Auto-Approve モードは Scope/TTL 付き、即時 OFF 可能
@@ -273,6 +286,16 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 - **テスト**: `rules/common/rules_testing.md`
 - **ログ**: `rules/common/rules_logging.md`
 
+### 6.5 コードベース解析
+
+コードベースの構造・モジュール・潜在バグを解析したドキュメント：
+
+- **アーキテクチャ総合**: `docs/codebase-map/アーキテクチャ総合.md`
+- **モジュール詳細**: `docs/codebase-map/modules/`（agent, approval, core, integrations, providers）
+- **ユースケース逆引き**: `docs/codebase-map/ユースケース逆引き.md`
+- **結合ポイントマップ**: `docs/codebase-map/結合ポイントマップ.md`
+- **潜在バグ一覧**: `docs/codebase-map/潜在バグ一覧.md`
+
 ---
 
 ## 7. 起動時の読み込み順序
@@ -293,6 +316,24 @@ Claude Code（または同等の AI エディタ）の起動時には、以下�
 
 ---
 
-**最終更新**: 2026-02-24
-**バージョン**: 1.0
+**最終更新**: 2026-03-01
+**バージョン**: 2.0（マルチエージェント新アーキテクチャ採用）
 **メンテナンス**: 仕様変更時は必ずこのファイルと実装仕様を同期させること
+
+## 変更履歴
+
+### v2.0 (2026-03-01)
+- **プロジェクトモジュール名変更**: `github.com/sipeed/picoclaw` → `github.com/Nyukimin/picoclaw_multiLLM`
+- **マルチエージェント新アーキテクチャ Phase 1 完了**: モジュールインターフェース、JobID生成、フィーチャーフラグ実装
+- **マルチエージェント新アーキテクチャ採用**: エージェント共通コア + 機能モジュール設計
+- **Chat の役割変更**: ルーティング決定 → 軽量受領・最終決定のみ
+- **Worker の役割拡張**: ルーティング・集約・Heartbeat管理を追加
+- **JobID 全体必須化**: すべての作業・応答に JobID を必須
+- **Heartbeat システム追加**: 全エージェントの自律的状態報告
+- **合議制（Deliberation Mode）追加**: 複数 Order の並列提案 → 比較 → 決定
+- **コードベース解析ドキュメント追加**: `docs/codebase-map/` への参照を追加
+
+### v1.0 (2026-02-24)
+- **Coder3（Gin）統合**: Claude API 専用、承認フロー必須
+- **承認フロー追加**: job_id ベースの追跡、Auto-Approve モード
+- **Coder1/Coder2 二重ルーティング**: CODE1/CODE2 カテゴリ追加

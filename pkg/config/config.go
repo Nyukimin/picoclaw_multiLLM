@@ -44,19 +44,20 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Agents    AgentsConfig    `json:"agents"`
-	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers"`
-	Gateway   GatewayConfig   `json:"gateway"`
-	Watchdog  WatchdogConfig  `json:"watchdog"`
-	Tools     ToolsConfig     `json:"tools"`
-	Routing   RoutingConfig   `json:"routing"`
-	Loop      LoopConfig      `json:"loop"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"`
-	Devices   DevicesConfig   `json:"devices"`
-	MCP       MCPConfig       `json:"mcp"`
-	Worker    WorkerConfig    `json:"worker"`
-	mu        sync.RWMutex
+	Agents       AgentsConfig        `json:"agents"`
+	Channels     ChannelsConfig      `json:"channels"`
+	Providers    ProvidersConfig     `json:"providers"`
+	Gateway      GatewayConfig       `json:"gateway"`
+	Watchdog     WatchdogConfig      `json:"watchdog"`
+	Tools        ToolsConfig         `json:"tools"`
+	Routing      RoutingConfig       `json:"routing"`
+	Loop         LoopConfig          `json:"loop"`
+	Heartbeat    HeartbeatConfig     `json:"heartbeat"`
+	Devices      DevicesConfig       `json:"devices"`
+	MCP          MCPConfig           `json:"mcp"`
+	Worker       WorkerConfig        `json:"worker"`
+	Architecture ArchitectureConfig  `json:"architecture"`
+	mu           sync.RWMutex
 }
 
 type AgentsConfig struct {
@@ -314,6 +315,18 @@ type WorkerConfig struct {
 	StopOnError         bool   `json:"stop_on_error" env:"PICOCLAW_WORKER_STOP_ON_ERROR"`
 }
 
+// ArchitectureConfig は新アーキテクチャの設定（2026-03-01追加）
+type ArchitectureConfig struct {
+	// UseNewArchitecture enables the new multi-agent architecture (default: false)
+	UseNewArchitecture bool `json:"use_new_architecture" env:"PICOCLAW_ARCHITECTURE_USE_NEW_ARCHITECTURE"`
+
+	// EnableHeartbeat enables the heartbeat system for agent monitoring (default: false)
+	EnableHeartbeat bool `json:"enable_heartbeat" env:"PICOCLAW_ARCHITECTURE_ENABLE_HEARTBEAT"`
+
+	// EnableDeliberation enables deliberation mode for multi-Order proposals (default: false)
+	EnableDeliberation bool `json:"enable_deliberation" env:"PICOCLAW_ARCHITECTURE_ENABLE_DELIBERATION"`
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		Agents: AgentsConfig{
@@ -462,8 +475,8 @@ func DefaultConfig() *Config {
 			ChatAlias:      "Mio",
 			WorkerAlias:    "Shiro",
 			CoderAlias:     "Aka",
-			Coder2Alias:    "",
-			Coder3Alias:    "Claude",
+			Coder2Alias:    "Ao",
+			Coder3Alias:    "Gin",
 			ChatProvider:   "",
 			ChatModel:      "",
 			WorkerProvider: "",
@@ -503,6 +516,11 @@ func DefaultConfig() *Config {
 			CommandTimeout:      300, // 5 minutes
 			GitTimeout:          30,  // 30 seconds
 			StopOnError:         false,
+		},
+		Architecture: ArchitectureConfig{
+			UseNewArchitecture: false, // デフォルトは旧アーキテクチャ
+			EnableHeartbeat:    false,
+			EnableDeliberation: false,
 		},
 	}
 }

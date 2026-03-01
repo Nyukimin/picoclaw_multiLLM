@@ -157,7 +157,7 @@
       "coder2_alias": "Ao",
       "coder2_provider": "openai",
       "coder2_model": "gpt-4",
-      "coder3_alias": "Claude",
+      "coder3_alias": "Gin",
       "coder3_provider": "anthropic",
       "coder3_model": "claude-sonnet-4-5-20250929"
     }
@@ -186,5 +186,10 @@
   "gateway": {
     "host": "0.0.0.0",
     "port": 18790
+  },
+  "architecture": {
+    "use_new_architecture": false,
+    "enable_heartbeat": false,
+    "enable_deliberation": false
   }
 }

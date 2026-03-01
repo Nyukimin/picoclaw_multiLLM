@@ -1,4 +1,4 @@
-module github.com/sipeed/picoclaw
+module github.com/Nyukimin/picoclaw_multiLLM
 
 go 1.25.7
 

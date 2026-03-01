@@ -22,18 +22,21 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/health"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/mcp"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/bus"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/channels"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/constants"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/health"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/jobid"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/logger"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/mcp"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/modules/chat"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/modules/worker"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/providers"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/session"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/state"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/tools"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/utils"
 )
 
 type AgentLoop struct {
@@ -56,6 +59,15 @@ type AgentLoop struct {
 	summarizing    sync.Map // Tracks which sessions are currently being summarized
 	channelManager *channels.Manager
 	mcpClient      *mcp.Client
+
+	// New architecture components (Phase 3)
+	jobIDGen                 *jobid.Generator
+	chatReceptionModule      *chat.LightweightReceptionModule
+	chatDecisionModule       *chat.FinalDecisionModule
+	workerRoutingModule      *worker.RoutingModule
+	workerExecutionModule    *worker.ExecutionModule
+	workerAggregationModule  *worker.AggregationModule
+	workerHeartbeatModule    *worker.HeartbeatCollectorModule
 }
 
 // processOptions configures how a message is processed
@@ -202,7 +214,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		mcpClient = mcp.NewClient(cfg.MCP.Chrome.BaseURL)
 	}
 
-	return &AgentLoop{
+	al := &AgentLoop{
 		bus:            msgBus,
 		cfg:            cfg,
 		provider:       provider,
@@ -221,6 +233,19 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		summarizing:    sync.Map{},
 		mcpClient:      mcpClient,
 	}
+
+	// Initialize new architecture if enabled
+	if cfg.Architecture.UseNewArchitecture {
+		if err := al.initializeNewArchitecture(context.Background()); err != nil {
+			logger.ErrorCF("agent", "new_arch.init_failed", map[string]interface{}{
+				"error": err.Error(),
+			})
+			// Fall back to legacy architecture
+			cfg.Architecture.UseNewArchitecture = false
+		}
+	}
+
+	return al
 }
 
 func (al *AgentLoop) Run(ctx context.Context) error {
@@ -356,6 +381,19 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	if msg.Channel == "system" {
 		return al.processSystemMessage(ctx, msg)
 	}
+
+	// Branch between new and legacy architecture
+	if al.cfg.Architecture.UseNewArchitecture {
+		return al.processMessageNewArch(ctx, msg)
+	}
+
+	// Continue with legacy architecture below
+	return al.processMessageLegacy(ctx, msg)
+}
+
+// processMessageLegacy is the original processMessage implementation.
+// This preserves backward compatibility while the new architecture is being developed.
+func (al *AgentLoop) processMessageLegacy(ctx context.Context, msg bus.InboundMessage) (string, error) {
 
 	// Daily session cutover: archive yesterday's session to daily note and reset.
 	al.maybeDailyCutover(msg.SessionKey)

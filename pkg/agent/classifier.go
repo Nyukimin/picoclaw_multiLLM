@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/Nyukimin/picoclaw_multiLLM/pkg/providers"
 )
 
 type Classification struct {
