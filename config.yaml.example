@@ -1,0 +1,29 @@
+# PicoClaw Configuration Example
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+ollama:
+  base_url: "http://localhost:11434"
+  chat_model: "chat-v1"
+  worker_model: "worker-v1"
+
+claude:
+  # API Key は環境変数 ANTHROPIC_API_KEY から読み込み
+  model: "claude-sonnet-4-20250514"
+
+deepseek:
+  # API Key は環境変数 DEEPSEEK_API_KEY から読み込み
+  model: "deepseek-chat"
+
+openai:
+  # API Key は環境変数 OPENAI_API_KEY から読み込み
+  model: "gpt-4o-mini"
+
+session:
+  storage_dir: "./data/sessions"
+
+log:
+  level: "info"
+  format: "json"
