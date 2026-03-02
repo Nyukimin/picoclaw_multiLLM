@@ -1,10 +1,14 @@
 package session
 
 import (
+	"errors"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
+
+// ErrSessionNotFound はセッションが見つからない場合のエラー
+var ErrSessionNotFound = errors.New("session not found")
 
 // Session はユーザーセッションを表すエンティティ
 // 日次カットオーバーで切り替わり、会話履歴とメモリを保持
