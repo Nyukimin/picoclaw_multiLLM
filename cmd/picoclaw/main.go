@@ -16,6 +16,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
@@ -108,11 +109,15 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	toolRunner := tools.NewToolRunner()
 	log.Printf("ToolRunner initialized with %d tools", len(mustGetToolList(toolRunner)))
 
-	// 4. Agents
-	mioAgent := agent.NewMioAgent(ollamaChatProvider, classifier, ruleDictionary)
-	shiroAgent := agent.NewShiroAgent(ollamaWorkerProvider, toolRunner, nil) // MCPClient は後で実装
+	// 4. MCP Client
+	mcpClient := mcp.NewMCPClient()
+	log.Printf("MCPClient initialized with %d servers", len(mcpClient.ListServers()))
 
-	// 5. Session Repository
+	// 5. Agents
+	mioAgent := agent.NewMioAgent(ollamaChatProvider, classifier, ruleDictionary)
+	shiroAgent := agent.NewShiroAgent(ollamaWorkerProvider, toolRunner, mcpClient)
+
+	// 6. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
 
 	// セッションディレクトリ作成
@@ -120,7 +125,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Fatalf("Failed to create session directory: %v", err)
 	}
 
-	// 6. Application Orchestrator
+	// 7. Application Orchestrator
 	orch := orchestrator.NewMessageOrchestrator(
 		sessionRepo,
 		mioAgent,
@@ -130,7 +135,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		coder3Adapter,
 	)
 
-	// 7. Adapter (LINE Handler)
+	// 8. Adapter (LINE Handler)
 	lineHandler := line.NewHandler(orch, "", "") // Channel Secret/Access Token は後で設定
 
 	log.Println("Dependency injection complete")
