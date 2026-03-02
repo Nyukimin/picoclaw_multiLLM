@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -17,18 +18,27 @@ type Orchestrator interface {
 
 // Handler はLINE webhookハンドラー
 type Handler struct {
-	orchestrator  Orchestrator
-	channelSecret string
-	accessToken   string
+	orchestrator     Orchestrator
+	channelSecret    string
+	sender           *MessageSender
+	mediaDownloader  *MediaDownloader
+	botUserID        string // Bot's LINE user ID for mention detection
 }
 
 // NewHandler は新しいHandlerを作成
 func NewHandler(orch Orchestrator, channelSecret, accessToken string) *Handler {
 	return &Handler{
-		orchestrator:  orch,
-		channelSecret: channelSecret,
-		accessToken:   accessToken,
+		orchestrator:    orch,
+		channelSecret:   channelSecret,
+		sender:          NewMessageSender(accessToken),
+		mediaDownloader: NewMediaDownloader(accessToken),
+		botUserID:       "", // Set via SetBotUserID if needed
 	}
+}
+
+// SetBotUserID sets the bot's user ID for mention detection in group chats
+func (h *Handler) SetBotUserID(botUserID string) {
+	h.botUserID = botUserID
 }
 
 // ServeHTTP はHTTPリクエストを処理
@@ -58,9 +68,24 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleWebhook はLINE webhookを処理
 func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	// リクエストボディを読み取り（署名検証のため）
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// 署名検証
+	signature := r.Header.Get("X-Line-Signature")
+	if !verifySignature(body, signature, h.channelSecret) {
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
 	// リクエストボディをパース
 	var payload WebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -75,6 +100,18 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		// テキストメッセージのみ処理
 		if event.Message.Type != "text" {
 			continue
+		}
+
+		// Group/Room chatの場合、Bot mentionチェック
+		if h.botUserID != "" && event.Source.Type != "user" {
+			var mentionees []Mentionee
+			if event.Message.Mention != nil {
+				mentionees = event.Message.Mention.Mentionees
+			}
+			if !isBotMention(event.Source.Type, mentionees, h.botUserID) {
+				// Bot mentionがない場合はスキップ
+				continue
+			}
 		}
 
 		// セッションID生成
@@ -96,10 +133,21 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// LINE返信API呼び出し（簡易版：実際はLINE Messaging APIを使用）
-		// ここでは200 OKを返すのみ
-		// TODO: 実際のLINE返信API統合
-		_ = resp
+		// Quote token取得
+		quoteToken := extractQuoteToken(event)
+
+		// LINE返信API呼び出し（quote token対応）
+		var sendErr error
+		if quoteToken != "" {
+			sendErr = h.sender.SendReplyMessageWithQuote(r.Context(), event.ReplyToken, resp.Response, quoteToken)
+		} else {
+			sendErr = h.sender.SendReplyMessage(r.Context(), event.ReplyToken, resp.Response)
+		}
+
+		if sendErr != nil {
+			// 返信エラーはログに記録するが、webhookリクエスト自体は成功とする
+			fmt.Printf("Failed to send reply: %v\n", sendErr)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -128,13 +176,29 @@ type WebhookEvent struct {
 
 // EventMessage はイベントメッセージ
 type EventMessage struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-	ID   string `json:"id"`
+	Type       string      `json:"type"`
+	Text       string      `json:"text"`
+	ID         string      `json:"id"`
+	QuoteToken string      `json:"quoteToken"`
+	Mention    *Mention    `json:"mention,omitempty"`
+}
+
+// Mention はメンション情報
+type Mention struct {
+	Mentionees []Mentionee `json:"mentionees"`
+}
+
+// Mentionee はメンション対象ユーザー
+type Mentionee struct {
+	Index  int    `json:"index"`
+	Length int    `json:"length"`
+	UserID string `json:"userId"`
 }
 
 // EventSource はイベントソース
 type EventSource struct {
-	Type   string `json:"type"`
-	UserID string `json:"userId"`
+	Type    string `json:"type"`
+	UserID  string `json:"userId"`
+	GroupID string `json:"groupId,omitempty"`
+	RoomID  string `json:"roomId,omitempty"`
 }

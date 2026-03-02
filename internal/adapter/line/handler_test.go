@@ -3,6 +3,9 @@ package line
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -71,8 +74,13 @@ func TestHandler_WebhookEndpoint_ValidMessage(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
+
+	// Generate valid signature
+	signature := generateSignature(body, "test-secret")
+
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -86,8 +94,12 @@ func TestHandler_WebhookEndpoint_InvalidJSON(t *testing.T) {
 	orch := &mockOrchestrator{}
 	handler := NewHandler(orch, "test-secret", "test-token")
 
-	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader([]byte("invalid json")))
+	body := []byte("invalid json")
+	signature := generateSignature(body, "test-secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -115,8 +127,11 @@ func TestHandler_WebhookEndpoint_NonMessageEvent(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
+	signature := generateSignature(body, "test-secret")
+
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -150,8 +165,11 @@ func TestHandler_WebhookEndpoint_NonTextMessage(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
+	signature := generateSignature(body, "test-secret")
+
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -236,5 +254,223 @@ func TestHandler_HealthCheck(t *testing.T) {
 
 	if response["status"] != "ok" {
 		t.Errorf("Expected status 'ok', got '%s'", response["status"])
+	}
+}
+
+func TestHandler_WebhookEndpoint_InvalidSignature(t *testing.T) {
+	orch := &mockOrchestrator{}
+	handler := NewHandler(orch, "test-secret", "test-token")
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type": "text",
+					"text": "Test",
+				},
+				"source": map[string]interface{}{
+					"type":   "user",
+					"userId": "U123456",
+				},
+				"replyToken": "test-reply-token",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", "invalid-signature")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
+func TestHandler_WebhookEndpoint_MissingSignature(t *testing.T) {
+	orch := &mockOrchestrator{}
+	handler := NewHandler(orch, "test-secret", "test-token")
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type": "text",
+					"text": "Test",
+				},
+				"source": map[string]interface{}{
+					"type":   "user",
+					"userId": "U123456",
+				},
+				"replyToken": "test-reply-token",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// No X-Line-Signature header
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
+// generateSignature generates HMAC-SHA256 signature for testing
+func generateSignature(body []byte, channelSecret string) string {
+	mac := hmac.New(sha256.New, []byte(channelSecret))
+	mac.Write(body)
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func TestHandler_WebhookEndpoint_GroupChatWithBotMention(t *testing.T) {
+	orch := &mockOrchestrator{
+		response: orchestrator.ProcessMessageResponse{
+			Response:   "グループチャット返信",
+			Route:      routing.RouteCHAT,
+			Confidence: 1.0,
+			JobID:      "test-job-id",
+		},
+	}
+
+	handler := NewHandler(orch, "test-secret", "test-token")
+	handler.SetBotUserID("U-BOT123") // Set bot user ID
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type": "text",
+					"text": "@bot こんにちは",
+					"mention": map[string]interface{}{
+						"mentionees": []map[string]interface{}{
+							{
+								"index":  0,
+								"length": 4,
+								"userId": "U-BOT123",
+							},
+						},
+					},
+				},
+				"source": map[string]interface{}{
+					"type":    "group",
+					"userId":  "U123456",
+					"groupId": "G123456",
+				},
+				"replyToken": "reply-token-123",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	signature := generateSignature(body, "test-secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+}
+
+func TestHandler_WebhookEndpoint_GroupChatWithoutBotMention(t *testing.T) {
+	orch := &mockOrchestrator{}
+
+	handler := NewHandler(orch, "test-secret", "test-token")
+	handler.SetBotUserID("U-BOT123")
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type": "text",
+					"text": "こんにちは",
+					// No mention
+				},
+				"source": map[string]interface{}{
+					"type":    "group",
+					"userId":  "U123456",
+					"groupId": "G123456",
+				},
+				"replyToken": "reply-token-123",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	signature := generateSignature(body, "test-secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Bot mention無しの場合はスキップされるが、webhookは成功
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+}
+
+func TestHandler_WebhookEndpoint_WithQuoteToken(t *testing.T) {
+	orch := &mockOrchestrator{
+		response: orchestrator.ProcessMessageResponse{
+			Response:   "引用返信",
+			Route:      routing.RouteCHAT,
+			Confidence: 1.0,
+			JobID:      "test-job-id",
+		},
+	}
+
+	handler := NewHandler(orch, "test-secret", "test-token")
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type":       "text",
+					"text":       "返信します",
+					"quoteToken": "quote-token-abc123",
+				},
+				"source": map[string]interface{}{
+					"type":   "user",
+					"userId": "U123456",
+				},
+				"replyToken": "reply-token-123",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	signature := generateSignature(body, "test-secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", signature)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
 	}
 }
