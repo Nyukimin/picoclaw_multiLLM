@@ -18,6 +18,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
 )
 
 // coderAdapter はdomain CoderAgentをorchestrator CoderAgentに適応
@@ -103,11 +104,15 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	classifier := routing.NewLLMClassifier(ollamaChatProvider)
 	ruleDictionary := routing.NewRuleDictionary()
 
-	// 3. Agents
-	mioAgent := agent.NewMioAgent(ollamaChatProvider, classifier, ruleDictionary)
-	shiroAgent := agent.NewShiroAgent(ollamaWorkerProvider, nil, nil) // ToolRunner, MCPClient は後で実装
+	// 3. Tool Runner
+	toolRunner := tools.NewToolRunner()
+	log.Printf("ToolRunner initialized with %d tools", len(mustGetToolList(toolRunner)))
 
-	// 4. Session Repository
+	// 4. Agents
+	mioAgent := agent.NewMioAgent(ollamaChatProvider, classifier, ruleDictionary)
+	shiroAgent := agent.NewShiroAgent(ollamaWorkerProvider, toolRunner, nil) // MCPClient は後で実装
+
+	// 5. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
 
 	// セッションディレクトリ作成
@@ -115,7 +120,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Fatalf("Failed to create session directory: %v", err)
 	}
 
-	// 5. Application Orchestrator
+	// 6. Application Orchestrator
 	orch := orchestrator.NewMessageOrchestrator(
 		sessionRepo,
 		mioAgent,
@@ -125,7 +130,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		coder3Adapter,
 	)
 
-	// 6. Adapter (LINE Handler)
+	// 7. Adapter (LINE Handler)
 	lineHandler := line.NewHandler(orch, "", "") // Channel Secret/Access Token は後で設定
 
 	log.Println("Dependency injection complete")
@@ -141,4 +146,10 @@ func getConfigPath() string {
 		return path
 	}
 	return "./config.yaml"
+}
+
+// mustGetToolList はツールリストを取得（エラーは無視）
+func mustGetToolList(runner *tools.ToolRunner) []string {
+	tools, _ := runner.List(context.Background())
+	return tools
 }
