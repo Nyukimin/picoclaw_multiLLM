@@ -1,875 +1,563 @@
-<div align="center">
-  <img src="assets/logo.jpg" alt="PicoClaw" width="512">
+# PicoClaw - 超軽量AIアシスタント（v3 Clean Architecture）
 
-  <h1>PicoClaw: Ultra-Efficient AI Assistant in Go</h1>
+[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Test Coverage](https://img.shields.io/badge/coverage-83.6%25-brightgreen)](https://github.com/Nyukimin/picoclaw_multiLLM)
+[![Architecture](https://img.shields.io/badge/architecture-Clean%20Architecture-blue)](docs/実装仕様_v3.md)
 
-  <h3>$10 Hardware · 10MB RAM · 1s Boot · 皮皮虾，我们走！</h3>
-
-  <p>
-    <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
-    <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20RISC--V-blue" alt="Hardware">
-    <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-  </p>
-
- [中文](README.zh.md) | [日本語](README.ja.md) | **English**
-</div>
+> **メモリ使用量 <10MB で動作する、マルチLLMルーティング対応の超軽量AIアシスタント**
 
 ---
 
-🦐 PicoClaw is an ultra-lightweight personal AI Assistant inspired by [nanobot](https://github.com/HKUDS/nanobot), refactored from the ground up in Go through a self-bootstrapping process, where the AI agent itself drove the entire architectural migration and code optimization.
+## 📋 目次
 
-⚡️ Runs on $10 hardware with <10MB RAM: That's 99% less memory than OpenClaw and 98% cheaper than a Mac mini!
+- [概要](#-概要)
+- [主要機能](#-主要機能)
+- [アーキテクチャ](#-アーキテクチャ)
+- [実装状況](#-実装状況)
+- [クイックスタート](#-クイックスタート)
+- [設定](#-設定)
+- [開発](#-開発)
+- [ドキュメント](#-ドキュメント)
+- [貢献](#-貢献)
+- [ライセンス](#-ライセンス)
 
-<table align="center">
-  <tr align="center">
-    <td align="center" valign="top">
-      <p align="center">
-        <img src="assets/picoclaw_mem.gif" width="360" height="240">
-      </p>
-    </td>
-    <td align="center" valign="top">
-      <p align="center">
-        <img src="assets/licheervnano.png" width="400" height="240">
-      </p>
-    </td>
-  </tr>
-</table>
+---
 
-> [!CAUTION]
-> **🚨 SECURITY & OFFICIAL CHANNELS / 安全声明**
->
-> * **NO CRYPTO:** PicoClaw has **NO** official token/coin. All claims on `pump.fun` or other trading platforms are **SCAMS**.
-> * **OFFICIAL DOMAIN:** The **ONLY** official website is **[picoclaw.io](https://picoclaw.io)**, and company website is **[sipeed.com](https://sipeed.com)**
-> * **Warning:** Many `.ai/.org/.com/.net/...` domains are registered by third parties.
-> * **Warning:** picoclaw is in early development now and may have unresolved network security issues. Do not deploy to production environments before the v1.0 release.
-> * **Note:** picoclaw has recently merged a lot of PRs, which may result in a larger memory footprint (10–20MB) in the latest versions. We plan to prioritize resource optimization as soon as the current feature set reaches a stable state.
+## 🎯 概要
 
+**PicoClaw** は、Go言語で実装された超軽量なパーソナルAIアシスタントです。
 
-## 📢 News
-2026-02-16 🎉 PicoClaw hit 12K stars in one week! Thank you all for your support! PicoClaw is growing faster than we ever imagined. Given the high volume of PRs, we urgently need community maintainers. Our volunteer roles and roadmap are officially posted [here](docs/picoclaw_community_roadmap_260216.md) —we can’t wait to have you on board!
+### 特徴
 
-2026-02-13 🎉 PicoClaw hit 5000 stars in 4days! Thank you for the community! There are so many PRs&issues come in (during Chinese New Year holidays), we are finalizing the Project Roadmap and setting up the Developer Group to accelerate PicoClaw's development.  
-🚀 Call to Action: Please submit your feature requests in GitHub Discussions. We will review and prioritize them during our upcoming weekly meeting.
+- **超軽量**: メモリ使用量 <10MB、$10デバイスでも動作
+- **マルチLLM対応**: Ollama、Claude、DeepSeek、OpenAI等を統合
+- **インテリジェントルーティング**: Chat（会話）/ Worker（実行）/ Coder（設計・実装）の自動振り分け
+- **Worker即時実行**: Coderが生成したpatchをWorkerが自動実行（承認フロー廃止）
+- **Clean Architecture**: v3.0クリーンアーキテクチャで保守性向上
+- **高テストカバレッジ**: internal/配下 83.6%（Domain層 93.5%）
 
-2026-02-09 🎉 PicoClaw Launched! Built in 1 day to bring AI Agents to $10 hardware with <10MB RAM. 🦐 PicoClaw，Let's Go！
+### 技術スタック
 
-## ✨ Features
+- **言語**: Go 1.23
+- **アーキテクチャ**: Clean Architecture（4層構造）
+- **LLMプロバイダー**: Ollama, Anthropic Claude, DeepSeek, OpenAI
+- **チャネル**: LINE, Slack, Telegram, Discord等（計画）
+- **ツール**: Web検索、ファイル操作、シェル実行、MCP統合
 
-🪶 **Ultra-Lightweight**: <10MB Memory footprint — 99% smaller than Clawdbot - core functionality.
+---
 
-💰 **Minimal Cost**: Efficient enough to run on $10 Hardware — 98% cheaper than a Mac mini.
+## ✨ 主要機能
 
-⚡️ **Lightning Fast**: 400X Faster startup time, boot in 1 second even in 0.6GHz single core.
+### 1. マルチLLMルーティング
 
-🌍 **True Portability**: Single self-contained binary across RISC-V, ARM, and x86, One-click to Go!
+PicoClawは、タスクの種類に応じて最適なLLMを自動選択します：
 
-🤖 **AI-Bootstrapped**: Autonomous Go-native implementation — 95% Agent-generated core with human-in-the-loop refinement.
+| 役割 | 愛称 | LLM | 責務 |
+|------|------|-----|------|
+| **Chat** | Mio | Ollama (chat-v1) | 会話、意思決定、ルーティング判定 |
+| **Worker** | Shiro | Ollama (worker-v1) | ファイル操作、コマンド実行、差分適用 |
+| **Coder1** | Aka | DeepSeek | 仕様設計、アーキテクチャ検討 |
+| **Coder2** | Ao | OpenAI | 実装、コード生成 |
+| **Coder3** | Gin | Anthropic Claude | 高品質コーディング、推論 |
 
-|                               | OpenClaw      | NanoBot                  | **PicoClaw**                              |
-| ----------------------------- | ------------- | ------------------------ | ----------------------------------------- |
-| **Language**                  | TypeScript    | Python                   | **Go**                                    |
-| **RAM**                       | >1GB          | >100MB                   | **< 10MB**                                |
-| **Startup**</br>(0.8GHz core) | >500s         | >30s                     | **<1s**                                   |
-| **Cost**                      | Mac Mini 599$ | Most Linux SBC </br>~50$ | **Any Linux Board**</br>**As low as 10$** |
+**ルーティングカテゴリ**:
+- `CHAT` - 会話・意思決定
+- `PLAN` - 計画策定
+- `ANALYZE` - 分析
+- `OPS` - 運用操作
+- `RESEARCH` - 調査
+- `CODE` / `CODE1` / `CODE2` / `CODE3` - コーディング
 
-<img src="assets/compare.jpg" alt="PicoClaw" width="512">
+### 2. Worker即時実行（v3.0新機能）
 
-## 🦾 Demonstration
+Coder3（Claude）が生成したProposal（plan + patch）をWorkerが即座に実行します：
 
-### 🛠️ Standard Assistant Workflows
-
-<table align="center">
-  <tr align="center">
-    <th><p align="center">🧩 Full-Stack Engineer</p></th>
-    <th><p align="center">🗂️ Logging & Planning Management</p></th>
-    <th><p align="center">🔎 Web Search & Learning</p></th>
-  </tr>
-  <tr>
-    <td align="center"><p align="center"><img src="assets/picoclaw_code.gif" width="240" height="180"></p></td>
-    <td align="center"><p align="center"><img src="assets/picoclaw_memory.gif" width="240" height="180"></p></td>
-    <td align="center"><p align="center"><img src="assets/picoclaw_search.gif" width="240" height="180"></p></td>
-  </tr>
-  <tr>
-    <td align="center">Develop • Deploy • Scale</td>
-    <td align="center">Schedule • Automate • Memory</td>
-    <td align="center">Discovery • Insights • Trends</td>
-  </tr>
-</table>
-
-### 📱 Run on old Android Phones
-Give your decade-old phone a second life! Turn it into a smart AI Assistant with PicoClaw. Quick Start:
-1. **Install Termux** (Available on F-Droid or Google Play).
-2. **Execute cmds**
-```bash
-# Note: Replace v0.1.1 with the latest version from the Releases page
-wget https://github.com/sipeed/picoclaw/releases/download/v0.1.1/picoclaw-linux-arm64
-chmod +x picoclaw-linux-arm64
-pkg install proot
-termux-chroot ./picoclaw-linux-arm64 onboard
 ```
-And then follow the instructions in the "Quick Start" section to complete the configuration!
-<img src="assets/termux.jpg" alt="PicoClaw" width="512">
+ユーザー指示 → ルーティング → Coder3がProposal生成
+  → WorkerExecutionService.ExecuteProposal()
+  → Git auto-commit（オプション）
+  → 実行結果返却
+```
 
-### 🐜 Innovative Low-Footprint Deploy
+**セーフガード機能**:
+- ✅ Git auto-commit（変更を自動コミット、ロールバック可能）
+- ✅ 保護ファイルパターン（.env*, *credentials*, *.key, *.pem）
+- ✅ 実行前サマリ表示（コマンド数・種別を表示）
+- ✅ Workspace制限（workspace外への書き込み禁止）
+- ✅ エラーハンドリング（StopOnError/ContinueOnError）
 
-PicoClaw can be deployed on almost any Linux device!
+**サポートする操作**:
+- ファイル操作: create, update, delete, append, mkdir, rename, copy
+- シェルコマンド実行（タイムアウト・Env対応）
+- Git操作（commit, push等）
 
-- $9.9 [LicheeRV-Nano](https://www.aliexpress.com/item/1005006519668532.html) E(Ethernet) or W(WiFi6) version, for Minimal Home Assistant
-- $30~50 [NanoKVM](https://www.aliexpress.com/item/1005007369816019.html), or $100 [NanoKVM-Pro](https://www.aliexpress.com/item/1005010048471263.html) for Automated Server Maintenance
-- $50 [MaixCAM](https://www.aliexpress.com/item/1005008053333693.html) or $100 [MaixCAM2](https://www.kickstarter.com/projects/zepan/maixcam2-build-your-next-gen-4k-ai-camera) for Smart Monitoring
+### 3. ヘルスチェックと自動復旧
 
-<https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
+- Ollama常駐監視（`keep_alive: -1`）
+- ヘルスチェックによる自動再起動
+- MaxContext制約チェック（8192）
 
-🌟 More Deployment Cases Await！
+### 4. セッション管理
 
-## 📦 Install
+- 日次カットオーバー
+- メモリ管理
+- ログ保存（構造化ログ、Obsidian連携）
 
-### Install with precompiled binary
+---
 
-Download the firmware for your platform from the [release](https://github.com/sipeed/picoclaw/releases) page.
+## 🏗️ アーキテクチャ
 
-### Install from source (latest features, recommended for development)
+### v3.0 Clean Architecture（現在のブランチ: proposal/clean-architecture）
+
+```
+入力（LINE/Slack/etc.）
+  ↓
+┌─────────────────────────────────────────────┐
+│ Adapter層（LINE Handler等）                 │
+│ - config/, line/                            │
+└─────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────┐
+│ Application層（MessageOrchestrator）        │
+│ - orchestrator/, service/                   │
+│ - WorkerExecutionService（Worker即時実行）  │
+└─────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────┐
+│ Domain層（Mio/Shiro/CoderAgent等）          │
+│ - agent/, routing/, patch/, proposal/      │
+│ - session/, task/                           │
+└─────────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────────┐
+│ Infrastructure層（LLM/MCP/Tools）           │
+│ - llm/ (claude, deepseek, ollama, openai)  │
+│ - mcp/, tools/, routing/, persistence/     │
+└─────────────────────────────────────────────┘
+  ↓
+結果返却
+```
+
+**パッケージ構成**:
+```
+picoclaw/
+├── cmd/picoclaw/              # メインエントリーポイント
+├── internal/                  # v3クリーンアーキテクチャ実装
+│   ├── adapter/               # 外部I/F（config, line）
+│   ├── application/           # ユースケース（orchestrator, service）
+│   ├── domain/                # ドメインロジック（agent, routing等）
+│   └── infrastructure/        # 外部システム（llm, mcp, tools）
+├── pkg/                       # レガシー実装（v2以前、削除候補）
+├── docs/                      # ドキュメント
+│   ├── 仕様.md                # 要件定義
+│   ├── 実装仕様_v3.md         # v3実装仕様（3,067行）
+│   ├── LLM運用/               # LLM運用仕様
+│   └── archive/               # アーカイブ
+└── config.yaml.example        # 設定例
+```
+
+---
+
+## 📊 実装状況
+
+**ブランチ**: `proposal/clean-architecture`（v3.0実装中）
+
+| カテゴリ | 完成度 | 詳細 |
+|---------|--------|------|
+| **承認フロー廃止** | ✅ 100% | pkg/approval/ 削除完了 |
+| **Worker即時実行** | ✅ 100% | WorkerExecutionService実装完了 |
+| **Coder→Worker統合** | ✅ 100% | MessageOrchestrator統合完成 |
+| **Infrastructure層** | ✅ 95% | LLM/MCP/Tools/Config/Session |
+| **Domain層** | ✅ 90% | Agent/Routing/Patch定義 |
+| **Adapter層** | ✅ 85% | LINE統合、設定管理 |
+| **Application層** | ✅ 70% | Orchestrator、Worker実行ロジック |
+| **全体** | ✅ 87% | 核心機能100%完成 |
+
+**テストカバレッジ**:
+- **internal/全体**: 83.6% ✅
+- Config: 94.6%
+- Domain層: 平均93.5%
+- Infrastructure層: 平均87.2%
+- LINE Adapter: 85.9%
+- Orchestrator: 70.0%
+- Service: 65.4%
+
+**最近の主要実装**（2026-03-02完了）:
+- ✅ 承認フロー全廃（pkg/approval/ 削除、~590行）
+- ✅ Worker即時実行（WorkerExecutionService、390行 + テスト651行）
+- ✅ Coder3統合（CODE3ルート、Proposal → Worker自動連携）
+- ✅ セーフガード実装（保護ファイル、workspace制限等）
+- ✅ Git auto-commit対応
+- ✅ ドキュメント再編成（docs/ シンプル化）
+
+---
+
+## 🚀 クイックスタート
+
+### 前提条件
+
+- Go 1.23以降
+- Ollama（chat-v1、worker-v1モデル）
+- API キー（Anthropic/DeepSeek/OpenAI等、オプション）
+
+### 1. インストール
 
 ```bash
-git clone https://github.com/sipeed/picoclaw.git
+# リポジトリクローン
+git clone https://github.com/Nyukimin/picoclaw_multiLLM.git
+cd picoclaw_multiLLM
 
-cd picoclaw
+# ブランチ切り替え（v3クリーンアーキテクチャ版）
+git checkout proposal/clean-architecture
+
+# 依存関係インストール
 make deps
 
-# Build, no need to install
+# ビルド
 make build
 
-# Build for multiple platforms
+# または直接ビルド
+go build -o picoclaw ./cmd/picoclaw
+```
+
+### 2. Ollama モデル準備
+
+```bash
+# Ollamaインストール（未インストールの場合）
+curl -fsSL https://ollama.com/install.sh | sh
+
+# モデルダウンロード
+ollama pull chat-v1       # Chat（Mio）用
+ollama pull worker-v1     # Worker（Shiro）用
+
+# 常駐化（keep_alive: -1）
+ollama run chat-v1 --keep-alive -1
+ollama run worker-v1 --keep-alive -1
+```
+
+### 3. 設定ファイル作成
+
+```bash
+# 設定例をコピー
+cp config.yaml.example config.yaml
+
+# API キーを環境変数に設定
+export ANTHROPIC_API_KEY="your-claude-api-key"    # Coder3用（オプション）
+export DEEPSEEK_API_KEY="your-deepseek-api-key"  # Coder1用（オプション）
+export OPENAI_API_KEY="your-openai-api-key"      # Coder2用（オプション）
+```
+
+### 4. 実行
+
+```bash
+# サーバー起動
+./picoclaw
+
+# または
+go run ./cmd/picoclaw
+```
+
+サーバーは `http://0.0.0.0:8080` で起動します。
+
+---
+
+## ⚙️ 設定
+
+### config.yaml 基本設定
+
+```yaml
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+ollama:
+  base_url: "http://localhost:11434"
+  chat_model: "chat-v1"
+  worker_model: "worker-v1"
+
+claude:
+  # API Key は環境変数 ANTHROPIC_API_KEY から読み込み
+  model: "claude-sonnet-4-20250514"
+
+deepseek:
+  # API Key は環境変数 DEEPSEEK_API_KEY から読み込み
+  model: "deepseek-chat"
+
+openai:
+  # API Key は環境変数 OPENAI_API_KEY から読み込み
+  model: "gpt-4o-mini"
+
+session:
+  storage_dir: "./data/sessions"
+
+log:
+  level: "info"
+  format: "json"
+```
+
+### Worker実行設定（重要）
+
+```yaml
+worker:
+  # Git auto-commit（実行前後に自動コミット）
+  auto_commit: false
+  commit_message_prefix: "[Worker Auto-Commit]"
+
+  # タイムアウト設定（秒）
+  command_timeout: 300  # シェルコマンド実行タイムアウト（5分）
+  git_timeout: 30       # Git操作タイムアウト（30秒）
+
+  # エラーハンドリング
+  stop_on_error: false  # false=継続モード、true=中断モード
+
+  # ワークスペース設定
+  workspace: "."  # Patch実行のルートディレクトリ
+
+  # 保護ファイルパターン（機密情報保護）
+  protected_patterns:
+    - ".env*"
+    - "*credentials*"
+    - "*.key"
+    - "*.pem"
+
+  # 保護ファイル検出時の動作
+  action_on_protected: "error"  # "error"=エラー停止、"skip"=スキップ、"log"=警告ログのみ
+
+  # 実行前サマリ表示
+  show_execution_summary: true  # 実行前にコマンド数・種別を表示
+```
+
+### API キー設定
+
+**環境変数で設定（推奨）**:
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export DEEPSEEK_API_KEY="sk-..."
+export OPENAI_API_KEY="sk-..."
+```
+
+---
+
+## 💻 開発
+
+### ビルド
+
+```bash
+# 開発ビルド
+make build
+
+# 全プラットフォーム向けビルド
 make build-all
 
-# Build And Install
+# インストール
 make install
 ```
 
-## 🐳 Docker Compose
-
-You can also run PicoClaw using Docker Compose without installing anything locally.
+### テスト
 
 ```bash
-# 1. Clone this repo
-git clone https://github.com/sipeed/picoclaw.git
-cd picoclaw
+# 全テスト実行
+make test
 
-# 2. Set your API keys
-cp config/config.example.json config/config.json
-vim config/config.json      # Set DISCORD_BOT_TOKEN, API keys, etc.
-
-# 3. Build & Start
-docker compose --profile gateway up -d
-
-# 4. Check logs
-docker compose logs -f picoclaw-gateway
-
-# 5. Stop
-docker compose --profile gateway down
+# カバレッジ確認
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -html=coverage.out
 ```
 
-### Agent Mode (One-shot)
+### ディレクトリ構成
 
-```bash
-# Ask a question
-docker compose run --rm picoclaw-agent -m "What is 2+2?"
-
-# Interactive mode
-docker compose run --rm picoclaw-agent
 ```
-
-### Rebuild
-
-```bash
-docker compose --profile gateway build --no-cache
-docker compose --profile gateway up -d
+picoclaw/
+├── cmd/picoclaw/                      # メインアプリケーション
+│   └── main.go                        # エントリーポイント（DI設定）
+├── internal/                          # v3クリーンアーキテクチャ
+│   ├── adapter/                       # Adapter層
+│   │   ├── config/                    # 設定管理
+│   │   └── line/                      # LINE統合
+│   ├── application/                   # Application層
+│   │   ├── orchestrator/              # メッセージオーケストレーター
+│   │   └── service/                   # Worker実行サービス
+│   ├── domain/                        # Domain層
+│   │   ├── agent/                     # エージェント（Mio/Shiro/Coder）
+│   │   ├── llm/                       # LLMインターフェース
+│   │   ├── patch/                     # Patch定義（7種の操作）
+│   │   ├── proposal/                  # Proposal定義（plan/patch/risk）
+│   │   ├── routing/                   # ルーティング
+│   │   ├── session/                   # セッション
+│   │   └── task/                      # タスク
+│   └── infrastructure/                # Infrastructure層
+│       ├── llm/                       # LLMプロバイダー実装
+│       │   ├── claude/
+│       │   ├── deepseek/
+│       │   ├── ollama/
+│       │   └── openai/
+│       ├── mcp/                       # MCP統合
+│       ├── persistence/               # 永続化
+│       ├── routing/                   # ルーティング実装
+│       └── tools/                     # ツール実装
+├── pkg/                               # レガシー実装（v2以前）
+├── docs/                              # ドキュメント
+│   ├── 仕様.md                        # 要件定義
+│   ├── 実装仕様_v3.md                 # v3実装仕様（3,067行）
+│   ├── LLM運用/                       # LLM運用仕様
+│   │   ├── Coder3_Claude_API仕様.md
+│   │   ├── LLM_Ollama常駐管理.md
+│   │   └── LLM_Worker_Spec_v1_0.md
+│   └── archive/                       # アーカイブ
+├── config.yaml.example                # 設定例
+├── Makefile                           # ビルドファイル
+└── README.md                          # このファイル
 ```
-
-### 🚀 Quick Start
-
-> [!TIP]
-> Set your API key in `~/.picoclaw/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (LLM) · [Zhipu](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) (LLM)
-> Web search is **optional** - get free [Brave Search API](https://brave.com/search/api) (2000 free queries/month) or use built-in auto fallback.
-
-**1. Initialize**
-
-```bash
-picoclaw onboard
-```
-
-**2. Configure** (`~/.picoclaw/config.json`)
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "workspace": "~/.picoclaw/workspace",
-      "model": "glm-4.7",
-      "max_tokens": 8192,
-      "temperature": 0.7,
-      "max_tool_iterations": 20
-    }
-  },
-  "providers": {
-    "openrouter": {
-      "api_key": "xxx",
-      "api_base": "https://openrouter.ai/api/v1"
-    }
-  },
-  "tools": {
-    "web": {
-      "brave": {
-        "enabled": false,
-        "api_key": "YOUR_BRAVE_API_KEY",
-        "max_results": 5
-      },
-      "duckduckgo": {
-        "enabled": true,
-        "max_results": 5
-      }
-    }
-  }
-}
-```
-
-**3. Get API Keys**
-
-* **LLM Provider**: [OpenRouter](https://openrouter.ai/keys) · [Zhipu](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) · [Anthropic](https://console.anthropic.com) · [OpenAI](https://platform.openai.com) · [Gemini](https://aistudio.google.com/api-keys)
-* **Web Search** (optional): [Brave Search](https://brave.com/search/api) - Free tier available (2000 requests/month)
-
-> **Note**: See `config.example.json` for a complete configuration template.
-
-**4. Chat**
-
-```bash
-picoclaw agent -m "What is 2+2?"
-```
-
-That's it! You have a working AI assistant in 2 minutes.
 
 ---
 
-## 💬 Chat Apps
+## 📚 ドキュメント
 
-Talk to your picoclaw through Telegram, Discord, DingTalk, or LINE
+### 正本仕様（実装の一次参照）
 
-| Channel      | Setup                              |
-| ------------ | ---------------------------------- |
-| **Telegram** | Easy (just a token)                |
-| **Discord**  | Easy (bot token + intents)         |
-| **QQ**       | Easy (AppID + AppSecret)           |
-| **DingTalk** | Medium (app credentials)           |
-| **LINE**     | Medium (credentials + webhook URL) |
+- **[docs/仕様.md](docs/仕様.md)** - 要件定義（286行）
+- **[docs/実装仕様_v3.md](docs/実装仕様_v3.md)** - v3クリーンアーキテクチャ版（3,067行）
 
-<details>
-<summary><b>Telegram</b> (Recommended)</summary>
+### LLM運用
 
-**1. Create a bot**
+- **[docs/LLM運用/Coder3_Claude_API仕様.md](docs/LLM運用/Coder3_Claude_API仕様.md)** - Coder3仕様
+- **[docs/LLM運用/LLM_Worker_Spec_v1_0.md](docs/LLM運用/LLM_Worker_Spec_v1_0.md)** - Worker仕様
+- **[docs/LLM運用/LLM_Ollama常駐管理.md](docs/LLM運用/LLM_Ollama常駐管理.md)** - Ollama管理
 
-* Open Telegram, search `@BotFather`
-* Send `/newbot`, follow prompts
-* Copy the token
+### プロジェクトルール
 
-**2. Configure**
+- **[CLAUDE.md](CLAUDE.md)** - AI開発ルール、プロジェクト固有ルール
 
-```json
-{
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
+### その他
 
-> Get your user ID from `@userinfobot` on Telegram.
-
-**3. Run**
-
-```bash
-picoclaw gateway
-```
-
-</details>
-
-<details>
-<summary><b>Discord</b></summary>
-
-**1. Create a bot**
-
-* Go to <https://discord.com/developers/applications>
-* Create an application → Bot → Add Bot
-* Copy the bot token
-
-**2. Enable intents**
-
-* In the Bot settings, enable **MESSAGE CONTENT INTENT**
-* (Optional) Enable **SERVER MEMBERS INTENT** if you plan to use allow lists based on member data
-
-**3. Get your User ID**
-
-* Discord Settings → Advanced → enable **Developer Mode**
-* Right-click your avatar → **Copy User ID**
-
-**4. Configure**
-
-```json
-{
-  "channels": {
-    "discord": {
-      "enabled": true,
-      "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"]
-    }
-  }
-}
-```
-
-**5. Invite the bot**
-
-* OAuth2 → URL Generator
-* Scopes: `bot`
-* Bot Permissions: `Send Messages`, `Read Message History`
-* Open the generated invite URL and add the bot to your server
-
-**6. Run**
-
-```bash
-picoclaw gateway
-```
-
-</details>
-
-<details>
-<summary><b>QQ</b></summary>
-
-**1. Create a bot**
-
-- Go to [QQ Open Platform](https://q.qq.com/#)
-- Create an application → Get **AppID** and **AppSecret**
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "app_id": "YOUR_APP_ID",
-      "app_secret": "YOUR_APP_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> Set `allow_from` to empty to allow all users, or specify QQ numbers to restrict access.
-
-**3. Run**
-
-```bash
-picoclaw gateway
-```
-
-</details>
-
-<details>
-<summary><b>DingTalk</b></summary>
-
-**1. Create a bot**
-
-* Go to [Open Platform](https://open.dingtalk.com/)
-* Create an internal app
-* Copy Client ID and Client Secret
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "dingtalk": {
-      "enabled": true,
-      "client_id": "YOUR_CLIENT_ID",
-      "client_secret": "YOUR_CLIENT_SECRET",
-      "allow_from": []
-    }
-  }
-}
-```
-
-> Set `allow_from` to empty to allow all users, or specify QQ numbers to restrict access.
-
-**3. Run**
-
-```bash
-picoclaw gateway
-```
-
-</details>
-
-<details>
-<summary><b>LINE</b></summary>
-
-**1. Create a LINE Official Account**
-
-- Go to [LINE Developers Console](https://developers.line.biz/)
-- Create a provider → Create a Messaging API channel
-- Copy **Channel Secret** and **Channel Access Token**
-
-**2. Configure**
-
-```json
-{
-  "channels": {
-    "line": {
-      "enabled": true,
-      "channel_secret": "YOUR_CHANNEL_SECRET",
-      "channel_access_token": "YOUR_CHANNEL_ACCESS_TOKEN",
-      "webhook_host": "0.0.0.0",
-      "webhook_port": 18791,
-      "webhook_path": "/webhook/line",
-      "allow_from": []
-    }
-  }
-}
-```
-
-**3. Set up Webhook URL**
-
-LINE requires HTTPS for webhooks. Use a reverse proxy or tunnel:
-
-```bash
-# Example with ngrok
-ngrok http 18791
-```
-
-Then set the Webhook URL in LINE Developers Console to `https://your-domain/webhook/line` and enable **Use webhook**.
-
-**4. Run**
-
-```bash
-picoclaw gateway
-```
-
-> In group chats, the bot responds only when @mentioned. Replies quote the original message.
-
-> **Docker Compose**: Add `ports: ["18791:18791"]` to the `picoclaw-gateway` service to expose the webhook port.
-
-</details>
-
-## <img src="assets/clawdchat-icon.png" width="24" height="24" alt="ClawdChat"> Join the Agent Social Network
-
-Connect Picoclaw to the Agent Social Network simply by sending a single message via the CLI or any integrated Chat App.
-
-**Read `https://clawdchat.ai/skill.md` and follow the instructions to join [ClawdChat.ai](https://clawdchat.ai)**
-
-## ⚙️ Configuration
-
-Config file: `~/.picoclaw/config.json`
-
-### Workspace Layout
-
-PicoClaw stores data in your configured workspace (default: `~/.picoclaw/workspace`):
-
-```
-~/.picoclaw/workspace/
-├── sessions/          # Conversation sessions and history
-├── memory/           # Long-term memory (MEMORY.md)
-├── state/            # Persistent state (last channel, etc.)
-├── cron/             # Scheduled jobs database
-├── skills/           # Custom skills
-├── AGENTS.md         # Agent behavior guide
-├── HEARTBEAT.md      # Periodic task prompts (checked every 30 min)
-├── IDENTITY.md       # Agent identity
-├── SOUL.md           # Agent soul
-├── TOOLS.md          # Tool descriptions
-└── USER.md           # User preferences
-```
-
-### 🔒 Security Sandbox
-
-PicoClaw runs in a sandboxed environment by default. The agent can only access files and execute commands within the configured workspace.
-
-#### Default Configuration
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "workspace": "~/.picoclaw/workspace",
-      "restrict_to_workspace": true
-    }
-  }
-}
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `workspace` | `~/.picoclaw/workspace` | Working directory for the agent |
-| `restrict_to_workspace` | `true` | Restrict file/command access to workspace |
-
-#### Protected Tools
-
-When `restrict_to_workspace: true`, the following tools are sandboxed:
-
-| Tool | Function | Restriction |
-|------|----------|-------------|
-| `read_file` | Read files | Only files within workspace |
-| `write_file` | Write files | Only files within workspace |
-| `list_dir` | List directories | Only directories within workspace |
-| `edit_file` | Edit files | Only files within workspace |
-| `append_file` | Append to files | Only files within workspace |
-| `exec` | Execute commands | Command paths must be within workspace |
-
-#### Additional Exec Protection
-
-Even with `restrict_to_workspace: false`, the `exec` tool blocks these dangerous commands:
-
-* `rm -rf`, `del /f`, `rmdir /s` — Bulk deletion
-* `format`, `mkfs`, `diskpart` — Disk formatting
-* `dd if=` — Disk imaging
-* Writing to `/dev/sd[a-z]` — Direct disk writes
-* `shutdown`, `reboot`, `poweroff` — System shutdown
-* Fork bomb `:(){ :|:& };:`
-
-#### Error Examples
-
-```
-[ERROR] tool: Tool execution failed
-{tool=exec, error=Command blocked by safety guard (path outside working dir)}
-```
-
-```
-[ERROR] tool: Tool execution failed
-{tool=exec, error=Command blocked by safety guard (dangerous pattern detected)}
-```
-
-#### Disabling Restrictions (Security Risk)
-
-If you need the agent to access paths outside the workspace:
-
-**Method 1: Config file**
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "restrict_to_workspace": false
-    }
-  }
-}
-```
-
-**Method 2: Environment variable**
-
-```bash
-export PICOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE=false
-```
-
-> ⚠️ **Warning**: Disabling this restriction allows the agent to access any path on your system. Use with caution in controlled environments only.
-
-#### Security Boundary Consistency
-
-The `restrict_to_workspace` setting applies consistently across all execution paths:
-
-| Execution Path | Security Boundary |
-|----------------|-------------------|
-| Main Agent | `restrict_to_workspace` ✅ |
-| Subagent / Spawn | Inherits same restriction ✅ |
-| Heartbeat tasks | Inherits same restriction ✅ |
-
-All paths share the same workspace restriction — there's no way to bypass the security boundary through subagents or scheduled tasks.
-
-### Heartbeat (Periodic Tasks)
-
-PicoClaw can perform periodic tasks automatically. Create a `HEARTBEAT.md` file in your workspace:
-
-```markdown
-# Periodic Tasks
-
-- Check my email for important messages
-- Review my calendar for upcoming events
-- Check the weather forecast
-```
-
-The agent will read this file every 30 minutes (configurable) and execute any tasks using available tools.
-
-#### Async Tasks with Spawn
-
-For long-running tasks (web search, API calls), use the `spawn` tool to create a **subagent**:
-
-```markdown
-# Periodic Tasks
-
-## Quick Tasks (respond directly)
-- Report current time
-
-## Long Tasks (use spawn for async)
-- Search the web for AI news and summarize
-- Check email and report important messages
-```
-
-**Key behaviors:**
-
-| Feature | Description |
-|---------|-------------|
-| **spawn** | Creates async subagent, doesn't block heartbeat |
-| **Independent context** | Subagent has its own context, no session history |
-| **message tool** | Subagent communicates with user directly via message tool |
-| **Non-blocking** | After spawning, heartbeat continues to next task |
-
-#### How Subagent Communication Works
-
-```
-Heartbeat triggers
-    ↓
-Agent reads HEARTBEAT.md
-    ↓
-For long task: spawn subagent
-    ↓                           ↓
-Continue to next task      Subagent works independently
-    ↓                           ↓
-All tasks done            Subagent uses "message" tool
-    ↓                           ↓
-Respond HEARTBEAT_OK      User receives result directly
-```
-
-The subagent has access to tools (message, web_search, etc.) and can communicate with the user independently without going through the main agent.
-
-**Configuration:**
-
-```json
-{
-  "heartbeat": {
-    "enabled": true,
-    "interval": 30
-  }
-}
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `enabled` | `true` | Enable/disable heartbeat |
-| `interval` | `30` | Check interval in minutes (min: 5) |
-
-**Environment variables:**
-
-* `PICOCLAW_HEARTBEAT_ENABLED=false` to disable
-* `PICOCLAW_HEARTBEAT_INTERVAL=60` to change interval
-
-### Providers
-
-> [!NOTE]
-> Groq provides free voice transcription via Whisper. If configured, Telegram voice messages will be automatically transcribed.
-
-| Provider                   | Purpose                                 | Get API Key                                            |
-| -------------------------- | --------------------------------------- | ------------------------------------------------------ |
-| `gemini`                   | LLM (Gemini direct)                     | [aistudio.google.com](https://aistudio.google.com)     |
-| `zhipu`                    | LLM (Zhipu direct)                      | [bigmodel.cn](bigmodel.cn)                             |
-| `openrouter(To be tested)` | LLM (recommended, access to all models) | [openrouter.ai](https://openrouter.ai)                 |
-| `anthropic(To be tested)`  | LLM (Claude direct)                     | [console.anthropic.com](https://console.anthropic.com) |
-| `openai(To be tested)`     | LLM (GPT direct)                        | [platform.openai.com](https://platform.openai.com)     |
-| `deepseek(To be tested)`   | LLM (DeepSeek direct)                   | [platform.deepseek.com](https://platform.deepseek.com) |
-| `groq`                     | LLM + **Voice transcription** (Whisper) | [console.groq.com](https://console.groq.com)           |
-
-<details>
-<summary><b>Zhipu</b></summary>
-
-**1. Get API key and base URL**
-
-* Get [API key](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)
-
-**2. Configure**
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "workspace": "~/.picoclaw/workspace",
-      "model": "glm-4.7",
-      "max_tokens": 8192,
-      "temperature": 0.7,
-      "max_tool_iterations": 20
-    }
-  },
-  "providers": {
-    "zhipu": {
-      "api_key": "Your API Key",
-      "api_base": "https://open.bigmodel.cn/api/paas/v4"
-    }
-  }
-}
-```
-
-**3. Run**
-
-```bash
-picoclaw agent -m "Hello"
-```
-
-</details>
-
-<details>
-<summary><b>Full config example</b></summary>
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": "anthropic/claude-opus-4-5"
-    }
-  },
-  "providers": {
-    "openrouter": {
-      "api_key": "sk-or-v1-xxx"
-    },
-    "groq": {
-      "api_key": "gsk_xxx"
-    }
-  },
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "token": "123456:ABC...",
-      "allow_from": ["123456789"]
-    },
-    "discord": {
-      "enabled": true,
-      "token": "",
-      "allow_from": [""]
-    },
-    "whatsapp": {
-      "enabled": false
-    },
-    "feishu": {
-      "enabled": false,
-      "app_id": "cli_xxx",
-      "app_secret": "xxx",
-      "encrypt_key": "",
-      "verification_token": "",
-      "allow_from": []
-    },
-    "qq": {
-      "enabled": false,
-      "app_id": "",
-      "app_secret": "",
-      "allow_from": []
-    }
-  },
-  "tools": {
-    "web": {
-      "brave": {
-        "enabled": false,
-        "api_key": "BSA...",
-        "max_results": 5
-      },
-      "duckduckgo": {
-        "enabled": true,
-        "max_results": 5
-      }
-    },
-    "cron": {
-      "exec_timeout_minutes": 5
-    }
-  },
-  "heartbeat": {
-    "enabled": true,
-    "interval": 30
-  }
-}
-```
-
-</details>
-
-## CLI Reference
-
-| Command                   | Description                   |
-| ------------------------- | ----------------------------- |
-| `picoclaw onboard`        | Initialize config & workspace |
-| `picoclaw agent -m "..."` | Chat with the agent           |
-| `picoclaw agent`          | Interactive chat mode         |
-| `picoclaw gateway`        | Start the gateway             |
-| `picoclaw status`         | Show status                   |
-| `picoclaw cron list`      | List all scheduled jobs       |
-| `picoclaw cron add ...`   | Add a scheduled job           |
-
-### Scheduled Tasks / Reminders
-
-PicoClaw supports scheduled reminders and recurring tasks through the `cron` tool:
-
-* **One-time reminders**: "Remind me in 10 minutes" → triggers once after 10min
-* **Recurring tasks**: "Remind me every 2 hours" → triggers every 2 hours
-* **Cron expressions**: "Remind me at 9am daily" → uses cron expression
-
-Jobs are stored in `~/.picoclaw/workspace/cron/` and processed automatically.
-
-## 🤝 Contribute & Roadmap
-
-PRs welcome! The codebase is intentionally small and readable. 🤗
-
-Roadmap coming soon...
-
-Developer group building, Entry Requirement: At least 1 Merged PR.
-
-User Groups:
-
-discord:  <https://discord.gg/V4sAZ9XWpN>
-
-<img src="assets/wechat.png" alt="PicoClaw" width="512">
-
-## 🐛 Troubleshooting
-
-### Web search says "API 配置问题"
-
-This is normal if you haven't configured a search API key yet. PicoClaw will provide helpful links for manual searching.
-
-To enable web search:
-
-1. **Option 1 (Recommended)**: Get a free API key at [https://brave.com/search/api](https://brave.com/search/api) (2000 free queries/month) for the best results.
-2. **Option 2 (No Credit Card)**: If you don't have a key, we automatically fall back to **DuckDuckGo** (no key required).
-
-Add the key to `~/.picoclaw/config.json` if using Brave:
-
-```json
-{
-  "tools": {
-    "web": {
-      "brave": {
-        "enabled": false,
-        "api_key": "YOUR_BRAVE_API_KEY",
-        "max_results": 5
-      },
-      "duckduckgo": {
-        "enabled": true,
-        "max_results": 5
-      }
-    }
-  }
-}
-```
-
-### Getting content filtering errors
-
-Some providers (like Zhipu) have content filtering. Try rephrasing your query or use a different model.
-
-### Telegram bot says "Conflict: terminated by other getUpdates"
-
-This happens when another instance of the bot is running. Make sure only one `picoclaw gateway` is running at a time.
+- **[docs/README.md](docs/README.md)** - ドキュメント一覧
+- **[docs/archive/](docs/archive/)** - 旧ドキュメント（参考資料）
 
 ---
 
-## 📝 API Key Comparison
+## 🤝 貢献
 
-| Service          | Free Tier           | Use Case                              |
-| ---------------- | ------------------- | ------------------------------------- |
-| **OpenRouter**   | 200K tokens/month   | Multiple models (Claude, GPT-4, etc.) |
-| **Zhipu**        | 200K tokens/month   | Best for Chinese users                |
-| **Brave Search** | 2000 queries/month  | Web search functionality              |
-| **Groq**         | Free tier available | Fast inference (Llama, Mixtral)       |
+プルリクエスト歓迎！以下のガイドラインに従ってください：
+
+### 開発フロー
+
+1. **仕様確認**: `docs/実装仕様_v3.md` を読む
+2. **ブランチ作成**: `feature/xxx` または `fix/xxx`
+3. **実装**: コーディング規約に従う
+4. **テスト**: ユニットテスト・統合テストを追加
+5. **ドキュメント更新**: 必要に応じて `docs/実装仕様_v3.md` を更新
+6. **プルリクエスト**: `proposal/clean-architecture` ブランチへ
+
+### コーディング規約
+
+- Go標準のコーディングスタイル（`gofmt`, `go vet`）
+- Clean Architectureの原則を尊重
+- テストカバレッジ: 新規コードは70%以上
+- コミットメッセージ: [Conventional Commits](https://www.conventionalcommits.org/)
+
+### テスト
+
+```bash
+# 全テスト実行
+go test ./...
+
+# カバレッジ確認
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
+---
+
+## 📄 ライセンス
+
+MIT License
+
+---
+
+## 🎯 次のマイルストーン
+
+### Phase 6: mainブランチへのマージ（計画中）
+
+- [ ] プルリクエスト作成
+- [ ] コードレビュー
+- [ ] 統合テスト
+- [ ] mainブランチへのマージ
+
+### Phase 7: リリース準備（計画中）
+
+- [ ] リリースノート作成
+- [ ] タグ作成（v3.0.0）
+- [ ] バイナリビルド
+- [ ] ドキュメント最終確認
+
+### 将来の計画
+
+- [ ] Slack統合
+- [ ] Telegram統合
+- [ ] Discord統合
+- [ ] MCP統合の拡張
+- [ ] スキル管理機能
+- [ ] Web UI
+
+---
+
+## 💡 使用例
+
+### LINEから実行
+
+```
+ユーザー: /code3 pkg/test/hello.go に Hello World を出力する関数を追加して
+```
+
+**期待される動作**:
+1. Coder3（Claude）がProposal生成（plan/patch/risk）
+2. WorkerがPatch即時実行
+3. （auto_commit=trueの場合）Git自動コミット
+4. 実行結果返信
+
+---
+
+## 🐛 トラブルシューティング
+
+### Ollamaモデルが見つからない
+
+```bash
+# モデル一覧確認
+ollama list
+
+# モデルダウンロード
+ollama pull chat-v1
+ollama pull worker-v1
+```
+
+### Worker実行が失敗する
+
+1. Git auto-commit設定確認: `config.yaml` の `worker.auto_commit`
+2. Workspace設定確認: `worker.workspace`
+3. ログ確認: 標準出力の `[Worker]` プレフィックス行
+
+### ロールバックが必要な場合
+
+```bash
+# 最新のコミットを確認
+git log --oneline -5 | grep "Worker Auto-Commit"
+
+# ロールバック
+git reset --hard HEAD~1
+
+# 特定のコミットに戻る
+git reset --hard <commit-hash>
+```
+
+---
+
+## 📞 サポート
+
+- **Issue**: [GitHub Issues](https://github.com/Nyukimin/picoclaw_multiLLM/issues)
+- **ドキュメント**: [docs/](docs/)
+- **仕様**: [docs/実装仕様_v3.md](docs/実装仕様_v3.md)
+
+---
+
+**PicoClaw v3.0** - Clean Architecture for Ultra-Lightweight AI Assistant
