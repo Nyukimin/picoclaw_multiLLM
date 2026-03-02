@@ -21,8 +21,8 @@
 ### 1.3 主要機能
 
 - **マルチ LLM ルーティング**: Chat（Mio）、Worker（Shiro）、Coder1（Aka）、Coder2（Ao）、Coder3（Claude）の自動振り分け
-- **承認フロー**: 破壊的操作には承認が必須（job_id ベースの追跡）
-- **Auto-Approve モード**: Scope/TTL 付き自動承認（即時 OFF 可能）
+- **Worker 即時実行**: Coder が生成した plan/patch を Worker が即座に実行（完全自動）
+- **セーフガード**: Git auto-commit、保護ファイルパターン、実行前サマリ表示による安全性確保
 - **ヘルスチェック**: Ollama 常駐監視、自動再起動
 - **セッション管理**: 日次カットオーバー、メモリ管理
 - **ログ保存**: 構造化ログ、Obsidian 連携
@@ -96,23 +96,16 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 
 | 役割 | 責務 | 実行内容 |
 |------|------|----------|
-| **Chat** | 意思決定・承認管理 | ユーザー対話、ルーティング決定、承認要求送信 |
-| **Worker** | 実行・道具係 | ファイル編集、コマンド実行、テスト実行、差分適用 |
+| **Chat** | 意思決定・対話管理 | ユーザー対話、ルーティング決定、結果返却 |
+| **Worker** | 実行・道具係 | ファイル編集、コマンド実行、テスト実行、差分適用（即時実行） |
 | **Coder** | 設計・実装案作成 | 仕様策定、コード生成、`plan` と `patch` の生成 |
 
 **不変ルール**:
 - Coder は原則として破壊的操作を**直接実行せず**、`plan` と `patch` を生成
-- 実行は Worker が承認後に担当
-- Chat が承認フローを管理
+- Worker が生成された patch を**即座に実行**（完全自動）
+- セーフガード（Git auto-commit、保護ファイル、実行前サマリ）で安全性を確保
 
-#### 3.3.2 承認フロー（必須）
-
-- Coder3（Claude API）による提案には**承認が必須**
-- job_id でジョブを追跡（ログ、承認状態）
-- 承認コマンド: `/approve <job_id>`, `/deny <job_id>`
-- Auto-Approve モードは Scope/TTL 付き、即時 OFF 可能
-
-#### 3.3.3 ルーティングカテゴリ
+#### 3.3.2 ルーティングカテゴリ
 
 - `CHAT`: 会話・意思決定
 - `PLAN`: 計画策定
@@ -172,8 +165,8 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 #### 3.5.3 テスト
 
 - **ユニットテスト**: `go test ./pkg/...` で全テストを実行
-- **カバレッジ目標**: 重要パッケージ（agent, approval, session）は 80% 以上
-- **統合テスト**: End-to-End シナリオでルーティング・承認フローを検証
+- **カバレッジ目標**: 重要パッケージ（agent, worker, session）は 80% 以上
+- **統合テスト**: End-to-End シナリオでルーティング・Worker 即時実行を検証
 
 ### 3.6 ログとトレーサビリティ
 
@@ -182,15 +175,17 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 - `router.decision` - ルーティング決定
 - `classifier.error` - 分類器エラー
 - `worker.success` / `worker.fail` - Worker 実行結果
-- `approval.requested` / `approval.granted` / `approval.denied` - 承認フロー
+- `worker.executed` - Worker による patch 即時実行
 - `coder.plan_generated` - Coder による plan/patch 生成
 
 #### 3.6.2 必須保存項目
 
-- `job_id`: ジョブ識別子
+- `job_id`: Task 識別子（形式: `job_{timestamp}_{random}`）
+- `session_id`: セッション識別子
 - `initial_route`, `final_route`: ルーティング情報
-- `approval_status`: 承認状態（`pending`, `granted`, `denied`, `auto_approved`）
+- `execution_status`: 実行状態（`success`, `partial_success`, `failed`）
 - `coder_output`: Coder の生成した plan/patch/risk の要約
+- `worker_result`: Worker の実行結果（成功数/失敗数、Git commit hash）
 
 ---
 
@@ -200,8 +195,8 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 
 - ❌ **仕様を読まずに実装する**（必ず `docs/01_正本仕様/実装仕様.md` を参照）
 - ❌ **Coder が破壊的操作を直接実行する**（plan/patch のみ生成、実行は Worker）
-- ❌ **承認なしに破壊的変更を適用する**（削除、リネーム、広範囲の上書き）
-- ❌ **job_id なしで承認フローを管理する**（すべての承認ジョブに job_id 必須）
+- ❌ **セーフガードを無効化する**（Git auto-commit、保護ファイルパターンは必須）
+- ❌ **Worker 実行ログを記録しない**（すべての実行には詳細ログが必須）
 
 ### 4.2 設定・運用
 
@@ -261,8 +256,9 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 
 ### 6.3 実装ガイド
 
-- **Coder3 統合仕様**: `docs/06_実装ガイド進行管理/20260224_Coder3統合仕様反映.md`
-- **Coder3 実装プラン**: `docs/06_実装ガイド進行管理/20260224_Coder3承認フロー実装プラン.md`
+- **承認フロー廃止プラン**: `docs/06_実装ガイド進行管理/20260228_承認フロー廃止プラン.md`
+- **Worker 即時実行設計**: `docs/06_実装ガイド進行管理/20260228_Worker即時実行ロジック設計.md`
+- **v3 クリーンアーキテクチャ仕様**: `docs/01_正本仕様/実装仕様_v3_クリーンアーキテクチャ版.md`
 
 ### 6.4 共通ルール
 

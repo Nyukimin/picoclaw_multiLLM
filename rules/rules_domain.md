@@ -37,16 +37,16 @@ func processFile(path string) error {
 **定義場所**: 各パッケージの `errors.go`
 
 ```go
-// pkg/approval/errors.go
-package approval
+// pkg/worker/errors.go
+package worker
 
 import "errors"
 
 var (
-    ErrJobNotFound    = errors.New("job not found")
-    ErrJobExists      = errors.New("job already exists")
-    ErrInvalidJobID   = errors.New("invalid job ID format")
-    ErrNotApproved    = errors.New("job not approved")
+    ErrPatchParseFailed = errors.New("patch parse failed")
+    ErrCommandFailed    = errors.New("command execution failed")
+    ErrInvalidAction    = errors.New("invalid action type")
+    ErrProtectedFile    = errors.New("protected file modification")
 )
 ```
 
@@ -168,12 +168,12 @@ provider := NewProvider("http://localhost:11434",
 ```go
 // ✅ Good: 小文字、単数形
 package agent
-package approval
+package worker
 package session
 
 // ❌ Bad: 複数形、大文字、アンダースコア
 package agents
-package Approval
+package Worker
 package session_manager
 ```
 
@@ -365,113 +365,7 @@ func selectCoderRoute(msg string) string {
 
 ---
 
-## 4. 承認フローの実装パターン
-
-### 4.1 job_id 生成
-
-**実装**: `pkg/approval/job.go`
-
-```go
-func GenerateJobID() string {
-    ts := time.Now().Format("20060102-150405")
-    randBytes := make([]byte, 4)
-    rand.Read(randBytes)
-    return fmt.Sprintf("%s-%s", ts, hex.EncodeToString(randBytes))
-}
-```
-
-**形式**: `YYYYMMDD-HHMMSS-xxxxxxxx`
-**例**: `20260224-153045-a1b2c3d4`
-
-### 4.2 承認ジョブ管理
-
-**実装**: `pkg/approval/manager.go`
-
-```go
-type Manager struct {
-    mu   sync.RWMutex
-    jobs map[string]*Job
-}
-
-type Job struct {
-    JobID       string
-    Status      Status  // pending, granted, denied, auto_approved
-    Plan        string
-    Patch       string
-    Risk        map[string]interface{}
-    RequestedAt string
-    DecidedAt   string
-    Approver    string
-}
-```
-
-**ライフサイクル**:
-```
-1. CreateJob() → Status = pending
-2. Approve() or Deny() → Status = granted/denied
-3. IsApproved() → 承認状態確認
-```
-
-### 4.3 Coder3 出力パース
-
-**実装**: `pkg/agent/loop.go`
-
-```go
-type Coder3Output struct {
-    JobID        string                 `json:"job_id"`
-    Plan         string                 `json:"plan"`
-    Patch        string                 `json:"patch"`
-    Risk         map[string]interface{} `json:"risk"`
-    CostHint     map[string]interface{} `json:"cost_hint"`
-    NeedApproval bool                   `json:"need_approval"`
-}
-
-func parseCoder3Output(response string) (*Coder3Output, error) {
-    var output Coder3Output
-    if err := json.Unmarshal([]byte(response), &output); err != nil {
-        return nil, fmt.Errorf("failed to parse Coder3 output: %w", err)
-    }
-
-    // バリデーション
-    if output.JobID == "" {
-        return nil, fmt.Errorf("job_id is required")
-    }
-    if output.Plan == "" {
-        return nil, fmt.Errorf("plan is required")
-    }
-
-    return &output, nil
-}
-```
-
-### 4.4 承認要求メッセージ
-
-**実装**: `pkg/approval/message.go`
-
-```go
-func FormatApprovalRequest(job *Job) string {
-    return fmt.Sprintf(`
-【承認要求】
-Job ID: %s
-
-【操作要約】
-%s
-
-【変更内容】
-%s
-
-【影響範囲とリスク】
-%+v
-
-承認する場合: /approve %s
-拒否する場合: /deny %s
-`, job.JobID, job.Plan, job.Patch, job.Risk, job.JobID, job.JobID)
-}
-```
-
----
-
-## 5. セッション管理の実装詳細
+## 4. セッション管理の実装詳細
 
 ### 5.1 SessionFlags の永続化
 
@@ -479,9 +373,8 @@ Job ID: %s
 
 ```go
 type SessionFlags struct {
-    LocalOnly            bool   `json:"local_only"`
-    PrevPrimaryRoute     string `json:"prev_primary_route"`
-    PendingApprovalJobID string `json:"pending_approval_job_id"`
+    LocalOnly        bool   `json:"local_only"`
+    PrevPrimaryRoute string `json:"prev_primary_route"`
 }
 
 func (m *Manager) UpdateFlags(sessionID string, updater func(*SessionFlags)) error {
@@ -639,11 +532,13 @@ func (s *AgentLoop) checkHealth() error {
 {
   "timestamp": "2026-02-24T15:30:45+09:00",
   "level": "info",
-  "event": "approval.requested",
-  "job_id": "20260224-153045-a1b2c3d4",
-  "plan": "ファイル編集の提案",
-  "risk": {"destructive": false},
-  "session_id": "LINE:U123456789"
+  "event": "worker.executed",
+  "job_id": "job_1709123456_abc12345",
+  "session_id": "20260224-LINE-U123456789",
+  "execution_status": "success",
+  "executed_commands": 3,
+  "failed_commands": 0,
+  "git_commit_hash": "a1b2c3d4"
 }
 ```
 
@@ -652,16 +547,17 @@ func (s *AgentLoop) checkHealth() error {
 **実装**: `pkg/logging/logger.go`
 
 ```go
-func LogApprovalRequested(jobID, plan, patch string, risk map[string]interface{}) {
-    log.Printf("[approval.requested] job_id=%s plan=%q risk=%+v", jobID, plan, risk)
+func LogWorkerExecuted(jobID, sessionID string, executedCmds, failedCmds int, gitCommit string) {
+    log.Printf("[worker.executed] job_id=%s session_id=%s executed=%d failed=%d git_commit=%s",
+        jobID, sessionID, executedCmds, failedCmds, gitCommit)
 }
 
-func LogApprovalGranted(jobID, approver string) {
-    log.Printf("[approval.granted] job_id=%s approver=%s", jobID, approver)
+func LogWorkerSuccess(jobID, sessionID, summary string) {
+    log.Printf("[worker.success] job_id=%s session_id=%s summary=%s", jobID, sessionID, summary)
 }
 
-func LogApprovalDenied(jobID, approver string) {
-    log.Printf("[approval.denied] job_id=%s approver=%s", jobID, approver)
+func LogWorkerFail(jobID, sessionID, errorMsg string) {
+    log.Printf("[worker.fail] job_id=%s session_id=%s error=%s", jobID, sessionID, errorMsg)
 }
 ```
 
@@ -671,11 +567,14 @@ func LogApprovalDenied(jobID, approver string) {
 
 **フォーマット**:
 ```markdown
-## 15:30:45 - approval.requested
+## 15:30:45 - worker.executed
 
-- Job ID: 20260224-153045-a1b2c3d4
-- Plan: ファイル編集の提案
-- Risk: {"destructive": false}
+- Job ID: job_1709123456_abc12345
+- Session ID: 20260224-LINE-U123456789
+- Status: success
+- Executed: 3 commands
+- Failed: 0 commands
+- Git Commit: a1b2c3d4
 
 ---
 ```
@@ -764,18 +663,18 @@ func (m *Manager) CreateJob(jobID, plan, patch string, risk map[string]interface
 
 ```bash
 # Refactor 後に必ず実行
-golangci-lint run ./pkg/approval/...
-go test ./pkg/approval/... -v
+golangci-lint run ./pkg/worker/...
+go test ./pkg/worker/... -v
 ```
 
 ### 8.2 ユニットテストの構造
 
 **ファイル命名**: `*_test.go`
 
-**例**: `pkg/approval/manager_test.go`
+**例**: `pkg/worker/executor_test.go`
 
 ```go
-package approval
+package worker
 
 import (
     "testing"
@@ -864,17 +763,17 @@ func TestOllamaCheck(t *testing.T) {
 
 ```bash
 # カバレッジ測定
-go test ./pkg/approval/... -coverprofile=coverage.out
+go test ./pkg/worker/... -coverprofile=coverage.out
 
 # HTML レポート生成
 go tool cover -html=coverage.out
 
 # カバレッジ率を表示
-go test ./pkg/approval/... -cover
+go test ./pkg/worker/... -cover
 ```
 
 **目標カバレッジ**:
-- 重要パッケージ（`agent`, `approval`, `session`）: 80% 以上
+- 重要パッケージ（`agent`, `worker`, `session`）: 80% 以上
 - その他のパッケージ: 70% 以上
 
 ---
@@ -946,7 +845,7 @@ issues:
 golangci-lint run
 
 # 特定パッケージのみ
-golangci-lint run ./pkg/approval/...
+golangci-lint run ./pkg/worker/...
 
 # 自動修正（可能な場合）
 golangci-lint run --fix

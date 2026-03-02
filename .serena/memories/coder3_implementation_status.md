@@ -1,39 +1,30 @@
-# Coder3（Gin）実装状況
+# Coder3（Gin）実装状況 - Worker 即時実行版
 
-**最終更新**: 2026-02-25
+**最終更新**: 2026-03-02
+**ステータス**: ✅ 承認フロー全廃完了、Worker 即時実行に移行
 
 ## 概要
 
-Coder3（愛称: Gin）は Anthropic Claude API を使用する高品質コーディング専用ルート。承認フロー必須。
+Coder3（愛称: Gin）は Anthropic Claude API を使用する高品質コーディング専用ルート。
+**2026-02-28に承認フローを全廃し、Worker即時実行に移行**。
 
-## 完了した実装（Phase 1-4）
+## 完了した変更
 
-### Phase 1: ルーティング拡張
-- **pkg/agent/router.go**: RouteCode3, RouteApprove, RouteDeny 定数を追加
-- **pkg/agent/router.go**: /code3, /approve, /deny コマンドを追加
-- **pkg/agent/router.go**: IsCodeRoute() に CODE3 を追加
-- **pkg/config/config.go**: RouteLLMConfig に Coder3Alias/Provider/Model フィールドを追加
-- **pkg/agent/loop.go**: selectCoderRoute() に CODE3 キーワード追加
+### 承認フロー全廃
+- `pkg/approval/` パッケージ削除
+- `job_id` ベースの承認フロー削除
+- `/approve`, `/deny` コマンド削除
+- Auto-Approve モード削除
 
-### Phase 2: 承認インフラ
-- **pkg/approval/job.go**: GenerateJobID() 関数（YYYYMMDD-HHMMSS-xxxxxxxx 形式）
-- **pkg/approval/manager.go**: Manager 型、CreateJob/GetJob/Approve/Deny/IsApproved メソッド
-- **pkg/approval/message.go**: FormatApprovalRequest() 関数
-- **pkg/session/manager.go**: SessionFlags に PendingApprovalJobID フィールドを追加
-- **pkg/logger/logger.go**: 承認ログ関数5つ（LogApprovalRequested, LogApprovalGranted, LogApprovalDenied, LogApprovalAutoApproved, LogCoderPlanGenerated）
-
-### Phase 3: 承認フローロジック
-- **pkg/agent/loop.go**: approvalMgr フィールドを追加
-- **pkg/agent/loop.go**: Coder3Output 構造体、parseCoder3Output() 関数を追加
-- **pkg/agent/loop.go**: handleCommand() に /approve, /deny ハンドラを追加
-
-### Phase 4: 統合
-- **pkg/agent/loop.go**: processMessage() に CODE3 出力処理を追加（パース → ジョブ作成 → セッション保存 → ログ → 承認要求メッセージ生成）
-
-### 設定ファイル
-- **config/config.example.json**: coder3 設定例を追加
-- **~/.picoclaw/config.json**: providers.anthropic セクションを追加
-- **~/.picoclaw/config.json**: routing.llm に coder3_alias/provider/model を追加
+### Worker 即時実行導入
+- Coder3 が `plan` と `patch` を生成
+- Worker が生成された patch を**即座に実行**（完全自動化）
+- セーフガードで安全性確保：
+  - Git auto-commit（必須）
+  - 保護ファイルパターン（`.env*`, `*credentials*`, `*.key`, `*.pem`）
+  - 実行前サマリ表示
+  - ワークスペース制限
+  - 詳細ログ記録
 
 ## 設定
 
@@ -62,62 +53,71 @@ Coder3（愛称: Gin）は Anthropic Claude API を使用する高品質コー�
 }
 ```
 
-**注意**: api_base は空欄でOK（デフォルトで https://api.anthropic.com/v1 が使われる）
-
-## テスト状況
-
-- ユニットテスト: pkg/approval/ で15テスト（全てパス）
-- 統合テスト: 未実施（API キー設定後に実施予定）
-
-## 次のステップ: MCP Chrome 統合
-
-### 目的
-Coder3 にブラウザ操作機能を追加する。**承認フロー（job_id）を通してのみ実行可能**。
-
-### 構成
-```
-PicoClaw (Linux) → HTTP → Win11 (100.83.235.65:12306) → mcp-chrome → Chrome 拡張機能
+### Worker 実行設定
+```json
+{
+  "worker": {
+    "auto_commit": true,
+    "commit_message_prefix": "[Worker Auto-Commit]",
+    "command_timeout_sec": 300,
+    "git_timeout_sec": 30,
+    "stop_on_error": false,
+    "protected_patterns": [".env*", "*credentials*", "*.key", "*.pem"]
+  }
+}
 ```
 
-### Win11 側のセットアップ（未実施）
-1. mcp-chrome-bridge をインストール: `npm install -g mcp-chrome-bridge`
-2. Chrome 拡張機能をインストール（https://github.com/hangwin/mcp-chrome）
-3. mcp-chrome-bridge を起動（ポート 12306）
+## ドキュメント更新状況
 
-### PicoClaw 側の実装（未実施）
-1. MCP クライアントを実装（pkg/mcp/ パッケージ新規作成）
-2. HTTP 経由で http://100.83.235.65:12306/mcp に接続
-3. Coder3 に Chrome 操作ツールを追加（pkg/tools/ に新規ツール）
-4. 承認フローに「ブラウザ操作」リスクを追加
+### ✅ 完了
+- `CLAUDE.md` - 承認フロー記述を削除、Worker即時実行に置き換え
+- `rules/PROJECT_AGENT.md` - 承認フロー記述を削除
+- `rules/rules_domain.md` - 承認フロー実装パターンを削除
+- `docs/01_正本仕様/実装仕様.md` - セクション6を Worker即時実行仕様に置き換え
+- `docs/05_LLM運用プロンプト設計/Coder3_Claude_API仕様.md` - 承認フロー記述を削除
 
-### 参考資料
-- mcp-chrome GitHub: https://github.com/hangwin/mcp-chrome
-- Chrome MCP Server Documentation: https://lobehub.com/mcp/hangwin-mcp-chrome
-- Claude Code Chrome integration: https://code.claude.com/docs/en/chrome
+### 📋 参考ドキュメント（アーカイブ）
+- `docs/06_実装ガイド進行管理/20260228_承認フロー廃止プラン.md` - 廃止計画
+- `docs/06_実装ガイド進行管理/20260228_承認フロー削除箇所リスト.md` - 削除箇所リスト
+- `docs/06_実装ガイド進行管理/20260228_Worker即時実行ロジック設計.md` - Worker設計
 
 ## 重要な設計判断
 
-### Coder3 のみ承認フロー実装
-- 選択肢A（採用）: Coder3 のみ plan/patch 分離と承認フローを実装
-- 選択肢B（却下）: Coder1/Coder2 も含めた全面リファクタリング
-- 理由: 既存コード（Coder1/Coder2）は実際には plan/patch 分離されていない。Coder3 のみ新しい設計を適用。
+### 完全自動化の採用
+- **選択肢A（採用）**: Worker 即時実行、承認フローなし
+- **選択肢B（却下）**: 承認フロー維持
+- **理由**: PicoClaw の基本原則「完全自動」に基づき、承認フローを全廃
 
-### API 方式と Chrome 操作の選択
-- **Coder3 の推論**: Anthropic API（有料、従量課金）を使用
-- **Chrome 操作**: mcp-chrome 経由で実現
-  - Coder3 は Chrome 操作の **plan を生成**
-  - Worker が **承認済み job_id** を確認して実行
-  - 承認方式: `/approve <job_id>` または 永続承認（期限付き）
-- **セキュリティ**: Chrome 操作は Auto-Approve 対象外、すべて job_id で追跡
+### セーフガードによる安全性確保
+- Git auto-commit で全ての変更を追跡・ロールバック可能
+- 保護ファイルパターンで機密情報を保護
+- 実行前サマリ表示で透明性確保
+- 詳細ログで監査証跡を確保
+
+## 次のステップ
+
+### Worker 実装
+- `pkg/worker/executor.go` - patch 実行エンジン
+- `pkg/worker/safeguard.go` - セーフガード機能
+- `pkg/patch/parser.go` - patch パーサー
+
+### テスト
+- Worker 即時実行の統合テスト
+- セーフガード機能の検証
+- Git auto-commit のテスト
 
 ## トラブルシューティング
 
-### API キーが認識されない場合
-1. config.json の providers.anthropic.api_key を確認
-2. api_base は空欄のままでOK
-3. systemctl --user restart picoclaw-gateway で再起動
+### Worker 実行が失敗する場合
+1. Git auto-commit が有効か確認
+2. ワークスペース設定を確認
+3. ログを確認: `~/.picoclaw/logs/gateway.log`
 
-### ルーティングが機能しない場合
-1. /code3 コマンドで明示的にルーティング
-2. ログを確認: ~/.picoclaw/logs/gateway.log
-3. classifier が無効の場合は強制コマンド（/code3）が必要
+### ロールバックが必要な場合
+```bash
+# 最新のコミットを確認
+git log --oneline -5
+
+# ロールバック（直前のコミットに戻る）
+git reset --hard HEAD~1
+```

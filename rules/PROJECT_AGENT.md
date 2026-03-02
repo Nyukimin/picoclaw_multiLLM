@@ -64,8 +64,8 @@ LINE/Slack からの指示を受け、複数の LLM を適切にルーティン�
 ### 1.3 主要機能
 
 - **マルチ LLM ルーティング**: Chat/Worker/Coder1/Coder2/Coder3 の自動振り分け
-- **承認フロー**: job_id ベースの追跡、破壊的操作の承認制御
-- **Auto-Approve モード**: Scope/TTL 付き自動承認
+- **Worker 即時実行**: Coder が生成した plan/patch を Worker が即座に実行（完全自動）
+- **セーフガード**: Git auto-commit、保護ファイルパターン、実行前サマリ表示による安全性確保
 - **ヘルスチェック**: Ollama 常駐監視、自動再起動
 - **セッション管理**: 日次カットオーバー、メモリ管理
 - **ログ保存**: 構造化ログ、Obsidian 連携
@@ -159,8 +159,8 @@ LINE/Slack からの指示を受け、複数の LLM を適切にルーティン�
 
 | 役割 | 責務 | 実行内容 | 実装パッケージ |
 |------|------|----------|----------------|
-| **Chat** | 意思決定・承認管理 | ユーザー対話、ルーティング決定、承認要求送信 | `pkg/agent/loop.go` |
-| **Worker** | 実行・道具係 | ファイル編集、コマンド実行、テスト実行、差分適用 | `pkg/agent/loop.go` (Worker ルート) |
+| **Chat** | 意思決定・対話管理 | ユーザー対話、ルーティング決定、結果返却 | `pkg/agent/loop.go` |
+| **Worker** | 実行・道具係 | ファイル編集、コマンド実行、テスト実行、差分適用（即時実行） | `pkg/agent/loop.go` (Worker ルート) |
 | **Coder** | 設計・実装案作成 | 仕様策定、コード生成、`plan` と `patch` の生成 | `pkg/agent/loop.go` (CODE ルート) |
 
 ### 3.2 不変ルール（統治原則）
@@ -169,15 +169,14 @@ LINE/Slack からの指示を受け、複数の LLM を適切にルーティン�
    - Coder の出力は `plan` と `patch` のみ
    - 実際の適用（ファイル書込み、コマンド実行）は Worker が担当
 
-2. **実行前に承認状態を確認する**
-   - Coder3 の出力には `need_approval` フラグが含まれる
-   - `need_approval=true` の場合、Chat が承認要求を送信
-   - 承認後に Worker が実行
+2. **Worker は生成された patch を即座に実行する**
+   - 完全自動化（承認フローなし）
+   - セーフガード（Git auto-commit、保護ファイル、実行前サマリ）で安全性を確保
 
-3. **job_id でジョブを追跡する**
-   - すべての承認ジョブに job_id を付与（`pkg/approval/job.go`）
-   - ログに job_id を記録（`pkg/logging/logger.go`）
-   - セッションに承認待ち job_id を保存（`pkg/session/manager.go`）
+3. **session_id でジョブを追跡する**
+   - すべての実行に session_id を付与
+   - ログに session_id を記録（`pkg/logging/logger.go`）
+   - 実行結果をセッションに保存（`pkg/session/manager.go`）
 
 ---
 
@@ -205,15 +204,15 @@ LINE/Slack からの指示を受け、複数の LLM を適切にルーティン�
   - 理由: モデルのロード/アンロードによる遅延
   - 実装: `pkg/providers/ollama_provider.go` で設定
 
-#### 4.1.3 承認フロー関連
+#### 4.1.3 Worker 実行関連
 
 - ❌ **Coder が破壊的操作を直接実行する**
   - 例: Coder が直接ファイルを削除・上書き
-  - 正: Coder は `patch` を生成、Worker が適用
+  - 正: Coder は `patch` を生成、Worker が即時実行
 
-- ❌ **job_id なしで承認フローを管理する**
-  - 理由: ログ追跡、承認状態管理が不可能
-  - 実装: `pkg/approval/job.go` で job_id 生成必須
+- ❌ **セーフガードを無効化する**
+  - 理由: 破壊的操作からの保護が失われる
+  - 必須: Git auto-commit、保護ファイルパターンは常に有効
 
 #### 4.1.4 API キー関連
 
@@ -236,8 +235,8 @@ LINE/Slack からの指示を受け、複数の LLM を適切にルーティン�
 - ❌ **仕様を読まずに実装する**
   - 必ず `docs/01_正本仕様/実装仕様.md` を参照
 
-- ❌ **承認なしに破壊的変更を適用する**
-  - 削除、リネーム、広範囲の上書きには承認必須
+- ❌ **Worker 実行ログを記録しない**
+  - すべての実行には詳細ログが必須（成功数/失敗数、Git commit hash）
 
 - ❌ **正本仕様を更新せずに実装を変更する**
   - 実装と仕様の不整合を防ぐため、仕様を先に更新
@@ -284,64 +283,25 @@ LINE/Slack からの指示を受け、複数の LLM を適切にルーティン�
 
 ---
 
-## 6. 承認フローの実装詳細
+## 6. セッション管理の詳細
 
-### 6.1 標準フロー
-
-```
-1. Chat がジョブ作成（job_id 付与）
-   ↓
-2. Coder3 が plan/patch を生成
-   ↓
-3. Chat がユーザーへ承認要求（LINE/Slack）
-   ↓
-4. ユーザーが承認/拒否（/approve または /deny コマンド）
-   ↓
-5. 承認の場合: Worker が適用実行
-   拒否の場合: ジョブをキャンセル
-   ↓
-6. 結果を通知、ログ保存
-```
-
-### 6.2 job_id の形式
-
-**生成**: `pkg/approval/job.go` の `GenerateJobID()`
-
-**形式**: `YYYYMMDD-HHMMSS-xxxxxxxx`
-- `YYYYMMDD-HHMMSS`: タイムスタンプ（JST）
-- `xxxxxxxx`: 8 桁の 16 進数ランダム値
-
-**例**: `20260224-153045-a1b2c3d4`
-
-### 6.3 承認コマンド
-
-- **承認**: `/approve <job_id>`
-- **拒否**: `/deny <job_id>`
-
-**実装**: `pkg/agent/router.go` の `parseRouteCommand()`
-
----
-
-## 7. セッション管理の詳細
-
-### 7.1 日次カットオーバー
+### 6.1 日次カットオーバー
 
 - **タイミング**: 日本時間 00:00（JST）
 - **目的**: メモリリセット、ログ整理
 - **実装**: `pkg/session/manager.go`
 
-### 7.2 SessionFlags
+### 6.2 SessionFlags
 
 **保存項目**（`pkg/session/manager.go`）:
 ```go
 type SessionFlags struct {
-    LocalOnly            bool    // /local モード中か
-    PrevPrimaryRoute     string  // 前回のルート
-    PendingApprovalJobID string  // 承認待ちの job_id
+    LocalOnly        bool    // /local モード中か
+    PrevPrimaryRoute string  // 前回のルート
 }
 ```
 
-### 7.3 メモリ管理
+### 6.3 メモリ管理
 
 - `short_memory` 中心で運用
 - `recent_turns` は最小限（直近 3〜5 ターン）
@@ -349,15 +309,15 @@ type SessionFlags struct {
 
 ---
 
-## 8. ヘルスチェックの詳細
+## 7. ヘルスチェックの詳細
 
-### 8.1 チェックタイミング
+### 7.1 チェックタイミング
 
 - **起動時**: アプリケーション起動時に Ollama の状態確認
 - **LLM 呼び出し前**: 毎回の LLM 呼び出し前にヘルスチェック
 - **失敗時**: Ollama 再起動 → リトライ
 
-### 8.2 チェック項目
+### 7.2 チェック項目
 
 **実装**: `pkg/health/checks.go`
 
@@ -366,16 +326,16 @@ type SessionFlags struct {
    - 必要なモデルがロードされているか
    - context_length が MaxContext（8192）以下か
 
-### 8.3 自動再起動
+### 7.3 自動再起動
 
 **コマンド**: `systemctl --user restart ollama`
 **設定**: `providers.ollama_restart_command` で変更可能
 
 ---
 
-## 9. ログとトレーサビリティ
+## 8. ログとトレーサビリティ
 
-### 9.1 ログイベント種別
+### 8.1 ログイベント種別
 
 **既存**（`pkg/logging/logger.go`）:
 - `router.decision` - ルーティング決定
@@ -385,31 +345,31 @@ type SessionFlags struct {
 - `loop.stop` - ループ停止
 - `final.route` - 最終ルート
 
-**承認フロー追加**:
-- `approval.requested` - 承認要求
-- `approval.granted` - 承認許可
-- `approval.denied` - 承認拒否
-- `approval.auto_approved` - 自動承認
+**Worker 即時実行追加**:
+- `worker.executed` - Worker による patch 即時実行
 - `coder.plan_generated` - Coder による plan 生成
+- `worker.rollback` - Worker 実行失敗時のロールバック
 
-### 9.2 必須保存項目
+### 8.2 必須保存項目
 
-- `job_id`: ジョブ識別子
-- `approval_status`: 承認状態（`pending`, `granted`, `denied`, `auto_approved`）
-- `approval_requested_at`: 承認要求時刻
-- `approval_decided_at`: 承認決定時刻
-- `approver`: 承認者（ユーザーID）
+- `job_id`: Task 識別子（形式: `job_{timestamp}_{random}`）
+- `session_id`: セッション識別子
+- `execution_status`: 実行状態（`success`, `partial_success`, `failed`）
+- `executed_at`: 実行時刻
+- `git_commit_hash`: Git auto-commit のハッシュ
+- `executed_commands`: 実行されたコマンド数
+- `failed_commands`: 失敗したコマンド数
 - `coder_output`: Coder の生成した plan/patch/risk の要約
 
 ---
 
-## 10. 開発フロー
+## 9. 開発フロー
 
-### 10.1 TDD（テスト駆動開発）サイクル（必須）
+### 9.1 TDD（テスト駆動開発）サイクル（必須）
 
 すべての新機能追加・バグ修正は TDD サイクルに従う:
 
-#### 10.1.1 Red（失敗するテストを書く）
+#### 9.1.1 Red（失敗するテストを書く）
 
 1. **要件を理解**: 何を実装するか明確にする
 2. **テストケースを洗い出し**: 正常系・異常系・境界値
@@ -418,20 +378,20 @@ type SessionFlags struct {
 
 ```bash
 # テストを実行（失敗することを確認）
-go test ./pkg/approval/... -v
+go test ./pkg/worker/... -v
 ```
 
-#### 10.1.2 Green（テストを通す最小実装）
+#### 9.1.2 Green（テストを通す最小実装）
 
 1. **最小限の実装**: テストを通すだけのコードを書く
 2. **テストを実行**: すべて通ることを確認（Green）
 
 ```bash
 # テストを実行（成功することを確認）
-go test ./pkg/approval/... -v
+go test ./pkg/worker/... -v
 ```
 
-#### 10.1.3 Refactor（リファクタリング）
+#### 9.1.3 Refactor（リファクタリング）
 
 1. **コードの改善**: 重複排除、命名改善、構造最適化
 2. **テストを実行**: リファクタ後も通ることを確認
@@ -439,13 +399,13 @@ go test ./pkg/approval/... -v
 
 ```bash
 # LINT チェック（必須）
-golangci-lint run ./pkg/approval/...
+golangci-lint run ./pkg/worker/...
 
 # テストを実行（リファクタ後も成功することを確認）
-go test ./pkg/approval/... -v
+go test ./pkg/worker/... -v
 ```
 
-#### 10.1.4 コミット前チェック（必須）
+#### 9.1.4 コミット前チェック（必須）
 
 ```bash
 # 1. すべてのテストを実行
@@ -459,17 +419,17 @@ git add .
 git commit -m "feat: 機能追加"
 ```
 
-### 10.2 新機能追加
+### 9.2 新機能追加
 
 1. **仕様確認**: `docs/01_正本仕様/仕様.md` で要件を確認
 2. **実装仕様作成**: `docs/01_正本仕様/実装仕様.md` に追記
 3. **実装プラン作成**: `docs/06_実装ガイド進行管理/` に日付付きプランを作成
-4. **TDD サイクル**: Red → Green → Refactor を繰り返す（10.1 参照）
+4. **TDD サイクル**: Red → Green → Refactor を繰り返す（9.1 参照）
 5. **統合テスト**: End-to-End シナリオで検証
 6. **LINT チェック**: `golangci-lint run` でコード品質確認
 7. **ドキュメント更新**: `docs/00_ドキュメント分類一覧.md` を更新
 
-### 10.3 バグ修正
+### 9.3 バグ修正
 
 1. **再現確認**: エラーログ・症状を記録
 2. **原因調査**: コードを読み、根本原因を特定
@@ -481,9 +441,9 @@ git commit -m "feat: 機能追加"
 5. **LINT チェック**: `golangci-lint run` で確認
 6. **ドキュメント**: 必要に応じて注意事項を追記
 
-### 10.4 LINT チェックの詳細
+### 9.4 LINT チェックの詳細
 
-#### 10.4.1 LINT ツール
+#### 9.4.1 LINT ツール
 
 **golangci-lint**（必須）:
 ```bash
@@ -494,13 +454,13 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 golangci-lint run
 
 # 特定パッケージのみ
-golangci-lint run ./pkg/approval/...
+golangci-lint run ./pkg/worker/...
 
 # 自動修正（可能な場合）
 golangci-lint run --fix
 ```
 
-#### 10.4.2 チェック項目
+#### 9.4.2 チェック項目
 
 **有効な Linter**（`.golangci.yml` で設定）:
 - `errcheck`: エラーチェック漏れ
@@ -512,7 +472,7 @@ golangci-lint run --fix
 - `gofmt`: フォーマット確認
 - `goimports`: import 整理
 
-#### 10.4.3 LINT エラーの対処
+#### 9.4.3 LINT エラーの対処
 
 **優先度**:
 1. **エラー**: 必ず修正（コミット禁止）
@@ -525,7 +485,7 @@ golangci-lint run --fix
 _ = file.Close()
 ```
 
-### 10.5 テスト
+### 9.5 テスト
 
 **ユニットテスト**:
 ```bash
@@ -534,28 +494,28 @@ go test ./pkg/... -v
 
 **カバレッジ**:
 ```bash
-go test ./pkg/approval/... -coverprofile=coverage.out
+go test ./pkg/worker/... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
 **目標カバレッジ**:
-- 重要パッケージ（`agent`, `approval`, `session`）: 80% 以上
+- 重要パッケージ（`agent`, `worker`, `session`）: 80% 以上
 - その他のパッケージ: 70% 以上
 
 ---
 
-## 11. 共通ルールへの参照
+## 10. 共通ルールへの参照
 
 このプロジェクトでは、以下の共通ルールを参照します:
 
-### 11.1 必須参照
+### 10.1 必須参照
 
 - **AI 開発の共通方針**: `../common/GLOBAL_AGENT.md`
   - ペアプログラミングのコア原則
   - コード修正における思考憲法
   - データ処理の基本原則
 
-### 11.2 ドメイン別ルール（必要に応じて）
+### 10.2 ドメイン別ルール（必要に応じて）
 
 - **アーキテクチャ**: `../common/rules_architecture.md`
 - **バックエンド**: `../common/rules_backend.md`
@@ -565,15 +525,15 @@ go tool cover -html=coverage.out
 
 ---
 
-## 12. プロジェクト固有の詳細ルール
+## 11. プロジェクト固有の詳細ルール
 
-### 12.1 ドメイン固有ルール
+### 11.1 ドメイン固有ルール
 
 詳細は **`rules_domain.md`** を参照:
 - Go 言語固有のベストプラクティス
 - LLM プロバイダー統合の詳細
 - ルーティングロジックの実装詳細
-- 承認フローの実装パターン
+- Worker 即時実行の実装パターン
 - セッション管理の実装詳細
 - ヘルスチェックの実装詳細
 
