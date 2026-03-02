@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -50,14 +53,21 @@ type CoderAgent interface {
 	Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error)
 }
 
+// CoderAgentWithProposal はProposal生成機能を持つCoderAgent
+type CoderAgentWithProposal interface {
+	CoderAgent
+	GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error)
+}
+
 // MessageOrchestrator はメッセージ処理を統括
 type MessageOrchestrator struct {
-	sessionRepo SessionRepository
-	mio         MioAgent
-	shiro       ShiroAgent
-	coder1      CoderAgent // DeepSeek
-	coder2      CoderAgent // OpenAI
-	coder3      CoderAgent // Claude
+	sessionRepo     SessionRepository
+	mio             MioAgent
+	shiro           ShiroAgent
+	coder1          CoderAgent // DeepSeek
+	coder2          CoderAgent // OpenAI
+	coder3          CoderAgent // Claude
+	workerExecution service.WorkerExecutionService
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -68,14 +78,16 @@ func NewMessageOrchestrator(
 	coder1 CoderAgent,
 	coder2 CoderAgent,
 	coder3 CoderAgent,
+	workerExecution service.WorkerExecutionService,
 ) *MessageOrchestrator {
 	return &MessageOrchestrator{
-		sessionRepo: sessionRepo,
-		mio:         mio,
-		shiro:       shiro,
-		coder1:      coder1,
-		coder2:      coder2,
-		coder3:      coder3,
+		sessionRepo:     sessionRepo,
+		mio:             mio,
+		shiro:           shiro,
+		coder1:          coder1,
+		coder2:          coder2,
+		coder3:          coder3,
+		workerExecution: workerExecution,
 	}
 }
 
@@ -163,10 +175,34 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		return "", fmt.Errorf("CODE2 route requested but no coder2 available")
 
 	case routing.RouteCODE3:
-		if o.coder3 != nil {
-			return o.coder3.Generate(ctx, t, "You are a high-quality code review and reasoning assistant.")
+		if o.coder3 == nil {
+			return "", fmt.Errorf("CODE3 route requested but no coder3 available")
 		}
-		return "", fmt.Errorf("CODE3 route requested but no coder3 available")
+
+		// Coder3がProposal生成をサポートするか確認
+		if coderWithProposal, ok := o.coder3.(CoderAgentWithProposal); ok {
+			// Proposal生成 → Worker即時実行
+			p, err := coderWithProposal.GenerateProposal(ctx, t)
+			if err != nil {
+				return "", fmt.Errorf("coder3 proposal generation failed: %w", err)
+			}
+
+			if p == nil || !p.IsValid() {
+				return "", fmt.Errorf("coder3 generated invalid proposal")
+			}
+
+			// Worker即時実行（核心機能）
+			result, err := o.workerExecution.ExecuteProposal(ctx, t.JobID(), p)
+			if err != nil {
+				return "", fmt.Errorf("worker execution failed: %w", err)
+			}
+
+			// 結果をフォーマット
+			return o.formatExecutionResult(p, result), nil
+		}
+
+		// フォールバック：Proposal非対応の場合は通常のGenerate()を使用
+		return o.coder3.Generate(ctx, t, "You are a high-quality code review and reasoning assistant.")
 
 	case routing.RoutePLAN:
 		// PLAN は現時点では CHAT として処理（将来的に専用エージェント追加可能）
@@ -183,4 +219,64 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 	default:
 		return "", fmt.Errorf("unknown route: %s", route)
 	}
+}
+
+// formatExecutionResult はProposalとPatchExecutionResultを整形
+func (o *MessageOrchestrator) formatExecutionResult(
+	p *proposal.Proposal,
+	result *patch.PatchExecutionResult,
+) string {
+	// 成功/失敗の絵文字
+	statusEmoji := "✅"
+	if !result.Success {
+		statusEmoji = "⚠️"
+	}
+
+	// Gitコミット行
+	gitCommitLine := ""
+	if result.GitCommit != "" && result.GitCommit != "no-changes" {
+		shortHash := result.GitCommit
+		if len(shortHash) > 8 {
+			shortHash = shortHash[:8]
+		}
+		gitCommitLine = fmt.Sprintf("\n- **Git Commit**: `%s`", shortHash)
+	}
+
+	// コマンド結果詳細
+	commandDetails := ""
+	for i, cmdResult := range result.Results {
+		status := "✅"
+		if !cmdResult.Success {
+			status = "❌"
+		}
+		commandDetails += fmt.Sprintf("\n%d. %s `%s` %s",
+			i+1, status, cmdResult.Command.Action, cmdResult.Command.Target)
+		if cmdResult.Error != "" {
+			commandDetails += fmt.Sprintf("\n   Error: %s", cmdResult.Error)
+		}
+	}
+
+	return fmt.Sprintf(`## Plan
+%s
+
+## Execution Result
+- **Status**: %s
+- **Executed**: %d commands
+- **Failed**: %d commands
+- **Success Rate**: %.1f%%%s
+
+### Command Results%s
+
+## Risk
+%s
+`,
+		p.Plan(),
+		statusEmoji,
+		result.ExecutedCmds,
+		result.FailedCmds,
+		result.SuccessRate()*100,
+		gitCommitLine,
+		commandDetails,
+		p.Risk(),
+	)
 }

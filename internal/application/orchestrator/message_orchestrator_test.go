@@ -75,6 +75,13 @@ func (m *mockCoderAgent) Generate(ctx context.Context, t task.Task, systemPrompt
 	return m.response, nil
 }
 
+// mockWorkerExecutionService はテスト用のWorkerExecutionService
+type mockWorkerExecutionService struct{}
+
+func (m *mockWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID task.JobID, p interface{}) (interface{}, error) {
+	return nil, nil
+}
+
 func TestNewMessageOrchestrator(t *testing.T) {
 	repo := newMockSessionRepository()
 	mio := &mockMioAgent{
@@ -83,7 +90,7 @@ func TestNewMessageOrchestrator(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	if orchestrator == nil {
 		t.Fatal("NewMessageOrchestrator should not return nil")
@@ -98,7 +105,7 @@ func TestMessageOrchestrator_ProcessMessage_NewSession(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -140,7 +147,7 @@ func TestMessageOrchestrator_ProcessMessage_ExistingSession(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -173,7 +180,7 @@ func TestMessageOrchestrator_ProcessMessage_OPSRoute(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "Command executed successfully"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -205,7 +212,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	coder := &mockCoderAgent{response: "// Generated code\nfunc main() {}\n"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -237,7 +244,7 @@ func TestMessageOrchestrator_ProcessMessage_ExplicitCommand(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	coder3 := &mockCoderAgent{response: "High quality code review"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -268,7 +275,7 @@ func TestMessageOrchestrator_ProcessMessage_TaskAddedToHistory(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",

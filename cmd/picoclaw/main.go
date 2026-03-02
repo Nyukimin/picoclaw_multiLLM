@@ -10,7 +10,9 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
@@ -38,6 +40,10 @@ func (a *coderAdapter) Generate(ctx context.Context, t task.Task, systemPrompt s
 		return "No proposal generated", nil
 	}
 	return fmt.Sprintf("Plan:\n%s\n\nPatch:\n%s", proposal.Plan(), proposal.Patch()), nil
+}
+
+func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
+	return a.domainCoder.GenerateProposal(ctx, t)
 }
 
 func main() {
@@ -125,7 +131,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Fatalf("Failed to create session directory: %v", err)
 	}
 
-	// 7. Application Orchestrator
+	// 7. Worker Execution Service
+	workerExecutionService := service.NewWorkerExecutionService(cfg.Worker)
+	log.Printf("WorkerExecutionService initialized (Workspace: %s)", cfg.Worker.Workspace)
+
+	// 8. Application Orchestrator
 	orch := orchestrator.NewMessageOrchestrator(
 		sessionRepo,
 		mioAgent,
@@ -133,9 +143,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		coder1Adapter,
 		coder2Adapter,
 		coder3Adapter,
+		workerExecutionService,
 	)
 
-	// 8. Adapter (LINE Handler)
+	// 9. Adapter (LINE Handler)
 	lineHandler := line.NewHandler(orch, "", "") // Channel Secret/Access Token は後で設定
 
 	log.Println("Dependency injection complete")

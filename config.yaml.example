@@ -27,3 +27,32 @@ session:
 log:
   level: "info"
   format: "json"
+
+# Worker 実行設定（Coder3のPatch自動実行）
+worker:
+  # Git auto-commit（実行前後に自動コミット）
+  auto_commit: false
+  commit_message_prefix: "[Worker Auto-Commit]"
+
+  # タイムアウト設定（秒）
+  command_timeout: 300  # シェルコマンド実行タイムアウト（5分）
+  git_timeout: 30       # Git操作タイムアウト（30秒）
+
+  # エラーハンドリング
+  stop_on_error: false  # false=継続モード（エラーでも次のコマンドを実行）、true=中断モード
+
+  # ワークスペース設定
+  workspace: "."  # Patch実行のルートディレクトリ
+
+  # 保護ファイルパターン（機密情報保護）
+  protected_patterns:
+    - ".env*"
+    - "*credentials*"
+    - "*.key"
+    - "*.pem"
+
+  # 保護ファイル検出時の動作
+  action_on_protected: "error"  # "error"=エラー停止、"skip"=スキップ、"log"=警告ログのみ
+
+  # 実行前サマリ表示
+  show_execution_summary: true  # 実行前にコマンド数・種別を表示

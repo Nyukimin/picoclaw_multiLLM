@@ -15,6 +15,7 @@ type Config struct {
 	DeepSeek DeepSeekConfig `yaml:"deepseek"`
 	OpenAI   OpenAIConfig   `yaml:"openai"`
 	Session  SessionConfig  `yaml:"session"`
+	Worker   WorkerConfig   `yaml:"worker"`
 	Log      LogConfig      `yaml:"log"`
 }
 
@@ -52,6 +53,19 @@ type OpenAIConfig struct {
 // SessionConfig はセッション設定
 type SessionConfig struct {
 	StorageDir string `yaml:"storage_dir"`
+}
+
+// WorkerConfig はWorker実行設定
+type WorkerConfig struct {
+	AutoCommit           bool     `yaml:"auto_commit"`
+	CommitMessagePrefix  string   `yaml:"commit_message_prefix"`
+	CommandTimeout       int      `yaml:"command_timeout"` // 秒
+	GitTimeout           int      `yaml:"git_timeout"`     // 秒
+	StopOnError          bool     `yaml:"stop_on_error"`
+	Workspace            string   `yaml:"workspace"`
+	ProtectedPatterns    []string `yaml:"protected_patterns"`
+	ActionOnProtected    string   `yaml:"action_on_protected"` // "error", "skip", "log"
+	ShowExecutionSummary bool     `yaml:"show_execution_summary"`
 }
 
 // LogConfig はログ設定
@@ -120,6 +134,31 @@ func (c *Config) setDefaults() {
 
 	if c.Log.Format == "" {
 		c.Log.Format = "json"
+	}
+
+	// Worker設定デフォルト
+	if c.Worker.CommitMessagePrefix == "" {
+		c.Worker.CommitMessagePrefix = "[Worker Auto-Commit]"
+	}
+
+	if c.Worker.CommandTimeout == 0 {
+		c.Worker.CommandTimeout = 300 // 5分
+	}
+
+	if c.Worker.GitTimeout == 0 {
+		c.Worker.GitTimeout = 30 // 30秒
+	}
+
+	if len(c.Worker.ProtectedPatterns) == 0 {
+		c.Worker.ProtectedPatterns = []string{".env*", "*credentials*", "*.key", "*.pem"}
+	}
+
+	if c.Worker.ActionOnProtected == "" {
+		c.Worker.ActionOnProtected = "error"
+	}
+
+	if c.Worker.Workspace == "" {
+		c.Worker.Workspace = "." // カレントディレクトリ
 	}
 }
 

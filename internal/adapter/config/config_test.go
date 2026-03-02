@@ -163,6 +163,31 @@ session:
 	if cfg.Log.Level == "" {
 		t.Error("Log level should have default value")
 	}
+
+	// Worker設定デフォルト値の確認
+	if cfg.Worker.CommitMessagePrefix != "[Worker Auto-Commit]" {
+		t.Errorf("Expected Worker CommitMessagePrefix '[Worker Auto-Commit]', got '%s'", cfg.Worker.CommitMessagePrefix)
+	}
+
+	if cfg.Worker.CommandTimeout != 300 {
+		t.Errorf("Expected Worker CommandTimeout 300, got %d", cfg.Worker.CommandTimeout)
+	}
+
+	if cfg.Worker.GitTimeout != 30 {
+		t.Errorf("Expected Worker GitTimeout 30, got %d", cfg.Worker.GitTimeout)
+	}
+
+	if len(cfg.Worker.ProtectedPatterns) != 4 {
+		t.Errorf("Expected 4 protected patterns, got %d", len(cfg.Worker.ProtectedPatterns))
+	}
+
+	if cfg.Worker.ActionOnProtected != "error" {
+		t.Errorf("Expected Worker ActionOnProtected 'error', got '%s'", cfg.Worker.ActionOnProtected)
+	}
+
+	if cfg.Worker.Workspace != "." {
+		t.Errorf("Expected Worker Workspace '.', got '%s'", cfg.Worker.Workspace)
+	}
 }
 
 func TestConfig_Validate(t *testing.T) {
