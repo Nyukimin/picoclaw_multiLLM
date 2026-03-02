@@ -23,6 +23,21 @@
    - Domain/Application/Infrastructure/Adapter層の詳細
    - JobID、PatchCommand、セーフガード実装
 
+3. **[実装仕様_分散実行_v4.md](実装仕様_分散実行_v4.md)** - v4分散実行対応版（2,334行）
+   - v4.0の分散実行実装仕様
+   - Transport層抽象化（Local/SSH透過的切り替え）
+   - SSH + JSON通信、Agentスタンドアロンモード
+   - Session/Memory分散管理、階層的ログ伝播
+   - 3フェーズ実装計画（8週間）、本番移行パス
+
+### アーキテクチャ設計
+
+4. **[Chat_Worker_Coder_アーキテクチャ.md](Chat_Worker_Coder_アーキテクチャ.md)**
+   - Chat/Worker/Coderの役割と責務
+   - 階層的な指揮命令系統
+   - 分散実行の設計思想（484-661行目）
+   - エージェントの基本構造と個性
+
 ### LLM運用（実行時参照）
 
 3. **[LLM運用/Coder3_Claude_API仕様.md](LLM運用/Coder3_Claude_API仕様.md)**
