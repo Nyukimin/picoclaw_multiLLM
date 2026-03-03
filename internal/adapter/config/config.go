@@ -2,13 +2,16 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config はアプリケーション全体の設定
+// v3既存フィールドをそのまま維持し、v4.0で Distributed, IdleChat を追加
 type Config struct {
+	// === v3.0 既存フィールド ===
 	Server   ServerConfig   `yaml:"server"`
 	Ollama   OllamaConfig   `yaml:"ollama"`
 	Claude   ClaudeConfig   `yaml:"claude"`
@@ -17,6 +20,10 @@ type Config struct {
 	Session  SessionConfig  `yaml:"session"`
 	Worker   WorkerConfig   `yaml:"worker"`
 	Log      LogConfig      `yaml:"log"`
+
+	// === v4.0 追加フィールド ===
+	Distributed DistributedConfig `yaml:"distributed"`
+	IdleChat    IdleChatConfig    `yaml:"idle_chat"`
 }
 
 // ServerConfig はサーバー設定
@@ -26,10 +33,15 @@ type ServerConfig struct {
 }
 
 // OllamaConfig はOllama設定
+// v4.0で chat_model/worker_model を統合し、単一の Model に変更
+// 全Agent（Mio/Shiro/IdleChat参加Agent）が同一モデルを共用する
 type OllamaConfig struct {
-	BaseURL     string `yaml:"base_url"`
-	ChatModel   string `yaml:"chat_model"`
-	WorkerModel string `yaml:"worker_model"`
+	BaseURL string `yaml:"base_url"`
+	Model   string `yaml:"model"` // v4: 共通モデル（例: "picoclaw-v1"）
+
+	// v3後方互換（deprecated: Model に統合済み）
+	ChatModel   string `yaml:"chat_model,omitempty"`
+	WorkerModel string `yaml:"worker_model,omitempty"`
 }
 
 // ClaudeConfig はClaude API設定
@@ -57,6 +69,7 @@ type SessionConfig struct {
 
 // WorkerConfig はWorker実行設定
 type WorkerConfig struct {
+	// === v3.0 既存フィールド ===
 	AutoCommit           bool     `yaml:"auto_commit"`
 	CommitMessagePrefix  string   `yaml:"commit_message_prefix"`
 	CommandTimeout       int      `yaml:"command_timeout"` // 秒
@@ -66,12 +79,40 @@ type WorkerConfig struct {
 	ProtectedPatterns    []string `yaml:"protected_patterns"`
 	ActionOnProtected    string   `yaml:"action_on_protected"` // "error", "skip", "log"
 	ShowExecutionSummary bool     `yaml:"show_execution_summary"`
+
+	// === v4.0 追加フィールド ===
+	ParallelExecution bool `yaml:"parallel_execution"` // true で並列実行（デフォルト: false）
+	MaxParallelism    int  `yaml:"max_parallelism"`    // 並列度上限（デフォルト: 4）
 }
 
 // LogConfig はログ設定
 type LogConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
+}
+
+// DistributedConfig は分散実行設定
+// YAML に distributed セクションがない場合、ゼロ値（Enabled=false）でv3互換動作
+type DistributedConfig struct {
+	Enabled    bool                       `yaml:"enabled"`
+	Transports map[string]TransportConfig `yaml:"transports"`
+}
+
+// TransportConfig はAgent別のTransport設定
+type TransportConfig struct {
+	Type       string `yaml:"type"`         // "local" or "ssh"
+	RemoteHost string `yaml:"remote_host"`  // SSH接続先（例: "192.168.1.100:22"）
+	RemoteUser string `yaml:"remote_user"`  // SSHユーザー名
+	SSHKeyPath string `yaml:"ssh_key_path"` // SSH秘密鍵パス
+}
+
+// IdleChatConfig はAgent間雑談モードの設定
+type IdleChatConfig struct {
+	Enabled      bool     `yaml:"enabled"`       // 雑談モードの有効化（デフォルト: false）
+	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["Mio", "Shiro"]）
+	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
+	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
+	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
 }
 
 // LoadConfig は設定ファイルを読み込む
@@ -108,12 +149,14 @@ func (c *Config) setDefaults() {
 		c.Server.Host = "0.0.0.0"
 	}
 
-	if c.Ollama.ChatModel == "" {
-		c.Ollama.ChatModel = "chat-v1"
-	}
-
-	if c.Ollama.WorkerModel == "" {
-		c.Ollama.WorkerModel = "worker-v1"
+	// v3後方互換: chat_model/worker_model が設定されている場合は Model にマッピング
+	if c.Ollama.Model == "" {
+		if c.Ollama.ChatModel != "" {
+			log.Printf("WARN: ollama.chat_model is deprecated, use ollama.model instead")
+			c.Ollama.Model = c.Ollama.ChatModel
+		} else {
+			c.Ollama.Model = "picoclaw-v1"
+		}
 	}
 
 	if c.Claude.Model == "" {
@@ -160,6 +203,27 @@ func (c *Config) setDefaults() {
 	if c.Worker.Workspace == "" {
 		c.Worker.Workspace = "." // カレントディレクトリ
 	}
+
+	// v4.0 Worker並列実行デフォルト
+	if c.Worker.MaxParallelism == 0 {
+		c.Worker.MaxParallelism = 4
+	}
+
+	// v4.0 IdleChat デフォルト
+	if c.IdleChat.Enabled {
+		if len(c.IdleChat.Participants) == 0 {
+			c.IdleChat.Participants = []string{"Mio", "Shiro"}
+		}
+		if c.IdleChat.IntervalMin == 0 {
+			c.IdleChat.IntervalMin = 5
+		}
+		if c.IdleChat.MaxTurns == 0 {
+			c.IdleChat.MaxTurns = 10
+		}
+		if c.IdleChat.Temperature == 0 {
+			c.IdleChat.Temperature = 0.8
+		}
+	}
 }
 
 // loadFromEnv は環境変数から設定を読み込み
@@ -190,17 +254,57 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("ollama base_url is required")
 	}
 
-	if c.Ollama.ChatModel == "" {
-		return fmt.Errorf("ollama chat_model is required")
-	}
-
-	if c.Ollama.WorkerModel == "" {
-		return fmt.Errorf("ollama worker_model is required")
+	if c.Ollama.Model == "" {
+		return fmt.Errorf("ollama model is required")
 	}
 
 	// セッション設定検証
 	if c.Session.StorageDir == "" {
 		return fmt.Errorf("session storage_dir is required")
+	}
+
+	// v4.0 Distributed設定検証
+	if c.Distributed.Enabled {
+		if len(c.Distributed.Transports) == 0 {
+			return fmt.Errorf("distributed.enabled=true requires at least one transport")
+		}
+		for name, tc := range c.Distributed.Transports {
+			if tc.Type != "local" && tc.Type != "ssh" {
+				return fmt.Errorf("distributed.transports.%s.type must be 'local' or 'ssh', got '%s'", name, tc.Type)
+			}
+			if tc.Type == "ssh" {
+				if tc.RemoteHost == "" {
+					return fmt.Errorf("distributed.transports.%s.remote_host is required for ssh type", name)
+				}
+				if tc.RemoteUser == "" {
+					return fmt.Errorf("distributed.transports.%s.remote_user is required for ssh type", name)
+				}
+				if tc.SSHKeyPath == "" {
+					return fmt.Errorf("distributed.transports.%s.ssh_key_path is required for ssh type", name)
+				}
+			}
+		}
+	}
+
+	// v4.0 IdleChat設定検証
+	if c.IdleChat.Enabled {
+		validAgents := map[string]bool{
+			"Mio": true, "Shiro": true, "Aka": true, "Ao": true, "Gin": true,
+		}
+		for _, p := range c.IdleChat.Participants {
+			if !validAgents[p] {
+				return fmt.Errorf("idle_chat.participants: unknown agent '%s'", p)
+			}
+		}
+		if c.IdleChat.IntervalMin < 1 {
+			return fmt.Errorf("idle_chat.interval_min must be >= 1")
+		}
+		if c.IdleChat.MaxTurns < 1 || c.IdleChat.MaxTurns > 100 {
+			return fmt.Errorf("idle_chat.max_turns must be between 1 and 100")
+		}
+		if c.IdleChat.Temperature < 0 || c.IdleChat.Temperature > 2.0 {
+			return fmt.Errorf("idle_chat.temperature must be between 0 and 2.0")
+		}
 	}
 
 	return nil

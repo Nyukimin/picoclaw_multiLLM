@@ -7,7 +7,6 @@ import (
 )
 
 func TestLoadConfig_Success(t *testing.T) {
-	// テスト用の設定ファイルを作成
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -18,8 +17,7 @@ server:
 
 ollama:
   base_url: "http://localhost:11434"
-  chat_model: "chat-v1"
-  worker_model: "worker-v1"
+  model: "picoclaw-v1"
 
 session:
   storage_dir: "./data/sessions"
@@ -51,13 +49,47 @@ log:
 		t.Errorf("Expected Ollama base URL, got '%s'", cfg.Ollama.BaseURL)
 	}
 
+	if cfg.Ollama.Model != "picoclaw-v1" {
+		t.Errorf("Expected Ollama model 'picoclaw-v1', got '%s'", cfg.Ollama.Model)
+	}
+
 	if cfg.Session.StorageDir != "./data/sessions" {
 		t.Errorf("Expected session storage dir, got '%s'", cfg.Session.StorageDir)
 	}
 }
 
+func TestLoadConfig_V3CompatModel(t *testing.T) {
+	// v3形式のchat_model/worker_modelでも動作することを確認
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  chat_model: "chat-v1"
+  worker_model: "worker-v1"
+
+session:
+  storage_dir: "./data/sessions"
+`
+
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig with v3 compat fields failed: %v", err)
+	}
+
+	// chat_model が Model にマッピングされるべき
+	if cfg.Ollama.Model != "chat-v1" {
+		t.Errorf("Expected Model to be mapped from ChatModel 'chat-v1', got '%s'", cfg.Ollama.Model)
+	}
+}
+
 func TestLoadConfig_WithEnvVars(t *testing.T) {
-	// 環境変数を設定
 	os.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
 	os.Setenv("DEEPSEEK_API_KEY", "test-deepseek-key")
 	os.Setenv("OPENAI_API_KEY", "test-openai-key")
@@ -76,8 +108,7 @@ server:
 
 ollama:
   base_url: "http://localhost:11434"
-  chat_model: "chat-v1"
-  worker_model: "worker-v1"
+  model: "picoclaw-v1"
 
 session:
   storage_dir: "./data/sessions"
@@ -93,7 +124,6 @@ log:
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// 環境変数から読み込まれるべき
 	if cfg.Claude.APIKey != "test-anthropic-key" {
 		t.Errorf("Expected Anthropic API key from env, got '%s'", cfg.Claude.APIKey)
 	}
@@ -155,9 +185,9 @@ session:
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// デフォルト値の確認
-	if cfg.Ollama.ChatModel == "" {
-		t.Error("ChatModel should have default value")
+	// Ollamaモデルデフォルト
+	if cfg.Ollama.Model != "picoclaw-v1" {
+		t.Errorf("Expected Ollama model 'picoclaw-v1', got '%s'", cfg.Ollama.Model)
 	}
 
 	if cfg.Log.Level == "" {
@@ -188,6 +218,19 @@ session:
 	if cfg.Worker.Workspace != "." {
 		t.Errorf("Expected Worker Workspace '.', got '%s'", cfg.Worker.Workspace)
 	}
+
+	// v4デフォルト
+	if cfg.Worker.MaxParallelism != 4 {
+		t.Errorf("Expected Worker MaxParallelism 4, got %d", cfg.Worker.MaxParallelism)
+	}
+
+	// Distributed/IdleChat はデフォルトで無効
+	if cfg.Distributed.Enabled {
+		t.Error("Distributed should be disabled by default")
+	}
+	if cfg.IdleChat.Enabled {
+		t.Error("IdleChat should be disabled by default")
+	}
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -204,9 +247,8 @@ func TestConfig_Validate(t *testing.T) {
 					Host: "0.0.0.0",
 				},
 				Ollama: OllamaConfig{
-					BaseURL:     "http://localhost:11434",
-					ChatModel:   "chat-v1",
-					WorkerModel: "worker-v1",
+					BaseURL: "http://localhost:11434",
+					Model:   "picoclaw-v1",
 				},
 				Session: SessionConfig{
 					StorageDir: "./data/sessions",
@@ -245,6 +287,19 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "Missing Ollama model",
+			config: &Config{
+				Server: ServerConfig{
+					Port: 8080,
+				},
+				Ollama: OllamaConfig{
+					BaseURL: "http://localhost:11434",
+					Model:   "",
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "Missing session storage dir",
 			config: &Config{
 				Server: ServerConfig{
@@ -252,6 +307,7 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Ollama: OllamaConfig{
 					BaseURL: "http://localhost:11434",
+					Model:   "picoclaw-v1",
 				},
 				Session: SessionConfig{
 					StorageDir: "",
@@ -268,5 +324,146 @@ func TestConfig_Validate(t *testing.T) {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestConfig_Validate_Distributed(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			Server:  ServerConfig{Port: 8080},
+			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+			Session: SessionConfig{StorageDir: "./data"},
+		}
+	}
+
+	t.Run("Distributed enabled without transports", func(t *testing.T) {
+		cfg := base()
+		cfg.Distributed.Enabled = true
+		if err := cfg.Validate(); err == nil {
+			t.Error("Expected error for distributed without transports")
+		}
+	})
+
+	t.Run("Distributed with invalid transport type", func(t *testing.T) {
+		cfg := base()
+		cfg.Distributed.Enabled = true
+		cfg.Distributed.Transports = map[string]TransportConfig{
+			"mio": {Type: "invalid"},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("Expected error for invalid transport type")
+		}
+	})
+
+	t.Run("Distributed SSH missing remote_host", func(t *testing.T) {
+		cfg := base()
+		cfg.Distributed.Enabled = true
+		cfg.Distributed.Transports = map[string]TransportConfig{
+			"coder3": {Type: "ssh", RemoteUser: "picoclaw", SSHKeyPath: "/path"},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("Expected error for SSH missing remote_host")
+		}
+	})
+
+	t.Run("Distributed valid config", func(t *testing.T) {
+		cfg := base()
+		cfg.Distributed.Enabled = true
+		cfg.Distributed.Transports = map[string]TransportConfig{
+			"mio":    {Type: "local"},
+			"coder3": {Type: "ssh", RemoteHost: "192.168.1.100:22", RemoteUser: "picoclaw", SSHKeyPath: "/path"},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Expected valid config, got error: %v", err)
+		}
+	})
+}
+
+func TestConfig_Validate_IdleChat(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			Server:  ServerConfig{Port: 8080},
+			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+			Session: SessionConfig{StorageDir: "./data"},
+		}
+	}
+
+	t.Run("IdleChat with unknown agent", func(t *testing.T) {
+		cfg := base()
+		cfg.IdleChat.Enabled = true
+		cfg.IdleChat.Participants = []string{"Mio", "Unknown"}
+		cfg.IdleChat.IntervalMin = 5
+		cfg.IdleChat.MaxTurns = 10
+		cfg.IdleChat.Temperature = 0.8
+		if err := cfg.Validate(); err == nil {
+			t.Error("Expected error for unknown agent")
+		}
+	})
+
+	t.Run("IdleChat with invalid max_turns", func(t *testing.T) {
+		cfg := base()
+		cfg.IdleChat.Enabled = true
+		cfg.IdleChat.Participants = []string{"Mio", "Shiro"}
+		cfg.IdleChat.IntervalMin = 5
+		cfg.IdleChat.MaxTurns = 200
+		cfg.IdleChat.Temperature = 0.8
+		if err := cfg.Validate(); err == nil {
+			t.Error("Expected error for max_turns > 100")
+		}
+	})
+
+	t.Run("IdleChat valid config", func(t *testing.T) {
+		cfg := base()
+		cfg.IdleChat.Enabled = true
+		cfg.IdleChat.Participants = []string{"Mio", "Shiro"}
+		cfg.IdleChat.IntervalMin = 5
+		cfg.IdleChat.MaxTurns = 10
+		cfg.IdleChat.Temperature = 0.8
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Expected valid config, got error: %v", err)
+		}
+	})
+}
+
+func TestLoadConfig_IdleChatDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+
+session:
+  storage_dir: "./data/sessions"
+
+idle_chat:
+  enabled: true
+`
+
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if len(cfg.IdleChat.Participants) != 2 {
+		t.Errorf("Expected 2 default participants, got %d", len(cfg.IdleChat.Participants))
+	}
+
+	if cfg.IdleChat.IntervalMin != 5 {
+		t.Errorf("Expected IntervalMin 5, got %d", cfg.IdleChat.IntervalMin)
+	}
+
+	if cfg.IdleChat.MaxTurns != 10 {
+		t.Errorf("Expected MaxTurns 10, got %d", cfg.IdleChat.MaxTurns)
+	}
+
+	if cfg.IdleChat.Temperature != 0.8 {
+		t.Errorf("Expected Temperature 0.8, got %f", cfg.IdleChat.Temperature)
 	}
 }

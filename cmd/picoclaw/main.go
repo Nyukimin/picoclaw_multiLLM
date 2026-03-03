@@ -68,9 +68,8 @@ type Dependencies struct {
 
 // buildDependencies は依存関係を構築
 func buildDependencies(cfg *config.Config) *Dependencies {
-	// 1. LLM Providers
-	ollamaChatProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.ChatModel)
-	ollamaWorkerProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.WorkerModel)
+	// 1. LLM Provider (v4: 単一共通モデル)
+	ollamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
 
 	var coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter
 
@@ -99,7 +98,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 
 	// 2. Routing Components
-	classifier := routing.NewLLMClassifier(ollamaChatProvider)
+	classifier := routing.NewLLMClassifier(ollamaProvider)
 	ruleDictionary := routing.NewRuleDictionary()
 
 	// 3. Tool Runner
@@ -111,8 +110,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	log.Printf("MCPClient initialized with %d servers", len(mcpClient.ListServers()))
 
 	// 5. Agents
-	mioAgent := agent.NewMioAgent(ollamaChatProvider, classifier, ruleDictionary)
-	shiroAgent := agent.NewShiroAgent(ollamaWorkerProvider, toolRunner, mcpClient)
+	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary)
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient)
 
 	// 6. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
