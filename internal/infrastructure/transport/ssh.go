@@ -26,10 +26,11 @@ const (
 // SSHTransport はSSH経由のAgent間通信
 // stdin/stdout上のJSON通信（1行1メッセージ）
 type SSHTransport struct {
-	host       string
-	user       string
-	keyPath    string
-	agentType  string // "worker", "coder1", "coder2", "coder3"
+	host          string
+	user          string
+	keyPath       string
+	agentType     string // "worker", "coder1", "coder2", "coder3"
+	strictHostKey bool   // true: known_hosts必須（本番用）
 
 	client  *ssh.Client
 	session *ssh.Session
@@ -53,6 +54,20 @@ func NewSSHTransport(host, user, keyPath, agentType string) *SSHTransport {
 		user:            user,
 		keyPath:         keyPath,
 		agentType:       agentType,
+		inbound:         make(chan domaintransport.Message, sshInboundBufSize),
+		receiveLoopDone: make(chan struct{}),
+		done:            make(chan struct{}),
+	}
+}
+
+// NewSSHTransportStrict は本番用SSHTransportを作成（known_hosts必須）
+func NewSSHTransportStrict(host, user, keyPath, agentType string, strictHostKey bool) *SSHTransport {
+	return &SSHTransport{
+		host:            host,
+		user:            user,
+		keyPath:         keyPath,
+		agentType:       agentType,
+		strictHostKey:   strictHostKey,
 		inbound:         make(chan domaintransport.Message, sshInboundBufSize),
 		receiveLoopDone: make(chan struct{}),
 		done:            make(chan struct{}),
@@ -161,6 +176,9 @@ func (t *SSHTransport) getHostKeyCallback() (ssh.HostKeyCallback, error) {
 
 	knownHostsPath := home + "/.ssh/known_hosts"
 	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
+		if t.strictHostKey {
+			return nil, fmt.Errorf("known_hosts not found at %s (strict_host_key=true)", knownHostsPath)
+		}
 		// known_hostsが無い場合は警告付きでInsecure許可（開発環境用）
 		log.Println("[SSHTransport] WARN: known_hosts not found, using insecure host key callback")
 		return ssh.InsecureIgnoreHostKey(), nil

@@ -177,6 +177,14 @@ func TestCentralMemory_AgentNames(t *testing.T) {
 	}
 }
 
+func TestAgentMemory_AgentName(t *testing.T) {
+	m := NewAgentMemory("Shiro")
+
+	if m.AgentName() != "Shiro" {
+		t.Errorf("Expected 'Shiro', got '%s'", m.AgentName())
+	}
+}
+
 func TestCentralMemory_SelfMessage(t *testing.T) {
 	cm := NewCentralMemory()
 

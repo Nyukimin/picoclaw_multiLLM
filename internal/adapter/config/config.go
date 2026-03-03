@@ -100,10 +100,11 @@ type DistributedConfig struct {
 
 // TransportConfig はAgent別のTransport設定
 type TransportConfig struct {
-	Type       string `yaml:"type"`         // "local" or "ssh"
-	RemoteHost string `yaml:"remote_host"`  // SSH接続先（例: "192.168.1.100:22"）
-	RemoteUser string `yaml:"remote_user"`  // SSHユーザー名
-	SSHKeyPath string `yaml:"ssh_key_path"` // SSH秘密鍵パス
+	Type          string `yaml:"type"`            // "local" or "ssh"
+	RemoteHost    string `yaml:"remote_host"`     // SSH接続先（例: "192.168.1.100:22"）
+	RemoteUser    string `yaml:"remote_user"`     // SSHユーザー名
+	SSHKeyPath    string `yaml:"ssh_key_path"`    // SSH秘密鍵パス
+	StrictHostKey bool   `yaml:"strict_host_key"` // true: known_hosts必須（本番用）、false: Insecureフォールバック許可
 }
 
 // IdleChatConfig はAgent間雑談モードの設定

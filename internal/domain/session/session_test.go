@@ -131,6 +131,58 @@ func TestSessionClearMemory(t *testing.T) {
 	}
 }
 
+func TestReconstructSession(t *testing.T) {
+	createdAt := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	s := ReconstructSession("sid-1", "line", "U999", createdAt, updatedAt)
+
+	if s.ID() != "sid-1" {
+		t.Errorf("Expected ID 'sid-1', got '%s'", s.ID())
+	}
+	if s.Channel() != "line" {
+		t.Errorf("Expected channel 'line', got '%s'", s.Channel())
+	}
+	if s.ChatID() != "U999" {
+		t.Errorf("Expected chatID 'U999', got '%s'", s.ChatID())
+	}
+	if !s.CreatedAt().Equal(createdAt) {
+		t.Errorf("Expected createdAt %v, got %v", createdAt, s.CreatedAt())
+	}
+	if !s.UpdatedAt().Equal(updatedAt) {
+		t.Errorf("Expected updatedAt %v, got %v", updatedAt, s.UpdatedAt())
+	}
+	if s.HistoryCount() != 0 {
+		t.Errorf("Expected 0 history, got %d", s.HistoryCount())
+	}
+}
+
+func TestSessionGetAllMemory(t *testing.T) {
+	s := NewSession("session1", "line", "U123")
+
+	s.SetMemory("key1", "value1")
+	s.SetMemory("key2", 42)
+
+	all := s.GetAllMemory()
+
+	if len(all) != 2 {
+		t.Fatalf("Expected 2 memory entries, got %d", len(all))
+	}
+	if all["key1"] != "value1" {
+		t.Errorf("Expected key1='value1', got %v", all["key1"])
+	}
+	if all["key2"] != 42 {
+		t.Errorf("Expected key2=42, got %v", all["key2"])
+	}
+
+	// 返り値はコピーであることを確認（元を変えない）
+	all["key3"] = "should not affect original"
+	_, ok := s.GetMemory("key3")
+	if ok {
+		t.Error("Modifying GetAllMemory result should not affect original")
+	}
+}
+
 func TestSessionUpdatedAt(t *testing.T) {
 	session := NewSession("session1", "line", "U123")
 	initialUpdatedAt := session.UpdatedAt()

@@ -160,6 +160,63 @@ func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
 	}
 }
 
+func TestCheckAndStartChat_NotIdleLongEnough(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 60, 3, 0.8)
+	// lastActivity は now（アイドル時間が短い）
+
+	o.checkAndStartChat()
+
+	// アイドル時間不足なので雑談は開始しない
+	if provider.callCount != 0 {
+		t.Errorf("Expected 0 LLM calls (not idle enough), got %d", provider.callCount)
+	}
+}
+
+func TestCheckAndStartChat_AlreadyActive(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 3, 0.8)
+
+	o.mu.Lock()
+	o.chatActive = true
+	o.mu.Unlock()
+
+	o.checkAndStartChat()
+
+	// 既にアクティブなので新しいセッションは開始しない
+	if provider.callCount != 0 {
+		t.Errorf("Expected 0 LLM calls (already active), got %d", provider.callCount)
+	}
+}
+
+func TestCheckAndStartChat_StartsSession(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
+	memory := session.NewCentralMemory()
+
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 2, 0.8)
+
+	// lastActivity を過去に設定
+	o.mu.Lock()
+	o.lastActivity = time.Now().Add(-1 * time.Hour)
+	o.mu.Unlock()
+
+	o.checkAndStartChat()
+
+	// 雑談セッションが実行されたはず
+	if provider.callCount != 2 {
+		t.Errorf("Expected 2 LLM calls (maxTurns=2), got %d", provider.callCount)
+	}
+
+	// セッション終了後はchatActive=false
+	if o.IsChatActive() {
+		t.Error("chatActive should be false after session completes")
+	}
+}
+
 func TestGetSystemPrompt(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()

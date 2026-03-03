@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -648,4 +650,395 @@ func TestStopOnError_vs_ContinueOnError(t *testing.T) {
 			t.Error("file4 should have been created (execution continued)")
 		}
 	})
+}
+
+// === Step 1: executeParallel / executeGitOperation / autoCommitChanges テスト ===
+
+// initGitRepo はtempdir内にgitリポジトリを初期化するヘルパー
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git init failed: %v, output: %s", err, string(out))
+		}
+	}
+}
+
+func TestExecuteParallel_PhasedExecution(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.WorkerConfig{
+		Workspace:         tmpDir,
+		ParallelExecution: true,
+		MaxParallelism:    2,
+		CommandTimeout:    10,
+		GitTimeout:        10,
+		StopOnError:       false,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+	jobID := task.NewJobID()
+
+	// file_edit, shell_command, file_edit の順で混在
+	// 実際のフェーズ順: file_edit → shell_command → git_operation
+	file1 := filepath.Join(tmpDir, "phase_test1.txt")
+	file2 := filepath.Join(tmpDir, "phase_test2.txt")
+
+	commands := []patch.PatchCommand{
+		{Type: patch.TypeFileEdit, Action: patch.ActionCreate, Target: file1, Content: "file1"},
+		{Type: patch.TypeShellCommand, Action: patch.ActionRun, Target: "echo phase-shell"},
+		{Type: patch.TypeFileEdit, Action: patch.ActionCreate, Target: file2, Content: "file2"},
+	}
+
+	result := svc.executeParallel(context.Background(), jobID, commands)
+
+	// 全3コマンド実行
+	if result.ExecutedCmds != 3 {
+		t.Errorf("Expected 3 executed, got %d", result.ExecutedCmds)
+	}
+	if result.FailedCmds != 0 {
+		t.Errorf("Expected 0 failed, got %d", result.FailedCmds)
+	}
+
+	// ファイルが作成されたか
+	if _, err := os.Stat(file1); err != nil {
+		t.Error("file1 should exist")
+	}
+	if _, err := os.Stat(file2); err != nil {
+		t.Error("file2 should exist")
+	}
+}
+
+func TestExecuteParallel_SemaphoreLimiting(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.WorkerConfig{
+		Workspace:         tmpDir,
+		ParallelExecution: true,
+		MaxParallelism:    1, // 並列度1 = 実質シーケンシャル
+		CommandTimeout:    10,
+		StopOnError:       false,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+	jobID := task.NewJobID()
+
+	// 5つのfile_editを並列度1で実行（全て同フェーズ）
+	commands := make([]patch.PatchCommand, 5)
+	for i := 0; i < 5; i++ {
+		f := filepath.Join(tmpDir, strings.Replace("sem_test_N.txt", "N", strings.Repeat("x", i+1), 1))
+		commands[i] = patch.PatchCommand{
+			Type: patch.TypeFileEdit, Action: patch.ActionCreate,
+			Target: f, Content: "content",
+		}
+	}
+
+	result := svc.executeParallel(context.Background(), jobID, commands)
+
+	if result.ExecutedCmds != 5 {
+		t.Errorf("Expected 5 executed, got %d", result.ExecutedCmds)
+	}
+	if result.FailedCmds != 0 {
+		t.Errorf("Expected 0 failed, got %d", result.FailedCmds)
+	}
+}
+
+func TestExecuteParallel_StopOnError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.WorkerConfig{
+		Workspace:         tmpDir,
+		ParallelExecution: true,
+		MaxParallelism:    4,
+		CommandTimeout:    10,
+		StopOnError:       true,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+	jobID := task.NewJobID()
+
+	// file_editフェーズで失敗 → shell_commandフェーズは実行されないはず
+	commands := []patch.PatchCommand{
+		{Type: patch.TypeFileEdit, Action: patch.ActionDelete, Target: "/nonexistent/no_such_file.txt"},
+		{Type: patch.TypeShellCommand, Action: patch.ActionRun, Target: "echo should-not-run"},
+	}
+
+	result := svc.executeParallel(context.Background(), jobID, commands)
+
+	// file_editフェーズだけ実行される（1コマンド失敗）
+	if result.ExecutedCmds != 1 {
+		t.Errorf("Expected 1 executed (stopped after first phase), got %d", result.ExecutedCmds)
+	}
+	if result.FailedCmds != 1 {
+		t.Errorf("Expected 1 failed, got %d", result.FailedCmds)
+	}
+}
+
+func TestExecuteParallel_DefaultMaxParallelism(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.WorkerConfig{
+		Workspace:         tmpDir,
+		ParallelExecution: true,
+		MaxParallelism:    0, // デフォルト4にフォールバック
+		CommandTimeout:    10,
+		StopOnError:       false,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+	jobID := task.NewJobID()
+
+	f := filepath.Join(tmpDir, "default_par.txt")
+	commands := []patch.PatchCommand{
+		{Type: patch.TypeFileEdit, Action: patch.ActionCreate, Target: f, Content: "ok"},
+	}
+
+	result := svc.executeParallel(context.Background(), jobID, commands)
+
+	if result.ExecutedCmds != 1 {
+		t.Errorf("Expected 1 executed, got %d", result.ExecutedCmds)
+	}
+}
+
+func TestExecuteGitOperation(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	// ファイルを作成してgit add
+	testFile := filepath.Join(tmpDir, "git_test.txt")
+	os.WriteFile(testFile, []byte("hello"), 0644)
+
+	cfg := config.WorkerConfig{
+		Workspace:  tmpDir,
+		GitTimeout: 10,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+
+	// git add コマンドテスト
+	cmd := patch.PatchCommand{
+		Type:   patch.TypeGitOperation,
+		Action: patch.ActionAdd,
+		Target: "add git_test.txt",
+	}
+
+	result := svc.executeCommand(context.Background(), task.NewJobID(), cmd, 0)
+
+	if !result.Success {
+		t.Errorf("git add should succeed, got error: %s", result.Error)
+	}
+}
+
+func TestExecuteGitOperation_CommitAfterAdd(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	// ファイル作成 → git add → git commit
+	testFile := filepath.Join(tmpDir, "commit_test.txt")
+	os.WriteFile(testFile, []byte("content"), 0644)
+
+	cfg := config.WorkerConfig{
+		Workspace:  tmpDir,
+		GitTimeout: 10,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+
+	// git add
+	addCmd := patch.PatchCommand{
+		Type: patch.TypeGitOperation, Action: patch.ActionAdd, Target: "add commit_test.txt",
+	}
+	addResult := svc.executeCommand(context.Background(), task.NewJobID(), addCmd, 0)
+	if !addResult.Success {
+		t.Fatalf("git add failed: %s", addResult.Error)
+	}
+
+	// git commit
+	commitCmd := patch.PatchCommand{
+		Type: patch.TypeGitOperation, Action: patch.ActionCommit, Target: "commit -m test-commit",
+	}
+	commitResult := svc.executeCommand(context.Background(), task.NewJobID(), commitCmd, 1)
+	if !commitResult.Success {
+		t.Fatalf("git commit failed: %s", commitResult.Error)
+	}
+}
+
+func TestAutoCommitChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	// 初回コミットが必要（git rev-parse HEAD 用）
+	initFile := filepath.Join(tmpDir, "init.txt")
+	os.WriteFile(initFile, []byte("init"), 0644)
+	runGit(t, tmpDir, "add", "-A")
+	runGit(t, tmpDir, "commit", "-m", "initial commit")
+
+	// テスト用ファイル作成
+	testFile := filepath.Join(tmpDir, "auto_commit_test.txt")
+	os.WriteFile(testFile, []byte("auto-commit content"), 0644)
+
+	cfg := config.WorkerConfig{
+		Workspace:           tmpDir,
+		AutoCommit:          true,
+		CommitMessagePrefix: "[Test]",
+		GitTimeout:          10,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+	jobID := task.NewJobID()
+
+	hash, err := svc.autoCommitChanges(context.Background(), jobID, "test auto-commit")
+	if err != nil {
+		t.Fatalf("autoCommitChanges failed: %v", err)
+	}
+
+	if hash == "" {
+		t.Error("Expected non-empty commit hash")
+	}
+
+	if len(hash) < 7 {
+		t.Errorf("Expected valid git hash, got: %s", hash)
+	}
+
+	// コミットメッセージにJobIDとprefixが含まれるか確認
+	logCmd := exec.Command("git", "log", "-1", "--pretty=%B")
+	logCmd.Dir = tmpDir
+	logOutput, err := logCmd.Output()
+	if err != nil {
+		t.Fatalf("git log failed: %v", err)
+	}
+
+	logMsg := string(logOutput)
+	if !strings.Contains(logMsg, "[Test]") {
+		t.Errorf("Commit message should contain prefix '[Test]', got: %s", logMsg)
+	}
+	if !strings.Contains(logMsg, jobID.String()) {
+		t.Errorf("Commit message should contain jobID, got: %s", logMsg)
+	}
+}
+
+func TestAutoCommitChanges_NothingToCommit(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	// 初回コミットを作成
+	initFile := filepath.Join(tmpDir, "init.txt")
+	os.WriteFile(initFile, []byte("init"), 0644)
+	runGit(t, tmpDir, "add", "-A")
+	runGit(t, tmpDir, "commit", "-m", "initial commit")
+
+	// 変更なし → nothing to commit
+	cfg := config.WorkerConfig{
+		Workspace:           tmpDir,
+		AutoCommit:          true,
+		CommitMessagePrefix: "[Test]",
+		GitTimeout:          10,
+	}
+
+	svc := &workerExecutionService{config: cfg}
+	jobID := task.NewJobID()
+
+	hash, err := svc.autoCommitChanges(context.Background(), jobID, "no changes")
+	if err != nil {
+		t.Fatalf("autoCommitChanges should not error on nothing to commit: %v", err)
+	}
+
+	if hash != "no-changes" {
+		t.Errorf("Expected 'no-changes', got: %s", hash)
+	}
+}
+
+func TestExecuteProposal_WithAutoCommit(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	// 初回コミット
+	initFile := filepath.Join(tmpDir, "init.txt")
+	os.WriteFile(initFile, []byte("init"), 0644)
+	runGit(t, tmpDir, "add", "-A")
+	runGit(t, tmpDir, "commit", "-m", "initial commit")
+
+	cfg := config.WorkerConfig{
+		AutoCommit:          true,
+		CommitMessagePrefix: "[Worker]",
+		CommandTimeout:      10,
+		GitTimeout:          10,
+		StopOnError:         false,
+		Workspace:           tmpDir,
+	}
+
+	svc := NewWorkerExecutionService(cfg)
+
+	testFile := filepath.Join(tmpDir, "autocommit_test.txt")
+	jsonPatch := `[{"type": "file_edit", "action": "create", "target": "` + testFile + `", "content": "auto-committed"}]`
+	p := proposal.NewProposal("Test plan", jsonPatch, "Low", "Low")
+	jobID := task.NewJobID()
+
+	result, err := svc.ExecuteProposal(context.Background(), jobID, p)
+	if err != nil {
+		t.Fatalf("ExecuteProposal failed: %v", err)
+	}
+
+	if result.GitCommit == "" {
+		t.Error("Expected GitCommit hash when auto-commit is enabled")
+	}
+}
+
+func TestExecuteProposal_ParallelWithMixedTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	cfg := config.WorkerConfig{
+		AutoCommit:        false,
+		ParallelExecution: true,
+		MaxParallelism:    4,
+		CommandTimeout:    10,
+		GitTimeout:        10,
+		StopOnError:       false,
+		Workspace:         tmpDir,
+	}
+
+	svc := NewWorkerExecutionService(cfg)
+
+	file1 := filepath.Join(tmpDir, "par_mixed1.txt")
+	file2 := filepath.Join(tmpDir, "par_mixed2.txt")
+
+	// file_edit + shell_command + git_operation の混合
+	jsonPatch := `[
+		{"type": "file_edit", "action": "create", "target": "` + file1 + `", "content": "A"},
+		{"type": "file_edit", "action": "create", "target": "` + file2 + `", "content": "B"},
+		{"type": "shell_command", "action": "run", "target": "echo mixed-test"},
+		{"type": "git_operation", "action": "add", "target": "add -A"}
+	]`
+	p := proposal.NewProposal("Parallel mixed", jsonPatch, "", "")
+	jobID := task.NewJobID()
+
+	result, err := svc.ExecuteProposal(context.Background(), jobID, p)
+	if err != nil {
+		t.Fatalf("ExecuteProposal failed: %v", err)
+	}
+
+	if result.ExecutedCmds != 4 {
+		t.Errorf("Expected 4 executed, got %d", result.ExecutedCmds)
+	}
+	if result.FailedCmds != 0 {
+		t.Errorf("Expected 0 failed, got %d", result.FailedCmds)
+	}
+}
+
+// runGit はgitコマンドを実行するヘルパー
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
+	}
 }
