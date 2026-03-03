@@ -19,6 +19,7 @@ type Config struct {
 	OpenAI   OpenAIConfig   `yaml:"openai"`
 	Session  SessionConfig  `yaml:"session"`
 	Worker   WorkerConfig   `yaml:"worker"`
+	Line     LineConfig     `yaml:"line"`
 	Log      LogConfig      `yaml:"log"`
 
 	// === v4.0 追加フィールド ===
@@ -83,6 +84,12 @@ type WorkerConfig struct {
 	// === v4.0 追加フィールド ===
 	ParallelExecution bool `yaml:"parallel_execution"` // true で並列実行（デフォルト: false）
 	MaxParallelism    int  `yaml:"max_parallelism"`    // 並列度上限（デフォルト: 4）
+}
+
+// LineConfig はLINE Messaging API設定
+type LineConfig struct {
+	ChannelSecret string `yaml:"channel_secret"` // 環境変数 LINE_CHANNEL_SECRET 推奨
+	AccessToken   string `yaml:"access_token"`   // 環境変数 LINE_CHANNEL_TOKEN 推奨
 }
 
 // LogConfig はログ設定
@@ -241,6 +248,14 @@ func (c *Config) loadFromEnv() {
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 		c.OpenAI.APIKey = apiKey
 	}
+
+	// LINE認証情報
+	if secret := os.Getenv("LINE_CHANNEL_SECRET"); secret != "" {
+		c.Line.ChannelSecret = secret
+	}
+	if token := os.Getenv("LINE_CHANNEL_TOKEN"); token != "" {
+		c.Line.AccessToken = token
+	}
 }
 
 // Validate は設定の妥当性を検証
@@ -262,6 +277,13 @@ func (c *Config) Validate() error {
 	// セッション設定検証
 	if c.Session.StorageDir == "" {
 		return fmt.Errorf("session storage_dir is required")
+	}
+
+	// LINE設定検証（片方だけ設定は警告）
+	hasSecret := c.Line.ChannelSecret != ""
+	hasToken := c.Line.AccessToken != ""
+	if hasSecret != hasToken {
+		log.Println("WARN: LINE config incomplete - both channel_secret and access_token are required for webhook")
 	}
 
 	// v4.0 Distributed設定検証

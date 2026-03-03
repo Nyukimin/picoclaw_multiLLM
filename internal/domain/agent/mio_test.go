@@ -120,10 +120,13 @@ func TestMioAgentDecideAction_RuleDictionary(t *testing.T) {
 	}
 }
 
-func TestMioAgentDecideAction_Classifier(t *testing.T) {
+func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
+	// ルール辞書にマッチしない場合、LLM分類器をスキップしてCHATにフォールバック
+	classifierCalled := false
 	classifier := &mockClassifier{
-		classifyFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
-			return routing.NewDecision(routing.RouteANALYZE, 0.85, "Classifier result"), nil
+		classifyFunc: func(ctx context.Context, tk task.Task) (routing.Decision, error) {
+			classifierCalled = true
+			return routing.Decision{}, nil
 		},
 	}
 
@@ -134,50 +137,23 @@ func TestMioAgentDecideAction_Classifier(t *testing.T) {
 	)
 
 	jobID := task.NewJobID()
-	testTask := task.NewTask(jobID, "ログを分析して", "line", "U123")
+	testTask := task.NewTask(jobID, "こんにちは", "line", "U123")
 
 	decision, err := mio.DecideAction(context.Background(), testTask)
 	if err != nil {
 		t.Fatalf("DecideAction failed: %v", err)
 	}
 
-	if decision.Route != routing.RouteANALYZE {
-		t.Errorf("Expected route ANALYZE, got %s", decision.Route)
-	}
-
-	if decision.Confidence != 0.85 {
-		t.Errorf("Expected confidence 0.85, got %f", decision.Confidence)
-	}
-}
-
-func TestMioAgentDecideAction_FallbackOnClassifierError(t *testing.T) {
-	classifier := &mockClassifier{
-		classifyFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
-			return routing.Decision{}, context.DeadlineExceeded
-		},
-	}
-
-	mio := NewMioAgent(
-		&mockLLMProvider{},
-		classifier,
-		&mockRuleDictionary{},
-	)
-
-	jobID := task.NewJobID()
-	testTask := task.NewTask(jobID, "何か質問", "line", "U123")
-
-	decision, err := mio.DecideAction(context.Background(), testTask)
-	if err != nil {
-		t.Fatalf("DecideAction should not fail on classifier error: %v", err)
-	}
-
-	// Classifier失敗時はCHATにフォールバック
 	if decision.Route != routing.RouteCHAT {
-		t.Errorf("Expected fallback route CHAT, got %s", decision.Route)
+		t.Errorf("Expected route CHAT, got %s", decision.Route)
 	}
 
-	if decision.Confidence != 0.5 {
-		t.Errorf("Expected confidence 0.5 for fallback, got %f", decision.Confidence)
+	if decision.Confidence != 0.7 {
+		t.Errorf("Expected confidence 0.7, got %f", decision.Confidence)
+	}
+
+	if classifierCalled {
+		t.Error("Classifier should not be called when defaulting to CHAT")
 	}
 }
 

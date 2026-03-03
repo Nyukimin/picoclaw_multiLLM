@@ -41,14 +41,10 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 		return routing.NewDecision(route, confidence, "Rule dictionary match"), nil
 	}
 
-	// 優先度3: 分類器（LLM）
-	decision, err := m.classifier.Classify(ctx, t)
-	if err != nil {
-		// 優先度4: 安全側フォールバック
-		return routing.NewDecision(routing.RouteCHAT, 0.5, "Classifier failed, fallback to CHAT"), nil
-	}
-
-	return decision, nil
+	// 優先度3: 安全側フォールバック（CHAT）
+	// 技術的キーワードがルール辞書で捕捉されなかったメッセージは会話として処理
+	// LLM分類器は精度向上のためのオプション（レイテンシ優先で現在はスキップ）
+	return routing.NewDecision(routing.RouteCHAT, 0.7, "No rule match, default to CHAT"), nil
 }
 
 // Chat は会話を実行
@@ -57,7 +53,7 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		Messages: []llm.Message{
 			{Role: "user", Content: t.UserMessage()},
 		},
-		MaxTokens:   2048,
+		MaxTokens:   512,
 		Temperature: 0.7,
 	}
 

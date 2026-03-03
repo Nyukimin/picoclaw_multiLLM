@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -73,7 +74,14 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Starting PicoClaw server on %s", addr)
 
-	if err := http.ListenAndServe(addr, dependencies.lineHandler); err != nil {
+	server := &http.Server{
+		Addr:    addr,
+		Handler: dependencies.lineHandler,
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			log.Printf("[ConnState] %s -> %s (remote: %s)", state.String(), conn.LocalAddr(), conn.RemoteAddr())
+		},
+	}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
@@ -180,7 +188,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			coder3Adapter,
 			workerExecutionService,
 		)
-		deps.lineHandler = line.NewHandler(orch, "", "")
+		deps.lineHandler = line.NewHandler(orch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 	}
 
 	log.Println("Dependency injection complete")
@@ -233,7 +241,7 @@ func (d *Dependencies) buildDistributedMode(
 		centralMemory,
 		sshTransports,
 	)
-	d.lineHandler = line.NewHandler(distOrch, "", "")
+	d.lineHandler = line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 
 	// IdleChat（有効な場合）
 	if cfg.IdleChat.Enabled {

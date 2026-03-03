@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -43,6 +44,8 @@ func (h *Handler) SetBotUserID(botUserID string) {
 
 // ServeHTTP はHTTPリクエストを処理
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HTTP] %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+
 	// ルーティング
 	if r.URL.Path == "/health" && r.Method == http.MethodGet {
 		h.handleHealth(w, r)
@@ -78,10 +81,14 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// 署名検証
 	signature := r.Header.Get("X-Line-Signature")
+	log.Printf("[Webhook] Body length: %d, Signature present: %v, Secret length: %d",
+		len(body), signature != "", len(h.channelSecret))
 	if !verifySignature(body, signature, h.channelSecret) {
+		log.Printf("[Webhook] Signature verification FAILED")
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
+	log.Printf("[Webhook] Signature verified OK, events parsing...")
 
 	// リクエストボディをパース
 	var payload WebhookPayload
@@ -90,7 +97,17 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// イベントを処理
+	log.Printf("[Webhook] Events count: %d", len(payload.Events))
+	for i, ev := range payload.Events {
+		log.Printf("[Webhook] Event[%d]: type=%s, msg_type=%s, source=%s, text=%q",
+			i, ev.Type, ev.Message.Type, ev.Source.Type, ev.Message.Text)
+	}
+
+	// 即座に200を返し、イベント処理はバックグラウンドで実行
+	// （LINE公式推奨: 2秒以内にレスポンスを返す）
+	w.WriteHeader(http.StatusOK)
+
+	// イベントをバックグラウンドで処理
 	for _, event := range payload.Events {
 		// メッセージイベントのみ処理
 		if event.Type != "message" {
@@ -114,43 +131,47 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// セッションID生成
-		sessionID := h.generateSessionID(event.Source.UserID)
+		go h.processEvent(event)
+	}
+}
 
-		// オーケストレータを呼び出し
-		req := orchestrator.ProcessMessageRequest{
-			SessionID:   sessionID,
-			Channel:     "line",
-			ChatID:      event.Source.UserID,
-			UserMessage: event.Message.Text,
-		}
+// processEvent はイベントをバックグラウンドで処理（HTTPコンテキストから独立）
+func (h *Handler) processEvent(event WebhookEvent) {
+	ctx := context.Background()
 
-		resp, err := h.orchestrator.ProcessMessage(r.Context(), req)
-		if err != nil {
-			// エラーログ（本来はロガーを使用）
-			fmt.Printf("Error processing message: %v\n", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
+	// セッションID生成
+	sessionID := h.generateSessionID(event.Source.UserID)
 
-		// Quote token取得
-		quoteToken := extractQuoteToken(event)
-
-		// LINE返信API呼び出し（quote token対応）
-		var sendErr error
-		if quoteToken != "" {
-			sendErr = h.sender.SendReplyMessageWithQuote(r.Context(), event.ReplyToken, resp.Response, quoteToken)
-		} else {
-			sendErr = h.sender.SendReplyMessage(r.Context(), event.ReplyToken, resp.Response)
-		}
-
-		if sendErr != nil {
-			// 返信エラーはログに記録するが、webhookリクエスト自体は成功とする
-			fmt.Printf("Failed to send reply: %v\n", sendErr)
-		}
+	// オーケストレータを呼び出し
+	req := orchestrator.ProcessMessageRequest{
+		SessionID:   sessionID,
+		Channel:     "line",
+		ChatID:      event.Source.UserID,
+		UserMessage: event.Message.Text,
 	}
 
-	w.WriteHeader(http.StatusOK)
+	resp, err := h.orchestrator.ProcessMessage(ctx, req)
+	if err != nil {
+		log.Printf("[Webhook] Error processing message: %v", err)
+		return
+	}
+
+	// Quote token取得
+	quoteToken := extractQuoteToken(event)
+
+	// LINE返信API呼び出し（quote token対応）
+	var sendErr error
+	if quoteToken != "" {
+		sendErr = h.sender.SendReplyMessageWithQuote(ctx, event.ReplyToken, resp.Response, quoteToken)
+	} else {
+		sendErr = h.sender.SendReplyMessage(ctx, event.ReplyToken, resp.Response)
+	}
+
+	if sendErr != nil {
+		log.Printf("[Webhook] Failed to send reply: %v", sendErr)
+	} else {
+		log.Printf("[Webhook] Reply sent successfully for session %s", sessionID)
+	}
 }
 
 // generateSessionID はセッションIDを生成

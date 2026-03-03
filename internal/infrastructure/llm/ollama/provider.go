@@ -38,13 +38,14 @@ func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 
 	// Ollama APIリクエスト
 	ollamaReq := map[string]interface{}{
-		"model":  p.model,
-		"prompt": prompt,
-		"stream": false,
+		"model":      p.model,
+		"prompt":     prompt,
+		"stream":     false,
+		"keep_alive": -1,
 		"options": map[string]interface{}{
-			"temperature":   req.Temperature,
-			"num_predict":   req.MaxTokens,
-			"stop":          []string{},
+			"temperature": req.Temperature,
+			"num_predict": req.MaxTokens,
+			"stop":        []string{},
 		},
 	}
 

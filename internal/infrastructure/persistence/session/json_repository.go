@@ -70,7 +70,7 @@ func (r *JSONSessionRepository) Load(ctx context.Context, id string) (*session.S
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("session not found: %s", id)
+			return nil, fmt.Errorf("session %s: %w", id, session.ErrSessionNotFound)
 		}
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}

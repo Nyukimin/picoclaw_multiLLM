@@ -23,6 +23,12 @@ deepseek:
 openai:
   model: "gpt-4o-mini"
 
+# LINE Messaging API - 認証情報は環境変数で設定推奨
+# LINE_CHANNEL_SECRET, LINE_CHANNEL_TOKEN
+line:
+  channel_secret: ""
+  access_token: ""
+
 # セッション設定
 session:
   storage_dir: "./sessions"
