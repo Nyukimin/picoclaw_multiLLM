@@ -79,8 +79,10 @@ func (c *MCPClient) ListTools(ctx context.Context, serverName string) ([]string,
 		return nil, fmt.Errorf("server '%s' not registered", serverName)
 	}
 
-	// TODO: 実際のMCPサーバーと通信してツール一覧を取得
-	// 現在は簡易実装としてダミーデータを返す
+	// NOTE: MCP完全実装（JSON-RPC over stdin/stdout subprocess管理）はv4スコープ外。
+	// 現在はスタブとして空リストを返す。ShiroAgentのMCPToolオプション利用時は
+	// RegisterServer()でサーバーを登録後、このメソッドがツール一覧を返す想定。
+	// 実装時: exec.Command(config.Command, config.Args...) → JSON-RPC "tools/list" 送信
 	_ = config
 	return []string{}, nil
 }
@@ -95,8 +97,9 @@ func (c *MCPClient) CallTool(ctx context.Context, serverName, toolName string, a
 		return "", fmt.Errorf("server '%s' not registered", serverName)
 	}
 
-	// TODO: 実際のMCPサーバーと通信してツールを実行
-	// 現在は簡易実装としてエラーを返す
+	// NOTE: MCP完全実装（JSON-RPC over stdin/stdout subprocess管理）はv4スコープ外。
+	// 現在はスタブとしてエラーを返す。
+	// 実装時: exec.Command(config.Command, config.Args...) → JSON-RPC "tools/call" 送信
 	_ = config
 	_ = toolName
 	_ = args

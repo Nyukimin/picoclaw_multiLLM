@@ -238,6 +238,58 @@ func TestCoderAgentExtractProposal_MissingPlan(t *testing.T) {
 	}
 }
 
+func TestCoderAgentGenerateWithPrompt(t *testing.T) {
+	var capturedPrompt string
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			if len(req.Messages) > 0 && req.Messages[0].Role == "system" {
+				capturedPrompt = req.Messages[0].Content
+			}
+			return llm.GenerateResponse{
+				Content:      "Generated code response",
+				TokensUsed:   100,
+				FinishReason: "stop",
+			}, nil
+		},
+	}
+
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+
+	jobID := task.NewJobID()
+	testTask := task.NewTask(jobID, "main.goを作成して", "line", "U123")
+
+	result, err := coder.GenerateWithPrompt(context.Background(), testTask, "You are a specification design assistant.")
+	if err != nil {
+		t.Fatalf("GenerateWithPrompt failed: %v", err)
+	}
+
+	if result != "Generated code response" {
+		t.Errorf("Expected 'Generated code response', got '%s'", result)
+	}
+
+	if capturedPrompt != "You are a specification design assistant." {
+		t.Errorf("Expected system prompt to be passed through, got '%s'", capturedPrompt)
+	}
+}
+
+func TestCoderAgentGenerateWithPrompt_Error(t *testing.T) {
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{}, errors.New("connection timeout")
+		},
+	}
+
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+
+	jobID := task.NewJobID()
+	testTask := task.NewTask(jobID, "テスト", "line", "U123")
+
+	_, err := coder.GenerateWithPrompt(context.Background(), testTask, "test prompt")
+	if err == nil {
+		t.Error("Expected error when LLM fails")
+	}
+}
+
 func TestCoderAgentExtractProposal_MissingPatch(t *testing.T) {
 	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
 

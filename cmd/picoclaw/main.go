@@ -30,16 +30,7 @@ type coderAdapter struct {
 }
 
 func (a *coderAdapter) Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
-	// 簡易実装：ProposalのPlan部分を返す
-	// TODO: 完全なProposal処理を実装
-	proposal, err := a.domainCoder.GenerateProposal(ctx, t)
-	if err != nil {
-		return "", err
-	}
-	if proposal == nil {
-		return "No proposal generated", nil
-	}
-	return fmt.Sprintf("Plan:\n%s\n\nPatch:\n%s", proposal.Plan(), proposal.Patch()), nil
+	return a.domainCoder.GenerateWithPrompt(ctx, t, systemPrompt)
 }
 
 func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {

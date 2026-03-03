@@ -71,6 +71,25 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 	return c.extractProposal(resp.Content), nil
 }
 
+// GenerateWithPrompt は指定されたシステムプロンプトでLLM応答を生成
+func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
+	req := llm.GenerateRequest{
+		Messages: []llm.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: t.UserMessage()},
+		},
+		MaxTokens:   8192,
+		Temperature: 0.5,
+	}
+
+	resp, err := c.llmProvider.Generate(ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Content, nil
+}
+
 // extractProposal はLLM応答からProposalを抽出
 func (c *CoderAgent) extractProposal(content string) *proposal.Proposal {
 	plan := c.extractSection(content, "## Plan", "##")
