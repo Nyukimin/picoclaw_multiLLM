@@ -12,7 +12,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -22,37 +33,134 @@ type AgentHandler interface {
 	HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error)
 }
 
-// workerHandler はWorkerエージェントのハンドラ（スタブ）
-type workerHandler struct{}
+// workerHandler はWorkerエージェントのハンドラ
+type workerHandler struct {
+	shiroAgent       *agent.ShiroAgent
+	executionService service.WorkerExecutionService
+}
 
 func (h *workerHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
-	// NOTE: Phase 5で実際のWorker実行ロジックに接続予定
-	response := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID, "worker executed")
+	// Proposal付きメッセージ → Worker即時実行
+	if msg.Proposal != nil {
+		return h.executeProposal(ctx, msg)
+	}
+
+	// Proposalなし → ShiroAgentでタスク実行
+	return h.executeTask(ctx, msg)
+}
+
+// executeProposal はProposalのPatchをWorkerが即時実行
+func (h *workerHandler) executeProposal(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
+	// ProposalPayload → domain Proposal に復元
+	p := proposal.Reconstruct(
+		msg.Proposal.Plan,
+		msg.Proposal.Patch,
+		msg.Proposal.Risk,
+		msg.Proposal.CostHint,
+	)
+
+	// JobID をパース
+	jobID, err := task.ParseJobID(msg.JobID)
+	if err != nil {
+		return domaintransport.Message{}, fmt.Errorf("invalid job ID: %w", err)
+	}
+
+	// Patch実行
+	result, err := h.executionService.ExecuteProposal(ctx, jobID, p)
+	if err != nil {
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			fmt.Sprintf("patch execution failed: %v", err))
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+
+	// 結果をResultPayloadに変換
+	response := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID, result.Summary)
+	response.Type = domaintransport.MessageTypeResult
+	response.Result = &domaintransport.ResultPayload{
+		Success:      result.FailedCmds == 0,
+		Summary:      result.Summary,
+		ExecutedCmds: result.ExecutedCmds,
+		FailedCmds:   result.FailedCmds,
+		GitCommit:    result.GitCommit,
+	}
+
+	return response, nil
+}
+
+// executeTask はShiroAgentでタスクを実行
+func (h *workerHandler) executeTask(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
+	jobID, err := task.ParseJobID(msg.JobID)
+	if err != nil {
+		jobID = task.NewJobID()
+	}
+
+	t := task.NewTask(jobID, msg.Content, "standalone", "agent")
+
+	result, err := h.shiroAgent.Execute(ctx, t)
+	if err != nil {
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			fmt.Sprintf("worker execution failed: %v", err))
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+
+	response := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID, result)
 	response.Type = domaintransport.MessageTypeResult
 	response.Result = &domaintransport.ResultPayload{
 		Success: true,
-		Summary: "standalone worker execution (stub)",
+		Summary: result,
 	}
 	return response, nil
 }
 
-// coderHandler はCoderエージェントのハンドラ（スタブ）
-type coderHandler struct{}
+// coderHandler はCoderエージェントのハンドラ
+type coderHandler struct {
+	agentName  string
+	coderAgent *agent.CoderAgent
+}
 
 func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
-	// NOTE: Phase 5で実際のCoder生成ロジックに接続予定
-	response := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID, "coder generated")
+	jobID, err := task.ParseJobID(msg.JobID)
+	if err != nil {
+		jobID = task.NewJobID()
+	}
+
+	t := task.NewTask(jobID, msg.Content, "standalone", "agent")
+
+	// CoderAgentでProposal生成
+	p, err := h.coderAgent.GenerateProposal(ctx, t)
+	if err != nil {
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			fmt.Sprintf("proposal generation failed: %v", err))
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+
+	if p == nil {
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			"proposal generation returned empty result (invalid format)")
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+
+	response := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+		fmt.Sprintf("Proposal generated by %s", h.agentName))
 	response.Type = domaintransport.MessageTypeResult
 	response.Proposal = &domaintransport.ProposalPayload{
-		Plan:  "standalone coder plan (stub)",
-		Patch: "{}",
+		Plan:     p.Plan(),
+		Patch:    p.Patch(),
+		Risk:     p.Risk(),
+		CostHint: p.CostHint(),
 	}
+
 	return response, nil
 }
 
 func main() {
 	standalone := flag.Bool("standalone", false, "Run in standalone mode")
-	agentType := flag.String("agent", "", "Agent type: worker or coder")
+	agentType := flag.String("agent", "", "Agent type: worker, coder1, coder2, coder3")
+	configPath := flag.String("config", "./config.yaml", "Path to config file")
 	flag.Parse()
 
 	if !*standalone {
@@ -61,22 +169,23 @@ func main() {
 	}
 
 	if *agentType == "" {
-		fmt.Fprintln(os.Stderr, "picoclaw-agent requires --agent flag (worker or coder)")
-		os.Exit(1)
-	}
-
-	var handler AgentHandler
-	switch *agentType {
-	case "worker":
-		handler = &workerHandler{}
-	case "coder":
-		handler = &coderHandler{}
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown agent type: %s (supported: worker, coder)\n", *agentType)
+		fmt.Fprintln(os.Stderr, "picoclaw-agent requires --agent flag (worker, coder1, coder2, coder3)")
 		os.Exit(1)
 	}
 
 	log.SetOutput(os.Stderr) // stdoutはJSON通信に使うのでstderrにログ出力
+
+	// 設定読み込み
+	cfg, err := config.LoadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	handler, err := initHandler(*agentType, cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize handler: %v", err)
+	}
+
 	log.Printf("[picoclaw-agent] Starting standalone %s agent", *agentType)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,6 +206,77 @@ func main() {
 	}
 
 	log.Println("[picoclaw-agent] Shutdown complete")
+}
+
+// initHandler はagentTypeに応じたハンドラを初期化
+func initHandler(agentType string, cfg *config.Config) (AgentHandler, error) {
+	switch agentType {
+	case "worker":
+		return initWorkerHandler(cfg)
+	case "coder1":
+		return initCoderHandler("Coder1", cfg)
+	case "coder2":
+		return initCoderHandler("Coder2", cfg)
+	case "coder3":
+		return initCoderHandler("Coder3", cfg)
+	default:
+		return nil, fmt.Errorf("unknown agent type: %s (supported: worker, coder1, coder2, coder3)", agentType)
+	}
+}
+
+// initWorkerHandler はWorkerハンドラを初期化
+func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
+	ollamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
+	toolRunner := tools.NewToolRunner()
+	mcpClient := mcp.NewMCPClient()
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient)
+	executionService := service.NewWorkerExecutionService(cfg.Worker)
+
+	log.Printf("[picoclaw-agent] Worker initialized (workspace=%s)", cfg.Worker.Workspace)
+
+	return &workerHandler{
+		shiroAgent:       shiroAgent,
+		executionService: executionService,
+	}, nil
+}
+
+// initCoderHandler はCoderハンドラを初期化
+func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, error) {
+	var coderAgent *agent.CoderAgent
+
+	switch agentName {
+	case "Coder1":
+		if cfg.DeepSeek.APIKey == "" {
+			return nil, fmt.Errorf("Coder1 requires DEEPSEEK_API_KEY")
+		}
+		provider := deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)
+		coderAgent = agent.NewCoderAgent(provider, nil, nil)
+		log.Printf("[picoclaw-agent] Coder1 (DeepSeek) initialized with model: %s", cfg.DeepSeek.Model)
+
+	case "Coder2":
+		if cfg.OpenAI.APIKey == "" {
+			return nil, fmt.Errorf("Coder2 requires OPENAI_API_KEY")
+		}
+		provider := openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
+		coderAgent = agent.NewCoderAgent(provider, nil, nil)
+		log.Printf("[picoclaw-agent] Coder2 (OpenAI) initialized with model: %s", cfg.OpenAI.Model)
+
+	case "Coder3":
+		if cfg.Claude.APIKey == "" {
+			return nil, fmt.Errorf("Coder3 requires ANTHROPIC_API_KEY")
+		}
+		provider := claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)
+		coderAgent = agent.NewCoderAgent(provider, nil, nil)
+		log.Printf("[picoclaw-agent] Coder3 (Claude) initialized with model: %s", cfg.Claude.Model)
+
+	default:
+		return nil, fmt.Errorf("unknown coder: %s", agentName)
+	}
+
+	return &coderHandler{
+		agentName:  agentName,
+		coderAgent: coderAgent,
+	}, nil
 }
 
 // runMessageLoop はstdin/stdout上のJSON通信ループ

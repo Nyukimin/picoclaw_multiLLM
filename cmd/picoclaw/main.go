@@ -18,6 +18,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
@@ -80,14 +81,20 @@ func main() {
 // Dependencies はアプリケーション依存関係
 type Dependencies struct {
 	lineHandler     http.Handler
-	router          *transport.MessageRouter          // v4 distributed mode
-	idleChatOrch    *idlechat.IdleChatOrchestrator    // v4 idle chat
+	router          *transport.MessageRouter                       // v4 distributed mode
+	idleChatOrch    *idlechat.IdleChatOrchestrator                 // v4 idle chat
+	sshTransports   map[string]domaintransport.Transport           // v4 SSH transports
 }
 
 // Shutdown はリソースを解放
 func (d *Dependencies) Shutdown() {
 	if d.idleChatOrch != nil {
 		d.idleChatOrch.Stop()
+	}
+	for name, t := range d.sshTransports {
+		if err := t.Close(); err != nil {
+			log.Printf("Failed to close SSH transport for %s: %v", name, err)
+		}
 	}
 	if d.router != nil {
 		d.router.Stop()
@@ -194,25 +201,37 @@ func (d *Dependencies) buildDistributedMode(
 		log.Fatalf("Failed to create transports: %v", err)
 	}
 
-	// MessageRouter 構築
+	// MessageRouter 構築（LocalTransport専用）
 	router := transport.NewMessageRouter()
+	sshTransports := make(map[string]domaintransport.Transport)
+
 	for agentName, t := range transports {
-		if lt, ok := t.(*transport.LocalTransport); ok {
-			router.RegisterAgent(agentName, lt)
+		switch v := t.(type) {
+		case *transport.LocalTransport:
+			router.RegisterAgent(agentName, v)
+			log.Printf("Registered LocalTransport for agent '%s'", agentName)
+		case *transport.SSHTransport:
+			// SSH接続を確立
+			if err := v.Connect(); err != nil {
+				log.Fatalf("Failed to connect SSH transport for agent '%s': %v", agentName, err)
+			}
+			sshTransports[agentName] = v
+			log.Printf("Connected SSHTransport for agent '%s'", agentName)
 		}
-		// SSHTransport は Connect() 後に別途登録が必要（Phase 5.1スコープ外）
 	}
 	d.router = router
+	d.sshTransports = sshTransports
 
 	// CentralMemory
 	centralMemory := domainsession.NewCentralMemory()
 
-	// DistributedOrchestrator
+	// DistributedOrchestrator（Local + SSH transports）
 	distOrch := orchestrator.NewDistributedOrchestrator(
 		sessionRepo,
 		mioAgent,
 		router,
 		centralMemory,
+		sshTransports,
 	)
 	d.lineHandler = line.NewHandler(distOrch, "", "")
 

@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
 // TransportFactory はConfig.Distributed.TransportsからTransportを生成
@@ -16,9 +17,9 @@ func NewTransportFactory() *TransportFactory {
 }
 
 // CreateTransports はDistributedConfigからAgent別のTransportを生成
-// 戻り値: map[agentName] → *LocalTransport or *SSHTransport (interface Transport)
-func (f *TransportFactory) CreateTransports(cfg config.DistributedConfig) (map[string]interface{}, error) {
-	transports := make(map[string]interface{})
+// 戻り値: map[agentName] → domaintransport.Transport (*LocalTransport or *SSHTransport)
+func (f *TransportFactory) CreateTransports(cfg config.DistributedConfig) (map[string]domaintransport.Transport, error) {
+	transports := make(map[string]domaintransport.Transport)
 
 	for agentName, tc := range cfg.Transports {
 		switch tc.Type {

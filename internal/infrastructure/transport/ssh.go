@@ -29,15 +29,16 @@ type SSHTransport struct {
 	host       string
 	user       string
 	keyPath    string
-	agentType  string // "worker" or "coder"
+	agentType  string // "worker", "coder1", "coder2", "coder3"
 
 	client  *ssh.Client
 	session *ssh.Session
 	stdin   io.WriteCloser
 	stdout  io.Reader
 
-	inbound chan domaintransport.Message
-	sendMu  sync.Mutex // エンコーダ保護
+	inbound         chan domaintransport.Message
+	sendMu          sync.Mutex     // エンコーダ保護
+	receiveLoopDone chan struct{}   // receiveLoopの完了通知
 
 	done         chan struct{}
 	mu           sync.Mutex
@@ -48,12 +49,13 @@ type SSHTransport struct {
 // NewSSHTransport は新しいSSHTransportを作成
 func NewSSHTransport(host, user, keyPath, agentType string) *SSHTransport {
 	return &SSHTransport{
-		host:      host,
-		user:      user,
-		keyPath:   keyPath,
-		agentType: agentType,
-		inbound:   make(chan domaintransport.Message, sshInboundBufSize),
-		done:      make(chan struct{}),
+		host:            host,
+		user:            user,
+		keyPath:         keyPath,
+		agentType:       agentType,
+		inbound:         make(chan domaintransport.Message, sshInboundBufSize),
+		receiveLoopDone: make(chan struct{}),
+		done:            make(chan struct{}),
 	}
 }
 
@@ -143,7 +145,8 @@ func (t *SSHTransport) establishConnection() error {
 	t.stdin = stdin
 	t.stdout = stdout
 
-	// 受信ループ開始
+	// 受信ループ開始（完了通知チャネルを更新）
+	t.receiveLoopDone = make(chan struct{})
 	go t.receiveLoop()
 
 	log.Printf("[SSHTransport] Connected to %s@%s (agent: %s)", t.user, t.host, t.agentType)
@@ -172,6 +175,8 @@ func (t *SSHTransport) getHostKeyCallback() (ssh.HostKeyCallback, error) {
 
 // receiveLoop はstdoutからJSONメッセージを受信
 func (t *SSHTransport) receiveLoop() {
+	defer close(t.receiveLoopDone)
+
 	scanner := bufio.NewScanner(t.stdout)
 	// 大きなメッセージに対応（最大1MB）
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -218,6 +223,7 @@ func (t *SSHTransport) tryReconnect() {
 		return
 	}
 	t.reconnecting = true
+	loopDone := t.receiveLoopDone
 	t.mu.Unlock()
 
 	defer func() {
@@ -228,6 +234,13 @@ func (t *SSHTransport) tryReconnect() {
 
 	log.Println("[SSHTransport] Attempting reconnection...")
 	t.closeConnection()
+
+	// 旧receiveLoopの完了を待つ（5秒タイムアウト）
+	select {
+	case <-loopDone:
+	case <-time.After(5 * time.Second):
+		log.Println("[SSHTransport] WARN: old receive loop did not stop in time")
+	}
 
 	if err := t.connectWithRetry(); err != nil {
 		log.Printf("[SSHTransport] Reconnection failed: %v", err)
@@ -313,6 +326,7 @@ func (t *SSHTransport) Close() error {
 }
 
 // IsHealthy はTransportの健全性を返す
+// SSH keepalive でリモートとの接続状態を確認
 func (t *SSHTransport) IsHealthy() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -321,6 +335,13 @@ func (t *SSHTransport) IsHealthy() bool {
 		return false
 	}
 	if t.client == nil {
+		return false
+	}
+
+	// OpenSSH keepalive で接続確認
+	_, _, err := t.client.SendRequest("keepalive@openssh.com", true, nil)
+	if err != nil {
+		log.Printf("[SSHTransport] Keepalive failed: %v", err)
 		return false
 	}
 	return true
