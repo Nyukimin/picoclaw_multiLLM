@@ -43,3 +43,12 @@ func (j JobID) Equals(other JobID) bool {
 func (j JobID) IsZero() bool {
 	return j.value == ""
 }
+
+// ParseJobID は文字列からJobIDを復元（バリデーション付き）
+// 空文字列はエラーを返す
+func ParseJobID(s string) (JobID, error) {
+	if s == "" {
+		return JobID{}, fmt.Errorf("job ID cannot be empty")
+	}
+	return JobID{value: s}, nil
+}

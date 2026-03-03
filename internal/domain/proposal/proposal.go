@@ -42,3 +42,8 @@ func (p *Proposal) CostHint() string {
 func (p *Proposal) IsValid() bool {
 	return p.plan != "" && p.patch != ""
 }
+
+// Reconstruct は永続化層からProposalを復元する（NewProposalのエイリアス）
+func Reconstruct(plan, patch, risk, costHint string) *Proposal {
+	return NewProposal(plan, patch, risk, costHint)
+}

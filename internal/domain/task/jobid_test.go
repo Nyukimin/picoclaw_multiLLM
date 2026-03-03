@@ -71,3 +71,20 @@ func TestJobIDIsZero(t *testing.T) {
 		t.Error("Normal JobID should return false for IsZero()")
 	}
 }
+
+func TestParseJobID(t *testing.T) {
+	// 正常系
+	jobID, err := ParseJobID("20260301-120000-abcd1234")
+	if err != nil {
+		t.Fatalf("ParseJobID failed: %v", err)
+	}
+	if jobID.String() != "20260301-120000-abcd1234" {
+		t.Errorf("Expected '20260301-120000-abcd1234', got '%s'", jobID.String())
+	}
+
+	// 空文字列はエラー
+	_, err = ParseJobID("")
+	if err == nil {
+		t.Error("ParseJobID should return error for empty string")
+	}
+}

@@ -49,3 +49,25 @@ func TestProposalIsValid(t *testing.T) {
 		})
 	}
 }
+
+func TestReconstruct(t *testing.T) {
+	plan := "Reconstructed plan"
+	patch := "Reconstructed patch"
+	risk := "Low"
+	costHint := "1 minute"
+
+	proposal := Reconstruct(plan, patch, risk, costHint)
+
+	if proposal.Plan() != plan {
+		t.Errorf("Expected plan '%s', got '%s'", plan, proposal.Plan())
+	}
+	if proposal.Patch() != patch {
+		t.Errorf("Expected patch '%s', got '%s'", patch, proposal.Patch())
+	}
+	if proposal.Risk() != risk {
+		t.Errorf("Expected risk '%s', got '%s'", risk, proposal.Risk())
+	}
+	if proposal.CostHint() != costHint {
+		t.Errorf("Expected costHint '%s', got '%s'", costHint, proposal.CostHint())
+	}
+}
