@@ -160,6 +160,36 @@ func TestLocalTransport_ChannelFull(t *testing.T) {
 	}
 }
 
+func TestLocalTransport_Receive_DoneClosed(t *testing.T) {
+	lt := NewLocalTransport()
+
+	// doneチャネルを閉じてからReceive → "transport is closed" エラー
+	lt.Close()
+
+	ctx := context.Background()
+	_, err := lt.Receive(ctx)
+	if err == nil {
+		t.Error("Expected error on receive after close")
+	}
+}
+
+func TestLocalTransport_Send_DoneClosed(t *testing.T) {
+	lt := NewLocalTransport()
+
+	// outboundを満杯にしてからclose → done経由のエラー
+	for i := 0; i < defaultChannelCapacity; i++ {
+		lt.Send(context.Background(), domaintransport.NewMessage("A", "B", "s1", "j1", "fill"))
+	}
+
+	lt.Close()
+
+	msg := domaintransport.NewMessage("A", "B", "s1", "j1", "after-close")
+	err := lt.Send(context.Background(), msg)
+	if err == nil {
+		t.Error("Expected error on send after close")
+	}
+}
+
 func TestLocalTransport_Concurrent(t *testing.T) {
 	lt := NewLocalTransport()
 	defer lt.Close()

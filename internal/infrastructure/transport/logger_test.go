@@ -14,6 +14,7 @@ type mockTransport struct {
 	sendErr    error
 	receiveMsg domaintransport.Message
 	receiveErr error
+	closeErr   error
 	closed     bool
 	healthy    bool
 }
@@ -28,7 +29,7 @@ func (m *mockTransport) Receive(ctx context.Context) (domaintransport.Message, e
 
 func (m *mockTransport) Close() error {
 	m.closed = true
-	return nil
+	return m.closeErr
 }
 
 func (m *mockTransport) IsHealthy() bool {
@@ -107,5 +108,18 @@ func TestLoggingTransport_IsHealthy(t *testing.T) {
 	inner.healthy = false
 	if lt.IsHealthy() {
 		t.Error("Should not be healthy when inner is not healthy")
+	}
+}
+
+func TestLoggingTransport_CloseError(t *testing.T) {
+	inner := &mockTransport{closeErr: fmt.Errorf("close failed"), healthy: true}
+	lt := NewLoggingTransport(inner, "Mio")
+
+	err := lt.Close()
+	if err == nil {
+		t.Error("Expected close error")
+	}
+	if !inner.closed {
+		t.Error("Inner should still be marked closed")
 	}
 }

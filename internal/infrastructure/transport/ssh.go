@@ -23,6 +23,54 @@ const (
 	sshRemoteCommand   = "picoclaw-agent --standalone"
 )
 
+// sshDialer はSSHクライアント生成の抽象化（テスト用DI）
+type sshDialer interface {
+	Dial(network, addr string, config *ssh.ClientConfig) (sshClient, error)
+}
+
+// sshClient はssh.Clientの抽象化（テスト用DI）
+type sshClient interface {
+	NewSession() (sshSession, error)
+	SendRequest(name string, wantReply bool, payload []byte) (bool, []byte, error)
+	Close() error
+}
+
+// sshSession はssh.Sessionの抽象化（テスト用DI）
+type sshSession interface {
+	StdinPipe() (io.WriteCloser, error)
+	StdoutPipe() (io.Reader, error)
+	Start(cmd string) error
+	Close() error
+}
+
+// defaultDialer は本番用のSSHクライアント生成
+type defaultDialer struct{}
+
+func (d *defaultDialer) Dial(network, addr string, config *ssh.ClientConfig) (sshClient, error) {
+	client, err := ssh.Dial(network, addr, config)
+	if err != nil {
+		return nil, err
+	}
+	return &realSSHClient{client: client}, nil
+}
+
+// realSSHClient は*ssh.ClientのアダプタでsshClientインターフェースを実装
+type realSSHClient struct {
+	client *ssh.Client
+}
+
+func (c *realSSHClient) NewSession() (sshSession, error) {
+	return c.client.NewSession()
+}
+
+func (c *realSSHClient) SendRequest(name string, wantReply bool, payload []byte) (bool, []byte, error) {
+	return c.client.SendRequest(name, wantReply, payload)
+}
+
+func (c *realSSHClient) Close() error {
+	return c.client.Close()
+}
+
 // SSHTransport はSSH経由のAgent間通信
 // stdin/stdout上のJSON通信（1行1メッセージ）
 type SSHTransport struct {
@@ -32,8 +80,9 @@ type SSHTransport struct {
 	agentType     string // "worker", "coder1", "coder2", "coder3"
 	strictHostKey bool   // true: known_hosts必須（本番用）
 
-	client  *ssh.Client
-	session *ssh.Session
+	dialer  sshDialer
+	client  sshClient
+	session sshSession
 	stdin   io.WriteCloser
 	stdout  io.Reader
 
@@ -54,6 +103,7 @@ func NewSSHTransport(host, user, keyPath, agentType string) *SSHTransport {
 		user:            user,
 		keyPath:         keyPath,
 		agentType:       agentType,
+		dialer:          &defaultDialer{},
 		inbound:         make(chan domaintransport.Message, sshInboundBufSize),
 		receiveLoopDone: make(chan struct{}),
 		done:            make(chan struct{}),
@@ -68,6 +118,7 @@ func NewSSHTransportStrict(host, user, keyPath, agentType string, strictHostKey 
 		keyPath:         keyPath,
 		agentType:       agentType,
 		strictHostKey:   strictHostKey,
+		dialer:          &defaultDialer{},
 		inbound:         make(chan domaintransport.Message, sshInboundBufSize),
 		receiveLoopDone: make(chan struct{}),
 		done:            make(chan struct{}),
@@ -123,7 +174,7 @@ func (t *SSHTransport) establishConnection() error {
 		Timeout:         10 * time.Second,
 	}
 
-	client, err := ssh.Dial("tcp", t.host, config)
+	client, err := t.dialer.Dial("tcp", t.host, config)
 	if err != nil {
 		return fmt.Errorf("SSH dial: %w", err)
 	}

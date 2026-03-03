@@ -217,3 +217,37 @@ func TestMessageRouter_RoundTrip(t *testing.T) {
 		t.Errorf("Expected result type, got '%s'", result.Type)
 	}
 }
+
+func TestMessageRouter_DeliverMessage_InboundFull(t *testing.T) {
+	router := NewMessageRouter()
+	defer router.Stop()
+
+	mioTransport := NewLocalTransport()
+	shiroTransport := NewLocalTransport()
+	defer mioTransport.Close()
+	defer shiroTransport.Close()
+
+	router.RegisterAgent("Mio", mioTransport)
+	router.RegisterAgent("Shiro", shiroTransport)
+
+	// Shiroのinboundチャネルを満杯にする
+	for i := 0; i < defaultChannelCapacity; i++ {
+		shiroTransport.PutInboundMessage(domaintransport.NewMessage("X", "Shiro", "s1", "j1", "fill"))
+	}
+
+	// Mio → Shiro（inbound full → deliverMessage のエラーパス → Mioにエラー返送）
+	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "should-fail")
+	mioTransport.Send(context.Background(), msg)
+
+	// Mioがエラーメッセージを受信するはず
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	errMsg, err := mioTransport.Receive(ctx)
+	if err != nil {
+		t.Fatalf("Mio should receive error message: %v", err)
+	}
+	if errMsg.Type != domaintransport.MessageTypeError {
+		t.Errorf("Expected error type, got '%s'", errMsg.Type)
+	}
+}
