@@ -6,13 +6,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
+	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
@@ -22,6 +26,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/transport"
 )
 
 // coderAdapter はdomain CoderAgentをorchestrator CoderAgentに適応
@@ -52,6 +57,17 @@ func main() {
 	// 依存関係構築
 	dependencies := buildDependencies(cfg)
 
+	// Graceful shutdown用シグナル
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		sig := <-sigCh
+		log.Printf("Received signal: %v, shutting down...", sig)
+		dependencies.Shutdown()
+		os.Exit(0)
+	}()
+
 	// HTTPサーバー起動
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Starting PicoClaw server on %s", addr)
@@ -63,7 +79,20 @@ func main() {
 
 // Dependencies はアプリケーション依存関係
 type Dependencies struct {
-	lineHandler http.Handler
+	lineHandler     http.Handler
+	router          *transport.MessageRouter          // v4 distributed mode
+	idleChatOrch    *idlechat.IdleChatOrchestrator    // v4 idle chat
+}
+
+// Shutdown はリソースを解放
+func (d *Dependencies) Shutdown() {
+	if d.idleChatOrch != nil {
+		d.idleChatOrch.Stop()
+	}
+	if d.router != nil {
+		d.router.Stop()
+	}
+	log.Println("Shutdown complete")
 }
 
 // buildDependencies は依存関係を構築
@@ -123,26 +152,83 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 7. Worker Execution Service
 	workerExecutionService := service.NewWorkerExecutionService(cfg.Worker)
-	log.Printf("WorkerExecutionService initialized (Workspace: %s)", cfg.Worker.Workspace)
+	log.Printf("WorkerExecutionService initialized (Workspace: %s, Parallel: %v)",
+		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
 
-	// 8. Application Orchestrator
-	orch := orchestrator.NewMessageOrchestrator(
-		sessionRepo,
-		mioAgent,
-		shiroAgent,
-		coder1Adapter,
-		coder2Adapter,
-		coder3Adapter,
-		workerExecutionService,
-	)
+	deps := &Dependencies{}
 
-	// 9. Adapter (LINE Handler)
-	lineHandler := line.NewHandler(orch, "", "") // Channel Secret/Access Token は後で設定
+	// 8. v3/v4 モード分岐
+	if cfg.Distributed.Enabled {
+		log.Println("=== v4 Distributed Mode ===")
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider)
+	} else {
+		log.Println("=== v3 Local Mode ===")
+		// 既存v3ロジック
+		orch := orchestrator.NewMessageOrchestrator(
+			sessionRepo,
+			mioAgent,
+			shiroAgent,
+			coder1Adapter,
+			coder2Adapter,
+			coder3Adapter,
+			workerExecutionService,
+		)
+		deps.lineHandler = line.NewHandler(orch, "", "")
+	}
 
 	log.Println("Dependency injection complete")
+	return deps
+}
 
-	return &Dependencies{
-		lineHandler: lineHandler,
+// buildDistributedMode はv4分散モードの依存関係を構築
+func (d *Dependencies) buildDistributedMode(
+	cfg *config.Config,
+	sessionRepo orchestrator.SessionRepository,
+	mioAgent *agent.MioAgent,
+	ollamaProvider *ollama.OllamaProvider,
+) {
+	// Transport Factory でAgent別Transport生成
+	factory := transport.NewTransportFactory()
+	transports, err := factory.CreateTransports(cfg.Distributed)
+	if err != nil {
+		log.Fatalf("Failed to create transports: %v", err)
+	}
+
+	// MessageRouter 構築
+	router := transport.NewMessageRouter()
+	for agentName, t := range transports {
+		if lt, ok := t.(*transport.LocalTransport); ok {
+			router.RegisterAgent(agentName, lt)
+		}
+		// SSHTransport は Connect() 後に別途登録が必要（Phase 5.1スコープ外）
+	}
+	d.router = router
+
+	// CentralMemory
+	centralMemory := domainsession.NewCentralMemory()
+
+	// DistributedOrchestrator
+	distOrch := orchestrator.NewDistributedOrchestrator(
+		sessionRepo,
+		mioAgent,
+		router,
+		centralMemory,
+	)
+	d.lineHandler = line.NewHandler(distOrch, "", "")
+
+	// IdleChat（有効な場合）
+	if cfg.IdleChat.Enabled {
+		idleChatOrch := idlechat.NewIdleChatOrchestrator(
+			ollamaProvider,
+			centralMemory,
+			cfg.IdleChat.Participants,
+			cfg.IdleChat.IntervalMin,
+			cfg.IdleChat.MaxTurns,
+			cfg.IdleChat.Temperature,
+		)
+		idleChatOrch.Start()
+		d.idleChatOrch = idleChatOrch
+		log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
 	}
 }
 
