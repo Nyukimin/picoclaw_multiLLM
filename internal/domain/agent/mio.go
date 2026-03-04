@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -14,6 +15,8 @@ type MioAgent struct {
 	llmProvider    llm.LLMProvider
 	classifier     Classifier
 	ruleDictionary RuleDictionary
+	toolRunner     ToolRunner
+	mcpClient      MCPClient
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -21,11 +24,15 @@ func NewMioAgent(
 	llmProvider llm.LLMProvider,
 	classifier Classifier,
 	ruleDictionary RuleDictionary,
+	toolRunner ToolRunner,
+	mcpClient MCPClient,
 ) *MioAgent {
 	return &MioAgent{
 		llmProvider:    llmProvider,
 		classifier:     classifier,
 		ruleDictionary: ruleDictionary,
+		toolRunner:     toolRunner,
+		mcpClient:      mcpClient,
 	}
 }
 
@@ -47,12 +54,38 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 	return routing.NewDecision(routing.RouteCHAT, 0.7, "No rule match, default to CHAT"), nil
 }
 
-// Chat は会話を実行
+// Chat は会話を実行（簡易版: キーワードベース自動Web検索）
 func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	userMessage := t.UserMessage()
+
+	// キーワードベースでWeb検索が必要か判定
+	searchKeywords := []string{"教えて", "調べて", "検索", "について", "最新", "ニュース", "とは"}
+	needsSearch := false
+	for _, keyword := range searchKeywords {
+		if strings.Contains(userMessage, keyword) {
+			needsSearch = true
+			break
+		}
+	}
+
+	// Web検索を実行してコンテキストに追加
+	var messages []llm.Message
+	if needsSearch && m.toolRunner != nil {
+		searchResult, err := m.executeWebSearch(ctx, userMessage)
+		if err == nil && searchResult != "" {
+			// 検索結果をシステムメッセージとして追加
+			messages = append(messages, llm.Message{
+				Role:    "system",
+				Content: "以下はWeb検索の結果です。この情報を参考にして質問に答えてください:\n\n" + searchResult,
+			})
+		}
+		// 検索エラーは無視して会話を続行
+	}
+
+	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
+
 	req := llm.GenerateRequest{
-		Messages: []llm.Message{
-			{Role: "user", Content: t.UserMessage()},
-		},
+		Messages:    messages,
 		MaxTokens:   512,
 		Temperature: 0.7,
 	}
@@ -63,6 +96,45 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	}
 
 	return resp.Content, nil
+}
+
+// executeWebSearch はWeb検索を実行（内部ヘルパー）
+func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, error) {
+	if m.toolRunner == nil {
+		return "", fmt.Errorf("toolRunner not available")
+	}
+
+	// クエリから検索キーワードを抽出（不要な部分を除去）
+	cleanedQuery := cleanSearchQuery(query)
+
+	args := map[string]interface{}{
+		"query": cleanedQuery,
+	}
+
+	result, err := m.toolRunner.Execute(ctx, "web_search", args)
+	if err != nil {
+		return "", err
+	}
+
+	return result, nil
+}
+
+// cleanSearchQuery は検索クエリから不要な部分を除去
+func cleanSearchQuery(query string) string {
+	// 除去するパターン（質問形式の語尾など）
+	removePatterns := []string{
+		"について教えて", "を教えて", "教えて",
+		"について調べて", "を調べて", "調べて",
+		"について検索", "を検索", "検索して",
+		"とは", "って何", "ってなに",
+	}
+
+	cleaned := query
+	for _, pattern := range removePatterns {
+		cleaned = strings.Replace(cleaned, pattern, "", -1)
+	}
+
+	return strings.TrimSpace(cleaned)
 }
 
 // parseExplicitCommand は明示コマンドを解析

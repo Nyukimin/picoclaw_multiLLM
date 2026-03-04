@@ -145,17 +145,35 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	classifier := routing.NewLLMClassifier(ollamaProvider)
 	ruleDictionary := routing.NewRuleDictionary()
 
-	// 3. Tool Runner
-	toolRunner := tools.NewToolRunner()
-	log.Printf("ToolRunner initialized with %d tools", len(mustGetToolList(toolRunner)))
+	// 3. Tool Runner（Chat用とWorker用で分離）
+	chatToolRunnerCfg := tools.ToolRunnerConfig{
+		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_CHAT"),
+		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_CHAT"),
+	}
+	workerToolRunnerCfg := tools.ToolRunnerConfig{
+		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_WORKER"),
+		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_WORKER"),
+	}
+
+	chatToolRunner := tools.NewToolRunner(chatToolRunnerCfg)
+	workerToolRunner := tools.NewToolRunner(workerToolRunnerCfg)
+	log.Printf("ToolRunner initialized: Chat=%d tools, Worker=%d tools",
+		len(mustGetToolList(chatToolRunner)), len(mustGetToolList(workerToolRunner)))
+
+	if chatToolRunnerCfg.GoogleAPIKey != "" && chatToolRunnerCfg.GoogleSearchEngineID != "" {
+		log.Printf("Google Search API (Chat) configured")
+	}
+	if workerToolRunnerCfg.GoogleAPIKey != "" && workerToolRunnerCfg.GoogleSearchEngineID != "" {
+		log.Printf("Google Search API (Worker) configured")
+	}
 
 	// 4. MCP Client
 	mcpClient := mcp.NewMCPClient()
 	log.Printf("MCPClient initialized with %d servers", len(mcpClient.ListServers()))
 
 	// 5. Agents
-	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary)
-	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient)
+	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient)
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient)
 
 	// 6. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)

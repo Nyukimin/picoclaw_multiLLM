@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewToolRunner(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	if runner == nil {
 		t.Fatal("NewToolRunner should not return nil")
@@ -17,7 +17,7 @@ func TestNewToolRunner(t *testing.T) {
 }
 
 func TestToolRunner_List(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	tools, err := runner.List(context.Background())
 	if err != nil {
@@ -25,7 +25,7 @@ func TestToolRunner_List(t *testing.T) {
 	}
 
 	// 最低限のツールが登録されているか
-	expectedTools := []string{"shell", "file_read", "file_write", "file_list"}
+	expectedTools := []string{"shell", "file_read", "file_write", "file_list", "web_search"}
 	for _, expected := range expectedTools {
 		found := false
 		for _, tool := range tools {
@@ -41,7 +41,7 @@ func TestToolRunner_List(t *testing.T) {
 }
 
 func TestToolRunner_Execute_Shell_Success(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	args := map[string]interface{}{
 		"command": "echo 'Hello, World!'",
@@ -58,7 +58,7 @@ func TestToolRunner_Execute_Shell_Success(t *testing.T) {
 }
 
 func TestToolRunner_Execute_Shell_MissingCommand(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	args := map[string]interface{}{}
 
@@ -69,7 +69,7 @@ func TestToolRunner_Execute_Shell_MissingCommand(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileRead_Success(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	// テスト用ファイル作成
 	tmpDir := t.TempDir()
@@ -92,7 +92,7 @@ func TestToolRunner_Execute_FileRead_Success(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileRead_NotFound(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	args := map[string]interface{}{
 		"path": "/nonexistent/file.txt",
@@ -105,7 +105,7 @@ func TestToolRunner_Execute_FileRead_NotFound(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileWrite_Success(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "output.txt")
@@ -138,7 +138,7 @@ func TestToolRunner_Execute_FileWrite_Success(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileList_Success(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	tmpDir := t.TempDir()
 	// テスト用ファイル作成
@@ -168,7 +168,7 @@ func TestToolRunner_Execute_FileList_Success(t *testing.T) {
 }
 
 func TestToolRunner_Execute_UnknownTool(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	args := map[string]interface{}{}
 
@@ -179,7 +179,7 @@ func TestToolRunner_Execute_UnknownTool(t *testing.T) {
 }
 
 func TestToolRunner_Execute_Shell_Timeout(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	// 長時間かかるコマンド（sleepは避け、実際にはすぐ終わるが概念的なテスト）
 	args := map[string]interface{}{
@@ -200,7 +200,7 @@ func TestToolRunner_Execute_Shell_Timeout(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileWrite_CreateDirectory(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "subdir", "nested", "file.txt")
@@ -228,7 +228,7 @@ func TestToolRunner_Execute_FileWrite_CreateDirectory(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileRead_MissingPath(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	args := map[string]interface{}{}
 
@@ -239,7 +239,7 @@ func TestToolRunner_Execute_FileRead_MissingPath(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileWrite_MissingContent(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	tmpDir := t.TempDir()
 	args := map[string]interface{}{
@@ -253,12 +253,57 @@ func TestToolRunner_Execute_FileWrite_MissingContent(t *testing.T) {
 }
 
 func TestToolRunner_Execute_FileList_MissingPath(t *testing.T) {
-	runner := NewToolRunner()
+	runner := NewToolRunner(ToolRunnerConfig{})
 
 	args := map[string]interface{}{}
 
 	_, err := runner.Execute(context.Background(), "file_list", args)
 	if err == nil {
 		t.Error("Expected error when path is missing")
+	}
+}
+
+func TestToolRunner_Execute_WebSearch_Success(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	args := map[string]interface{}{
+		"query": "golang programming language",
+	}
+
+	result, err := runner.Execute(context.Background(), "web_search", args)
+	if err != nil {
+		t.Fatalf("Execute web_search failed: %v", err)
+	}
+
+	// 結果が空でないことを確認
+	if len(result) == 0 {
+		t.Error("Expected non-empty search result")
+	}
+
+	// 結果にGolang関連の内容が含まれることを期待（APIの応答による）
+	t.Logf("Search result: %s", result)
+}
+
+func TestToolRunner_Execute_WebSearch_MissingQuery(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	args := map[string]interface{}{}
+
+	_, err := runner.Execute(context.Background(), "web_search", args)
+	if err == nil {
+		t.Error("Expected error when query is missing")
+	}
+}
+
+func TestToolRunner_Execute_WebSearch_EmptyQuery(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	args := map[string]interface{}{
+		"query": "   ",
+	}
+
+	_, err := runner.Execute(context.Background(), "web_search", args)
+	if err == nil {
+		t.Error("Expected error when query is empty")
 	}
 }

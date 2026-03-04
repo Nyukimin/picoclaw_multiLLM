@@ -46,3 +46,6 @@ tasks/
 # Added by goreleaser init:
 dist/
 config/config.yaml
+test_*.go
+test_*.sh
+*.log

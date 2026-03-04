@@ -47,9 +47,10 @@ func NewRuleDictionary() *RuleDictionary {
 				route:      routing.RouteOPS,
 				confidence: 0.85,
 			},
-			// RESEARCH関連キーワード
+			// RESEARCH関連キーワード（深い調査タスク専用）
+			// 「調べて」「検索して」はChatのWeb検索で即答するため除外
 			{
-				keywords:   []string{"調べて", "検索して", "リサーチ", "情報を集", "ドキュメントを探"},
+				keywords:   []string{"リサーチ", "情報を集", "ドキュメントを探"},
 				route:      routing.RouteRESEARCH,
 				confidence: 0.85,
 			},

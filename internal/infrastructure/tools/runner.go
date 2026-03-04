@@ -2,25 +2,38 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ToolRunner はツール実行の実装
 type ToolRunner struct {
-	tools map[string]ToolFunc
+	tools  map[string]ToolFunc
+	config ToolRunnerConfig
+}
+
+// ToolRunnerConfig はToolRunnerの設定
+type ToolRunnerConfig struct {
+	GoogleAPIKey       string
+	GoogleSearchEngineID string
 }
 
 // ToolFunc はツール実行関数の型
 type ToolFunc func(ctx context.Context, args map[string]interface{}) (string, error)
 
 // NewToolRunner は新しいToolRunnerを作成
-func NewToolRunner() *ToolRunner {
+func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 	runner := &ToolRunner{
-		tools: make(map[string]ToolFunc),
+		tools:  make(map[string]ToolFunc),
+		config: config,
 	}
 
 	// ツール登録
@@ -35,6 +48,7 @@ func (r *ToolRunner) registerTools() {
 	r.tools["file_read"] = r.executeFileRead
 	r.tools["file_write"] = r.executeFileWrite
 	r.tools["file_list"] = r.executeFileList
+	r.tools["web_search"] = r.executeWebSearch
 }
 
 // Execute はツールを実行
@@ -138,4 +152,110 @@ func (r *ToolRunner) executeFileList(ctx context.Context, args map[string]interf
 	}
 
 	return result.String(), nil
+}
+
+// executeWebSearch はWeb検索を実行（Google Custom Search JSON API使用）
+func (r *ToolRunner) executeWebSearch(ctx context.Context, args map[string]interface{}) (string, error) {
+	query, ok := args["query"].(string)
+	if !ok {
+		return "", fmt.Errorf("'query' argument is required and must be a string")
+	}
+
+	if strings.TrimSpace(query) == "" {
+		return "", fmt.Errorf("query cannot be empty")
+	}
+
+	// 設定チェック
+	if r.config.GoogleAPIKey == "" || r.config.GoogleSearchEngineID == "" {
+		return "", fmt.Errorf("Google Search API not configured")
+	}
+
+	// Google Custom Search JSON API
+	apiURL := fmt.Sprintf("https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s",
+		r.config.GoogleAPIKey,
+		r.config.GoogleSearchEngineID,
+		url.QueryEscape(query))
+
+	// HTTPクライアント作成（タイムアウト設定）
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute search: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("search API returned status %d: %s", resp.StatusCode, string(body[:min(len(body), 200)]))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// JSON解析
+	var result GoogleSearchResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// 結果フォーマット
+	return formatGoogleSearchResult(result), nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// GoogleSearchResponse はGoogle Custom Search JSON APIレスポンス
+type GoogleSearchResponse struct {
+	Items []GoogleSearchItem `json:"items"`
+	SearchInformation struct {
+		TotalResults string `json:"totalResults"`
+	} `json:"searchInformation"`
+}
+
+// GoogleSearchItem は検索結果アイテム
+type GoogleSearchItem struct {
+	Title   string `json:"title"`
+	Link    string `json:"link"`
+	Snippet string `json:"snippet"`
+}
+
+// formatGoogleSearchResult は検索結果を整形
+func formatGoogleSearchResult(result GoogleSearchResponse) string {
+	var output strings.Builder
+
+	if len(result.Items) == 0 {
+		return "検索結果が見つかりませんでした。"
+	}
+
+	output.WriteString("🔍 検索結果:\n\n")
+
+	// 最大5件の検索結果を表示
+	maxResults := 5
+	if len(result.Items) < maxResults {
+		maxResults = len(result.Items)
+	}
+
+	for i := 0; i < maxResults; i++ {
+		item := result.Items[i]
+		output.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Title))
+		output.WriteString(fmt.Sprintf("   %s\n", item.Snippet))
+		output.WriteString(fmt.Sprintf("   %s\n\n", item.Link))
+	}
+
+	return output.String()
 }

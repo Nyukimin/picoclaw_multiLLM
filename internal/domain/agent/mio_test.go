@@ -49,11 +49,14 @@ func (m *mockRuleDictionary) Match(t task.Task) (routing.Route, float64, bool) {
 	return "", 0.0, false
 }
 
+
 func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 	mio := NewMioAgent(
 		&mockLLMProvider{},
 		&mockClassifier{},
 		&mockRuleDictionary{},
+		&mockToolRunner{},
+		&mockMCPClient{},
 	)
 
 	tests := []struct {
@@ -101,6 +104,8 @@ func TestMioAgentDecideAction_RuleDictionary(t *testing.T) {
 		&mockLLMProvider{},
 		&mockClassifier{},
 		ruleDictionary,
+		&mockToolRunner{},
+		&mockMCPClient{},
 	)
 
 	jobID := task.NewJobID()
@@ -134,6 +139,8 @@ func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
 		&mockLLMProvider{},
 		classifier,
 		&mockRuleDictionary{},
+		&mockToolRunner{},
+		&mockMCPClient{},
 	)
 
 	jobID := task.NewJobID()
@@ -172,6 +179,8 @@ func TestMioAgentChat(t *testing.T) {
 		llmProvider,
 		&mockClassifier{},
 		&mockRuleDictionary{},
+		&mockToolRunner{},
+		&mockMCPClient{},
 	)
 
 	jobID := task.NewJobID()
