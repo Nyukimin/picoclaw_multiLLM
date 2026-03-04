@@ -16,6 +16,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -25,6 +26,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
+	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
@@ -171,8 +173,30 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	mcpClient := mcp.NewMCPClient()
 	log.Printf("MCPClient initialized with %d servers", len(mcpClient.ListServers()))
 
+	// 4.5. v5.0 ConversationManager初期化
+	var conversationMgr conversation.ConversationManager
+	if cfg.Conversation.Enabled {
+		// Phase 2: Real実装を使用
+		realMgr, err := conversationpersistence.NewRealConversationManager(
+			cfg.Conversation.RedisURL,
+			cfg.Conversation.DuckDBPath,
+			cfg.Conversation.VectorDBURL,
+		)
+		if err != nil {
+			log.Fatalf("Failed to initialize conversation manager: %v", err)
+		}
+		conversationMgr = realMgr
+		log.Printf("Conversation LLM enabled (Phase 2: Real implementation)")
+		log.Printf("  Redis: %s", cfg.Conversation.RedisURL)
+		log.Printf("  DuckDB: %s", cfg.Conversation.DuckDBPath)
+		log.Printf("  VectorDB: %s", cfg.Conversation.VectorDBURL)
+	} else {
+		conversationMgr = nil
+		log.Printf("Conversation LLM disabled (v3/v4 mode)")
+	}
+
 	// 5. Agents
-	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient)
+	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, conversationMgr)
 	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient)
 
 	// 6. Session Repository

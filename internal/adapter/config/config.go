@@ -25,6 +25,9 @@ type Config struct {
 	// === v4.0 追加フィールド ===
 	Distributed DistributedConfig `yaml:"distributed"`
 	IdleChat    IdleChatConfig    `yaml:"idle_chat"`
+
+	// === v5.0 追加フィールド ===
+	Conversation ConversationConfig `yaml:"conversation"`
 }
 
 // ServerConfig はサーバー設定
@@ -121,6 +124,14 @@ type IdleChatConfig struct {
 	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
 	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
 	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
+}
+
+// ConversationConfig は会話LLMの設定
+type ConversationConfig struct {
+	Enabled     bool   `yaml:"enabled"`       // 会話LLM機能の有効化（デフォルト: false）
+	RedisURL    string `yaml:"redis_url"`     // Redis接続先（例: "redis://localhost:6379"）
+	DuckDBPath  string `yaml:"duckdb_path"`   // DuckDBファイルパス（例: "/var/lib/picoclaw/memory.duckdb"）
+	VectorDBURL string `yaml:"vectordb_url"`  // VectorDB接続先（例: "http://localhost:6333" for Qdrant）
 }
 
 // LoadConfig は設定ファイルを読み込む
@@ -232,6 +243,18 @@ func (c *Config) setDefaults() {
 			c.IdleChat.Temperature = 0.8
 		}
 	}
+
+	// v5.0 Conversation デフォルト
+	// enabled: false がデフォルト（明示的に有効化が必要）
+	if c.Conversation.RedisURL == "" {
+		c.Conversation.RedisURL = "redis://localhost:6379"
+	}
+	if c.Conversation.DuckDBPath == "" {
+		c.Conversation.DuckDBPath = "/var/lib/picoclaw/memory.duckdb"
+	}
+	if c.Conversation.VectorDBURL == "" {
+		c.Conversation.VectorDBURL = "http://localhost:6333"
+	}
 }
 
 // loadFromEnv は環境変数から設定を読み込み
@@ -327,6 +350,19 @@ func (c *Config) Validate() error {
 		}
 		if c.IdleChat.Temperature < 0 || c.IdleChat.Temperature > 2.0 {
 			return fmt.Errorf("idle_chat.temperature must be between 0 and 2.0")
+		}
+	}
+
+	// v5.0 Conversation設定検証
+	if c.Conversation.Enabled {
+		if c.Conversation.RedisURL == "" {
+			return fmt.Errorf("conversation.redis_url is required when conversation.enabled=true")
+		}
+		if c.Conversation.DuckDBPath == "" {
+			return fmt.Errorf("conversation.duckdb_path is required when conversation.enabled=true")
+		}
+		if c.Conversation.VectorDBURL == "" {
+			return fmt.Errorf("conversation.vectordb_url is required when conversation.enabled=true")
 		}
 	}
 

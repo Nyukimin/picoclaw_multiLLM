@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -12,11 +13,12 @@ import (
 
 // MioAgent は Chat（会話・意思決定）を担当するエンティティ
 type MioAgent struct {
-	llmProvider    llm.LLMProvider
-	classifier     Classifier
-	ruleDictionary RuleDictionary
-	toolRunner     ToolRunner
-	mcpClient      MCPClient
+	llmProvider     llm.LLMProvider
+	classifier      Classifier
+	ruleDictionary  RuleDictionary
+	toolRunner      ToolRunner
+	mcpClient       MCPClient
+	conversationMgr conversation.ConversationManager // v5.0: 会話管理（nilを許容）
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -26,13 +28,15 @@ func NewMioAgent(
 	ruleDictionary RuleDictionary,
 	toolRunner ToolRunner,
 	mcpClient MCPClient,
+	conversationMgr conversation.ConversationManager, // v5.0: 6番目の引数（nilを許容）
 ) *MioAgent {
 	return &MioAgent{
-		llmProvider:    llmProvider,
-		classifier:     classifier,
-		ruleDictionary: ruleDictionary,
-		toolRunner:     toolRunner,
-		mcpClient:      mcpClient,
+		llmProvider:     llmProvider,
+		classifier:      classifier,
+		ruleDictionary:  ruleDictionary,
+		toolRunner:      toolRunner,
+		mcpClient:       mcpClient,
+		conversationMgr: conversationMgr,
 	}
 }
 
@@ -57,6 +61,24 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 // Chat は会話を実行（簡易版: キーワードベース自動Web検索）
 func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	userMessage := t.UserMessage()
+
+	// === v5.0: 会話管理処理（条件付き実行） ===
+	if m.conversationMgr != nil {
+		// 1. Recall（想起）- Phase 1ではStubなので空配列が返る
+		_, err := m.conversationMgr.Recall(ctx, t.ChatID(), userMessage, 3)
+		if err != nil {
+			// Recallエラーは警告のみ（会話継続）
+			fmt.Printf("WARN: Recall failed: %v\n", err)
+		}
+		// Phase 1ではrecallMessagesは使用しない（TODO: Phase 2でプロンプト生成）
+
+		// 2. ユーザーメッセージを記憶（Phase 1ではno-op）
+		userMsg := conversation.NewMessage(conversation.SpeakerUser, userMessage, nil)
+		if err := m.conversationMgr.Store(ctx, t.ChatID(), userMsg); err != nil {
+			// Storeエラーは警告のみ
+			fmt.Printf("WARN: Store (user message) failed: %v\n", err)
+		}
+	}
 
 	// キーワードベースでWeb検索が必要か判定
 	searchKeywords := []string{"教えて", "調べて", "検索", "について", "最新", "ニュース", "とは"}
@@ -95,7 +117,19 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		return "", err
 	}
 
-	return resp.Content, nil
+	response := resp.Content
+
+	// === v5.0: 応答を記憶（条件付き実行） ===
+	if m.conversationMgr != nil {
+		// Mioの応答を記憶（Phase 1ではno-op）
+		mioMsg := conversation.NewMessage(conversation.SpeakerMio, response, nil)
+		if err := m.conversationMgr.Store(ctx, t.ChatID(), mioMsg); err != nil {
+			// Storeエラーは警告のみ
+			fmt.Printf("WARN: Store (response) failed: %v\n", err)
+		}
+	}
+
+	return response, nil
 }
 
 // executeWebSearch はWeb検索を実行（内部ヘルパー）
