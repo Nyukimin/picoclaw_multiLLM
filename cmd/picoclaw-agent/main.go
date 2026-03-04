@@ -227,7 +227,11 @@ func initHandler(agentType string, cfg *config.Config) (AgentHandler, error) {
 // initWorkerHandler はWorkerハンドラを初期化
 func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
 	ollamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
-	toolRunner := tools.NewToolRunner()
+	toolRunnerCfg := tools.ToolRunnerConfig{
+		GoogleAPIKey:         os.Getenv("GOOGLE_API_KEY_WORKER"),
+		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_WORKER"),
+	}
+	toolRunner := tools.NewToolRunner(toolRunnerCfg)
 	mcpClient := mcp.NewMCPClient()
 	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient)
 	executionService := service.NewWorkerExecutionService(cfg.Worker)
