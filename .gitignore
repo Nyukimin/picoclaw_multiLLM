@@ -19,6 +19,11 @@ cmd/picoclaw/workspace
 .picoclaw/
 sessions/
 
+# Workspace ユーザーカスタマイズ領域（テンプレートのみコミット）
+workspace/*
+!workspace/README.md
+!workspace/.gitkeep
+
 # Secrets & Config (keep templates, ignore actual secrets)
 .env
 
