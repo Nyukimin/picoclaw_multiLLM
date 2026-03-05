@@ -18,7 +18,7 @@ type LoadedPrompts struct {
 
 // LoadPrompts は prompts_dir からプロンプトファイルを読み込む
 // ファイルが存在しない場合はフォールバック値を使用
-func LoadPrompts(baseDir string) *LoadedPrompts {
+func LoadPrompts(baseDir, workspaceDir string) *LoadedPrompts {
 	p := &LoadedPrompts{
 		MioPersona:     defaultMioPersona,
 		CoderProposal:  defaultCoderProposal,
@@ -27,33 +27,51 @@ func LoadPrompts(baseDir string) *LoadedPrompts {
 		IdleChatAgents: copyMap(defaultIdleChatAgents),
 	}
 
-	if baseDir == "" {
-		log.Println("prompts_dir not configured, using built-in defaults")
-		return p
+	// Step 1: prompts/ から読み込み（デフォルト）
+	loadPromptsFromDir(baseDir, p)
+
+	// Step 2: workspace/ から読み込み（オーバーライド）
+	if workspaceDir != "" && workspaceDir != baseDir {
+		overrideCount := loadPromptsFromDir(workspaceDir, p)
+		if overrideCount > 0 {
+			log.Printf("Overridden %d prompt files from %s", overrideCount, workspaceDir)
+		}
+	}
+
+	return p
+}
+
+// readPromptFile はプロンプトファイルを読み込む
+// loadPromptsFromDir は指定ディレクトリからプロンプトファイルを読み込み、
+// LoadedPrompts を更新する。読み込んだファイル数を返す。
+func loadPromptsFromDir(dir string, p *LoadedPrompts) int {
+	if dir == "" {
+		return 0
 	}
 
 	loaded := 0
 
-	if content, ok := readPromptFile(baseDir, "mio.md"); ok {
+	// 主要プロンプトファイル
+	if content, ok := readPromptFile(dir, "mio.md"); ok {
 		p.MioPersona = content
 		loaded++
 	}
-	if content, ok := readPromptFile(baseDir, "coder.md"); ok {
+	if content, ok := readPromptFile(dir, "coder.md"); ok {
 		p.CoderProposal = content
 		loaded++
 	}
-	if content, ok := readPromptFile(baseDir, "classifier.md"); ok {
+	if content, ok := readPromptFile(dir, "classifier.md"); ok {
 		p.Classifier = content
 		loaded++
 	}
-	if content, ok := readPromptFile(baseDir, "worker.md"); ok {
+	if content, ok := readPromptFile(dir, "worker.md"); ok {
 		p.Worker = content
 		loaded++
 	}
 
 	// IdleChat Agent別プロンプト
 	for _, name := range []string{"mio", "shiro", "aka", "ao", "gin"} {
-		if content, ok := readPromptFile(baseDir, filepath.Join("idle_chat", name+".md")); ok {
+		if content, ok := readPromptFile(dir, filepath.Join("idle_chat", name+".md")); ok {
 			// ファイル名 → Agent名（先頭大文字）
 			agentName := strings.ToUpper(name[:1]) + name[1:]
 			p.IdleChatAgents[agentName] = content
@@ -61,11 +79,13 @@ func LoadPrompts(baseDir string) *LoadedPrompts {
 		}
 	}
 
-	log.Printf("Loaded %d prompt files from %s", loaded, baseDir)
-	return p
+	if loaded > 0 {
+		log.Printf("Loaded %d prompt files from %s", loaded, dir)
+	}
+
+	return loaded
 }
 
-// readPromptFile はプロンプトファイルを読み込む
 func readPromptFile(baseDir, relPath string) (string, bool) {
 	path := filepath.Join(baseDir, relPath)
 	data, err := os.ReadFile(path)

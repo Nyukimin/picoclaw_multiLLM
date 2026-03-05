@@ -18,7 +18,7 @@ type MioAgent struct {
 	ruleDictionary     RuleDictionary
 	toolRunner         ToolRunner
 	mcpClient          MCPClient
-	conversationEngine conversation.ConversationEngine  // v5.1: 会話エンジン（nilを許容）
+	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -39,6 +39,7 @@ func NewMioAgent(
 		conversationEngine: conversationEngine,
 	}
 }
+
 
 // DecideAction はMioによる委譲判断（4段階優先順位）
 func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
@@ -27,6 +28,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
+	memorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
@@ -94,10 +96,14 @@ type Dependencies struct {
 	router          *transport.MessageRouter                       // v4 distributed mode
 	idleChatOrch    *idlechat.IdleChatOrchestrator                 // v4 idle chat
 	sshTransports   map[string]domaintransport.Transport           // v4 SSH transports
+	heartbeatSvc    *heartbeat.HeartbeatService                    // heartbeat service
 }
 
 // Shutdown はリソースを解放
 func (d *Dependencies) Shutdown() {
+	if d.heartbeatSvc != nil {
+		d.heartbeatSvc.Stop()
+	}
 	if d.idleChatOrch != nil {
 		d.idleChatOrch.Stop()
 	}
@@ -220,11 +226,15 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Printf("Conversation LLM disabled (v3/v4 mode)")
 	}
 
-	// 5. Agents
+	// 5. Memory Store（HeartbeatService用。Mio会話メモリはConversationEngine v5.1が担当）
+	memStore := memorypersistence.NewFileStore(cfg.WorkspaceDir)
+	log.Printf("MemoryStore initialized (workspace: %s)", cfg.WorkspaceDir)
+
+	// 6. Agents
 	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
 	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker)
 
-	// 6. Session Repository
+	// 7. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
 
 	// セッションディレクトリ作成
@@ -232,14 +242,14 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Fatalf("Failed to create session directory: %v", err)
 	}
 
-	// 7. Worker Execution Service
+	// 8. Worker Execution Service
 	workerExecutionService := service.NewWorkerExecutionService(cfg.Worker)
 	log.Printf("WorkerExecutionService initialized (Workspace: %s, Parallel: %v)",
 		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
 
 	deps := &Dependencies{}
 
-	// 8. v3/v4 モード分岐
+	// 9. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
 		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider)
@@ -258,8 +268,45 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		deps.lineHandler = line.NewHandler(orch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 	}
 
+	// 10. Heartbeat Service
+	if cfg.Heartbeat.Enabled {
+		// LINE Push通知用のNotificationSender
+		var sender heartbeat.NotificationSender
+		if cfg.Line.AccessToken != "" {
+			sender = &lineNotificationSender{
+				lineSender: line.NewMessageSender(cfg.Line.AccessToken),
+				chatID:     os.Getenv("PICOCLAW_HEARTBEAT_CHAT_ID"),
+			}
+		}
+
+		heartbeatSvc := heartbeat.NewHeartbeatService(
+			mioAgent,
+			sender,
+			cfg.WorkspaceDir,
+			cfg.Heartbeat.Interval,
+		)
+		heartbeatSvc.WithMemoryStore(memStore)
+		heartbeatSvc.Start()
+		deps.heartbeatSvc = heartbeatSvc
+		log.Printf("HeartbeatService enabled (interval: %dm, workspace: %s)", cfg.Heartbeat.Interval, cfg.WorkspaceDir)
+	}
+
 	log.Println("Dependency injection complete")
 	return deps
+}
+
+// lineNotificationSender はLINE Push APIを使ったNotificationSender実装
+type lineNotificationSender struct {
+	lineSender *line.MessageSender
+	chatID     string
+}
+
+func (s *lineNotificationSender) SendNotification(ctx context.Context, message string) error {
+	if s.chatID == "" {
+		log.Printf("[Heartbeat] notification skipped: PICOCLAW_HEARTBEAT_CHAT_ID not set")
+		return nil
+	}
+	return s.lineSender.SendPushMessage(ctx, s.chatID, message)
 }
 
 // buildDistributedMode はv4分散モードの依存関係を構築

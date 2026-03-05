@@ -30,8 +30,12 @@ type Config struct {
 	Conversation ConversationConfig `yaml:"conversation"`
 
 	// === v5.1 プロンプト外部ファイル ===
-	PromptsDir string         `yaml:"prompts_dir"` // プロンプトファイルのベースディレクトリ
-	Prompts    *LoadedPrompts `yaml:"-"`            // 読み込み済みプロンプト（YAML非対象）
+	PromptsDir   string         `yaml:"prompts_dir"`   // プロンプトファイルのベースディレクトリ（デフォルト）
+	WorkspaceDir string         `yaml:"workspace_dir"` // ユーザーカスタマイズ領域（オーバーライド）
+	Prompts      *LoadedPrompts `yaml:"-"`             // 読み込み済みプロンプト（YAML非対象）
+
+	// === Heartbeat ===
+	Heartbeat HeartbeatConfig `yaml:"heartbeat"`
 }
 
 // ServerConfig はサーバー設定
@@ -142,6 +146,12 @@ type ConversationConfig struct {
 	SummaryModel string `yaml:"summary_model"` // 要約用モデル（例: "chat-v1"）。空の場合はOllama chatモデルを使用
 }
 
+// HeartbeatConfig はハートビート（定期タスク）の設定
+type HeartbeatConfig struct {
+	Enabled  bool `yaml:"enabled"`  // ハートビートの有効化（デフォルト: false）
+	Interval int  `yaml:"interval"` // チェック間隔（分）、最小5分（デフォルト: 30）
+}
+
 // LoadConfig は設定ファイルを読み込む
 func LoadConfig(path string) (*Config, error) {
 	// ファイル読み込み
@@ -167,8 +177,8 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	// プロンプトファイル読み込み
-	cfg.Prompts = LoadPrompts(cfg.PromptsDir)
+	// プロンプトファイル読み込み（prompts/ → workspace/ の順でオーバーライド）
+	cfg.Prompts = LoadPrompts(cfg.PromptsDir, cfg.WorkspaceDir)
 
 	return &cfg, nil
 }
@@ -265,6 +275,19 @@ func (c *Config) setDefaults() {
 	}
 	if c.Conversation.VectorDBURL == "" {
 		c.Conversation.VectorDBURL = "localhost:6334"
+	}
+
+	// Heartbeat デフォルト
+	if c.Heartbeat.Interval == 0 {
+		c.Heartbeat.Interval = 30
+	}
+
+	// v5.1 プロンプト/workspace デフォルト
+	if c.PromptsDir == "" {
+		c.PromptsDir = "./prompts"
+	}
+	if c.WorkspaceDir == "" {
+		c.WorkspaceDir = "./workspace"
 	}
 }
 
