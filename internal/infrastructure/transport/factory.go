@@ -39,6 +39,9 @@ func (f *TransportFactory) CreateTransports(cfg config.DistributedConfig) (map[s
 				return nil, fmt.Errorf("agent '%s': ssh transport requires ssh_key_path", agentName)
 			}
 			st := NewSSHTransportStrict(tc.RemoteHost, tc.RemoteUser, tc.SSHKeyPath, agentName, tc.StrictHostKey)
+			if tc.RemoteAgentPath != "" || tc.RemoteConfigPath != "" {
+				st.WithRemotePaths(tc.RemoteAgentPath, tc.RemoteConfigPath)
+			}
 			transports[agentName] = st
 			log.Printf("[TransportFactory] Created SSHTransport for agent '%s' → %s@%s", agentName, tc.RemoteUser, tc.RemoteHost)
 

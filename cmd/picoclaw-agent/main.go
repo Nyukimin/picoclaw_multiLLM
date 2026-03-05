@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -157,6 +159,29 @@ func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Me
 	return response, nil
 }
 
+// loadDotEnv は指定パスの.envファイルを読み込み、未設定の環境変数をセット
+func loadDotEnv(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // ファイルがなければスキップ
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if os.Getenv(key) == "" { // 既存の環境変数を上書きしない
+			os.Setenv(key, val)
+		}
+	}
+}
+
 func main() {
 	standalone := flag.Bool("standalone", false, "Run in standalone mode")
 	agentType := flag.String("agent", "", "Agent type: worker, coder1, coder2, coder3")
@@ -174,6 +199,11 @@ func main() {
 	}
 
 	log.SetOutput(os.Stderr) // stdoutはJSON通信に使うのでstderrにログ出力
+
+	// .envファイルを読み込み（~/.picoclaw/.env または configと同ディレクトリの.env）
+	homeDir, _ := os.UserHomeDir()
+	loadDotEnv(filepath.Join(homeDir, ".picoclaw", ".env"))
+	loadDotEnv(filepath.Join(filepath.Dir(*configPath), ".env"))
 
 	// 設定読み込み
 	cfg, err := config.LoadConfig(*configPath)

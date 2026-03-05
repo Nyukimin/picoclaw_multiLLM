@@ -79,6 +79,8 @@ type SSHTransport struct {
 	keyPath       string
 	agentType     string // "worker", "coder1", "coder2", "coder3"
 	strictHostKey bool   // true: known_hosts必須（本番用）
+	agentPath     string // リモートのpicoclaw-agentパス（空の場合はデフォルト）
+	configPath    string // リモートのconfig.yamlパス（空の場合は省略）
 
 	dialer  sshDialer
 	client  sshClient
@@ -123,6 +125,13 @@ func NewSSHTransportStrict(host, user, keyPath, agentType string, strictHostKey 
 		receiveLoopDone: make(chan struct{}),
 		done:            make(chan struct{}),
 	}
+}
+
+// WithRemotePaths はリモートのagentパスとconfigパスを設定
+func (t *SSHTransport) WithRemotePaths(agentPath, configPath string) *SSHTransport {
+	t.agentPath = agentPath
+	t.configPath = configPath
+	return t
 }
 
 // Connect はSSH接続を確立しリモートAgentを起動
@@ -199,7 +208,14 @@ func (t *SSHTransport) establishConnection() error {
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 
-	cmd := fmt.Sprintf("%s --agent %s", sshRemoteCommand, t.agentType)
+	agentBin := sshRemoteCommand
+	if t.agentPath != "" {
+		agentBin = t.agentPath + " --standalone"
+	}
+	cmd := fmt.Sprintf("%s --agent %s", agentBin, t.agentType)
+	if t.configPath != "" {
+		cmd += fmt.Sprintf(" --config \"%s\"", t.configPath)
+	}
 	if err := session.Start(cmd); err != nil {
 		session.Close()
 		client.Close()
