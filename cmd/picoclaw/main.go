@@ -122,7 +122,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// DeepSeek (Coder1) - API キーがある場合のみ
 	if cfg.DeepSeek.APIKey != "" {
 		deepseekProvider := deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)
-		domainCoder := agent.NewCoderAgent(deepseekProvider, nil, nil)
+		domainCoder := agent.NewCoderAgent(deepseekProvider, nil, nil, cfg.Prompts.CoderProposal)
 		coder1Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("DeepSeek (Coder1) enabled with model: %s", cfg.DeepSeek.Model)
 	}
@@ -130,7 +130,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// OpenAI (Coder2) - API キーがある場合のみ
 	if cfg.OpenAI.APIKey != "" {
 		openaiProvider := openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
-		domainCoder := agent.NewCoderAgent(openaiProvider, nil, nil)
+		domainCoder := agent.NewCoderAgent(openaiProvider, nil, nil, cfg.Prompts.CoderProposal)
 		coder2Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("OpenAI (Coder2) enabled with model: %s", cfg.OpenAI.Model)
 	}
@@ -138,13 +138,13 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// Claude (Coder3) - API キーがある場合のみ
 	if cfg.Claude.APIKey != "" {
 		claudeProvider := claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)
-		domainCoder := agent.NewCoderAgent(claudeProvider, nil, nil)
+		domainCoder := agent.NewCoderAgent(claudeProvider, nil, nil, cfg.Prompts.CoderProposal)
 		coder3Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("Claude (Coder3) enabled with model: %s", cfg.Claude.Model)
 	}
 
 	// 2. Routing Components
-	classifier := routing.NewLLMClassifier(ollamaProvider)
+	classifier := routing.NewLLMClassifier(ollamaProvider, cfg.Prompts.Classifier)
 	ruleDictionary := routing.NewRuleDictionary()
 
 	// 3. Tool Runner（Chat用とWorker用で分離）
@@ -208,7 +208,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		// ConversationEngine（RecallPack生成 + ペルソナ）
 		convEngine = conversationpersistence.NewRealConversationEngine(
 			realMgr,
-			conversation.DefaultMioPersona(),
+			conversation.NewMioPersona(cfg.Prompts.MioPersona),
 		)
 
 		log.Printf("ConversationEngine v5.1 enabled (RecallPack + Persona)")
@@ -222,7 +222,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 5. Agents
 	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
-	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient)
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker)
 
 	// 6. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
@@ -319,6 +319,7 @@ func (d *Dependencies) buildDistributedMode(
 			cfg.IdleChat.IntervalMin,
 			cfg.IdleChat.MaxTurns,
 			cfg.IdleChat.Temperature,
+			cfg.Prompts.IdleChatAgents,
 		)
 		idleChatOrch.Start()
 		d.idleChatOrch = idleChatOrch

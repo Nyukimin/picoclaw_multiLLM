@@ -16,23 +16,15 @@ const (
 	idleCheckInterval = 30 * time.Second
 )
 
-// agentPersonalities は5Agentの個性定義
-var agentPersonalities = map[string]string{
-	"Mio":   "あなたはMio。チームのリーダー的存在で、好奇心旺盛。明るく前向きな性格で、みんなを盛り上げる。会話ではカジュアルに話す。",
-	"Shiro": "あなたはShiro。真面目で几帳面な性格。技術的な話題に詳しく、正確さを重視する。丁寧語で話すが、親しい仲間には砕けた口調も見せる。",
-	"Aka":   "あなたはAka。設計思考が得意で、大局的な視点を持つ。落ち着いた口調で深い洞察を示す。たまにユーモアを交える。",
-	"Ao":    "あなたはAo。実装力が高く、効率を重視するタイプ。簡潔に要点を伝える。コードの話になると饒舌になる。",
-	"Gin":   "あなたはGin。分析力に優れ、データドリブンな思考をする。客観的な視点からコメントし、時に意外な角度から話題を提供する。",
-}
-
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 type IdleChatOrchestrator struct {
-	llmProvider  llm.LLMProvider
-	memory       *session.CentralMemory
-	participants []string
-	intervalMin  int
-	maxTurns     int
-	temperature  float64
+	llmProvider    llm.LLMProvider
+	memory         *session.CentralMemory
+	participants   []string
+	intervalMin    int
+	maxTurns       int
+	temperature    float64
+	personalities  map[string]string
 
 	lastActivity time.Time
 	chatActive   bool
@@ -51,18 +43,20 @@ func NewIdleChatOrchestrator(
 	intervalMin int,
 	maxTurns int,
 	temperature float64,
+	personalities map[string]string,
 ) *IdleChatOrchestrator {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
-		llmProvider:  llmProvider,
-		memory:       memory,
-		participants: participants,
-		intervalMin:  intervalMin,
-		maxTurns:     maxTurns,
-		temperature:  temperature,
-		lastActivity: time.Now(),
-		ctx:          ctx,
-		cancel:       cancel,
+		llmProvider:   llmProvider,
+		memory:        memory,
+		participants:  participants,
+		intervalMin:   intervalMin,
+		maxTurns:      maxTurns,
+		temperature:   temperature,
+		personalities: personalities,
+		lastActivity:  time.Now(),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -236,7 +230,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 }
 
 func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
-	if prompt, ok := agentPersonalities[agentName]; ok {
+	if prompt, ok := o.personalities[agentName]; ok {
 		return prompt
 	}
 	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。", agentName)

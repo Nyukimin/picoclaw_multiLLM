@@ -41,7 +41,7 @@ func TestNewIdleChatOrchestrator(t *testing.T) {
 	memory := session.NewCentralMemory()
 	participants := []string{"Mio", "Shiro"}
 
-	o := NewIdleChatOrchestrator(provider, memory, participants, 5, 10, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, participants, 5, 10, 0.8, nil)
 
 	if o.intervalMin != 5 {
 		t.Errorf("Expected intervalMin=5, got %d", o.intervalMin)
@@ -61,7 +61,7 @@ func TestIdleChatOrchestrator_StartStop(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 60, 3, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 60, 3, 0.8, nil)
 
 	o.Start()
 
@@ -84,7 +84,7 @@ func TestIdleChatOrchestrator_NotifyActivity(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 5, 10, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 5, 10, 0.8, nil)
 
 	// chatActiveを手動で設定してNotifyActivityで中断されることを確認
 	o.mu.Lock()
@@ -102,7 +102,7 @@ func TestIdleChatOrchestrator_IsChatActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 5, 10, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 5, 10, 0.8, nil)
 
 	if o.IsChatActive() {
 		t.Error("Should not be active initially")
@@ -114,7 +114,7 @@ func TestIdleChatOrchestrator_RunChatSession(t *testing.T) {
 	memory := session.NewCentralMemory()
 	maxTurns := 3
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, maxTurns, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, maxTurns, 0.8, nil)
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -140,7 +140,7 @@ func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
 	provider := &mockLLMProvider{response: "response", delay: 5 * time.Millisecond}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 100, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 100, 0.8, nil)
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -164,7 +164,7 @@ func TestCheckAndStartChat_NotIdleLongEnough(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 60, 3, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 60, 3, 0.8, nil)
 	// lastActivity は now（アイドル時間が短い）
 
 	o.checkAndStartChat()
@@ -179,7 +179,7 @@ func TestCheckAndStartChat_AlreadyActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 3, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 3, 0.8, nil)
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -197,7 +197,7 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 2, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio", "Shiro"}, 0, 2, 0.8, nil)
 
 	// lastActivity を過去に設定
 	o.mu.Lock()
@@ -220,7 +220,7 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 func TestGetSystemPrompt(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio"}, 5, 10, 0.8)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"Mio"}, 5, 10, 0.8, nil)
 
 	// 既知のAgent
 	prompt := o.getSystemPrompt("Mio")

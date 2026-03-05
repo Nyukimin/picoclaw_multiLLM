@@ -48,7 +48,7 @@ func main() {
 			log.Fatal("DEEPSEEK_API_KEY not set")
 		}
 		provider := deepseek.NewDeepSeekProvider(apiKey, cfg.DeepSeek.Model)
-		coder = agent.NewCoderAgent(provider, nil, nil)
+		coder = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		coderName = "Coder1 (DeepSeek)"
 
 	case "openai", "coder2":
@@ -60,7 +60,7 @@ func main() {
 			log.Fatal("OPENAI_API_KEY not set")
 		}
 		provider := openai.NewOpenAIProvider(apiKey, cfg.OpenAI.Model)
-		coder = agent.NewCoderAgent(provider, nil, nil)
+		coder = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		coderName = "Coder2 (OpenAI)"
 
 	case "claude", "coder3":
@@ -72,7 +72,7 @@ func main() {
 			log.Fatal("ANTHROPIC_API_KEY not set")
 		}
 		provider := claude.NewClaudeProvider(apiKey, cfg.Claude.Model)
-		coder = agent.NewCoderAgent(provider, nil, nil)
+		coder = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		coderName = "Coder3 (Claude)"
 
 	default:

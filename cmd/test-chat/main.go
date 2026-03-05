@@ -51,9 +51,12 @@ func main() {
 	// セッションリポジトリ
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
 
+	// プロンプト読み込み
+	prompts := config.LoadPrompts(cfg.PromptsDir)
+
 	// ルーティング
 	ruleDictionary := routing.NewRuleDictionary()
-	classifier := routing.NewLLMClassifier(ollamaProvider)
+	classifier := routing.NewLLMClassifier(ollamaProvider, prompts.Classifier)
 
 	// Mio（Chat Agent）
 	mio := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, toolRunner, mcpClient, nil) // conversationEngine=nil（テスト環境）

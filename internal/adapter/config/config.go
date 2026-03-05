@@ -28,6 +28,10 @@ type Config struct {
 
 	// === v5.0 追加フィールド ===
 	Conversation ConversationConfig `yaml:"conversation"`
+
+	// === v5.1 プロンプト外部ファイル ===
+	PromptsDir string         `yaml:"prompts_dir"` // プロンプトファイルのベースディレクトリ
+	Prompts    *LoadedPrompts `yaml:"-"`            // 読み込み済みプロンプト（YAML非対象）
 }
 
 // ServerConfig はサーバー設定
@@ -162,6 +166,9 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
+
+	// プロンプトファイル読み込み
+	cfg.Prompts = LoadPrompts(cfg.PromptsDir)
 
 	return &cfg, nil
 }

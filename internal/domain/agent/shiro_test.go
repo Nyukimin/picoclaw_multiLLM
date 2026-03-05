@@ -54,7 +54,7 @@ func TestNewShiroAgent(t *testing.T) {
 	toolRunner := &mockToolRunner{}
 	mcpClient := &mockMCPClient{}
 
-	shiro := NewShiroAgent(llmProvider, toolRunner, mcpClient)
+	shiro := NewShiroAgent(llmProvider, toolRunner, mcpClient, "test prompt")
 
 	if shiro == nil {
 		t.Fatal("NewShiroAgent should not return nil")
@@ -76,9 +76,9 @@ func TestNewShiroAgent(t *testing.T) {
 func TestShiroAgentExecute(t *testing.T) {
 	llmProvider := &mockLLMProvider{
 		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
-			// システムプロンプトにWorkerの指示が含まれているか確認
+			// システムプロンプトが注入されているか確認
 			if len(req.Messages) > 0 && req.Messages[0].Role == "system" {
-				if req.Messages[0].Content != "You are a worker agent. Execute tasks using available tools." {
+				if req.Messages[0].Content != "test prompt" {
 					t.Errorf("Unexpected system prompt: %s", req.Messages[0].Content)
 				}
 			}
@@ -91,7 +91,7 @@ func TestShiroAgentExecute(t *testing.T) {
 		},
 	}
 
-	shiro := NewShiroAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	shiro := NewShiroAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "ファイルを作成して", "line", "U123")
@@ -113,7 +113,7 @@ func TestShiroAgentExecute_LLMError(t *testing.T) {
 		},
 	}
 
-	shiro := NewShiroAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	shiro := NewShiroAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "テスト", "line", "U123")
@@ -144,7 +144,7 @@ func TestShiroAgentExecuteTool(t *testing.T) {
 		},
 	}
 
-	shiro := NewShiroAgent(&mockLLMProvider{}, toolRunner, &mockMCPClient{})
+	shiro := NewShiroAgent(&mockLLMProvider{}, toolRunner, &mockMCPClient{}, "test prompt")
 
 	result, err := shiro.ExecuteTool(context.Background(), "file_read", map[string]interface{}{
 		"path": "/test/file.txt",
@@ -179,7 +179,7 @@ func TestShiroAgentExecuteMCPTool(t *testing.T) {
 		},
 	}
 
-	shiro := NewShiroAgent(&mockLLMProvider{}, &mockToolRunner{}, mcpClient)
+	shiro := NewShiroAgent(&mockLLMProvider{}, &mockToolRunner{}, mcpClient, "test prompt")
 
 	result, err := shiro.ExecuteMCPTool(context.Background(), "browser", "navigate", map[string]interface{}{
 		"url": "https://example.com",
@@ -201,7 +201,7 @@ func TestShiroAgentExecuteTool_Error(t *testing.T) {
 		},
 	}
 
-	shiro := NewShiroAgent(&mockLLMProvider{}, toolRunner, &mockMCPClient{})
+	shiro := NewShiroAgent(&mockLLMProvider{}, toolRunner, &mockMCPClient{}, "test prompt")
 
 	_, err := shiro.ExecuteTool(context.Background(), "failing_tool", map[string]interface{}{})
 

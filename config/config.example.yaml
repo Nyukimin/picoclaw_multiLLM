@@ -51,6 +51,9 @@ worker:
   parallel_execution: false     # v4: true で Type-Based Phased Execution
   max_parallelism: 4            # v4: 並列度上限
 
+# プロンプトファイルディレクトリ（未設定時はビルトインフォールバック）
+prompts_dir: "./prompts"
+
 # ログ設定
 log:
   level: "info"

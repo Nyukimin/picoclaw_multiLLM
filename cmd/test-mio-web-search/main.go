@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -16,7 +17,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== PicoClaw Mio Web Search Test ===\n")
+	fmt.Println("=== PicoClaw Mio Web Search Test ===")
 
 	// 1. ToolRunner初期化（Web検索含む）
 	cfg := tools.ToolRunnerConfig{
@@ -38,7 +39,8 @@ func main() {
 	ollamaProvider := ollama.NewOllamaProvider("http://100.83.207.6:11434", "chat-v1")
 
 	// 3. MioAgent作成
-	classifier := infraRouting.NewLLMClassifier(ollamaProvider)
+	prompts := config.LoadPrompts("")
+	classifier := infraRouting.NewLLMClassifier(ollamaProvider, prompts.Classifier)
 	ruleDictionary := infraRouting.NewRuleDictionary()
 	mcpClient := mcp.NewMCPClient()
 

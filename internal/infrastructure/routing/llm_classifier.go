@@ -12,23 +12,24 @@ import (
 
 // LLMClassifier はLLMベースのタスク分類器
 type LLMClassifier struct {
-	llmProvider llm.LLMProvider
+	llmProvider  llm.LLMProvider
+	systemPrompt string
 }
 
 // NewLLMClassifier は新しいLLMClassifierを作成
-func NewLLMClassifier(llmProvider llm.LLMProvider) *LLMClassifier {
+func NewLLMClassifier(llmProvider llm.LLMProvider, systemPrompt string) *LLMClassifier {
 	return &LLMClassifier{
-		llmProvider: llmProvider,
+		llmProvider:  llmProvider,
+		systemPrompt: systemPrompt,
 	}
 }
 
 // Classify はタスクを分類
 func (c *LLMClassifier) Classify(ctx context.Context, t task.Task) (routing.Decision, error) {
-	systemPrompt := c.buildSystemPrompt()
 	userMessage := fmt.Sprintf("ユーザーからのメッセージ: %s", t.UserMessage())
 
 	req := llm.GenerateRequest{
-		SystemPrompt: systemPrompt,
+		SystemPrompt: c.systemPrompt,
 		Messages: []llm.Message{
 			{Role: "user", Content: userMessage},
 		},
@@ -47,26 +48,6 @@ func (c *LLMClassifier) Classify(ctx context.Context, t task.Task) (routing.Deci
 	reason := fmt.Sprintf("LLM classified as %s", route)
 
 	return routing.NewDecision(route, confidence, reason), nil
-}
-
-// buildSystemPrompt は分類用のシステムプロンプトを構築
-func (c *LLMClassifier) buildSystemPrompt() string {
-	return `あなたはタスク分類器です。ユーザーのメッセージを分析し、以下のカテゴリのいずれかに分類してください。
-
-【カテゴリ】
-- CHAT: 会話、質問、雑談
-- PLAN: 計画立案、設計、アーキテクチャ検討
-- ANALYZE: 分析、調査、診断
-- OPS: 運用操作、実行、デプロイ、ビルド
-- RESEARCH: 情報収集、ドキュメント検索、リサーチ
-- CODE: 汎用コーディング（実装、修正、リファクタリング）
-- CODE1: 仕様設計向けコーディング（DeepSeek等）
-- CODE2: 実装向けコーディング（OpenAI等）
-- CODE3: 高品質コーディング/推論（Claude API専用）
-
-【応答フォーマット】
-カテゴリ名のみを1行で返してください（例: "CHAT"、"CODE"、"PLAN"）
-説明や追加情報は不要です。`
 }
 
 // parseRoute はLLM応答からルートを抽出

@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Direct Web Search Test (Chat) ===\n")
+	fmt.Println("=== Direct Web Search Test (Chat) ===")
 
 	cfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_CHAT"),

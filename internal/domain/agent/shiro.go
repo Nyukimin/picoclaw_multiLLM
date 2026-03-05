@@ -9,9 +9,10 @@ import (
 
 // ShiroAgent は Worker（実行・道具係）を担当するエンティティ
 type ShiroAgent struct {
-	llmProvider llm.LLMProvider
-	toolRunner  ToolRunner
-	mcpClient   MCPClient
+	llmProvider  llm.LLMProvider
+	toolRunner   ToolRunner
+	mcpClient    MCPClient
+	systemPrompt string
 }
 
 // NewShiroAgent は新しいShiroAgentを作成
@@ -19,11 +20,13 @@ func NewShiroAgent(
 	llmProvider llm.LLMProvider,
 	toolRunner ToolRunner,
 	mcpClient MCPClient,
+	systemPrompt string,
 ) *ShiroAgent {
 	return &ShiroAgent{
-		llmProvider: llmProvider,
-		toolRunner:  toolRunner,
-		mcpClient:   mcpClient,
+		llmProvider:  llmProvider,
+		toolRunner:   toolRunner,
+		mcpClient:    mcpClient,
+		systemPrompt: systemPrompt,
 	}
 }
 
@@ -34,7 +37,7 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 		Messages: []llm.Message{
 			{
 				Role:    "system",
-				Content: "You are a worker agent. Execute tasks using available tools.",
+				Content: s.systemPrompt,
 			},
 			{
 				Role:    "user",

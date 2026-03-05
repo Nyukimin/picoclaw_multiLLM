@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Worker Search Test ===\n")
+	fmt.Println("=== Worker Search Test ===")
 
 	cfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_WORKER"),

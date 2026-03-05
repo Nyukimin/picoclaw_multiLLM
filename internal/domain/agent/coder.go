@@ -11,9 +11,10 @@ import (
 
 // CoderAgent は Coder（設計・実装）を担当するエンティティ
 type CoderAgent struct {
-	llmProvider llm.LLMProvider
-	toolRunner  ToolRunner
-	mcpClient   MCPClient
+	llmProvider    llm.LLMProvider
+	toolRunner     ToolRunner
+	mcpClient      MCPClient
+	proposalPrompt string
 }
 
 // NewCoderAgent は新しいCoderAgentを作成
@@ -21,37 +22,23 @@ func NewCoderAgent(
 	llmProvider llm.LLMProvider,
 	toolRunner ToolRunner,
 	mcpClient MCPClient,
+	proposalPrompt string,
 ) *CoderAgent {
 	return &CoderAgent{
-		llmProvider: llmProvider,
-		toolRunner:  toolRunner,
-		mcpClient:   mcpClient,
+		llmProvider:    llmProvider,
+		toolRunner:     toolRunner,
+		mcpClient:      mcpClient,
+		proposalPrompt: proposalPrompt,
 	}
 }
 
 // GenerateProposal はplan/patchを生成
 func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
-	// Coderシステムプロンプト
-	systemPrompt := `You are a professional coder agent. Generate implementation proposals in the following format:
-
-## Plan
-[Implementation plan in bullet points]
-
-## Patch
-[Patch in JSON or Markdown format]
-
-## Risk
-[Risk assessment]
-
-## CostHint
-[Estimated cost/effort]
-`
-
 	req := llm.GenerateRequest{
 		Messages: []llm.Message{
 			{
 				Role:    "system",
-				Content: systemPrompt,
+				Content: c.proposalPrompt,
 			},
 			{
 				Role:    "user",

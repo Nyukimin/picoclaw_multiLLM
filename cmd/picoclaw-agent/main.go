@@ -263,7 +263,7 @@ func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
 	}
 	toolRunner := tools.NewToolRunner(toolRunnerCfg)
 	mcpClient := mcp.NewMCPClient()
-	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient)
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient, cfg.Prompts.Worker)
 	executionService := service.NewWorkerExecutionService(cfg.Worker)
 
 	log.Printf("[picoclaw-agent] Worker initialized (workspace=%s)", cfg.Worker.Workspace)
@@ -284,7 +284,7 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 			return nil, fmt.Errorf("Coder1 requires DEEPSEEK_API_KEY")
 		}
 		provider := deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)
-		coderAgent = agent.NewCoderAgent(provider, nil, nil)
+		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		log.Printf("[picoclaw-agent] Coder1 (DeepSeek) initialized with model: %s", cfg.DeepSeek.Model)
 
 	case "Coder2":
@@ -292,7 +292,7 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 			return nil, fmt.Errorf("Coder2 requires OPENAI_API_KEY")
 		}
 		provider := openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
-		coderAgent = agent.NewCoderAgent(provider, nil, nil)
+		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		log.Printf("[picoclaw-agent] Coder2 (OpenAI) initialized with model: %s", cfg.OpenAI.Model)
 
 	case "Coder3":
@@ -300,7 +300,7 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 			return nil, fmt.Errorf("Coder3 requires ANTHROPIC_API_KEY")
 		}
 		provider := claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)
-		coderAgent = agent.NewCoderAgent(provider, nil, nil)
+		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		log.Printf("[picoclaw-agent] Coder3 (Claude) initialized with model: %s", cfg.Claude.Model)
 
 	default:

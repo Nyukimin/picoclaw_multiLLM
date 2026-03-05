@@ -14,7 +14,7 @@ func TestNewCoderAgent(t *testing.T) {
 	toolRunner := &mockToolRunner{}
 	mcpClient := &mockMCPClient{}
 
-	coder := NewCoderAgent(llmProvider, toolRunner, mcpClient)
+	coder := NewCoderAgent(llmProvider, toolRunner, mcpClient, "test prompt")
 
 	if coder == nil {
 		t.Fatal("NewCoderAgent should not return nil")
@@ -58,7 +58,7 @@ Low risk - simple implementation
 		},
 	}
 
-	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "main.goファイルを作成して", "line", "U123")
@@ -96,7 +96,7 @@ func TestCoderAgentGenerateProposal_LLMError(t *testing.T) {
 		},
 	}
 
-	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "テスト", "line", "U123")
@@ -123,7 +123,7 @@ func TestCoderAgentGenerateProposal_InvalidFormat(t *testing.T) {
 		},
 	}
 
-	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "テスト", "line", "U123")
@@ -139,7 +139,7 @@ func TestCoderAgentGenerateProposal_InvalidFormat(t *testing.T) {
 }
 
 func TestCoderAgentExtractSection(t *testing.T) {
-	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	content := `## Plan
 This is the plan section
@@ -168,7 +168,7 @@ This is the risk section
 }
 
 func TestCoderAgentExtractSection_NotFound(t *testing.T) {
-	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	content := "No sections here"
 
@@ -179,7 +179,7 @@ func TestCoderAgentExtractSection_NotFound(t *testing.T) {
 }
 
 func TestCoderAgentExtractSection_LastSection(t *testing.T) {
-	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	// 最後のセクション（次のセクションマーカーがない）
 	content := `## Plan
@@ -195,7 +195,7 @@ This is the last section with no next marker`
 }
 
 func TestCoderAgentExtractProposal_CompleteProposal(t *testing.T) {
-	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	content := `## Plan
 Step 1: Create file
@@ -226,7 +226,7 @@ Low risk
 }
 
 func TestCoderAgentExtractProposal_MissingPlan(t *testing.T) {
-	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	content := `## Patch
 ` + "```go:main.go\npackage main\n```"
@@ -253,7 +253,7 @@ func TestCoderAgentGenerateWithPrompt(t *testing.T) {
 		},
 	}
 
-	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "main.goを作成して", "line", "U123")
@@ -279,7 +279,7 @@ func TestCoderAgentGenerateWithPrompt_Error(t *testing.T) {
 		},
 	}
 
-	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "テスト", "line", "U123")
@@ -291,7 +291,7 @@ func TestCoderAgentGenerateWithPrompt_Error(t *testing.T) {
 }
 
 func TestCoderAgentExtractProposal_MissingPatch(t *testing.T) {
-	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{})
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	content := `## Plan
 Step 1: Create file`
