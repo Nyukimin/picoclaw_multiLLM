@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -39,6 +40,13 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/transport"
 )
 
+// Version 情報（go build -ldflags で注入）
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
+)
+
 // coderAdapter はdomain CoderAgentをorchestrator CoderAgentに適応
 type coderAdapter struct {
 	domainCoder *agent.CoderAgent
@@ -53,18 +61,41 @@ func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*prop
 }
 
 func main() {
-	// 設定ファイルパス
+	cmd := "run"
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+
+	switch cmd {
+	case "run":
+		cmdRun()
+	case "version":
+		cmdVersion()
+	case "health":
+		cmdHealth()
+	case "status":
+		cmdStatus()
+	case "help", "-h", "--help":
+		cmdHelp()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
+		cmdHelp()
+		os.Exit(1)
+	}
+}
+
+// cmdRun はHTTPサーバーを起動する（デフォルトコマンド）
+func cmdRun() {
 	configPath := getConfigPath()
 
-	// 設定読み込み
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	log.Printf("PicoClaw %s (commit: %s, built: %s)", Version, Commit, BuildDate)
 	log.Printf("Loaded config from: %s", configPath)
 
-	// 依存関係構築
 	dependencies := buildDependencies(cfg)
 
 	// Graceful shutdown用シグナル
@@ -85,7 +116,6 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/webhook", dependencies.lineHandler)
 
-	// Health Check エンドポイント
 	healthHandler := dependencies.buildHealthHandler(cfg)
 	mux.HandleFunc("/health", healthHandler.HandleHealth)
 	mux.HandleFunc("/ready", healthHandler.HandleReady)
@@ -100,6 +130,79 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// cmdVersion はバージョン情報を表示
+func cmdVersion() {
+	fmt.Printf("picoclaw %s\ncommit: %s\nbuilt:  %s\n", Version, Commit, BuildDate)
+}
+
+// cmdHealth はヘルスチェックを実行してJSON出力
+func cmdHealth() {
+	cfg, err := config.LoadConfig(getConfigPath())
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	svc := buildHealthService(cfg)
+	report := svc.RunChecks(context.Background())
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(report)
+
+	if report.Status == domainhealth.StatusDown {
+		os.Exit(1)
+	}
+}
+
+// cmdStatus はシステム状態の概要を表示
+func cmdStatus() {
+	cfg, err := config.LoadConfig(getConfigPath())
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	fmt.Printf("PicoClaw %s\n", Version)
+	fmt.Printf("Ollama: %s (model: %s)\n", cfg.Ollama.BaseURL, cfg.Ollama.Model)
+	fmt.Printf("Server: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	fmt.Println()
+
+	svc := buildHealthService(cfg)
+	report := svc.RunChecks(context.Background())
+
+	for _, c := range report.Checks {
+		fmt.Printf("  [%s] %s: %s (%dms)\n", c.Status, c.Name, c.Message, c.Duration.Milliseconds())
+	}
+	fmt.Printf("\nOverall: %s\n", report.Status)
+
+	if report.Status == domainhealth.StatusDown {
+		os.Exit(1)
+	}
+}
+
+// cmdHelp はヘルプメッセージを表示
+func cmdHelp() {
+	fmt.Printf(`PicoClaw %s - Multi-LLM AI Assistant
+
+Usage: picoclaw [command]
+
+Commands:
+  run       Start the HTTP server (default)
+  version   Show version information
+  health    Run health checks and output JSON
+  status    Show system status overview
+  help      Show this help message
+`, Version)
+}
+
+// buildHealthService は HealthService を構築（CLI コマンドで共用）
+func buildHealthService(cfg *config.Config) *healthapp.HealthService {
+	checks := []domainhealth.Check{
+		infrahealth.NewOllamaCheck(cfg.Ollama.BaseURL),
+		infrahealth.NewOllamaModelCheck(cfg.Ollama.BaseURL, cfg.Ollama.Model),
+	}
+	return healthapp.NewHealthService(checks...)
 }
 
 // Dependencies はアプリケーション依存関係
@@ -388,12 +491,7 @@ func (d *Dependencies) buildDistributedMode(
 
 // buildHealthHandler は Health Check HTTP ハンドラを構築
 func (d *Dependencies) buildHealthHandler(cfg *config.Config) *healthadapter.Handler {
-	checks := []domainhealth.Check{
-		infrahealth.NewOllamaCheck(cfg.Ollama.BaseURL),
-		infrahealth.NewOllamaModelCheck(cfg.Ollama.BaseURL, cfg.Ollama.Model),
-	}
-	svc := healthapp.NewHealthService(checks...)
-	return healthadapter.NewHandler(svc)
+	return healthadapter.NewHandler(buildHealthService(cfg))
 }
 
 // getConfigPath は設定ファイルパスを取得
