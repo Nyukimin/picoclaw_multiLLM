@@ -22,8 +22,9 @@ type ToolRunner struct {
 
 // ToolRunnerConfig はToolRunnerの設定
 type ToolRunnerConfig struct {
-	GoogleAPIKey       string
+	GoogleAPIKey         string
 	GoogleSearchEngineID string
+	HTTPClient           *http.Client // テスト用注入（nilの場合はデフォルトを使用）
 }
 
 // ToolFunc はツール実行関数の型
@@ -176,9 +177,10 @@ func (r *ToolRunner) executeWebSearch(ctx context.Context, args map[string]inter
 		r.config.GoogleSearchEngineID,
 		url.QueryEscape(query))
 
-	// HTTPクライアント作成（タイムアウト設定）
-	client := &http.Client{
-		Timeout: 10 * time.Second,
+	// HTTPクライアント（注入がなければデフォルトを使用）
+	client := r.config.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)

@@ -218,46 +218,43 @@ func TestRuleDictionary_Match_OpsKeywords(t *testing.T) {
 }
 
 func TestRuleDictionary_Match_ResearchKeywords(t *testing.T) {
-	tests := []struct {
-		name    string
-		message string
-	}{
-		{
-			name:    "調べて",
-			message: "この技術について調べて",
-		},
-		{
-			name:    "検索して",
-			message: "最新の情報を検索して",
-		},
-		{
-			name:    "リサーチして",
-			message: "競合をリサーチして",
-		},
-	}
-
 	dict := NewRuleDictionary()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			jobID := task.NewJobID()
-			testTask := task.NewTask(jobID, tt.message, "line", "U123")
+	// 「調べて」「検索して」はChatのWeb検索で即答するためルール辞書から除外
+	// → マッチしない（ルータがCHATにフォールバックする）
+	t.Run("調べて_はルール辞書でマッチしない", func(t *testing.T) {
+		jobID := task.NewJobID()
+		testTask := task.NewTask(jobID, "この技術について調べて", "line", "U123")
+		_, _, matched := dict.Match(testTask)
+		if matched {
+			t.Error("「調べて」はChatのWeb検索で処理するためルール辞書でマッチすべきでない")
+		}
+	})
 
-			route, confidence, matched := dict.Match(testTask)
+	t.Run("検索して_はルール辞書でマッチしない", func(t *testing.T) {
+		jobID := task.NewJobID()
+		testTask := task.NewTask(jobID, "最新の情報を検索して", "line", "U123")
+		_, _, matched := dict.Match(testTask)
+		if matched {
+			t.Error("「検索して」はChatのWeb検索で処理するためルール辞書でマッチすべきでない")
+		}
+	})
 
-			if !matched {
-				t.Error("Should match research-related keywords")
-			}
-
-			if route != routing.RouteRESEARCH {
-				t.Errorf("Expected route RESEARCH, got '%s'", route)
-			}
-
-			if confidence <= 0.7 {
-				t.Errorf("Expected high confidence (>0.7), got %f", confidence)
-			}
-		})
-	}
+	// 「リサーチして」は深い調査タスクとしてRESEARCHにルーティング
+	t.Run("リサーチして_はRESEARCHにマッチする", func(t *testing.T) {
+		jobID := task.NewJobID()
+		testTask := task.NewTask(jobID, "競合をリサーチして", "line", "U123")
+		route, confidence, matched := dict.Match(testTask)
+		if !matched {
+			t.Error("「リサーチして」はRESEARCHキーワードにマッチすべき")
+		}
+		if route != routing.RouteRESEARCH {
+			t.Errorf("Expected route RESEARCH, got '%s'", route)
+		}
+		if confidence <= 0.7 {
+			t.Errorf("Expected high confidence (>0.7), got %f", confidence)
+		}
+	})
 }
 
 func TestRuleDictionary_Match_MultipleKeywords(t *testing.T) {

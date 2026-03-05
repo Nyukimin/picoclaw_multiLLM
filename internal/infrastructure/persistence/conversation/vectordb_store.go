@@ -3,6 +3,8 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -17,9 +19,23 @@ type VectorDBStore struct {
 }
 
 // NewVectorDBStore は新しいVectorDBStoreを生成
+// qdrantURL は "host:port" 形式（例: "localhost:6333"）
 func NewVectorDBStore(qdrantURL, collectionName string) (*VectorDBStore, error) {
+	host, portStr, err := net.SplitHostPort(qdrantURL)
+	if err != nil {
+		// コロンがない場合はホスト名のみとして扱い、デフォルトgRPCポート(6334)を使用
+		host = qdrantURL
+		portStr = "6334"
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid qdrant port %q: %w", portStr, err)
+	}
+
 	client, err := qdrant.NewClient(&qdrant.Config{
-		Host: qdrantURL,
+		Host:                   host,
+		Port:                   port,
+		SkipCompatibilityCheck: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create qdrant client: %w", err)
@@ -71,19 +87,19 @@ func (v *VectorDBStore) initCollection(ctx context.Context) error {
 	}
 
 	// Payloadインデックス作成（session_id、domain、ts_start）
-	err = v.client.CreateFieldIndex(ctx, &qdrant.CreateFieldIndexCollection{
+	_, err = v.client.CreateFieldIndex(ctx, &qdrant.CreateFieldIndexCollection{
 		CollectionName: v.collectionName,
 		FieldName:      "session_id",
-		FieldType:      qdrant.FieldType_FieldTypeKeyword,
+		FieldType:      qdrant.FieldType_FieldTypeKeyword.Enum(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create session_id index: %w", err)
 	}
 
-	err = v.client.CreateFieldIndex(ctx, &qdrant.CreateFieldIndexCollection{
+	_, err = v.client.CreateFieldIndex(ctx, &qdrant.CreateFieldIndexCollection{
 		CollectionName: v.collectionName,
 		FieldName:      "domain",
-		FieldType:      qdrant.FieldType_FieldTypeKeyword,
+		FieldType:      qdrant.FieldType_FieldTypeKeyword.Enum(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create domain index: %w", err)
@@ -107,7 +123,7 @@ func (v *VectorDBStore) SaveThreadSummary(ctx context.Context, summary *conversa
 		Vectors: &qdrant.Vectors{
 			VectorsOptions: &qdrant.Vectors_Vector{
 				Vector: &qdrant.Vector{
-					Data: float32SliceToFloat64(summary.Embedding),
+					Data: summary.Embedding,
 				},
 			},
 		},
@@ -151,10 +167,12 @@ func (v *VectorDBStore) SaveThreadSummary(ctx context.Context, summary *conversa
 		}
 	}
 
-	// Upsert
+	// Upsert（Wait=trueで同期書き込み）
+	waitTrue := true
 	_, err := v.client.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: v.collectionName,
 		Points:         []*qdrant.PointStruct{point},
+		Wait:           &waitTrue,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upsert point to vectordb: %w", err)
@@ -169,7 +187,8 @@ func (v *VectorDBStore) SearchSimilar(ctx context.Context, queryEmbedding []floa
 		return nil, fmt.Errorf("queryEmbedding is empty")
 	}
 
-	// ベクトル検索
+	limit := uint64(topK)
+	// ベクトル検索（WithPayloadで要約情報も取得）
 	searchResult, err := v.client.Query(ctx, &qdrant.QueryPoints{
 		CollectionName: v.collectionName,
 		Query: &qdrant.Query{
@@ -177,13 +196,14 @@ func (v *VectorDBStore) SearchSimilar(ctx context.Context, queryEmbedding []floa
 				Nearest: &qdrant.VectorInput{
 					Variant: &qdrant.VectorInput_Dense{
 						Dense: &qdrant.DenseVector{
-							Data: float32SliceToFloat64(queryEmbedding),
+							Data: queryEmbedding,
 						},
 					},
 				},
 			},
 		},
-		Limit: uint64(topK),
+		Limit:       &limit,
+		WithPayload: &qdrant.WithPayloadSelector{SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search similar: %w", err)
@@ -197,6 +217,7 @@ func (v *VectorDBStore) SearchSimilar(ctx context.Context, queryEmbedding []floa
 			// ログ出力してスキップ
 			continue
 		}
+		summary.Score = point.Score
 		summaries = append(summaries, summary)
 	}
 
@@ -205,6 +226,7 @@ func (v *VectorDBStore) SearchSimilar(ctx context.Context, queryEmbedding []floa
 
 // SearchByDomain はドメインでThread要約を検索
 func (v *VectorDBStore) SearchByDomain(ctx context.Context, domain string, limit int) ([]*conversation.ThreadSummary, error) {
+	lim := uint32(limit)
 	// Scrollでドメインフィルタリング
 	scrollResult, err := v.client.Scroll(ctx, &qdrant.ScrollPoints{
 		CollectionName: v.collectionName,
@@ -222,17 +244,17 @@ func (v *VectorDBStore) SearchByDomain(ctx context.Context, domain string, limit
 				},
 			},
 		},
-		Limit:        uint32(limit),
-		WithPayload:  &qdrant.WithPayloadSelector{SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true}},
-		WithVectors:  &qdrant.WithVectorsSelector{SelectorOptions: &qdrant.WithVectorsSelector_Enable{Enable: false}},
+		Limit:       &lim,
+		WithPayload: &qdrant.WithPayloadSelector{SelectorOptions: &qdrant.WithPayloadSelector_Enable{Enable: true}},
+		WithVectors: &qdrant.WithVectorsSelector{SelectorOptions: &qdrant.WithVectorsSelector_Enable{Enable: false}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search by domain: %w", err)
 	}
 
 	// 結果をThreadSummaryに変換
-	summaries := make([]*conversation.ThreadSummary, 0, len(scrollResult.Result))
-	for _, point := range scrollResult.Result {
+	summaries := make([]*conversation.ThreadSummary, 0, len(scrollResult))
+	for _, point := range scrollResult {
 		summary, err := retrievedPointToThreadSummary(point)
 		if err != nil {
 			continue
@@ -260,31 +282,14 @@ func (v *VectorDBStore) IsNovelQuery(ctx context.Context, queryEmbedding []float
 		return true, 0.0, nil
 	}
 
-	// 類似度計算（コサイン類似度 = 1 - distance）
-	// Qdrant は Distance_Cosine なので、score = 1 - distance
-	// Phase 2.4では簡易的に、スコア<threshold なら新規とする
-	// 実装では、SearchSimilarでスコアを取得する必要があるが、
-	// 現状のQdrantクライアントでは直接取得できないため、
-	// 簡易的にthreshold=0.85として、0.85未満なら新規とする
-	similarity := float32(0.9) // 仮のデフォルト値（実際はスコアから取得）
-
+	// SearchSimilar の実スコアを使用（Qdrant Cosine距離: 高いほど類似）
+	similarity := topSummaries[0].Score
 	isNovel := similarity < threshold
 
 	return isNovel, similarity, nil
 }
 
 // --- ヘルパー関数 ---
-
-// float32SliceToFloat64 はfloat32スライスをfloat64スライスに変換
-func float32SliceToFloat64(in []float32) []float64 {
-	out := make([]float64, len(in))
-	for i, v := range in {
-		out[i] = float64(v)
-	}
-	return out
-}
-
-// getEndTimeUnix は削除（不要）
 
 // pointToThreadSummary はQdrant ScoredPointをThreadSummaryに変換
 func pointToThreadSummary(point *qdrant.ScoredPoint) (*conversation.ThreadSummary, error) {

@@ -176,7 +176,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 4.5. v5.0 ConversationManager初期化
 	var conversationMgr conversation.ConversationManager
 	if cfg.Conversation.Enabled {
-		// Phase 2: Real実装を使用
+		// Phase 3: Real実装 + LLM統合
 		realMgr, err := conversationpersistence.NewRealConversationManager(
 			cfg.Conversation.RedisURL,
 			cfg.Conversation.DuckDBPath,
@@ -185,8 +185,28 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if err != nil {
 			log.Fatalf("Failed to initialize conversation manager: %v", err)
 		}
+
+		// Embedder注入（embed_model が設定されている場合）
+		if cfg.Conversation.EmbedModel != "" {
+			embedder := ollama.NewOllamaEmbedder(cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
+			realMgr.WithEmbedder(embedder)
+			log.Printf("  Embedder: %s (model: %s)", cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
+		}
+
+		// Summarizer注入（summary_model が設定されている場合、なければ chat model）
+		summaryModel := cfg.Conversation.SummaryModel
+		if summaryModel == "" {
+			summaryModel = cfg.Ollama.Model
+		}
+		if summaryModel != "" {
+			summaryProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, summaryModel)
+			summarizer := conversationpersistence.NewLLMSummarizer(summaryProvider)
+			realMgr.WithSummarizer(summarizer)
+			log.Printf("  Summarizer: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+		}
+
 		conversationMgr = realMgr
-		log.Printf("Conversation LLM enabled (Phase 2: Real implementation)")
+		log.Printf("Conversation LLM enabled (Phase 3: Real + LLM integration)")
 		log.Printf("  Redis: %s", cfg.Conversation.RedisURL)
 		log.Printf("  DuckDB: %s", cfg.Conversation.DuckDBPath)
 		log.Printf("  VectorDB: %s", cfg.Conversation.VectorDBURL)

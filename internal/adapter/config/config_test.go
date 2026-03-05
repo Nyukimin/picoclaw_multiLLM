@@ -467,3 +467,64 @@ idle_chat:
 		t.Errorf("Expected Temperature 0.8, got %f", cfg.IdleChat.Temperature)
 	}
 }
+
+func TestConversationConfig_DefaultValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "chat-v1"
+session:
+  storage_dir: "./data"
+`
+	os.WriteFile(configPath, []byte(configContent), 0644)
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// デフォルト値確認
+	if cfg.Conversation.RedisURL != "redis://localhost:6379" {
+		t.Errorf("unexpected RedisURL: %s", cfg.Conversation.RedisURL)
+	}
+	if cfg.Conversation.VectorDBURL != "localhost:6334" {
+		t.Errorf("unexpected VectorDBURL: %s", cfg.Conversation.VectorDBURL)
+	}
+}
+
+func TestConversationConfig_EmbedAndSummaryModel(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "chat-v1"
+session:
+  storage_dir: "./data"
+conversation:
+  enabled: true
+  redis_url: "redis://localhost:6379"
+  vectordb_url: "localhost:6334"
+  embed_model: "nomic-embed-text"
+  summary_model: "chat-v1"
+`
+	os.WriteFile(configPath, []byte(configContent), 0644)
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if cfg.Conversation.EmbedModel != "nomic-embed-text" {
+		t.Errorf("expected EmbedModel 'nomic-embed-text', got %q", cfg.Conversation.EmbedModel)
+	}
+	if cfg.Conversation.SummaryModel != "chat-v1" {
+		t.Errorf("expected SummaryModel 'chat-v1', got %q", cfg.Conversation.SummaryModel)
+	}
+}

@@ -13,4 +13,5 @@ type ThreadSummary struct {
 	StartTime time.Time `json:"ts_start"`
 	EndTime   time.Time `json:"ts_end"`
 	IsNovel   bool      `json:"is_novel"`
+	Score     float32   `json:"score,omitempty"` // VectorDB類似度スコア（検索結果のみ）
 }

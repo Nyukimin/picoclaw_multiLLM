@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,8 +265,33 @@ func TestToolRunner_Execute_FileList_MissingPath(t *testing.T) {
 	}
 }
 
+// mockRoundTripper はHTTPリクエストをインターセプトするモック
+type mockRoundTripper struct {
+	statusCode int
+	body       string
+}
+
+func (m *mockRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: m.statusCode,
+		Body:       io.NopCloser(strings.NewReader(m.body)),
+	}, nil
+}
+
 func TestToolRunner_Execute_WebSearch_Success(t *testing.T) {
-	runner := NewToolRunner(ToolRunnerConfig{})
+	mockBody := `{
+		"items": [
+			{"title": "Go Programming Language", "link": "https://go.dev", "snippet": "Go is an open source programming language."},
+			{"title": "Golang Tutorial", "link": "https://example.com", "snippet": "Learn Go programming."}
+		]
+	}`
+	runner := NewToolRunner(ToolRunnerConfig{
+		GoogleAPIKey:         "test-api-key",
+		GoogleSearchEngineID: "test-engine-id",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripper{statusCode: 200, body: mockBody},
+		},
+	})
 
 	args := map[string]interface{}{
 		"query": "golang programming language",
@@ -275,13 +302,13 @@ func TestToolRunner_Execute_WebSearch_Success(t *testing.T) {
 		t.Fatalf("Execute web_search failed: %v", err)
 	}
 
-	// 結果が空でないことを確認
 	if len(result) == 0 {
 		t.Error("Expected non-empty search result")
 	}
 
-	// 結果にGolang関連の内容が含まれることを期待（APIの応答による）
-	t.Logf("Search result: %s", result)
+	if !strings.Contains(result, "Go Programming Language") {
+		t.Errorf("Expected result to contain search item title, got: %s", result)
+	}
 }
 
 func TestToolRunner_Execute_WebSearch_MissingQuery(t *testing.T) {

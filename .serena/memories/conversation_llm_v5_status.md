@@ -11,7 +11,7 @@
 |-------|----------|--------|------|
 | Phase 1 | ✅ 完了 | 2026-03-04 | 基盤整備（データモデル、Stub、Config、DI、テスト） |
 | Phase 2 | ✅ 完了 | 2026-03-04 | 実ストア実装（Redis/DuckDB/VectorDB、RealConversationManager） |
-| Phase 3 | 📋 準備中 | - | LLM統合、インフラ整備、API修正 |
+| Phase 3 | ✅ 完了 | 2026-03-05 | LLM統合、インフラ整備、IsNovelQuery修正、Embedder/Summarizer実装 |
 | Phase 4 | 📋 未着手 | - | KB統合、プロダクション対応 |
 
 **成果物**:
