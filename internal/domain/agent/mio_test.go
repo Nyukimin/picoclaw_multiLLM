@@ -57,7 +57,7 @@ func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 		&mockRuleDictionary{},
 		&mockToolRunner{},
 		&mockMCPClient{},
-		nil, // conversationMgr=nil（テスト環境）
+		nil, // conversationEngine=nil（テスト環境）
 	)
 
 	tests := []struct {
@@ -107,7 +107,7 @@ func TestMioAgentDecideAction_RuleDictionary(t *testing.T) {
 		ruleDictionary,
 		&mockToolRunner{},
 		&mockMCPClient{},
-		nil, // conversationMgr=nil（テスト環境）
+		nil, // conversationEngine=nil（テスト環境）
 	)
 
 	jobID := task.NewJobID()
@@ -143,7 +143,7 @@ func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
 		&mockRuleDictionary{},
 		&mockToolRunner{},
 		&mockMCPClient{},
-		nil, // conversationMgr=nil（テスト環境）
+		nil, // conversationEngine=nil（テスト環境）
 	)
 
 	jobID := task.NewJobID()
@@ -184,7 +184,7 @@ func TestMioAgentChat(t *testing.T) {
 		&mockRuleDictionary{},
 		&mockToolRunner{},
 		&mockMCPClient{},
-		nil, // conversationMgr=nil（テスト環境）
+		nil, // conversationEngine=nil（テスト環境）
 	)
 
 	jobID := task.NewJobID()

@@ -48,7 +48,7 @@ func main() {
 		ruleDictionary,
 		toolRunner,
 		mcpClient,
-		nil, // conversationMgr=nil（テスト環境）
+		nil, // conversationEngine=nil（テスト環境）
 	)
 
 	// 4. テストメッセージ

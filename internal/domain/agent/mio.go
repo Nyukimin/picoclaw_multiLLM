@@ -13,12 +13,12 @@ import (
 
 // MioAgent は Chat（会話・意思決定）を担当するエンティティ
 type MioAgent struct {
-	llmProvider     llm.LLMProvider
-	classifier      Classifier
-	ruleDictionary  RuleDictionary
-	toolRunner      ToolRunner
-	mcpClient       MCPClient
-	conversationMgr conversation.ConversationManager // v5.0: 会話管理（nilを許容）
+	llmProvider        llm.LLMProvider
+	classifier         Classifier
+	ruleDictionary     RuleDictionary
+	toolRunner         ToolRunner
+	mcpClient          MCPClient
+	conversationEngine conversation.ConversationEngine  // v5.1: 会話エンジン（nilを許容）
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -28,15 +28,15 @@ func NewMioAgent(
 	ruleDictionary RuleDictionary,
 	toolRunner ToolRunner,
 	mcpClient MCPClient,
-	conversationMgr conversation.ConversationManager, // v5.0: 6番目の引数（nilを許容）
+	conversationEngine conversation.ConversationEngine, // v5.1: ConversationEngine（nilを許容）
 ) *MioAgent {
 	return &MioAgent{
-		llmProvider:     llmProvider,
-		classifier:      classifier,
-		ruleDictionary:  ruleDictionary,
-		toolRunner:      toolRunner,
-		mcpClient:       mcpClient,
-		conversationMgr: conversationMgr,
+		llmProvider:        llmProvider,
+		classifier:         classifier,
+		ruleDictionary:     ruleDictionary,
+		toolRunner:         toolRunner,
+		mcpClient:          mcpClient,
+		conversationEngine: conversationEngine,
 	}
 }
 
@@ -58,25 +58,20 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 	return routing.NewDecision(routing.RouteCHAT, 0.7, "No rule match, default to CHAT"), nil
 }
 
-// Chat は会話を実行（簡易版: キーワードベース自動Web検索）
+// Chat は会話を実行（v5.1: ConversationEngine + キーワードベース自動Web検索）
 func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	userMessage := t.UserMessage()
 
-	// === v5.0: 会話管理処理（条件付き実行） ===
-	if m.conversationMgr != nil {
-		// 1. Recall（想起）- Phase 1ではStubなので空配列が返る
-		_, err := m.conversationMgr.Recall(ctx, t.ChatID(), userMessage, 3)
+	// === v5.1: ConversationEngine による RecallPack 生成 ===
+	var messages []llm.Message
+	if m.conversationEngine != nil {
+		recallPack, err := m.conversationEngine.BeginTurn(ctx, t.ChatID(), userMessage)
 		if err != nil {
-			// Recallエラーは警告のみ（会話継続）
-			fmt.Printf("WARN: Recall failed: %v\n", err)
+			fmt.Printf("WARN: BeginTurn failed: %v\n", err)
 		}
-		// Phase 1ではrecallMessagesは使用しない（TODO: Phase 2でプロンプト生成）
-
-		// 2. ユーザーメッセージを記憶（Phase 1ではno-op）
-		userMsg := conversation.NewMessage(conversation.SpeakerUser, userMessage, nil)
-		if err := m.conversationMgr.Store(ctx, t.ChatID(), userMsg); err != nil {
-			// Storeエラーは警告のみ
-			fmt.Printf("WARN: Store (user message) failed: %v\n", err)
+		if recallPack != nil {
+			// RecallPack からプロンプトメッセージを生成（system prompt + 過去文脈 + 会話履歴）
+			messages = recallPack.ToPromptMessages()
 		}
 	}
 
@@ -91,19 +86,17 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	}
 
 	// Web検索を実行してコンテキストに追加
-	var messages []llm.Message
 	if needsSearch && m.toolRunner != nil {
 		searchResult, err := m.executeWebSearch(ctx, userMessage)
 		if err == nil && searchResult != "" {
-			// 検索結果をシステムメッセージとして追加
 			messages = append(messages, llm.Message{
 				Role:    "system",
 				Content: "以下はWeb検索の結果です。この情報を参考にして質問に答えてください:\n\n" + searchResult,
 			})
 		}
-		// 検索エラーは無視して会話を続行
 	}
 
+	// ユーザーメッセージを最後に追加
 	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
 
 	req := llm.GenerateRequest{
@@ -119,13 +112,10 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 
 	response := resp.Content
 
-	// === v5.0: 応答を記憶（条件付き実行） ===
-	if m.conversationMgr != nil {
-		// Mioの応答を記憶（Phase 1ではno-op）
-		mioMsg := conversation.NewMessage(conversation.SpeakerMio, response, nil)
-		if err := m.conversationMgr.Store(ctx, t.ChatID(), mioMsg); err != nil {
-			// Storeエラーは警告のみ
-			fmt.Printf("WARN: Store (response) failed: %v\n", err)
+	// === v5.1: EndTurn（Store） ===
+	if m.conversationEngine != nil {
+		if err := m.conversationEngine.EndTurn(ctx, t.ChatID(), userMessage, response); err != nil {
+			fmt.Printf("WARN: EndTurn failed: %v\n", err)
 		}
 	}
 

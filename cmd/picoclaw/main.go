@@ -173,10 +173,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	mcpClient := mcp.NewMCPClient()
 	log.Printf("MCPClient initialized with %d servers", len(mcpClient.ListServers()))
 
-	// 4.5. v5.0 ConversationManager初期化
-	var conversationMgr conversation.ConversationManager
+	// 4.5. v5.1 ConversationEngine初期化
+	var convEngine conversation.ConversationEngine
 	if cfg.Conversation.Enabled {
-		// Phase 3: Real実装 + LLM統合
+		// ConversationManager（3層記憶）
 		realMgr, err := conversationpersistence.NewRealConversationManager(
 			cfg.Conversation.RedisURL,
 			cfg.Conversation.DuckDBPath,
@@ -205,18 +205,23 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			log.Printf("  Summarizer: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
 		}
 
-		conversationMgr = realMgr
-		log.Printf("Conversation LLM enabled (Phase 3: Real + LLM integration)")
+		// ConversationEngine（RecallPack生成 + ペルソナ）
+		convEngine = conversationpersistence.NewRealConversationEngine(
+			realMgr,
+			conversation.DefaultMioPersona(),
+		)
+
+		log.Printf("ConversationEngine v5.1 enabled (RecallPack + Persona)")
 		log.Printf("  Redis: %s", cfg.Conversation.RedisURL)
 		log.Printf("  DuckDB: %s", cfg.Conversation.DuckDBPath)
 		log.Printf("  VectorDB: %s", cfg.Conversation.VectorDBURL)
 	} else {
-		conversationMgr = nil
+		convEngine = nil
 		log.Printf("Conversation LLM disabled (v3/v4 mode)")
 	}
 
 	// 5. Agents
-	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, conversationMgr)
+	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
 	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient)
 
 	// 6. Session Repository

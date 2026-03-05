@@ -56,7 +56,7 @@ func main() {
 	classifier := routing.NewLLMClassifier(ollamaProvider)
 
 	// Mio（Chat Agent）
-	mio := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, toolRunner, mcpClient, nil) // conversationMgr=nil（テスト環境）
+	mio := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, toolRunner, mcpClient, nil) // conversationEngine=nil（テスト環境）
 
 	// WorkerExecutionService
 	workerService := service.NewWorkerExecutionService(cfg.Worker)
