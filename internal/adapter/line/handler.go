@@ -46,27 +46,12 @@ func (h *Handler) SetBotUserID(botUserID string) {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 
-	// ルーティング
-	if r.URL.Path == "/health" && r.Method == http.MethodGet {
-		h.handleHealth(w, r)
-		return
-	}
-
 	if r.URL.Path == "/webhook" && r.Method == http.MethodPost {
 		h.handleWebhook(w, r)
 		return
 	}
 
 	http.NotFound(w, r)
-}
-
-// handleHealth はヘルスチェック
-func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "ok",
-	})
 }
 
 // handleWebhook はLINE webhookを処理

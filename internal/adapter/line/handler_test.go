@@ -236,7 +236,8 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
-func TestHandler_HealthCheck(t *testing.T) {
+func TestHandler_HealthCheck_NotHandled(t *testing.T) {
+	// /health は LINE handler ではなく専用の health handler が担当するため 404 を返す
 	orch := &mockOrchestrator{}
 	handler := NewHandler(orch, "test-secret", "test-token")
 
@@ -245,15 +246,8 @@ func TestHandler_HealthCheck(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
-	}
-
-	var response map[string]string
-	json.Unmarshal(rec.Body.Bytes(), &response)
-
-	if response["status"] != "ok" {
-		t.Errorf("Expected status 'ok', got '%s'", response["status"])
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", rec.Code)
 	}
 }
 

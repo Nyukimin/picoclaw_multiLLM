@@ -11,8 +11,12 @@ import (
 	"syscall"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
+	healthapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/health"
+	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
+	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
@@ -78,9 +82,17 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Starting PicoClaw server on %s", addr)
 
+	mux := http.NewServeMux()
+	mux.Handle("/webhook", dependencies.lineHandler)
+
+	// Health Check エンドポイント
+	healthHandler := dependencies.buildHealthHandler(cfg)
+	mux.HandleFunc("/health", healthHandler.HandleHealth)
+	mux.HandleFunc("/ready", healthHandler.HandleReady)
+
 	server := &http.Server{
 		Addr:    addr,
-		Handler: dependencies.lineHandler,
+		Handler: mux,
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			log.Printf("[ConnState] %s -> %s (remote: %s)", state.String(), conn.LocalAddr(), conn.RemoteAddr())
 		},
@@ -372,6 +384,16 @@ func (d *Dependencies) buildDistributedMode(
 		d.idleChatOrch = idleChatOrch
 		log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
 	}
+}
+
+// buildHealthHandler は Health Check HTTP ハンドラを構築
+func (d *Dependencies) buildHealthHandler(cfg *config.Config) *healthadapter.Handler {
+	checks := []domainhealth.Check{
+		infrahealth.NewOllamaCheck(cfg.Ollama.BaseURL),
+		infrahealth.NewOllamaModelCheck(cfg.Ollama.BaseURL, cfg.Ollama.Model),
+	}
+	svc := healthapp.NewHealthService(checks...)
+	return healthadapter.NewHandler(svc)
 }
 
 // getConfigPath は設定ファイルパスを取得
