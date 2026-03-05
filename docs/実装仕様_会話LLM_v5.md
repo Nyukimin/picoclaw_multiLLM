@@ -2,8 +2,51 @@
 
 **バージョン**: 5.0.0
 **作成日**: 2026-03-04
-**ステータス**: Draft
+**最終更新**: 2026-03-05
+**ステータス**: Phase 1〜3 実装完了・本番稼働中
 **前提バージョン**: v4.0（分散実行）
+
+### 実装状況（2026-03-05）
+
+| Phase | コンポーネント | 状態 | 備考 |
+|-------|--------------|------|------|
+| Phase 1 | ドメイン層（Thread/Session/ThreadSummary） | ✅ 完了 | `internal/domain/conversation/` |
+| Phase 1 | EmbeddingProviderインターフェース | ✅ 完了 | `internal/domain/conversation/embedding.go` |
+| Phase 1 | ConversationSummarizerインターフェース | ✅ 完了 | `internal/domain/conversation/summarizer.go` |
+| Phase 2 | RedisStore（短期記憶） | ✅ 完了 | `internal/infrastructure/persistence/conversation/` |
+| Phase 2 | DuckDBStore（中期記憶） | ✅ 完了 | 同上 |
+| Phase 2 | VectorDBStore（長期記憶 Qdrant） | ✅ 完了 | gRPCポート: 6334 |
+| Phase 2 | RealConversationManager | ✅ 完了 | 3層記憶統合 |
+| Phase 3 | OllamaEmbedder | ✅ 完了 | `internal/infrastructure/llm/ollama/embedder.go` |
+| Phase 3 | LLMSummarizer | ✅ 完了 | `internal/infrastructure/persistence/conversation/llm_summarizer.go` |
+| Phase 3 | main.go DI（Embedder/Summarizer注入） | ✅ 完了 | `cmd/picoclaw/main.go` |
+| インフラ | docker-compose.infra.yml（Qdrant port 6334） | ✅ 完了 | gRPCポート公開 |
+| インフラ | systemdサービス（picoclaw.service） | ✅ 完了 | `~/.config/systemd/user/picoclaw.service` |
+| インフラ | systemdサービス（picoclaw-funnel.service） | ✅ 完了 | Tailscale Funnel永続化 |
+| テスト | 統合テスト（Redis + DuckDB + Qdrant） | ✅ 9件全通過 | `integration_test.go` |
+
+### インフラ構成
+
+| サービス | ポート | プロトコル | 備考 |
+|---------|--------|-----------|------|
+| Redis | 6379 | TCP | 短期記憶（TTL: 24h） |
+| DuckDB | ファイル | - | `/home/nyukimi/.picoclaw/memory.duckdb` |
+| Qdrant | 6333 (REST) / **6334 (gRPC)** | HTTP / gRPC | 長期記憶（VectorDB）|
+| Ollama | 11434 | HTTP | kawaguchike-llm: 100.83.207.6 |
+
+**注意**: VectorDBStoreはQdrantの**gRPCポート6334**に接続。RESTポート6333ではない。
+
+### config.yaml（会話LLM設定）
+
+```yaml
+conversation:
+  enabled: true
+  redis_url: "redis://localhost:6379"
+  duckdb_path: "/home/nyukimi/.picoclaw/memory.duckdb"
+  vectordb_url: "localhost:6334"        # gRPCポート
+  embed_model: "nomic-embed-code:latest"
+  summary_model: "chat-v1"
+```
 
 ---
 
