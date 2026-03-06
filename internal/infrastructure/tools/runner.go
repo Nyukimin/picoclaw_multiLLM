@@ -74,7 +74,10 @@ func (r *ToolRunner) registerTools() {
 		10*time.Second,
 	)
 	r.tools["web_search"] = withTimeout(
-		withStringValidation(r.executeWebSearch, "query", 500),
+		withRetry(
+			withStringValidation(r.executeWebSearch, "query", 500),
+			DefaultRetryConfig,
+		),
 		15*time.Second,
 	)
 	if len(r.config.Subagents) > 0 {
