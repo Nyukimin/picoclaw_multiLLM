@@ -39,7 +39,7 @@ func main() {
 	ollamaProvider := ollama.NewOllamaProvider("http://100.83.207.6:11434", "chat-v1")
 
 	// 3. MioAgent作成
-	prompts := config.LoadPrompts("")
+	prompts := config.LoadPrompts("", "")
 	classifier := infraRouting.NewLLMClassifier(ollamaProvider, prompts.Classifier)
 	ruleDictionary := infraRouting.NewRuleDictionary()
 	mcpClient := mcp.NewMCPClient()

@@ -52,7 +52,7 @@ func main() {
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
 
 	// プロンプト読み込み
-	prompts := config.LoadPrompts(cfg.PromptsDir)
+	prompts := config.LoadPrompts(cfg.PromptsDir, cfg.WorkspaceDir)
 
 	// ルーティング
 	ruleDictionary := routing.NewRuleDictionary()
