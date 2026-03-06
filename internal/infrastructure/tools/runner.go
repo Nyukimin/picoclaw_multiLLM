@@ -44,15 +44,30 @@ func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 	return runner
 }
 
-// registerTools は利用可能なツールを登録
+// registerTools は利用可能なツールを登録（ミドルウェアで安全レール適用）
 func (r *ToolRunner) registerTools() {
-	r.tools["shell"] = r.executeShell
-	r.tools["file_read"] = r.executeFileRead
-	r.tools["file_write"] = r.executeFileWrite
-	r.tools["file_list"] = r.executeFileList
-	r.tools["web_search"] = r.executeWebSearch
+	r.tools["shell"] = withTimeout(
+		withStringValidation(r.executeShell, "command", 10000),
+		30*time.Second,
+	)
+	r.tools["file_read"] = withTimeout(
+		withPathValidation(r.executeFileRead, "path"),
+		10*time.Second,
+	)
+	r.tools["file_write"] = withTimeout(
+		withPathValidation(r.executeFileWrite, "path"),
+		10*time.Second,
+	)
+	r.tools["file_list"] = withTimeout(
+		withPathValidation(r.executeFileList, "path"),
+		10*time.Second,
+	)
+	r.tools["web_search"] = withTimeout(
+		withStringValidation(r.executeWebSearch, "query", 500),
+		15*time.Second,
+	)
 	if len(r.config.Subagents) > 0 {
-		r.tools["subagent"] = r.executeSubagent
+		r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
 	}
 }
 
