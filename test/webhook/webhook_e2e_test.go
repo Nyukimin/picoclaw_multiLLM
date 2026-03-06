@@ -215,8 +215,7 @@ func TestWebhookE2E_NonTextMessage_Ignored(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	time.Sleep(50 * time.Millisecond)
-
+	// Non-text messages are filtered synchronously before goroutine spawn — no sleep needed
 	if orch.wasCalled() {
 		t.Error("image message should NOT trigger orchestrator")
 	}
@@ -237,25 +236,18 @@ func TestWebhookE2E_FollowEvent_Ignored(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	time.Sleep(50 * time.Millisecond)
-
+	// Follow events are filtered synchronously — no sleep needed
 	if orch.wasCalled() {
 		t.Error("follow event should NOT trigger orchestrator")
 	}
 }
 
 func TestWebhookE2E_MultipleEvents_AllProcessed(t *testing.T) {
-	callCount := 0
 	orch := &mockOrchestrator{
 		response: orchestrator.ProcessMessageResponse{
 			Response: "ok", Route: routing.RouteCHAT,
 		},
 	}
-	// Override to count calls
-	origProcessMessage := orch.response
-	_ = origProcessMessage
-
-	// Use a channel-based approach for counting
 	handler := line.NewHandler(orch, testSecret, testToken)
 
 	events := []map[string]interface{}{
@@ -273,9 +265,12 @@ func TestWebhookE2E_MultipleEvents_AllProcessed(t *testing.T) {
 		t.Errorf("status: want 200, got %d", rr.Code)
 	}
 
-	// Wait for goroutines
+	// Wait for goroutines to process all 3 events
 	time.Sleep(200 * time.Millisecond)
-	_ = callCount
+
+	if !orch.wasCalled() {
+		t.Error("orchestrator should be called for multiple text events")
+	}
 }
 
 func TestWebhookE2E_EmptyEventsArray_Returns200(t *testing.T) {
@@ -292,8 +287,7 @@ func TestWebhookE2E_EmptyEventsArray_Returns200(t *testing.T) {
 		t.Errorf("status: want 200, got %d", rr.Code)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
+	// Empty events array — no goroutines spawned, no sleep needed
 	if orch.wasCalled() {
 		t.Error("orchestrator should NOT be called for empty events")
 	}

@@ -421,99 +421,57 @@ func TestMessageOrchestrator_ProcessMessage_ShiroError(t *testing.T) {
 	}
 }
 
-func TestMessageOrchestrator_ProcessMessage_CODE1_NoCoder(t *testing.T) {
-	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RouteCODE1, 1.0, "CODE1"),
+func TestMessageOrchestrator_ProcessMessage_NoCoder(t *testing.T) {
+	cases := []struct {
+		name    string
+		route   routing.Route
+		wantErr string
+	}{
+		{"CODE1", routing.RouteCODE1, "no coder1 available"},
+		{"CODE2", routing.RouteCODE2, "no coder2 available"},
+		{"CODE3", routing.RouteCODE3, "no coder3 available"},
 	}
-
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
-	_, err := orch.ProcessMessage(context.Background(), defaultReq())
-	if err == nil {
-		t.Fatal("expected error for CODE1 with no coder")
-	}
-	if !strings.Contains(err.Error(), "no coder1 available") {
-		t.Errorf("error should mention coder unavailability, got: %v", err)
-	}
-}
-
-func TestMessageOrchestrator_ProcessMessage_CODE2_NoCoder(t *testing.T) {
-	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RouteCODE2, 1.0, "CODE2"),
-	}
-
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
-	_, err := orch.ProcessMessage(context.Background(), defaultReq())
-	if err == nil {
-		t.Fatal("expected error for CODE2 with no coder")
-	}
-	if !strings.Contains(err.Error(), "no coder2 available") {
-		t.Errorf("error should mention coder unavailability, got: %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mio := &mockMioAgent{
+				decision: routing.NewDecision(tc.route, 1.0, tc.name),
+			}
+			orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+			_, err := orch.ProcessMessage(context.Background(), defaultReq())
+			if err == nil {
+				t.Fatalf("expected error for %s with no coder", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error should mention coder unavailability, got: %v", err)
+			}
+		})
 	}
 }
 
-func TestMessageOrchestrator_ProcessMessage_CODE3_NoCoder(t *testing.T) {
-	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RouteCODE3, 1.0, "CODE3"),
+func TestMessageOrchestrator_ProcessMessage_FallbackToChat(t *testing.T) {
+	cases := []struct {
+		name  string
+		route routing.Route
+	}{
+		{"PLAN", routing.RoutePLAN},
+		{"ANALYZE", routing.RouteANALYZE},
+		{"RESEARCH", routing.RouteRESEARCH},
 	}
-
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
-	_, err := orch.ProcessMessage(context.Background(), defaultReq())
-	if err == nil {
-		t.Fatal("expected error for CODE3 with no coder")
-	}
-	if !strings.Contains(err.Error(), "no coder3 available") {
-		t.Errorf("error should mention coder unavailability, got: %v", err)
-	}
-}
-
-func TestMessageOrchestrator_ProcessMessage_PLAN_FallbackToChat(t *testing.T) {
-	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RoutePLAN, 0.8, "PLAN"),
-		response: "plan response via chat",
-	}
-
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
-	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
-	if err != nil {
-		t.Fatalf("ProcessMessage failed: %v", err)
-	}
-	if resp.Route != routing.RoutePLAN {
-		t.Errorf("route: want PLAN, got %s", resp.Route)
-	}
-	if resp.Response != "plan response via chat" {
-		t.Errorf("response: want 'plan response via chat', got %q", resp.Response)
-	}
-}
-
-func TestMessageOrchestrator_ProcessMessage_ANALYZE_FallbackToChat(t *testing.T) {
-	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RouteANALYZE, 0.8, "ANALYZE"),
-		response: "analysis via chat",
-	}
-
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
-	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
-	if err != nil {
-		t.Fatalf("ProcessMessage failed: %v", err)
-	}
-	if resp.Route != routing.RouteANALYZE {
-		t.Errorf("route: want ANALYZE, got %s", resp.Route)
-	}
-}
-
-func TestMessageOrchestrator_ProcessMessage_RESEARCH_FallbackToChat(t *testing.T) {
-	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RouteRESEARCH, 0.8, "RESEARCH"),
-		response: "research via chat",
-	}
-
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
-	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
-	if err != nil {
-		t.Fatalf("ProcessMessage failed: %v", err)
-	}
-	if resp.Route != routing.RouteRESEARCH {
-		t.Errorf("route: want RESEARCH, got %s", resp.Route)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mio := &mockMioAgent{
+				decision: routing.NewDecision(tc.route, 0.8, tc.name),
+				response: "fallback response",
+			}
+			orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+			resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+			if err != nil {
+				t.Fatalf("ProcessMessage failed: %v", err)
+			}
+			if resp.Route != tc.route {
+				t.Errorf("route: want %s, got %s", tc.route, resp.Route)
+			}
+		})
 	}
 }
 
