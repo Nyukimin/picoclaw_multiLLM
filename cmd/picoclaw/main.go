@@ -326,11 +326,18 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			log.Printf("  Summarizer: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
 		}
 
-		// ConversationEngine（RecallPack生成 + ペルソナ）
+		// スレッド境界検出器（Embedder があれば類似度チェックも有効化）
+		var embedderForDetector conversation.EmbeddingProvider
+		if cfg.Conversation.EmbedModel != "" {
+			embedderForDetector = ollama.NewOllamaEmbedder(cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
+		}
+		detector := conversationpersistence.NewThreadBoundaryDetector(embedderForDetector)
+
+		// ConversationEngine（RecallPack生成 + ペルソナ + スレッド自動検出）
 		convEngine = conversationpersistence.NewRealConversationEngine(
 			realMgr,
 			conversation.NewMioPersona(cfg.Prompts.MioPersona),
-		)
+		).WithDetector(detector)
 
 		log.Printf("ConversationEngine v5.1 enabled (RecallPack + Persona)")
 		log.Printf("  Redis: %s", cfg.Conversation.RedisURL)

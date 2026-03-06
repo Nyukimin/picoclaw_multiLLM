@@ -11,8 +11,9 @@ import (
 // RealConversationEngine は ConversationEngine の実装
 // 既存の RealConversationManager をラップし、RecallPack 生成を追加
 type RealConversationEngine struct {
-	manager domconv.ConversationManager
-	persona domconv.PersonaState
+	manager  domconv.ConversationManager
+	persona  domconv.PersonaState
+	detector domconv.ThreadBoundaryDetector // nil の場合はスレッド自動検出無効
 }
 
 // NewRealConversationEngine は新しい ConversationEngine を作成
@@ -24,6 +25,12 @@ func NewRealConversationEngine(
 		manager: manager,
 		persona: persona,
 	}
+}
+
+// WithDetector はスレッド境界検出器を設定する（オプション）
+func (e *RealConversationEngine) WithDetector(d domconv.ThreadBoundaryDetector) *RealConversationEngine {
+	e.detector = d
+	return e
 }
 
 // BeginTurn はターン開始時に Recall + RecallPack 構築を実行
@@ -71,7 +78,25 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 }
 
 // EndTurn はターン終了時にメッセージ保存を実行
+// スレッド境界検出器が設定されている場合、Store前にトピック変化を検出する
 func (e *RealConversationEngine) EndTurn(ctx context.Context, sessionID string, userMessage string, response string) error {
+	// スレッド境界検出（detector が設定されている場合）
+	if e.detector != nil {
+		thread, err := e.manager.GetActiveThread(ctx, sessionID)
+		if err == nil && thread != nil {
+			result := e.detector.Detect(thread, userMessage, "")
+			if result.ShouldCreateNew {
+				log.Printf("[ConversationEngine] Thread boundary detected: %s (score=%.2f)", result.Reason, result.Score)
+				if _, err := e.manager.FlushThread(ctx, thread.ID); err != nil {
+					log.Printf("[ConversationEngine] WARN: FlushThread failed: %v", err)
+				}
+				if _, err := e.manager.CreateThread(ctx, sessionID, thread.Domain); err != nil {
+					log.Printf("[ConversationEngine] WARN: CreateThread failed: %v", err)
+				}
+			}
+		}
+	}
+
 	// ユーザーメッセージを記憶
 	userMsg := domconv.NewMessage(domconv.SpeakerUser, userMessage, nil)
 	if err := e.manager.Store(ctx, sessionID, userMsg); err != nil {
