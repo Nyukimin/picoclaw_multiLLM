@@ -12,12 +12,19 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 )
 
-// ToolRunner はツール実行の実装
+// ToolFuncV2 は構造化レスポンスを返すツール実行関数の型
+type ToolFuncV2 func(ctx context.Context, args map[string]interface{}) (*tool.ToolResponse, error)
+
+// ToolRunner はツール実行の実装（V1 + V2 対応）
 type ToolRunner struct {
-	tools  map[string]ToolFunc
-	config ToolRunnerConfig
+	tools    map[string]ToolFunc
+	toolsV2  map[string]ToolFuncV2
+	metadata map[string]tool.ToolMetadata
+	config   ToolRunnerConfig
 }
 
 // ToolRunnerConfig はToolRunnerの設定
@@ -34,8 +41,10 @@ type ToolFunc func(ctx context.Context, args map[string]interface{}) (string, er
 // NewToolRunner は新しいToolRunnerを作成
 func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 	runner := &ToolRunner{
-		tools:  make(map[string]ToolFunc),
-		config: config,
+		tools:    make(map[string]ToolFunc),
+		toolsV2:  make(map[string]ToolFuncV2),
+		metadata: make(map[string]tool.ToolMetadata),
+		config:   config,
 	}
 
 	// ツール登録
@@ -46,6 +55,7 @@ func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 
 // registerTools は利用可能なツールを登録（ミドルウェアで安全レール適用）
 func (r *ToolRunner) registerTools() {
+	// V1 ツール登録（既存互換）
 	r.tools["shell"] = withTimeout(
 		withStringValidation(r.executeShell, "command", 10000),
 		30*time.Second,
@@ -69,6 +79,51 @@ func (r *ToolRunner) registerTools() {
 	if len(r.config.Subagents) > 0 {
 		r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
 	}
+
+	// V2 ツール登録（V1 → ToolResponse 変換ラッパー）
+	r.toolsV2["shell"] = v2Wrap(r.tools["shell"])
+	r.toolsV2["file_read"] = v2Wrap(r.tools["file_read"])
+	r.toolsV2["file_write"] = v2Wrap(r.tools["file_write"])
+	r.toolsV2["file_list"] = v2Wrap(r.tools["file_list"])
+	r.toolsV2["web_search"] = v2Wrap(r.tools["web_search"])
+	if len(r.config.Subagents) > 0 {
+		r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
+	}
+
+	// メタデータ登録
+	r.metadata["shell"] = tool.ToolMetadata{
+		ToolID: "shell", Version: "1.0.0", Category: "mutation",
+		RequiresApproval: true,
+	}
+	r.metadata["file_read"] = tool.ToolMetadata{
+		ToolID: "file_read", Version: "1.0.0", Category: "query",
+	}
+	r.metadata["file_write"] = tool.ToolMetadata{
+		ToolID: "file_write", Version: "1.0.0", Category: "mutation",
+		RequiresApproval: true, DryRun: true,
+	}
+	r.metadata["file_list"] = tool.ToolMetadata{
+		ToolID: "file_list", Version: "1.0.0", Category: "query",
+	}
+	r.metadata["web_search"] = tool.ToolMetadata{
+		ToolID: "web_search", Version: "1.0.0", Category: "query",
+	}
+	if len(r.config.Subagents) > 0 {
+		r.metadata["subagent"] = tool.ToolMetadata{
+			ToolID: "subagent", Version: "1.0.0", Category: "query",
+		}
+	}
+}
+
+// v2Wrap は V1 ToolFunc を V2 ToolFuncV2 に変換する
+func v2Wrap(fn ToolFunc) ToolFuncV2 {
+	return func(ctx context.Context, args map[string]interface{}) (*tool.ToolResponse, error) {
+		result, err := fn(ctx, args)
+		if err != nil {
+			return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil
+		}
+		return tool.NewSuccess(result), nil
+	}
 }
 
 // Execute はツールを実行
@@ -88,6 +143,24 @@ func (r *ToolRunner) List(ctx context.Context) ([]string, error) {
 		tools = append(tools, name)
 	}
 	return tools, nil
+}
+
+// ExecuteV2 はツールを実行して構造化レスポンスを返す
+func (r *ToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
+	v2Func, exists := r.toolsV2[toolName]
+	if !exists {
+		return nil, fmt.Errorf("unknown tool: %s", toolName)
+	}
+	return v2Func(ctx, args)
+}
+
+// ListTools はツールのメタデータ一覧を返す
+func (r *ToolRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error) {
+	metas := make([]tool.ToolMetadata, 0, len(r.metadata))
+	for _, m := range r.metadata {
+		metas = append(metas, m)
+	}
+	return metas, nil
 }
 
 // executeShell はシェルコマンドを実行
