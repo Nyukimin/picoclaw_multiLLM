@@ -54,6 +54,12 @@ func NewRuleDictionary() *RuleDictionary {
 				route:      routing.RouteRESEARCH,
 				confidence: 0.85,
 			},
+			// CODE3関連キーワード（Chrome操作・ブラウザ自動化 → 常にCoder3）
+			{
+				keywords:   []string{"chrome", "ブラウザ", "画面操作", "スクレイピング", "ページを開", "webを操作"},
+				route:      routing.RouteCODE3,
+				confidence: 0.85,
+			},
 		},
 	}
 }

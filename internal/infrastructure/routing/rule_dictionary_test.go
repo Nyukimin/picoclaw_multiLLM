@@ -257,6 +257,61 @@ func TestRuleDictionary_Match_ResearchKeywords(t *testing.T) {
 	})
 }
 
+func TestRuleDictionary_Match_Code3Keywords(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{
+			name:    "Chrome操作",
+			message: "Chromeでページを開いてデータを取得して",
+		},
+		{
+			name:    "ブラウザ操作",
+			message: "ブラウザで検索結果を取得して",
+		},
+		{
+			name:    "画面操作",
+			message: "画面操作でフォームに入力して",
+		},
+		{
+			name:    "スクレイピング",
+			message: "このサイトをスクレイピングして",
+		},
+		{
+			name:    "Webを操作",
+			message: "Webを操作してデータ収集して",
+		},
+		{
+			name:    "chrome小文字",
+			message: "chromeを使ってログインして",
+		},
+	}
+
+	dict := NewRuleDictionary()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jobID := task.NewJobID()
+			testTask := task.NewTask(jobID, tt.message, "line", "U123")
+
+			route, confidence, matched := dict.Match(testTask)
+
+			if !matched {
+				t.Error("Should match code3-related keywords")
+			}
+
+			if route != routing.RouteCODE3 {
+				t.Errorf("Expected route CODE3, got '%s'", route)
+			}
+
+			if confidence <= 0.7 {
+				t.Errorf("Expected high confidence (>0.7), got %f", confidence)
+			}
+		})
+	}
+}
+
 func TestRuleDictionary_Match_MultipleKeywords(t *testing.T) {
 	dict := NewRuleDictionary()
 

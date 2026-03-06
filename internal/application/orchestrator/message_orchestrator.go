@@ -70,6 +70,7 @@ type MessageOrchestrator struct {
 	coder2          CoderAgent // OpenAI
 	coder3          CoderAgent // Claude
 	workerExecution service.WorkerExecutionService
+	coderStatus     *CoderStatus
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -90,6 +91,7 @@ func NewMessageOrchestrator(
 		coder2:          coder2,
 		coder3:          coder3,
 		workerExecution: workerExecution,
+		coderStatus:     NewCoderStatus(),
 	}
 }
 
@@ -173,10 +175,7 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		return o.shiro.Execute(ctx, t)
 
 	case routing.RouteCODE:
-		if o.coder1 != nil {
-			return o.coder1.Generate(ctx, t, "You are a code generation assistant.")
-		}
-		return "", fmt.Errorf("CODE route requested but no coder1 available")
+		return o.executeCodeFallbackChain(ctx, t)
 
 	case routing.RouteCODE1:
 		if o.coder1 != nil {
@@ -235,6 +234,33 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 	default:
 		return "", fmt.Errorf("unknown route: %s", route)
 	}
+}
+
+// executeCodeFallbackChain はCODEルートのフォールバックチェーン実行
+// Coder1 → Coder2 → Coder3 の順に利用可能なCoderを試行する
+func (o *MessageOrchestrator) executeCodeFallbackChain(ctx context.Context, t task.Task) (string, error) {
+	type coderEntry struct {
+		name  string
+		coder CoderAgent
+	}
+	chain := []coderEntry{
+		{"coder1", o.coder1},
+		{"coder2", o.coder2},
+		{"coder3", o.coder3},
+	}
+
+	for _, c := range chain {
+		if c.coder == nil {
+			continue
+		}
+		if !o.coderStatus.Acquire(c.name) {
+			continue // ビジー → 次へ
+		}
+		defer o.coderStatus.Release(c.name)
+		return c.coder.Generate(ctx, t, "You are a code generation assistant.")
+	}
+
+	return "", fmt.Errorf("CODE route requested but all coders are busy or unavailable")
 }
 
 // formatExecutionResult はProposalとPatchExecutionResultを整形
