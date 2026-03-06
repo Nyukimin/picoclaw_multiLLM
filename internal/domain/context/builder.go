@@ -87,31 +87,12 @@ func (b *Builder) BuildContext(route string) string {
 // BuildSkillsSummary は skills/ 配下の SKILL.md から概要一覧を生成する
 func (b *Builder) BuildSkillsSummary() string {
 	skillsDir := filepath.Join(b.workspaceDir, "skills")
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
+	loader := NewSkillsLoader(skillsDir)
+	skills, err := loader.LoadAll()
+	if err != nil || len(skills) == 0 {
 		return ""
 	}
-
-	var lines []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		skillFile := filepath.Join(skillsDir, entry.Name(), "SKILL.md")
-		data, err := os.ReadFile(skillFile)
-		if err != nil {
-			continue
-		}
-		content := strings.TrimSpace(string(data))
-		if content == "" {
-			continue
-		}
-		// 先頭行（タイトル）のみ抽出
-		firstLine, _, _ := strings.Cut(content, "\n")
-		lines = append(lines, fmt.Sprintf("- %s: %s", entry.Name(), strings.TrimPrefix(firstLine, "# ")))
-	}
-
-	return strings.Join(lines, "\n")
+	return loader.FormatSummary(skills)
 }
 
 // BuildMessageWithTask はコンテキスト + タスクを1つのメッセージに組み立てる

@@ -24,7 +24,8 @@ type ToolRunner struct {
 type ToolRunnerConfig struct {
 	GoogleAPIKey         string
 	GoogleSearchEngineID string
-	HTTPClient           *http.Client // テスト用注入（nilの場合はデフォルトを使用）
+	HTTPClient           *http.Client           // テスト用注入（nilの場合はデフォルトを使用）
+	Subagents            map[string]SubagentFunc // サブエージェントマップ（nil許容）
 }
 
 // ToolFunc はツール実行関数の型
@@ -50,6 +51,9 @@ func (r *ToolRunner) registerTools() {
 	r.tools["file_write"] = r.executeFileWrite
 	r.tools["file_list"] = r.executeFileList
 	r.tools["web_search"] = r.executeWebSearch
+	if len(r.config.Subagents) > 0 {
+		r.tools["subagent"] = r.executeSubagent
+	}
 }
 
 // Execute はツールを実行
