@@ -131,6 +131,19 @@ ConversationEngine（RecallPack + Persona）の実装仕様。
 | Thread 自動判定 | 未実装 |
 | UserProfile 自動抽出 | 未実装 |
 
+### 2.6 実装仕様_チャネル拡張_v1.md
+
+Discord / Slack / 音声入出力のアダプター追加仕様。
+
+| 内容 | 状態 |
+|------|------|
+| ChannelAdapter 共通インターフェース | 未実装 |
+| Discord アダプター (WebSocket Gateway) | 未実装 |
+| Slack アダプター (Socket Mode) | 未実装 |
+| 音声アダプター (STT + TTS) | 未実装 |
+| セッション ID 規約（チャネル横断） | 設計完了 |
+| 設定ファイル拡張 (channels) | 未実装 |
+
 ---
 
 ## 3. 設計文書
@@ -182,8 +195,10 @@ OpenClaw 機能を基準にした PicoClaw への移植計画。
   |     +-- 実装仕様_分散実行_v4.md（v3の上に追加）
   |     |
   |     +-- 実装仕様_会話LLM_v5.md（3層記憶インフラ）
-  |           |
-  |           +-- 実装仕様_会話エンジン_v5.1.md（RecallPack + Persona）
+  |     |     |
+  |     |     +-- 実装仕様_会話エンジン_v5.1.md（RecallPack + Persona）
+  |     |
+  |     +-- 実装仕様_チャネル拡張_v1.md（Discord/Slack/音声）
   |
   +-- Chat_Worker_Coder_アーキテクチャ.md（設計思想）
   |

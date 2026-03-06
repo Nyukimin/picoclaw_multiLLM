@@ -255,6 +255,7 @@ PicoClaw プロジェクト固有の注意事項は、このファイル（CLAUD
 - **実装仕様 v4.0**: `docs/実装仕様_分散実行_v4.md`（分散実行対応版）
 - **実装仕様 v5.0**: `docs/実装仕様_会話LLM_v5.md`（3層記憶インフラ）
 - **実装仕様 v5.1**: `docs/実装仕様_会話エンジン_v5.1.md`（ConversationEngine + RecallPack）
+- **チャネル拡張仕様**: `docs/実装仕様_チャネル拡張_v1.md`（Discord/Slack/音声アダプター）
 - **アーキテクチャ設計**: `docs/Chat_Worker_Coder_アーキテクチャ.md`（Chat/Worker/Coderの役割と責務、分散実行設計思想）
 
 ### 6.2 基盤思想・契約
