@@ -11,9 +11,11 @@ import (
 // RealConversationEngine は ConversationEngine の実装
 // 既存の RealConversationManager をラップし、RecallPack 生成を追加
 type RealConversationEngine struct {
-	manager  domconv.ConversationManager
-	persona  domconv.PersonaState
-	detector domconv.ThreadBoundaryDetector // nil の場合はスレッド自動検出無効
+	manager          domconv.ConversationManager
+	persona          domconv.PersonaState
+	detector         domconv.ThreadBoundaryDetector // nil の場合はスレッド自動検出無効
+	profileExtractor domconv.ProfileExtractor       // nil の場合はプロファイル抽出無効
+	profiles         map[string]domconv.UserProfile  // インメモリキャッシュ
 }
 
 // NewRealConversationEngine は新しい ConversationEngine を作成
@@ -22,8 +24,9 @@ func NewRealConversationEngine(
 	persona domconv.PersonaState,
 ) *RealConversationEngine {
 	return &RealConversationEngine{
-		manager: manager,
-		persona: persona,
+		manager:  manager,
+		persona:  persona,
+		profiles: make(map[string]domconv.UserProfile),
 	}
 }
 
@@ -33,11 +36,22 @@ func (e *RealConversationEngine) WithDetector(d domconv.ThreadBoundaryDetector) 
 	return e
 }
 
+// WithProfileExtractor はプロファイル抽出器を設定する（オプション）
+func (e *RealConversationEngine) WithProfileExtractor(pe domconv.ProfileExtractor) *RealConversationEngine {
+	e.profileExtractor = pe
+	return e
+}
+
 // BeginTurn はターン開始時に Recall + RecallPack 構築を実行
 func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string, userMessage string) (*domconv.RecallPack, error) {
 	pack := &domconv.RecallPack{
 		Persona:     e.persona,
 		Constraints: domconv.DefaultConstraints(),
+	}
+
+	// UserProfile 読み込み
+	if profile, ok := e.profiles[sessionID]; ok {
+		pack.UserProfile = profile
 	}
 
 	// Recall（想起）
@@ -107,6 +121,26 @@ func (e *RealConversationEngine) EndTurn(ctx context.Context, sessionID string, 
 	mioMsg := domconv.NewMessage(domconv.SpeakerMio, response, nil)
 	if err := e.manager.Store(ctx, sessionID, mioMsg); err != nil {
 		log.Printf("[ConversationEngine] WARN: Store (mio) failed: %v", err)
+	}
+
+	// UserProfile 自動抽出（best-effort）
+	if e.profileExtractor != nil {
+		thread, err := e.manager.GetActiveThread(ctx, sessionID)
+		if err == nil && thread != nil {
+			existing := e.profiles[sessionID]
+			result, err := e.profileExtractor.Extract(ctx, thread, existing)
+			if err != nil {
+				log.Printf("[ConversationEngine] WARN: ProfileExtract failed: %v", err)
+			} else if result != nil && result.HasData() {
+				if existing.UserID == "" {
+					existing = domconv.NewUserProfile(sessionID)
+				}
+				existing.Merge(result.NewPreferences, result.NewFacts)
+				e.profiles[sessionID] = existing
+				log.Printf("[ConversationEngine] UserProfile updated: +%d prefs, +%d facts",
+					len(result.NewPreferences), len(result.NewFacts))
+			}
+		}
 	}
 
 	return nil

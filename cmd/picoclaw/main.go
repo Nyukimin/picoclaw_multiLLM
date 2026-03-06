@@ -333,13 +333,25 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		}
 		detector := conversationpersistence.NewThreadBoundaryDetector(embedderForDetector)
 
-		// ConversationEngine（RecallPack生成 + ペルソナ + スレッド自動検出）
-		convEngine = conversationpersistence.NewRealConversationEngine(
+		// ProfileExtractor（summary_model を再利用）
+		var profileExtractor conversation.ProfileExtractor
+		if summaryModel != "" {
+			profileProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, summaryModel)
+			profileExtractor = conversationpersistence.NewLLMProfileExtractor(profileProvider)
+			log.Printf("  ProfileExtractor: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+		}
+
+		// ConversationEngine（RecallPack生成 + ペルソナ + スレッド自動検出 + プロファイル抽出）
+		engine := conversationpersistence.NewRealConversationEngine(
 			realMgr,
 			conversation.NewMioPersona(cfg.Prompts.MioPersona),
 		).WithDetector(detector)
+		if profileExtractor != nil {
+			engine = engine.WithProfileExtractor(profileExtractor)
+		}
+		convEngine = engine
 
-		log.Printf("ConversationEngine v5.1 enabled (RecallPack + Persona)")
+		log.Printf("ConversationEngine v5.1 enabled (RecallPack + Persona + ProfileExtractor)")
 		log.Printf("  Redis: %s", cfg.Conversation.RedisURL)
 		log.Printf("  DuckDB: %s", cfg.Conversation.DuckDBPath)
 		log.Printf("  VectorDB: %s", cfg.Conversation.VectorDBURL)
