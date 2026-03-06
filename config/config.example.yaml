@@ -10,6 +10,7 @@ server:
 ollama:
   base_url: "http://localhost:11434"
   model: "picoclaw-v1"  # 全Agent共通モデル
+  max_context: 8192     # 常駐モデルの最大コンテキスト長（超過するモデルはNG）
 
 # DeepSeek API (Code1)
 deepseek:

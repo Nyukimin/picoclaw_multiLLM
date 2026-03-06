@@ -52,8 +52,9 @@ type ServerConfig struct {
 // v4.0で chat_model/worker_model を統合し、単一の Model に変更
 // 全Agent（Mio/Shiro/IdleChat参加Agent）が同一モデルを共用する
 type OllamaConfig struct {
-	BaseURL string `yaml:"base_url"`
-	Model   string `yaml:"model"` // v4: 共通モデル（例: "picoclaw-v1"）
+	BaseURL    string `yaml:"base_url"`
+	Model      string `yaml:"model"`       // v4: 共通モデル（例: "picoclaw-v1"）
+	MaxContext int    `yaml:"max_context"` // 常駐モデルの最大コンテキスト長（超過はNG）
 
 	// v3後方互換（deprecated: Model に統合済み）
 	ChatModel   string `yaml:"chat_model,omitempty"`

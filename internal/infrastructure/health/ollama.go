@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
@@ -150,4 +151,133 @@ func (c *OllamaModelCheck) Run(ctx context.Context) domainhealth.CheckResult {
 		Message:  fmt.Sprintf("model %q available", c.modelName),
 		Duration: time.Since(start),
 	}
+}
+
+// ModelRequirement は常駐モデルの要件定義
+type ModelRequirement struct {
+	Name       string // モデル名（例: "chat-v1:latest"）
+	MaxContext int    // 0 でなければ、これを超えるコンテキスト長は NG
+}
+
+// OllamaModelsCheck は /api/ps で常駐モデルの確認 + コンテキスト長検証
+type OllamaModelsCheck struct {
+	baseURL  string
+	required []ModelRequirement
+	client   *http.Client
+}
+
+// NewOllamaModelsCheck は新しい OllamaModelsCheck を作成
+func NewOllamaModelsCheck(baseURL string, required []ModelRequirement) *OllamaModelsCheck {
+	return &OllamaModelsCheck{
+		baseURL:  baseURL,
+		required: required,
+		client:   &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+func (c *OllamaModelsCheck) Name() string { return "ollama_models" }
+
+func (c *OllamaModelsCheck) Run(ctx context.Context) domainhealth.CheckResult {
+	start := time.Now()
+
+	if len(c.required) == 0 {
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusOK,
+			Message:  "no model requirements configured",
+			Duration: time.Since(start),
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/ps", nil)
+	if err != nil {
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusDown,
+			Message:  fmt.Sprintf("request creation failed: %v", err),
+			Duration: time.Since(start),
+		}
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusDown,
+			Message:  fmt.Sprintf("connection failed: %v", err),
+			Duration: time.Since(start),
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusDown,
+			Message:  fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(body)),
+			Duration: time.Since(start),
+		}
+	}
+
+	var psResp ollamaPsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&psResp); err != nil {
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusDown,
+			Message:  fmt.Sprintf("decode error: %v", err),
+			Duration: time.Since(start),
+		}
+	}
+
+	// 常駐モデルをマップ化
+	loaded := make(map[string]int)
+	for _, m := range psResp.Models {
+		loaded[m.Name] = m.ContextLength
+	}
+
+	var missing, badCtx []string
+	for _, r := range c.required {
+		ctxLen, ok := loaded[r.Name]
+		if !ok {
+			missing = append(missing, r.Name)
+			continue
+		}
+		if r.MaxContext > 0 && ctxLen > r.MaxContext {
+			badCtx = append(badCtx, fmt.Sprintf("%s(ctx=%d,max=%d)", r.Name, ctxLen, r.MaxContext))
+		}
+	}
+
+	if len(missing) > 0 {
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusDown,
+			Message:  fmt.Sprintf("not loaded: %s", strings.Join(missing, ", ")),
+			Duration: time.Since(start),
+		}
+	}
+
+	if len(badCtx) > 0 {
+		return domainhealth.CheckResult{
+			Name:     c.Name(),
+			Status:   domainhealth.StatusDown,
+			Message:  fmt.Sprintf("context length exceeded: %s", strings.Join(badCtx, ", ")),
+			Duration: time.Since(start),
+		}
+	}
+
+	return domainhealth.CheckResult{
+		Name:     c.Name(),
+		Status:   domainhealth.StatusOK,
+		Message:  fmt.Sprintf("%d/%d models ok", len(c.required), len(c.required)),
+		Duration: time.Since(start),
+	}
+}
+
+// ollamaPsResponse は /api/ps のレスポンス
+type ollamaPsResponse struct {
+	Models []struct {
+		Name          string `json:"name"`
+		ContextLength int    `json:"context_length"`
+	} `json:"models"`
 }

@@ -203,6 +203,17 @@ func buildHealthService(cfg *config.Config) *healthapp.HealthService {
 		infrahealth.NewOllamaCheck(cfg.Ollama.BaseURL),
 		infrahealth.NewOllamaModelCheck(cfg.Ollama.BaseURL, cfg.Ollama.Model),
 	}
+
+	// 常駐モデルのコンテキスト長チェック（max_context が設定されている場合のみ）
+	if cfg.Ollama.MaxContext > 0 {
+		checks = append(checks, infrahealth.NewOllamaModelsCheck(
+			cfg.Ollama.BaseURL,
+			[]infrahealth.ModelRequirement{
+				{Name: cfg.Ollama.Model, MaxContext: cfg.Ollama.MaxContext},
+			},
+		))
+	}
+
 	return healthapp.NewHealthService(checks...)
 }
 
