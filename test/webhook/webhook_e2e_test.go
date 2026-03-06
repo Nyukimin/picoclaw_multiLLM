@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ const testToken = "test-access-token"
 // === Mock Orchestrator ===
 
 type mockOrchestrator struct {
+	mu       sync.Mutex
 	lastReq  orchestrator.ProcessMessageRequest
 	response orchestrator.ProcessMessageResponse
 	err      error
@@ -30,12 +32,26 @@ type mockOrchestrator struct {
 }
 
 func (m *mockOrchestrator) ProcessMessage(ctx context.Context, req orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.called = true
 	m.lastReq = req
 	if m.err != nil {
 		return orchestrator.ProcessMessageResponse{}, m.err
 	}
 	return m.response, nil
+}
+
+func (m *mockOrchestrator) wasCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.called
+}
+
+func (m *mockOrchestrator) getLastReq() orchestrator.ProcessMessageRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastReq
 }
 
 // === Helpers ===
@@ -168,17 +184,18 @@ func TestWebhookE2E_TextMessage_ProcessedByOrchestrator(t *testing.T) {
 	// processEvent runs in goroutine — give it time
 	time.Sleep(100 * time.Millisecond)
 
-	if !orch.called {
+	if !orch.wasCalled() {
 		t.Error("orchestrator.ProcessMessage should be called")
 	}
-	if orch.lastReq.UserMessage != "test message" {
-		t.Errorf("UserMessage: want 'test message', got %q", orch.lastReq.UserMessage)
+	lastReq := orch.getLastReq()
+	if lastReq.UserMessage != "test message" {
+		t.Errorf("UserMessage: want 'test message', got %q", lastReq.UserMessage)
 	}
-	if orch.lastReq.Channel != "line" {
-		t.Errorf("Channel: want 'line', got %q", orch.lastReq.Channel)
+	if lastReq.Channel != "line" {
+		t.Errorf("Channel: want 'line', got %q", lastReq.Channel)
 	}
-	if orch.lastReq.ChatID != "U123" {
-		t.Errorf("ChatID: want 'U123', got %q", orch.lastReq.ChatID)
+	if lastReq.ChatID != "U123" {
+		t.Errorf("ChatID: want 'U123', got %q", lastReq.ChatID)
 	}
 }
 
@@ -200,7 +217,7 @@ func TestWebhookE2E_NonTextMessage_Ignored(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if orch.called {
+	if orch.wasCalled() {
 		t.Error("image message should NOT trigger orchestrator")
 	}
 }
@@ -222,7 +239,7 @@ func TestWebhookE2E_FollowEvent_Ignored(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if orch.called {
+	if orch.wasCalled() {
 		t.Error("follow event should NOT trigger orchestrator")
 	}
 }
@@ -277,7 +294,7 @@ func TestWebhookE2E_EmptyEventsArray_Returns200(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if orch.called {
+	if orch.wasCalled() {
 		t.Error("orchestrator should NOT be called for empty events")
 	}
 }
@@ -318,7 +335,7 @@ func TestWebhookE2E_GroupChat_WithBotMention_Processed(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if !orch.called {
+	if !orch.wasCalled() {
 		t.Error("group message with bot mention should trigger orchestrator")
 	}
 }
@@ -350,7 +367,7 @@ func TestWebhookE2E_GroupChat_NoBotMention_Skipped(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if orch.called {
+	if orch.wasCalled() {
 		t.Error("group message without bot mention should NOT trigger orchestrator")
 	}
 }
@@ -372,7 +389,7 @@ func TestWebhookE2E_DirectMessage_AlwaysProcessed(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if !orch.called {
+	if !orch.wasCalled() {
 		t.Error("direct message should always trigger orchestrator")
 	}
 }
