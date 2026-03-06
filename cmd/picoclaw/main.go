@@ -24,6 +24,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
+	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
@@ -278,8 +279,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_WORKER"),
 	}
 
-	chatToolRunner := tools.NewToolRunner(chatToolRunnerCfg)
-	workerToolRunner := tools.NewToolRunner(workerToolRunnerCfg)
+	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)
+	workerToolRunnerV2 := tools.NewToolRunner(workerToolRunnerCfg)
+
+	// LegacyRunner アダプター（V2 → V1 ブリッジ）で agents に注入
+	chatToolRunner := domaintool.NewLegacyRunner(chatToolRunnerV2)
+	workerToolRunner := domaintool.NewLegacyRunner(workerToolRunnerV2)
 	log.Printf("ToolRunner initialized: Chat=%d tools, Worker=%d tools",
 		len(mustGetToolList(chatToolRunner)), len(mustGetToolList(workerToolRunner)))
 
@@ -522,7 +527,7 @@ func getConfigPath() string {
 }
 
 // mustGetToolList はツールリストを取得（エラーは無視）
-func mustGetToolList(runner *tools.ToolRunner) []string {
-	tools, _ := runner.List(context.Background())
-	return tools
+func mustGetToolList(runner agent.ToolRunner) []string {
+	list, _ := runner.List(context.Background())
+	return list
 }

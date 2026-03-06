@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func TestToolRunner_ExecuteV2_Shell_Success(t *testing.T) {
 func TestToolRunner_ExecuteV2_Shell_ValidationError(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{})
 
-	// Empty command should fail validation
+	// Empty command should fail validation with VALIDATION_FAILED
 	resp, err := runner.ExecuteV2(context.Background(), "shell", map[string]any{
 		"command": "",
 	})
@@ -44,8 +45,8 @@ func TestToolRunner_ExecuteV2_Shell_ValidationError(t *testing.T) {
 	if !resp.IsError() {
 		t.Fatal("expected error for empty command")
 	}
-	if resp.Error.Code != tool.ErrInternalError {
-		t.Logf("error code = %s (validation errors are wrapped as internal errors in V1→V2 bridge)", resp.Error.Code)
+	if resp.Error.Code != tool.ErrValidationFailed {
+		t.Errorf("error code = %s, want VALIDATION_FAILED", resp.Error.Code)
 	}
 }
 
@@ -230,6 +231,199 @@ func TestToolRunner_FileWrite_DryRun_ExistingFile(t *testing.T) {
 	content, _ := os.ReadFile(path)
 	if string(content) != "old content" {
 		t.Error("file should not have been modified in dry-run mode")
+	}
+}
+
+func TestToolRunner_Shell_DryRun(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	result, err := runner.Execute(context.Background(), "shell", map[string]any{
+		"command": "rm -rf /",
+		"mode":    "plan",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "[DRY-RUN]") {
+		t.Error("expected [DRY-RUN] marker")
+	}
+	if !strings.Contains(result, "rm -rf /") {
+		t.Error("expected command in dry-run output")
+	}
+}
+
+func TestToolRunner_Shell_AllowedCommands(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{
+		AllowedShellCommands: []string{"echo", "ls", "cat"},
+	})
+
+	// Allowed command
+	result, err := runner.Execute(context.Background(), "shell", map[string]any{
+		"command": "echo hello",
+	})
+	if err != nil {
+		t.Fatalf("allowed command failed: %v", err)
+	}
+	if !strings.Contains(result, "hello") {
+		t.Errorf("result = %q, want contains 'hello'", result)
+	}
+
+	// Denied command
+	_, err = runner.Execute(context.Background(), "shell", map[string]any{
+		"command": "rm -rf /tmp",
+	})
+	if err == nil {
+		t.Fatal("expected error for denied command")
+	}
+	if !strings.Contains(err.Error(), "PERMISSION_DENIED") {
+		t.Errorf("error = %q, want PERMISSION_DENIED", err.Error())
+	}
+}
+
+func TestToolRunner_Shell_AllowedCommands_V2_ErrorCode(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{
+		AllowedShellCommands: []string{"echo"},
+	})
+
+	resp, err := runner.ExecuteV2(context.Background(), "shell", map[string]any{
+		"command": "rm -rf /",
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !resp.IsError() {
+		t.Fatal("expected error")
+	}
+	if resp.Error.Code != tool.ErrPermissionDenied {
+		t.Errorf("error code = %s, want PERMISSION_DENIED", resp.Error.Code)
+	}
+}
+
+func TestToolRunner_FileList_Pagination(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	for i := 0; i < 10; i++ {
+		os.WriteFile(filepath.Join(tmpDir, fmt.Sprintf("file_%02d.txt", i)), []byte("x"), 0644)
+	}
+
+	// Default: limit=100 (returns all 10)
+	result, err := runner.Execute(context.Background(), "file_list", map[string]any{
+		"path": tmpDir,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	if len(lines) != 10 {
+		t.Errorf("default: got %d lines, want 10", len(lines))
+	}
+
+	// limit=3, offset=0
+	result, err = runner.Execute(context.Background(), "file_list", map[string]any{
+		"path":   tmpDir,
+		"limit":  float64(3),
+		"offset": float64(0),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "next offset: 3") {
+		t.Errorf("expected pagination info, got: %s", result)
+	}
+
+	// limit=3, offset=8 (near end)
+	result, err = runner.Execute(context.Background(), "file_list", map[string]any{
+		"path":   tmpDir,
+		"limit":  float64(3),
+		"offset": float64(8),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only 2 entries (8,9), no "next offset" since we're at end
+	if strings.Contains(result, "next offset") {
+		t.Error("should not have next offset at end of list")
+	}
+}
+
+func TestToolRunner_FileRead_LineLimit(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "multiline.txt")
+	content := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10"
+	os.WriteFile(testFile, []byte(content), 0644)
+
+	// Read first 3 lines
+	result, err := runner.Execute(context.Background(), "file_read", map[string]any{
+		"path":  testFile,
+		"limit": float64(3),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "line1") {
+		t.Error("expected line1")
+	}
+	if !strings.Contains(result, "line3") {
+		t.Error("expected line3")
+	}
+	if strings.Contains(result, "line4\n") {
+		t.Error("should not contain line4 content")
+	}
+	if !strings.Contains(result, "showing lines") {
+		t.Error("expected pagination info")
+	}
+
+	// Read with offset
+	result, err = runner.Execute(context.Background(), "file_read", map[string]any{
+		"path":   testFile,
+		"limit":  float64(2),
+		"offset": float64(3),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "line4") {
+		t.Error("expected line4 at offset 3")
+	}
+	if !strings.Contains(result, "line5") {
+		t.Error("expected line5 at offset 3 + limit 2")
+	}
+}
+
+func TestToolRunner_V2_ErrorClassification_NotFound(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_read", map[string]any{
+		"path": "/nonexistent/file.txt",
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !resp.IsError() {
+		t.Fatal("expected error")
+	}
+	if resp.Error.Code != tool.ErrNotFound {
+		t.Errorf("error code = %s, want NOT_FOUND", resp.Error.Code)
+	}
+}
+
+func TestToolRunner_V2_ErrorClassification_PathTraversal(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_read", map[string]any{
+		"path": "../../../etc/shadow",
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !resp.IsError() {
+		t.Fatal("expected error")
+	}
+	if resp.Error.Code != tool.ErrValidationFailed {
+		t.Errorf("error code = %s, want VALIDATION_FAILED", resp.Error.Code)
 	}
 }
 

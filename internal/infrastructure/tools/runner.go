@@ -33,6 +33,7 @@ type ToolRunnerConfig struct {
 	GoogleSearchEngineID string
 	HTTPClient           *http.Client           // テスト用注入（nilの場合はデフォルトを使用）
 	Subagents            map[string]SubagentFunc // サブエージェントマップ（nil許容）
+	AllowedShellCommands []string               // 許可コマンドプレフィックス（空=全許可）
 }
 
 // ToolFunc はツール実行関数の型
@@ -93,7 +94,7 @@ func (r *ToolRunner) registerTools() {
 	// メタデータ登録
 	r.metadata["shell"] = tool.ToolMetadata{
 		ToolID: "shell", Version: "1.0.0", Category: "mutation",
-		RequiresApproval: true,
+		RequiresApproval: true, DryRun: true,
 	}
 	r.metadata["file_read"] = tool.ToolMetadata{
 		ToolID: "file_read", Version: "1.0.0", Category: "query",
@@ -116,13 +117,42 @@ func (r *ToolRunner) registerTools() {
 }
 
 // v2Wrap は V1 ToolFunc を V2 ToolFuncV2 に変換する
+// V1 エラーが *ToolError を含む場合、そのコードを維持する
 func v2Wrap(fn ToolFunc) ToolFuncV2 {
 	return func(ctx context.Context, args map[string]interface{}) (*tool.ToolResponse, error) {
 		result, err := fn(ctx, args)
 		if err != nil {
-			return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil
+			return classifyV1Error(err), nil
 		}
 		return tool.NewSuccess(result), nil
+	}
+}
+
+// classifyV1Error は V1 エラーを適切な ErrorCode に分類する
+func classifyV1Error(err error) *tool.ToolResponse {
+	// ToolError がそのまま返された場合（ミドルウェアからのバリデーションエラー等）
+	if te, ok := err.(*tool.ToolError); ok {
+		return tool.NewError(te.Code, te.Message, te.Details)
+	}
+
+	// context.DeadlineExceeded → TIMEOUT
+	if err == context.DeadlineExceeded {
+		return tool.NewError(tool.ErrTimeout, err.Error(), nil)
+	}
+
+	// エラーメッセージによる分類
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "VALIDATION_FAILED"):
+		return tool.NewError(tool.ErrValidationFailed, msg, nil)
+	case strings.Contains(msg, "not found") || strings.Contains(msg, "no such file"):
+		return tool.NewError(tool.ErrNotFound, msg, nil)
+	case strings.Contains(msg, "permission denied"):
+		return tool.NewError(tool.ErrPermissionDenied, msg, nil)
+	case strings.Contains(msg, "timed out") || strings.Contains(msg, "deadline exceeded"):
+		return tool.NewError(tool.ErrTimeout, msg, nil)
+	default:
+		return tool.NewError(tool.ErrInternalError, msg, nil)
 	}
 }
 
@@ -170,6 +200,23 @@ func (r *ToolRunner) executeShell(ctx context.Context, args map[string]interface
 		return "", fmt.Errorf("'command' argument is required and must be a string")
 	}
 
+	// 許可コマンドリストチェック
+	if len(r.config.AllowedShellCommands) > 0 {
+		if !r.isShellCommandAllowed(command) {
+			return "", &tool.ToolError{
+				Code:    tool.ErrPermissionDenied,
+				Message: "command not in allowed list",
+				Details: map[string]any{"command": command},
+			}
+		}
+	}
+
+	// dry-run: コマンド表示のみ（実行しない）
+	mode, _ := args["mode"].(string)
+	if mode == "plan" {
+		return fmt.Sprintf("[DRY-RUN] shell\ncommand: %s\naction: would execute via sh -c", command), nil
+	}
+
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -179,7 +226,18 @@ func (r *ToolRunner) executeShell(ctx context.Context, args map[string]interface
 	return string(output), nil
 }
 
-// executeFileRead はファイルを読み込む
+// isShellCommandAllowed は許可コマンドリストに含まれるか判定する
+func (r *ToolRunner) isShellCommandAllowed(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	for _, prefix := range r.config.AllowedShellCommands {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// executeFileRead はファイルを読み込む（limit + offset 行制限対応）
 func (r *ToolRunner) executeFileRead(ctx context.Context, args map[string]interface{}) (string, error) {
 	path, ok := args["path"].(string)
 	if !ok {
@@ -189,6 +247,36 @@ func (r *ToolRunner) executeFileRead(ctx context.Context, args map[string]interf
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// limit/offset が指定されている場合、行単位でスライス
+	if _, hasLimit := args["limit"]; hasLimit {
+		lines := strings.Split(string(content), "\n")
+		total := len(lines)
+		limit := intArg(args, "limit", 100)
+		offset := intArg(args, "offset", 0)
+
+		if limit > 10000 {
+			limit = 10000
+		}
+		if offset < 0 {
+			offset = 0
+		}
+
+		start := offset
+		if start > total {
+			start = total
+		}
+		end := start + limit
+		if end > total {
+			end = total
+		}
+
+		result := strings.Join(lines[start:end], "\n")
+		if end < total {
+			result += fmt.Sprintf("\n--- showing lines %d-%d of %d ---", start+1, end, total)
+		}
+		return result, nil
 	}
 
 	return string(content), nil
@@ -258,7 +346,7 @@ func (r *ToolRunner) fileWriteDryRun(path, content string) string {
 	return result.String()
 }
 
-// executeFileList はディレクトリ内のファイル一覧を取得
+// executeFileList はディレクトリ内のファイル一覧を取得（limit + offset 対応）
 func (r *ToolRunner) executeFileList(ctx context.Context, args map[string]interface{}) (string, error) {
 	path, ok := args["path"].(string)
 	if !ok {
@@ -270,20 +358,62 @@ func (r *ToolRunner) executeFileList(ctx context.Context, args map[string]interf
 		return "", fmt.Errorf("failed to read directory: %w", err)
 	}
 
+	// ページングパラメータ（デフォルト: limit=100, offset=0）
+	limit := intArg(args, "limit", 100)
+	offset := intArg(args, "offset", 0)
+
+	// 上限制約
+	if limit > 1000 {
+		limit = 1000
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	total := len(entries)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
 	var result strings.Builder
-	for i, entry := range entries {
+	for _, entry := range entries[start:end] {
 		if entry.IsDir() {
-			result.WriteString(fmt.Sprintf("%s/\n", entry.Name()))
+			fmt.Fprintf(&result, "%s/\n", entry.Name())
 		} else {
-			result.WriteString(fmt.Sprintf("%s\n", entry.Name()))
-		}
-		if i >= 1000 {
-			result.WriteString("... (truncated, too many entries)\n")
-			break
+			fmt.Fprintf(&result, "%s\n", entry.Name())
 		}
 	}
 
+	// ページング情報
+	if end < total {
+		fmt.Fprintf(&result, "--- showing %d-%d of %d (next offset: %d) ---\n", start+1, end, total, end)
+	}
+
 	return result.String(), nil
+}
+
+// intArg は args から int 値を取得する（float64 からの変換対応、JSON 由来）
+func intArg(args map[string]interface{}, key string, defaultVal int) int {
+	v, ok := args[key]
+	if !ok {
+		return defaultVal
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	default:
+		return defaultVal
+	}
 }
 
 // executeWebSearch はWeb検索を実行（Google Custom Search JSON API使用）
@@ -343,13 +473,6 @@ func (r *ToolRunner) executeWebSearch(ctx context.Context, args map[string]inter
 
 	// 結果フォーマット
 	return formatGoogleSearchResult(result), nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // GoogleSearchResponse はGoogle Custom Search JSON APIレスポンス
