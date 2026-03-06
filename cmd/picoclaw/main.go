@@ -271,12 +271,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 3. Tool Runner（Chat用とWorker用で分離）
 	chatToolRunnerCfg := tools.ToolRunnerConfig{
-		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_CHAT"),
-		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_CHAT"),
+		GoogleAPIKey:         cfg.GoogleSearchChat.APIKey,
+		GoogleSearchEngineID: cfg.GoogleSearchChat.SearchEngineID,
 	}
 	workerToolRunnerCfg := tools.ToolRunnerConfig{
-		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_WORKER"),
-		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_WORKER"),
+		GoogleAPIKey:         cfg.GoogleSearchWorker.APIKey,
+		GoogleSearchEngineID: cfg.GoogleSearchWorker.SearchEngineID,
 	}
 
 	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)
@@ -414,7 +414,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if cfg.Line.AccessToken != "" {
 			sender = &lineNotificationSender{
 				lineSender: line.NewMessageSender(cfg.Line.AccessToken),
-				chatID:     os.Getenv("PICOCLAW_HEARTBEAT_CHAT_ID"),
+				chatID:     cfg.Heartbeat.ChatID,
 			}
 		}
 

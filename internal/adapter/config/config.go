@@ -36,6 +36,10 @@ type Config struct {
 
 	// === Heartbeat ===
 	Heartbeat HeartbeatConfig `yaml:"heartbeat"`
+
+	// === Google Search API ===
+	GoogleSearchChat   GoogleSearchConfig `yaml:"google_search_chat"`
+	GoogleSearchWorker GoogleSearchConfig `yaml:"google_search_worker"`
 }
 
 // ServerConfig はサーバー設定
@@ -148,8 +152,15 @@ type ConversationConfig struct {
 
 // HeartbeatConfig はハートビート（定期タスク）の設定
 type HeartbeatConfig struct {
-	Enabled  bool `yaml:"enabled"`  // ハートビートの有効化（デフォルト: false）
-	Interval int  `yaml:"interval"` // チェック間隔（分）、最小5分（デフォルト: 30）
+	Enabled  bool   `yaml:"enabled"`  // ハートビートの有効化（デフォルト: false）
+	Interval int    `yaml:"interval"` // チェック間隔（分）、最小5分（デフォルト: 30）
+	ChatID   string `yaml:"chat_id"`  // LINE Push通知先のユーザーID
+}
+
+// GoogleSearchConfig はGoogle Search API設定
+type GoogleSearchConfig struct {
+	APIKey         string `yaml:"api_key"`          // 環境変数から読み込み推奨
+	SearchEngineID string `yaml:"search_engine_id"` // カスタム検索エンジンID
 }
 
 // LoadConfig は設定ファイルを読み込む
@@ -160,17 +171,16 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// YAMLパース
+	// ${ENV_VAR} を環境変数で展開してから YAML パース
+	expanded := os.ExpandEnv(string(data))
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config YAML: %w", err)
 	}
 
 	// デフォルト値設定
 	cfg.setDefaults()
-
-	// 環境変数から機密情報を読み込み
-	cfg.loadFromEnv()
 
 	// バリデーション
 	if err := cfg.Validate(); err != nil {
@@ -291,29 +301,6 @@ func (c *Config) setDefaults() {
 	}
 }
 
-// loadFromEnv は環境変数から設定を読み込み
-func (c *Config) loadFromEnv() {
-	// API キーは環境変数から読み込み（ファイルに平文保存しない）
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		c.Claude.APIKey = apiKey
-	}
-
-	if apiKey := os.Getenv("DEEPSEEK_API_KEY"); apiKey != "" {
-		c.DeepSeek.APIKey = apiKey
-	}
-
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		c.OpenAI.APIKey = apiKey
-	}
-
-	// LINE認証情報
-	if secret := os.Getenv("LINE_CHANNEL_SECRET"); secret != "" {
-		c.Line.ChannelSecret = secret
-	}
-	if token := os.Getenv("LINE_CHANNEL_TOKEN"); token != "" {
-		c.Line.AccessToken = token
-	}
-}
 
 // Validate は設定の妥当性を検証
 func (c *Config) Validate() error {

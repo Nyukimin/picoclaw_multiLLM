@@ -4,7 +4,6 @@ package e2e_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -15,29 +14,28 @@ import (
 )
 
 func TestE2E_APIProvider_Generate(t *testing.T) {
+	cfg := getConfig(t)
+
 	cases := []struct {
-		name    string
-		envVar  string
-		factory func(apiKey string) llm.LLMProvider
+		name     string
+		apiKey   string
+		provider llm.LLMProvider
 	}{
-		{"Claude", "ANTHROPIC_API_KEY", func(k string) llm.LLMProvider { return claude.NewClaudeProvider(k, "claude-sonnet-4-20250514") }},
-		{"DeepSeek", "DEEPSEEK_API_KEY", func(k string) llm.LLMProvider { return deepseek.NewDeepSeekProvider(k, "deepseek-chat") }},
-		{"OpenAI", "OPENAI_API_KEY", func(k string) llm.LLMProvider { return openai.NewOpenAIProvider(k, "gpt-4o-mini") }},
+		{"Claude", cfg.Claude.APIKey, claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)},
+		{"DeepSeek", cfg.DeepSeek.APIKey, deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)},
+		{"OpenAI", cfg.OpenAI.APIKey, openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			apiKey := os.Getenv(tc.envVar)
-			if apiKey == "" {
-				t.Skipf("%s not set", tc.envVar)
+			if tc.apiKey == "" {
+				t.Skipf("%s API key not configured", tc.name)
 			}
-
-			provider := tc.factory(apiKey)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			resp, err := provider.Generate(ctx, llm.GenerateRequest{
+			resp, err := tc.provider.Generate(ctx, llm.GenerateRequest{
 				Messages: []llm.Message{
 					{Role: "user", Content: "Say hello in one word."},
 				},

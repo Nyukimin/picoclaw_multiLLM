@@ -110,6 +110,15 @@ ollama:
   base_url: "http://localhost:11434"
   model: "picoclaw-v1"
 
+claude:
+  api_key: "${ANTHROPIC_API_KEY}"
+
+deepseek:
+  api_key: "${DEEPSEEK_API_KEY}"
+
+openai:
+  api_key: "${OPENAI_API_KEY}"
+
 session:
   storage_dir: "./data/sessions"
 
