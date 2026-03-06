@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
@@ -172,6 +173,63 @@ func TestToolRunner_ListTools_MutationCategory(t *testing.T) {
 				t.Errorf("%s category = %q, want %q", m.ToolID, m.Category, "query")
 			}
 		}
+	}
+}
+
+func TestToolRunner_FileWrite_DryRun_NewFile(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "new_file.txt")
+
+	result, err := runner.Execute(context.Background(), "file_write", map[string]any{
+		"path":    path,
+		"content": "hello\nworld\n",
+		"mode":    "plan",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "[DRY-RUN]") {
+		t.Error("expected [DRY-RUN] marker")
+	}
+	if !strings.Contains(result, "exists: false") {
+		t.Error("expected exists: false for new file")
+	}
+	if !strings.Contains(result, "action: create") {
+		t.Error("expected action: create")
+	}
+	// Verify file was NOT created
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("file should not have been created in dry-run mode")
+	}
+}
+
+func TestToolRunner_FileWrite_DryRun_ExistingFile(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "existing.txt")
+	os.WriteFile(path, []byte("old content"), 0644)
+
+	result, err := runner.Execute(context.Background(), "file_write", map[string]any{
+		"path":    path,
+		"content": "new content",
+		"mode":    "plan",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "exists: true") {
+		t.Error("expected exists: true for existing file")
+	}
+	if !strings.Contains(result, "action: overwrite") {
+		t.Error("expected action: overwrite")
+	}
+	// Verify file was NOT modified
+	content, _ := os.ReadFile(path)
+	if string(content) != "old content" {
+		t.Error("file should not have been modified in dry-run mode")
 	}
 }
 

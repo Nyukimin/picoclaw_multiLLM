@@ -81,14 +81,29 @@ func parseSkillFile(content string, dirName string) SkillMetadata {
 	frontmatter := rest[:endIdx]
 	meta.BodyText = strings.TrimSpace(rest[endIdx+4:]) // "---\n" を除去
 
-	// key: value 行を解析
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	// key: value 行を解析（YAML list も簡易サポート）
+	lines := strings.Split(frontmatter, "\n")
+	var currentListKey string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			currentListKey = ""
 			continue
 		}
-		key, value, found := strings.Cut(line, ":")
+
+		// YAML list item: "  - item"
+		if currentListKey != "" && strings.HasPrefix(trimmed, "- ") {
+			item := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			item = strings.Trim(item, "\"'")
+			if currentListKey == "invariants" {
+				meta.Invariants = append(meta.Invariants, item)
+			}
+			continue
+		}
+
+		key, value, found := strings.Cut(trimmed, ":")
 		if !found {
+			currentListKey = ""
 			continue
 		}
 		key = strings.TrimSpace(key)
@@ -101,6 +116,23 @@ func parseSkillFile(content string, dirName string) SkillMetadata {
 			meta.Name = value
 		case "description":
 			meta.Description = value
+		case "tool_id":
+			meta.ToolID = value
+		case "version":
+			meta.Version = value
+		case "category":
+			meta.Category = value
+		case "requires_approval":
+			meta.RequiresApproval = value == "true"
+		case "dry_run":
+			meta.DryRun = value == "true"
+		case "deprecated":
+			meta.Deprecated = value == "true"
+		case "invariants":
+			// 次の行が "- " で始まるリストアイテム
+			currentListKey = "invariants"
+		default:
+			currentListKey = ""
 		}
 	}
 

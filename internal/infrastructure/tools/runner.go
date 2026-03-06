@@ -194,7 +194,7 @@ func (r *ToolRunner) executeFileRead(ctx context.Context, args map[string]interf
 	return string(content), nil
 }
 
-// executeFileWrite はファイルに書き込む
+// executeFileWrite はファイルに書き込む（mode=plan で dry-run 対応）
 func (r *ToolRunner) executeFileWrite(ctx context.Context, args map[string]interface{}) (string, error) {
 	path, ok := args["path"].(string)
 	if !ok {
@@ -204,6 +204,12 @@ func (r *ToolRunner) executeFileWrite(ctx context.Context, args map[string]inter
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("'content' argument is required and must be a string")
+	}
+
+	// dry-run モード: ファイル存在チェック + プレビューのみ
+	mode, _ := args["mode"].(string)
+	if mode == "plan" {
+		return r.fileWriteDryRun(path, content), nil
 	}
 
 	// ディレクトリが存在しない場合は作成
@@ -217,6 +223,39 @@ func (r *ToolRunner) executeFileWrite(ctx context.Context, args map[string]inter
 	}
 
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(content), path), nil
+}
+
+// fileWriteDryRun はファイル書き込みの dry-run を実行
+func (r *ToolRunner) fileWriteDryRun(path, content string) string {
+	var result strings.Builder
+	result.WriteString("[DRY-RUN] file_write\n")
+	result.WriteString(fmt.Sprintf("path: %s\n", path))
+	result.WriteString(fmt.Sprintf("content_size: %d bytes\n", len(content)))
+
+	if info, err := os.Stat(path); err == nil {
+		result.WriteString(fmt.Sprintf("exists: true (current size: %d bytes)\n", info.Size()))
+		result.WriteString("action: overwrite\n")
+	} else {
+		result.WriteString("exists: false\n")
+		result.WriteString("action: create\n")
+	}
+
+	// プレビュー（最大5行）
+	lines := strings.SplitN(content, "\n", 6)
+	if len(lines) > 5 {
+		lines = lines[:5]
+		result.WriteString("preview (first 5 lines):\n")
+	} else {
+		result.WriteString("preview:\n")
+	}
+	for _, line := range lines {
+		if len(line) > 120 {
+			line = line[:120] + "..."
+		}
+		result.WriteString("  " + line + "\n")
+	}
+
+	return result.String()
 }
 
 // executeFileList はディレクトリ内のファイル一覧を取得

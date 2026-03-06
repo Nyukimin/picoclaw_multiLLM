@@ -65,6 +65,70 @@ func TestParseSkillFile_EmptyContent(t *testing.T) {
 	}
 }
 
+func TestParseSkillFile_ToolContractFields(t *testing.T) {
+	content := `---
+name: file_write
+tool_id: file_write
+version: "1.0.0"
+category: mutation
+requires_approval: true
+dry_run: true
+invariants:
+  - "path must be non-empty"
+  - "path traversal is rejected"
+  - "timeout: 10 seconds"
+---
+
+# file_write`
+
+	meta := parseSkillFile(content, "file_write")
+	if meta.ToolID != "file_write" {
+		t.Errorf("ToolID = %q, want %q", meta.ToolID, "file_write")
+	}
+	if meta.Version != "1.0.0" {
+		t.Errorf("Version = %q, want %q", meta.Version, "1.0.0")
+	}
+	if meta.Category != "mutation" {
+		t.Errorf("Category = %q, want %q", meta.Category, "mutation")
+	}
+	if !meta.RequiresApproval {
+		t.Error("RequiresApproval should be true")
+	}
+	if !meta.DryRun {
+		t.Error("DryRun should be true")
+	}
+	if len(meta.Invariants) != 3 {
+		t.Errorf("Invariants len = %d, want 3", len(meta.Invariants))
+	}
+	if len(meta.Invariants) > 0 && meta.Invariants[0] != "path must be non-empty" {
+		t.Errorf("Invariants[0] = %q", meta.Invariants[0])
+	}
+}
+
+func TestParseSkillFile_QueryCategory(t *testing.T) {
+	content := `---
+name: file_read
+tool_id: file_read
+version: "1.0.0"
+category: query
+requires_approval: false
+dry_run: false
+---
+
+# file_read`
+
+	meta := parseSkillFile(content, "file_read")
+	if meta.Category != "query" {
+		t.Errorf("Category = %q, want %q", meta.Category, "query")
+	}
+	if meta.RequiresApproval {
+		t.Error("RequiresApproval should be false")
+	}
+	if meta.DryRun {
+		t.Error("DryRun should be false")
+	}
+}
+
 func TestFormatSummary(t *testing.T) {
 	loader := NewSkillsLoader("/nonexistent")
 	skills := []SkillMetadata{
