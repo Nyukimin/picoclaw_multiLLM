@@ -125,6 +125,65 @@ func TestThreadStatusConstants(t *testing.T) {
 	}
 }
 
+func TestThread_LastMessageTime_Empty(t *testing.T) {
+	thread := NewThread("session-001", "test")
+	// No messages — should return StartTime
+	if thread.LastMessageTime() != thread.StartTime {
+		t.Error("LastMessageTime with no messages should return StartTime")
+	}
+}
+
+func TestThread_LastMessageTime_WithMessages(t *testing.T) {
+	thread := NewThread("session-001", "test")
+	msg1 := NewMessage(SpeakerUser, "first", nil)
+	thread.AddMessage(msg1)
+	msg2 := NewMessage(SpeakerMio, "second", nil)
+	thread.AddMessage(msg2)
+	// Should return last message timestamp
+	if thread.LastMessageTime() != msg2.Timestamp {
+		t.Error("LastMessageTime should return last message's timestamp")
+	}
+}
+
+func TestThread_RecentMessagesText_Empty(t *testing.T) {
+	thread := NewThread("session-001", "test")
+	text := thread.RecentMessagesText(5)
+	if text != "" {
+		t.Errorf("empty thread should return empty string, got %q", text)
+	}
+}
+
+func TestThread_RecentMessagesText_LessThanN(t *testing.T) {
+	thread := NewThread("session-001", "test")
+	thread.AddMessage(NewMessage(SpeakerUser, "hello", nil))
+	thread.AddMessage(NewMessage(SpeakerMio, "hi", nil))
+	text := thread.RecentMessagesText(5)
+	if text != "hello hi" {
+		t.Errorf("expected 'hello hi', got %q", text)
+	}
+}
+
+func TestThread_RecentMessagesText_ExactN(t *testing.T) {
+	thread := NewThread("session-001", "test")
+	thread.AddMessage(NewMessage(SpeakerUser, "a", nil))
+	thread.AddMessage(NewMessage(SpeakerMio, "b", nil))
+	text := thread.RecentMessagesText(2)
+	if text != "a b" {
+		t.Errorf("expected 'a b', got %q", text)
+	}
+}
+
+func TestThread_RecentMessagesText_MoreThanN(t *testing.T) {
+	thread := NewThread("session-001", "test")
+	thread.AddMessage(NewMessage(SpeakerUser, "old", nil))
+	thread.AddMessage(NewMessage(SpeakerMio, "mid", nil))
+	thread.AddMessage(NewMessage(SpeakerUser, "new", nil))
+	text := thread.RecentMessagesText(2)
+	if text != "mid new" {
+		t.Errorf("expected 'mid new', got %q", text)
+	}
+}
+
 func TestGenerateThreadID(t *testing.T) {
 	id1 := generateThreadID()
 	time.Sleep(1 * time.Millisecond)

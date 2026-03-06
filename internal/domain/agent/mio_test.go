@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -197,5 +200,345 @@ func TestMioAgentChat(t *testing.T) {
 
 	if response != "こんにちは！何かお手伝いできますか？" {
 		t.Errorf("Unexpected chat response: %s", response)
+	}
+}
+
+// === mockConversationEngine ===
+
+type mockConversationEngine struct {
+	beginTurnFunc func(ctx context.Context, sessionID string, userMessage string) (*conversation.RecallPack, error)
+	endTurnFunc   func(ctx context.Context, sessionID string, userMessage string, response string) error
+	persona       conversation.PersonaState
+}
+
+func (m *mockConversationEngine) BeginTurn(ctx context.Context, sessionID string, userMessage string) (*conversation.RecallPack, error) {
+	if m.beginTurnFunc != nil {
+		return m.beginTurnFunc(ctx, sessionID, userMessage)
+	}
+	return &conversation.RecallPack{Persona: m.persona}, nil
+}
+
+func (m *mockConversationEngine) EndTurn(ctx context.Context, sessionID string, userMessage string, response string) error {
+	if m.endTurnFunc != nil {
+		return m.endTurnFunc(ctx, sessionID, userMessage, response)
+	}
+	return nil
+}
+
+func (m *mockConversationEngine) GetPersona() conversation.PersonaState { return m.persona }
+func (m *mockConversationEngine) FlushCurrentThread(ctx context.Context, sessionID string) error {
+	return nil
+}
+func (m *mockConversationEngine) GetStatus(ctx context.Context, sessionID string) (*conversation.ConversationStatus, error) {
+	return &conversation.ConversationStatus{}, nil
+}
+func (m *mockConversationEngine) ResetSession(ctx context.Context, sessionID string) error {
+	return nil
+}
+
+// === Phase 1C: ConversationEngine integration tests ===
+
+func TestMioAgent_Chat_WithConversationEngine(t *testing.T) {
+	beginCalled := false
+	endCalled := false
+
+	engine := &mockConversationEngine{
+		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {
+			beginCalled = true
+			return &conversation.RecallPack{
+				Persona: conversation.PersonaState{SystemPrompt: "You are Mio."},
+				ShortContext: []conversation.Message{
+					{Speaker: conversation.SpeakerUser, Msg: "previous msg"},
+				},
+			}, nil
+		},
+		endTurnFunc: func(ctx context.Context, sessionID, msg, resp string) error {
+			endCalled = true
+			return nil
+		},
+	}
+
+	var capturedReq llm.GenerateRequest
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			capturedReq = req
+			return llm.GenerateResponse{Content: "response"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, engine)
+	testTask := task.NewTask(task.NewJobID(), "hello", "line", "U123")
+
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp != "response" {
+		t.Errorf("response: want 'response', got %q", resp)
+	}
+	if !beginCalled {
+		t.Error("BeginTurn should have been called")
+	}
+	if !endCalled {
+		t.Error("EndTurn should have been called")
+	}
+	// Verify RecallPack was injected: system prompt + short context + user message
+	if len(capturedReq.Messages) < 3 {
+		t.Fatalf("expected at least 3 messages, got %d", len(capturedReq.Messages))
+	}
+	if capturedReq.Messages[0].Role != "system" {
+		t.Errorf("msg[0] role: want 'system', got %q", capturedReq.Messages[0].Role)
+	}
+}
+
+func TestMioAgent_Chat_ConversationEngine_BeginTurnError(t *testing.T) {
+	engine := &mockConversationEngine{
+		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {
+			return nil, fmt.Errorf("redis down")
+		},
+	}
+
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{Content: "fallback response"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, engine)
+	testTask := task.NewTask(task.NewJobID(), "hello", "line", "U123")
+
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat should succeed even when BeginTurn fails: %v", err)
+	}
+	if resp != "fallback response" {
+		t.Errorf("response: want 'fallback response', got %q", resp)
+	}
+}
+
+func TestMioAgent_Chat_ConversationEngine_EndTurnError(t *testing.T) {
+	engine := &mockConversationEngine{
+		endTurnFunc: func(ctx context.Context, sessionID, msg, resp string) error {
+			return fmt.Errorf("storage failure")
+		},
+	}
+
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{Content: "my response"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, engine)
+	testTask := task.NewTask(task.NewJobID(), "hello", "line", "U123")
+
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat should succeed even when EndTurn fails: %v", err)
+	}
+	if resp != "my response" {
+		t.Errorf("response should still be returned: want 'my response', got %q", resp)
+	}
+}
+
+// === Web search tests ===
+
+func TestMioAgent_Chat_WebSearchTriggered(t *testing.T) {
+	searchCalled := false
+	toolRunner := &mockToolRunner{
+		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+			if toolName == "web_search" {
+				searchCalled = true
+				return "search results", nil
+			}
+			return "", nil
+		},
+	}
+
+	var capturedReq llm.GenerateRequest
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			capturedReq = req
+			return llm.GenerateResponse{Content: "answer"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil)
+	testTask := task.NewTask(task.NewJobID(), "Go言語について教えて", "line", "U123")
+
+	_, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if !searchCalled {
+		t.Error("web_search should have been called for message with '教えて'")
+	}
+	// Verify search results injected into messages
+	hasSearchContext := false
+	for _, msg := range capturedReq.Messages {
+		if strings.Contains(msg.Content, "Web検索の結果") {
+			hasSearchContext = true
+			break
+		}
+	}
+	if !hasSearchContext {
+		t.Error("search results should be injected into LLM messages")
+	}
+}
+
+func TestMioAgent_Chat_WebSearchNotTriggered(t *testing.T) {
+	searchCalled := false
+	toolRunner := &mockToolRunner{
+		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+			if toolName == "web_search" {
+				searchCalled = true
+			}
+			return "", nil
+		},
+	}
+
+	provider := &mockLLMProvider{}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil)
+	testTask := task.NewTask(task.NewJobID(), "こんにちは", "line", "U123")
+
+	_, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if searchCalled {
+		t.Error("web_search should NOT be called for simple greeting")
+	}
+}
+
+func TestMioAgent_Chat_WebSearchError(t *testing.T) {
+	toolRunner := &mockToolRunner{
+		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+			return "", fmt.Errorf("API error")
+		},
+	}
+
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{Content: "response without search"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil)
+	testTask := task.NewTask(task.NewJobID(), "最新のニュースを検索して", "line", "U123")
+
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat should succeed even when web search fails: %v", err)
+	}
+	if resp != "response without search" {
+		t.Errorf("response: want 'response without search', got %q", resp)
+	}
+}
+
+// === LLM error test ===
+
+func TestMioAgent_Chat_LLMError(t *testing.T) {
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{}, fmt.Errorf("LLM unavailable")
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	testTask := task.NewTask(task.NewJobID(), "hello", "line", "U123")
+
+	_, err := mio.Chat(context.Background(), testTask)
+	if err == nil {
+		t.Fatal("Chat should return error when LLM fails")
+	}
+	if !strings.Contains(err.Error(), "LLM unavailable") {
+		t.Errorf("error should contain 'LLM unavailable', got: %v", err)
+	}
+}
+
+// === Command parsing tests ===
+
+func TestParseExplicitCommand_AllRoutes(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+
+	tests := []struct {
+		message string
+		route   routing.Route
+	}{
+		{"/chat hello", routing.RouteCHAT},
+		{"/plan create project", routing.RoutePLAN},
+		{"/analyze logs", routing.RouteANALYZE},
+		{"/ops deploy", routing.RouteOPS},
+		{"/research topic", routing.RouteRESEARCH},
+		{"/code fix bug", routing.RouteCODE},
+		{"/code1 design spec", routing.RouteCODE1},
+		{"/code2 implement feature", routing.RouteCODE2},
+		{"/code3 review code", routing.RouteCODE3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.message, func(t *testing.T) {
+			result := mio.parseExplicitCommand(tt.message)
+			if result != tt.route {
+				t.Errorf("parseExplicitCommand(%q): want %s, got %s", tt.message, tt.route, result)
+			}
+		})
+	}
+}
+
+func TestParseExplicitCommand_PrefixOverlap(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+
+	// /code3 should match CODE3, not CODE
+	result := mio.parseExplicitCommand("/code3 task")
+	if result != routing.RouteCODE3 {
+		t.Errorf("/code3 should match CODE3, got %s", result)
+	}
+}
+
+func TestParseExplicitCommand_EmptyMessage(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	result := mio.parseExplicitCommand("")
+	if result != "" {
+		t.Errorf("empty message should return empty route, got %s", result)
+	}
+}
+
+func TestParseExplicitCommand_NoCommand(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	result := mio.parseExplicitCommand("hello world")
+	if result != "" {
+		t.Errorf("non-command message should return empty route, got %s", result)
+	}
+}
+
+func TestParseExplicitCommand_LeadingSpaces(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	result := mio.parseExplicitCommand("  /chat hello")
+	if result != routing.RouteCHAT {
+		t.Errorf("leading spaces should be trimmed, got %s", result)
+	}
+}
+
+// === cleanSearchQuery tests ===
+
+func TestCleanSearchQuery(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Go言語について教えて", "Go言語"},
+		{"最新のニュースを検索して", "最新のニュースして"}, // "を検索" removed first, "して" remains
+		{"Rustとは", "Rust"},
+		{"hello", "hello"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := cleanSearchQuery(tt.input)
+			if got != tt.want {
+				t.Errorf("cleanSearchQuery(%q): want %q, got %q", tt.input, tt.want, got)
+			}
+		})
 	}
 }

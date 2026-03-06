@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -10,9 +12,11 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
-// mockSessionRepository はテスト用のSessionRepository
+// mockSessionRepository はテスト用のSessionRepository（エラー注入対応）
 type mockSessionRepository struct {
-	sessions map[string]*session.Session
+	sessions  map[string]*session.Session
+	loadErr   error // non-nil ならLoad時にこのエラーを返す
+	saveErr   error // non-nil ならSave時にこのエラーを返す
 }
 
 func newMockSessionRepository() *mockSessionRepository {
@@ -22,11 +26,17 @@ func newMockSessionRepository() *mockSessionRepository {
 }
 
 func (m *mockSessionRepository) Save(ctx context.Context, sess *session.Session) error {
+	if m.saveErr != nil {
+		return m.saveErr
+	}
 	m.sessions[sess.ID()] = sess
 	return nil
 }
 
 func (m *mockSessionRepository) Load(ctx context.Context, id string) (*session.Session, error) {
+	if m.loadErr != nil {
+		return nil, m.loadErr
+	}
 	sess, exists := m.sessions[id]
 	if !exists {
 		return nil, session.ErrSessionNotFound
@@ -44,30 +54,46 @@ func (m *mockSessionRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// mockMioAgent はテスト用のMioAgent
+// mockMioAgent はテスト用のMioAgent（function pointer でエラー注入可能）
 type mockMioAgent struct {
-	decision routing.Decision
-	response string
+	decision   routing.Decision
+	response   string
+	decideFunc func(ctx context.Context, t task.Task) (routing.Decision, error)
+	chatFunc   func(ctx context.Context, t task.Task) (string, error)
+	cmdFunc    func(ctx context.Context, sessionID string, message string) (agent.ChatCommandResult, error)
 }
 
 func (m *mockMioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
+	if m.decideFunc != nil {
+		return m.decideFunc(ctx, t)
+	}
 	return m.decision, nil
 }
 
 func (m *mockMioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	if m.chatFunc != nil {
+		return m.chatFunc(ctx, t)
+	}
 	return m.response, nil
 }
 
 func (m *mockMioAgent) HandleChatCommand(ctx context.Context, sessionID string, message string) (agent.ChatCommandResult, error) {
+	if m.cmdFunc != nil {
+		return m.cmdFunc(ctx, sessionID, message)
+	}
 	return agent.ChatCommandResult{Handled: false}, nil
 }
 
 // mockShiroAgent はテスト用のShiroAgent
 type mockShiroAgent struct {
-	response string
+	response    string
+	executeFunc func(ctx context.Context, t task.Task) (string, error)
 }
 
 func (m *mockShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
+	if m.executeFunc != nil {
+		return m.executeFunc(ctx, t)
+	}
 	return m.response, nil
 }
 
@@ -307,5 +333,257 @@ func TestMessageOrchestrator_ProcessMessage_TaskAddedToHistory(t *testing.T) {
 
 	if history[0].Route() != routing.RouteCHAT {
 		t.Errorf("Expected task route CHAT, got '%s'", history[0].Route())
+	}
+}
+
+// === Phase 1D: Error path tests ===
+
+func defaultReq() ProcessMessageRequest {
+	return ProcessMessageRequest{
+		SessionID:   "test-session",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "test message",
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_SessionLoadError(t *testing.T) {
+	repo := newMockSessionRepository()
+	repo.loadErr = fmt.Errorf("database connection failed")
+
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat"),
+		response: "hello",
+	}
+
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for session load failure")
+	}
+	if !strings.Contains(err.Error(), "database connection failed") {
+		t.Errorf("error should contain root cause, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_RoutingError(t *testing.T) {
+	mio := &mockMioAgent{
+		decideFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
+			return routing.Decision{}, fmt.Errorf("LLM classifier timeout")
+		},
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for routing failure")
+	}
+	if !strings.Contains(err.Error(), "routing decision failed") {
+		t.Errorf("error should mention routing, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ChatError(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat"),
+		chatFunc: func(ctx context.Context, t task.Task) (string, error) {
+			return "", fmt.Errorf("Ollama unavailable")
+		},
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for chat failure")
+	}
+	if !strings.Contains(err.Error(), "Ollama unavailable") {
+		t.Errorf("error should contain root cause, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ShiroError(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteOPS, 0.9, "OPS"),
+	}
+	shiro := &mockShiroAgent{
+		executeFunc: func(ctx context.Context, t task.Task) (string, error) {
+			return "", fmt.Errorf("command execution failed")
+		},
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, shiro, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for shiro failure")
+	}
+	if !strings.Contains(err.Error(), "command execution failed") {
+		t.Errorf("error should contain root cause, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_CODE1_NoCoder(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE1, 1.0, "CODE1"),
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for CODE1 with no coder")
+	}
+	if !strings.Contains(err.Error(), "no coder1 available") {
+		t.Errorf("error should mention coder unavailability, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_CODE2_NoCoder(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE2, 1.0, "CODE2"),
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for CODE2 with no coder")
+	}
+	if !strings.Contains(err.Error(), "no coder2 available") {
+		t.Errorf("error should mention coder unavailability, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_CODE3_NoCoder(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE3, 1.0, "CODE3"),
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for CODE3 with no coder")
+	}
+	if !strings.Contains(err.Error(), "no coder3 available") {
+		t.Errorf("error should mention coder unavailability, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_PLAN_FallbackToChat(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RoutePLAN, 0.8, "PLAN"),
+		response: "plan response via chat",
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RoutePLAN {
+		t.Errorf("route: want PLAN, got %s", resp.Route)
+	}
+	if resp.Response != "plan response via chat" {
+		t.Errorf("response: want 'plan response via chat', got %q", resp.Response)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ANALYZE_FallbackToChat(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteANALYZE, 0.8, "ANALYZE"),
+		response: "analysis via chat",
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteANALYZE {
+		t.Errorf("route: want ANALYZE, got %s", resp.Route)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_RESEARCH_FallbackToChat(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteRESEARCH, 0.8, "RESEARCH"),
+		response: "research via chat",
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteRESEARCH {
+		t.Errorf("route: want RESEARCH, got %s", resp.Route)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_UnknownRoute(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.Route("UNKNOWN"), 0.5, "unknown"),
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for unknown route")
+	}
+	if !strings.Contains(err.Error(), "unknown route") {
+		t.Errorf("error should mention unknown route, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ChatCommand_Handled(t *testing.T) {
+	mio := &mockMioAgent{
+		cmdFunc: func(ctx context.Context, sessionID, message string) (agent.ChatCommandResult, error) {
+			return agent.ChatCommandResult{Handled: true, Response: "status output"}, nil
+		},
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Response != "status output" {
+		t.Errorf("response: want 'status output', got %q", resp.Response)
+	}
+	if resp.Route != routing.RouteCHAT {
+		t.Errorf("route for handled command should be CHAT, got %s", resp.Route)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ChatCommand_Error(t *testing.T) {
+	mio := &mockMioAgent{
+		cmdFunc: func(ctx context.Context, sessionID, message string) (agent.ChatCommandResult, error) {
+			return agent.ChatCommandResult{}, fmt.Errorf("command processing failed")
+		},
+	}
+
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for command failure")
+	}
+	if !strings.Contains(err.Error(), "chat command failed") {
+		t.Errorf("error should mention chat command, got: %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_SessionSaveError(t *testing.T) {
+	repo := newMockSessionRepository()
+	repo.saveErr = fmt.Errorf("disk full")
+
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat"),
+		response: "hello",
+	}
+
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected error for save failure")
+	}
+	if !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("error should contain root cause, got: %v", err)
 	}
 }
