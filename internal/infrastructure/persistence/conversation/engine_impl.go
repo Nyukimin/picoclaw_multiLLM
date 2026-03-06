@@ -116,3 +116,46 @@ func (e *RealConversationEngine) EndTurn(ctx context.Context, sessionID string, 
 func (e *RealConversationEngine) GetPersona() domconv.PersonaState {
 	return e.persona
 }
+
+// FlushCurrentThread は現在のスレッドを強制フラッシュする
+func (e *RealConversationEngine) FlushCurrentThread(ctx context.Context, sessionID string) error {
+	thread, err := e.manager.GetActiveThread(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if _, err := e.manager.FlushThread(ctx, thread.ID); err != nil {
+		return err
+	}
+	_, err = e.manager.CreateThread(ctx, sessionID, thread.Domain)
+	return err
+}
+
+// GetStatus は会話セッションの現在状態を返す
+func (e *RealConversationEngine) GetStatus(ctx context.Context, sessionID string) (*domconv.ConversationStatus, error) {
+	thread, err := e.manager.GetActiveThread(ctx, sessionID)
+	if err != nil {
+		return &domconv.ConversationStatus{
+			SessionID: sessionID,
+		}, nil
+	}
+	return &domconv.ConversationStatus{
+		SessionID:    sessionID,
+		ThreadID:     thread.ID,
+		ThreadDomain: thread.Domain,
+		TurnCount:    len(thread.Turns),
+		ThreadStart:  thread.StartTime,
+		ThreadStatus: thread.Status,
+	}, nil
+}
+
+// ResetSession はセッションをリセットする
+func (e *RealConversationEngine) ResetSession(ctx context.Context, sessionID string) error {
+	thread, err := e.manager.GetActiveThread(ctx, sessionID)
+	if err == nil && thread != nil {
+		if _, err := e.manager.FlushThread(ctx, thread.ID); err != nil {
+			log.Printf("[ConversationEngine] WARN: FlushThread during reset failed: %v", err)
+		}
+	}
+	_, err = e.manager.CreateThread(ctx, sessionID, "general")
+	return err
+}

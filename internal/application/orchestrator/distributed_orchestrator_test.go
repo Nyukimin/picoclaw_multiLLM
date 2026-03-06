@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -31,6 +32,10 @@ func (m *distMockMioAgent) DecideAction(ctx context.Context, t task.Task) (routi
 
 func (m *distMockMioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	return m.chatResponse, nil
+}
+
+func (m *distMockMioAgent) HandleChatCommand(ctx context.Context, sessionID string, message string) (agent.ChatCommandResult, error) {
+	return agent.ChatCommandResult{Handled: false}, nil
 }
 
 // distMockSessionRepo はDistributedOrchestrator テスト用のSessionRepo

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -55,6 +56,10 @@ func (m *mockMioAgent) DecideAction(ctx context.Context, t task.Task) (routing.D
 
 func (m *mockMioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	return m.response, nil
+}
+
+func (m *mockMioAgent) HandleChatCommand(ctx context.Context, sessionID string, message string) (agent.ChatCommandResult, error) {
+	return agent.ChatCommandResult{Handled: false}, nil
 }
 
 // mockShiroAgent はテスト用のShiroAgent

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -41,6 +42,7 @@ type SessionRepository interface {
 type MioAgent interface {
 	DecideAction(ctx context.Context, t task.Task) (routing.Decision, error)
 	Chat(ctx context.Context, t task.Task) (string, error)
+	HandleChatCommand(ctx context.Context, sessionID string, message string) (agent.ChatCommandResult, error)
 }
 
 // ShiroAgent は実行を担当
@@ -99,11 +101,25 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
 
-	// 2. タスクを作成
+	// 2. チャットコマンドのチェック（ルーティング前）
+	cmdResult, err := o.mio.HandleChatCommand(ctx, req.ChatID, req.UserMessage)
+	if err != nil {
+		return ProcessMessageResponse{}, fmt.Errorf("chat command failed: %w", err)
+	}
+	if cmdResult.Handled {
+		return ProcessMessageResponse{
+			Response:   cmdResult.Response,
+			Route:      routing.RouteCHAT,
+			Confidence: 1.0,
+			JobID:      task.NewJobID().String(),
+		}, nil
+	}
+
+	// 3. タスクを作成
 	jobID := task.NewJobID()
 	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID)
 
-	// 3. ルーティング決定
+	// 4. ルーティング決定
 	decision, err := o.mio.DecideAction(ctx, t)
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
