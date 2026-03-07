@@ -290,7 +290,38 @@ Content:
 goroutine は軽量スレッドで、channel で通信します...
 ```
 
-#### 2. 統計情報確認
+#### 2. ドキュメント一覧表示
+
+```bash
+kb-admin list programming
+```
+
+**出力例:**
+```
+📚 Domain: programming
+
+Found 5 documents:
+
+--- Document 1 ---
+ID:      550e8400-e29b-41d4-a716-446655440000
+Source:  https://go.dev/doc/
+Created: 2026-03-07T10:30:00Z
+Content: # Go Documentation
+         The Go programming language is an open source project...
+
+--- Document 2 ---
+ID:      6ba7b810-9dad-11d1-80b4-00c04fd430c8
+Source:  https://www.rust-lang.org/
+Created: 2026-03-06T15:20:00Z
+Content: # Rust Programming Language
+         Rust is a systems programming language...
+```
+
+**オプション:**
+- デフォルト: 最大100件表示
+- Content は最初の150文字まで表示
+
+#### 3. 統計情報確認
 
 ```bash
 kb-admin stats
@@ -300,26 +331,48 @@ kb-admin stats
 ```
 📊 Knowledge Base Statistics
 
-Checking known domains:
-  ✓ programming - has documents
-  ✓ movie - has documents
-  ✓ general - empty
-  ✓ anime - empty
-  ✓ tech - empty
-  ✓ history - empty
+Found 3 collection(s):
+
+  ✓ programming
+    Documents: 45
+    Vector Size: 768
+
+  ✓ movie
+    Documents: 23
+    Vector Size: 768
+
+  ✓ general
+    Documents: 12
+    Vector Size: 768
 ```
 
-#### 3. ドキュメント一覧（Phase 4.2）
+**表示内容:**
+- 存在するコレクション一覧（空コレクションは非表示）
+- 各ドメインのドキュメント数
+- ベクトル次元数（Embedder設定確認）
+
+#### 4. 古いドキュメント削除
 
 ```bash
-kb-admin list programming
+# 30日より古いドキュメントを削除
+kb-admin cleanup programming 30
 ```
 
-#### 4. 古いドキュメント削除（Phase 4.2）
-
-```bash
-kb-admin cleanup programming 30  # 30日より古いドキュメントを削除
+**出力例:**
 ```
+🗑️  Cleanup Policy
+Domain: programming
+Delete documents older than: 30 days (before 2026-02-05)
+
+Documents before cleanup: 45
+Documents after cleanup:  38
+✓ Deleted: 7 documents
+```
+
+**注意事項:**
+- 削除は **不可逆** です（事前バックアップ推奨）
+- `created_at` フィールドで判定
+- 削除前後のカウントで実際の削除数を確認
 
 ### Qdrant Web UI
 
@@ -420,6 +473,105 @@ collections:
 - 高速検索優先: `m: 8, ef_construct: 64`
 - 精度優先: `m: 32, ef_construct: 200`
 - バランス: `m: 16, ef_construct: 100`（デフォルト）
+
+### 5. DuckDB クエリ最適化 ✅ 実装済み
+
+**複合インデックスによる高速化:**
+
+```sql
+-- GetSessionHistory 用（session_id + ts_start）
+CREATE INDEX idx_session_thread_session_ts 
+    ON session_thread(session_id, ts_start DESC);
+
+-- SearchByDomain 用（domain + ts_start）
+CREATE INDEX idx_session_thread_domain_ts 
+    ON session_thread(domain, ts_start DESC);
+```
+
+**効果:**
+- WHERE + ORDER BY を単一インデックスでカバー
+- インデックススキャン回数: 2回 → 1回（50%削減）
+- 履歴件数増加時のスケーラビリティ向上
+
+**適用クエリ:**
+- `GetSessionHistory`: セッション履歴取得
+- `SearchByDomain`: ドメイン内検索
+
+### 6. Redis キャッシュモニタリング ✅ 実装済み
+
+**キャッシュヒット率の可視化:**
+
+```go
+// メトリクス取得
+metrics := redisStore.GetMetrics()
+fmt.Printf("Session: %d hits, %d misses\n", 
+    metrics.SessionHits, metrics.SessionMisses)
+
+// ヒット率計算
+sessionRate, threadRate := redisStore.GetCacheHitRate()
+fmt.Printf("Hit Rate: Session=%.1f%%, Thread=%.1f%%\n", 
+    sessionRate, threadRate)
+```
+
+**期待値:**
+- **Session ヒット率:** 80-90%（同一ユーザーの連続会話）
+- **Thread ヒット率:** 60-70%（短期記憶の再利用）
+
+**アクション基準:**
+- ヒット率 <50% → **TTL延長検討**（デフォルト: Session=24h, Thread=1h）
+- ヒット率 >95% → **メモリ使用量確認**（過剰キャッシュの可能性）
+
+**設定調整:**
+
+```go
+// redis_store.go で TTL 調整
+r := &RedisStore{
+    client: client,
+    ttl:    48 * time.Hour, // Session TTL: 24h → 48h
+}
+
+// Thread TTL は SaveThread 内で指定
+r.client.Set(ctx, key, data, 2*time.Hour) // 1h → 2h
+```
+
+### 7. エラーハンドリング（リトライ機構） ✅ 実装済み
+
+**VectorDB操作の自動リトライ:**
+
+```go
+// 設定
+DefaultRetryConfig{
+    MaxAttempts:  3,              // 最大3回試行
+    InitialDelay: 100ms,          // 初回待機100ms
+    MaxDelay:     2s,             // 最大待機2秒
+    Multiplier:   2.0,            // 指数バックオフ
+}
+```
+
+**適用操作:**
+- `SearchKB`: KB検索
+- `SaveWebSearchToKB`: Web検索結果保存
+- `Recall`: 長期記憶検索
+
+**動作例:**
+```
+# 一時的なネットワークエラー
+Attempt 1: Failed (network timeout)
+Wait: 100ms
+Attempt 2: Failed (connection refused)
+Wait: 200ms
+Attempt 3: Success
+```
+
+**エラーログ:**
+```
+SearchKB: VectorDB search failed after retries (domain=programming, query="Go並行処理", topK=5): connection timeout
+SaveWebSearchToKB: Failed to save result 3/5 to VectorDB after retries (title="Example"): network error
+```
+
+**グレースフルデグラデーション:**
+- Embedder未設定時: エラーではなく空結果を返す
+- 部分的な保存失敗: 成功分は保存、全失敗時のみエラー
 
 ---
 
