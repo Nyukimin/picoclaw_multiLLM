@@ -294,3 +294,161 @@ func TestIsNovelInformation_NoEmbedder_ReturnsFalse(t *testing.T) {
 		t.Error("Should return false when embedder is not configured")
 	}
 }
+
+// --- KB管理APIのテスト ---
+
+func TestListKBDocuments_Success(t *testing.T) {
+	mgr := newTestManager(&mockEmbeddingProvider{vec: []float32{0.1, 0.2}}, nil)
+	ctx := context.Background()
+
+	docs, err := mgr.ListKBDocuments(ctx, "programming", 10)
+	if err != nil {
+		t.Fatalf("ListKBDocuments failed: %v", err)
+	}
+
+	// mockVectorDBStore は空スライスを返す
+	if docs == nil {
+		t.Fatal("Expected non-nil docs slice")
+	}
+	if len(docs) != 0 {
+		t.Errorf("Expected 0 docs from mock, got %d", len(docs))
+	}
+}
+
+func TestGetKBCollections_Success(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	ctx := context.Background()
+
+	collections, err := mgr.GetKBCollections(ctx)
+	if err != nil {
+		t.Fatalf("GetKBCollections failed: %v", err)
+	}
+
+	// mockVectorDBStore は空スライスを返す
+	if collections == nil {
+		t.Fatal("Expected non-nil collections slice")
+	}
+	if len(collections) != 0 {
+		t.Errorf("Expected 0 collections from mock, got %d", len(collections))
+	}
+}
+
+func TestGetKBStats_Success(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	ctx := context.Background()
+
+	stats, err := mgr.GetKBStats(ctx, "programming")
+	if err != nil {
+		t.Fatalf("GetKBStats failed: %v", err)
+	}
+
+	if stats == nil {
+		t.Fatal("Expected non-nil stats")
+	}
+	if stats.Domain != "test" {
+		t.Errorf("Expected domain 'test', got '%s'", stats.Domain)
+	}
+	if stats.DocumentCount != 0 {
+		t.Errorf("Expected 0 documents, got %d", stats.DocumentCount)
+	}
+	if stats.VectorSize != 768 {
+		t.Errorf("Expected vector size 768, got %d", stats.VectorSize)
+	}
+}
+
+func TestDeleteOldKBDocuments_Success(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	ctx := context.Background()
+
+	cutoff := time.Now().AddDate(0, 0, -30)
+	deletedCount, err := mgr.DeleteOldKBDocuments(ctx, "programming", cutoff)
+	if err != nil {
+		t.Fatalf("DeleteOldKBDocuments failed: %v", err)
+	}
+
+	// mockVectorDBStore は 0 を返す
+	if deletedCount != 0 {
+		t.Errorf("Expected 0 deleted, got %d", deletedCount)
+	}
+}
+
+func TestStore_CreatesThreadWhenNotFound(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	ctx := context.Background()
+
+	msg := domconv.NewMessage(domconv.SpeakerUser, "Hello", nil)
+	err := mgr.Store(ctx, "session123", msg)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	// スレッドが作成されたことを確認
+	thread, err := mgr.GetActiveThread(ctx, "session123")
+	if err != nil {
+		t.Fatalf("GetActiveThread failed: %v", err)
+	}
+	if thread == nil {
+		t.Fatal("Expected thread to be created")
+	}
+	if len(thread.Turns) != 1 {
+		t.Errorf("Expected 1 turn, got %d", len(thread.Turns))
+	}
+	if thread.Turns[0].Msg != "Hello" {
+		t.Errorf("Expected message 'Hello', got '%s'", thread.Turns[0].Msg)
+	}
+}
+
+func TestStore_AppendsToExistingThread(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	ctx := context.Background()
+
+	// 最初のメッセージ
+	msg1 := domconv.NewMessage(domconv.SpeakerUser, "Hello", nil)
+	if err := mgr.Store(ctx, "session123", msg1); err != nil {
+		t.Fatalf("First Store failed: %v", err)
+	}
+
+	// 2番目のメッセージ
+	msg2 := domconv.NewMessage(domconv.SpeakerMio, "Hi there", nil)
+	if err := mgr.Store(ctx, "session123", msg2); err != nil {
+		t.Fatalf("Second Store failed: %v", err)
+	}
+
+	// スレッドが2つのメッセージを持つことを確認
+	thread, err := mgr.GetActiveThread(ctx, "session123")
+	if err != nil {
+		t.Fatalf("GetActiveThread failed: %v", err)
+	}
+	if len(thread.Turns) != 2 {
+		t.Errorf("Expected 2 turns, got %d", len(thread.Turns))
+	}
+}
+
+func TestWithEmbedder_ReturnsManager(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	embedder := &mockEmbeddingProvider{vec: []float32{0.1, 0.2}}
+
+	result := mgr.WithEmbedder(embedder)
+	if result == nil {
+		t.Fatal("WithEmbedder should return manager")
+	}
+	// チェーン可能であることを確認
+	if result != mgr {
+		t.Error("WithEmbedder should return the same manager instance")
+	}
+}
+
+func TestWithSummarizer_ReturnsManager(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	summarizer := &mockSummarizer{summary: "test summary", keywords: []string{"test"}}
+
+	result := mgr.WithSummarizer(summarizer)
+	if result == nil {
+		t.Fatal("WithSummarizer should return manager")
+	}
+	// チェーン可能であることを確認
+	if result != mgr {
+		t.Error("WithSummarizer should return the same manager instance")
+	}
+}
+

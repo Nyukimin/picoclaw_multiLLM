@@ -586,3 +586,84 @@ func TestInferDomain(t *testing.T) {
 		})
 	}
 }
+
+func TestWithConversationManager(t *testing.T) {
+	provider := &mockLLMProvider{}
+	classifier := &mockClassifier{}
+	ruleDict := &mockRuleDictionary{}
+	toolRunner := &mockToolRunner{}
+	mcpClient := &mockMCPClient{}
+
+	mio := NewMioAgent(provider, classifier, ruleDict, toolRunner, mcpClient, nil)
+
+	// WithConversationManager should return the same agent instance
+	mockConvMgr := &mockConversationManager{}
+	result := mio.WithConversationManager(mockConvMgr)
+
+	if result != mio {
+		t.Error("WithConversationManager should return the same agent instance")
+	}
+
+	// Verify the manager was set by checking if Process can use it
+	// (This is indirectly verified through integration tests)
+}
+
+// mockConversationManager は ConversationManager のモック
+type mockConversationManager struct {
+	saveWebSearchCalled bool
+	searchKBCalled      bool
+}
+
+func (m *mockConversationManager) SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error {
+	m.saveWebSearchCalled = true
+	return nil
+}
+
+func (m *mockConversationManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error) {
+	m.searchKBCalled = true
+	return []*conversation.Document{}, nil
+}
+
+func TestGetStringField(t *testing.T) {
+	tests := []struct {
+		name     string
+		m        map[string]any
+		key      string
+		expected string
+	}{
+		{
+			name:     "valid string field",
+			m:        map[string]any{"name": "test"},
+			key:      "name",
+			expected: "test",
+		},
+		{
+			name:     "missing field",
+			m:        map[string]any{"other": "value"},
+			key:      "name",
+			expected: "",
+		},
+		{
+			name:     "non-string field",
+			m:        map[string]any{"count": 123},
+			key:      "count",
+			expected: "",
+		},
+		{
+			name:     "nil map",
+			m:        nil,
+			key:      "name",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getStringField(tt.m, tt.key)
+			if got != tt.expected {
+				t.Errorf("getStringField(%v, %q): want %q, got %q", tt.m, tt.key, tt.expected, got)
+			}
+		})
+	}
+}
+
