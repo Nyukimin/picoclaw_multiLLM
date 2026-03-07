@@ -542,3 +542,47 @@ func TestCleanSearchQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestInferDomain(t *testing.T) {
+	tests := []struct {
+		query string
+		want  string
+	}{
+		// プログラミング関連
+		{"Rustについて教えて", "programming"},
+		{"Pythonのコード例", "programming"},
+		{"Goの関数", "programming"},
+		{"JavaScriptの変数", "programming"},
+		{"アルゴリズムを調べて", "programming"},
+
+		// エンターテイメント関連
+		{"最新の映画", "entertainment"},
+		{"人気のアニメ", "entertainment"},
+		{"ゲームのレビュー", "entertainment"},
+		{"音楽について", "entertainment"},
+
+		// 料理関連
+		{"カレーのレシピ", "cooking"},
+		{"食材の選び方", "cooking"},
+		{"レストラン情報", "cooking"},
+
+		// 科学関連
+		{"量子力学について", "science"},
+		{"AIの技術", "science"},
+		{"機械学習のアルゴリズム", "programming"}, // programming が優先
+
+		// 一般
+		{"天気について", "general"},
+		{"ニュース", "general"},
+		{"こんにちは", "general"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			got := inferDomain(tt.query)
+			if got != tt.want {
+				t.Errorf("inferDomain(%q): want %q, got %q", tt.query, tt.want, got)
+			}
+		})
+	}
+}

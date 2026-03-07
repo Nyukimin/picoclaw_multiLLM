@@ -98,9 +98,9 @@ func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
 		t.Error("Expected SaveWebSearchToKB to be called, but it wasn't")
 	}
 
-	// 引数の検証
-	if mockConvMgr.savedDomain != "general" {
-		t.Errorf("Expected domain 'general', got '%s'", mockConvMgr.savedDomain)
+	// 引数の検証（"Rustについて教えて" → "programming" domain）
+	if mockConvMgr.savedDomain != "programming" {
+		t.Errorf("Expected domain 'programming', got '%s'", mockConvMgr.savedDomain)
 	}
 
 	if mockConvMgr.savedQuery == "" {

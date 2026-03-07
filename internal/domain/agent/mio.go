@@ -186,7 +186,7 @@ func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, 
 			}
 
 			// KB保存（エラーはログのみ、検索結果は返す）
-			domain := "general" // TODO: Thread.Domain から取得
+			domain := inferDomain(query) // クエリから domain を推定
 			if err := m.conversationMgr.SaveWebSearchToKB(ctx, domain, cleanedQuery, webResults); err != nil {
 				fmt.Printf("WARN: SaveWebSearchToKB failed: %v\n", err)
 			}
@@ -248,4 +248,58 @@ func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
 	}
 
 	return ""
+}
+
+// inferDomain はクエリから適切な domain を推定する
+func inferDomain(query string) string {
+	query = strings.ToLower(query)
+
+	// プログラミング関連
+	programmingKeywords := []string{
+		"プログラミング", "コード", "言語", "関数", "変数", "クラス",
+		"python", "go", "rust", "javascript", "java", "c++",
+		"アルゴリズム", "データ構造", "フレームワーク", "ライブラリ",
+	}
+	for _, kw := range programmingKeywords {
+		if strings.Contains(query, kw) {
+			return "programming"
+		}
+	}
+
+	// エンターテイメント関連
+	entertainmentKeywords := []string{
+		"映画", "ドラマ", "アニメ", "漫画", "ゲーム", "音楽",
+		"俳優", "声優", "監督", "アーティスト",
+	}
+	for _, kw := range entertainmentKeywords {
+		if strings.Contains(query, kw) {
+			return "entertainment"
+		}
+	}
+
+	// 料理関連
+	cookingKeywords := []string{
+		"料理", "レシピ", "食材", "調理", "食べ物", "飲み物",
+		"レストラン", "カフェ",
+	}
+	for _, kw := range cookingKeywords {
+		if strings.Contains(query, kw) {
+			return "cooking"
+		}
+	}
+
+	// 科学・技術関連
+	scienceKeywords := []string{
+		"科学", "物理", "化学", "生物", "数学", "天文",
+		"技術", "工学", "AI", "機械学習",
+		"量子", "相対性", "宇宙", "素粒子", "エネルギー",
+	}
+	for _, kw := range scienceKeywords {
+		if strings.Contains(query, kw) {
+			return "science"
+		}
+	}
+
+	// デフォルトは general
+	return "general"
 }
