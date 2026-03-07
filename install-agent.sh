@@ -82,8 +82,8 @@ echo ""
 # ビルド
 echo "[2/6] PicoClaw Agent のビルド..."
 cd "$(dirname "$0")"
-go build -o picoclaw ./cmd/picoclaw
-echo "  ✓ ビルド完了（エージェントモード有効）"
+go build -o picoclaw-agent ./cmd/picoclaw-agent
+echo "  ✓ ビルド完了（エージェント専用バイナリ）"
 
 # ディレクトリ作成
 echo "[3/6] ディレクトリの作成..."
@@ -96,9 +96,9 @@ echo "  ✓ $SYSTEMD_USER_DIR"
 
 # バイナリコピー
 echo "[4/6] バイナリのインストール..."
-cp picoclaw "$PICOCLAW_BIN/picoclaw"
-chmod +x "$PICOCLAW_BIN/picoclaw"
-echo "  ✓ picoclaw → $PICOCLAW_BIN/picoclaw"
+cp picoclaw-agent "$PICOCLAW_BIN/picoclaw-agent"
+chmod +x "$PICOCLAW_BIN/picoclaw-agent"
+echo "  ✓ picoclaw-agent → $PICOCLAW_BIN/picoclaw-agent"
 
 # 設定ファイル生成
 echo "[5/6] 設定ファイルの生成..."
@@ -173,9 +173,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$PICOCLAW_HOME
-ExecStart=$PICOCLAW_BIN/picoclaw agent $AGENT_TYPE
+ExecStart=$PICOCLAW_BIN/picoclaw-agent -standalone -agent $AGENT_TYPE -config $PICOCLAW_HOME/config.yaml
 EnvironmentFile=$PICOCLAW_HOME/.env
-Environment="PICOCLAW_CONFIG=$PICOCLAW_HOME/config.yaml"
 Restart=always
 RestartSec=5
 StandardInput=null

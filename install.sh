@@ -109,7 +109,7 @@ echo ""
 echo "[2/7] PicoClaw のビルド..."
 cd "$(dirname "$0")"
 go build -o picoclaw ./cmd/picoclaw
-echo "  ✓ ビルド完了（サーバーモード + エージェントモード統合）"
+echo "  ✓ ビルド完了（サーバーモード）"
 
 # ディレクトリ作成
 echo "[3/7] ディレクトリの作成..."
