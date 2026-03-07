@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -24,6 +25,7 @@ type DistributedOrchestrator struct {
 	router        *transport.MessageRouter
 	memory        *session.CentralMemory
 	sshTransports map[string]domaintransport.Transport // SSH経由のリモートAgent
+	listener      EventListener
 }
 
 // NewDistributedOrchestrator は新しいDistributedOrchestratorを作成
@@ -46,6 +48,18 @@ func NewDistributedOrchestrator(
 	}
 }
 
+// SetEventListener sets an optional listener for monitoring events.
+func (o *DistributedOrchestrator) SetEventListener(l EventListener) {
+	o.listener = l
+}
+
+func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobID string) {
+	if o.listener == nil {
+		return
+	}
+	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID))
+}
+
 // ProcessMessage は既存MessageOrchestratorと同じシグネチャでメッセージを処理
 // 分散環境ではTransport経由でAgent間通信を行う
 func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
@@ -54,6 +68,8 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
+
+	o.emit("message.received", "user", "mio", req.UserMessage, "", "")
 
 	// 2. タスクを作成
 	jobID := task.NewJobID()
@@ -64,6 +80,10 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
 	}
+
+	o.emit("routing.decision", "mio", "",
+		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
+		string(decision.Route), jobID.String())
 
 	t = t.WithRoute(decision.Route)
 
@@ -99,26 +119,46 @@ func (o *DistributedOrchestrator) loadOrCreateSession(ctx context.Context, id, c
 
 // executeDistributed はルートに応じてTransport経由でAgent間通信
 func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task.Task, route routing.Route, sessionID string) (string, error) {
+	jid := t.JobID().String()
 	targetAgent := o.routeToAgent(route)
 
 	if targetAgent == "" {
 		// ローカル処理（CHAT など mio が直接処理）
-		return o.mio.Chat(ctx, t)
+		o.emit("agent.start", "mio", "user", "考え中...", string(route), jid)
+		// ストリーミングコールバック: トークンを agent.thinking イベントとして配信
+		streamCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
+			o.emit("agent.thinking", "mio", "user", token, string(route), jid)
+		})
+		resp, err := o.mio.Chat(streamCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, string(route), jid)
+		}
+		return resp, err
 	}
 
-	msg := domaintransport.NewMessage("mio", targetAgent, sessionID, t.JobID().String(), t.UserMessage())
+	msg := domaintransport.NewMessage("mio", targetAgent, sessionID, jid, t.UserMessage())
 	msg.Type = domaintransport.MessageTypeTask
+
+	o.emit("agent.start", "mio", targetAgent, t.UserMessage(), string(route), jid)
 
 	// メモリに記録
 	o.memory.RecordMessage(msg)
 
 	// SSH Transport があればSSH経由で送受信
 	if sshTransport, ok := o.sshTransports[targetAgent]; ok {
-		return o.executeViaSSH(ctx, sshTransport, targetAgent, msg)
+		resp, err := o.executeViaSSH(ctx, sshTransport, targetAgent, msg)
+		if err == nil {
+			o.emit("agent.response", targetAgent, "mio", resp, string(route), jid)
+		}
+		return resp, err
 	}
 
 	// Local Transport（MessageRouter経由）
-	return o.executeViaLocal(ctx, targetAgent, msg)
+	resp, err := o.executeViaLocal(ctx, targetAgent, msg)
+	if err == nil {
+		o.emit("agent.response", targetAgent, "mio", resp, string(route), jid)
+	}
+	return resp, err
 }
 
 // executeViaSSH はSSH Transport経由でリモートAgentと通信

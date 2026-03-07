@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -71,6 +73,7 @@ type MessageOrchestrator struct {
 	coder3          CoderAgent // Claude
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
+	listener        EventListener
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -95,6 +98,18 @@ func NewMessageOrchestrator(
 	}
 }
 
+// SetEventListener sets an optional listener for monitoring events.
+func (o *MessageOrchestrator) SetEventListener(l EventListener) {
+	o.listener = l
+}
+
+func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID string) {
+	if o.listener == nil {
+		return
+	}
+	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID))
+}
+
 // ProcessMessage はメッセージを処理
 func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
 	// 1. セッションをロードまたは作成
@@ -103,12 +118,16 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
 
+	// Event: ユーザーメッセージ受信
+	o.emit("message.received", "user", "mio", req.UserMessage, "", "")
+
 	// 2. チャットコマンドのチェック（ルーティング前）
 	cmdResult, err := o.mio.HandleChatCommand(ctx, req.ChatID, req.UserMessage)
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("chat command failed: %w", err)
 	}
 	if cmdResult.Handled {
+		o.emit("agent.response", "mio", "user", cmdResult.Response, "CHAT", "")
 		return ProcessMessageResponse{
 			Response:   cmdResult.Response,
 			Route:      routing.RouteCHAT,
@@ -126,6 +145,11 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
 	}
+
+	// Event: ルーティング決定
+	o.emit("routing.decision", "mio", "",
+		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
+		string(decision.Route), jobID.String())
 
 	// タスクにルートを設定
 	t = t.WithRoute(decision.Route)
@@ -167,27 +191,52 @@ func (o *MessageOrchestrator) loadOrCreateSession(ctx context.Context, id, chann
 
 // executeTask はルートに応じてタスクを実行
 func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, route routing.Route) (string, error) {
+	jid := t.JobID().String()
+
 	switch route {
 	case routing.RouteCHAT:
-		return o.mio.Chat(ctx, t)
+		o.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid)
+		streamCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
+			o.emit("agent.thinking", "mio", "user", token, "CHAT", jid)
+		})
+		resp, err := o.mio.Chat(streamCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "CHAT", jid)
+		}
+		return resp, err
 
 	case routing.RouteOPS:
-		return o.shiro.Execute(ctx, t)
+		o.emit("agent.start", "mio", "shiro", "タスクを実行依頼", "OPS", jid)
+		resp, err := o.shiro.Execute(ctx, t)
+		if err == nil {
+			o.emit("agent.response", "shiro", "mio", resp, "OPS", jid)
+		}
+		return resp, err
 
 	case routing.RouteCODE:
 		return o.executeCodeFallbackChain(ctx, t)
 
 	case routing.RouteCODE1:
-		if o.coder1 != nil {
-			return o.coder1.Generate(ctx, t, "You are a specification design assistant.")
+		if o.coder1 == nil {
+			return "", fmt.Errorf("CODE1 route requested but no coder1 available")
 		}
-		return "", fmt.Errorf("CODE1 route requested but no coder1 available")
+		o.emit("agent.start", "mio", "coder1", "仕様設計を依頼", "CODE1", jid)
+		resp, err := o.coder1.Generate(ctx, t, "You are a specification design assistant.")
+		if err == nil {
+			o.emit("agent.response", "coder1", "mio", truncate(resp, 500), "CODE1", jid)
+		}
+		return resp, err
 
 	case routing.RouteCODE2:
-		if o.coder2 != nil {
-			return o.coder2.Generate(ctx, t, "You are an implementation assistant.")
+		if o.coder2 == nil {
+			return "", fmt.Errorf("CODE2 route requested but no coder2 available")
 		}
-		return "", fmt.Errorf("CODE2 route requested but no coder2 available")
+		o.emit("agent.start", "mio", "coder2", "実装を依頼", "CODE2", jid)
+		resp, err := o.coder2.Generate(ctx, t, "You are an implementation assistant.")
+		if err == nil {
+			o.emit("agent.response", "coder2", "mio", truncate(resp, 500), "CODE2", jid)
+		}
+		return resp, err
 
 	case routing.RouteCODE3:
 		if o.coder3 == nil {
@@ -196,44 +245,102 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 
 		// Coder3がProposal生成をサポートするか確認
 		if coderWithProposal, ok := o.coder3.(CoderAgentWithProposal); ok {
+			o.emit("agent.start", "mio", "shiro", "Coder3にコード生成を依頼します", "CODE3", jid)
+			o.emit("agent.start", "shiro", "coder3", t.UserMessage(), "CODE3", jid)
+
 			// Proposal生成 → Worker即時実行
 			p, err := coderWithProposal.GenerateProposal(ctx, t)
 			if err != nil {
+				o.emit("agent.response", "coder3", "shiro", "エラー: "+err.Error(), "CODE3", jid)
 				return "", fmt.Errorf("coder3 proposal generation failed: %w", err)
 			}
 
 			if p == nil || !p.IsValid() {
+				o.emit("agent.response", "coder3", "shiro", "無効な Proposal が返されました", "CODE3", jid)
 				return "", fmt.Errorf("coder3 generated invalid proposal")
 			}
+
+			o.emit("agent.response", "coder3", "shiro", "## Plan\n"+p.Plan(), "CODE3", jid)
+			o.emit("agent.start", "shiro", "mio", "Patch を実行中...", "CODE3", jid)
 
 			// Worker即時実行（核心機能）
 			result, err := o.workerExecution.ExecuteProposal(ctx, t.JobID(), p)
 			if err != nil {
+				o.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), "CODE3", jid)
 				return "", fmt.Errorf("worker execution failed: %w", err)
 			}
 
 			// 結果をフォーマット
-			return o.formatExecutionResult(p, result), nil
+			formatted := o.formatExecutionResult(p, result)
+			o.emit("agent.response", "shiro", "mio", formatted, "CODE3", jid)
+			return formatted, nil
 		}
 
 		// フォールバック：Proposal非対応の場合は通常のGenerate()を使用
-		return o.coder3.Generate(ctx, t, "You are a high-quality code review and reasoning assistant.")
+		o.emit("agent.start", "mio", "coder3", "コードレビューを依頼", "CODE3", jid)
+		resp, err := o.coder3.Generate(ctx, t, "You are a high-quality code review and reasoning assistant.")
+		if err == nil {
+			o.emit("agent.response", "coder3", "mio", truncate(resp, 500), "CODE3", jid)
+		}
+		return resp, err
 
 	case routing.RoutePLAN:
-		// PLAN は現時点では CHAT として処理（将来的に専用エージェント追加可能）
-		return o.mio.Chat(ctx, t)
+		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid)
+		planCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
+			o.emit("agent.thinking", "mio", "user", token, "PLAN", jid)
+		})
+		resp, err := o.mio.Chat(planCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "PLAN", jid)
+		}
+		return resp, err
 
 	case routing.RouteANALYZE:
-		// ANALYZE は現時点では CHAT として処理
-		return o.mio.Chat(ctx, t)
+		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid)
+		analyzeCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
+			o.emit("agent.thinking", "mio", "user", token, "ANALYZE", jid)
+		})
+		resp, err := o.mio.Chat(analyzeCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid)
+		}
+		return resp, err
 
 	case routing.RouteRESEARCH:
-		// RESEARCH は現時点では CHAT として処理
-		return o.mio.Chat(ctx, t)
+		o.emit("agent.start", "mio", "user", "調査中...", "RESEARCH", jid)
+		researchCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
+			o.emit("agent.thinking", "mio", "user", token, "RESEARCH", jid)
+		})
+		resp, err := o.mio.Chat(researchCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid)
+		}
+		return resp, err
 
 	default:
 		return "", fmt.Errorf("unknown route: %s", route)
 	}
+}
+
+// truncate はビュワー表示用に長いテキストを切り詰める
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	// 行単位で切り詰め
+	lines := strings.SplitN(s, "\n", -1)
+	var b strings.Builder
+	for _, line := range lines {
+		if b.Len()+len(line)+1 > maxLen {
+			b.WriteString("\n... (truncated)")
+			break
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(line)
+	}
+	return b.String()
 }
 
 // executeCodeFallbackChain はCODEルートのフォールバックチェーン実行
