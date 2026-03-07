@@ -215,10 +215,6 @@ RestartSec=5
 StandardOutput=append:$PICOCLAW_HOME/logs/picoclaw.log
 StandardError=append:$PICOCLAW_HOME/logs/picoclaw.log
 
-# Tailscale Funnel 起動（ポート 18790）
-ExecStartPost=/bin/sleep 2
-ExecStartPost=/usr/bin/tailscale funnel --bg 18790
-
 [Install]
 WantedBy=default.target
 EOF
