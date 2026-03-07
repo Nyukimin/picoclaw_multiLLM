@@ -102,15 +102,27 @@ func (r *RealConversationManager) Recall(ctx context.Context, sessionID string, 
 
 	// 3. 長期記憶（VectorDB: 類似度検索）
 	if r.embedder == nil {
+		log.Printf("Recall: Embedder not configured, skipping long-term memory search")
 		return []domconv.Message{}, nil
 	}
 	embedding, err := r.embedder.Embed(ctx, query)
 	if err != nil {
-		log.Printf("Failed to embed query for recall: %v", err)
+		log.Printf("Recall: Failed to embed query %q: %v", query, err)
 		return []domconv.Message{}, nil
 	}
-	vdbResults, err := r.vectordbStore.SearchSimilar(ctx, embedding, topK)
-	if err != nil || len(vdbResults) == 0 {
+
+	// VectorDB検索をリトライ付きで実行
+	var vdbResults []*domconv.ThreadSummary
+	err = withRetry(ctx, DefaultRetryConfig, func() error {
+		var searchErr error
+		vdbResults, searchErr = r.vectordbStore.SearchSimilar(ctx, embedding, topK)
+		return searchErr
+	})
+	if err != nil {
+		log.Printf("Recall: VectorDB search failed after retries for query %q: %v", query, err)
+		return []domconv.Message{}, nil
+	}
+	if len(vdbResults) == 0 {
 		return []domconv.Message{}, nil
 	}
 	messages := make([]domconv.Message, 0, len(vdbResults))
@@ -309,13 +321,21 @@ func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 		return nil
 	}
 
+	if m.embedder == nil {
+		log.Printf("SaveWebSearchToKB: Embedder not configured, skipping save (domain=%s, query=%q, %d results)", domain, query, len(results))
+		return nil
+	}
+
+	successCount := 0
+	var lastErr error
 
 	// 各検索結果を Document に変換して保存
 	for i, result := range results {
 		// Content の Embedding 生成
 		contentEmbedding, err := m.embedder.Embed(ctx, result.Title+" "+result.Snippet)
 		if err != nil {
-			// ログして続行（個別失敗で全体を止めない）
+			log.Printf("SaveWebSearchToKB: Failed to embed result %d/%d (title=%q): %v", i+1, len(results), result.Title, err)
+			lastErr = err
 			continue
 		}
 
@@ -335,10 +355,28 @@ func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 			UpdatedAt: time.Now(),
 		}
 
-		if err := m.vectordbStore.SaveKB(ctx, doc); err != nil {
-			// ログして続行
+		// VectorDB保存をリトライ付きで実行
+		err = withRetry(ctx, DefaultRetryConfig, func() error {
+			return m.vectordbStore.SaveKB(ctx, doc)
+		})
+		if err != nil {
+			log.Printf("SaveWebSearchToKB: Failed to save result %d/%d to VectorDB after retries (title=%q): %v", i+1, len(results), result.Title, err)
+			lastErr = err
 			continue
 		}
+
+		successCount++
+	}
+
+	// 一部でも成功していれば成功とみなす
+	if successCount > 0 {
+		log.Printf("SaveWebSearchToKB: Saved %d/%d results (domain=%s, query=%q)", successCount, len(results), domain, query)
+		return nil
+	}
+
+	// 全て失敗した場合はエラーを返す
+	if lastErr != nil {
+		return fmt.Errorf("failed to save all %d web search results to KB (domain=%s, query=%q): %w", len(results), domain, query, lastErr)
 	}
 
 	return nil
@@ -350,19 +388,25 @@ type WebSearchResult = agent.WebSearchResult
 // SearchKB はKnowledge Baseから関連ドキュメントを検索
 func (m *RealConversationManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*domconv.Document, error) {
 	if m.embedder == nil {
+		log.Printf("SearchKB: Embedder not configured, returning empty results (domain=%s, query=%q)", domain, query)
 		return []*domconv.Document{}, nil
 	}
 
 	// Query の Embedding 生成
 	queryEmbedding, err := m.embedder.Embed(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+		return nil, fmt.Errorf("failed to generate query embedding for domain=%s, query=%q: %w", domain, query, err)
 	}
 
-	// VectorDB 検索
-	docs, err := m.vectordbStore.SearchKB(ctx, domain, queryEmbedding, topK)
+	// VectorDB 検索をリトライ付きで実行
+	var docs []*domconv.Document
+	err = withRetry(ctx, DefaultRetryConfig, func() error {
+		var searchErr error
+		docs, searchErr = m.vectordbStore.SearchKB(ctx, domain, queryEmbedding, topK)
+		return searchErr
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to search kb: %w", err)
+		return nil, fmt.Errorf("failed to search kb after retries (domain=%s, query=%q, topK=%d): %w", domain, query, topK, err)
 	}
 
 	return docs, nil
