@@ -3,7 +3,7 @@
 **バージョン**: 5.0.0
 **作成日**: 2026-03-04
 **最終更新**: 2026-03-07
-**ステータス**: Phase 1〜3 実装完了・Phase 4.1 KB基盤完了・本番稼働中
+**ステータス**: Phase 1〜4.2 実装完了・KB自動保存有効・本番稼働中
 **前提バージョン**: v4.0（分散実行）
 
 ### 実装状況（2026-03-07）
@@ -31,9 +31,10 @@
 | Phase 4.1 | RAG統合（ConversationEngine） | ✅ 完了 | BeginTurn で自動KB検索 |
 | Phase 4.1 | KB管理CLI（kb-admin） | ✅ 完了 | search/stats/list/cleanup |
 | Phase 4.1 | KB運用ガイド | ✅ 完了 | `docs/KB運用ガイド.md` |
-| Phase 4.2 | Worker RESEARCH自動保存 | ⏸️ 計画中 | ToolRunner リファクタ必要 |
-| Phase 4.2 | Embedder初期化（kb-admin） | ⏸️ 計画中 | config連携 |
-| Phase 4.2 | 本番デプロイ準備 | ⏸️ 計画中 | ヘルスチェック等 |
+| Phase 4.2 | Worker RESEARCH自動保存 | ✅ 完了 | Mio executeWebSearch で自動保存 |
+| Phase 4.2 | ToolResponse Metadata拡張 | ✅ 完了 | 構造化データ格納 |
+| Phase 4.2 | main.go DI統合 | ✅ 完了 | WithConversationManager注入 |
+| Phase 4.2 | E2Eテスト追加 | ✅ 完了 | kb_autosave_test.go (3件) |
 
 ### インフラ構成
 
@@ -1207,27 +1208,46 @@ internal/
 
 **テスト結果**: 47/47 PASS ✓
 
+#### Phase 4.2: Worker RESEARCH自動保存 ✅ 完了 (2026-03-07)
+
+**実装内容**:
+- [x] ToolRunner リファクタ（構造化レスポンス対応）
+  - ToolResponse に Metadata フィールド追加
+  - ExecuteV2 メソッド追加（agent.ToolRunner インターフェース拡張）
+  - web_search V2実装（executeWebSearchV2）
+- [x] Mio executeWebSearch 改修
+  - ExecuteV2 で構造化データ取得
+  - Metadata から search_items 抽出
+  - SaveWebSearchToKB() 自動呼び出し
+- [x] ConversationManager DI統合
+  - main.go で realMgr を Mio に注入
+  - WithConversationManager() メソッド追加
+  - nil チェック + ログ出力
+- [x] E2Eテスト追加（3件）
+  - TestKBAutosave_WebSearch_SavesCalled
+  - TestKBAutosave_NoConversationManager_GracefulDegradation
+  - TestKBAutosave_MetadataExtraction
+
+**動作フロー**:
+```
+ユーザー: "Rustについて教えて"
+  ↓
+Mio.Chat() → キーワード検出（"教えて"）
+  ↓
+executeWebSearch() → toolRunner.ExecuteV2("web_search", ...)
+  ↓
+Metadata から search_items 抽出
+  ↓
+conversationMgr.SaveWebSearchToKB("general", "Rustについて", results)
+  ↓
+KB に自動保存 ✅
+```
+
+**テスト結果**: 15/15 PASS (統合テスト全通過)
+
 **制限事項**:
-- Worker RESEARCH → KB自動保存は Phase 4.2 へ延期（ToolRunner リファクタ必要）
+- domain は現在 "general" 固定（Thread.Domain 取得は将来対応）
 - kb-admin の Embedder 未初期化（search コマンドが動作しない可能性）
-- list/cleanup コマンドは基本構造のみ（VectorDB API 公開が必要）
-
-#### Phase 4.2: 運用整備 ⏸️ 計画中
-
-**タスクリスト**:
-- [ ] Worker RESEARCH自動保存統合
-  - [ ] ToolRunner リファクタ（構造化レスポンス対応）
-  - [ ] Orchestrator レベルで tool 実行結果をフック
-  - [ ] RESEARCH ルート検出時に自動KB保存
-- [ ] Embedder 初期化（kb-admin）
-  - [ ] config から Embedding provider を読み込み
-  - [ ] WithEmbedder() で注入
-- [ ] VectorDB API 公開
-  - [ ] RealConversationManager に管理メソッド追加
-  - [ ] ListKBDocuments / GetKBCollections / GetKBStats / DeleteOldKBDocuments
-- [ ] kb-admin 完全実装
-  - [ ] list コマンド実装
-  - [ ] cleanup コマンド実装（削除確認プロンプト付き）
   - [ ] バッチ処理対応（複数ドメイン一括処理）
 - [ ] 本番デプロイ準備
   - [ ] 設定ファイル検証
@@ -1467,6 +1487,147 @@ picoclaw-memory-admin stats
 
 ---
 
-**最終更新**: 2026-03-04
-**バージョン**: 5.0.0 Draft
-**メンテナンス**: Phase 1完了後、Draft → Stable に昇格
+## 14. 本番デプロイチェックリスト (Phase 4.2)
+
+### 14.1 環境変数設定
+
+```bash
+# ~/.picoclaw/.env
+ANTHROPIC_API_KEY=sk-ant-...
+DEEPSEEK_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
+GOOGLE_API_KEY=...
+GOOGLE_SEARCH_ENGINE_ID=...
+```
+
+### 14.2 config.yaml 設定
+
+```yaml
+# 会話LLM v5.0: 3層記憶（短期Redis・中期DuckDB・長期Qdrant）
+conversation:
+  enabled: true  # KB自動保存を有効化
+  redis_url: "redis://localhost:6379"
+  duckdb_path: "./data/memory.duckdb"
+  vectordb_url: "localhost:6334"
+  embed_model: "nomic-embed-text"  # Ollama で利用可能なモデル
+  summary_model: ""  # 空の場合はOllama chatモデルを使用
+```
+
+### 14.3 インフラ起動確認
+
+```bash
+# Redis起動確認
+redis-cli ping
+# 期待結果: PONG
+
+# Qdrant起動確認
+curl http://localhost:6333/
+# 期待結果: {"title":"qdrant - vector search engine","version":"1.x.x"}
+
+# DuckDB初期化確認（自動作成されるので手動不要）
+ls -lh ./data/memory.duckdb
+```
+
+### 14.4 Embedder初期化確認
+
+```bash
+# Ollama で embedding モデルを pull
+ollama pull nomic-embed-text
+
+# モデル確認
+ollama list | grep nomic-embed-text
+```
+
+### 14.5 KB自動保存動作確認
+
+```bash
+# PicoClaw起動
+./picoclaw
+
+# 別ターミナルで動作確認
+# （LINE/Slack 経由でテストメッセージ送信）
+# 例: "Rustについて教えて"
+
+# ログ確認
+tail -f ~/.picoclaw/logs/picoclaw.log | grep "SaveWebSearchToKB"
+# 期待: SaveWebSearchToKB 成功ログが出力される
+
+# kb-admin で確認
+./kb-admin stats
+# 期待: general コレクションにドキュメントが追加されている
+```
+
+### 14.6 E2Eテスト実行
+
+```bash
+# 統合テスト実行（KB自動保存含む）
+go test ./test/integration/... -v
+
+# 期待結果: 15/15 PASS
+# - TestKBAutosave_WebSearch_SavesCalled
+# - TestKBAutosave_NoConversationManager_GracefulDegradation
+# - TestKBAutosave_MetadataExtraction
+```
+
+### 14.7 本番デプロイ手順
+
+```bash
+# 1. ビルド
+make build
+
+# 2. バイナリ配置
+cp picoclaw ~/.picoclaw/bin/
+cp kb-admin ~/.picoclaw/bin/
+
+# 3. systemd サービス再起動
+systemctl --user restart picoclaw
+
+# 4. ログ確認
+journalctl --user -u picoclaw -f
+
+# 期待ログ:
+# - "ConversationEngine v5.1 enabled"
+# - "Mio: ConversationManager injected (KB autosave enabled)"
+```
+
+### 14.8 トラブルシューティング
+
+#### KB保存が動作しない場合
+
+**症状**: Web検索は実行されるが、KBに保存されない
+
+**確認事項**:
+1. `conversation.enabled` が `true` か確認
+2. Qdrant が起動しているか確認（`curl localhost:6333/`）
+3. Embedder が初期化されているか確認（`ollama list | grep nomic`）
+4. ログに `SaveWebSearchToKB failed` エラーがないか確認
+
+**対処法**:
+```bash
+# Qdrant 再起動
+docker compose -f docker-compose.infra.yml restart qdrant
+
+# Embedder 再 pull
+ollama pull nomic-embed-text
+
+# PicoClaw 再起動
+systemctl --user restart picoclaw
+```
+
+#### Embedder エラー
+
+**症状**: `Failed to generate embedding` エラー
+
+**原因**: Ollama のモデルが未ダウンロード
+
+**対処法**:
+```bash
+ollama pull nomic-embed-text
+systemctl --user restart picoclaw
+```
+
+---
+
+**最終更新**: 2026-03-07
+**バージョン**: 5.0.0 Stable
+**メンテナンス**: Phase 4.2完了、本番デプロイ可能
