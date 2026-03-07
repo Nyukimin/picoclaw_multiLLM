@@ -37,3 +37,8 @@ func (l *LegacyRunner) List(ctx context.Context) ([]string, error) {
 	}
 	return names, nil
 }
+
+// ExecuteV2 は構造化レスポンスを返す（V2 インターフェース準拠）
+func (l *LegacyRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*ToolResponse, error) {
+	return l.inner.ExecuteV2(ctx, toolName, args)
+}

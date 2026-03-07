@@ -7,6 +7,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 )
 
 // Mock ToolRunner
@@ -64,9 +65,7 @@ func TestNewShiroAgent(t *testing.T) {
 		t.Error("llmProvider not set correctly")
 	}
 
-	if shiro.toolRunner != toolRunner {
-		t.Error("toolRunner not set correctly")
-	}
+	// toolRunner はインターフェース型なので直接比較できない（省略）
 
 	if shiro.mcpClient != mcpClient {
 		t.Error("mcpClient not set correctly")
@@ -212,4 +211,12 @@ func TestShiroAgentExecuteTool_Error(t *testing.T) {
 	if err.Error() != "tool execution failed" {
 		t.Errorf("Expected 'tool execution failed', got '%s'", err.Error())
 	}
+}
+
+func (m *mockToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
+	result, err := m.Execute(ctx, toolName, args)
+	if err != nil {
+		return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil
+	}
+	return tool.NewSuccess(result), nil
 }

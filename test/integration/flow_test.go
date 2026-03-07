@@ -12,6 +12,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	infraRouting "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 )
 
@@ -304,4 +305,12 @@ func TestIntegration_WebSearchTriggered(t *testing.T) {
 	if resp.Response != "answer with search" {
 		t.Errorf("response: want 'answer with search', got %q", resp.Response)
 	}
+}
+
+func (m *mockToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
+	result, err := m.Execute(ctx, toolName, args)
+	if err != nil {
+		return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil
+	}
+	return tool.NewSuccess(result), nil
 }
