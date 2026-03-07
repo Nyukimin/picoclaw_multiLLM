@@ -624,6 +624,150 @@ func (m *mockConversationManager) SearchKB(ctx context.Context, domain string, q
 	return []*conversation.Document{}, nil
 }
 
+// === Persona self-edit tests ===
+
+// mockPersonaEditor はPersonaEditorのモック
+type mockPersonaEditor struct {
+	content    string
+	readErr    error
+	writeErr   error
+	writeCalls int
+	lastWrite  string
+}
+
+func (m *mockPersonaEditor) ReadPersona() (string, error) {
+	if m.readErr != nil {
+		return "", m.readErr
+	}
+	return m.content, nil
+}
+
+func (m *mockPersonaEditor) WritePersona(content string) error {
+	m.writeCalls++
+	m.lastWrite = content
+	if m.writeErr != nil {
+		return m.writeErr
+	}
+	m.content = content
+	return nil
+}
+
+func TestDetectPersonaEditIntent(t *testing.T) {
+	tests := []struct {
+		message string
+		want    bool
+	}{
+		// Should trigger (topic + action)
+		{"口調をカジュアルにして", true},
+		{"敬語やめて", true},
+		{"ペルソナを修正して", true},
+		{"話し方を変えて", true},
+		{"キャラを調整して", true},
+		{"もっとカジュアルにして", true},
+		{"テンションを変えて", true},
+		{"語尾を直して", true},
+		// Should NOT trigger (topic only, no action)
+		{"口調はどんな感じ？", false},
+		{"ペルソナって何？", false},
+		// Should NOT trigger (action only, no topic)
+		{"設定を変えて", false},
+		{"ファイルを修正して", false},
+		// Should NOT trigger (unrelated)
+		{"こんにちは", false},
+		{"天気を教えて", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.message, func(t *testing.T) {
+			got := detectPersonaEditIntent(tt.message)
+			if got != tt.want {
+				t.Errorf("detectPersonaEditIntent(%q): want %v, got %v", tt.message, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestMioAgent_Chat_PersonaEdit(t *testing.T) {
+	editor := &mockPersonaEditor{
+		content: "旧ペルソナ設定",
+	}
+
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			// LLM should receive prompt with current persona + user request
+			if !strings.Contains(req.Messages[0].Content, "旧ペルソナ設定") {
+				t.Error("LLM prompt should contain current persona")
+			}
+			return llm.GenerateResponse{Content: "新ペルソナ設定"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	mio = mio.WithPersonaEditor(editor)
+
+	testTask := task.NewTask(task.NewJobID(), "口調をカジュアルにして", "line", "U123")
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	if !strings.Contains(resp, "ペルソナ設定を更新") {
+		t.Errorf("response should confirm persona update, got %q", resp)
+	}
+	if editor.writeCalls != 1 {
+		t.Errorf("WritePersona should be called once, called %d times", editor.writeCalls)
+	}
+	if editor.lastWrite != "新ペルソナ設定" {
+		t.Errorf("written persona: want '新ペルソナ設定', got %q", editor.lastWrite)
+	}
+}
+
+func TestMioAgent_Chat_PersonaEditFallback(t *testing.T) {
+	// PersonaEditor が nil の場合は通常の会話として処理
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{Content: "通常の応答"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	// PersonaEditor is nil (not set)
+
+	testTask := task.NewTask(task.NewJobID(), "口調をカジュアルにして", "line", "U123")
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat should succeed without PersonaEditor: %v", err)
+	}
+	if resp != "通常の応答" {
+		t.Errorf("should fall back to normal chat, got %q", resp)
+	}
+}
+
+func TestMioAgent_Chat_PersonaEditReadError(t *testing.T) {
+	editor := &mockPersonaEditor{
+		readErr: fmt.Errorf("file not found"),
+	}
+
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{Content: "通常の応答"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	mio = mio.WithPersonaEditor(editor)
+
+	testTask := task.NewTask(task.NewJobID(), "口調をカジュアルにして", "line", "U123")
+	resp, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat should succeed with persona read error (fallback): %v", err)
+	}
+	// Should fall back to normal chat
+	if resp != "通常の応答" {
+		t.Errorf("should fall back to normal chat, got %q", resp)
+	}
+}
+
 func TestGetStringField(t *testing.T) {
 	tests := []struct {
 		name     string

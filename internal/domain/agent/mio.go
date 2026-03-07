@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -15,6 +16,12 @@ import (
 type ConversationManager interface {
 	SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error)
 	SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error
+}
+
+// PersonaEditor はペルソナファイルの読み書きを抽象化する
+type PersonaEditor interface {
+	ReadPersona() (string, error)
+	WritePersona(content string) error
 }
 
 // WebSearchResult はWeb検索結果（ToolRunner の GoogleSearchItem と互換）
@@ -33,6 +40,7 @@ type MioAgent struct {
 	mcpClient          MCPClient
 	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
 	conversationMgr    ConversationManager             // Phase 4.2: KB自動保存用（nilを許容）
+	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -58,6 +66,12 @@ func NewMioAgent(
 // WithConversationManager はConversationManagerを設定（Phase 4.2 KB自動保存用）
 func (m *MioAgent) WithConversationManager(mgr ConversationManager) *MioAgent {
 	m.conversationMgr = mgr
+	return m
+}
+
+// WithPersonaEditor はPersonaEditorを設定（ペルソナ自己編集用）
+func (m *MioAgent) WithPersonaEditor(editor PersonaEditor) *MioAgent {
+	m.personaEditor = editor
 	return m
 }
 
@@ -97,15 +111,25 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		}
 	}
 
-	// キーワードベースでWeb検索が必要か判定
-	searchKeywords := []string{"教えて", "調べて", "検索", "について", "最新", "ニュース", "とは"}
-	needsSearch := false
-	for _, keyword := range searchKeywords {
-		if strings.Contains(userMessage, keyword) {
-			needsSearch = true
-			break
+	// ペルソナ調整意図を検出 → 自己編集
+	if m.personaEditor != nil && detectPersonaEditIntent(userMessage) {
+		result, err := m.editPersona(ctx, userMessage)
+		if err != nil {
+			log.Printf("[Mio] Persona edit failed: %v", err)
+			// フォールバック: 通常の会話として処理を続行
+		} else {
+			// EndTurn で会話履歴に記録
+			if m.conversationEngine != nil {
+				if err := m.conversationEngine.EndTurn(ctx, t.ChatID(), userMessage, result); err != nil {
+					fmt.Printf("WARN: EndTurn failed: %v\n", err)
+				}
+			}
+			return result, nil
 		}
 	}
+
+	// キーワードベースでWeb検索が必要か判定
+	needsSearch := needsWebSearch(userMessage)
 
 	// Web検索を実行してコンテキストに追加
 	if needsSearch && m.toolRunner != nil {
@@ -125,6 +149,7 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		Messages:    messages,
 		MaxTokens:   512,
 		Temperature: 0.7,
+		OnToken:     llm.StreamCallbackFromContext(ctx),
 	}
 
 	resp, err := m.llmProvider.Generate(ctx, req)
@@ -248,6 +273,134 @@ func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
 	}
 
 	return ""
+}
+
+// needsWebSearch はWeb検索が必要かをキーワードベースで判定する
+// 明示的な検索指示キーワード OR 時事・最新情報系のキーワードでトリガー
+func needsWebSearch(message string) bool {
+	// 明示的な検索意図
+	directKeywords := []string{
+		"教えて", "調べて", "検索", "とは",
+	}
+	// 時事・最新情報・鮮度依存
+	timelyKeywords := []string{
+		"最新", "ニュース", "今日", "昨日", "今週", "今月", "今年",
+		"最近", "現在", "いま", "速報", "話題",
+		"どうなった", "どうなってる", "進捗", "状況",
+		"2024", "2025", "2026", "2027",
+		"予定", "リリース", "発売", "公開",
+		"結果", "スコア", "勝った", "負けた",
+		"値段", "価格", "相場", "株価", "為替",
+		"天気", "気温",
+	}
+	// トピック系（「〜について」で情報を求めている）
+	topicKeywords := []string{
+		"について",
+	}
+
+	for _, kw := range directKeywords {
+		if strings.Contains(message, kw) {
+			return true
+		}
+	}
+	for _, kw := range timelyKeywords {
+		if strings.Contains(message, kw) {
+			return true
+		}
+	}
+	for _, kw := range topicKeywords {
+		if strings.Contains(message, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// detectPersonaEditIntent はペルソナ調整意図を検出する
+// トピックキーワード AND アクションキーワードの両方にマッチした場合のみ true
+func detectPersonaEditIntent(message string) bool {
+	topicKeywords := []string{
+		"ペルソナ", "キャラ", "口調", "語尾", "喋り方", "話し方",
+		"敬語", "タメ口", "カジュアル", "フォーマル",
+		"テンション",
+	}
+	actionKeywords := []string{
+		"変えて", "にして", "やめて", "直して", "調整", "修正",
+		"書き換え", "編集", "更新", "して",
+	}
+
+	hasTopic := false
+	for _, kw := range topicKeywords {
+		if strings.Contains(message, kw) {
+			hasTopic = true
+			break
+		}
+	}
+	if !hasTopic {
+		return false
+	}
+
+	for _, kw := range actionKeywords {
+		if strings.Contains(message, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// editPersona はペルソナファイルを LLM で書き換える
+func (m *MioAgent) editPersona(ctx context.Context, userMessage string) (string, error) {
+	current, err := m.personaEditor.ReadPersona()
+	if err != nil {
+		return "", fmt.Errorf("read persona: %w", err)
+	}
+
+	log.Printf("[Mio] Persona edit requested: %q", truncateLog(userMessage, 100))
+	log.Printf("[Mio] Persona before: %q", truncateLog(current, 100))
+
+	// LLM にペルソナ書き換えを依頼
+	prompt := fmt.Sprintf(
+		"以下は現在のペルソナ設定です:\n\n%s\n\n"+
+			"ユーザーの要求: %s\n\n"+
+			"上記の要求に基づいて、ペルソナ設定を書き換えてください。\n"+
+			"形式（マークダウン）と基本構造は維持してください。\n"+
+			"書き換えた設定のみを出力してください。説明や前置きは不要です。",
+		current, userMessage,
+	)
+
+	req := llm.GenerateRequest{
+		Messages:    []llm.Message{{Role: "user", Content: prompt}},
+		MaxTokens:   1024,
+		Temperature: 0.3,
+	}
+
+	resp, err := m.llmProvider.Generate(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("generate new persona: %w", err)
+	}
+
+	newPersona := strings.TrimSpace(resp.Content)
+	if newPersona == "" {
+		return "", fmt.Errorf("LLM returned empty persona")
+	}
+
+	log.Printf("[Mio] Persona after: %q", truncateLog(newPersona, 100))
+
+	if err := m.personaEditor.WritePersona(newPersona); err != nil {
+		return "", fmt.Errorf("write persona: %w", err)
+	}
+
+	return "ペルソナ設定を更新しました。次の会話から反映されます。", nil
+}
+
+// truncateLog はログ用に文字列を切り詰める
+func truncateLog(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 // inferDomain はクエリから適切な domain を推定する
