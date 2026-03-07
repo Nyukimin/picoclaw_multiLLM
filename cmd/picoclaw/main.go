@@ -73,6 +73,8 @@ func main() {
 	switch cmd {
 	case "run":
 		cmdRun()
+	case "agent":
+		cmdAgent()
 	case "version":
 		cmdVersion()
 	case "health":
@@ -192,11 +194,18 @@ func cmdHelp() {
 Usage: picoclaw [command]
 
 Commands:
-  run       Start the HTTP server (default)
-  version   Show version information
-  health    Run health checks and output JSON
-  status    Show system status overview
-  help      Show this help message
+  run                Start the HTTP server (default)
+  agent <type>       Run in agent mode (worker, coder1, coder2, coder3)
+  version            Show version information
+  health             Run health checks and output JSON
+  status             Show system status overview
+  help               Show this help message
+
+Agent Mode:
+  picoclaw agent worker   - Worker agent (stdin/stdout JSON)
+  picoclaw agent coder1   - Coder1 agent (DeepSeek)
+  picoclaw agent coder2   - Coder2 agent (OpenAI)
+  picoclaw agent coder3   - Coder3 agent (Claude)
 `, Version)
 }
 
