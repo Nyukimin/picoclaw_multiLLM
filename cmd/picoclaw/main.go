@@ -297,20 +297,23 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	workerToolRunnerV2 := tools.NewToolRunner(workerToolRunnerCfg)
 
 	// Subagent配線（2段階構築: ToolRunner作成後にManagerを注入）
+	var subagentMgr *subagentapp.Manager
 	if cfg.Subagent.Enabled {
 		subagentProvider := resolveSubagentProvider(cfg, ollamaProvider)
 		toolDefs := workerToolRunnerV2.ToolDefinitions()
 
-		mgr := subagentapp.NewManager(
+		subagentMgr = subagentapp.NewManager(
 			subagentProvider,
 			workerToolRunnerV2,
 			toolDefs,
 			toolloop.Config{MaxIterations: cfg.Subagent.MaxIterations},
 		)
 
-		workerToolRunnerV2.RegisterSubagent("worker", tools.NewSubagentFuncFromManager(mgr))
+		workerToolRunnerV2.RegisterSubagent("worker", tools.NewSubagentFuncFromManager(subagentMgr))
 		log.Printf("Subagent enabled (provider: %s, max_iterations: %d)",
 			subagentProvider.Name(), cfg.Subagent.MaxIterations)
+	} else {
+		log.Printf("Subagent disabled")
 	}
 
 	// LegacyRunner アダプター（V2 → V1 ブリッジ）で agents に注入
@@ -402,7 +405,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 6. Agents
 	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
-	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker)
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 
 	// 7. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)

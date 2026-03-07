@@ -263,7 +263,7 @@ func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
 	}
 	toolRunner := tools.NewToolRunner(toolRunnerCfg)
 	mcpClient := mcp.NewMCPClient()
-	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient, cfg.Prompts.Worker)
+	shiroAgent := agent.NewShiroAgent(ollamaProvider, toolRunner, mcpClient, cfg.Prompts.Worker, nil)
 	executionService := service.NewWorkerExecutionService(cfg.Worker)
 
 	log.Printf("[picoclaw-agent] Worker initialized (workspace=%s)", cfg.Worker.Workspace)

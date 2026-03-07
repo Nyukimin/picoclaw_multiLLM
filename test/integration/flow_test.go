@@ -103,7 +103,7 @@ func buildOrchestrator(llmResp string, sessionRepo *mockSessionRepository) *orch
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
-	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "")
+	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "", nil)
 
 	return orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil)
 }
@@ -158,7 +158,7 @@ func TestIntegration_OPSRoute_RuleDictionary(t *testing.T) {
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
-	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "")
+	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "", nil)
 	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	// "ls -la を実行" should match OPS rule
@@ -246,7 +246,7 @@ func TestIntegration_LLMFailure_PropagatesError(t *testing.T) {
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
-	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "")
+	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "", nil)
 	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
 	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("hello"))
@@ -280,7 +280,7 @@ func TestIntegration_WebSearchTriggered(t *testing.T) {
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, toolRunner, &mockMCPClient{}, nil)
-	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "")
+	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
 	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
 
