@@ -33,6 +33,9 @@ type vectordbStoreIface interface {
 	SearchSimilar(ctx context.Context, queryEmbedding []float32, topK int) ([]*conversation.ThreadSummary, error)
 	SearchByDomain(ctx context.Context, domain string, limit int) ([]*conversation.ThreadSummary, error)
 	IsNovelQuery(ctx context.Context, queryEmbedding []float32, threshold float32) (bool, float32, error)
+	// KB (Knowledge Base) メソッド
+	SaveKB(ctx context.Context, doc *conversation.Document) error
+	SearchKB(ctx context.Context, domain string, queryEmbedding []float32, topK int) ([]*conversation.Document, error)
 	Close() error
 }
 

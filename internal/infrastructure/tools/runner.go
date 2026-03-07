@@ -90,7 +90,7 @@ func (r *ToolRunner) registerTools() {
 	r.toolsV2["file_read"] = v2Wrap(r.tools["file_read"])
 	r.toolsV2["file_write"] = v2Wrap(r.tools["file_write"])
 	r.toolsV2["file_list"] = v2Wrap(r.tools["file_list"])
-	r.toolsV2["web_search"] = v2Wrap(r.tools["web_search"])
+	r.toolsV2["web_search"] = r.executeWebSearchV2 // 構造化データ対応
 	if len(r.config.Subagents) > 0 {
 		r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
 	}
@@ -617,4 +617,75 @@ func formatGoogleSearchResult(result GoogleSearchResponse) string {
 	}
 
 	return output.String()
+}
+
+// executeWebSearchV2 はWeb検索を実行し、構造化データ付きでToolResponseを返す
+func (r *ToolRunner) executeWebSearchV2(ctx context.Context, args map[string]interface{}) (*tool.ToolResponse, error) {
+	query, ok := args["query"].(string)
+	if !ok {
+		return tool.NewError(tool.ErrValidationFailed, "'query' argument is required and must be a string", nil), nil
+	}
+
+	if strings.TrimSpace(query) == "" {
+		return tool.NewError(tool.ErrValidationFailed, "query cannot be empty", nil), nil
+	}
+
+	// 設定チェック
+	if r.config.GoogleAPIKey == "" || r.config.GoogleSearchEngineID == "" {
+		return tool.NewError(tool.ErrNotFound, "Google Search API not configured", nil), nil
+	}
+
+	// Google Custom Search JSON API
+	apiURL := fmt.Sprintf("https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s",
+		r.config.GoogleAPIKey,
+		r.config.GoogleSearchEngineID,
+		url.QueryEscape(query))
+
+	// HTTPクライアント（注入がなければデフォルトを使用）
+	client := r.config.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to create request: %v", err), nil), nil
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to execute search: %v", err), nil), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return tool.NewError(tool.ErrInternalError, fmt.Sprintf("search API returned status %d: %s", resp.StatusCode, string(body[:min(len(body), 200)])), nil), nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to read response: %v", err), nil), nil
+	}
+
+	// JSON解析
+	var result GoogleSearchResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to parse response: %v", err), nil), nil
+	}
+
+	// 結果フォーマット（表示用文字列）
+	formatted := formatGoogleSearchResult(result)
+
+	// 構造化データをMetadataに格納
+	metadata := map[string]any{
+		"query":        query,
+		"search_items": result.Items, // GoogleSearchItem の配列
+		"total_count":  len(result.Items),
+	}
+
+	response := tool.NewSuccess(formatted)
+	response.Metadata = metadata
+
+	return response, nil
 }

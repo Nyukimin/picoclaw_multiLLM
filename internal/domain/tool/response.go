@@ -19,9 +19,10 @@ func (e *ToolError) Error() string {
 
 // ToolResponse は構造化出力値オブジェクト（TOOL_CONTRACT 1.2）
 type ToolResponse struct {
-	Result      any        `json:"result,omitempty"`
-	Error       *ToolError `json:"error,omitempty"`
-	GeneratedAt time.Time  `json:"generated_at"`
+	Result      any            `json:"result,omitempty"`
+	Error       *ToolError     `json:"error,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"` // 構造化データ（KB保存等に使用）
+	GeneratedAt time.Time      `json:"generated_at"`
 }
 
 // NewSuccess は成功レスポンスを生成する

@@ -88,6 +88,27 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 		}
 	}
 
+	// Knowledge Base (KB) 検索（RAG統合）
+	if realMgr, ok := e.manager.(*RealConversationManager); ok {
+		// 現在のドメインを取得
+		domain := "general"
+		if thread, err := e.manager.GetActiveThread(ctx, sessionID); err == nil && thread != nil {
+			domain = thread.Domain
+		}
+
+		// KB検索を実行
+		kbDocs, err := realMgr.SearchKB(ctx, domain, userMessage, 3)
+		if err != nil {
+			log.Printf("[ConversationEngine] WARN: SearchKB failed: %v", err)
+		} else if len(kbDocs) > 0 {
+			// KB検索結果を LongFacts に追加
+			for _, doc := range kbDocs {
+				fact := "[KB] " + doc.Content
+				pack.LongFacts = append(pack.LongFacts, fact)
+			}
+		}
+	}
+
 	return pack, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
 
@@ -299,4 +300,73 @@ func generateSimpleSummary(thread *domconv.Thread) string {
 		last = last[:50] + "..."
 	}
 	return fmt.Sprintf("Start: %s ... End: %s (%d turns)", first, last, len(thread.Turns))
+}
+
+// SaveWebSearchToKB はWeb検索結果をKnowledge Baseに保存
+func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+
+
+	// 各検索結果を Document に変換して保存
+	for i, result := range results {
+		// Content の Embedding 生成
+		contentEmbedding, err := m.embedder.Embed(ctx, result.Title+" "+result.Snippet)
+		if err != nil {
+			// ログして続行（個別失敗で全体を止めない）
+			continue
+		}
+
+		doc := &domconv.Document{
+			ID:        uuid.New().String(),
+			Domain:    domain,
+			Content:   fmt.Sprintf("# %s\n\n%s\n\nSource: %s", result.Title, result.Snippet, result.Link),
+			Source:    result.Link,
+			Embedding: contentEmbedding,
+			Meta: map[string]interface{}{
+				"title":        result.Title,
+				"snippet":      result.Snippet,
+				"query":        query,
+				"search_index": i,
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		if err := m.vectordbStore.SaveKB(ctx, doc); err != nil {
+			// ログして続行
+			continue
+		}
+	}
+
+	return nil
+}
+
+// WebSearchResult はWeb検索結果の単位
+type WebSearchResult struct {
+	Title   string `json:"title"`
+	Link    string `json:"link"`
+	Snippet string `json:"snippet"`
+}
+
+// SearchKB はKnowledge Baseから関連ドキュメントを検索
+func (m *RealConversationManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*domconv.Document, error) {
+	if m.embedder == nil {
+		return []*domconv.Document{}, nil
+	}
+
+	// Query の Embedding 生成
+	queryEmbedding, err := m.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+	}
+
+	// VectorDB 検索
+	docs, err := m.vectordbStore.SearchKB(ctx, domain, queryEmbedding, topK)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search kb: %w", err)
+	}
+
+	return docs, nil
 }

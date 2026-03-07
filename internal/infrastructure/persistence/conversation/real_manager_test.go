@@ -276,3 +276,9 @@ func TestIsNovelInformation_NoEmbedder_ReturnsFalse(t *testing.T) {
 		t.Error("Should return false when embedder is not configured")
 	}
 }
+func (m *mockVectorDBStore) SaveKB(_ context.Context, _ *domconv.Document) error {
+	return nil
+}
+func (m *mockVectorDBStore) SearchKB(_ context.Context, _ string, _ []float32, _ int) ([]*domconv.Document, error) {
+	return nil, nil
+}

@@ -11,6 +11,19 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
+// ConversationManager はKB保存用のインターフェース（Phase 4.2）
+type ConversationManager interface {
+	SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error)
+	SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error
+}
+
+// WebSearchResult はWeb検索結果（ToolRunner の GoogleSearchItem と互換）
+type WebSearchResult struct {
+	Title   string `json:"title"`
+	Link    string `json:"link"`
+	Snippet string `json:"snippet"`
+}
+
 // MioAgent は Chat（会話・意思決定）を担当するエンティティ
 type MioAgent struct {
 	llmProvider        llm.LLMProvider
@@ -19,6 +32,7 @@ type MioAgent struct {
 	toolRunner         ToolRunner
 	mcpClient          MCPClient
 	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
+	conversationMgr    ConversationManager             // Phase 4.2: KB自動保存用（nilを許容）
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -37,7 +51,14 @@ func NewMioAgent(
 		toolRunner:         toolRunner,
 		mcpClient:          mcpClient,
 		conversationEngine: conversationEngine,
+		conversationMgr:    nil, // WithConversationManager() でセット
 	}
+}
+
+// WithConversationManager はConversationManagerを設定（Phase 4.2 KB自動保存用）
+func (m *MioAgent) WithConversationManager(mgr ConversationManager) *MioAgent {
+	m.conversationMgr = mgr
+	return m
 }
 
 
@@ -123,7 +144,7 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	return response, nil
 }
 
-// executeWebSearch はWeb検索を実行（内部ヘルパー）
+// executeWebSearch はWeb検索を実行（内部ヘルパー + Phase 4.2 KB自動保存）
 func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, error) {
 	if m.toolRunner == nil {
 		return "", fmt.Errorf("toolRunner not available")
@@ -136,12 +157,51 @@ func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, 
 		"query": cleanedQuery,
 	}
 
-	result, err := m.toolRunner.Execute(ctx, "web_search", args)
+	// V2ツールランナーで構造化データを取得
+	toolResp, err := m.toolRunner.ExecuteV2(ctx, "web_search", args)
 	if err != nil {
 		return "", err
 	}
 
+	if toolResp.IsError() {
+		return "", fmt.Errorf("%s", toolResp.Error.Message)
+	}
+
+	// 表示用の文字列結果
+	result := toolResp.String()
+
+	// Phase 4.2: KB自動保存（ConversationManager が設定されている場合）
+	if m.conversationMgr != nil && toolResp.Metadata != nil {
+		if searchItems, ok := toolResp.Metadata["search_items"].([]interface{}); ok {
+			// GoogleSearchItem → WebSearchResult に変換
+			webResults := make([]WebSearchResult, 0, len(searchItems))
+			for _, item := range searchItems {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					webResults = append(webResults, WebSearchResult{
+						Title:   getStringField(itemMap, "title"),
+						Link:    getStringField(itemMap, "link"),
+						Snippet: getStringField(itemMap, "snippet"),
+					})
+				}
+			}
+
+			// KB保存（エラーはログのみ、検索結果は返す）
+			domain := "general" // TODO: Thread.Domain から取得
+			if err := m.conversationMgr.SaveWebSearchToKB(ctx, domain, cleanedQuery, webResults); err != nil {
+				fmt.Printf("WARN: SaveWebSearchToKB failed: %v\n", err)
+			}
+		}
+	}
+
 	return result, nil
+}
+
+// getStringField は map から文字列フィールドを安全に取得
+func getStringField(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }
 
 // cleanSearchQuery は検索クエリから不要な部分を除去

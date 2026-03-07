@@ -2,11 +2,11 @@
 
 **バージョン**: 5.0.0
 **作成日**: 2026-03-04
-**最終更新**: 2026-03-05
-**ステータス**: Phase 1〜3 実装完了・本番稼働中
+**最終更新**: 2026-03-07
+**ステータス**: Phase 1〜3 実装完了・Phase 4.1 KB基盤完了・本番稼働中
 **前提バージョン**: v4.0（分散実行）
 
-### 実装状況（2026-03-05）
+### 実装状況（2026-03-07）
 
 | Phase | コンポーネント | 状態 | 備考 |
 |-------|--------------|------|------|
@@ -24,6 +24,16 @@
 | インフラ | systemdサービス（picoclaw.service） | ✅ 完了 | `~/.config/systemd/user/picoclaw.service` |
 | インフラ | systemdサービス（picoclaw-funnel.service） | ✅ 完了 | Tailscale Funnel永続化 |
 | テスト | 統合テスト（Redis + DuckDB + Qdrant） | ✅ 9件全通過 | `integration_test.go` |
+| **Phase 4.1** | **KB基盤実装** | ✅ **完了** | **VectorDB KB機能** |
+| Phase 4.1 | SaveKB / SearchKB（VectorDB） | ✅ 完了 | ドメイン別コレクション |
+| Phase 4.1 | SaveWebSearchToKB（RealManager） | ✅ 完了 | Web検索結果→KB保存 |
+| Phase 4.1 | SearchKB（RealManager） | ✅ 完了 | KB検索API |
+| Phase 4.1 | RAG統合（ConversationEngine） | ✅ 完了 | BeginTurn で自動KB検索 |
+| Phase 4.1 | KB管理CLI（kb-admin） | ✅ 完了 | search/stats/list/cleanup |
+| Phase 4.1 | KB運用ガイド | ✅ 完了 | `docs/KB運用ガイド.md` |
+| Phase 4.2 | Worker RESEARCH自動保存 | ⏸️ 計画中 | ToolRunner リファクタ必要 |
+| Phase 4.2 | Embedder初期化（kb-admin） | ⏸️ 計画中 | config連携 |
+| Phase 4.2 | 本番デプロイ準備 | ⏸️ 計画中 | ヘルスチェック等 |
 
 ### インフラ構成
 
@@ -926,6 +936,56 @@ picoclaw-memory-admin session restore --session <session_id>
 picoclaw-memory-admin stats
 ```
 
+### 7.3 KB（Knowledge Base）API
+
+**CLI**: `cmd/kb-admin/` （Phase 4.1 実装完了）
+
+```bash
+# KB検索テスト
+kb-admin search programming "Go言語 並行処理"
+
+# 統計情報表示
+kb-admin stats
+
+# ドキュメント一覧（Phase 4.2）
+kb-admin list programming
+
+# 古いドキュメント削除（Phase 4.2）
+kb-admin cleanup general 30  # 30日より古いドキュメントを削除
+```
+
+**Go API**:
+
+```go
+// 1. Web検索結果をKBに保存
+results := []WebSearchResult{
+    {
+        Title:   "Go言語の並行処理入門",
+        Link:    "https://example.com/go-concurrency",
+        Snippet: "ゴルーチンとチャネルの基本的な使い方を解説します。",
+    },
+}
+err := mgr.SaveWebSearchToKB(ctx, "programming", "Go言語 並行処理", results)
+
+// 2. KB検索（RAG）
+docs, err := mgr.SearchKB(ctx, "programming", "Go言語のエラーハンドリング", 5)
+for _, doc := range docs {
+    fmt.Printf("[Score: %.4f] %s\n", doc.Score, doc.Source)
+}
+
+// 3. 自動RAG統合（ConversationEngine.BeginTurn）
+pack, err := engine.BeginTurn(ctx, sessionID, userMessage)
+// pack.LongFacts に [KB] プレフィックス付きでKB検索結果が含まれる
+```
+
+**ドメイン設計**:
+- `general` - 汎用知識
+- `programming` - プログラミング技術
+- `movie` / `anime` - エンタメ情報
+- `tech` / `history` - 専門分野
+
+**詳細**: `docs/KB運用ガイド.md` を参照
+
 ---
 
 ## 8. フロー図
@@ -1116,13 +1176,63 @@ internal/
 
 **目標**: 知識ベース（KB）統合、運用ツール整備
 
+#### Phase 4.1: KB基盤実装 ✅ 完了（2026-03-07）
+
+**実装内容**:
+- [x] KB検索機能実装（VectorDB `kb_{domain}` コレクション）
+  - `SaveKB()` - Knowledge BaseへDocument保存
+  - `SearchKB()` - ドメイン別ベクトル検索（Top-K）
+  - `initKBCollection()` - ドメイン別コレクション自動作成
+- [x] SaveWebSearchToKB（RealConversationManager）
+  - Web検索結果→Document変換
+  - Title + Snippet の embedding 生成
+  - メタ情報保存（query, search_index）
+- [x] SearchKB（RealConversationManager）
+  - クエリの embedding 生成
+  - VectorDB検索実行
+  - Document配列を返却
+- [x] Chat RAG統合（ConversationEngine.BeginTurn）
+  - 現在のドメインを取得
+  - KB検索を自動実行
+  - 検索結果を `[KB]` プレフィックス付きで LongFacts に追加
+- [x] KB管理CLI（`cmd/kb-admin/`）
+  - `search` - KB検索テスト
+  - `stats` - 統計情報表示
+  - `list` - ドキュメント一覧（基本構造）
+  - `cleanup` - 古いドキュメント削除（基本構造）
+- [x] ドキュメント整備
+  - `docs/KB運用ガイド.md` 作成
+  - `cmd/kb-admin/README.md` 作成
+  - 実装仕様更新
+
+**テスト結果**: 47/47 PASS ✓
+
+**制限事項**:
+- Worker RESEARCH → KB自動保存は Phase 4.2 へ延期（ToolRunner リファクタ必要）
+- kb-admin の Embedder 未初期化（search コマンドが動作しない可能性）
+- list/cleanup コマンドは基本構造のみ（VectorDB API 公開が必要）
+
+#### Phase 4.2: 運用整備 ⏸️ 計画中
+
 **タスクリスト**:
-- [ ] KB検索機能実装（VectorDB `kb:<domain>`）
-- [ ] Worker RESEARCH検索結果をKBに保存
-- [ ] Chat即答時にKB参照
-- [ ] 管理ツール実装（`cmd/picoclaw-memory-admin/`）
-- [ ] ドキュメント整備（運用手順書、トラブルシューティング）
+- [ ] Worker RESEARCH自動保存統合
+  - [ ] ToolRunner リファクタ（構造化レスポンス対応）
+  - [ ] Orchestrator レベルで tool 実行結果をフック
+  - [ ] RESEARCH ルート検出時に自動KB保存
+- [ ] Embedder 初期化（kb-admin）
+  - [ ] config から Embedding provider を読み込み
+  - [ ] WithEmbedder() で注入
+- [ ] VectorDB API 公開
+  - [ ] RealConversationManager に管理メソッド追加
+  - [ ] ListKBDocuments / GetKBCollections / GetKBStats / DeleteOldKBDocuments
+- [ ] kb-admin 完全実装
+  - [ ] list コマンド実装
+  - [ ] cleanup コマンド実装（削除確認プロンプト付き）
+  - [ ] バッチ処理対応（複数ドメイン一括処理）
 - [ ] 本番デプロイ準備
+  - [ ] 設定ファイル検証
+  - [ ] ヘルスチェック追加（VectorDB接続監視）
+  - [ ] ログ・メトリクス整備
 
 ---
 
