@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -198,10 +199,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.SetOutput(os.Stderr) // stdoutはJSON通信に使うのでstderrにログ出力
-
 	// .envファイルを読み込み（~/.picoclaw/.env または configと同ディレクトリの.env）
 	homeDir, _ := os.UserHomeDir()
+	
+	// stdoutはJSON通信に使うので、ログはstderrとファイルに出力
+	logFile, err := os.OpenFile(filepath.Join(homeDir, ".picoclaw", "agent.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err == nil {
+		log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+		defer logFile.Close()
+	} else {
+		log.SetOutput(os.Stderr)
+	}
 	loadDotEnv(filepath.Join(homeDir, ".picoclaw", ".env"))
 	loadDotEnv(filepath.Join(filepath.Dir(*configPath), ".env"))
 

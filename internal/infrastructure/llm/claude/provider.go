@@ -42,6 +42,17 @@ func (p *ClaudeProvider) SetBaseURL(url string) {
 
 // Generate はLLM生成を実行
 func (p *ClaudeProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+	// Messages内のsystemロールからシステムプロンプトを抽出
+	systemPrompt := req.SystemPrompt
+	if systemPrompt == "" {
+		for _, msg := range req.Messages {
+			if msg.Role == "system" {
+				systemPrompt = msg.Content
+				break
+			}
+		}
+	}
+
 	// Claude APIリクエスト構築
 	claudeReq := map[string]interface{}{
 		"model":      p.model,
@@ -50,8 +61,8 @@ func (p *ClaudeProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 	}
 
 	// システムプロンプト
-	if req.SystemPrompt != "" {
-		claudeReq["system"] = req.SystemPrompt
+	if systemPrompt != "" {
+		claudeReq["system"] = systemPrompt
 	}
 
 	// Temperature（0.0-1.0の範囲）
