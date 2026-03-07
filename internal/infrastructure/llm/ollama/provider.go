@@ -31,16 +31,18 @@ func NewOllamaProvider(baseURL, model string) *OllamaProvider {
 	}
 }
 
-// Generate はLLM生成を実行
+// Generate はLLM生成を実行（OnToken が設定されていればストリーミング）
 func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
 	// プロンプト構築
 	prompt := p.buildPrompt(req)
+
+	streaming := req.OnToken != nil
 
 	// Ollama APIリクエスト
 	ollamaReq := map[string]interface{}{
 		"model":      p.model,
 		"prompt":     prompt,
-		"stream":     false,
+		"stream":     streaming,
 		"keep_alive": -1,
 		"options": map[string]interface{}{
 			"temperature": req.Temperature,
@@ -62,8 +64,14 @@ func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	// ストリーミング時はタイムアウトなしの別クライアントを使用
+	client := p.client
+	if streaming {
+		client = &http.Client{} // no timeout for streaming
+	}
+
 	// リクエスト実行
-	resp, err := p.client.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return llm.GenerateResponse{}, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -74,7 +82,12 @@ func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 		return llm.GenerateResponse{}, fmt.Errorf("ollama API error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	// レスポンスパース
+	// ストリーミング
+	if streaming {
+		return p.readStream(resp.Body, req.OnToken)
+	}
+
+	// 非ストリーミング（従来通り）
 	var ollamaResp struct {
 		Response string `json:"response"`
 		Done     bool   `json:"done"`
@@ -86,7 +99,41 @@ func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 
 	return llm.GenerateResponse{
 		Content:      ollamaResp.Response,
-		TokensUsed:   0, // Ollamaは簡易APIでトークン数を返さない
+		TokensUsed:   0,
+		FinishReason: "stop",
+	}, nil
+}
+
+// readStream は Ollama の NDJSON ストリームを読み込む
+func (p *OllamaProvider) readStream(body io.Reader, onToken llm.StreamCallback) (llm.GenerateResponse, error) {
+	var full strings.Builder
+	decoder := json.NewDecoder(body)
+
+	for {
+		var chunk struct {
+			Response string `json:"response"`
+			Done     bool   `json:"done"`
+		}
+		if err := decoder.Decode(&chunk); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return llm.GenerateResponse{}, fmt.Errorf("failed to decode stream chunk: %w", err)
+		}
+
+		if chunk.Response != "" {
+			full.WriteString(chunk.Response)
+			onToken(chunk.Response)
+		}
+
+		if chunk.Done {
+			break
+		}
+	}
+
+	return llm.GenerateResponse{
+		Content:      full.String(),
+		TokensUsed:   0,
 		FinishReason: "stop",
 	}, nil
 }

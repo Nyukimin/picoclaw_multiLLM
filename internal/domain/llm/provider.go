@@ -8,12 +8,16 @@ type Message struct {
 	Content string
 }
 
+// StreamCallback はストリーミング時にトークンごとに呼ばれるコールバック
+type StreamCallback func(token string)
+
 // GenerateRequest はLLM生成リクエスト
 type GenerateRequest struct {
 	Messages     []Message
 	MaxTokens    int
 	Temperature  float64
 	SystemPrompt string
+	OnToken      StreamCallback // nil = 非ストリーミング
 }
 
 // GenerateResponse はLLM生成レスポンス
