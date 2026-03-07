@@ -106,6 +106,24 @@ func (m *mockVectorDBStore) SearchByDomain(_ context.Context, _ string, _ int) (
 func (m *mockVectorDBStore) IsNovelQuery(_ context.Context, _ []float32, threshold float32) (bool, float32, error) {
 	return m.mockScore < threshold, m.mockScore, nil
 }
+func (m *mockVectorDBStore) SaveKB(_ context.Context, _ *domconv.Document) error {
+	return nil
+}
+func (m *mockVectorDBStore) SearchKB(_ context.Context, _ string, _ []float32, _ int) ([]*domconv.Document, error) {
+	return []*domconv.Document{}, nil
+}
+func (m *mockVectorDBStore) ListKBDocuments(_ context.Context, _ string, _ int) ([]*domconv.Document, error) {
+	return []*domconv.Document{}, nil
+}
+func (m *mockVectorDBStore) GetKBCollections(_ context.Context) ([]string, error) {
+	return []string{}, nil
+}
+func (m *mockVectorDBStore) GetKBStats(_ context.Context, _ string) (*KBStats, error) {
+	return &KBStats{Domain: "test", DocumentCount: 0, VectorSize: 768}, nil
+}
+func (m *mockVectorDBStore) DeleteOldKBDocuments(_ context.Context, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
 func (m *mockVectorDBStore) Close() error { return nil }
 
 type mockEmbeddingProvider struct {
@@ -275,10 +293,4 @@ func TestIsNovelInformation_NoEmbedder_ReturnsFalse(t *testing.T) {
 	if isNovel {
 		t.Error("Should return false when embedder is not configured")
 	}
-}
-func (m *mockVectorDBStore) SaveKB(_ context.Context, _ *domconv.Document) error {
-	return nil
-}
-func (m *mockVectorDBStore) SearchKB(_ context.Context, _ string, _ []float32, _ int) ([]*domconv.Document, error) {
-	return nil, nil
 }

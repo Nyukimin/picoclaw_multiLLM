@@ -367,3 +367,26 @@ func (m *RealConversationManager) SearchKB(ctx context.Context, domain string, q
 
 	return docs, nil
 }
+
+// --- KB管理API (kb-admin用) ---
+
+// ListKBDocuments はKBコレクション内の全ドキュメントを取得
+func (m *RealConversationManager) ListKBDocuments(ctx context.Context, domain string, limit int) ([]*domconv.Document, error) {
+	return m.vectordbStore.ListKBDocuments(ctx, domain, limit)
+}
+
+// GetKBCollections は存在するKBコレクション一覧を取得
+func (m *RealConversationManager) GetKBCollections(ctx context.Context) ([]string, error) {
+	return m.vectordbStore.GetKBCollections(ctx)
+}
+
+// GetKBStats はKBコレクションの統計情報を取得
+func (m *RealConversationManager) GetKBStats(ctx context.Context, domain string) (*KBStats, error) {
+	return m.vectordbStore.GetKBStats(ctx, domain)
+}
+
+// DeleteOldKBDocuments は指定日時より古いKBドキュメントを削除
+func (m *RealConversationManager) DeleteOldKBDocuments(ctx context.Context, domain string, before time.Time) (int, error) {
+	return m.vectordbStore.DeleteOldKBDocuments(ctx, domain, before)
+}
+

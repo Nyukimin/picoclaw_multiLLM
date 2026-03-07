@@ -181,10 +181,30 @@ func initManager(cfg *config.Config) (*conversationpersistence.RealConversationM
 func cmdList(ctx context.Context, mgr *conversationpersistence.RealConversationManager, domain string) error {
 	fmt.Printf("📚 Domain: %s\n\n", domain)
 
-	// TODO: RealConversationManager に ListKBDocuments を公開する
-	// 現状は直接VectorDBStoreにアクセスできないため、search コマンドで代用
-	fmt.Println("⚠️  Note: Use 'search' command with a broad query to list documents")
-	fmt.Println("Example: kb-admin search", domain, "\"*\"")
+	docs, err := mgr.ListKBDocuments(ctx, domain, 100)
+	if err != nil {
+		return fmt.Errorf("failed to list documents: %w", err)
+	}
+
+	if len(docs) == 0 {
+		fmt.Println("No documents found in this domain.")
+		return nil
+	}
+
+	fmt.Printf("Found %d documents:\n\n", len(docs))
+	for i, doc := range docs {
+		fmt.Printf("--- Document %d ---\n", i+1)
+		fmt.Printf("ID:      %s\n", doc.ID)
+		fmt.Printf("Source:  %s\n", doc.Source)
+		fmt.Printf("Created: %s\n", doc.CreatedAt.Format(time.RFC3339))
+
+		// Content preview (first 150 chars)
+		content := doc.Content
+		if len(content) > 150 {
+			content = content[:150] + "..."
+		}
+		fmt.Printf("Content: %s\n\n", content)
+	}
 
 	return nil
 }
@@ -226,26 +246,31 @@ func cmdSearch(ctx context.Context, mgr *conversationpersistence.RealConversatio
 func cmdStats(ctx context.Context, mgr *conversationpersistence.RealConversationManager) error {
 	fmt.Println("📊 Knowledge Base Statistics")
 
-	// TODO: RealConversationManager に GetKBCollections/GetKBStats を公開する
-	// 現状は既知のドメインを手動チェック
-	domains := []string{"general", "programming", "movie", "anime", "tech", "history"}
+	// 存在するコレクション一覧を取得
+	collections, err := mgr.GetKBCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get collections: %w", err)
+	}
 
-	fmt.Println("\nChecking known domains:")
-	for _, domain := range domains {
-		// 簡易チェック: SearchKB で検索してみる
-		docs, err := mgr.SearchKB(ctx, domain, "test", 1)
+	if len(collections) == 0 {
+		fmt.Println("No KB collections found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d collection(s):\n\n", len(collections))
+
+	// 各コレクションの統計を表示
+	for _, domain := range collections {
+		stats, err := mgr.GetKBStats(ctx, domain)
 		if err != nil {
 			fmt.Printf("  ❌ %s - Error: %v\n", domain, err)
 			continue
 		}
-		status := "empty"
-		if len(docs) > 0 {
-			status = "has documents"
-		}
-		fmt.Printf("  ✓ %s - %s\n", domain, status)
+		fmt.Printf("  ✓ %s\n", domain)
+		fmt.Printf("    Documents: %d\n", stats.DocumentCount)
+		fmt.Printf("    Vector Size: %d\n\n", stats.VectorSize)
 	}
 
-	fmt.Println("\nNote: Use 'search <domain> <query>' to explore specific domains")
 	return nil
 }
 
@@ -256,12 +281,33 @@ func cmdCleanup(ctx context.Context, mgr *conversationpersistence.RealConversati
 	fmt.Printf("Domain: %s\n", domain)
 	fmt.Printf("Delete documents older than: %d days (before %s)\n\n", days, cutoff.Format("2006-01-02"))
 
-	// TODO: RealConversationManager に DeleteOldKBDocuments を公開する
-	fmt.Println("⚠️  Cleanup requires administrative access to VectorDB")
-	fmt.Println("This feature will be implemented in Phase 4.2 production deployment")
-	fmt.Println("\nFor manual cleanup, use Qdrant web UI or API directly:")
-	fmt.Printf("  Collection: kb_%s\n", domain)
-	fmt.Printf("  Filter: created_at < %d\n", cutoff.Unix())
+	// 削除前のドキュメント数を取得
+	statsBefore, err := mgr.GetKBStats(ctx, domain)
+	if err != nil {
+		return fmt.Errorf("failed to get stats before cleanup: %w", err)
+	}
+	fmt.Printf("Documents before cleanup: %d\n", statsBefore.DocumentCount)
+
+	// 削除実行
+	deletedCount, err := mgr.DeleteOldKBDocuments(ctx, domain, cutoff)
+	if err != nil {
+		return fmt.Errorf("failed to delete old documents: %w", err)
+	}
+
+	// 削除後のドキュメント数を取得
+	statsAfter, err := mgr.GetKBStats(ctx, domain)
+	if err != nil {
+		return fmt.Errorf("failed to get stats after cleanup: %w", err)
+	}
+
+	actualDeleted := statsBefore.DocumentCount - statsAfter.DocumentCount
+	fmt.Printf("Documents after cleanup:  %d\n", statsAfter.DocumentCount)
+	fmt.Printf("✓ Deleted: %d documents\n", actualDeleted)
+
+	// deletedCountは正確ではないため、実際の差分を表示
+	if deletedCount != actualDeleted {
+		fmt.Printf("  (Note: VectorDB reported %d deletions)\n", deletedCount)
+	}
 
 	return nil
 }

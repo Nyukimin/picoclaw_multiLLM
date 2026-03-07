@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -36,6 +37,11 @@ type vectordbStoreIface interface {
 	// KB (Knowledge Base) メソッド
 	SaveKB(ctx context.Context, doc *conversation.Document) error
 	SearchKB(ctx context.Context, domain string, queryEmbedding []float32, topK int) ([]*conversation.Document, error)
+	// KB管理メソッド (kb-admin用)
+	ListKBDocuments(ctx context.Context, domain string, limit int) ([]*conversation.Document, error)
+	GetKBCollections(ctx context.Context) ([]string, error)
+	GetKBStats(ctx context.Context, domain string) (*KBStats, error)
+	DeleteOldKBDocuments(ctx context.Context, domain string, before time.Time) (int, error)
 	Close() error
 }
 
