@@ -55,9 +55,14 @@ func (d *DuckDBStore) initTables(ctx context.Context) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
+	-- 単一カラムインデックス（互換性維持）
 	CREATE INDEX IF NOT EXISTS idx_session_thread_session_id ON session_thread(session_id);
 	CREATE INDEX IF NOT EXISTS idx_session_thread_domain ON session_thread(domain);
 	CREATE INDEX IF NOT EXISTS idx_session_thread_ts_start ON session_thread(ts_start);
+	
+	-- 複合インデックス（パフォーマンス最適化）
+	CREATE INDEX IF NOT EXISTS idx_session_thread_session_ts ON session_thread(session_id, ts_start DESC);
+	CREATE INDEX IF NOT EXISTS idx_session_thread_domain_ts ON session_thread(domain, ts_start DESC);
 	`
 
 	if _, err := d.db.ExecContext(ctx, schema); err != nil {

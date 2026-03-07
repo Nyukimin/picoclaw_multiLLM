@@ -12,8 +12,17 @@ import (
 
 // RedisStore はRedisを使った会話記憶ストア（短期・中期記憶）
 type RedisStore struct {
-	client *redis.Client
-	ttl    time.Duration // デフォルト: 24h
+	client  *redis.Client
+	ttl     time.Duration // デフォルト: 24h
+	metrics *RedisMetrics
+}
+
+// RedisMetrics はRedisキャッシュのメトリクス
+type RedisMetrics struct {
+	SessionHits   int64
+	SessionMisses int64
+	ThreadHits    int64
+	ThreadMisses  int64
 }
 
 // NewRedisStore は新しいRedisStoreを生成
@@ -33,8 +42,9 @@ func NewRedisStore(redisURL string) (*RedisStore, error) {
 	}
 
 	return &RedisStore{
-		client: client,
-		ttl:    24 * time.Hour, // デフォルト: 24時間
+		client:  client,
+		ttl:     24 * time.Hour, // デフォルト: 24時間
+		metrics: &RedisMetrics{},
 	}, nil
 }
 
@@ -65,11 +75,14 @@ func (r *RedisStore) GetSession(ctx context.Context, sessionID string) (*convers
 
 	data, err := r.client.Get(ctx, key).Bytes()
 	if err == redis.Nil {
+		r.metrics.SessionMisses++
 		return nil, conversation.ErrSessionNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session from redis: %w", err)
 	}
+
+	r.metrics.SessionHits++
 
 	var sess conversation.SessionConversation
 	if err := json.Unmarshal(data, &sess); err != nil {
@@ -131,11 +144,14 @@ func (r *RedisStore) GetThread(ctx context.Context, threadID int64) (*conversati
 
 	data, err := r.client.Get(ctx, key).Bytes()
 	if err == redis.Nil {
+		r.metrics.ThreadMisses++
 		return nil, conversation.ErrThreadNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get thread from redis: %w", err)
 	}
+
+	r.metrics.ThreadHits++
 
 	var thread conversation.Thread
 	if err := json.Unmarshal(data, &thread); err != nil {
@@ -155,3 +171,24 @@ func (r *RedisStore) DeleteThread(ctx context.Context, threadID int64) error {
 
 	return nil
 }
+
+// GetMetrics はRedisキャッシュのメトリクスを取得
+func (r *RedisStore) GetMetrics() RedisMetrics {
+	return *r.metrics
+}
+
+// GetCacheHitRate はキャッシュヒット率を計算
+func (r *RedisStore) GetCacheHitRate() (sessionHitRate, threadHitRate float64) {
+	sessionTotal := r.metrics.SessionHits + r.metrics.SessionMisses
+	if sessionTotal > 0 {
+		sessionHitRate = float64(r.metrics.SessionHits) / float64(sessionTotal) * 100
+	}
+
+	threadTotal := r.metrics.ThreadHits + r.metrics.ThreadMisses
+	if threadTotal > 0 {
+		threadHitRate = float64(r.metrics.ThreadHits) / float64(threadTotal) * 100
+	}
+
+	return sessionHitRate, threadHitRate
+}
+
