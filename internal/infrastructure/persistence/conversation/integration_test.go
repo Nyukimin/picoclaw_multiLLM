@@ -215,3 +215,122 @@ func TestRealConversationManager_Integration_StoreAndRecall(t *testing.T) {
 	}
 	redisStore.DeleteSession(ctx, sessionID)
 }
+
+// --- ConversationEngine E2E 統合テスト ---
+
+func TestConversationEngine_Integration_E2E(t *testing.T) {
+	skipIfRedisUnavailable(t)
+	skipIfQdrantUnavailable(t)
+
+	ctx := context.Background()
+	sessionID := "e2e-engine-" + time.Now().Format("150405.000")
+
+	// 1. RealConversationManager（Redis + DuckDB + VectorDB）
+	redisStore, err := NewRedisStore(testRedisURL)
+	if err != nil {
+		t.Fatalf("RedisStore failed: %v", err)
+	}
+	defer redisStore.Close()
+
+	vdbStore, err := NewVectorDBStore(testVectorDBURL, testCollection)
+	if err != nil {
+		t.Fatalf("VectorDBStore failed: %v", err)
+	}
+	defer vdbStore.Close()
+
+	mgr := &RealConversationManager{
+		redisStore:    redisStore,
+		duckdbStore:   &mockDuckDBStore{},
+		vectordbStore: vdbStore,
+	}
+
+	// 2. ConversationEngine を構築
+	persona := domconv.NewMioPersona("")
+	engine := NewRealConversationEngine(mgr, persona)
+
+	// 3. BeginTurn（初回 — 記憶なし）
+	pack, err := engine.BeginTurn(ctx, sessionID, "こんにちは")
+	if err != nil {
+		t.Fatalf("BeginTurn failed: %v", err)
+	}
+	if pack == nil {
+		t.Fatal("RecallPack should not be nil")
+	}
+	t.Logf("BeginTurn(initial): ShortContext=%d, MidSummaries=%d, LongFacts=%d",
+		len(pack.ShortContext), len(pack.MidSummaries), len(pack.LongFacts))
+
+	// Persona がセットされていること
+	if pack.Persona.Name == "" {
+		t.Error("Persona.Name should be set")
+	}
+	t.Logf("Persona: %s", pack.Persona.Name)
+
+	// 4. EndTurn（メッセージ保存）
+	err = engine.EndTurn(ctx, sessionID, "こんにちは", "こんにちは！何かお手伝いしますか？")
+	if err != nil {
+		t.Fatalf("EndTurn failed: %v", err)
+	}
+
+	// 5. 2回目の BeginTurn（短期記憶にメッセージあり）
+	pack2, err := engine.BeginTurn(ctx, sessionID, "Go言語について教えて")
+	if err != nil {
+		t.Fatalf("BeginTurn(2nd) failed: %v", err)
+	}
+	if len(pack2.ShortContext) == 0 {
+		t.Error("Expected short context from previous turn")
+	}
+	t.Logf("BeginTurn(2nd): ShortContext=%d messages", len(pack2.ShortContext))
+
+	// 6. EndTurn（2回目）
+	err = engine.EndTurn(ctx, sessionID, "Go言語について教えて", "Go言語は高速なプログラミング言語です。")
+	if err != nil {
+		t.Fatalf("EndTurn(2nd) failed: %v", err)
+	}
+
+	// 7. GetStatus
+	status, err := engine.GetStatus(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if status.SessionID != sessionID {
+		t.Errorf("Expected sessionID=%s, got %s", sessionID, status.SessionID)
+	}
+	if status.TurnCount < 2 {
+		t.Errorf("Expected at least 2 turns, got %d", status.TurnCount)
+	}
+	t.Logf("Status: session=%s, thread=%d, turns=%d, domain=%s",
+		status.SessionID, status.ThreadID, status.TurnCount, status.ThreadDomain)
+
+	// 8. FlushCurrentThread → DuckDB/VectorDB 保存
+	err = engine.FlushCurrentThread(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("FlushCurrentThread failed: %v", err)
+	}
+
+	// Flush 後の GetStatus で新しい Thread が作成されていること
+	statusAfter, err := engine.GetStatus(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("GetStatus after flush failed: %v", err)
+	}
+	if statusAfter.ThreadID == status.ThreadID {
+		t.Error("ThreadID should be different after flush")
+	}
+	if statusAfter.TurnCount != 0 {
+		t.Errorf("New thread should have 0 turns, got %d", statusAfter.TurnCount)
+	}
+	t.Logf("After flush: new thread=%d, turns=%d", statusAfter.ThreadID, statusAfter.TurnCount)
+
+	// 9. ResetSession
+	err = engine.ResetSession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("ResetSession failed: %v", err)
+	}
+
+	// クリーンアップ
+	thread, _ := mgr.GetActiveThread(ctx, sessionID)
+	if thread != nil {
+		redisStore.DeleteThread(ctx, thread.ID)
+	}
+	redisStore.DeleteSession(ctx, sessionID)
+	t.Log("E2E test completed successfully")
+}
