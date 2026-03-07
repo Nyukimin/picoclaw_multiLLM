@@ -165,6 +165,208 @@ func TestClaudeProviderGenerate_APIError(t *testing.T) {
 	}
 }
 
+// --- Chat (tool calling) テスト ---
+
+func TestChat_WithToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Errorf("expected path /v1/messages, got %s", r.URL.Path)
+		}
+
+		var reqBody map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&reqBody)
+
+		// tools が送信されていることを確認
+		tools, ok := reqBody["tools"].([]interface{})
+		if !ok || len(tools) == 0 {
+			t.Error("expected tools in request")
+		}
+		// Claude形式: name + input_schema
+		tool0 := tools[0].(map[string]interface{})
+		if _, ok := tool0["input_schema"]; !ok {
+			t.Error("expected input_schema in tool definition (Claude format)")
+		}
+
+		// Claude形式のレスポンス: tool_use content block
+		response := map[string]interface{}{
+			"id":   "msg_123",
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": "検索します。",
+				},
+				{
+					"type":  "tool_use",
+					"id":    "toolu_abc123",
+					"name":  "web_search",
+					"input": map[string]interface{}{"query": "PicoClaw"},
+				},
+			},
+			"stop_reason": "tool_use",
+			"usage":       map[string]interface{}{"input_tokens": 20, "output_tokens": 30},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	provider := NewClaudeProvider("test-api-key", "claude-sonnet-4-5-20250929")
+	provider.SetBaseURL(server.URL)
+
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "PicoClawを検索して"},
+		},
+		Tools: []llm.ToolDefinition{
+			{
+				Type: "function",
+				Function: llm.ToolFunctionDef{
+					Name:        "web_search",
+					Description: "Web検索を実行",
+					Parameters:  map[string]any{"type": "object"},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	// Claude の "tool_use" → ドメイン "tool_calls" に変換確認
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("expected finish_reason=tool_calls, got %s", resp.FinishReason)
+	}
+	if resp.Message.Content != "検索します。" {
+		t.Errorf("expected text content, got %s", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.ID != "toolu_abc123" {
+		t.Errorf("expected ID=toolu_abc123, got %s", tc.ID)
+	}
+	if tc.Function.Name != "web_search" {
+		t.Errorf("expected tool name=web_search, got %s", tc.Function.Name)
+	}
+	if tc.Function.Arguments["query"] != "PicoClaw" {
+		t.Errorf("expected query=PicoClaw, got %v", tc.Function.Arguments["query"])
+	}
+}
+
+func TestChat_WithoutToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": "こんにちは！"},
+			},
+			"stop_reason": "end_turn",
+			"usage":       map[string]interface{}{"input_tokens": 5, "output_tokens": 10},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	provider := NewClaudeProvider("test-api-key", "claude-sonnet-4-5-20250929")
+	provider.SetBaseURL(server.URL)
+
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "こんにちは"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.FinishReason != "end_turn" {
+		t.Errorf("expected finish_reason=end_turn, got %s", resp.FinishReason)
+	}
+	if resp.Message.Content != "こんにちは！" {
+		t.Errorf("expected content=こんにちは！, got %s", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 0 {
+		t.Errorf("expected no tool calls, got %d", len(resp.Message.ToolCalls))
+	}
+}
+
+func TestChat_ToolResultRoundtrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&reqBody)
+
+		// system がトップレベルに抽出されていることを確認
+		if reqBody["system"] != "You are helpful." {
+			t.Errorf("expected system at top level, got %v", reqBody["system"])
+		}
+
+		msgs := reqBody["messages"].([]interface{})
+		// user, assistant(tool_use), user(tool_result) の3メッセージ（system除外）
+		if len(msgs) != 3 {
+			t.Errorf("expected 3 messages (system excluded), got %d", len(msgs))
+		}
+
+		// tool_result は user メッセージ内の content block であることを確認
+		toolResultMsg := msgs[2].(map[string]interface{})
+		if toolResultMsg["role"] != "user" {
+			t.Errorf("expected tool_result wrapped in user msg, got role=%v", toolResultMsg["role"])
+		}
+
+		response := map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": "検索結果はこちらです。"},
+			},
+			"stop_reason": "end_turn",
+			"usage":       map[string]interface{}{"input_tokens": 50, "output_tokens": 20},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	provider := NewClaudeProvider("test-api-key", "claude-sonnet-4-5-20250929")
+	provider.SetBaseURL(server.URL)
+
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: "You are helpful."},
+			{Role: "user", Content: "検索して"},
+			{Role: "assistant", ToolCalls: []llm.ToolCall{
+				{ID: "toolu_1", Function: llm.ToolCallFunction{Name: "web_search", Arguments: map[string]any{"query": "test"}}},
+			}},
+			{Role: "tool", Content: "result data", ToolCallID: "toolu_1"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.Message.Content != "検索結果はこちらです。" {
+		t.Errorf("expected final answer, got %s", resp.Message.Content)
+	}
+}
+
+func TestChat_ErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewClaudeProvider("test-api-key", "claude-sonnet-4-5-20250929")
+	provider.SetBaseURL(server.URL)
+
+	_, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{{Role: "user", Content: "test"}},
+	})
+
+	if err == nil {
+		t.Error("expected error for 429 response")
+	}
+}
+
 func TestClaudeProviderGenerate_InvalidAPIKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

@@ -28,6 +28,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
@@ -297,18 +298,19 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// Subagent配線（2段階構築: ToolRunner作成後にManagerを注入）
 	if cfg.Subagent.Enabled {
-		// ToolDefinitions取得（subagent自身は除外済み）
+		subagentProvider := resolveSubagentProvider(cfg, ollamaProvider)
 		toolDefs := workerToolRunnerV2.ToolDefinitions()
 
 		mgr := subagentapp.NewManager(
-			ollamaProvider,
+			subagentProvider,
 			workerToolRunnerV2,
 			toolDefs,
 			toolloop.Config{MaxIterations: cfg.Subagent.MaxIterations},
 		)
 
 		workerToolRunnerV2.RegisterSubagent("worker", tools.NewSubagentFuncFromManager(mgr))
-		log.Printf("Subagent enabled (max_iterations: %d)", cfg.Subagent.MaxIterations)
+		log.Printf("Subagent enabled (provider: %s, max_iterations: %d)",
+			subagentProvider.Name(), cfg.Subagent.MaxIterations)
 	}
 
 	// LegacyRunner アダプター（V2 → V1 ブリッジ）で agents に注入
@@ -553,6 +555,44 @@ func getConfigPath() string {
 		return path
 	}
 	return "./config.yaml"
+}
+
+// resolveSubagentProvider はサブエージェント用のToolCallingProviderを設定に基づいて選択する
+func resolveSubagentProvider(cfg *config.Config, fallback *ollama.OllamaProvider) llm.ToolCallingProvider {
+	switch cfg.Subagent.Provider {
+	case "claude":
+		if cfg.Claude.APIKey == "" {
+			log.Fatalf("subagent.provider=claude but claude.api_key is not set")
+		}
+		model := cfg.Subagent.Model
+		if model == "" {
+			model = cfg.Claude.Model
+		}
+		return claude.NewClaudeProvider(cfg.Claude.APIKey, model)
+
+	case "openai":
+		if cfg.OpenAI.APIKey == "" {
+			log.Fatalf("subagent.provider=openai but openai.api_key is not set")
+		}
+		model := cfg.Subagent.Model
+		if model == "" {
+			model = cfg.OpenAI.Model
+		}
+		return openai.NewOpenAIProvider(cfg.OpenAI.APIKey, model)
+
+	case "deepseek":
+		if cfg.DeepSeek.APIKey == "" {
+			log.Fatalf("subagent.provider=deepseek but deepseek.api_key is not set")
+		}
+		model := cfg.Subagent.Model
+		if model == "" {
+			model = cfg.DeepSeek.Model
+		}
+		return deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, model)
+
+	default: // "ollama" or empty
+		return fallback
+	}
 }
 
 // mustGetToolList はツールリストを取得（エラーは無視）

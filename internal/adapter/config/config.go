@@ -165,7 +165,8 @@ type HeartbeatConfig struct {
 type SubagentConfig struct {
 	Enabled       bool   `yaml:"enabled"`                // サブエージェント有効化（デフォルト: false）
 	MaxIterations int    `yaml:"max_iterations"`         // ReActループ最大反復回数（デフォルト: 10）
-	Model         string `yaml:"model,omitempty"`        // 使用モデル（空=ollama.modelを使用）
+	Provider      string `yaml:"provider,omitempty"`     // LLMプロバイダー: "ollama"(default), "claude", "openai", "deepseek"
+	Model         string `yaml:"model,omitempty"`        // 使用モデル（空=各プロバイダーのデフォルトモデルを使用）
 }
 
 // GoogleSearchConfig はGoogle Search API設定

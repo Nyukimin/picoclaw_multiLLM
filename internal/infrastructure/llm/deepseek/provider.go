@@ -122,6 +122,155 @@ func (p *DeepSeekProvider) Name() string {
 	return fmt.Sprintf("deepseek-%s", p.model)
 }
 
+// Chat はtool calling対応のチャットを実行（DeepSeek /v1/chat/completions + tools、OpenAI互換）
+func (p *DeepSeekProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = p.model
+	}
+
+	messages := p.convertChatMessages(req.Messages)
+
+	dsReq := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+	}
+	if len(req.Tools) > 0 {
+		tools := make([]map[string]interface{}, 0, len(req.Tools))
+		for _, td := range req.Tools {
+			tools = append(tools, map[string]interface{}{
+				"type": "function",
+				"function": map[string]interface{}{
+					"name":        td.Function.Name,
+					"description": td.Function.Description,
+					"parameters":  td.Function.Parameters,
+				},
+			})
+		}
+		dsReq["tools"] = tools
+	}
+	if req.Temperature > 0 {
+		dsReq["temperature"] = req.Temperature
+	}
+
+	reqBody, err := json.Marshal(dsReq)
+	if err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to marshal chat request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/v1/chat/completions", bytes.NewReader(reqBody))
+	if err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to execute chat request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return llm.ChatResponse{}, fmt.Errorf("deepseek chat API error: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
+	return p.parseChatResponse(resp.Body)
+}
+
+// convertChatMessages はChatMessageをOpenAI互換フォーマットに変換
+func (p *DeepSeekProvider) convertChatMessages(msgs []llm.ChatMessage) []map[string]interface{} {
+	messages := make([]map[string]interface{}, 0, len(msgs))
+	for _, m := range msgs {
+		msg := map[string]interface{}{
+			"role": m.Role,
+		}
+		if m.Content != "" {
+			msg["content"] = m.Content
+		}
+		if len(m.ToolCalls) > 0 {
+			tcs := make([]map[string]interface{}, 0, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				argsJSON, _ := json.Marshal(tc.Function.Arguments)
+				tcs = append(tcs, map[string]interface{}{
+					"id":   tc.ID,
+					"type": "function",
+					"function": map[string]interface{}{
+						"name":      tc.Function.Name,
+						"arguments": string(argsJSON),
+					},
+				})
+			}
+			msg["tool_calls"] = tcs
+		}
+		if m.ToolCallID != "" {
+			msg["tool_call_id"] = m.ToolCallID
+		}
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
+// parseChatResponse はOpenAI互換レスポンスをパースする
+func (p *DeepSeekProvider) parseChatResponse(body io.Reader) (llm.ChatResponse, error) {
+	var dsResp struct {
+		Choices []struct {
+			Message struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+
+	if err := json.NewDecoder(body).Decode(&dsResp); err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to decode chat response: %w", err)
+	}
+
+	if len(dsResp.Choices) == 0 {
+		return llm.ChatResponse{}, fmt.Errorf("empty choices in response")
+	}
+
+	choice := dsResp.Choices[0]
+	result := llm.ChatResponse{
+		Message: llm.ChatMessage{
+			Role:    choice.Message.Role,
+			Content: choice.Message.Content,
+		},
+		Done:         true,
+		FinishReason: choice.FinishReason,
+	}
+
+	for _, tc := range choice.Message.ToolCalls {
+		var args map[string]any
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+			args = map[string]any{"_raw": tc.Function.Arguments}
+		}
+		result.Message.ToolCalls = append(result.Message.ToolCalls, llm.ToolCall{
+			ID: tc.ID,
+			Function: llm.ToolCallFunction{
+				Name:      tc.Function.Name,
+				Arguments: args,
+			},
+		})
+	}
+
+	if len(result.Message.ToolCalls) > 0 && result.FinishReason == "" {
+		result.FinishReason = "tool_calls"
+	}
+
+	return result, nil
+}
+
 // convertMessages はドメインメッセージをDeepSeek APIフォーマットに変換
 func (p *DeepSeekProvider) convertMessages(req llm.GenerateRequest) []map[string]interface{} {
 	messages := make([]map[string]interface{}, 0)

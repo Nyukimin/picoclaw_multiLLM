@@ -225,6 +225,208 @@ func TestOpenAIProviderGenerate_APIError(t *testing.T) {
 	}
 }
 
+// --- Chat (tool calling) テスト ---
+
+func TestChat_WithToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("expected path /v1/chat/completions, got %s", r.URL.Path)
+		}
+
+		var reqBody map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&reqBody)
+
+		// tools が送信されていることを確認
+		tools, ok := reqBody["tools"].([]interface{})
+		if !ok || len(tools) == 0 {
+			t.Error("expected tools in request")
+		}
+
+		response := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role": "assistant",
+						"tool_calls": []map[string]interface{}{
+							{
+								"id":   "call_abc123",
+								"type": "function",
+								"function": map[string]interface{}{
+									"name":      "web_search",
+									"arguments": `{"query":"PicoClaw"}`,
+								},
+							},
+						},
+					},
+					"finish_reason": "tool_calls",
+				},
+			},
+			"usage": map[string]interface{}{"total_tokens": 50},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+	provider.SetBaseURL(server.URL)
+
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "PicoClawを検索して"},
+		},
+		Tools: []llm.ToolDefinition{
+			{
+				Type: "function",
+				Function: llm.ToolFunctionDef{
+					Name:        "web_search",
+					Description: "Web検索を実行",
+					Parameters:  map[string]any{"type": "object"},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("expected finish_reason=tool_calls, got %s", resp.FinishReason)
+	}
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.ID != "call_abc123" {
+		t.Errorf("expected ID=call_abc123, got %s", tc.ID)
+	}
+	if tc.Function.Name != "web_search" {
+		t.Errorf("expected tool name=web_search, got %s", tc.Function.Name)
+	}
+	if tc.Function.Arguments["query"] != "PicoClaw" {
+		t.Errorf("expected query=PicoClaw, got %v", tc.Function.Arguments["query"])
+	}
+}
+
+func TestChat_WithoutToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": "こんにちは！",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{"total_tokens": 10},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+	provider.SetBaseURL(server.URL)
+
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "こんにちは"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.FinishReason != "stop" {
+		t.Errorf("expected finish_reason=stop, got %s", resp.FinishReason)
+	}
+	if resp.Message.Content != "こんにちは！" {
+		t.Errorf("expected content=こんにちは！, got %s", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 0 {
+		t.Errorf("expected no tool calls, got %d", len(resp.Message.ToolCalls))
+	}
+}
+
+func TestChat_ToolResultRoundtrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&reqBody)
+
+		msgs := reqBody["messages"].([]interface{})
+		// system, user, assistant(tool_calls), tool, の4メッセージを期待
+		if len(msgs) != 4 {
+			t.Errorf("expected 4 messages, got %d", len(msgs))
+		}
+
+		// tool メッセージの検証
+		toolMsg := msgs[3].(map[string]interface{})
+		if toolMsg["role"] != "tool" {
+			t.Errorf("expected role=tool, got %v", toolMsg["role"])
+		}
+		if toolMsg["tool_call_id"] != "call_1" {
+			t.Errorf("expected tool_call_id=call_1, got %v", toolMsg["tool_call_id"])
+		}
+
+		response := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": "検索結果はこちらです。",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{"total_tokens": 30},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+	provider.SetBaseURL(server.URL)
+
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: "You are helpful."},
+			{Role: "user", Content: "検索して"},
+			{Role: "assistant", ToolCalls: []llm.ToolCall{
+				{ID: "call_1", Function: llm.ToolCallFunction{Name: "web_search", Arguments: map[string]any{"query": "test"}}},
+			}},
+			{Role: "tool", Content: "result data", ToolCallID: "call_1"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.Message.Content != "検索結果はこちらです。" {
+		t.Errorf("expected final answer, got %s", resp.Message.Content)
+	}
+}
+
+func TestChat_ErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"Rate limit exceeded"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+	provider.SetBaseURL(server.URL)
+
+	_, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{{Role: "user", Content: "test"}},
+	})
+
+	if err == nil {
+		t.Error("expected error for 429 response")
+	}
+}
+
 func TestOpenAIProviderGenerate_InvalidAPIKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

@@ -117,7 +117,8 @@ conversation:
 subagent:
   enabled: false
   max_iterations: 10     # ReActループ最大反復回数
-  model: ""              # 空の場合はollama.modelを使用
+  provider: ""           # "ollama"(default), "claude", "openai", "deepseek"
+  model: ""              # 空の場合は各プロバイダーのデフォルトモデルを使用
 
 # ハートビート（定期タスク）
 heartbeat:
