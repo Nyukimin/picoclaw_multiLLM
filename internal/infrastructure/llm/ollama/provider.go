@@ -96,6 +96,164 @@ func (p *OllamaProvider) Name() string {
 	return fmt.Sprintf("ollama-%s", p.model)
 }
 
+// Chat はtool calling対応のチャットを実行（Ollama /api/chat）
+func (p *OllamaProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = p.model
+	}
+
+	// メッセージ変換
+	messages := make([]ollamaChatMessage, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		msg := ollamaChatMessage{
+			Role:    m.Role,
+			Content: m.Content,
+		}
+		if len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				msg.ToolCalls = append(msg.ToolCalls, ollamaToolCall{
+					Function: ollamaToolCallFunction{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				})
+			}
+		}
+		messages = append(messages, msg)
+	}
+
+	// ツール定義変換
+	var tools []ollamaToolDef
+	for _, td := range req.Tools {
+		tools = append(tools, ollamaToolDef{
+			Type: td.Type,
+			Function: ollamaFunctionDef{
+				Name:        td.Function.Name,
+				Description: td.Function.Description,
+				Parameters:  td.Function.Parameters,
+			},
+		})
+	}
+
+	chatReq := ollamaChatRequest{
+		Model:     model,
+		Messages:  messages,
+		Tools:     tools,
+		Stream:    false,
+		KeepAlive: -1,
+	}
+	if req.Temperature > 0 {
+		chatReq.Options = &ollamaChatOptions{Temperature: req.Temperature}
+	}
+
+	reqBody, err := json.Marshal(chatReq)
+	if err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to marshal chat request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/chat", bytes.NewReader(reqBody))
+	if err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to execute chat request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return llm.ChatResponse{}, fmt.Errorf("ollama chat API error: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
+	var chatResp ollamaChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return llm.ChatResponse{}, fmt.Errorf("failed to decode chat response: %w", err)
+	}
+
+	// レスポンス変換
+	result := llm.ChatResponse{
+		Message: llm.ChatMessage{
+			Role:    chatResp.Message.Role,
+			Content: chatResp.Message.Content,
+		},
+		Done: chatResp.Done,
+	}
+
+	if len(chatResp.Message.ToolCalls) > 0 {
+		result.FinishReason = "tool_calls"
+		for i, tc := range chatResp.Message.ToolCalls {
+			id := tc.Function.Name
+			if id == "" {
+				id = fmt.Sprintf("call_%d", i)
+			} else {
+				id = fmt.Sprintf("call_%s_%d", tc.Function.Name, i)
+			}
+			result.Message.ToolCalls = append(result.Message.ToolCalls, llm.ToolCall{
+				ID: id,
+				Function: llm.ToolCallFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+	} else {
+		result.FinishReason = "stop"
+	}
+
+	return result, nil
+}
+
+// --- Ollama /api/chat 用の内部型 ---
+
+type ollamaChatRequest struct {
+	Model     string             `json:"model"`
+	Messages  []ollamaChatMessage `json:"messages"`
+	Tools     []ollamaToolDef    `json:"tools,omitempty"`
+	Stream    bool               `json:"stream"`
+	KeepAlive int                `json:"keep_alive"`
+	Options   *ollamaChatOptions `json:"options,omitempty"`
+}
+
+type ollamaChatOptions struct {
+	Temperature float64 `json:"temperature,omitempty"`
+}
+
+type ollamaChatMessage struct {
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+}
+
+type ollamaToolCall struct {
+	Function ollamaToolCallFunction `json:"function"`
+}
+
+type ollamaToolCallFunction struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+type ollamaToolDef struct {
+	Type     string          `json:"type"`
+	Function ollamaFunctionDef `json:"function"`
+}
+
+type ollamaFunctionDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+type ollamaChatResponse struct {
+	Model   string            `json:"model"`
+	Message ollamaChatMessage `json:"message"`
+	Done    bool              `json:"done"`
+}
+
 // buildPrompt はメッセージリストからプロンプトを構築
 func (p *OllamaProvider) buildPrompt(req llm.GenerateRequest) string {
 	var parts []string

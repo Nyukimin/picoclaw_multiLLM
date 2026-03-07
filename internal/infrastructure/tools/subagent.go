@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 )
 
 // SubagentFunc はサブエージェント呼び出し関数の型
@@ -30,4 +33,18 @@ func (r *ToolRunner) executeSubagent(ctx context.Context, args map[string]interf
 	}
 
 	return fn(ctx, message)
+}
+
+// NewSubagentFuncFromManager は Manager.RunSync を呼び出す SubagentFunc を返す
+func NewSubagentFuncFromManager(mgr *subagent.Manager) SubagentFunc {
+	return func(ctx context.Context, message string) (string, error) {
+		result, err := mgr.RunSync(ctx, agent.SubagentTask{
+			AgentName:   "worker",
+			Instruction: message,
+		})
+		if err != nil {
+			return "", err
+		}
+		return result.Output, nil
+	}
 }

@@ -189,3 +189,151 @@ func TestOllamaProviderGenerate_MultipleMessages(t *testing.T) {
 		t.Fatalf("Generate with multiple messages failed: %v", err)
 	}
 }
+
+// --- Chat (tool calling) テスト ---
+
+func TestChat_WithToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Errorf("expected path /api/chat, got %s", r.URL.Path)
+		}
+
+		resp := ollamaChatResponse{
+			Model: "test-model",
+			Message: ollamaChatMessage{
+				Role: "assistant",
+				ToolCalls: []ollamaToolCall{
+					{
+						Function: ollamaToolCallFunction{
+							Name:      "web_search",
+							Arguments: map[string]any{"query": "PicoClaw"},
+						},
+					},
+				},
+			},
+			Done: true,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewOllamaProvider(server.URL, "test-model")
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "PicoClawを検索して"},
+		},
+		Tools: []llm.ToolDefinition{
+			{
+				Type: "function",
+				Function: llm.ToolFunctionDef{
+					Name:        "web_search",
+					Description: "Web検索を実行",
+					Parameters:  map[string]any{"type": "object"},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("expected finish_reason=tool_calls, got %s", resp.FinishReason)
+	}
+	if len(resp.Message.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(resp.Message.ToolCalls))
+	}
+	tc := resp.Message.ToolCalls[0]
+	if tc.Function.Name != "web_search" {
+		t.Errorf("expected tool name=web_search, got %s", tc.Function.Name)
+	}
+	if tc.Function.Arguments["query"] != "PicoClaw" {
+		t.Errorf("expected query=PicoClaw, got %v", tc.Function.Arguments["query"])
+	}
+}
+
+func TestChat_WithoutToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ollamaChatResponse{
+			Model: "test-model",
+			Message: ollamaChatMessage{
+				Role:    "assistant",
+				Content: "こんにちは！",
+			},
+			Done: true,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewOllamaProvider(server.URL, "test-model")
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "こんにちは"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.FinishReason != "stop" {
+		t.Errorf("expected finish_reason=stop, got %s", resp.FinishReason)
+	}
+	if resp.Message.Content != "こんにちは！" {
+		t.Errorf("expected content=こんにちは！, got %s", resp.Message.Content)
+	}
+	if len(resp.Message.ToolCalls) != 0 {
+		t.Errorf("expected no tool calls, got %d", len(resp.Message.ToolCalls))
+	}
+}
+
+func TestChat_MultipleToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ollamaChatResponse{
+			Model: "test-model",
+			Message: ollamaChatMessage{
+				Role: "assistant",
+				ToolCalls: []ollamaToolCall{
+					{Function: ollamaToolCallFunction{Name: "file_read", Arguments: map[string]any{"path": "/tmp/a.txt"}}},
+					{Function: ollamaToolCallFunction{Name: "file_read", Arguments: map[string]any{"path": "/tmp/b.txt"}}},
+				},
+			},
+			Done: true,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewOllamaProvider(server.URL, "test-model")
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{{Role: "user", Content: "2ファイル読んで"}},
+	})
+
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if len(resp.Message.ToolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d", len(resp.Message.ToolCalls))
+	}
+	// IDが一意であること
+	if resp.Message.ToolCalls[0].ID == resp.Message.ToolCalls[1].ID {
+		t.Error("tool call IDs should be unique")
+	}
+}
+
+func TestChat_ErrorResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("model not found"))
+	}))
+	defer server.Close()
+
+	provider := NewOllamaProvider(server.URL, "test-model")
+	_, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{{Role: "user", Content: "test"}},
+	})
+
+	if err == nil {
+		t.Error("expected error for 500 response")
+	}
+}

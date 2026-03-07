@@ -113,6 +113,12 @@ conversation:
   embed_model: "nomic-embed-text"
   summary_model: ""      # 空の場合はOllama chatモデルを使用
 
+# サブエージェント設定（ReActループ）
+subagent:
+  enabled: false
+  max_iterations: 10     # ReActループ最大反復回数
+  model: ""              # 空の場合はollama.modelを使用
+
 # ハートビート（定期タスク）
 heartbeat:
   enabled: false

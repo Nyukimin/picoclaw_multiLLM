@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 )
 
@@ -98,23 +99,75 @@ func (r *ToolRunner) registerTools() {
 	r.metadata["shell"] = tool.ToolMetadata{
 		ToolID: "shell", Version: "1.0.0", Category: "mutation",
 		RequiresApproval: true, DryRun: true,
+		Description: "シェルコマンドを実行する",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"command": map[string]any{"type": "string", "description": "実行するシェルコマンド"},
+			},
+			"required": []any{"command"},
+		},
 	}
 	r.metadata["file_read"] = tool.ToolMetadata{
 		ToolID: "file_read", Version: "1.0.0", Category: "query",
+		Description: "ファイルの内容を読み込む",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":   map[string]any{"type": "string", "description": "読み込むファイルパス"},
+				"limit":  map[string]any{"type": "integer", "description": "読み込む行数（省略時は全行）"},
+				"offset": map[string]any{"type": "integer", "description": "読み込み開始行（0始まり）"},
+			},
+			"required": []any{"path"},
+		},
 	}
 	r.metadata["file_write"] = tool.ToolMetadata{
 		ToolID: "file_write", Version: "1.0.0", Category: "mutation",
 		RequiresApproval: true, DryRun: true,
+		Description: "ファイルに内容を書き込む",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":    map[string]any{"type": "string", "description": "書き込み先ファイルパス"},
+				"content": map[string]any{"type": "string", "description": "書き込む内容"},
+			},
+			"required": []any{"path", "content"},
+		},
 	}
 	r.metadata["file_list"] = tool.ToolMetadata{
 		ToolID: "file_list", Version: "1.0.0", Category: "query",
+		Description: "ディレクトリ内のファイル一覧を取得する",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{"type": "string", "description": "一覧を取得するディレクトリパス"},
+			},
+			"required": []any{"path"},
+		},
 	}
 	r.metadata["web_search"] = tool.ToolMetadata{
 		ToolID: "web_search", Version: "1.0.0", Category: "query",
+		Description: "Web検索を実行して結果を返す",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "検索クエリ"},
+			},
+			"required": []any{"query"},
+		},
 	}
 	if len(r.config.Subagents) > 0 {
 		r.metadata["subagent"] = tool.ToolMetadata{
 			ToolID: "subagent", Version: "1.0.0", Category: "query",
+			Description: "サブエージェントにタスクを委譲する",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"agent":   map[string]any{"type": "string", "description": "サブエージェント名"},
+					"message": map[string]any{"type": "string", "description": "タスク指示文"},
+				},
+				"required": []any{"agent", "message"},
+			},
 		}
 	}
 }
@@ -194,6 +247,53 @@ func (r *ToolRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error)
 		metas = append(metas, m)
 	}
 	return metas, nil
+}
+
+// RegisterSubagent はサブエージェントを後から登録する（循環依存回避用）
+func (r *ToolRunner) RegisterSubagent(name string, fn SubagentFunc) {
+	if r.config.Subagents == nil {
+		r.config.Subagents = make(map[string]SubagentFunc)
+	}
+	r.config.Subagents[name] = fn
+
+	// ツールも登録
+	r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
+	r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
+	r.metadata["subagent"] = tool.ToolMetadata{
+		ToolID: "subagent", Version: "1.0.0", Category: "query",
+		Description: "サブエージェントにタスクを委譲する",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"agent":   map[string]any{"type": "string", "description": "サブエージェント名"},
+				"message": map[string]any{"type": "string", "description": "タスク指示文"},
+			},
+			"required": []any{"agent", "message"},
+		},
+	}
+}
+
+// ToolDefinitions はLLMに渡すツール定義一覧を返す
+// subagentツールは再帰呼び出し防止のため除外する
+func (r *ToolRunner) ToolDefinitions() []llm.ToolDefinition {
+	defs := make([]llm.ToolDefinition, 0, len(r.metadata))
+	for name, m := range r.metadata {
+		if name == "subagent" {
+			continue // 再帰防止
+		}
+		if m.Description == "" {
+			continue // 説明なしのツールはtool callingに含めない
+		}
+		defs = append(defs, llm.ToolDefinition{
+			Type: "function",
+			Function: llm.ToolFunctionDef{
+				Name:        m.ToolID,
+				Description: m.Description,
+				Parameters:  m.Parameters,
+			},
+		})
+	}
+	return defs
 }
 
 // executeShell はシェルコマンドを実行

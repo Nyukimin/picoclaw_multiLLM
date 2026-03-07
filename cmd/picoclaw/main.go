@@ -11,27 +11,29 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
 	healthapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/health"
-	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
-	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	subagentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
+	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
-	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	memorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/memory"
@@ -219,11 +221,11 @@ func buildHealthService(cfg *config.Config) *healthapp.HealthService {
 
 // Dependencies はアプリケーション依存関係
 type Dependencies struct {
-	lineHandler     http.Handler
-	router          *transport.MessageRouter                       // v4 distributed mode
-	idleChatOrch    *idlechat.IdleChatOrchestrator                 // v4 idle chat
-	sshTransports   map[string]domaintransport.Transport           // v4 SSH transports
-	heartbeatSvc    *heartbeat.HeartbeatService                    // heartbeat service
+	lineHandler   http.Handler
+	router        *transport.MessageRouter             // v4 distributed mode
+	idleChatOrch  *idlechat.IdleChatOrchestrator       // v4 idle chat
+	sshTransports map[string]domaintransport.Transport // v4 SSH transports
+	heartbeatSvc  *heartbeat.HeartbeatService          // heartbeat service
 }
 
 // Shutdown はリソースを解放
@@ -292,6 +294,22 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)
 	workerToolRunnerV2 := tools.NewToolRunner(workerToolRunnerCfg)
+
+	// Subagent配線（2段階構築: ToolRunner作成後にManagerを注入）
+	if cfg.Subagent.Enabled {
+		// ToolDefinitions取得（subagent自身は除外済み）
+		toolDefs := workerToolRunnerV2.ToolDefinitions()
+
+		mgr := subagentapp.NewManager(
+			ollamaProvider,
+			workerToolRunnerV2,
+			toolDefs,
+			toolloop.Config{MaxIterations: cfg.Subagent.MaxIterations},
+		)
+
+		workerToolRunnerV2.RegisterSubagent("worker", tools.NewSubagentFuncFromManager(mgr))
+		log.Printf("Subagent enabled (max_iterations: %d)", cfg.Subagent.MaxIterations)
+	}
 
 	// LegacyRunner アダプター（V2 → V1 ブリッジ）で agents に注入
 	chatToolRunner := domaintool.NewLegacyRunner(chatToolRunnerV2)

@@ -40,6 +40,9 @@ type Config struct {
 	// === Google Search API ===
 	GoogleSearchChat   GoogleSearchConfig `yaml:"google_search_chat"`
 	GoogleSearchWorker GoogleSearchConfig `yaml:"google_search_worker"`
+
+	// === Subagent ===
+	Subagent SubagentConfig `yaml:"subagent"`
 }
 
 // ServerConfig はサーバー設定
@@ -156,6 +159,13 @@ type HeartbeatConfig struct {
 	Enabled  bool   `yaml:"enabled"`  // ハートビートの有効化（デフォルト: false）
 	Interval int    `yaml:"interval"` // チェック間隔（分）、最小5分（デフォルト: 30）
 	ChatID   string `yaml:"chat_id"`  // LINE Push通知先のユーザーID
+}
+
+// SubagentConfig はサブエージェントシステムの設定
+type SubagentConfig struct {
+	Enabled       bool   `yaml:"enabled"`                // サブエージェント有効化（デフォルト: false）
+	MaxIterations int    `yaml:"max_iterations"`         // ReActループ最大反復回数（デフォルト: 10）
+	Model         string `yaml:"model,omitempty"`        // 使用モデル（空=ollama.modelを使用）
 }
 
 // GoogleSearchConfig はGoogle Search API設定
@@ -291,6 +301,11 @@ func (c *Config) setDefaults() {
 	// Heartbeat デフォルト
 	if c.Heartbeat.Interval == 0 {
 		c.Heartbeat.Interval = 30
+	}
+
+	// Subagent デフォルト
+	if c.Subagent.MaxIterations == 0 {
+		c.Subagent.MaxIterations = 10
 	}
 
 	// v5.1 プロンプト/workspace デフォルト
