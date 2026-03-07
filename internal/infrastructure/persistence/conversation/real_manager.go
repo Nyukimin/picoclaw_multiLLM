@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
 
@@ -343,12 +344,8 @@ func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 	return nil
 }
 
-// WebSearchResult はWeb検索結果の単位
-type WebSearchResult struct {
-	Title   string `json:"title"`
-	Link    string `json:"link"`
-	Snippet string `json:"snippet"`
-}
+// WebSearchResult は agent.WebSearchResult のエイリアス（Phase 4.2）
+type WebSearchResult = agent.WebSearchResult
 
 // SearchKB はKnowledge Baseから関連ドキュメントを検索
 func (m *RealConversationManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*domconv.Document, error) {

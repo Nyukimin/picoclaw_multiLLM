@@ -335,9 +335,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 4.5. v5.1 ConversationEngine初期化
 	var convEngine conversation.ConversationEngine
+	var realMgr *conversationpersistence.RealConversationManager // Phase 4.2: KB自動保存用
 	if cfg.Conversation.Enabled {
 		// ConversationManager（3層記憶）
-		realMgr, err := conversationpersistence.NewRealConversationManager(
+		var err error
+		realMgr, err = conversationpersistence.NewRealConversationManager(
 			cfg.Conversation.RedisURL,
 			cfg.Conversation.DuckDBPath,
 			cfg.Conversation.VectorDBURL,
@@ -405,6 +407,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 6. Agents
 	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
+	if realMgr != nil {
+		mioAgent = mioAgent.WithConversationManager(realMgr)
+		log.Printf("Mio: ConversationManager injected (KB autosave enabled)")
+	}
 	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 
 	// 7. Session Repository
