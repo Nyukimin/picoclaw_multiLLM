@@ -14,7 +14,7 @@ func TestLocalTransport_SendReceive(t *testing.T) {
 	defer lt.Close()
 
 	ctx := context.Background()
-	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "hello")
+	msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "hello")
 
 	// Send → outbound channel
 	if err := lt.Send(ctx, msg); err != nil {
@@ -24,7 +24,7 @@ func TestLocalTransport_SendReceive(t *testing.T) {
 	// Read from outbound
 	select {
 	case received := <-lt.GetOutboundChannel():
-		if received.From != "Mio" || received.Content != "hello" {
+		if received.From != "mio" || received.Content != "hello" {
 			t.Errorf("Unexpected message: %+v", received)
 		}
 	case <-time.After(time.Second):
@@ -37,7 +37,7 @@ func TestLocalTransport_PutInboundReceive(t *testing.T) {
 	defer lt.Close()
 
 	ctx := context.Background()
-	msg := domaintransport.NewMessage("Router", "Mio", "s1", "j1", "routed msg")
+	msg := domaintransport.NewMessage("Router", "mio", "s1", "j1", "routed msg")
 
 	if err := lt.PutInboundMessage(msg); err != nil {
 		t.Fatalf("PutInboundMessage failed: %v", err)

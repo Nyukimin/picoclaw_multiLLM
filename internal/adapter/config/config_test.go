@@ -400,7 +400,7 @@ func TestConfig_Validate_IdleChat(t *testing.T) {
 	t.Run("IdleChat with unknown agent", func(t *testing.T) {
 		cfg := base()
 		cfg.IdleChat.Enabled = true
-		cfg.IdleChat.Participants = []string{"Mio", "Unknown"}
+		cfg.IdleChat.Participants = []string{"mio", "Unknown"}
 		cfg.IdleChat.IntervalMin = 5
 		cfg.IdleChat.MaxTurns = 10
 		cfg.IdleChat.Temperature = 0.8
@@ -412,7 +412,7 @@ func TestConfig_Validate_IdleChat(t *testing.T) {
 	t.Run("IdleChat with invalid max_turns", func(t *testing.T) {
 		cfg := base()
 		cfg.IdleChat.Enabled = true
-		cfg.IdleChat.Participants = []string{"Mio", "Shiro"}
+		cfg.IdleChat.Participants = []string{"mio", "shiro"}
 		cfg.IdleChat.IntervalMin = 5
 		cfg.IdleChat.MaxTurns = 200
 		cfg.IdleChat.Temperature = 0.8
@@ -424,7 +424,7 @@ func TestConfig_Validate_IdleChat(t *testing.T) {
 	t.Run("IdleChat valid config", func(t *testing.T) {
 		cfg := base()
 		cfg.IdleChat.Enabled = true
-		cfg.IdleChat.Participants = []string{"Mio", "Shiro"}
+		cfg.IdleChat.Participants = []string{"mio", "shiro"}
 		cfg.IdleChat.IntervalMin = 5
 		cfg.IdleChat.MaxTurns = 10
 		cfg.IdleChat.Temperature = 0.8

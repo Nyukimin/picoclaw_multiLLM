@@ -6,7 +6,7 @@ server:
   host: "0.0.0.0"
   port: 18790
 
-# Ollama 設定（Mio/Shiro/IdleChat共通モデル）
+# Ollama 設定（mio/shiro/IdleChat共通モデル）
 ollama:
   base_url: "http://localhost:11434"
   model: "picoclaw-v1"  # 全Agent共通モデル
@@ -32,12 +32,12 @@ line:
   channel_secret: "${LINE_CHANNEL_SECRET}"
   access_token: "${LINE_CHANNEL_TOKEN}"
 
-# Google Search API (Chat用 - Mio)
+# Google Search API (Chat用 - mio)
 google_search_chat:
   api_key: "${GOOGLE_API_KEY_CHAT}"
   search_engine_id: "${GOOGLE_SEARCH_ENGINE_ID_CHAT}"
 
-# Google Search API (Worker用 - Shiro)
+# Google Search API (Worker用 - shiro)
 google_search_worker:
   api_key: "${GOOGLE_API_KEY_WORKER}"
   search_engine_id: "${GOOGLE_SEARCH_ENGINE_ID_WORKER}"
@@ -77,15 +77,15 @@ log:
 distributed:
   enabled: false
   transports:
-    Mio:
+    mio:
       type: "local"
-    Shiro:
+    shiro:
       type: "local"
-    Coder1:
+    coder1:
       type: "local"
-    Coder2:
+    coder2:
       type: "local"
-    Coder3:
+    coder3:
       type: "ssh"
       remote_host: "192.168.1.100:22"
       remote_user: "picoclaw"
@@ -98,8 +98,8 @@ distributed:
 idle_chat:
   enabled: false
   participants:
-    - "Mio"
-    - "Shiro"
+    - "mio"
+    - "shiro"
   interval_min: 5        # 雑談開始までのアイドル時間（分）
   max_turns: 10           # 1回の雑談最大ターン数
   temperature: 0.8        # 雑談時の温度

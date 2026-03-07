@@ -244,11 +244,11 @@ func initHandler(agentType string, cfg *config.Config) (AgentHandler, error) {
 	case "worker":
 		return initWorkerHandler(cfg)
 	case "coder1":
-		return initCoderHandler("Coder1", cfg)
+		return initCoderHandler("coder1", cfg)
 	case "coder2":
-		return initCoderHandler("Coder2", cfg)
+		return initCoderHandler("coder2", cfg)
 	case "coder3":
-		return initCoderHandler("Coder3", cfg)
+		return initCoderHandler("coder3", cfg)
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s (supported: worker, coder1, coder2, coder3)", agentType)
 	}
@@ -279,7 +279,7 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 	var coderAgent *agent.CoderAgent
 
 	switch agentName {
-	case "Coder1":
+	case "coder1":
 		if cfg.DeepSeek.APIKey == "" {
 			return nil, fmt.Errorf("Coder1 requires DEEPSEEK_API_KEY")
 		}
@@ -287,7 +287,7 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		log.Printf("[picoclaw-agent] Coder1 (DeepSeek) initialized with model: %s", cfg.DeepSeek.Model)
 
-	case "Coder2":
+	case "coder2":
 		if cfg.OpenAI.APIKey == "" {
 			return nil, fmt.Errorf("Coder2 requires OPENAI_API_KEY")
 		}
@@ -295,7 +295,7 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 		log.Printf("[picoclaw-agent] Coder2 (OpenAI) initialized with model: %s", cfg.OpenAI.Model)
 
-	case "Coder3":
+	case "coder3":
 		if cfg.Claude.APIKey == "" {
 			return nil, fmt.Errorf("Coder3 requires ANTHROPIC_API_KEY")
 		}

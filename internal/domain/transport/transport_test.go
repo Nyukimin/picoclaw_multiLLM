@@ -6,12 +6,12 @@ import (
 )
 
 func TestNewMessage(t *testing.T) {
-	msg := NewMessage("Mio", "Shiro", "session-1", "job-1", "hello")
+	msg := NewMessage("mio", "shiro", "session-1", "job-1", "hello")
 
-	if msg.From != "Mio" {
+	if msg.From != "mio" {
 		t.Errorf("Expected From 'Mio', got '%s'", msg.From)
 	}
-	if msg.To != "Shiro" {
+	if msg.To != "shiro" {
 		t.Errorf("Expected To 'Shiro', got '%s'", msg.To)
 	}
 	if msg.SessionID != "session-1" {
@@ -37,7 +37,7 @@ func TestNewMessage(t *testing.T) {
 }
 
 func TestNewErrorMessage(t *testing.T) {
-	msg := NewErrorMessage("Router", "Mio", "s1", "j1", "agent not found")
+	msg := NewErrorMessage("Router", "mio", "s1", "j1", "agent not found")
 
 	if msg.Type != MessageTypeError {
 		t.Errorf("Expected Type 'error', got '%s'", msg.Type)
@@ -55,13 +55,13 @@ func TestMessage_Validate(t *testing.T) {
 	}{
 		{
 			name:    "Valid message",
-			msg:     NewMessage("Mio", "Shiro", "s1", "j1", "hello"),
+			msg:     NewMessage("mio", "shiro", "s1", "j1", "hello"),
 			wantErr: false,
 		},
 		{
 			name: "Missing From",
 			msg: Message{
-				To:        "Shiro",
+				To:        "shiro",
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 			},
 			wantErr: true,
@@ -69,7 +69,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "Missing To",
 			msg: Message{
-				From:      "Mio",
+				From:      "mio",
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 			},
 			wantErr: true,
@@ -77,16 +77,16 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "Missing Timestamp",
 			msg: Message{
-				From: "Mio",
-				To:   "Shiro",
+				From: "mio",
+				To:   "shiro",
 			},
 			wantErr: true,
 		},
 		{
 			name: "Invalid Timestamp format",
 			msg: Message{
-				From:      "Mio",
-				To:        "Shiro",
+				From:      "mio",
+				To:        "shiro",
 				Timestamp: "2026-03-03 12:00:00",
 			},
 			wantErr: true,
@@ -94,7 +94,7 @@ func TestMessage_Validate(t *testing.T) {
 		{
 			name: "Valid with Proposal",
 			msg: Message{
-				From:      "Coder3",
+				From:      "coder3",
 				To:        "Worker",
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Proposal: &ProposalPayload{
@@ -117,7 +117,7 @@ func TestMessage_Validate(t *testing.T) {
 }
 
 func TestMessage_WithPayloads(t *testing.T) {
-	msg := NewMessage("Worker", "Mio", "s1", "j1", "done")
+	msg := NewMessage("Worker", "mio", "s1", "j1", "done")
 	msg.Type = MessageTypeResult
 	msg.Result = &ResultPayload{
 		Success:      true,

@@ -59,7 +59,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	jobID := task.NewJobID()
 	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID)
 
-	// 3. Mioがルーティング決定
+	// 3. mio がルーティング決定
 	decision, err := o.mio.DecideAction(ctx, t)
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
@@ -102,11 +102,11 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 	targetAgent := o.routeToAgent(route)
 
 	if targetAgent == "" {
-		// ローカル処理（CHATなどMioが直接処理）
+		// ローカル処理（CHAT など mio が直接処理）
 		return o.mio.Chat(ctx, t)
 	}
 
-	msg := domaintransport.NewMessage("Mio", targetAgent, sessionID, t.JobID().String(), t.UserMessage())
+	msg := domaintransport.NewMessage("mio", targetAgent, sessionID, t.JobID().String(), t.UserMessage())
 	msg.Type = domaintransport.MessageTypeTask
 
 	// メモリに記録
@@ -166,10 +166,10 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 
 	log.Printf("[DistributedOrch] Sent task to %s via Local (job=%s)", targetAgent, msg.JobID)
 
-	// 応答待機（Mioのトランスポート経由）
-	mioTransport, ok := o.router.GetAgent("Mio")
+	// 応答待機（mio のトランスポート経由）
+	mioTransport, ok := o.router.GetAgent("mio")
 	if !ok {
-		return "", fmt.Errorf("Mio transport not registered")
+		return "", fmt.Errorf("mio transport not registered")
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, distributedTimeout)
@@ -196,15 +196,15 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 func (o *DistributedOrchestrator) routeToAgent(route routing.Route) string {
 	switch route {
 	case routing.RouteOPS:
-		return "Shiro"
+		return "shiro"
 	case routing.RouteCODE, routing.RouteCODE1:
-		return "Coder1"
+		return "coder1"
 	case routing.RouteCODE2:
-		return "Coder2"
+		return "coder2"
 	case routing.RouteCODE3:
-		return "Coder3"
+		return "coder3"
 	case routing.RouteCHAT, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH:
-		return "" // Mioがローカル処理
+		return "" // mio がローカル処理
 	default:
 		return ""
 	}

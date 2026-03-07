@@ -11,7 +11,7 @@ func TestTransportFactory_CreateLocal(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Mio": {Type: "local"},
+			"mio": {Type: "local"},
 		},
 	}
 
@@ -24,7 +24,7 @@ func TestTransportFactory_CreateLocal(t *testing.T) {
 		t.Fatalf("Expected 1 transport, got %d", len(transports))
 	}
 
-	lt, ok := transports["Mio"].(*LocalTransport)
+	lt, ok := transports["mio"].(*LocalTransport)
 	if !ok {
 		t.Fatal("Expected LocalTransport for Mio")
 	}
@@ -36,7 +36,7 @@ func TestTransportFactory_CreateLocalDefault(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Shiro": {Type: ""}, // empty defaults to local
+			"shiro": {Type: ""}, // empty defaults to local
 		},
 	}
 
@@ -45,7 +45,7 @@ func TestTransportFactory_CreateLocalDefault(t *testing.T) {
 		t.Fatalf("CreateTransports failed: %v", err)
 	}
 
-	_, ok := transports["Shiro"].(*LocalTransport)
+	_, ok := transports["shiro"].(*LocalTransport)
 	if !ok {
 		t.Fatal("Expected LocalTransport for empty type")
 	}
@@ -56,7 +56,7 @@ func TestTransportFactory_CreateSSH(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Coder3": {
+			"coder3": {
 				Type:       "ssh",
 				RemoteHost: "192.168.1.200:22",
 				RemoteUser: "picoclaw",
@@ -70,7 +70,7 @@ func TestTransportFactory_CreateSSH(t *testing.T) {
 		t.Fatalf("CreateTransports failed: %v", err)
 	}
 
-	st, ok := transports["Coder3"].(*SSHTransport)
+	st, ok := transports["coder3"].(*SSHTransport)
 	if !ok {
 		t.Fatal("Expected SSHTransport for Coder3")
 	}
@@ -86,7 +86,7 @@ func TestTransportFactory_SSHMissingHost(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Coder3": {
+			"coder3": {
 				Type:       "ssh",
 				RemoteUser: "picoclaw",
 				SSHKeyPath: "/path/to/key",
@@ -105,7 +105,7 @@ func TestTransportFactory_SSHMissingUser(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Coder3": {
+			"coder3": {
 				Type:       "ssh",
 				RemoteHost: "192.168.1.200:22",
 				SSHKeyPath: "/path/to/key",
@@ -124,7 +124,7 @@ func TestTransportFactory_SSHMissingKey(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Coder3": {
+			"coder3": {
 				Type:       "ssh",
 				RemoteHost: "192.168.1.200:22",
 				RemoteUser: "picoclaw",
@@ -158,9 +158,9 @@ func TestTransportFactory_MultipleAgents(t *testing.T) {
 	cfg := config.DistributedConfig{
 		Enabled: true,
 		Transports: map[string]config.TransportConfig{
-			"Mio":   {Type: "local"},
-			"Shiro": {Type: "local"},
-			"Coder3": {
+			"mio":   {Type: "local"},
+			"shiro": {Type: "local"},
+			"coder3": {
 				Type:       "ssh",
 				RemoteHost: "192.168.1.200:22",
 				RemoteUser: "picoclaw",
@@ -178,13 +178,13 @@ func TestTransportFactory_MultipleAgents(t *testing.T) {
 		t.Fatalf("Expected 3 transports, got %d", len(transports))
 	}
 
-	if _, ok := transports["Mio"].(*LocalTransport); !ok {
+	if _, ok := transports["mio"].(*LocalTransport); !ok {
 		t.Error("Expected LocalTransport for Mio")
 	}
-	if _, ok := transports["Shiro"].(*LocalTransport); !ok {
+	if _, ok := transports["shiro"].(*LocalTransport); !ok {
 		t.Error("Expected LocalTransport for Shiro")
 	}
-	if _, ok := transports["Coder3"].(*SSHTransport); !ok {
+	if _, ok := transports["coder3"].(*SSHTransport); !ok {
 		t.Error("Expected SSHTransport for Coder3")
 	}
 }

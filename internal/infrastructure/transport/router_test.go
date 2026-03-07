@@ -17,11 +17,11 @@ func TestMessageRouter_RouteMessage(t *testing.T) {
 	defer mioTransport.Close()
 	defer shiroTransport.Close()
 
-	router.RegisterAgent("Mio", mioTransport)
-	router.RegisterAgent("Shiro", shiroTransport)
+	router.RegisterAgent("mio", mioTransport)
+	router.RegisterAgent("shiro", shiroTransport)
 
 	// Mio → Shiro
-	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "hello Shiro")
+	msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "hello Shiro")
 	if err := mioTransport.Send(context.Background(), msg); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestMessageRouter_RouteMessage(t *testing.T) {
 		t.Fatalf("Receive failed: %v", err)
 	}
 
-	if received.From != "Mio" || received.Content != "hello Shiro" {
+	if received.From != "mio" || received.Content != "hello Shiro" {
 		t.Errorf("Unexpected message: %+v", received)
 	}
 }
@@ -47,10 +47,10 @@ func TestMessageRouter_UnknownAgent(t *testing.T) {
 	mioTransport := NewLocalTransport()
 	defer mioTransport.Close()
 
-	router.RegisterAgent("Mio", mioTransport)
+	router.RegisterAgent("mio", mioTransport)
 
 	// Mio → Unknown (should get error back)
-	msg := domaintransport.NewMessage("Mio", "NonExistent", "s1", "j1", "hello?")
+	msg := domaintransport.NewMessage("mio", "NonExistent", "s1", "j1", "hello?")
 	if err := mioTransport.Send(context.Background(), msg); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
@@ -78,11 +78,11 @@ func TestMessageRouter_MultipleAgents(t *testing.T) {
 	defer router.Stop()
 
 	agents := map[string]*LocalTransport{
-		"Mio":   NewLocalTransport(),
-		"Shiro": NewLocalTransport(),
-		"Aka":   NewLocalTransport(),
-		"Ao":    NewLocalTransport(),
-		"Gin":   NewLocalTransport(),
+		"mio":   NewLocalTransport(),
+		"shiro": NewLocalTransport(),
+		"aka":   NewLocalTransport(),
+		"ao":    NewLocalTransport(),
+		"gin":   NewLocalTransport(),
 	}
 	for name, transport := range agents {
 		defer transport.Close()
@@ -94,13 +94,13 @@ func TestMessageRouter_MultipleAgents(t *testing.T) {
 	}
 
 	// Mio → Gin
-	msg := domaintransport.NewMessage("Mio", "Gin", "s1", "j1", "hello Gin")
-	agents["Mio"].Send(context.Background(), msg)
+	msg := domaintransport.NewMessage("mio", "gin", "s1", "j1", "hello Gin")
+	agents["mio"].Send(context.Background(), msg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	received, err := agents["Gin"].Receive(ctx)
+	received, err := agents["gin"].Receive(ctx)
 	if err != nil {
 		t.Fatalf("Gin receive failed: %v", err)
 	}
@@ -158,9 +158,9 @@ func TestMessageRouter_GetAgent(t *testing.T) {
 	transport := NewLocalTransport()
 	defer transport.Close()
 
-	router.RegisterAgent("Mio", transport)
+	router.RegisterAgent("mio", transport)
 
-	got, ok := router.GetAgent("Mio")
+	got, ok := router.GetAgent("mio")
 	if !ok {
 		t.Fatal("Expected to find agent 'Mio'")
 	}
@@ -183,11 +183,11 @@ func TestMessageRouter_RoundTrip(t *testing.T) {
 	defer mioTransport.Close()
 	defer shiroTransport.Close()
 
-	router.RegisterAgent("Mio", mioTransport)
-	router.RegisterAgent("Shiro", shiroTransport)
+	router.RegisterAgent("mio", mioTransport)
+	router.RegisterAgent("shiro", shiroTransport)
 
 	// Mio sends request to Shiro
-	request := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "execute task")
+	request := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "execute task")
 	mioTransport.Send(context.Background(), request)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -200,7 +200,7 @@ func TestMessageRouter_RoundTrip(t *testing.T) {
 	}
 
 	// Shiro sends response back to Mio
-	response := domaintransport.NewMessage("Shiro", "Mio", received.SessionID, received.JobID, "task done")
+	response := domaintransport.NewMessage("shiro", "mio", received.SessionID, received.JobID, "task done")
 	response.Type = domaintransport.MessageTypeResult
 	shiroTransport.Send(context.Background(), response)
 
@@ -227,16 +227,16 @@ func TestMessageRouter_DeliverMessage_InboundFull(t *testing.T) {
 	defer mioTransport.Close()
 	defer shiroTransport.Close()
 
-	router.RegisterAgent("Mio", mioTransport)
-	router.RegisterAgent("Shiro", shiroTransport)
+	router.RegisterAgent("mio", mioTransport)
+	router.RegisterAgent("shiro", shiroTransport)
 
 	// Shiroのinboundチャネルを満杯にする
 	for i := 0; i < defaultChannelCapacity; i++ {
-		shiroTransport.PutInboundMessage(domaintransport.NewMessage("X", "Shiro", "s1", "j1", "fill"))
+		shiroTransport.PutInboundMessage(domaintransport.NewMessage("X", "shiro", "s1", "j1", "fill"))
 	}
 
 	// Mio → Shiro（inbound full → deliverMessage のエラーパス → Mioにエラー返送）
-	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "should-fail")
+	msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "should-fail")
 	mioTransport.Send(context.Background(), msg)
 
 	// Mioがエラーメッセージを受信するはず

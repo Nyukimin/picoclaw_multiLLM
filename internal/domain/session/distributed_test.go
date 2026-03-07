@@ -9,9 +9,9 @@ import (
 )
 
 func TestAgentMemory_AddAndGet(t *testing.T) {
-	m := NewAgentMemory("Mio")
+	m := NewAgentMemory("mio")
 
-	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "hello")
+	msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "hello")
 	m.Add(msg)
 
 	if m.Count() != 1 {
@@ -25,11 +25,11 @@ func TestAgentMemory_AddAndGet(t *testing.T) {
 }
 
 func TestAgentMemory_FIFOEviction(t *testing.T) {
-	m := NewAgentMemory("Mio")
+	m := NewAgentMemory("mio")
 
 	// maxConversations+10 を追加
 	for i := 0; i < maxConversations+10; i++ {
-		msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", fmt.Sprintf("msg-%d", i))
+		msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", fmt.Sprintf("msg-%d", i))
 		m.Add(msg)
 	}
 
@@ -45,10 +45,10 @@ func TestAgentMemory_FIFOEviction(t *testing.T) {
 }
 
 func TestAgentMemory_GetRecent(t *testing.T) {
-	m := NewAgentMemory("Mio")
+	m := NewAgentMemory("mio")
 
 	for i := 0; i < 20; i++ {
-		msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", fmt.Sprintf("msg-%d", i))
+		msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", fmt.Sprintf("msg-%d", i))
 		m.Add(msg)
 	}
 
@@ -66,9 +66,9 @@ func TestAgentMemory_GetRecent(t *testing.T) {
 }
 
 func TestAgentMemory_GetRecentMoreThanAvailable(t *testing.T) {
-	m := NewAgentMemory("Mio")
+	m := NewAgentMemory("mio")
 
-	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "hello")
+	msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "hello")
 	m.Add(msg)
 
 	recent := m.GetRecent(100)
@@ -78,10 +78,10 @@ func TestAgentMemory_GetRecentMoreThanAvailable(t *testing.T) {
 }
 
 func TestAgentMemory_Clear(t *testing.T) {
-	m := NewAgentMemory("Mio")
+	m := NewAgentMemory("mio")
 
 	for i := 0; i < 5; i++ {
-		m.Add(domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "msg"))
+		m.Add(domaintransport.NewMessage("mio", "shiro", "s1", "j1", "msg"))
 	}
 
 	m.Clear()
@@ -91,7 +91,7 @@ func TestAgentMemory_Clear(t *testing.T) {
 }
 
 func TestAgentMemory_Concurrent(t *testing.T) {
-	m := NewAgentMemory("Mio")
+	m := NewAgentMemory("mio")
 	var wg sync.WaitGroup
 
 	for i := 0; i < 10; i++ {
@@ -99,7 +99,7 @@ func TestAgentMemory_Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
-				m.Add(domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", fmt.Sprintf("msg-%d-%d", id, j)))
+				m.Add(domaintransport.NewMessage("mio", "shiro", "s1", "j1", fmt.Sprintf("msg-%d-%d", id, j)))
 			}
 		}(i)
 	}
@@ -113,19 +113,19 @@ func TestAgentMemory_Concurrent(t *testing.T) {
 func TestCentralMemory_RecordAndRetrieve(t *testing.T) {
 	cm := NewCentralMemory()
 
-	msg := domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "hello")
+	msg := domaintransport.NewMessage("mio", "shiro", "s1", "j1", "hello")
 	cm.RecordMessage(msg)
 
 	if cm.AgentCount() != 2 {
 		t.Errorf("Expected 2 agents (Mio, Shiro), got %d", cm.AgentCount())
 	}
 
-	mioMemory := cm.GetOrCreateAgent("Mio")
+	mioMemory := cm.GetOrCreateAgent("mio")
 	if mioMemory.Count() != 1 {
 		t.Errorf("Expected 1 entry for Mio, got %d", mioMemory.Count())
 	}
 
-	shiroMemory := cm.GetOrCreateAgent("Shiro")
+	shiroMemory := cm.GetOrCreateAgent("shiro")
 	if shiroMemory.Count() != 1 {
 		t.Errorf("Expected 1 entry for Shiro, got %d", shiroMemory.Count())
 	}
@@ -134,9 +134,9 @@ func TestCentralMemory_RecordAndRetrieve(t *testing.T) {
 func TestCentralMemory_GetUnifiedView(t *testing.T) {
 	cm := NewCentralMemory()
 
-	cm.RecordMessage(domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "msg1"))
-	cm.RecordMessage(domaintransport.NewMessage("Shiro", "Mio", "s1", "j1", "msg2"))
-	cm.RecordMessage(domaintransport.NewMessage("Mio", "Aka", "s1", "j1", "msg3"))
+	cm.RecordMessage(domaintransport.NewMessage("mio", "shiro", "s1", "j1", "msg1"))
+	cm.RecordMessage(domaintransport.NewMessage("shiro", "mio", "s1", "j1", "msg2"))
+	cm.RecordMessage(domaintransport.NewMessage("mio", "aka", "s1", "j1", "msg3"))
 
 	view := cm.GetUnifiedView(0)
 	if len(view) != 3 {
@@ -148,7 +148,7 @@ func TestCentralMemory_GetUnifiedViewWithLimit(t *testing.T) {
 	cm := NewCentralMemory()
 
 	for i := 0; i < 10; i++ {
-		cm.RecordMessage(domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", fmt.Sprintf("msg-%d", i)))
+		cm.RecordMessage(domaintransport.NewMessage("mio", "shiro", "s1", "j1", fmt.Sprintf("msg-%d", i)))
 	}
 
 	view := cm.GetUnifiedView(3)
@@ -160,8 +160,8 @@ func TestCentralMemory_GetUnifiedViewWithLimit(t *testing.T) {
 func TestCentralMemory_AgentNames(t *testing.T) {
 	cm := NewCentralMemory()
 
-	cm.RecordMessage(domaintransport.NewMessage("Mio", "Shiro", "s1", "j1", "hello"))
-	cm.RecordMessage(domaintransport.NewMessage("Aka", "Ao", "s1", "j1", "hi"))
+	cm.RecordMessage(domaintransport.NewMessage("mio", "shiro", "s1", "j1", "hello"))
+	cm.RecordMessage(domaintransport.NewMessage("aka", "ao", "s1", "j1", "hi"))
 
 	names := cm.AgentNames()
 	if len(names) != 4 {
@@ -169,7 +169,7 @@ func TestCentralMemory_AgentNames(t *testing.T) {
 	}
 
 	// ソートされていることを確認
-	expected := []string{"Aka", "Ao", "Mio", "Shiro"}
+	expected := []string{"aka", "ao", "mio", "shiro"}
 	for i, name := range expected {
 		if names[i] != name {
 			t.Errorf("Expected agent[%d]='%s', got '%s'", i, name, names[i])
@@ -178,9 +178,9 @@ func TestCentralMemory_AgentNames(t *testing.T) {
 }
 
 func TestAgentMemory_AgentName(t *testing.T) {
-	m := NewAgentMemory("Shiro")
+	m := NewAgentMemory("shiro")
 
-	if m.AgentName() != "Shiro" {
+	if m.AgentName() != "shiro" {
 		t.Errorf("Expected 'Shiro', got '%s'", m.AgentName())
 	}
 }
@@ -189,14 +189,14 @@ func TestCentralMemory_SelfMessage(t *testing.T) {
 	cm := NewCentralMemory()
 
 	// 自分宛メッセージ（From==To）
-	msg := domaintransport.NewMessage("Mio", "Mio", "s1", "j1", "self note")
+	msg := domaintransport.NewMessage("mio", "mio", "s1", "j1", "self note")
 	cm.RecordMessage(msg)
 
 	if cm.AgentCount() != 1 {
 		t.Errorf("Expected 1 agent for self-message, got %d", cm.AgentCount())
 	}
 
-	mioMemory := cm.GetOrCreateAgent("Mio")
+	mioMemory := cm.GetOrCreateAgent("mio")
 	if mioMemory.Count() != 1 {
 		t.Errorf("Expected 1 entry for self-message, got %d", mioMemory.Count())
 	}

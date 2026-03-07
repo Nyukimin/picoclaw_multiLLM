@@ -53,7 +53,7 @@ type ServerConfig struct {
 
 // OllamaConfig はOllama設定
 // v4.0で chat_model/worker_model を統合し、単一の Model に変更
-// 全Agent（Mio/Shiro/IdleChat参加Agent）が同一モデルを共用する
+// 全Agent（mio/shiro/IdleChat参加Agent）が同一モデルを共用する
 type OllamaConfig struct {
 	BaseURL    string `yaml:"base_url"`
 	Model      string `yaml:"model"`       // v4: 共通モデル（例: "picoclaw-v1"）
@@ -138,7 +138,7 @@ type TransportConfig struct {
 // IdleChatConfig はAgent間雑談モードの設定
 type IdleChatConfig struct {
 	Enabled      bool     `yaml:"enabled"`       // 雑談モードの有効化（デフォルト: false）
-	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["Mio", "Shiro"]）
+	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["mio", "shiro"]）
 	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
 	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
 	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
@@ -274,7 +274,7 @@ func (c *Config) setDefaults() {
 	// v4.0 IdleChat デフォルト
 	if c.IdleChat.Enabled {
 		if len(c.IdleChat.Participants) == 0 {
-			c.IdleChat.Participants = []string{"Mio", "Shiro"}
+			c.IdleChat.Participants = []string{"mio", "shiro"}
 		}
 		if c.IdleChat.IntervalMin == 0 {
 			c.IdleChat.IntervalMin = 5
@@ -373,7 +373,7 @@ func (c *Config) Validate() error {
 	// v4.0 IdleChat設定検証
 	if c.IdleChat.Enabled {
 		validAgents := map[string]bool{
-			"Mio": true, "Shiro": true, "Aka": true, "Ao": true, "Gin": true,
+			"mio": true, "shiro": true, "aka": true, "ao": true, "gin": true,
 		}
 		for _, p := range c.IdleChat.Participants {
 			if !validAgents[p] {
