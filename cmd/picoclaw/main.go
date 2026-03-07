@@ -15,6 +15,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	healthapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
@@ -35,7 +36,9 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
+	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persona"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	memorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
@@ -119,6 +122,13 @@ func cmdRun() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/webhook", dependencies.lineHandler)
+
+	// Live Viewer
+	mux.HandleFunc("/viewer", viewer.HandlePage)
+	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
+	if dependencies.viewerSend != nil {
+		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
+	}
 
 	healthHandler := dependencies.buildHealthHandler(cfg)
 	mux.HandleFunc("/health", healthHandler.HandleHealth)
@@ -227,10 +237,13 @@ func buildHealthService(cfg *config.Config) *healthapp.HealthService {
 // Dependencies はアプリケーション依存関係
 type Dependencies struct {
 	lineHandler   http.Handler
-	router        *transport.MessageRouter             // v4 distributed mode
-	idleChatOrch  *idlechat.IdleChatOrchestrator       // v4 idle chat
-	sshTransports map[string]domaintransport.Transport // v4 SSH transports
-	heartbeatSvc  *heartbeat.HeartbeatService          // heartbeat service
+	eventHub      *viewer.EventHub                              // live viewer
+	viewerSend    http.HandlerFunc                              // viewer message sender
+	distOrch      *orchestrator.DistributedOrchestrator         // v4 distributed orchestrator
+	router        *transport.MessageRouter                      // v4 distributed mode
+	idleChatOrch  *idlechat.IdleChatOrchestrator                // v4 idle chat
+	sshTransports map[string]domaintransport.Transport          // v4 SSH transports
+	heartbeatSvc  *heartbeat.HeartbeatService                   // heartbeat service
 }
 
 // Shutdown はリソースを解放
@@ -254,8 +267,9 @@ func (d *Dependencies) Shutdown() {
 
 // buildDependencies は依存関係を構築
 func buildDependencies(cfg *config.Config) *Dependencies {
-	// 1. LLM Provider (v4: 単一共通モデル)
-	ollamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
+	// 1. LLM Provider (v4: 単一共通モデル) + 日時注入デコレータ
+	rawOllamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
+	ollamaProvider := infrallm.NewDateTimeProvider(rawOllamaProvider)
 
 	var coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter
 
@@ -415,6 +429,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		mioAgent = mioAgent.WithConversationManager(realMgr)
 		log.Printf("Mio: ConversationManager injected (KB autosave enabled)")
 	}
+	personaEditor := persona.NewFilePersonaEditor(cfg.WorkspaceDir)
+	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
+	log.Printf("Mio: PersonaEditor injected (workspace: %s)", cfg.WorkspaceDir)
+
 	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 
 	// 7. Session Repository
@@ -432,10 +450,34 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	deps := &Dependencies{}
 
+	// EventHub (Live Viewer)
+	hub := viewer.NewEventHub(200)
+	deps.eventHub = hub
+
+	// viewerSendFromOrch はオーケストレーター共通のviewer送信ハンドラを生成
+	type messageProcessor interface {
+		ProcessMessage(ctx context.Context, req orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error)
+	}
+	viewerSendFromOrch := func(proc messageProcessor) http.HandlerFunc {
+		return viewer.HandleSend(func(ctx context.Context, message string) (string, error) {
+			resp, err := proc.ProcessMessage(ctx, orchestrator.ProcessMessageRequest{
+				SessionID:   "viewer",
+				Channel:     "viewer",
+				ChatID:      "viewer-user",
+				UserMessage: message,
+			})
+			if err != nil {
+				return "", err
+			}
+			return resp.Response, nil
+		})
+	}
+
 	// 9. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
 		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider)
+		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 	} else {
 		log.Println("=== v3 Local Mode ===")
 		// 既存v3ロジック
@@ -448,7 +490,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			coder3Adapter,
 			workerExecutionService,
 		)
+		orch.SetEventListener(hub)
 		deps.lineHandler = line.NewHandler(orch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
+		deps.viewerSend = viewerSendFromOrch(orch)
 	}
 
 	// 10. Heartbeat Service
@@ -497,7 +541,7 @@ func (d *Dependencies) buildDistributedMode(
 	cfg *config.Config,
 	sessionRepo orchestrator.SessionRepository,
 	mioAgent *agent.MioAgent,
-	ollamaProvider *ollama.OllamaProvider,
+	ollamaProvider llm.LLMProvider,
 ) {
 	// Transport Factory でAgent別Transport生成
 	factory := transport.NewTransportFactory()
@@ -538,6 +582,10 @@ func (d *Dependencies) buildDistributedMode(
 		centralMemory,
 		sshTransports,
 	)
+	d.distOrch = distOrch
+	if d.eventHub != nil {
+		distOrch.SetEventListener(d.eventHub)
+	}
 	d.lineHandler = line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 
 	// IdleChat（有効な場合）
@@ -571,7 +619,7 @@ func getConfigPath() string {
 }
 
 // resolveSubagentProvider はサブエージェント用のToolCallingProviderを設定に基づいて選択する
-func resolveSubagentProvider(cfg *config.Config, fallback *ollama.OllamaProvider) llm.ToolCallingProvider {
+func resolveSubagentProvider(cfg *config.Config, fallback llm.ToolCallingProvider) llm.ToolCallingProvider {
 	switch cfg.Subagent.Provider {
 	case "claude":
 		if cfg.Claude.APIKey == "" {
