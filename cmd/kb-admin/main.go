@@ -12,6 +12,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
 )
 
 const usageText = `kb-admin - Knowledge Base 管理ツール
@@ -164,11 +165,13 @@ func initManager(cfg *config.Config) (*conversationpersistence.RealConversationM
 		return nil, err
 	}
 
-	// Embedder 設定（KB検索に必要）
-	// NOTE: 本来は config から Embedder を初期化すべきだが、
-	// 簡易実装のため未設定の場合は警告のみ
-	if mgr != nil {
-		log.Println("KB-Admin initialized (embedder may be required for search)")
+	// Embedder 注入（embed_model が設定されている場合）
+	if cfg.Conversation.EmbedModel != "" {
+		embedder := ollama.NewOllamaEmbedder(cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
+		mgr.WithEmbedder(embedder)
+		log.Printf("KB-Admin: Embedder injected (model: %s)", cfg.Conversation.EmbedModel)
+	} else {
+		log.Println("Warning: No embed_model configured - KB search may not work correctly")
 	}
 
 	return mgr, nil
