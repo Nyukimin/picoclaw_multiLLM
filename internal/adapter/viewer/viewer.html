@@ -60,6 +60,14 @@ table{width:100%;border-collapse:collapse;font-size:12px;min-width:780px}
 th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
 th{color:var(--t2);font-weight:700;background:rgba(255,255,255,.02)}
 td{color:var(--t1)}
+.idle-title-btn{display:inline-flex;align-items:center;gap:6px;text-align:left;max-width:360px}
+.idle-arrow{display:inline-block;transition:transform .15s}
+.idle-arrow.open{transform:rotate(90deg)}
+.idle-expand td{background:rgba(255,255,255,.02);padding:0}
+.idle-transcript{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.idle-bubble{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 10px;line-height:1.5}
+.idle-meta{font-size:11px;color:var(--t2);margin-bottom:3px}
+.idle-empty{color:var(--t2);font-size:12px;padding:10px 12px}
 .small{color:var(--t2);font-size:11px}
 .code{font-family:'JetBrains Mono',monospace}
 
@@ -215,11 +223,6 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <tbody id="idlechatBody"></tbody>
       </table>
     </div>
-    <div class="card" style="margin-top:10px">
-      <h4>Transcript</h4>
-      <div id="idlechatDetailTitle" class="small" style="margin-bottom:6px">Select a topic summary to view transcript</div>
-      <div id="idlechatDetailBody" class="mc" style="max-height:320px">-</div>
-    </div>
   </section>
 
   <section id="panel-sessions" class="panel">
@@ -314,7 +317,7 @@ const state = {
     chatActive: false,
     currentTopic: '',
     history: [],
-    selectedIndex: -1,
+    openIndex: -1,
   },
 };
 AGENTS.forEach((id) => {
@@ -396,8 +399,6 @@ function renderIdleChat() {
   const activeEl = document.getElementById('idleActive');
   const topicEl = document.getElementById('idleTopicNow');
   const body = document.getElementById('idlechatBody');
-  const detailTitle = document.getElementById('idlechatDetailTitle');
-  const detailBody = document.getElementById('idlechatDetailBody');
   if (!manualEl || !activeEl || !topicEl || !body) return;
 
   setBadge(manualEl, state.idleChat.manualMode);
@@ -410,19 +411,16 @@ function renderIdleChat() {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="8" class="small">No idleChat summaries yet</td>';
     body.appendChild(tr);
-    if (detailTitle) detailTitle.textContent = 'Select a topic summary to view transcript';
-    if (detailBody) detailBody.textContent = '-';
     return;
   }
 
-  if (state.idleChat.selectedIndex < 0 || state.idleChat.selectedIndex >= rows.length) {
-    state.idleChat.selectedIndex = 0;
-  }
+  if (state.idleChat.openIndex >= rows.length) state.idleChat.openIndex = -1;
 
   rows.forEach((r, rowIndex) => {
     const tr = document.createElement('tr');
+    const isOpen = state.idleChat.openIndex === rowIndex;
     tr.innerHTML =
-      '<td><button class="ctl-btn idle-open" data-idx="' + esc(String(rowIndex)) + '">' + esc(r.title || '-') + '</button></td>' +
+      '<td><button class="ctl-btn idle-open idle-title-btn" data-idx="' + esc(String(rowIndex)) + '"><span class="idle-arrow ' + (isOpen ? 'open' : '') + '">&#9654;</span><span>' + esc(r.title || '-') + '</span></button></td>' +
       '<td class="code">' + esc(r.category || '-') + '</td>' +
       '<td>' + esc(short(r.topic || '-', 80)) + '</td>' +
       '<td>' + esc(String(r.turns || 0)) + '</td>' +
@@ -431,24 +429,38 @@ function renderIdleChat() {
       '<td>' + esc(fdt(r.ended_at)) + '</td>' +
       '<td>' + esc(short(r.summary || '-', 200)) + '</td>';
     body.appendChild(tr);
+
+    if (isOpen) {
+      const exp = document.createElement('tr');
+      exp.className = 'idle-expand';
+      const transcript = Array.isArray(r.transcript) ? r.transcript : [];
+      if (transcript.length === 0) {
+        exp.innerHTML = '<td colspan="8"><div class="idle-empty">Transcript not available</div></td>';
+      } else {
+        const items = transcript.map((line) => {
+          const idx = String(line || '').indexOf(':');
+          let speaker = 'agent';
+          let content = String(line || '');
+          if (idx > 0) {
+            speaker = content.slice(0, idx).trim();
+            content = content.slice(idx + 1).trim();
+          }
+          const info = ag(speaker);
+          return '<div class="idle-bubble"><div class="idle-meta" style="color:' + info.c + '">' + info.e + ' ' + info.l + '</div><div>' + esc(content || '-') + '</div></div>';
+        }).join('');
+        exp.innerHTML = '<td colspan="8"><div class="idle-transcript">' + items + '</div></td>';
+      }
+      body.appendChild(exp);
+    }
   });
 
   body.querySelectorAll('.idle-open').forEach((btn) => {
     btn.addEventListener('click', () => {
-      state.idleChat.selectedIndex = Number(btn.dataset.idx || '0');
+      const next = Number(btn.dataset.idx || '-1');
+      state.idleChat.openIndex = (state.idleChat.openIndex === next) ? -1 : next;
       renderIdleChat();
     });
   });
-
-  const selected = rows[state.idleChat.selectedIndex];
-  if (detailTitle) detailTitle.textContent = selected && selected.title ? selected.title : '-';
-  if (detailBody) {
-    if (!selected || !Array.isArray(selected.transcript) || selected.transcript.length === 0) {
-      detailBody.textContent = 'Transcript not available';
-    } else {
-      detailBody.textContent = selected.transcript.join('\n');
-    }
-  }
 }
 
 async function refreshIdleStatus() {

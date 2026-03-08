@@ -16,6 +16,9 @@ import (
 
 const (
 	idleCheckInterval = 30 * time.Second
+	ttsCharsPerSecond = 8.0
+	ttsMinWait        = 2 * time.Second
+	ttsMaxWait        = 20 * time.Second
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
@@ -56,13 +59,14 @@ type TimelineEvent struct {
 
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 type IdleChatOrchestrator struct {
-	llmProvider   llm.LLMProvider
-	memory        *session.CentralMemory
-	participants  []string
-	intervalMin   int
-	maxTurns      int
-	temperature   float64
-	personalities map[string]string
+	llmProvider    llm.LLMProvider
+	memory         *session.CentralMemory
+	participants   []string
+	intervalMin    int
+	maxTurns       int
+	temperature    float64
+	personalities  map[string]string
+	ttsWaitEnabled bool
 
 	lastActivity time.Time
 	chatActive   bool
@@ -100,19 +104,24 @@ func NewIdleChatOrchestrator(
 	randSeedOnce.Do(func() {
 		rand.Seed(time.Now().UnixNano())
 	})
+	ttsWaitEnabled := true
+	if llmProvider != nil && llmProvider.Name() == "mock" {
+		ttsWaitEnabled = false
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
-		llmProvider:   llmProvider,
-		memory:        memory,
-		participants:  participants,
-		intervalMin:   intervalMin,
-		maxTurns:      maxTurns,
-		temperature:   temperature,
-		personalities: personalities,
-		lastActivity:  time.Now(),
-		history:       make([]SessionSummary, 0, 32),
-		ctx:           ctx,
-		cancel:        cancel,
+		llmProvider:    llmProvider,
+		memory:         memory,
+		participants:   participants,
+		intervalMin:    intervalMin,
+		maxTurns:       maxTurns,
+		temperature:    temperature,
+		personalities:  personalities,
+		ttsWaitEnabled: ttsWaitEnabled,
+		lastActivity:   time.Now(),
+		history:        make([]SessionSummary, 0, 32),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -347,6 +356,7 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			segmentTurns++
 
 			log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
+			o.waitForTTS(response)
 
 			if o.isLooping(transcript) {
 				loopDetected = true
@@ -365,6 +375,36 @@ func (o *IdleChatOrchestrator) runChatSession() {
 	}
 
 	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, o.maxTurns)
+}
+
+func estimateTTSWait(content string) time.Duration {
+	runes := len([]rune(strings.TrimSpace(content)))
+	if runes <= 0 {
+		return ttsMinWait
+	}
+	seconds := float64(runes) / ttsCharsPerSecond
+	d := time.Duration(seconds * float64(time.Second))
+	if d < ttsMinWait {
+		return ttsMinWait
+	}
+	if d > ttsMaxWait {
+		return ttsMaxWait
+	}
+	return d
+}
+
+func (o *IdleChatOrchestrator) waitForTTS(content string) {
+	if !o.ttsWaitEnabled {
+		return
+	}
+	wait := estimateTTSWait(content)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-o.ctx.Done():
+		return
+	case <-timer.C:
+	}
 }
 
 func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
@@ -562,7 +602,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 	body := strings.Join(transcript, "\n")
 	messages := []llm.Message{
 		{Role: "system", Content: o.getSystemPrompt("shiro")},
-		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。要件: 重要論点・結論・次の観点を簡潔に。\n話題: %s\n\n%s", topic, body)},
+		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。要件: ユーザーが会話中で最も驚きそうな点、\"これは凄い！\"と感じそうな点に最優先でフォーカスする。続いて重要論点・結論・次の観点を簡潔にまとめる。\n話題: %s\n\n%s", topic, body)},
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 240, Temperature: 0.4}
 	resp, err := o.llmProvider.Generate(o.ctx, req)
@@ -576,7 +616,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	systemPrompt := o.getSystemPrompt(speaker)
 
 	// 直近の会話履歴を取得
-	recentEntries := o.memory.GetUnifiedView(10)
+	recentEntries := o.memory.GetUnifiedView(50)
 	messages := []llm.Message{
 		{Role: "system", Content: systemPrompt},
 	}
