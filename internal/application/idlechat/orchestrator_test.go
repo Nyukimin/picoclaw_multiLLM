@@ -7,6 +7,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
 // mockLLMProvider はテスト用のモックLLMプロバイダー
@@ -155,9 +156,9 @@ func TestIdleChatOrchestrator_RunChatSession(t *testing.T) {
 	o.runChatSession()
 
 	// 話題生成1回 + 会話maxTurns回 + 要約1回
-	expectedCalls := maxTurns + 2
-	if provider.callCount != expectedCalls {
-		t.Errorf("Expected %d LLM calls, got %d", expectedCalls, provider.callCount)
+	minExpectedCalls := maxTurns + 2
+	if provider.callCount < minExpectedCalls {
+		t.Errorf("Expected at least %d LLM calls, got %d", minExpectedCalls, provider.callCount)
 	}
 
 	// メモリに記録されているはず（重複排除によりmaxTurns以下の場合もある）
@@ -240,8 +241,8 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 	o.checkAndStartChat()
 
 	// 雑談セッションが実行されたはず
-	if provider.callCount != 4 {
-		t.Errorf("Expected 4 LLM calls (topic + maxTurns + summary), got %d", provider.callCount)
+	if provider.callCount < 4 {
+		t.Errorf("Expected at least 4 LLM calls (topic + maxTurns + summary), got %d", provider.callCount)
 	}
 
 	// セッション終了後はchatActive=false
@@ -260,8 +261,24 @@ func TestCheckAndStartChat_ManualMode_StartsWithoutIdleThreshold(t *testing.T) {
 	}
 
 	o.checkAndStartChat()
-	if provider.callCount != 4 {
-		t.Fatalf("Expected 4 LLM calls in manual mode (topic + maxTurns + summary), got %d", provider.callCount)
+	if provider.callCount < 4 {
+		t.Fatalf("Expected at least 4 LLM calls in manual mode (topic + maxTurns + summary), got %d", provider.callCount)
+	}
+}
+
+func TestCheckAndStartChat_RespectsMinTopicInterval(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 2, 0.8, nil)
+
+	o.mu.Lock()
+	o.lastActivity = time.Now().Add(-1 * time.Hour)
+	o.nextTopicAt = time.Now().Add(5 * time.Minute)
+	o.mu.Unlock()
+
+	o.checkAndStartChat()
+	if provider.callCount != 0 {
+		t.Fatalf("Expected 0 calls while within topic interval, got %d", provider.callCount)
 	}
 }
 
@@ -300,5 +317,85 @@ func TestTruncate(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, result, tt.expected)
 		}
+	}
+}
+
+func TestIsLooping_DetectsAlternatingSimilarity(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	transcript := []string{
+		"mio: 世界の法則が変わるRPGって面白いよね",
+		"shiro: その変化を倫理と戦略の両方で扱うのが核心ですね",
+		"mio: 世界の法則が変わるRPGって面白いよね！",
+		"shiro: その変化を倫理と戦略の両方で扱うのが核心です",
+		"mio: 世界の法則が変わるRPGって面白いよね",
+		"shiro: その変化を倫理と戦略の両方で扱うのが核心ですね",
+		"mio: 世界の法則が変わるRPGって面白いよね！",
+		"shiro: その変化を倫理と戦略の両方で扱うのが核心です",
+	}
+	if !o.isLooping(transcript) {
+		t.Fatal("expected alternating repetitive transcript to be detected as loop")
+	}
+}
+
+func TestTopicTooSimilar(t *testing.T) {
+	recent := []string{
+		"人生をRPG化するならどんな世界観がいいか",
+		"月面都市の建設競争とAI設計の未来",
+	}
+	if !topicTooSimilar("人生をRPG化するならどんな世界観が良いか？", recent) {
+		t.Fatal("expected near-duplicate topic to be considered similar")
+	}
+	if topicTooSimilar("量子通信が一般家庭に来たときの意外な副作用", recent) {
+		t.Fatal("expected clearly different topic to be accepted")
+	}
+}
+
+func TestIsResponseTooSimilar(t *testing.T) {
+	transcript := []string{
+		"mio: 世界の調律師という設定が面白い",
+		"shiro: 調和と混沌の選択が主題になります",
+		"mio: 運命のカードで分岐を増やしたい",
+		"shiro: カードと行動の連動が鍵ですね",
+		"mio: 世界の調律師という設定が面白い",
+		"shiro: 調和と混沌の選択が主題になります",
+	}
+	if !isResponseTooSimilar("世界の調律師という設定が面白い！", transcript) {
+		t.Fatal("expected repetitive response to be detected")
+	}
+	if isResponseTooSimilar("都市インフラを音楽理論で最適化する話に広げよう", transcript) {
+		t.Fatal("expected fresh response not to be detected as repetitive")
+	}
+}
+
+func TestSplitSpeakerContexts(t *testing.T) {
+	mem := session.NewCentralMemory()
+	sid := "idle-ctx"
+	mem.RecordMessage(domaintransport.Message{From: "mio", To: "shiro", SessionID: sid, Content: "最初の提案"})
+	mem.RecordMessage(domaintransport.Message{From: "shiro", To: "mio", SessionID: sid, Content: "その提案の補足"})
+	mem.RecordMessage(domaintransport.Message{From: "mio", To: "shiro", SessionID: sid, Content: "別観点の追加"})
+
+	entries := mem.GetUnifiedView(20)
+	self, other := splitSpeakerContexts(entries, sid, "mio", 5)
+	if len(self) == 0 || len(other) == 0 {
+		t.Fatal("expected both self/other contexts")
+	}
+	if self[0] != "別観点の追加" {
+		t.Fatalf("expected latest self context first, got %q", self[0])
+	}
+	if other[0] == "なし" {
+		t.Fatal("expected other context to include shiro utterance")
+	}
+}
+
+func TestViolatesAttribution(t *testing.T) {
+	other := "世界の調律師という設定はどう？"
+	if !violatesAttribution("世界の調律師という設定はどう？", other) {
+		t.Fatal("expected direct reuse without attribution to be flagged")
+	}
+	if violatesAttribution("あなたの『世界の調律師』案を受けると、次は倫理分岐を入れたい", other) {
+		t.Fatal("expected explicit attribution to pass")
 	}
 }

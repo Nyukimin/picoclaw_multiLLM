@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -16,6 +19,7 @@ import (
 
 const (
 	idleCheckInterval = 30 * time.Second
+	minTopicInterval  = 10 * time.Minute
 	ttsCharsPerSecond = 8.0
 	ttsMinWait        = 2 * time.Second
 	ttsMaxWait        = 20 * time.Second
@@ -24,6 +28,7 @@ const (
 
 var jst = time.FixedZone("JST", 9*60*60)
 var randSeedOnce sync.Once
+var promptLeakLineRe = regexp.MustCompile(`(?i)(^|[。．\n])[^。．\n]{0,30}(発言として受け|要件[:：]|発言帰属ガード)[^。．\n]*`)
 
 type TopicCategory string
 
@@ -75,6 +80,7 @@ type IdleChatOrchestrator struct {
 	workerBusy   bool
 	manualMode   bool
 	currentTopic string
+	nextTopicAt  time.Time
 	history      []SessionSummary
 	categoryBag  []TopicCategory
 	emitEvent    func(TimelineEvent)
@@ -292,6 +298,8 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	o.mu.Lock()
 	idleDuration := time.Since(o.lastActivity)
 	threshold := time.Duration(o.intervalMin) * time.Minute
+	now := time.Now()
+	nextTopicAt := o.nextTopicAt
 	alreadyActive := o.chatActive
 	chatBusy := o.chatBusy
 	workerBusy := o.workerBusy
@@ -302,6 +310,9 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 		return
 	}
 	if chatBusy || workerBusy {
+		return
+	}
+	if !nextTopicAt.IsZero() && now.Before(nextTopicAt) {
 		return
 	}
 	if !manualMode && idleDuration < threshold {
@@ -332,6 +343,7 @@ func (o *IdleChatOrchestrator) runChatSession() {
 		o.currentTopic = topic
 		o.mu.Unlock()
 		log.Printf("[IdleChat] Topic: %s (%s)", topic, category)
+		o.emitTopicToTimeline(sessionID, topic, category)
 
 		segmentTurns := 0
 		loopDetected := false
@@ -360,6 +372,11 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			if err != nil {
 				log.Printf("[IdleChat] Generation error: %v", err)
 				return
+			}
+			if isResponseTooSimilar(response, transcript) {
+				loopDetected = true
+				log.Printf("[IdleChat] Repetitive response detected before emit, summarize and restart")
+				break
 			}
 
 			msg := domaintransport.NewMessage(speaker, nextSpeaker, sessionID, "", response)
@@ -393,11 +410,12 @@ func (o *IdleChatOrchestrator) runChatSession() {
 		}
 
 		remainingTurns -= segmentTurns
-		o.saveSummary(sessionID, topic, category, transcript, startedAt, time.Now().In(jst), segmentTurns, loopDetected)
-
-		if !loopDetected || remainingTurns <= 0 {
-			break
-		}
+		endedAt := time.Now().In(jst)
+		o.saveSummary(sessionID, topic, category, transcript, startedAt, endedAt, segmentTurns, loopDetected)
+		o.mu.Lock()
+		o.nextTopicAt = endedAt.Add(minTopicInterval)
+		o.mu.Unlock()
+		break
 	}
 
 	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, o.maxTurns)
@@ -445,21 +463,31 @@ func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, TopicCategory) {
 	category := o.chooseTopicCategory()
 	contextHints := o.buildTopicHints(category)
-	messages := []llm.Message{
-		{Role: "system", Content: o.getSystemPrompt("mio")},
-		{Role: "user", Content: fmt.Sprintf("idleChatの話題を1つだけ提案してください。カテゴリ=%s。要件: 深く考察でき、かつエンターテイメント性がある具体的な話題。回答は話題1文のみ。参考情報: %s", category, contextHints)},
+	recentTopics := o.getRecentTopics(12)
+
+	for attempt := 0; attempt < 3; attempt++ {
+		messages := []llm.Message{
+			{Role: "system", Content: o.getSystemPrompt("mio")},
+			{Role: "user", Content: fmt.Sprintf("idleChatの話題を1つだけ提案してください。カテゴリ=%s。要件: 深く考察でき、かつエンターテイメント性がある具体的な話題。さらに『え？そこいく？』と思う意外性を重視し、分野横断（例: 科学×文化、歴史×プロダクト）の切り口を優先。回答は話題1文のみ。過去トピックと同型・同趣旨を避ける。参考情報: %s。直近トピック: %s", category, contextHints, strings.Join(recentTopics, " / "))},
+		}
+		req := llm.GenerateRequest{Messages: messages, MaxTokens: 120, Temperature: 0.8 + float64(attempt)*0.05}
+		resp, err := o.llmProvider.Generate(o.ctx, req)
+		if err != nil {
+			log.Printf("[IdleChat] topic generation failed: %v", err)
+			break
+		}
+		topic := strings.TrimSpace(resp.Content)
+		if topic == "" {
+			continue
+		}
+		if topicTooSimilar(topic, recentTopics) {
+			log.Printf("[IdleChat] topic too similar to recent history, retrying: %s", truncate(topic, 80))
+			continue
+		}
+		return topic, category
 	}
-	req := llm.GenerateRequest{Messages: messages, MaxTokens: 120, Temperature: 0.8}
-	resp, err := o.llmProvider.Generate(o.ctx, req)
-	if err != nil {
-		log.Printf("[IdleChat] topic generation failed: %v", err)
-		return o.fallbackTopic(category), category
-	}
-	topic := strings.TrimSpace(resp.Content)
-	if topic == "" {
-		topic = o.fallbackTopic(category)
-	}
-	return topic, category
+
+	return o.fallbackTopic(category), category
 }
 
 func (o *IdleChatOrchestrator) chooseTopicCategory() TopicCategory {
@@ -467,11 +495,11 @@ func (o *IdleChatOrchestrator) chooseTopicCategory() TopicCategory {
 	defer o.mu.Unlock()
 	if len(o.categoryBag) == 0 {
 		o.categoryBag = []TopicCategory{
-			TopicUserRelated, TopicUserRelated, TopicUserRelated,
+			TopicUserRelated, TopicUserRelated,
 			TopicCurrent, TopicCurrent,
 			TopicTech, TopicTech,
-			TopicWorkerDB, TopicWorkerDB,
-			TopicRandom,
+			TopicWorkerDB,
+			TopicRandom, TopicRandom, TopicRandom,
 		}
 		rand.Shuffle(len(o.categoryBag), func(i, j int) {
 			o.categoryBag[i], o.categoryBag[j] = o.categoryBag[j], o.categoryBag[i]
@@ -548,15 +576,15 @@ func (o *IdleChatOrchestrator) buildTopicHints(category TopicCategory) string {
 func (o *IdleChatOrchestrator) fallbackTopic(category TopicCategory) string {
 	switch category {
 	case TopicUserRelated:
-		return "最近のユーザー要望から見える優先課題"
+		return "最近のユーザー要望を、意外な別分野と接続して再解釈する話題"
 	case TopicCurrent:
-		return "最近の社会・技術トレンドが開発運用に与える影響"
+		return "最近の社会・技術トレンドを、長期の文化・倫理・遊びに接続する話題"
 	case TopicTech:
-		return "今のアーキテクチャで改善余地が大きい技術ポイント"
+		return "今のアーキテクチャ課題を、SF的発想や異分野メタファーで捉え直す話題"
 	case TopicWorkerDB:
-		return "workerの実行履歴データから見える改善機会"
+		return "workerの実行履歴データを補助線にしつつ、DB依存しすぎない改善発想"
 	default:
-		return "最近気になったことを起点にした自由討論"
+		return "予想外の切り口を最優先にした自由討論（え？そこいく？系）"
 	}
 }
 
@@ -564,14 +592,7 @@ func (o *IdleChatOrchestrator) isLooping(transcript []string) bool {
 	if len(transcript) < 6 {
 		return false
 	}
-	norm := func(s string) string {
-		s = strings.ToLower(strings.TrimSpace(s))
-		s = strings.ReplaceAll(s, " ", "")
-		s = strings.ReplaceAll(s, "　", "")
-		s = strings.ReplaceAll(s, "。", "")
-		s = strings.ReplaceAll(s, "、", "")
-		return s
-	}
+	norm := normalizeLoopText
 	last := norm(transcript[len(transcript)-1])
 	if last == "" {
 		return false
@@ -583,6 +604,12 @@ func (o *IdleChatOrchestrator) isLooping(transcript []string) bool {
 		}
 	}
 	if count >= 1 {
+		return true
+	}
+	if hasAlternatingLoop(transcript) {
+		return true
+	}
+	if hasHighSimilarityLoop(transcript) {
 		return true
 	}
 	return isWhatIfRepetition(transcript)
@@ -670,11 +697,13 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID string, turn int, topic string) (string, error) {
 	systemPrompt := o.getSystemPrompt(speaker)
 
-	// 直近の会話履歴を取得
-	recentEntries := o.memory.GetUnifiedView(50)
+	// 直近の会話履歴を取得（最新発話の重みを上げるため30件）
+	recentEntries := o.memory.GetUnifiedView(30)
 	messages := []llm.Message{
 		{Role: "system", Content: systemPrompt},
 	}
+	selfCtx, otherCtx := splitSpeakerContexts(recentEntries, sessionID, speaker, 5)
+	latestOther := latestOtherUtterance(recentEntries, sessionID, speaker)
 
 	for _, entry := range recentEntries {
 		if entry.Message.SessionID == sessionID {
@@ -689,15 +718,25 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		}
 	}
 
+	messages = append(messages, llm.Message{
+		Role: "user",
+		Content: fmt.Sprintf(
+			"発言帰属ガード:\n- あなたは %s。\n- 自分の過去発言(要約): %s\n- 他者の発言(要約): %s\n要件: 他者の発言を自分の新規アイデアとして扱わない。既出アイデアに触れる場合は『前に自分も触れた』または『相手の発言として受ける』を明示する。",
+			speaker,
+			strings.Join(selfCtx, " / "),
+			strings.Join(otherCtx, " / "),
+		),
+	})
+
 	if turn == 0 {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("（話題: %s）%sに会話を始めてください。要件: 深く考察しつつエンターテイメント性も出す。相手へ問い返しや新しい観点を必ず1つ入れる。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, target),
+			Content: fmt.Sprintf("（話題: %s）%sに会話を始めてください。要件: 深く考察しつつエンターテイメント性も出す。相手へ問い返しや新しい観点を必ず1つ入れる。直近の表現や主張の繰り返しは禁止。発言帰属（誰のアイデアか）を曖昧にしない。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, target),
 		})
 	} else {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("（話題: %s）%sとして返答してください。要件: 深く考察しつつエンターテイメント性も出す。相手へ問い返しや新しい観点を必ず1つ入れる。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, speaker),
+			Content: fmt.Sprintf("（話題: %s）%sとして返答してください。直前の相手発言: %s\n要件: 1文目は必ずこの直前発言への直接応答にする。2文目で深掘りか新しい観点か問い返しを入れる。深く考察しつつエンターテイメント性も出す。直近の表現や主張の繰り返しは禁止。発言帰属（誰のアイデアか）を曖昧にしない。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, speaker, quoteOrDash(latestOther)),
 		})
 	}
 
@@ -711,8 +750,268 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	if err != nil {
 		return "", fmt.Errorf("LLM generate: %w", err)
 	}
+	first := sanitizeIdleResponse(resp.Content, topic)
+	if hasPromptLeak(first) {
+		retryLeak := append([]llm.Message{}, messages...)
+		retryLeak = append(retryLeak, llm.Message{
+			Role:    "user",
+			Content: "今の返答には指示文の断片が混ざっています。自然な会話文だけで1-2文に言い直してください。『要件』『発言帰属』『相手の発言として受ける』などのメタ表現は出力しないでください。",
+		})
+		respLeak, errLeak := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
+			Messages:    retryLeak,
+			MaxTokens:   256,
+			Temperature: o.temperature,
+		})
+		if errLeak == nil && strings.TrimSpace(respLeak.Content) != "" {
+			first = sanitizeIdleResponse(respLeak.Content, topic)
+		}
+	}
+	if violatesAttribution(first, latestOther) {
+		retry := append([]llm.Message{}, messages...)
+		retry = append(retry, llm.Message{
+			Role:    "user",
+			Content: "直前の返答は発言帰属が曖昧です。相手の発言を受ける形で、誰のアイデアかを明示して1回だけ言い直してください。1-2文。",
+		})
+		resp2, err2 := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
+			Messages:    retry,
+			MaxTokens:   256,
+			Temperature: o.temperature,
+		})
+		if err2 == nil && strings.TrimSpace(resp2.Content) != "" {
+			return sanitizeIdleResponse(resp2.Content, topic), nil
+		}
+	}
 
-	return resp.Content, nil
+	return first, nil
+}
+
+func (o *IdleChatOrchestrator) getRecentTopics(limit int) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if limit <= 0 || limit > len(o.history) {
+		limit = len(o.history)
+	}
+	out := make([]string, 0, limit)
+	for i := len(o.history) - 1; i >= 0 && len(out) < limit; i-- {
+		t := strings.TrimSpace(o.history[i].Topic)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func hasAlternatingLoop(transcript []string) bool {
+	if len(transcript) < 8 {
+		return false
+	}
+	a := normalizeLoopText(transcript[len(transcript)-1])
+	b := normalizeLoopText(transcript[len(transcript)-2])
+	if a == "" || b == "" {
+		return false
+	}
+	matches := 0
+	for i := len(transcript) - 3; i >= 0 && i >= len(transcript)-7; i -= 2 {
+		if textSimilarity(a, normalizeLoopText(transcript[i])) >= 0.9 {
+			matches++
+		}
+	}
+	for i := len(transcript) - 4; i >= 0 && i >= len(transcript)-8; i -= 2 {
+		if textSimilarity(b, normalizeLoopText(transcript[i])) >= 0.9 {
+			matches++
+		}
+	}
+	return matches >= 3
+}
+
+func hasHighSimilarityLoop(transcript []string) bool {
+	if len(transcript) < 10 {
+		return false
+	}
+	start := len(transcript) - 10
+	base := make([]string, 0, 10)
+	for i := start; i < len(transcript); i++ {
+		t := normalizeLoopText(transcript[i])
+		if t != "" {
+			base = append(base, t)
+		}
+	}
+	if len(base) < 6 {
+		return false
+	}
+	similarPairs := 0
+	totalPairs := 0
+	for i := 0; i < len(base); i++ {
+		for j := i + 1; j < len(base); j++ {
+			totalPairs++
+			if textSimilarity(base[i], base[j]) >= 0.92 {
+				similarPairs++
+			}
+		}
+	}
+	return totalPairs > 0 && similarPairs*3 >= totalPairs
+}
+
+func topicTooSimilar(topic string, recent []string) bool {
+	n := normalizeLoopText(topic)
+	if n == "" {
+		return true
+	}
+	for _, prev := range recent {
+		if textSimilarity(n, normalizeLoopText(prev)) >= 0.9 {
+			return true
+		}
+	}
+	return false
+}
+
+func isResponseTooSimilar(response string, transcript []string) bool {
+	if len(transcript) < 4 {
+		return false
+	}
+	cur := normalizeLoopText(response)
+	if cur == "" {
+		return false
+	}
+	start := len(transcript) - 6
+	if start < 0 {
+		start = 0
+	}
+	hits := 0
+	for i := start; i < len(transcript); i++ {
+		prev := normalizeLoopText(transcript[i])
+		if prev == "" {
+			continue
+		}
+		if textSimilarity(cur, prev) >= 0.93 {
+			hits++
+		}
+	}
+	return hits >= 2
+}
+
+func normalizeLoopText(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if idx := strings.Index(s, ":"); idx >= 0 {
+		s = strings.TrimSpace(s[idx+1:])
+	}
+	s = strings.TrimPrefix(s, "[mio]")
+	s = strings.TrimPrefix(s, "[shiro]")
+	s = strings.TrimPrefix(s, "[worker]")
+	s = strings.TrimPrefix(s, "[chat]")
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func textSimilarity(a, b string) float64 {
+	if a == "" || b == "" {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+	ag := runeNGrams(a, 2)
+	bg := runeNGrams(b, 2)
+	if len(ag) == 0 || len(bg) == 0 {
+		if a == b {
+			return 1
+		}
+		return 0
+	}
+	inter := 0
+	i, j := 0, 0
+	for i < len(ag) && j < len(bg) {
+		if ag[i] == bg[j] {
+			inter++
+			i++
+			j++
+			continue
+		}
+		if ag[i] < bg[j] {
+			i++
+		} else {
+			j++
+		}
+	}
+	return (2.0 * float64(inter)) / float64(len(ag)+len(bg))
+}
+
+func runeNGrams(s string, n int) []string {
+	r := []rune(s)
+	if len(r) < n || n <= 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r)-n+1)
+	for i := 0; i <= len(r)-n; i++ {
+		out = append(out, string(r[i:i+n]))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func splitSpeakerContexts(entries []session.ConversationEntry, sessionID, speaker string, limit int) ([]string, []string) {
+	self := make([]string, 0, limit)
+	other := make([]string, 0, limit)
+	for i := len(entries) - 1; i >= 0 && (len(self) < limit || len(other) < limit); i-- {
+		m := entries[i].Message
+		if m.SessionID != sessionID {
+			continue
+		}
+		text := truncate(strings.TrimSpace(m.Content), 80)
+		if text == "" {
+			continue
+		}
+		if strings.EqualFold(m.From, speaker) {
+			if len(self) < limit {
+				self = append(self, text)
+			}
+			continue
+		}
+		if len(other) < limit {
+			other = append(other, fmt.Sprintf("%s: %s", m.From, text))
+		}
+	}
+	if len(self) == 0 {
+		self = append(self, "なし")
+	}
+	if len(other) == 0 {
+		other = append(other, "なし")
+	}
+	return self, other
+}
+
+func latestOtherUtterance(entries []session.ConversationEntry, sessionID, speaker string) string {
+	for i := len(entries) - 1; i >= 0; i-- {
+		m := entries[i].Message
+		if m.SessionID != sessionID || strings.EqualFold(m.From, speaker) {
+			continue
+		}
+		return strings.TrimSpace(m.Content)
+	}
+	return ""
+}
+
+func violatesAttribution(response, latestOther string) bool {
+	resp := normalizeLoopText(response)
+	other := normalizeLoopText(latestOther)
+	if resp == "" || other == "" {
+		return false
+	}
+	if textSimilarity(resp, other) < 0.93 {
+		return false
+	}
+	lower := strings.ToLower(response)
+	if strings.Contains(lower, "あなた") || strings.Contains(lower, "君") || strings.Contains(lower, "相手") || strings.Contains(lower, "その視点") {
+		return false
+	}
+	return true
 }
 
 func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
@@ -731,6 +1030,68 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
+func quoteOrDash(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "-"
+	}
+	return "「" + truncate(s, 120) + "」"
+}
+
+func hasPromptLeak(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "" {
+		return false
+	}
+	markers := []string{
+		"発言帰属ガード",
+		"相手の発言として受ける",
+		"前に自分も触れた",
+		"要件:",
+		"要件：",
+		"（話題:",
+	}
+	for _, m := range markers {
+		if strings.Contains(lower, strings.ToLower(m)) {
+			return true
+		}
+	}
+	if strings.Contains(lower, "発言として受け") {
+		return true
+	}
+	return false
+}
+
+func sanitizeIdleResponse(s, topic string) string {
+	out := strings.TrimSpace(s)
+	if out == "" {
+		return out
+	}
+	if strings.HasPrefix(out, "（話題:") {
+		if idx := strings.Index(out, "）"); idx >= 0 && idx+len("）") < len(out) {
+			out = strings.TrimSpace(out[idx+len("）"):])
+		}
+	}
+	leaks := []string{
+		"相手の発言として受ける",
+		"相手の発言として受け、",
+		"前に自分も触れた発言への応答として、",
+		"前に自分も触れたように、",
+		"要件:",
+		"要件：",
+	}
+	for _, leak := range leaks {
+		out = strings.ReplaceAll(out, leak, "")
+	}
+	out = promptLeakLineRe.ReplaceAllString(out, "")
+	out = strings.ReplaceAll(out, "  ", " ")
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "その視点いいね。もう一段深掘りすると、具体的な条件設計が鍵になりそう。"
+	}
+	return out
+}
+
 func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) {
 	o.mu.Lock()
 	emit := o.emitEvent
@@ -738,4 +1099,18 @@ func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) {
 	if emit != nil {
 		emit(ev)
 	}
+}
+
+func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, category TopicCategory) {
+	content := fmt.Sprintf("今日のお題（%s）: %s", category, topic)
+	msg := domaintransport.NewMessage("user", "mio", sessionID, "", content)
+	msg.Type = domaintransport.MessageTypeIdleChat
+	o.memory.RecordMessage(msg)
+	o.emitTimelineEvent(TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "user",
+		To:        "mio",
+		Content:   content,
+		SessionID: sessionID,
+	})
 }

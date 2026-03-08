@@ -52,7 +52,6 @@ func (m *mockRuleDictionary) Match(t task.Task) (routing.Route, float64, bool) {
 	return "", 0.0, false
 }
 
-
 func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 	mio := NewMioAgent(
 		&mockLLMProvider{},
@@ -64,7 +63,7 @@ func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 	)
 
 	tests := []struct {
-		message      string
+		message       string
 		expectedRoute routing.Route
 	}{
 		{"/chat hello", routing.RouteCHAT},
@@ -811,3 +810,30 @@ func TestGetStringField(t *testing.T) {
 	}
 }
 
+func TestBuildAttributionContextsFromShort(t *testing.T) {
+	short := []conversation.Message{
+		{Speaker: conversation.SpeakerUser, Msg: "A案はどう？"},
+		{Speaker: conversation.SpeakerMio, Msg: "A案に乗るよ"},
+		{Speaker: conversation.SpeakerUser, Msg: "じゃあB案も見たい"},
+	}
+	selfCtx, otherCtx := buildAttributionContextsFromShort(short, conversation.SpeakerMio, 3)
+	if len(selfCtx) == 0 || len(otherCtx) == 0 {
+		t.Fatal("expected both self/other contexts")
+	}
+	if selfCtx[0] != "A案に乗るよ" {
+		t.Fatalf("unexpected self context: %v", selfCtx)
+	}
+	if !strings.Contains(otherCtx[0], "user:") {
+		t.Fatalf("unexpected other context: %v", otherCtx)
+	}
+}
+
+func TestViolatesAttributionInChat(t *testing.T) {
+	other := "世界の調律師という設定はどう？"
+	if !violatesAttributionInChat("世界の調律師という設定はどう？", other) {
+		t.Fatal("expected exact reuse without attribution to be blocked")
+	}
+	if violatesAttributionInChat("あなたの『世界の調律師』案いいね。", other) {
+		t.Fatal("expected explicit attribution to pass")
+	}
+}

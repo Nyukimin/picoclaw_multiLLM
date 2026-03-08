@@ -75,7 +75,6 @@ func (m *MioAgent) WithPersonaEditor(editor PersonaEditor) *MioAgent {
 	return m
 }
 
-
 // DecideAction はMioによる委譲判断（4段階優先順位）
 func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
 	// 優先度1: 明示コマンド
@@ -100,8 +99,10 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 
 	// === v5.1: ConversationEngine による RecallPack 生成 ===
 	var messages []llm.Message
+	var recallPack *conversation.RecallPack
 	if m.conversationEngine != nil {
-		recallPack, err := m.conversationEngine.BeginTurn(ctx, t.ChatID(), userMessage)
+		var err error
+		recallPack, err = m.conversationEngine.BeginTurn(ctx, t.ChatID(), userMessage)
 		if err != nil {
 			fmt.Printf("WARN: BeginTurn failed: %v\n", err)
 		}
@@ -142,6 +143,20 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		}
 	}
 
+	latestOther := ""
+	if recallPack != nil {
+		selfCtx, otherCtx := buildAttributionContextsFromShort(recallPack.ShortContext, conversation.SpeakerMio, 5)
+		latestOther = latestOtherMessageFromShort(recallPack.ShortContext, conversation.SpeakerMio)
+		messages = append(messages, llm.Message{
+			Role: "user",
+			Content: fmt.Sprintf(
+				"発言帰属ガード:\n- あなたはmio。\n- 自分の過去発言(要約): %s\n- 他者の発言(要約): %s\n要件: 他者の発言を自分の新規アイデアとして扱わない。既出アイデアに触れる場合は発言者を明示する。",
+				strings.Join(selfCtx, " / "),
+				strings.Join(otherCtx, " / "),
+			),
+		})
+	}
+
 	// ユーザーメッセージを最後に追加
 	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
 
@@ -157,7 +172,23 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		return "", err
 	}
 
-	response := resp.Content
+	response := strings.TrimSpace(resp.Content)
+	if violatesAttributionInChat(response, latestOther) {
+		retryMessages := append([]llm.Message{}, messages...)
+		retryMessages = append(retryMessages, llm.Message{
+			Role:    "user",
+			Content: "直前の返答は発言帰属が曖昧です。誰のアイデアかを明示して1回だけ言い直してください。",
+		})
+		retryResp, retryErr := m.llmProvider.Generate(ctx, llm.GenerateRequest{
+			Messages:    retryMessages,
+			MaxTokens:   512,
+			Temperature: 0.7,
+			OnToken:     llm.StreamCallbackFromContext(ctx),
+		})
+		if retryErr == nil && strings.TrimSpace(retryResp.Content) != "" {
+			response = strings.TrimSpace(retryResp.Content)
+		}
+	}
 
 	// === v5.1: EndTurn（Store） ===
 	if m.conversationEngine != nil {
@@ -455,4 +486,63 @@ func inferDomain(query string) string {
 
 	// デフォルトは general
 	return "general"
+}
+
+func buildAttributionContextsFromShort(short []conversation.Message, self conversation.Speaker, limit int) ([]string, []string) {
+	selfCtx := make([]string, 0, limit)
+	otherCtx := make([]string, 0, limit)
+	for i := len(short) - 1; i >= 0 && (len(selfCtx) < limit || len(otherCtx) < limit); i-- {
+		msg := strings.TrimSpace(short[i].Msg)
+		if msg == "" {
+			continue
+		}
+		line := truncateLog(msg, 80)
+		if short[i].Speaker == self {
+			if len(selfCtx) < limit {
+				selfCtx = append(selfCtx, line)
+			}
+			continue
+		}
+		if len(otherCtx) < limit {
+			otherCtx = append(otherCtx, fmt.Sprintf("%s: %s", short[i].Speaker, line))
+		}
+	}
+	if len(selfCtx) == 0 {
+		selfCtx = append(selfCtx, "なし")
+	}
+	if len(otherCtx) == 0 {
+		otherCtx = append(otherCtx, "なし")
+	}
+	return selfCtx, otherCtx
+}
+
+func latestOtherMessageFromShort(short []conversation.Message, self conversation.Speaker) string {
+	for i := len(short) - 1; i >= 0; i-- {
+		if short[i].Speaker == self {
+			continue
+		}
+		return strings.TrimSpace(short[i].Msg)
+	}
+	return ""
+}
+
+func violatesAttributionInChat(response, latestOther string) bool {
+	resp := normalizeAttributionText(response)
+	other := normalizeAttributionText(latestOther)
+	if resp == "" || other == "" || resp != other {
+		return false
+	}
+	lower := strings.ToLower(response)
+	return !strings.Contains(lower, "あなた") && !strings.Contains(lower, "君") && !strings.Contains(lower, "相手")
+}
+
+func normalizeAttributionText(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "　", "")
+	s = strings.ReplaceAll(s, "。", "")
+	s = strings.ReplaceAll(s, "、", "")
+	s = strings.ReplaceAll(s, "！", "")
+	s = strings.ReplaceAll(s, "？", "")
+	return s
 }

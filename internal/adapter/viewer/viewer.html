@@ -187,6 +187,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <option value="">type: all</option>
         <option>message.received</option>
         <option>routing.decision</option>
+        <option>agent.note</option>
         <option>agent.start</option>
         <option>agent.thinking</option>
         <option>agent.response</option>
@@ -195,7 +196,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
       </select>
       <select id="fltAgent">
         <option value="">agent: all</option>
-        <option>user</option><option>mio</option><option>shiro</option><option>coder1</option><option>coder2</option><option>coder3</option>
+        <option value="user">れん</option><option value="mio">みお</option><option value="shiro">しろ</option><option value="coder1">あか</option><option value="coder2">あお</option><option value="coder3">ぎん</option>
       </select>
       <select id="fltRoute">
         <option value="">route: all</option>
@@ -271,13 +272,13 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 'use strict';
 const BT = String.fromCharCode(96);
 const A = {
-  user:   {c:'#94a3b8', l:'User',   e:'\u{1f464}'},
-  mio:    {c:'#f472b6', l:'Chat',   e:'\u{1f338}'},
-  shiro:  {c:'#22d3ee', l:'Worker', e:'\u26a1'},
-  coder1: {c:'#fb923c', l:'Coder1', e:'\u{1f534}'},
-  coder2: {c:'#818cf8', l:'Coder2', e:'\u{1f535}'},
-  coder3: {c:'#a78bfa', l:'Coder3', e:'\u{1f7e3}'},
-  system: {c:'#475569', l:'System', e:'\u2699\ufe0f'},
+  user:   {c:'#94a3b8', l:'れん',  en:'Ren',   e:'\u{1f464}'},
+  mio:    {c:'#f472b6', l:'みお',  en:'Mio',   e:'\u{1f338}'},
+  shiro:  {c:'#22d3ee', l:'しろ',  en:'Shiro', e:'\u26a1'},
+  coder1: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
+  coder2: {c:'#818cf8', l:'あお',  en:'Ao',    e:'\u{1f535}'},
+  coder3: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
+  system: {c:'#475569', l:'System', en:'System', e:'\u2699\ufe0f'},
 };
 const RC = {
   CHAT:'#f472b6', OPS:'#22d3ee', CODE:'#fb923c',
@@ -288,8 +289,15 @@ const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3'];
 const OFFLINE_MS = 120000;
 const MAX_LOGS = 500;
 const MAX_TIMELINE_NODES = 400;
+const MAX_SEEN_EVENTS = 4000;
+const seenEventKeys = new Set();
+const seenEventQueue = [];
 
 function ag(n) { return A[(n || '').toLowerCase()] || A.system; }
+function agName(n) {
+  const info = ag(n);
+  return info.l || info.en || String(n || '-');
+}
 function ftime(ts) {
   try { return new Date(ts).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Tokyo'}); }
   catch (_) { return ''; }
@@ -323,6 +331,31 @@ function fmt(s) {
   return h;
 }
 
+function eventKey(ev) {
+  return [
+    ev.type || '',
+    ev.from || '',
+    ev.to || '',
+    ev.route || '',
+    ev.job_id || '',
+    ev.session_id || '',
+    ev.channel || '',
+    ev.chat_id || '',
+    ev.timestamp || '',
+    ev.content || '',
+  ].join('|');
+}
+
+function rememberEventKey(key) {
+  seenEventKeys.add(key);
+  seenEventQueue.push(key);
+  while (seenEventQueue.length > MAX_SEEN_EVENTS) {
+    const old = seenEventQueue.shift();
+    if (!old) break;
+    seenEventKeys.delete(old);
+  }
+}
+
 const state = {
   logs: [],
   sessions: {},
@@ -335,6 +368,7 @@ const state = {
     history: [],
     openIndex: -1,
   },
+  openTasks: {},
 };
 AGENTS.forEach((id) => {
   state.agents[id] = {
@@ -348,6 +382,7 @@ AGENTS.forEach((id) => {
     preview: '-',
     updatedAt: '',
   };
+  state.openTasks[id] = {};
 });
 
 let msgCount = 0;
@@ -697,6 +732,31 @@ function touchAgent(agentID, patch) {
   Object.assign(state.agents[agentID], patch);
 }
 
+function addOpenTask(owner, ev) {
+  if (!AGENTS.includes(owner)) return;
+  const jid = ev.job_id || '';
+  if (!jid) return;
+  state.openTasks[owner][jid] = {
+    jobID: jid,
+    route: ev.route || '-',
+    text: short(ev.content || '-', 80),
+    updatedAt: ev.timestamp || new Date().toISOString(),
+  };
+}
+
+function doneOpenTask(owner, jid) {
+  if (!AGENTS.includes(owner) || !jid) return;
+  delete state.openTasks[owner][jid];
+}
+
+function openTaskSummary(agentID) {
+  const m = state.openTasks[agentID] || {};
+  const list = Object.values(m).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  if (list.length === 0) return '-';
+  if (list.length === 1) return list[0].text || list[0].route || list[0].jobID;
+  return short((list[0].text || list[0].route || list[0].jobID) + ' / +' + String(list.length - 1), 90);
+}
+
 function updateAgents(ev) {
   const ts = ev.timestamp || new Date().toISOString();
   const route = ev.route || '-';
@@ -733,6 +793,7 @@ function updateAgents(ev) {
   }
 
   if (ev.type === 'agent.start' && AGENTS.includes(to)) {
+    addOpenTask(to, ev);
     touchAgent(to, {
       state: 'running',
       route,
@@ -742,6 +803,9 @@ function updateAgents(ev) {
       updatedAt: ts,
       jobID: jid,
     });
+  }
+  if (ev.type === 'agent.response' && AGENTS.includes(from)) {
+    doneOpenTask(from, jid);
   }
 }
 
@@ -760,6 +824,7 @@ function renderOverview() {
       '<h4>' + info.e + ' ' + info.l + '</h4>' +
       '<div class="row"><span>State</span><span class="badge ' + stateClass(s.state) + '">' + esc(s.state) + '</span></div>' +
       '<div class="row"><span>Route</span><span>' + esc(s.route || '-') + '</span></div>' +
+      '<div class="row"><span>Open</span><span>' + esc(String(Object.keys(state.openTasks[id] || {}).length)) + '</span></div>' +
       '<div class="row"><span>Job</span><span class="code">' + esc(s.jobID || '-') + '</span></div>' +
       '<div class="row"><span>Updated</span><span>' + esc(ftime(s.updatedAt)) + '</span></div>';
     cards.appendChild(card);
@@ -770,10 +835,10 @@ function renderOverview() {
       '<td><span class="badge ' + stateClass(s.state) + '">' + esc(s.state) + '</span></td>' +
       '<td>' + esc(s.route || '-') + '</td>' +
       '<td>' + esc(s.lastEvent || '-') + '</td>' +
-      '<td>' + esc(s.peer || '-') + '</td>' +
+      '<td>' + esc(agName(s.peer || '-')) + '</td>' +
       '<td class="code">' + esc(s.jobID || '-') + '</td>' +
       '<td>' + esc(ftime(s.updatedAt)) + '</td>' +
-      '<td>' + esc(s.preview || '-') + '</td>';
+      '<td>' + esc((s.preview || '-') + ' | open: ' + openTaskSummary(id)) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -791,7 +856,7 @@ function renderSessions() {
   }
 
   list.forEach((s) => {
-    const agents = Object.keys(s.agents).filter((x) => AGENTS.includes(x) || x === 'user').join(', ') || '-';
+    const agents = Object.keys(s.agents).filter((x) => AGENTS.includes(x) || x === 'user').map((x) => agName(x)).join(', ') || '-';
     const tr = document.createElement('tr');
     tr.innerHTML =
       '<td class="code">' + esc(s.id) + '</td>' +
@@ -825,7 +890,7 @@ function renderJobs() {
       '<td class="code">' + esc(j.id) + '</td>' +
       '<td>' + esc(j.route || '-') + '</td>' +
       '<td><span class="badge ' + stateClass(st) + '">' + esc(j.status) + '</span></td>' +
-      '<td>' + esc((j.from || '-') + ' -> ' + (j.to || '-')) + '</td>' +
+      '<td>' + esc(agName(j.from || '-') + ' -> ' + agName(j.to || '-')) + '</td>' +
       '<td>' + esc(fdt(j.startedAt)) + '</td>' +
       '<td>' + esc(fdt(j.updatedAt)) + '</td>' +
       '<td>' + esc(String(j.events || 0)) + '</td>' +
@@ -853,6 +918,10 @@ function degradeOfflineStates() {
 setInterval(degradeOfflineStates, 5000);
 
 function ingestEvent(ev) {
+  const key = eventKey(ev);
+  if (seenEventKeys.has(key)) return;
+  rememberEventKey(key);
+
   state.logs.push(ev);
   if (state.logs.length > MAX_LOGS) state.logs.shift();
   upsertSession(ev);
