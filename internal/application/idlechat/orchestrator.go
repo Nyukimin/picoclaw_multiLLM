@@ -71,6 +71,7 @@ type IdleChatOrchestrator struct {
 	manualMode   bool
 	currentTopic string
 	history      []SessionSummary
+	categoryBag  []TopicCategory
 	emitEvent    func(TimelineEvent)
 
 	ctx    context.Context
@@ -376,11 +377,11 @@ func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
 }
 
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, TopicCategory) {
-	category := chooseTopicCategory()
+	category := o.chooseTopicCategory()
 	contextHints := o.buildTopicHints(category)
 	messages := []llm.Message{
 		{Role: "system", Content: o.getSystemPrompt("mio")},
-		{Role: "user", Content: fmt.Sprintf("idleChatの話題を1つだけ提案してください。カテゴリ=%s。要件: 二人が深く考察できる具体性。回答は話題1文のみ。参考情報: %s", category, contextHints)},
+		{Role: "user", Content: fmt.Sprintf("idleChatの話題を1つだけ提案してください。カテゴリ=%s。要件: 深く考察でき、かつエンターテイメント性がある具体的な話題。回答は話題1文のみ。参考情報: %s", category, contextHints)},
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 120, Temperature: 0.8}
 	resp, err := o.llmProvider.Generate(o.ctx, req)
@@ -395,49 +396,84 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	return topic, category
 }
 
-func chooseTopicCategory() TopicCategory {
-	n := rand.Float64()
-	switch {
-	case n < 0.30:
-		return TopicUserRelated
-	case n < 0.50:
-		return TopicCurrent
-	case n < 0.70:
-		return TopicTech
-	case n < 0.90:
-		return TopicWorkerDB
-	default:
-		return TopicRandom
+func (o *IdleChatOrchestrator) chooseTopicCategory() TopicCategory {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.categoryBag) == 0 {
+		o.categoryBag = []TopicCategory{
+			TopicUserRelated, TopicUserRelated, TopicUserRelated,
+			TopicCurrent, TopicCurrent,
+			TopicTech, TopicTech,
+			TopicWorkerDB, TopicWorkerDB,
+			TopicRandom,
+		}
+		rand.Shuffle(len(o.categoryBag), func(i, j int) {
+			o.categoryBag[i], o.categoryBag[j] = o.categoryBag[j], o.categoryBag[i]
+		})
 	}
+	next := o.categoryBag[0]
+	o.categoryBag = o.categoryBag[1:]
+	return next
+}
+
+func collectLatestSessionSnippets(entries []session.ConversationEntry, match func(domaintransport.Message) bool, max int) []string {
+	latestSessionID := ""
+	for i := len(entries) - 1; i >= 0; i-- {
+		m := entries[i].Message
+		if match(m) && strings.TrimSpace(m.SessionID) != "" {
+			latestSessionID = m.SessionID
+			break
+		}
+	}
+	if latestSessionID == "" {
+		return nil
+	}
+
+	snippets := make([]string, 0, max)
+	for i := len(entries) - 1; i >= 0 && len(snippets) < max; i-- {
+		m := entries[i].Message
+		if m.SessionID == latestSessionID && match(m) {
+			snippets = append(snippets, truncate(m.Content, 80))
+		}
+	}
+	return snippets
+}
+
+func isIdleSession(sessionID string) bool {
+	return strings.HasPrefix(strings.ToLower(sessionID), "idle-")
+}
+
+func isIdleMessage(m domaintransport.Message) bool {
+	return m.Type == domaintransport.MessageTypeIdleChat || isIdleSession(m.SessionID)
+}
+
+func isWorkerMessage(m domaintransport.Message) bool {
+	return strings.EqualFold(m.From, "shiro") || strings.EqualFold(m.To, "shiro")
+}
+
+func isUserMessage(m domaintransport.Message) bool {
+	return strings.EqualFold(m.From, "user")
+}
+
+func (o *IdleChatOrchestrator) formatHintsFromLatestSession(entries []session.ConversationEntry, match func(domaintransport.Message) bool, fallback string) string {
+	parts := collectLatestSessionSnippets(entries, match, 3)
+	if len(parts) == 0 {
+		return fallback
+	}
+	return strings.Join(parts, " / ")
 }
 
 func (o *IdleChatOrchestrator) buildTopicHints(category TopicCategory) string {
-	entries := o.memory.GetUnifiedView(50)
+	entries := o.memory.GetUnifiedView(120)
 	switch category {
 	case TopicUserRelated:
-		parts := make([]string, 0, 3)
-		for i := len(entries) - 1; i >= 0 && len(parts) < 3; i-- {
-			m := entries[i].Message
-			if strings.EqualFold(m.From, "user") {
-				parts = append(parts, truncate(m.Content, 80))
-			}
-		}
-		if len(parts) == 0 {
-			return "ユーザー発言履歴なし"
-		}
-		return strings.Join(parts, " / ")
+		return o.formatHintsFromLatestSession(entries, func(m domaintransport.Message) bool {
+			return isUserMessage(m) && !isIdleMessage(m)
+		}, "ユーザー発言履歴なし")
 	case TopicWorkerDB:
-		parts := make([]string, 0, 3)
-		for i := len(entries) - 1; i >= 0 && len(parts) < 3; i-- {
-			m := entries[i].Message
-			if strings.EqualFold(m.From, "shiro") || strings.EqualFold(m.To, "shiro") {
-				parts = append(parts, truncate(m.Content, 80))
-			}
-		}
-		if len(parts) == 0 {
-			return "worker関連履歴なし"
-		}
-		return strings.Join(parts, " / ")
+		return o.formatHintsFromLatestSession(entries, func(m domaintransport.Message) bool {
+			return isWorkerMessage(m) && !isIdleMessage(m)
+		}, "worker関連履歴なし")
 	default:
 		return "内部履歴を踏まえて選定"
 	}
@@ -561,12 +597,12 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	if turn == 0 {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("（話題: %s）%sに会話を始めてください。積極的に興味を示し、深く考察してください。短く1-2文。", topic, target),
+			Content: fmt.Sprintf("（話題: %s）%sに会話を始めてください。要件: 深く考察しつつエンターテイメント性も出す。相手へ問い返しや新しい観点を必ず1つ入れる。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, target),
 		})
 	} else {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("（話題: %s）%sとして返答してください。積極的に興味を示し、深く考察してください。短く1-2文。", topic, speaker),
+			Content: fmt.Sprintf("（話題: %s）%sとして返答してください。要件: 深く考察しつつエンターテイメント性も出す。相手へ問い返しや新しい観点を必ず1つ入れる。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, speaker),
 		})
 	}
 
