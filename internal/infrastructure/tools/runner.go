@@ -32,9 +32,11 @@ type ToolRunner struct {
 type ToolRunnerConfig struct {
 	GoogleAPIKey         string
 	GoogleSearchEngineID string
-	HTTPClient           *http.Client           // テスト用注入（nilの場合はデフォルトを使用）
+	HTTPClient           *http.Client            // テスト用注入（nilの場合はデフォルトを使用）
 	Subagents            map[string]SubagentFunc // サブエージェントマップ（nil許容）
-	AllowedShellCommands []string               // 許可コマンドプレフィックス（空=全許可）
+	AllowedShellCommands []string                // 許可コマンドプレフィックス（空=全許可）
+	AllowedWritePaths    []string                // file_write 許可パス（空=全許可）
+	DisableWebSearch     bool                    // web_search を登録しない（会話モード安全ポリシー）
 }
 
 // ToolFunc はツール実行関数の型
@@ -74,13 +76,15 @@ func (r *ToolRunner) registerTools() {
 		withPathValidation(r.executeFileList, "path"),
 		10*time.Second,
 	)
-	r.tools["web_search"] = withTimeout(
-		withRetry(
-			withStringValidation(r.executeWebSearch, "query", 500),
-			DefaultRetryConfig,
-		),
-		15*time.Second,
-	)
+	if !r.config.DisableWebSearch {
+		r.tools["web_search"] = withTimeout(
+			withRetry(
+				withStringValidation(r.executeWebSearch, "query", 500),
+				DefaultRetryConfig,
+			),
+			15*time.Second,
+		)
+	}
 	if len(r.config.Subagents) > 0 {
 		r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
 	}
@@ -90,7 +94,9 @@ func (r *ToolRunner) registerTools() {
 	r.toolsV2["file_read"] = v2Wrap(r.tools["file_read"])
 	r.toolsV2["file_write"] = v2Wrap(r.tools["file_write"])
 	r.toolsV2["file_list"] = v2Wrap(r.tools["file_list"])
-	r.toolsV2["web_search"] = r.executeWebSearchV2 // 構造化データ対応
+	if !r.config.DisableWebSearch {
+		r.toolsV2["web_search"] = r.executeWebSearchV2 // 構造化データ対応
+	}
 	if len(r.config.Subagents) > 0 {
 		r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
 	}
@@ -145,16 +151,18 @@ func (r *ToolRunner) registerTools() {
 			"required": []any{"path"},
 		},
 	}
-	r.metadata["web_search"] = tool.ToolMetadata{
-		ToolID: "web_search", Version: "1.0.0", Category: "query",
-		Description: "Web検索を実行して結果を返す",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "検索クエリ"},
+	if !r.config.DisableWebSearch {
+		r.metadata["web_search"] = tool.ToolMetadata{
+			ToolID: "web_search", Version: "1.0.0", Category: "query",
+			Description: "Web検索を実行して結果を返す",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string", "description": "検索クエリ"},
+				},
+				"required": []any{"query"},
 			},
-			"required": []any{"query"},
-		},
+		}
 	}
 	if len(r.config.Subagents) > 0 {
 		r.metadata["subagent"] = tool.ToolMetadata{
@@ -391,6 +399,13 @@ func (r *ToolRunner) executeFileWrite(ctx context.Context, args map[string]inter
 	if !ok {
 		return "", fmt.Errorf("'path' argument is required and must be a string")
 	}
+	if !r.isFileWritePathAllowed(path) {
+		return "", &tool.ToolError{
+			Code:    tool.ErrPermissionDenied,
+			Message: "file path not in allowed write list",
+			Details: map[string]any{"path": path},
+		}
+	}
 
 	content, ok := args["content"].(string)
 	if !ok {
@@ -447,6 +462,29 @@ func (r *ToolRunner) fileWriteDryRun(path, content string) string {
 	}
 
 	return result.String()
+}
+
+// isFileWritePathAllowed は file_write の対象パスが許可されているか判定する
+func (r *ToolRunner) isFileWritePathAllowed(path string) bool {
+	if len(r.config.AllowedWritePaths) == 0 {
+		return true // 制限なし
+	}
+
+	targetAbs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+
+	for _, allowed := range r.config.AllowedWritePaths {
+		allowedAbs, err := filepath.Abs(filepath.Clean(allowed))
+		if err != nil {
+			continue
+		}
+		if targetAbs == allowedAbs {
+			return true
+		}
+	}
+	return false
 }
 
 // executeFileList はディレクトリ内のファイル一覧を取得（limit + offset 対応）
@@ -580,7 +618,7 @@ func (r *ToolRunner) executeWebSearch(ctx context.Context, args map[string]inter
 
 // GoogleSearchResponse はGoogle Custom Search JSON APIレスポンス
 type GoogleSearchResponse struct {
-	Items []GoogleSearchItem `json:"items"`
+	Items             []GoogleSearchItem `json:"items"`
 	SearchInformation struct {
 		TotalResults string `json:"totalResults"`
 	} `json:"searchInformation"`

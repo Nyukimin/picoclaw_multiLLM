@@ -26,6 +26,7 @@ type DistributedOrchestrator struct {
 	memory        *session.CentralMemory
 	sshTransports map[string]domaintransport.Transport // SSH経由のリモートAgent
 	listener      EventListener
+	idleNotifier  IdleNotifier
 }
 
 // NewDistributedOrchestrator は新しいDistributedOrchestratorを作成
@@ -53,6 +54,11 @@ func (o *DistributedOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
 }
 
+// SetIdleNotifier sets an optional notifier used to control idle chat.
+func (o *DistributedOrchestrator) SetIdleNotifier(n IdleNotifier) {
+	o.idleNotifier = n
+}
+
 func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
 	if o.listener == nil {
 		return
@@ -63,6 +69,12 @@ func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobI
 // ProcessMessage は既存MessageOrchestratorと同じシグネチャでメッセージを処理
 // 分散環境ではTransport経由でAgent間通信を行う
 func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
+	if o.idleNotifier != nil {
+		o.idleNotifier.NotifyActivity()
+		o.idleNotifier.SetChatBusy(true)
+		defer o.idleNotifier.SetChatBusy(false)
+	}
+
 	// 1. セッションをロードまたは作成
 	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
 	if err != nil {
@@ -86,6 +98,15 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 
 	t = t.WithRoute(decision.Route)
+
+	workerMarkedBusy := false
+	if o.idleNotifier != nil && decision.Route != routing.RouteCHAT {
+		o.idleNotifier.SetWorkerBusy(true)
+		workerMarkedBusy = true
+	}
+	if workerMarkedBusy {
+		defer o.idleNotifier.SetWorkerBusy(false)
+	}
 
 	// 4. ルートに応じてTransport経由で実行
 	response, err := o.executeDistributed(ctx, t, decision.Route, sess.ID())

@@ -42,6 +42,25 @@ func TestToolRunner_List(t *testing.T) {
 	}
 }
 
+func TestToolRunner_DisableWebSearch(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{DisableWebSearch: true})
+
+	tools, err := runner.List(context.Background())
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	for _, name := range tools {
+		if name == "web_search" {
+			t.Fatalf("web_search should be disabled, got tools: %v", tools)
+		}
+	}
+
+	_, err = runner.Execute(context.Background(), "web_search", map[string]interface{}{"query": "test"})
+	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("expected unknown tool error, got: %v", err)
+	}
+}
+
 func TestToolRunner_Execute_Shell_Success(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{})
 

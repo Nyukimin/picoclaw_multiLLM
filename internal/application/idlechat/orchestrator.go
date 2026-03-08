@@ -18,16 +18,19 @@ const (
 
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 type IdleChatOrchestrator struct {
-	llmProvider    llm.LLMProvider
-	memory         *session.CentralMemory
-	participants   []string
-	intervalMin    int
-	maxTurns       int
-	temperature    float64
-	personalities  map[string]string
+	llmProvider   llm.LLMProvider
+	memory        *session.CentralMemory
+	participants  []string
+	intervalMin   int
+	maxTurns      int
+	temperature   float64
+	personalities map[string]string
 
 	lastActivity time.Time
 	chatActive   bool
+	chatBusy     bool
+	workerBusy   bool
+	manualMode   bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,10 +83,82 @@ func (o *IdleChatOrchestrator) NotifyActivity() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.lastActivity = time.Now()
+	if o.manualMode {
+		log.Println("[IdleChat] Activity detected, stopping manual mode")
+		o.manualMode = false
+	}
 	if o.chatActive {
 		log.Println("[IdleChat] Task arrived, interrupting chat session")
 		o.chatActive = false
 	}
+}
+
+// SetChatBusy はChat(mio)の活性状態を更新する。
+func (o *IdleChatOrchestrator) SetChatBusy(busy bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.chatBusy = busy
+	if busy {
+		o.lastActivity = time.Now()
+		if o.manualMode {
+			log.Println("[IdleChat] Chat is active, stopping manual mode")
+			o.manualMode = false
+		}
+		if o.chatActive {
+			log.Println("[IdleChat] Chat is active, interrupting chat session")
+			o.chatActive = false
+		}
+	}
+}
+
+// SetWorkerBusy はWorker(shiro/coder)の活性状態を更新する。
+func (o *IdleChatOrchestrator) SetWorkerBusy(busy bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.workerBusy = busy
+	if busy {
+		o.lastActivity = time.Now()
+		if o.manualMode {
+			log.Println("[IdleChat] Worker is active, stopping manual mode")
+			o.manualMode = false
+		}
+		if o.chatActive {
+			log.Println("[IdleChat] Worker is active, interrupting chat session")
+			o.chatActive = false
+		}
+	}
+}
+
+// StartManualMode starts idle chat mode immediately.
+func (o *IdleChatOrchestrator) StartManualMode() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.participants) < 2 {
+		return fmt.Errorf("idlechat requires at least 2 participants")
+	}
+	o.manualMode = true
+	o.lastActivity = time.Now()
+	log.Println("[IdleChat] Manual mode started")
+	return nil
+}
+
+// StopManualMode stops idle chat mode and interrupts an ongoing session.
+func (o *IdleChatOrchestrator) StopManualMode() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.manualMode || o.chatActive {
+		log.Println("[IdleChat] Manual mode stopped")
+	}
+	o.manualMode = false
+	o.chatActive = false
+	o.lastActivity = time.Now()
+}
+
+// IsManualMode returns whether manual idle chat mode is enabled.
+func (o *IdleChatOrchestrator) IsManualMode() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.manualMode
 }
 
 // IsChatActive は雑談セッションが進行中かを返す
@@ -114,13 +189,18 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	idleDuration := time.Since(o.lastActivity)
 	threshold := time.Duration(o.intervalMin) * time.Minute
 	alreadyActive := o.chatActive
+	chatBusy := o.chatBusy
+	workerBusy := o.workerBusy
+	manualMode := o.manualMode
 	o.mu.Unlock()
 
 	if alreadyActive {
 		return
 	}
-
-	if idleDuration < threshold {
+	if chatBusy || workerBusy {
+		return
+	}
+	if !manualMode && idleDuration < threshold {
 		return
 	}
 
@@ -230,10 +310,11 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 }
 
 func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
+	idlePolicy := "この会話はidleChatです。外部検索（Web検索/API検索）は行わず、既存の内部文脈だけで自然に会話してください。"
 	if prompt, ok := o.personalities[agentName]; ok {
-		return prompt
+		return prompt + "\n\n" + idlePolicy
 	}
-	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。", agentName)
+	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s", agentName, idlePolicy)
 }
 
 func truncate(s string, maxLen int) string {

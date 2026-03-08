@@ -177,6 +177,25 @@ func TestToolRunner_ListTools_MutationCategory(t *testing.T) {
 	}
 }
 
+func TestToolRunner_DisableWebSearch_V2(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{DisableWebSearch: true})
+
+	metas, err := runner.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, m := range metas {
+		if m.ToolID == "web_search" {
+			t.Fatalf("web_search should be disabled, got metadata: %+v", metas)
+		}
+	}
+
+	_, err = runner.ExecuteV2(context.Background(), "web_search", map[string]any{"query": "test"})
+	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+		t.Fatalf("expected unknown tool error, got: %v", err)
+	}
+}
+
 func TestToolRunner_FileWrite_DryRun_NewFile(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{})
 
@@ -293,6 +312,60 @@ func TestToolRunner_Shell_AllowedCommands_V2_ErrorCode(t *testing.T) {
 	}
 	if !resp.IsError() {
 		t.Fatal("expected error")
+	}
+	if resp.Error.Code != tool.ErrPermissionDenied {
+		t.Errorf("error code = %s, want PERMISSION_DENIED", resp.Error.Code)
+	}
+}
+
+func TestToolRunner_FileWrite_AllowedWritePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	allowed := filepath.Join(tmpDir, "CHAT_PERSONA.md")
+	denied := filepath.Join(tmpDir, "OTHER.md")
+
+	runner := NewToolRunner(ToolRunnerConfig{
+		AllowedWritePaths: []string{allowed},
+	})
+
+	// Allowed path
+	if _, err := runner.Execute(context.Background(), "file_write", map[string]any{
+		"path":    allowed,
+		"content": "ok",
+	}); err != nil {
+		t.Fatalf("allowed path should succeed: %v", err)
+	}
+
+	// Denied path
+	_, err := runner.Execute(context.Background(), "file_write", map[string]any{
+		"path":    denied,
+		"content": "ng",
+	})
+	if err == nil {
+		t.Fatal("expected permission error for denied path")
+	}
+	if !strings.Contains(err.Error(), "PERMISSION_DENIED") {
+		t.Errorf("error = %q, want PERMISSION_DENIED", err.Error())
+	}
+}
+
+func TestToolRunner_FileWrite_AllowedWritePaths_V2_ErrorCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	allowed := filepath.Join(tmpDir, "CHAT_PERSONA.md")
+	denied := filepath.Join(tmpDir, "OTHER.md")
+
+	runner := NewToolRunner(ToolRunnerConfig{
+		AllowedWritePaths: []string{allowed},
+	})
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_write", map[string]any{
+		"path":    denied,
+		"content": "ng",
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !resp.IsError() {
+		t.Fatal("expected error response")
 	}
 	if resp.Error.Code != tool.ErrPermissionDenied {
 		t.Errorf("error code = %s, want PERMISSION_DENIED", resp.Error.Code)

@@ -98,6 +98,38 @@ func TestIdleChatOrchestrator_NotifyActivity(t *testing.T) {
 	}
 }
 
+func TestIdleChatOrchestrator_ManualMode_StartStop(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	if err := o.StartManualMode(); err != nil {
+		t.Fatalf("StartManualMode failed: %v", err)
+	}
+	if !o.IsManualMode() {
+		t.Fatal("manual mode should be enabled")
+	}
+
+	o.StopManualMode()
+	if o.IsManualMode() {
+		t.Fatal("manual mode should be disabled")
+	}
+}
+
+func TestIdleChatOrchestrator_ManualMode_StopsOnActivity(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	if err := o.StartManualMode(); err != nil {
+		t.Fatalf("StartManualMode failed: %v", err)
+	}
+	o.NotifyActivity()
+	if o.IsManualMode() {
+		t.Fatal("manual mode should stop after activity")
+	}
+}
+
 func TestIdleChatOrchestrator_IsChatActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
@@ -214,6 +246,21 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 	// セッション終了後はchatActive=false
 	if o.IsChatActive() {
 		t.Error("chatActive should be false after session completes")
+	}
+}
+
+func TestCheckAndStartChat_ManualMode_StartsWithoutIdleThreshold(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 2, 0.8, nil)
+
+	if err := o.StartManualMode(); err != nil {
+		t.Fatalf("StartManualMode failed: %v", err)
+	}
+
+	o.checkAndStartChat()
+	if provider.callCount != 2 {
+		t.Fatalf("Expected 2 LLM calls in manual mode, got %d", provider.callCount)
 	}
 }
 

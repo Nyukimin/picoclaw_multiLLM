@@ -74,6 +74,7 @@ type MessageOrchestrator struct {
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
 	listener        EventListener
+	idleNotifier    IdleNotifier
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -103,6 +104,11 @@ func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
 }
 
+// SetIdleNotifier sets an optional notifier used to control idle chat.
+func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
+	o.idleNotifier = n
+}
+
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
 	if o.listener == nil {
 		return
@@ -112,6 +118,12 @@ func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, s
 
 // ProcessMessage はメッセージを処理
 func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
+	if o.idleNotifier != nil {
+		o.idleNotifier.NotifyActivity()
+		o.idleNotifier.SetChatBusy(true)
+		defer o.idleNotifier.SetChatBusy(false)
+	}
+
 	// 1. セッションをロードまたは作成
 	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
 	if err != nil {
@@ -153,6 +165,15 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 
 	// タスクにルートを設定
 	t = t.WithRoute(decision.Route)
+
+	workerMarkedBusy := false
+	if o.idleNotifier != nil && decision.Route != routing.RouteCHAT {
+		o.idleNotifier.SetWorkerBusy(true)
+		workerMarkedBusy = true
+	}
+	if workerMarkedBusy {
+		defer o.idleNotifier.SetWorkerBusy(false)
+	}
 
 	// 4. ルートに応じて実行
 	response, err := o.executeTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID)

@@ -9,9 +9,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
@@ -26,22 +27,23 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
+	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
-	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persona"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	memorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/transport"
@@ -128,6 +130,11 @@ func cmdRun() {
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
+	}
+	if dependencies.idleChatOrch != nil {
+		mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
+		mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
+		mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
 	}
 
 	healthHandler := dependencies.buildHealthHandler(cfg)
@@ -237,13 +244,52 @@ func buildHealthService(cfg *config.Config) *healthapp.HealthService {
 // Dependencies はアプリケーション依存関係
 type Dependencies struct {
 	lineHandler   http.Handler
-	eventHub      *viewer.EventHub                              // live viewer
-	viewerSend    http.HandlerFunc                              // viewer message sender
-	distOrch      *orchestrator.DistributedOrchestrator         // v4 distributed orchestrator
-	router        *transport.MessageRouter                      // v4 distributed mode
-	idleChatOrch  *idlechat.IdleChatOrchestrator                // v4 idle chat
-	sshTransports map[string]domaintransport.Transport          // v4 SSH transports
-	heartbeatSvc  *heartbeat.HeartbeatService                   // heartbeat service
+	eventHub      *viewer.EventHub                      // live viewer
+	eventRelay    *idleAwareEventListener               // viewer + idlechat stop relay
+	viewerSend    http.HandlerFunc                      // viewer message sender
+	distOrch      *orchestrator.DistributedOrchestrator // v4 distributed orchestrator
+	router        *transport.MessageRouter              // v4 distributed mode
+	idleChatOrch  *idlechat.IdleChatOrchestrator        // v4 idle chat
+	sshTransports map[string]domaintransport.Transport  // v4 SSH transports
+	heartbeatSvc  *heartbeat.HeartbeatService           // heartbeat service
+}
+
+type idleAwareEventListener struct {
+	hub      *viewer.EventHub
+	mu       sync.RWMutex
+	idleChat *idlechat.IdleChatOrchestrator
+}
+
+func (l *idleAwareEventListener) SetIdleChat(idle *idlechat.IdleChatOrchestrator) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.idleChat = idle
+}
+
+func (l *idleAwareEventListener) OnEvent(ev orchestrator.OrchestratorEvent) {
+	l.hub.OnEvent(ev)
+	if !shouldStopIdleChatByEvent(ev) {
+		return
+	}
+	l.mu.RLock()
+	idle := l.idleChat
+	l.mu.RUnlock()
+	if idle != nil {
+		idle.NotifyActivity()
+	}
+}
+
+func shouldStopIdleChatByEvent(ev orchestrator.OrchestratorEvent) bool {
+	if ev.Type == "message.received" {
+		return true
+	}
+	if ev.From != "" && ev.From != "user" {
+		return true
+	}
+	if ev.To != "" && ev.To != "user" {
+		return true
+	}
+	return false
 }
 
 // Shutdown はリソースを解放
@@ -305,6 +351,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	chatToolRunnerCfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:         cfg.GoogleSearchChat.APIKey,
 		GoogleSearchEngineID: cfg.GoogleSearchChat.SearchEngineID,
+		AllowedWritePaths: []string{
+			filepath.Join(cfg.WorkspaceDir, "CHAT_PERSONA.md"),
+		},
 	}
 	workerToolRunnerCfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:         cfg.GoogleSearchWorker.APIKey,
@@ -453,6 +502,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// EventHub (Live Viewer)
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub
+	deps.eventRelay = &idleAwareEventListener{hub: hub}
 
 	// viewerSendFromOrch はオーケストレーター共通のviewer送信ハンドラを生成
 	type messageProcessor interface {
@@ -490,7 +540,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			coder3Adapter,
 			workerExecutionService,
 		)
-		orch.SetEventListener(hub)
+		orch.SetEventListener(deps.eventRelay)
 		deps.lineHandler = line.NewHandler(orch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 		deps.viewerSend = viewerSendFromOrch(orch)
 	}
@@ -583,8 +633,8 @@ func (d *Dependencies) buildDistributedMode(
 		sshTransports,
 	)
 	d.distOrch = distOrch
-	if d.eventHub != nil {
-		distOrch.SetEventListener(d.eventHub)
+	if d.eventRelay != nil {
+		distOrch.SetEventListener(d.eventRelay)
 	}
 	d.lineHandler = line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 
@@ -599,10 +649,66 @@ func (d *Dependencies) buildDistributedMode(
 			cfg.IdleChat.Temperature,
 			cfg.Prompts.IdleChatAgents,
 		)
+		distOrch.SetIdleNotifier(idleChatOrch)
+		if d.eventRelay != nil {
+			d.eventRelay.SetIdleChat(idleChatOrch)
+		}
 		idleChatOrch.Start()
 		d.idleChatOrch = idleChatOrch
 		log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
 	}
+}
+
+func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		if err := d.idleChatOrch.StartManualMode(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "manual_mode": d.idleChatOrch.IsManualMode(), "chat_active": d.idleChatOrch.IsChatActive()})
+	}
+}
+
+func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		d.idleChatOrch.StopManualMode()
+		writeJSON(w, map[string]any{"ok": true, "manual_mode": d.idleChatOrch.IsManualMode(), "chat_active": d.idleChatOrch.IsChatActive()})
+	}
+}
+
+func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "manual_mode": d.idleChatOrch.IsManualMode(), "chat_active": d.idleChatOrch.IsChatActive()})
+	}
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // buildHealthHandler は Health Check HTTP ハンドラを構築

@@ -69,6 +69,13 @@ td{color:var(--t1)}
   border-radius:8px;padding:7px 10px;font-size:12px;
 }
 .filters input{min-width:160px}
+.ctl-btn{
+  background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t1);
+  border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;
+}
+.ctl-btn:disabled{opacity:.5;cursor:default}
+.idle-on{color:var(--ok);font-size:12px;align-self:center}
+.idle-off{color:var(--t2);font-size:12px;align-self:center}
 
 #chat{max-width:780px;margin:0 auto}
 .msg{display:flex;gap:12px;margin-bottom:4px;animation:fadeSlide .35s ease}
@@ -174,6 +181,9 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
       </select>
       <input id="fltJob" placeholder="job id contains...">
       <input id="fltText" placeholder="content contains...">
+      <button id="idleStart" class="ctl-btn" title="IdleChatモードを開始">IdleChat開始</button>
+      <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
+      <span id="idleState" class="idle-off">IdleChat: off</span>
     </div>
     <div id="chat">
       <div class="empty" id="empty">
@@ -307,6 +317,9 @@ const fltAgent = document.getElementById('fltAgent');
 const fltRoute = document.getElementById('fltRoute');
 const fltJob = document.getElementById('fltJob');
 const fltText = document.getElementById('fltText');
+const idleStartBtn = document.getElementById('idleStart');
+const idleStopBtn = document.getElementById('idleStop');
+const idleStateEl = document.getElementById('idleState');
 
 function switchTab(tab) {
   tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -330,6 +343,48 @@ function resetTimeline() {
 }
 [fltType, fltAgent, fltRoute].forEach((el) => el.addEventListener('change', resetTimeline));
 [fltJob, fltText].forEach((el) => el.addEventListener('input', resetTimeline));
+
+function setIdleState(manual, active) {
+  const on = !!manual;
+  idleStateEl.textContent = 'IdleChat: ' + (on ? (active ? 'on (talking)' : 'on') : 'off');
+  idleStateEl.className = on ? 'idle-on' : 'idle-off';
+}
+
+async function refreshIdleStatus() {
+  try {
+    const r = await fetch('/viewer/idlechat/status');
+    if (!r.ok) {
+      idleStartBtn.disabled = true;
+      idleStopBtn.disabled = true;
+      setIdleState(false, false);
+      return;
+    }
+    const d = await r.json();
+    setIdleState(!!d.manual_mode, !!d.chat_active);
+    idleStartBtn.disabled = !!d.manual_mode;
+    idleStopBtn.disabled = !d.manual_mode;
+  } catch (_) {
+    idleStartBtn.disabled = true;
+    idleStopBtn.disabled = true;
+    setIdleState(false, false);
+  }
+}
+
+async function controlIdle(path) {
+  const btns = [idleStartBtn, idleStopBtn];
+  btns.forEach((b) => { b.disabled = true; });
+  try {
+    const r = await fetch(path, {method: 'POST'});
+    if (!r.ok) throw new Error('idlechat control failed');
+  } catch (err) {
+    console.error(err);
+  } finally {
+    await refreshIdleStatus();
+  }
+}
+
+idleStartBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/start'));
+idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
 
 function stateClass(s) { return 'state-' + normState(s); }
 
@@ -703,6 +758,8 @@ function connect() {
 }
 
 refreshDerivedViews();
+refreshIdleStatus();
+setInterval(refreshIdleStatus, 3000);
 connect();
 </script>
 </body>
