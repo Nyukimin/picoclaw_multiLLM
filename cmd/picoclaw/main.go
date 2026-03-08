@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 
@@ -650,6 +651,12 @@ func (d *Dependencies) buildDistributedMode(
 			cfg.IdleChat.Temperature,
 			cfg.Prompts.IdleChatAgents,
 		)
+		topicStorePath := filepath.Join(cfg.Session.StorageDir, "idlechat_topics.jsonl")
+		if err := idleChatOrch.SetTopicStore(topicStorePath); err != nil {
+			log.Printf("WARN: idleChat topic store disabled: %v", err)
+		} else {
+			log.Printf("IdleChat topic store enabled: %s", topicStorePath)
+		}
 		if d.eventHub != nil {
 			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) {
 				d.eventHub.OnEvent(orchestrator.NewEvent(
@@ -747,12 +754,18 @@ func (d *Dependencies) handleIdleChatLogs() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		limit := 20
+		if s := r.URL.Query().Get("limit"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 200 {
+				limit = n
+			}
+		}
 		writeJSON(w, map[string]any{
 			"ok":            true,
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
-			"history":       d.idleChatOrch.GetHistory(100),
+			"history":       d.idleChatOrch.GetHistory(limit),
 		})
 	}
 }

@@ -19,6 +19,7 @@ const (
 	ttsCharsPerSecond = 8.0
 	ttsMinWait        = 2 * time.Second
 	ttsMaxWait        = 20 * time.Second
+	maxTurnsPerTopic  = 50
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
@@ -77,6 +78,7 @@ type IdleChatOrchestrator struct {
 	history      []SessionSummary
 	categoryBag  []TopicCategory
 	emitEvent    func(TimelineEvent)
+	topicStore   *TopicStore
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -89,6 +91,19 @@ func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent)) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.emitEvent = emit
+}
+
+// SetTopicStore configures persistent storage for topic summaries.
+func (o *IdleChatOrchestrator) SetTopicStore(path string) error {
+	store, err := NewTopicStore(path)
+	if err != nil {
+		return err
+	}
+	o.mu.Lock()
+	o.topicStore = store
+	o.history = store.GetRecent(200)
+	o.mu.Unlock()
+	return nil
 }
 
 // NewIdleChatOrchestrator は新しいIdleChatOrchestratorを作成
@@ -241,6 +256,11 @@ func (o *IdleChatOrchestrator) CurrentTopic() string {
 // GetHistory returns newest-first session summaries.
 func (o *IdleChatOrchestrator) GetHistory(limit int) []SessionSummary {
 	o.mu.Lock()
+	store := o.topicStore
+	if store != nil {
+		o.mu.Unlock()
+		return store.GetRecent(limit)
+	}
 	defer o.mu.Unlock()
 	if limit <= 0 || limit > len(o.history) {
 		limit = len(o.history)
@@ -358,9 +378,15 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
 			o.waitForTTS(response)
 
+			if segmentTurns >= maxTurnsPerTopic {
+				loopDetected = true
+				log.Printf("[IdleChat] Topic turn limit reached (%d), summarize and switch topic", maxTurnsPerTopic)
+				break
+			}
+
 			if o.isLooping(transcript) {
 				loopDetected = true
-				log.Printf("[IdleChat] Loop detected, summarize and restart with new topic")
+				log.Printf("[IdleChat] Loop/repetition detected, summarize and restart with new topic")
 				break
 			}
 			currentSpeaker = (currentSpeaker + 1) % len(o.participants)
@@ -556,7 +582,30 @@ func (o *IdleChatOrchestrator) isLooping(transcript []string) bool {
 			count++
 		}
 	}
-	return count >= 1
+	if count >= 1 {
+		return true
+	}
+	return isWhatIfRepetition(transcript)
+}
+
+func isWhatIfRepetition(transcript []string) bool {
+	if len(transcript) < 6 {
+		return false
+	}
+	start := len(transcript) - 8
+	if start < 0 {
+		start = 0
+	}
+	repeated := 0
+	for i := start; i < len(transcript); i++ {
+		line := strings.ToLower(transcript[i])
+		if strings.Contains(line, "もし") && (strings.Contains(line, "だったら") || strings.Contains(line, "なら")) {
+			repeated++
+		}
+	}
+	// 直近発話の半数以上が「もし〜だったら/なら」ならループとみなす。
+	window := len(transcript) - start
+	return repeated >= 4 && repeated*2 >= window
 }
 
 func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, category TopicCategory, transcript []string, startedAt, endedAt time.Time, turns int, loopRestarted bool) {
@@ -578,10 +627,16 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, category Top
 	}
 	o.mu.Lock()
 	o.history = append(o.history, record)
-	if len(o.history) > 100 {
-		o.history = o.history[len(o.history)-100:]
+	if len(o.history) > 200 {
+		o.history = o.history[len(o.history)-200:]
 	}
+	store := o.topicStore
 	o.mu.Unlock()
+	if store != nil {
+		if err := store.Append(record); err != nil {
+			log.Printf("[IdleChat] topic store append failed: %v", err)
+		}
+	}
 
 	msg := domaintransport.NewMessage("shiro", "idlechat_summary", sessionID, "", title+"\n"+summary)
 	msg.Type = domaintransport.MessageTypeIdleChat

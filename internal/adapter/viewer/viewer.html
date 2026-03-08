@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>PicoClaw Live</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -11,16 +11,17 @@
   --border:rgba(255,255,255,.07);--t1:#e2e8f0;--t2:#94a3b8;--t3:#4a5568;
   --mio:#f472b6;--shiro:#22d3ee;--c1:#fb923c;--c2:#818cf8;--c3:#a78bfa;
   --user:#94a3b8;--ok:#4ade80;--err:#f87171;--warn:#fbbf24;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
 }
 body{
   background:var(--bg);color:var(--t1);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans JP',sans-serif;
-  height:100vh;display:flex;flex-direction:column;overflow:hidden;
+  min-height:100dvh;height:100dvh;display:flex;flex-direction:column;overflow:hidden;
 }
 header{
   background:rgba(11,11,20,.85);backdrop-filter:blur(24px);
   border-bottom:1px solid var(--border);
-  padding:14px 28px;display:flex;align-items:center;justify-content:space-between;
+  padding:calc(8px + var(--safe-top)) 28px 14px;display:flex;align-items:center;justify-content:space-between;
   flex-shrink:0;
 }
 .logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;letter-spacing:-.5px}
@@ -40,7 +41,7 @@ header{
 }
 .tab-btn.active{color:var(--t1);border-color:rgba(244,114,182,.4);background:rgba(244,114,182,.1)}
 
-main{flex:1;overflow-y:auto;padding:14px 0}
+main{flex:1;overflow-y:auto;padding:14px 0 calc(116px + var(--safe-bottom))}
 .panel{display:none;max-width:1080px;margin:0 auto;padding:0 24px}
 .panel.active{display:block}
 
@@ -125,11 +126,13 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .mc::-webkit-scrollbar{width:4px}
 .mc::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}
 
-.ctr{position:fixed;bottom:84px;right:24px;background:rgba(11,11,20,.9);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;color:var(--t2);display:flex;align-items:center;gap:8px}
+.ctr{position:fixed;bottom:calc(84px + var(--safe-bottom));right:24px;background:rgba(11,11,20,.9);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;color:var(--t2);display:flex;align-items:center;gap:8px;z-index:35}
 .ctr span{font-weight:700;color:var(--t1)}
 
-.input-bar{flex-shrink:0;background:rgba(11,11,20,.92);backdrop-filter:blur(24px);border-top:1px solid var(--border);padding:12px 24px 14px}
-.input-wrap{max-width:780px;margin:0 auto;display:flex;align-items:flex-end;gap:10px}
+.input-bar{position:fixed;left:0;right:0;bottom:0;z-index:40;flex-shrink:0;background:rgba(11,11,20,.92);backdrop-filter:blur(24px);border-top:1px solid var(--border);padding:12px 24px calc(14px + var(--safe-bottom))}
+.input-wrap{max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.input-main{display:flex;align-items:flex-end;gap:10px}
+.idle-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .input-wrap textarea{flex:1;resize:none;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:12px;padding:10px 16px;color:var(--t1);font-size:16px;line-height:1.5;font-family:inherit;outline:none;min-height:42px;max-height:120px;transition:border-color .2s,box-shadow .2s}
 .input-wrap textarea::placeholder{color:var(--t3)}
 .input-wrap textarea:focus{border-color:rgba(244,114,182,.4);box-shadow:0 0 0 3px rgba(244,114,182,.08)}
@@ -139,8 +142,16 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .send-btn:disabled{opacity:.35;cursor:default;transform:none}
 
 @media (max-width: 900px){
+  header{padding:calc(6px + var(--safe-top)) 12px 10px}
+  .logo{font-size:15px}
   .panel{padding:0 12px}
   .tabs{padding:10px 12px}
+  main{padding-bottom:calc(126px + var(--safe-bottom))}
+  .input-bar{padding:10px 12px calc(12px + var(--safe-bottom))}
+  .input-wrap{gap:8px}
+  .input-main{gap:8px}
+  .idle-tools{gap:6px}
+  .ctr{right:12px}
 }
 </style>
 </head>
@@ -192,9 +203,6 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
       </select>
       <input id="fltJob" placeholder="job id contains...">
       <input id="fltText" placeholder="content contains...">
-      <button id="idleStart" class="ctl-btn" title="IdleChatモードを開始">IdleChat開始</button>
-      <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
-      <span id="idleState" class="idle-off">IdleChat: off</span>
     </div>
     <div id="chat">
       <div class="empty" id="empty">
@@ -246,8 +254,15 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 
 <div class="input-bar">
   <div class="input-wrap">
-    <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
-    <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
+    <div class="input-main">
+      <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
+      <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
+    </div>
+    <div class="idle-tools">
+      <button id="idleStart" class="ctl-btn" title="IdleChatモードを開始">IdleChat開始</button>
+      <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
+      <span id="idleState" class="idle-off">IdleChat: off</span>
+    </div>
   </div>
 </div>
 <div class="ctr" id="ctr" style="display:none">Messages: <span id="cnt">0</span></div>
@@ -271,7 +286,8 @@ const RC = {
 };
 const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3'];
 const OFFLINE_MS = 120000;
-const MAX_LOGS = 1200;
+const MAX_LOGS = 500;
+const MAX_TIMELINE_NODES = 400;
 
 function ag(n) { return A[(n || '').toLowerCase()] || A.system; }
 function ftime(ts) {
@@ -341,6 +357,7 @@ const ctr = document.getElementById('ctr');
 const cnt = document.getElementById('cnt');
 const thinkingBubbles = {};
 let userScrolledUp = false;
+let derivedDirty = false;
 
 const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const panels = {
@@ -497,7 +514,7 @@ async function refreshIdleStatus() {
 
 async function refreshIdleLogs() {
   try {
-    const r = await fetch('/viewer/idlechat/logs');
+    const r = await fetch('/viewer/idlechat/logs?limit=20');
     if (!r.ok) return;
     const d = await r.json();
     state.idleChat.manualMode = !!d.manual_mode;
@@ -534,6 +551,14 @@ function bump() {
   scrollToBottom();
 }
 
+function trimTimelineNodes() {
+  while (chat.childElementCount > MAX_TIMELINE_NODES) {
+    const first = chat.firstElementChild;
+    if (!first) break;
+    first.remove();
+  }
+}
+
 function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
 
@@ -559,6 +584,7 @@ function addMsgToTimeline(ev) {
     '<div class="mc">' + fmt(ev.content) + '</div></div>';
   el.querySelector('.mc').dataset.raw = ev.content || '';
   chat.appendChild(el);
+  trimTimelineNodes();
   bump();
 }
 
@@ -580,6 +606,7 @@ function addThinking(ev) {
       '</div></div>';
     el.querySelector('.mb').appendChild(textEl);
     chat.appendChild(el);
+    trimTimelineNodes();
     b = {el: el, textEl: textEl, raw: ''};
     thinkingBubbles[jid] = b;
   }
@@ -606,6 +633,7 @@ function addSys(ev) {
       esc(ev.route || '?') + '</span> ' + esc(ev.content || '') + '</div>' +
     '<div class="sl"></div>';
   chat.appendChild(el);
+  trimTimelineNodes();
   bump();
 }
 
@@ -831,7 +859,7 @@ function ingestEvent(ev) {
   upsertJob(ev);
   updateAgents(ev);
   addMsgToTimeline(ev);
-  refreshDerivedViews();
+  derivedDirty = true;
 }
 
 const inp = document.getElementById('inp');
@@ -900,6 +928,11 @@ refreshDerivedViews();
 renderIdleChat();
 refreshIdleStatus();
 refreshIdleLogs();
+setInterval(() => {
+  if (!derivedDirty) return;
+  refreshDerivedViews();
+  derivedDirty = false;
+}, 500);
 setInterval(refreshIdleStatus, 3000);
 setInterval(refreshIdleLogs, 5000);
 connect();
