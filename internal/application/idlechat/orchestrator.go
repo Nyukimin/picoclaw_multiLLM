@@ -43,6 +43,15 @@ type SessionSummary struct {
 	LoopRestarted   bool          `json:"loop_restarted"`
 	TopicProvider   string        `json:"topic_provider"`
 	SummaryProvider string        `json:"summary_provider"`
+	Transcript      []string      `json:"transcript,omitempty"`
+}
+
+type TimelineEvent struct {
+	Type      string
+	From      string
+	To        string
+	Content   string
+	SessionID string
 }
 
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
@@ -62,11 +71,19 @@ type IdleChatOrchestrator struct {
 	manualMode   bool
 	currentTopic string
 	history      []SessionSummary
+	emitEvent    func(TimelineEvent)
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.Mutex
 	wg     sync.WaitGroup
+}
+
+// SetEventEmitter sets an optional timeline event emitter used by viewer SSE.
+func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.emitEvent = emit
 }
 
 // NewIdleChatOrchestrator は新しいIdleChatOrchestratorを作成
@@ -318,6 +335,13 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			msg := domaintransport.NewMessage(speaker, nextSpeaker, sessionID, "", response)
 			msg.Type = domaintransport.MessageTypeIdleChat
 			o.memory.RecordMessage(msg)
+			o.emitTimelineEvent(TimelineEvent{
+				Type:      "idlechat.message",
+				From:      speaker,
+				To:        nextSpeaker,
+				Content:   response,
+				SessionID: sessionID,
+			})
 			transcript = append(transcript, fmt.Sprintf("%s: %s", speaker, response))
 			segmentTurns++
 
@@ -474,6 +498,7 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, category Top
 		LoopRestarted:   loopRestarted,
 		TopicProvider:   "mio",
 		SummaryProvider: "shiro",
+		Transcript:      append([]string(nil), transcript...),
 	}
 	o.mu.Lock()
 	o.history = append(o.history, record)
@@ -485,6 +510,13 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, category Top
 	msg := domaintransport.NewMessage("shiro", "idlechat_summary", sessionID, "", title+"\n"+summary)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
+	o.emitTimelineEvent(TimelineEvent{
+		Type:      "idlechat.summary",
+		From:      "shiro",
+		To:        "idlechat_summary",
+		Content:   title + "\n" + summary,
+		SessionID: sessionID,
+	})
 }
 
 func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []string) string {
@@ -566,4 +598,13 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) {
+	o.mu.Lock()
+	emit := o.emitEvent
+	o.mu.Unlock()
+	if emit != nil {
+		emit(ev)
+	}
 }

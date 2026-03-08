@@ -650,6 +650,21 @@ func (d *Dependencies) buildDistributedMode(
 			cfg.IdleChat.Temperature,
 			cfg.Prompts.IdleChatAgents,
 		)
+		if d.eventHub != nil {
+			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) {
+				d.eventHub.OnEvent(orchestrator.NewEvent(
+					ev.Type,
+					ev.From,
+					ev.To,
+					ev.Content,
+					"IDLECHAT",
+					"",
+					ev.SessionID,
+					"idlechat",
+					"idlechat",
+				))
+			})
+		}
 		distOrch.SetIdleNotifier(idleChatOrch)
 		if d.eventRelay != nil {
 			d.eventRelay.SetIdleChat(idleChatOrch)

@@ -171,6 +171,8 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <option>agent.start</option>
         <option>agent.thinking</option>
         <option>agent.response</option>
+        <option>idlechat.message</option>
+        <option>idlechat.summary</option>
       </select>
       <select id="fltAgent">
         <option value="">agent: all</option>
@@ -212,6 +214,11 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <thead><tr><th>Title</th><th>Category</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
         <tbody id="idlechatBody"></tbody>
       </table>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <h4>Transcript</h4>
+      <div id="idlechatDetailTitle" class="small" style="margin-bottom:6px">Select a topic summary to view transcript</div>
+      <div id="idlechatDetailBody" class="mc" style="max-height:320px">-</div>
     </div>
   </section>
 
@@ -307,6 +314,7 @@ const state = {
     chatActive: false,
     currentTopic: '',
     history: [],
+    selectedIndex: -1,
   },
 };
 AGENTS.forEach((id) => {
@@ -388,6 +396,8 @@ function renderIdleChat() {
   const activeEl = document.getElementById('idleActive');
   const topicEl = document.getElementById('idleTopicNow');
   const body = document.getElementById('idlechatBody');
+  const detailTitle = document.getElementById('idlechatDetailTitle');
+  const detailBody = document.getElementById('idlechatDetailBody');
   if (!manualEl || !activeEl || !topicEl || !body) return;
 
   setBadge(manualEl, state.idleChat.manualMode);
@@ -400,13 +410,19 @@ function renderIdleChat() {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="8" class="small">No idleChat summaries yet</td>';
     body.appendChild(tr);
+    if (detailTitle) detailTitle.textContent = 'Select a topic summary to view transcript';
+    if (detailBody) detailBody.textContent = '-';
     return;
   }
 
-  rows.forEach((r) => {
+  if (state.idleChat.selectedIndex < 0 || state.idleChat.selectedIndex >= rows.length) {
+    state.idleChat.selectedIndex = 0;
+  }
+
+  rows.forEach((r, rowIndex) => {
     const tr = document.createElement('tr');
     tr.innerHTML =
-      '<td>' + esc(r.title || '-') + '</td>' +
+      '<td><button class="ctl-btn idle-open" data-idx="' + esc(String(rowIndex)) + '">' + esc(r.title || '-') + '</button></td>' +
       '<td class="code">' + esc(r.category || '-') + '</td>' +
       '<td>' + esc(short(r.topic || '-', 80)) + '</td>' +
       '<td>' + esc(String(r.turns || 0)) + '</td>' +
@@ -416,6 +432,23 @@ function renderIdleChat() {
       '<td>' + esc(short(r.summary || '-', 200)) + '</td>';
     body.appendChild(tr);
   });
+
+  body.querySelectorAll('.idle-open').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.idleChat.selectedIndex = Number(btn.dataset.idx || '0');
+      renderIdleChat();
+    });
+  });
+
+  const selected = rows[state.idleChat.selectedIndex];
+  if (detailTitle) detailTitle.textContent = selected && selected.title ? selected.title : '-';
+  if (detailBody) {
+    if (!selected || !Array.isArray(selected.transcript) || selected.transcript.length === 0) {
+      detailBody.textContent = 'Transcript not available';
+    } else {
+      detailBody.textContent = selected.transcript.join('\n');
+    }
+  }
 }
 
 async function refreshIdleStatus() {
