@@ -135,6 +135,7 @@ func cmdRun() {
 		mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
 		mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
 		mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
+		mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
 	}
 
 	healthHandler := dependencies.buildHealthHandler(cfg)
@@ -673,7 +674,12 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "manual_mode": d.idleChatOrch.IsManualMode(), "chat_active": d.idleChatOrch.IsChatActive()})
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
 	}
 }
 
@@ -688,7 +694,12 @@ func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {
 			return
 		}
 		d.idleChatOrch.StopManualMode()
-		writeJSON(w, map[string]any{"ok": true, "manual_mode": d.idleChatOrch.IsManualMode(), "chat_active": d.idleChatOrch.IsChatActive()})
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
 	}
 }
 
@@ -702,7 +713,32 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "manual_mode": d.idleChatOrch.IsManualMode(), "chat_active": d.idleChatOrch.IsChatActive()})
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
+	}
+}
+
+func (d *Dependencies) handleIdleChatLogs() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
+			"history":       d.idleChatOrch.GetHistory(100),
+		})
 	}
 }
 

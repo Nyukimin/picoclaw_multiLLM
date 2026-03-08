@@ -154,9 +154,10 @@ func TestIdleChatOrchestrator_RunChatSession(t *testing.T) {
 
 	o.runChatSession()
 
-	// LLMが maxTurns回 呼ばれているはず
-	if provider.callCount != maxTurns {
-		t.Errorf("Expected %d LLM calls, got %d", maxTurns, provider.callCount)
+	// 話題生成1回 + 会話maxTurns回 + 要約1回
+	expectedCalls := maxTurns + 2
+	if provider.callCount != expectedCalls {
+		t.Errorf("Expected %d LLM calls, got %d", expectedCalls, provider.callCount)
 	}
 
 	// メモリに記録されているはず（重複排除によりmaxTurns以下の場合もある）
@@ -239,8 +240,8 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 	o.checkAndStartChat()
 
 	// 雑談セッションが実行されたはず
-	if provider.callCount != 2 {
-		t.Errorf("Expected 2 LLM calls (maxTurns=2), got %d", provider.callCount)
+	if provider.callCount != 4 {
+		t.Errorf("Expected 4 LLM calls (topic + maxTurns + summary), got %d", provider.callCount)
 	}
 
 	// セッション終了後はchatActive=false
@@ -259,8 +260,8 @@ func TestCheckAndStartChat_ManualMode_StartsWithoutIdleThreshold(t *testing.T) {
 	}
 
 	o.checkAndStartChat()
-	if provider.callCount != 2 {
-		t.Fatalf("Expected 2 LLM calls in manual mode, got %d", provider.callCount)
+	if provider.callCount != 4 {
+		t.Fatalf("Expected 4 LLM calls in manual mode (topic + maxTurns + summary), got %d", provider.callCount)
 	}
 }
 

@@ -147,6 +147,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 <div class="tabs">
   <button class="tab-btn active" data-tab="overview">Overview</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
+  <button class="tab-btn" data-tab="idlechat">IdleChat</button>
   <button class="tab-btn" data-tab="sessions">Sessions</button>
   <button class="tab-btn" data-tab="jobs">Jobs</button>
 </div>
@@ -191,6 +192,26 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <div style="font-size:15px">Waiting for messages...</div>
         <div style="font-size:12px;margin-top:4px">LINE / CLI からメッセージを送ると、ここにリアルタイムで表示されます</div>
       </div>
+    </div>
+  </section>
+
+  <section id="panel-idlechat" class="panel">
+    <div class="grid">
+      <div class="card">
+        <h4>Mode</h4>
+        <div class="row"><span>Manual</span><span id="idleManual" class="badge state-offline">off</span></div>
+        <div class="row"><span>Chat Active</span><span id="idleActive" class="badge state-offline">off</span></div>
+      </div>
+      <div class="card">
+        <h4>Current Topic</h4>
+        <div id="idleTopicNow" style="font-size:13px;line-height:1.6;color:var(--t1)">-</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Title</th><th>Category</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
+        <tbody id="idlechatBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -281,6 +302,12 @@ const state = {
   sessions: {},
   jobs: {},
   agents: {},
+  idleChat: {
+    manualMode: false,
+    chatActive: false,
+    currentTopic: '',
+    history: [],
+  },
 };
 AGENTS.forEach((id) => {
   state.agents[id] = {
@@ -308,6 +335,7 @@ const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const panels = {
   overview: document.getElementById('panel-overview'),
   timeline: document.getElementById('panel-timeline'),
+  idlechat: document.getElementById('panel-idlechat'),
   sessions: document.getElementById('panel-sessions'),
   jobs: document.getElementById('panel-jobs'),
 };
@@ -350,6 +378,46 @@ function setIdleState(manual, active) {
   idleStateEl.className = on ? 'idle-on' : 'idle-off';
 }
 
+function setBadge(el, enabled) {
+  el.textContent = enabled ? 'on' : 'off';
+  el.className = 'badge ' + (enabled ? 'state-running' : 'state-offline');
+}
+
+function renderIdleChat() {
+  const manualEl = document.getElementById('idleManual');
+  const activeEl = document.getElementById('idleActive');
+  const topicEl = document.getElementById('idleTopicNow');
+  const body = document.getElementById('idlechatBody');
+  if (!manualEl || !activeEl || !topicEl || !body) return;
+
+  setBadge(manualEl, state.idleChat.manualMode);
+  setBadge(activeEl, state.idleChat.chatActive);
+  topicEl.textContent = state.idleChat.currentTopic || '-';
+
+  body.innerHTML = '';
+  const rows = state.idleChat.history || [];
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="8" class="small">No idleChat summaries yet</td>';
+    body.appendChild(tr);
+    return;
+  }
+
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(r.title || '-') + '</td>' +
+      '<td class="code">' + esc(r.category || '-') + '</td>' +
+      '<td>' + esc(short(r.topic || '-', 80)) + '</td>' +
+      '<td>' + esc(String(r.turns || 0)) + '</td>' +
+      '<td>' + esc(r.loop_restarted ? 'yes' : 'no') + '</td>' +
+      '<td>' + esc(fdt(r.started_at)) + '</td>' +
+      '<td>' + esc(fdt(r.ended_at)) + '</td>' +
+      '<td>' + esc(short(r.summary || '-', 200)) + '</td>';
+    body.appendChild(tr);
+  });
+}
+
 async function refreshIdleStatus() {
   try {
     const r = await fetch('/viewer/idlechat/status');
@@ -357,16 +425,42 @@ async function refreshIdleStatus() {
       idleStartBtn.disabled = true;
       idleStopBtn.disabled = true;
       setIdleState(false, false);
+      state.idleChat.manualMode = false;
+      state.idleChat.chatActive = false;
+      state.idleChat.currentTopic = '';
+      renderIdleChat();
       return;
     }
     const d = await r.json();
     setIdleState(!!d.manual_mode, !!d.chat_active);
     idleStartBtn.disabled = !!d.manual_mode;
     idleStopBtn.disabled = !d.manual_mode;
+    state.idleChat.manualMode = !!d.manual_mode;
+    state.idleChat.chatActive = !!d.chat_active;
+    state.idleChat.currentTopic = d.current_topic || '';
+    renderIdleChat();
   } catch (_) {
     idleStartBtn.disabled = true;
     idleStopBtn.disabled = true;
     setIdleState(false, false);
+    state.idleChat.manualMode = false;
+    state.idleChat.chatActive = false;
+    state.idleChat.currentTopic = '';
+    renderIdleChat();
+  }
+}
+
+async function refreshIdleLogs() {
+  try {
+    const r = await fetch('/viewer/idlechat/logs');
+    if (!r.ok) return;
+    const d = await r.json();
+    state.idleChat.manualMode = !!d.manual_mode;
+    state.idleChat.chatActive = !!d.chat_active;
+    state.idleChat.currentTopic = d.current_topic || '';
+    state.idleChat.history = Array.isArray(d.history) ? d.history : [];
+    renderIdleChat();
+  } catch (_) {
   }
 }
 
@@ -758,8 +852,11 @@ function connect() {
 }
 
 refreshDerivedViews();
+renderIdleChat();
 refreshIdleStatus();
+refreshIdleLogs();
 setInterval(refreshIdleStatus, 3000);
+setInterval(refreshIdleLogs, 5000);
 connect();
 </script>
 </body>
