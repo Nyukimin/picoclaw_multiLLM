@@ -53,11 +53,11 @@ func (o *DistributedOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
 }
 
-func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobID string) {
+func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
 	if o.listener == nil {
 		return
 	}
-	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID))
+	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID))
 }
 
 // ProcessMessage は既存MessageOrchestratorと同じシグネチャでメッセージを処理
@@ -69,7 +69,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
 
-	o.emit("message.received", "user", "mio", req.UserMessage, "", "")
+	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 
 	// 2. タスクを作成
 	jobID := task.NewJobID()
@@ -83,7 +83,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 
 	o.emit("routing.decision", "mio", "",
 		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
-		string(decision.Route), jobID.String())
+		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 
 	t = t.WithRoute(decision.Route)
 
@@ -124,14 +124,14 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 
 	if targetAgent == "" {
 		// ローカル処理（CHAT など mio が直接処理）
-		o.emit("agent.start", "mio", "user", "考え中...", string(route), jid)
+		o.emit("agent.start", "mio", "user", "考え中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
 		// ストリーミングコールバック: トークンを agent.thinking イベントとして配信
 		streamCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, string(route), jid)
+			o.emit("agent.thinking", "mio", "user", token, string(route), jid, sessionID, t.Channel(), t.ChatID())
 		})
 		resp, err := o.mio.Chat(streamCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, string(route), jid)
+			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 		}
 		return resp, err
 	}
@@ -139,7 +139,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 	msg := domaintransport.NewMessage("mio", targetAgent, sessionID, jid, t.UserMessage())
 	msg.Type = domaintransport.MessageTypeTask
 
-	o.emit("agent.start", "mio", targetAgent, t.UserMessage(), string(route), jid)
+	o.emit("agent.start", "mio", targetAgent, t.UserMessage(), string(route), jid, sessionID, t.Channel(), t.ChatID())
 
 	// メモリに記録
 	o.memory.RecordMessage(msg)
@@ -148,7 +148,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 	if sshTransport, ok := o.sshTransports[targetAgent]; ok {
 		resp, err := o.executeViaSSH(ctx, sshTransport, targetAgent, msg)
 		if err == nil {
-			o.emit("agent.response", targetAgent, "mio", resp, string(route), jid)
+			o.emit("agent.response", targetAgent, "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 		}
 		return resp, err
 	}
@@ -156,7 +156,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 	// Local Transport（MessageRouter経由）
 	resp, err := o.executeViaLocal(ctx, targetAgent, msg)
 	if err == nil {
-		o.emit("agent.response", targetAgent, "mio", resp, string(route), jid)
+		o.emit("agent.response", targetAgent, "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 	}
 	return resp, err
 }

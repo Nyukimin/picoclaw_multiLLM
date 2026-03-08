@@ -103,11 +103,11 @@ func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
 }
 
-func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID string) {
+func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
 	if o.listener == nil {
 		return
 	}
-	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID))
+	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID))
 }
 
 // ProcessMessage はメッセージを処理
@@ -119,7 +119,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 
 	// Event: ユーザーメッセージ受信
-	o.emit("message.received", "user", "mio", req.UserMessage, "", "")
+	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 
 	// 2. チャットコマンドのチェック（ルーティング前）
 	cmdResult, err := o.mio.HandleChatCommand(ctx, req.ChatID, req.UserMessage)
@@ -127,7 +127,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return ProcessMessageResponse{}, fmt.Errorf("chat command failed: %w", err)
 	}
 	if cmdResult.Handled {
-		o.emit("agent.response", "mio", "user", cmdResult.Response, "CHAT", "")
+		o.emit("agent.response", "mio", "user", cmdResult.Response, "CHAT", "", req.SessionID, req.Channel, req.ChatID)
 		return ProcessMessageResponse{
 			Response:   cmdResult.Response,
 			Route:      routing.RouteCHAT,
@@ -149,13 +149,13 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	// Event: ルーティング決定
 	o.emit("routing.decision", "mio", "",
 		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
-		string(decision.Route), jobID.String())
+		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 
 	// タスクにルートを設定
 	t = t.WithRoute(decision.Route)
 
 	// 4. ルートに応じて実行
-	response, err := o.executeTask(ctx, t, decision.Route)
+	response, err := o.executeTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID)
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
 	}
@@ -190,26 +190,26 @@ func (o *MessageOrchestrator) loadOrCreateSession(ctx context.Context, id, chann
 }
 
 // executeTask はルートに応じてタスクを実行
-func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, route routing.Route) (string, error) {
+func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID string) (string, error) {
 	jid := t.JobID().String()
 
 	switch route {
 	case routing.RouteCHAT:
-		o.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid)
+		o.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid, sessionID, channel, chatID)
 		streamCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "CHAT", jid)
+			o.emit("agent.thinking", "mio", "user", token, "CHAT", jid, sessionID, channel, chatID)
 		})
 		resp, err := o.mio.Chat(streamCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, "CHAT", jid)
+			o.emit("agent.response", "mio", "user", resp, "CHAT", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
 	case routing.RouteOPS:
-		o.emit("agent.start", "mio", "shiro", "タスクを実行依頼", "OPS", jid)
+		o.emit("agent.start", "mio", "shiro", "タスクを実行依頼", "OPS", jid, sessionID, channel, chatID)
 		resp, err := o.shiro.Execute(ctx, t)
 		if err == nil {
-			o.emit("agent.response", "shiro", "mio", resp, "OPS", jid)
+			o.emit("agent.response", "shiro", "mio", resp, "OPS", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
@@ -220,10 +220,10 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		if o.coder1 == nil {
 			return "", fmt.Errorf("CODE1 route requested but no coder1 available")
 		}
-		o.emit("agent.start", "mio", "coder1", "仕様設計を依頼", "CODE1", jid)
+		o.emit("agent.start", "mio", "coder1", "仕様設計を依頼", "CODE1", jid, sessionID, channel, chatID)
 		resp, err := o.coder1.Generate(ctx, t, "You are a specification design assistant.")
 		if err == nil {
-			o.emit("agent.response", "coder1", "mio", truncate(resp, 500), "CODE1", jid)
+			o.emit("agent.response", "coder1", "mio", truncate(resp, 500), "CODE1", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
@@ -231,10 +231,10 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		if o.coder2 == nil {
 			return "", fmt.Errorf("CODE2 route requested but no coder2 available")
 		}
-		o.emit("agent.start", "mio", "coder2", "実装を依頼", "CODE2", jid)
+		o.emit("agent.start", "mio", "coder2", "実装を依頼", "CODE2", jid, sessionID, channel, chatID)
 		resp, err := o.coder2.Generate(ctx, t, "You are an implementation assistant.")
 		if err == nil {
-			o.emit("agent.response", "coder2", "mio", truncate(resp, 500), "CODE2", jid)
+			o.emit("agent.response", "coder2", "mio", truncate(resp, 500), "CODE2", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
@@ -245,75 +245,75 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 
 		// Coder3がProposal生成をサポートするか確認
 		if coderWithProposal, ok := o.coder3.(CoderAgentWithProposal); ok {
-			o.emit("agent.start", "mio", "shiro", "Coder3にコード生成を依頼します", "CODE3", jid)
-			o.emit("agent.start", "shiro", "coder3", t.UserMessage(), "CODE3", jid)
+			o.emit("agent.start", "mio", "shiro", "Coder3にコード生成を依頼します", "CODE3", jid, sessionID, channel, chatID)
+			o.emit("agent.start", "shiro", "coder3", t.UserMessage(), "CODE3", jid, sessionID, channel, chatID)
 
 			// Proposal生成 → Worker即時実行
 			p, err := coderWithProposal.GenerateProposal(ctx, t)
 			if err != nil {
-				o.emit("agent.response", "coder3", "shiro", "エラー: "+err.Error(), "CODE3", jid)
+				o.emit("agent.response", "coder3", "shiro", "エラー: "+err.Error(), "CODE3", jid, sessionID, channel, chatID)
 				return "", fmt.Errorf("coder3 proposal generation failed: %w", err)
 			}
 
 			if p == nil || !p.IsValid() {
-				o.emit("agent.response", "coder3", "shiro", "無効な Proposal が返されました", "CODE3", jid)
+				o.emit("agent.response", "coder3", "shiro", "無効な Proposal が返されました", "CODE3", jid, sessionID, channel, chatID)
 				return "", fmt.Errorf("coder3 generated invalid proposal")
 			}
 
-			o.emit("agent.response", "coder3", "shiro", "## Plan\n"+p.Plan(), "CODE3", jid)
-			o.emit("agent.start", "shiro", "mio", "Patch を実行中...", "CODE3", jid)
+			o.emit("agent.response", "coder3", "shiro", "## Plan\n"+p.Plan(), "CODE3", jid, sessionID, channel, chatID)
+			o.emit("agent.start", "shiro", "mio", "Patch を実行中...", "CODE3", jid, sessionID, channel, chatID)
 
 			// Worker即時実行（核心機能）
 			result, err := o.workerExecution.ExecuteProposal(ctx, t.JobID(), p)
 			if err != nil {
-				o.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), "CODE3", jid)
+				o.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), "CODE3", jid, sessionID, channel, chatID)
 				return "", fmt.Errorf("worker execution failed: %w", err)
 			}
 
 			// 結果をフォーマット
 			formatted := o.formatExecutionResult(p, result)
-			o.emit("agent.response", "shiro", "mio", formatted, "CODE3", jid)
+			o.emit("agent.response", "shiro", "mio", formatted, "CODE3", jid, sessionID, channel, chatID)
 			return formatted, nil
 		}
 
 		// フォールバック：Proposal非対応の場合は通常のGenerate()を使用
-		o.emit("agent.start", "mio", "coder3", "コードレビューを依頼", "CODE3", jid)
+		o.emit("agent.start", "mio", "coder3", "コードレビューを依頼", "CODE3", jid, sessionID, channel, chatID)
 		resp, err := o.coder3.Generate(ctx, t, "You are a high-quality code review and reasoning assistant.")
 		if err == nil {
-			o.emit("agent.response", "coder3", "mio", truncate(resp, 500), "CODE3", jid)
+			o.emit("agent.response", "coder3", "mio", truncate(resp, 500), "CODE3", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
 	case routing.RoutePLAN:
-		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid)
+		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid, sessionID, channel, chatID)
 		planCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "PLAN", jid)
+			o.emit("agent.thinking", "mio", "user", token, "PLAN", jid, sessionID, channel, chatID)
 		})
 		resp, err := o.mio.Chat(planCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, "PLAN", jid)
+			o.emit("agent.response", "mio", "user", resp, "PLAN", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
 	case routing.RouteANALYZE:
-		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid)
+		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
 		analyzeCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "ANALYZE", jid)
+			o.emit("agent.thinking", "mio", "user", token, "ANALYZE", jid, sessionID, channel, chatID)
 		})
 		resp, err := o.mio.Chat(analyzeCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid)
+			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
 	case routing.RouteRESEARCH:
-		o.emit("agent.start", "mio", "user", "調査中...", "RESEARCH", jid)
+		o.emit("agent.start", "mio", "user", "調査中...", "RESEARCH", jid, sessionID, channel, chatID)
 		researchCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "RESEARCH", jid)
+			o.emit("agent.thinking", "mio", "user", token, "RESEARCH", jid, sessionID, channel, chatID)
 		})
 		resp, err := o.mio.Chat(researchCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid)
+			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid, sessionID, channel, chatID)
 		}
 		return resp, err
 
