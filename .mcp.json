@@ -2,6 +2,10 @@
   "mcpServers": {
     "serena": {
       "command": "/home/nyukimi/.local/bin/uvx",
+      "env": {
+        "UV_CACHE_DIR": "/home/nyukimi/picoclaw_multiLLM/.serena/uv-cache",
+        "UV_TOOL_DIR": "/home/nyukimi/picoclaw_multiLLM/.serena/uv-tools"
+      },
       "args": [
         "--from",
         "/home/nyukimi/serena",

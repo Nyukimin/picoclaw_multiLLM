@@ -49,6 +49,10 @@ tasks/
 .vscode/
 .idea/
 
+# Cache directories
+.cache/
+.gocache/
+
 # Added by goreleaser init:
 dist/
 config/config.yaml
