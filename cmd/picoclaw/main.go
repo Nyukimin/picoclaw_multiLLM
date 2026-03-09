@@ -527,8 +527,6 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 
 	// 9. IdleChat（有効な場合）
-	log.Printf("[DEBUG] IdleChat.Enabled=%v, Participants=%v, IntervalMin=%d",
-		cfg.IdleChat.Enabled, cfg.IdleChat.Participants, cfg.IdleChat.IntervalMin)
 	if cfg.IdleChat.Enabled {
 		idleChatOrch := idlechat.NewIdleChatOrchestrator(
 			ollamaProvider,

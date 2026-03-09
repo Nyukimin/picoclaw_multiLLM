@@ -16,9 +16,9 @@ import (
 type TopicStrategy string
 
 const (
-	StrategyWeakChaos        TopicStrategy = "weak_chaos"  // 弱カオス 2ジャンル (45%)
-	StrategyStrongChaos      TopicStrategy = "strong_chaos" // 強カオス 3ジャンル (25%)
-	StrategyExternalStimulus TopicStrategy = "external"    // 外部刺激 (20%)
+	StrategySingleGenre      TopicStrategy = "single"      // 1ジャンル単体 (25%)
+	StrategyDoubleGenre      TopicStrategy = "double"      // 2ジャンル掛け合わせ (40%)
+	StrategyExternalStimulus TopicStrategy = "external"    // 外部刺激 (25%)
 	StrategyAntiPattern      TopicStrategy = "anti"        // 反逆パターン (10%)
 )
 
@@ -302,14 +302,14 @@ func pickRandom(slice []string, n int) []string {
 }
 
 // chooseStrategy は生成戦略をランダムに選択
-// weak_chaos: 45%, strong_chaos: 25%, external: 20%, anti: 10%
+// single: 25%, double: 40%, external: 25%, anti: 10%
 func chooseStrategy() TopicStrategy {
 	r := rand.Intn(100)
 	switch {
-	case r < 45:
-		return StrategyWeakChaos
-	case r < 70:
-		return StrategyStrongChaos
+	case r < 25:
+		return StrategySingleGenre
+	case r < 65:
+		return StrategyDoubleGenre
 	case r < 90:
 		return StrategyExternalStimulus
 	default:
@@ -317,8 +317,34 @@ func chooseStrategy() TopicStrategy {
 	}
 }
 
-// generateWeakChaosPrompt は弱カオス（2ジャンル）のプロンプトを生成
-func generateWeakChaosPrompt(recentTopics []string) (string, []string) {
+// generateSingleGenrePrompt は1ジャンル単体のプロンプトを生成
+func generateSingleGenrePrompt(recentTopics []string) (string, []string) {
+	genres := pickRandom(genrePool, 1)
+
+	bannedKeywords := extractBannedKeywords()
+
+	prompt := fmt.Sprintf(`以下のジャンルを深掘りした、興味深い話題を1つ提案してください。
+
+ジャンル: %s
+
+要件:
+- 深い洞察と新しい視点
+- 会話が発展する具体性
+- エンターテイメント性
+
+禁止事項:
+- %s に関するトピックは避ける
+- 「もし〜だったら」形式は使わない
+- 教科書的な真面目な説明は避ける
+- 直近トピックと類似した内容は避ける
+
+回答は話題1文のみ。`, genres[0], strings.Join(bannedKeywords, "、"))
+
+	return prompt, genres
+}
+
+// generateDoubleGenrePrompt は2ジャンル掛け合わせのプロンプトを生成
+func generateDoubleGenrePrompt(recentTopics []string) (string, []string) {
 	genres := pickRandom(genrePool, 2)
 
 	bannedKeywords := extractBannedKeywords()
@@ -343,39 +369,12 @@ func generateWeakChaosPrompt(recentTopics []string) (string, []string) {
 	return prompt, genres
 }
 
-// generateStrongChaosPrompt は強カオス（3ジャンル）のプロンプトを生成
-func generateStrongChaosPrompt(recentTopics []string) (string, []string) {
-	genres := pickRandom(genrePool, 3)
-
-	bannedKeywords := extractBannedKeywords()
-
-	prompt := fmt.Sprintf(`以下の3つのジャンルを組み合わせた、完全に予想外で面白い話題を1つ提案してください。
-
-ジャンル: %s × %s × %s
-
-要件:
-- 常識を超えた意外な切り口
-- 「え？！そんな繋がり？」と驚く組み合わせ
-- 深く考察できる具体性
-- エンターテイメント性重視
-
-禁止事項:
-- %s に関するトピックは避ける
-- 「もし〜だったら」形式は使わない
-- 教科書的な真面目な組み合わせは避ける
-- 直近トピックと類似した内容は避ける
-
-回答は話題1文のみ。`, genres[0], genres[1], genres[2], strings.Join(bannedKeywords, "、"))
-
-	return prompt, genres
-}
-
 // generateExternalPrompt は外部刺激を使ったプロンプトを生成
 func generateExternalPrompt() (string, string) {
 	cache := getDailyCache()
 	if cache == nil {
-		// フォールバック: 弱カオス生成
-		p, _ := generateWeakChaosPrompt([]string{})
+		// フォールバック: 2ジャンル生成
+		p, _ := generateDoubleGenrePrompt([]string{})
 		return p, "fallback"
 	}
 
@@ -398,8 +397,8 @@ func generateExternalPrompt() (string, string) {
 		seed = cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]
 		source = "News"
 	} else {
-		// フォールバック: 弱カオス
-		p, _ := generateWeakChaosPrompt([]string{})
+		// フォールバック: 2ジャンル
+		p, _ := generateDoubleGenrePrompt([]string{})
 		return p, "fallback"
 	}
 

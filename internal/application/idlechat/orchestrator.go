@@ -302,9 +302,6 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	manualMode := o.manualMode
 	o.mu.Unlock()
 
-	log.Printf("[IdleChat] checkAndStartChat: active=%v, chatBusy=%v, workerBusy=%v, manualMode=%v, idleDuration=%v, threshold=%v, nextTopicAt=%v",
-		alreadyActive, chatBusy, workerBusy, manualMode, idleDuration.Round(time.Second), threshold, nextTopicAt)
-
 	if alreadyActive {
 		return
 	}
@@ -468,15 +465,15 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	var logInfo string
 
 	switch strategy {
-	case StrategyWeakChaos:
+	case StrategySingleGenre:
 		var genres []string
-		prompt, genres = generateWeakChaosPrompt(recentTopics)
-		logInfo = fmt.Sprintf("weak_chaos:%v", genres)
+		prompt, genres = generateSingleGenrePrompt(recentTopics)
+		logInfo = fmt.Sprintf("single:%v", genres)
 
-	case StrategyStrongChaos:
+	case StrategyDoubleGenre:
 		var genres []string
-		prompt, genres = generateStrongChaosPrompt(recentTopics)
-		logInfo = fmt.Sprintf("strong_chaos:%v", genres)
+		prompt, genres = generateDoubleGenrePrompt(recentTopics)
+		logInfo = fmt.Sprintf("double:%v", genres)
 
 	case StrategyExternalStimulus:
 		var source string
@@ -669,7 +666,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 		{Role: "system", Content: o.getSystemPrompt("shiro")},
 		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。要件: ユーザーが会話中で最も驚きそうな点、\"これは凄い！\"と感じそうな点に最優先でフォーカスする。続いて重要論点・結論・次の観点を簡潔にまとめる。\n話題: %s\n\n%s", topic, body)},
 	}
-	req := llm.GenerateRequest{Messages: messages, MaxTokens: 240, Temperature: 0.4}
+	req := llm.GenerateRequest{Messages: messages, MaxTokens: 800, Temperature: 0.4}
 	resp, err := o.llmProvider.Generate(o.ctx, req)
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
 		return truncate(body, 200)
