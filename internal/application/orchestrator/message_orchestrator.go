@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
@@ -111,13 +112,18 @@ func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
 
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
 	if o.listener == nil {
+		log.Printf("[MessageOrch] emit SKIPPED: no listener (eventType=%s from=%s to=%s)", eventType, from, to)
 		return
 	}
+	log.Printf("[MessageOrch] emit: eventType=%s from=%s to=%s route=%s jobID=%s", eventType, from, to, route, jobID)
 	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID))
 }
 
 // ProcessMessage はメッセージを処理
 func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
+	log.Printf("[MessageOrch] ProcessMessage START: sessionID=%s channel=%s chatID=%s message=%q",
+		req.SessionID, req.Channel, req.ChatID, req.UserMessage)
+
 	if o.idleNotifier != nil {
 		o.idleNotifier.NotifyActivity()
 		o.idleNotifier.SetChatBusy(true)
@@ -127,8 +133,10 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	// 1. セッションをロードまたは作成
 	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
 	if err != nil {
+		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to load or create session: %v", err)
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
+	log.Printf("[MessageOrch] Session loaded/created: %s", sess.ID())
 
 	// Event: ユーザーメッセージ受信
 	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
@@ -186,8 +194,12 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 
 	// 6. セッションを保存
 	if err := o.sessionRepo.Save(ctx, sess); err != nil {
+		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to save session: %v", err)
 		return ProcessMessageResponse{}, fmt.Errorf("failed to save session: %w", err)
 	}
+
+	log.Printf("[MessageOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
+		jobID.String(), decision.Route, len(response))
 
 	return ProcessMessageResponse{
 		Response:   response,

@@ -513,6 +513,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 	viewerSendFromOrch := func(proc messageProcessor) http.HandlerFunc {
 		return viewer.HandleSend(func(ctx context.Context, message string) (string, error) {
+			log.Printf("[main] viewerSendFromOrch: calling ProcessMessage for viewer message: %q", message)
 			resp, err := proc.ProcessMessage(ctx, orchestrator.ProcessMessageRequest{
 				SessionID:   "viewer",
 				Channel:     "viewer",
@@ -520,8 +521,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 				UserMessage: message,
 			})
 			if err != nil {
+				log.Printf("[main] viewerSendFromOrch: ProcessMessage error: %v", err)
 				return "", err
 			}
+			log.Printf("[main] viewerSendFromOrch: ProcessMessage completed, route=%s jobID=%s", resp.Route, resp.JobID)
 			return resp.Response, nil
 		})
 	}

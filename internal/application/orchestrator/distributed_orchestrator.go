@@ -74,6 +74,9 @@ func (o *DistributedOrchestrator) emitNote(from, to, content, route, jobID, sess
 // ProcessMessage は既存MessageOrchestratorと同じシグネチャでメッセージを処理
 // 分散環境ではTransport経由でAgent間通信を行う
 func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
+	log.Printf("[DistributedOrch] ProcessMessage START: sessionID=%s channel=%s chatID=%s message=%q",
+		req.SessionID, req.Channel, req.ChatID, req.UserMessage)
+
 	if o.idleNotifier != nil {
 		o.idleNotifier.NotifyActivity()
 		o.idleNotifier.SetChatBusy(true)
@@ -83,8 +86,10 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	// 1. セッションをロードまたは作成
 	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
 	if err != nil {
+		log.Printf("[DistributedOrch] ProcessMessage ERROR: failed to load or create session: %v", err)
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
+	log.Printf("[DistributedOrch] Session loaded/created: %s", sess.ID())
 
 	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 
@@ -127,8 +132,12 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 
 	// 6. セッションを保存
 	if err := o.sessionRepo.Save(ctx, sess); err != nil {
+		log.Printf("[DistributedOrch] ProcessMessage ERROR: failed to save session: %v", err)
 		return ProcessMessageResponse{}, fmt.Errorf("failed to save session: %w", err)
 	}
+
+	log.Printf("[DistributedOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
+		jobID.String(), decision.Route, len(response))
 
 	return ProcessMessageResponse{
 		Response:   response,

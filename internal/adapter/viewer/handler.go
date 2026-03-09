@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 )
 
@@ -66,13 +67,17 @@ type MessageHandler func(ctx context.Context, message string) (string, error)
 // HandleSend creates an HTTP handler that receives messages from the viewer input.
 func HandleSend(handler MessageHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[Viewer] HandleSend: received request from %s", r.RemoteAddr)
+
 		if r.Method != http.MethodPost {
+			log.Printf("[Viewer] HandleSend: method not allowed: %s", r.Method)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
 		body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
 		if err != nil {
+			log.Printf("[Viewer] HandleSend: read error: %v", err)
 			http.Error(w, "read error", http.StatusBadRequest)
 			return
 		}
@@ -81,15 +86,27 @@ func HandleSend(handler MessageHandler) http.HandlerFunc {
 			Message string `json:"message"`
 		}
 		if err := json.Unmarshal(body, &req); err != nil || req.Message == "" {
+			log.Printf("[Viewer] HandleSend: invalid JSON or empty message: %v", err)
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
 
+		log.Printf("[Viewer] HandleSend: message received: %q", req.Message)
+
 		// Process asynchronously — events flow back via SSE.
 		// Use Background context since the HTTP response is sent immediately.
-		go handler(context.Background(), req.Message)
+		go func() {
+			log.Printf("[Viewer] HandleSend: starting async handler for message: %q", req.Message)
+			response, err := handler(context.Background(), req.Message)
+			if err != nil {
+				log.Printf("[Viewer] HandleSend: handler error: %v", err)
+			} else {
+				log.Printf("[Viewer] HandleSend: handler completed successfully, response length: %d", len(response))
+			}
+		}()
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ok":true}`))
+		log.Printf("[Viewer] HandleSend: sent OK response")
 	}
 }
