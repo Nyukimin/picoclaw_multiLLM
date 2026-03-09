@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"log"
+	"regexp"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -34,6 +36,7 @@ func NewCoderAgent(
 
 // GenerateProposal はplan/patchを生成
 func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
+	log.Printf("[CoderAgent] GenerateProposal start: msg_len=%d", len(t.UserMessage()))
 	req := llm.GenerateRequest{
 		Messages: []llm.Message{
 			{
@@ -51,11 +54,21 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 
 	resp, err := c.llmProvider.Generate(ctx, req)
 	if err != nil {
+		log.Printf("[CoderAgent] GenerateProposal LLM error: %v", err)
 		return nil, err
 	}
+	log.Printf("[CoderAgent] GenerateProposal raw response: len=%d tokens=%d finish=%s",
+		len(resp.Content), resp.TokensUsed, resp.FinishReason)
 
 	// レスポンスからProposalを抽出
-	return c.extractProposal(resp.Content), nil
+	p := c.extractProposal(resp.Content)
+	if p == nil {
+		log.Printf("[CoderAgent] GenerateProposal parse failed: preview=%q", preview(resp.Content, 240))
+		return nil, nil
+	}
+	log.Printf("[CoderAgent] GenerateProposal success: plan_len=%d patch_len=%d risk_len=%d cost_len=%d patch_preview=%q",
+		len(p.Plan()), len(p.Patch()), len(p.Risk()), len(p.CostHint()), preview(p.Patch(), 240))
+	return p, nil
 }
 
 // GenerateWithPrompt は指定されたシステムプロンプトでLLM応答を生成
@@ -83,6 +96,13 @@ func (c *CoderAgent) extractProposal(content string) *proposal.Proposal {
 	patch := c.extractSection(content, "## Patch", "##")
 	risk := c.extractSection(content, "## Risk", "##")
 	costHint := c.extractSection(content, "## CostHint", "##")
+
+	if patch == "" {
+		patch = extractJSONPatch(content)
+	}
+	if plan == "" && looksLikeJSONPatch(patch) {
+		plan = "Auto-generated plan: execute extracted patch commands."
+	}
 
 	if plan == "" || patch == "" {
 		return nil
@@ -113,4 +133,29 @@ func (c *CoderAgent) extractSection(content, startMarker, endMarker string) stri
 	}
 
 	return strings.TrimSpace(remaining[:endIdx])
+}
+
+func extractJSONPatch(content string) string {
+	reFence := regexp.MustCompile("(?s)```json\\s*(\\[.*?\\])\\s*```")
+	if m := reFence.FindStringSubmatch(content); len(m) >= 2 {
+		return strings.TrimSpace(m[1])
+	}
+	reArray := regexp.MustCompile("(?s)(\\[\\s*\\{.*\\}\\s*\\])")
+	if m := reArray.FindStringSubmatch(content); len(m) >= 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func preview(s string, limit int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "...(truncated)"
+}
+
+func looksLikeJSONPatch(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "[") || strings.HasPrefix(s, "{")
 }

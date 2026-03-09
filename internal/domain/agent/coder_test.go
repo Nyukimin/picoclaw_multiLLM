@@ -302,3 +302,19 @@ Step 1: Create file`
 		t.Error("Proposal should be nil when Patch is missing")
 	}
 }
+
+func TestCoderAgentExtractProposal_JSONOnlyPatchFallback(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	content := "```json\n[\n  {\n    \"type\": \"shell_command\",\n    \"action\": \"run\",\n    \"target\": \"echo hello\"\n  }\n]\n```"
+	p := coder.extractProposal(content)
+	if p == nil {
+		t.Fatal("proposal should not be nil for JSON-only patch content")
+	}
+	if p.Plan() == "" {
+		t.Fatal("plan should be auto-filled")
+	}
+	if p.Patch() == "" {
+		t.Fatal("patch should not be empty")
+	}
+}

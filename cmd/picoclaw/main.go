@@ -11,8 +11,10 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
@@ -29,6 +31,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -68,6 +71,144 @@ func (a *coderAdapter) Generate(ctx context.Context, t task.Task, systemPrompt s
 
 func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
 	return a.domainCoder.GenerateProposal(ctx, t)
+}
+
+type distributedWorkerHandler struct {
+	shiroAgent       *agent.ShiroAgent
+	executionService service.WorkerExecutionService
+}
+
+func (h *distributedWorkerHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
+	if msg.Proposal != nil {
+		p := proposal.Reconstruct(
+			msg.Proposal.Plan,
+			msg.Proposal.Patch,
+			msg.Proposal.Risk,
+			msg.Proposal.CostHint,
+		)
+		jobID, err := task.ParseJobID(msg.JobID)
+		if err != nil {
+			return domaintransport.Message{}, fmt.Errorf("invalid job ID: %w", err)
+		}
+		result, err := h.executionService.ExecuteProposal(ctx, jobID, p)
+		if err != nil {
+			errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+				fmt.Sprintf("patch execution failed: %v", err))
+			errResp.Type = domaintransport.MessageTypeError
+			return errResp, nil
+		}
+		resp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID, result.Summary)
+		resp.Type = domaintransport.MessageTypeResult
+		resp.Result = &domaintransport.ResultPayload{
+			Success:      result.FailedCmds == 0,
+			Summary:      result.Summary,
+			ExecutedCmds: result.ExecutedCmds,
+			FailedCmds:   result.FailedCmds,
+			GitCommit:    result.GitCommit,
+		}
+		return resp, nil
+	}
+
+	jobID, err := task.ParseJobID(msg.JobID)
+	if err != nil {
+		jobID = task.NewJobID()
+	}
+	t := task.NewTask(jobID, msg.Content, "distributed", "local-agent")
+	result, err := h.shiroAgent.Execute(ctx, t)
+	if err != nil {
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			fmt.Sprintf("worker execution failed: %v", err))
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+	resp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID, result)
+	resp.Type = domaintransport.MessageTypeResult
+	resp.Result = &domaintransport.ResultPayload{
+		Success: true,
+		Summary: result,
+	}
+	return resp, nil
+}
+
+type distributedCoderHandler struct {
+	agentName string
+	coder     *agent.CoderAgent
+}
+
+func (h *distributedCoderHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
+	log.Printf("[distributedCoderHandler:%s] proposal request start: job=%s from=%s to=%s msg_len=%d",
+		h.agentName, msg.JobID, msg.From, msg.To, len(msg.Content))
+	jobID, err := task.ParseJobID(msg.JobID)
+	if err != nil {
+		jobID = task.NewJobID()
+	}
+	t := task.NewTask(jobID, msg.Content, "distributed", "local-agent")
+	p, err := h.coder.GenerateProposal(ctx, t)
+	if err != nil {
+		log.Printf("[distributedCoderHandler:%s] proposal generation failed: job=%s err=%v",
+			h.agentName, msg.JobID, err)
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			fmt.Sprintf("proposal generation failed: %v", err))
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+	if p == nil {
+		log.Printf("[distributedCoderHandler:%s] proposal parse failed (nil): job=%s",
+			h.agentName, msg.JobID)
+		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+			"proposal generation returned empty result (invalid format)")
+		errResp.Type = domaintransport.MessageTypeError
+		return errResp, nil
+	}
+	if _, parseErr := patch.ParsePatch(p.Patch()); parseErr != nil {
+		log.Printf("[distributedCoderHandler:%s] proposal patch invalid: job=%s err=%v patch_preview=%q",
+			h.agentName, msg.JobID, parseErr, previewForLog(p.Patch(), 240))
+		retryMsg := msg.Content
+		if !strings.Contains(retryMsg, "[FORMAT REQUIREMENT]") {
+			retryMsg += "\n\n[FORMAT REQUIREMENT]\nReturn executable patch only.\nPatch must be one of:\n1) JSON array of commands with required fields: type, action, target (content optional)\n2) Markdown code blocks: ```go:path```, ```bash```, ```git```\nDo not return config objects."
+		}
+		retryTask := task.NewTask(jobID, retryMsg, "distributed", "local-agent")
+		retryProposal, retryErr := h.coder.GenerateProposal(ctx, retryTask)
+		if retryErr != nil {
+			errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+				fmt.Sprintf("proposal generation failed after invalid patch retry: %v (first parse error: %v)", retryErr, parseErr))
+			errResp.Type = domaintransport.MessageTypeError
+			return errResp, nil
+		}
+		if retryProposal == nil {
+			errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+				fmt.Sprintf("proposal generation returned empty result after invalid patch retry (first parse error: %v)", parseErr))
+			errResp.Type = domaintransport.MessageTypeError
+			return errResp, nil
+		}
+		if _, retryParseErr := patch.ParsePatch(retryProposal.Patch()); retryParseErr != nil {
+			errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+				fmt.Sprintf("proposal patch invalid after retry: %v", retryParseErr))
+			errResp.Type = domaintransport.MessageTypeError
+			return errResp, nil
+		}
+		p = retryProposal
+	}
+	log.Printf("[distributedCoderHandler:%s] proposal generated: job=%s plan_len=%d patch_len=%d risk_len=%d cost_len=%d",
+		h.agentName, msg.JobID, len(p.Plan()), len(p.Patch()), len(p.Risk()), len(p.CostHint()))
+	resp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
+		fmt.Sprintf("Proposal generated by %s", h.agentName))
+	resp.Type = domaintransport.MessageTypeResult
+	resp.Proposal = &domaintransport.ProposalPayload{
+		Plan:     p.Plan(),
+		Patch:    p.Patch(),
+		Risk:     p.Risk(),
+		CostHint: p.CostHint(),
+	}
+	return resp, nil
+}
+
+func previewForLog(s string, limit int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "...(truncated)"
 }
 
 func main() {
@@ -251,6 +392,7 @@ type Dependencies struct {
 	viewerSend    http.HandlerFunc                      // viewer message sender
 	distOrch      *orchestrator.DistributedOrchestrator // v4 distributed orchestrator
 	router        *transport.MessageRouter              // v4 distributed mode
+	localLoopStop context.CancelFunc                    // v4 local agent loops cancel
 	idleChatOrch  *idlechat.IdleChatOrchestrator        // v4 idle chat
 	sshTransports map[string]domaintransport.Transport  // v4 SSH transports
 	heartbeatSvc  *heartbeat.HeartbeatService           // heartbeat service
@@ -302,6 +444,9 @@ func (d *Dependencies) Shutdown() {
 	if d.idleChatOrch != nil {
 		d.idleChatOrch.Stop()
 	}
+	if d.localLoopStop != nil {
+		d.localLoopStop()
+	}
 	for name, t := range d.sshTransports {
 		if err := t.Close(); err != nil {
 			log.Printf("Failed to close SSH transport for %s: %v", name, err)
@@ -320,11 +465,13 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	ollamaProvider := infrallm.NewDateTimeProvider(rawOllamaProvider)
 
 	var coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter
+	var coder1Domain, coder2Domain, coder3Domain *agent.CoderAgent
 
 	// DeepSeek (Coder1) - API キーがある場合のみ
 	if cfg.DeepSeek.APIKey != "" {
 		deepseekProvider := deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)
 		domainCoder := agent.NewCoderAgent(deepseekProvider, nil, nil, cfg.Prompts.CoderProposal)
+		coder1Domain = domainCoder
 		coder1Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("DeepSeek (Coder1) enabled with model: %s", cfg.DeepSeek.Model)
 	}
@@ -333,6 +480,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	if cfg.OpenAI.APIKey != "" {
 		openaiProvider := openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
 		domainCoder := agent.NewCoderAgent(openaiProvider, nil, nil, cfg.Prompts.CoderProposal)
+		coder2Domain = domainCoder
 		coder2Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("OpenAI (Coder2) enabled with model: %s", cfg.OpenAI.Model)
 	}
@@ -341,6 +489,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	if cfg.Claude.APIKey != "" {
 		claudeProvider := claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)
 		domainCoder := agent.NewCoderAgent(claudeProvider, nil, nil, cfg.Prompts.CoderProposal)
+		coder3Domain = domainCoder
 		coder3Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("Claude (Coder3) enabled with model: %s", cfg.Claude.Model)
 	}
@@ -572,7 +721,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider, centralMemory)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider, shiroAgent, workerExecutionService, coder1Domain, coder2Domain, coder3Domain, centralMemory)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 	} else {
 		log.Println("=== v3 Local Mode ===")
@@ -643,6 +792,11 @@ func (d *Dependencies) buildDistributedMode(
 	sessionRepo orchestrator.SessionRepository,
 	mioAgent *agent.MioAgent,
 	ollamaProvider llm.LLMProvider,
+	shiroAgent *agent.ShiroAgent,
+	workerExecutionService service.WorkerExecutionService,
+	coder1 *agent.CoderAgent,
+	coder2 *agent.CoderAgent,
+	coder3 *agent.CoderAgent,
 	centralMemory *domainsession.CentralMemory,
 ) {
 	// Transport Factory でAgent別Transport生成
@@ -672,6 +826,32 @@ func (d *Dependencies) buildDistributedMode(
 	}
 	d.router = router
 	d.sshTransports = sshTransports
+
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	d.localLoopStop = loopCancel
+
+	startLocalHandler := func(agentName string, h transport.LocalAgentHandler) {
+		lt, ok := router.GetAgent(agentName)
+		if !ok {
+			return
+		}
+		transport.StartLocalAgentLoop(loopCtx, agentName, lt, h, 90*time.Second)
+		log.Printf("Started LocalAgentLoop for '%s'", agentName)
+	}
+
+	startLocalHandler("shiro", &distributedWorkerHandler{
+		shiroAgent:       shiroAgent,
+		executionService: workerExecutionService,
+	})
+	if coder1 != nil {
+		startLocalHandler("coder1", &distributedCoderHandler{agentName: "coder1", coder: coder1})
+	}
+	if coder2 != nil {
+		startLocalHandler("coder2", &distributedCoderHandler{agentName: "coder2", coder: coder2})
+	}
+	if coder3 != nil {
+		startLocalHandler("coder3", &distributedCoderHandler{agentName: "coder3", coder: coder3})
+	}
 
 	// DistributedOrchestrator（Local + SSH transports）
 	distOrch := orchestrator.NewDistributedOrchestrator(

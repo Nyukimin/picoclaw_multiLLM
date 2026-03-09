@@ -380,12 +380,66 @@ func TestConfig_Validate_Distributed(t *testing.T) {
 		cfg.Distributed.Enabled = true
 		cfg.Distributed.Transports = map[string]TransportConfig{
 			"mio":    {Type: "local"},
+			"shiro":  {Type: "local"},
 			"coder3": {Type: "ssh", RemoteHost: "192.168.1.100:22", RemoteUser: "picoclaw", SSHKeyPath: "/path"},
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("Expected valid config, got error: %v", err)
 		}
 	})
+
+	t.Run("Distributed missing required shiro transport", func(t *testing.T) {
+		cfg := base()
+		cfg.Distributed.Enabled = true
+		cfg.Distributed.Transports = map[string]TransportConfig{
+			"mio":    {Type: "local"},
+			"coder3": {Type: "ssh", RemoteHost: "192.168.1.100:22", RemoteUser: "picoclaw", SSHKeyPath: "/path"},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("Expected error for missing required 'shiro' transport")
+		}
+	})
+}
+
+func TestLoadConfig_DistributedDefaults_AddsRequiredAgents(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "chat-v1"
+session:
+  storage_dir: "./data"
+distributed:
+  enabled: true
+  transports:
+    coder1:
+      type: local
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if _, ok := cfg.Distributed.Transports["mio"]; !ok {
+		t.Fatal("expected distributed transport 'mio' to be auto-added")
+	}
+	if _, ok := cfg.Distributed.Transports["shiro"]; !ok {
+		t.Fatal("expected distributed transport 'shiro' to be auto-added")
+	}
+	if cfg.Distributed.Transports["mio"].Type != "local" {
+		t.Fatalf("expected mio transport type local, got %q", cfg.Distributed.Transports["mio"].Type)
+	}
+	if cfg.Distributed.Transports["shiro"].Type != "local" {
+		t.Fatalf("expected shiro transport type local, got %q", cfg.Distributed.Transports["shiro"].Type)
+	}
 }
 
 func TestConfig_Validate_IdleChat(t *testing.T) {

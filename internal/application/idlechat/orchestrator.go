@@ -19,7 +19,8 @@ import (
 
 const (
 	idleCheckInterval = 30 * time.Second
-	minTopicInterval  = 10 * time.Second // テスト用: 10秒間隔
+	minTopicInterval  = 10 * time.Minute
+	minIdleCooldown   = 10 * time.Minute
 	ttsCharsPerSecond = 8.0
 	ttsMinWait        = 2 * time.Second
 	ttsMaxWait        = 20 * time.Second
@@ -177,8 +178,8 @@ func (o *IdleChatOrchestrator) SetChatBusy(busy bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.chatBusy = busy
+	o.lastActivity = time.Now()
 	if busy {
-		o.lastActivity = time.Now()
 		if o.manualMode {
 			log.Println("[IdleChat] Chat is active, stopping manual mode")
 			o.manualMode = false
@@ -195,8 +196,8 @@ func (o *IdleChatOrchestrator) SetWorkerBusy(busy bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.workerBusy = busy
+	o.lastActivity = time.Now()
 	if busy {
-		o.lastActivity = time.Now()
 		if o.manualMode {
 			log.Println("[IdleChat] Worker is active, stopping manual mode")
 			o.manualMode = false
@@ -294,6 +295,9 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	o.mu.Lock()
 	idleDuration := time.Since(o.lastActivity)
 	threshold := time.Duration(o.intervalMin) * time.Minute
+	if threshold < minIdleCooldown {
+		threshold = minIdleCooldown
+	}
 	now := time.Now()
 	nextTopicAt := o.nextTopicAt
 	alreadyActive := o.chatActive
@@ -409,6 +413,8 @@ func (o *IdleChatOrchestrator) runChatSession() {
 		endedAt := time.Now().In(jst)
 		o.saveSummary(sessionID, topic, strategy, transcript, startedAt, endedAt, segmentTurns, loopDetected)
 		o.mu.Lock()
+		// IdleChatセッション終了からは最低10分待機して次の会話を開始する。
+		o.lastActivity = endedAt
 		o.nextTopicAt = endedAt.Add(minTopicInterval)
 		o.mu.Unlock()
 		break

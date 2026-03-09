@@ -99,6 +99,44 @@ func TestIdleChatOrchestrator_NotifyActivity(t *testing.T) {
 	}
 }
 
+func TestIdleChatOrchestrator_SetChatBusy_UpdatesLastActivityOnRelease(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	old := time.Now().Add(-2 * time.Hour)
+	o.mu.Lock()
+	o.lastActivity = old
+	o.mu.Unlock()
+
+	o.SetChatBusy(false)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.lastActivity.After(old) {
+		t.Fatal("lastActivity should be updated when chat becomes idle")
+	}
+}
+
+func TestIdleChatOrchestrator_SetWorkerBusy_UpdatesLastActivityOnRelease(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	old := time.Now().Add(-2 * time.Hour)
+	o.mu.Lock()
+	o.lastActivity = old
+	o.mu.Unlock()
+
+	o.SetWorkerBusy(false)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.lastActivity.After(old) {
+		t.Fatal("lastActivity should be updated when worker becomes idle")
+	}
+}
+
 func TestIdleChatOrchestrator_ManualMode_StartStop(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
@@ -248,6 +286,48 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 	// セッション終了後はchatActive=false
 	if o.IsChatActive() {
 		t.Error("chatActive should be false after session completes")
+	}
+}
+
+func TestCheckAndStartChat_RequiresMinimumTenMinuteCooldown(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 1, 2, 0.8, nil)
+
+	o.mu.Lock()
+	o.lastActivity = time.Now().Add(-9 * time.Minute)
+	o.mu.Unlock()
+
+	o.checkAndStartChat()
+	if provider.callCount != 0 {
+		t.Fatalf("Expected 0 calls before 10-minute cooldown, got %d", provider.callCount)
+	}
+
+	o.mu.Lock()
+	o.lastActivity = time.Now().Add(-11 * time.Minute)
+	o.mu.Unlock()
+
+	o.checkAndStartChat()
+	if provider.callCount < 4 {
+		t.Fatalf("Expected session to start after cooldown, got %d calls", provider.callCount)
+	}
+}
+
+func TestRunChatSession_SetsTenMinuteTopicCooldown(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 1, 2, 0.8, nil)
+
+	o.mu.Lock()
+	o.chatActive = true
+	o.mu.Unlock()
+
+	o.runChatSession()
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.nextTopicAt.Sub(o.lastActivity) < 10*time.Minute {
+		t.Fatalf("expected nextTopicAt to be at least 10 minutes after lastActivity, got %v", o.nextTopicAt.Sub(o.lastActivity))
 	}
 }
 

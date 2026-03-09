@@ -166,6 +166,102 @@ func TestParsePatchUnknownFormat(t *testing.T) {
 	}
 }
 
+func TestParsePatch_JSONCodeFence(t *testing.T) {
+	patchStr := "```json\n[\n  {\n    \"type\": \"shell_command\",\n    \"action\": \"run\",\n    \"target\": \"echo hello\"\n  }\n]\n```"
+
+	commands, err := ParsePatch(patchStr)
+	if err != nil {
+		t.Fatalf("ParsePatch failed: %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("Expected 1 command, got %d", len(commands))
+	}
+	if commands[0].Type != TypeShellCommand {
+		t.Fatalf("Expected shell_command, got %s", commands[0].Type)
+	}
+	if commands[0].Target != "echo hello" {
+		t.Fatalf("Expected target 'echo hello', got %q", commands[0].Target)
+	}
+}
+
+func TestParsePatch_JSONWrappedCommands(t *testing.T) {
+	patchStr := `{
+  "commands": [
+    {
+      "command": "echo hello"
+    }
+  ]
+}`
+
+	commands, err := ParsePatch(patchStr)
+	if err != nil {
+		t.Fatalf("ParsePatch failed: %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("Expected 1 command, got %d", len(commands))
+	}
+	if commands[0].Type != TypeShellCommand {
+		t.Fatalf("Expected shell_command, got %s", commands[0].Type)
+	}
+	if commands[0].Action != ActionRun {
+		t.Fatalf("Expected run, got %s", commands[0].Action)
+	}
+	if commands[0].Target != "echo hello" {
+		t.Fatalf("Expected target 'echo hello', got %q", commands[0].Target)
+	}
+}
+
+func TestParsePatch_JSONAliasFields(t *testing.T) {
+	patchStr := `[
+  {
+    "path": "tmp/test.txt",
+    "op": "create",
+    "text": "hello"
+  }
+]`
+
+	commands, err := ParsePatch(patchStr)
+	if err != nil {
+		t.Fatalf("ParsePatch failed: %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("Expected 1 command, got %d", len(commands))
+	}
+	if commands[0].Type != TypeFileEdit {
+		t.Fatalf("Expected file_edit, got %s", commands[0].Type)
+	}
+	if commands[0].Action != ActionCreate {
+		t.Fatalf("Expected create, got %s", commands[0].Action)
+	}
+	if commands[0].Target != "tmp/test.txt" {
+		t.Fatalf("Expected target tmp/test.txt, got %q", commands[0].Target)
+	}
+	if commands[0].Content != "hello" {
+		t.Fatalf("Expected content 'hello', got %q", commands[0].Content)
+	}
+}
+
+func TestParsePatch_JSONCommandNameAlias(t *testing.T) {
+	patchStr := `{
+  "commands": [
+    {
+      "name": "go test ./..."
+    }
+  ]
+}`
+
+	commands, err := ParsePatch(patchStr)
+	if err != nil {
+		t.Fatalf("ParsePatch failed: %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("Expected 1 command, got %d", len(commands))
+	}
+	if commands[0].Target != "go test ./..." {
+		t.Fatalf("Expected target 'go test ./...', got %q", commands[0].Target)
+	}
+}
+
 func TestParseMarkdownPatchMultiline(t *testing.T) {
 	// 複数行のコードブロックが正しく解析されることを確認
 	markdownPatch := "```go:test.go\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"test\")\n}\n```"

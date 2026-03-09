@@ -316,6 +316,19 @@ func (c *Config) setDefaults() {
 	if c.WorkspaceDir == "" {
 		c.WorkspaceDir = "./workspace"
 	}
+
+	// v4.0 Distributed デフォルト（必須エージェント）
+	if c.Distributed.Enabled {
+		if c.Distributed.Transports == nil {
+			c.Distributed.Transports = make(map[string]TransportConfig)
+		}
+		if _, ok := c.Distributed.Transports["mio"]; !ok {
+			c.Distributed.Transports["mio"] = TransportConfig{Type: "local"}
+		}
+		if _, ok := c.Distributed.Transports["shiro"]; !ok {
+			c.Distributed.Transports["shiro"] = TransportConfig{Type: "local"}
+		}
+	}
 }
 
 
@@ -351,6 +364,12 @@ func (c *Config) Validate() error {
 	if c.Distributed.Enabled {
 		if len(c.Distributed.Transports) == 0 {
 			return fmt.Errorf("distributed.enabled=true requires at least one transport")
+		}
+		if _, ok := c.Distributed.Transports["mio"]; !ok {
+			return fmt.Errorf("distributed.transports.mio is required when distributed.enabled=true")
+		}
+		if _, ok := c.Distributed.Transports["shiro"]; !ok {
+			return fmt.Errorf("distributed.transports.shiro is required when distributed.enabled=true")
 		}
 		for name, tc := range c.Distributed.Transports {
 			if tc.Type != "local" && tc.Type != "ssh" {

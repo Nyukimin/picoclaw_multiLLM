@@ -211,59 +211,118 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	route routing.Route,
 	sessionID, jid string,
 ) (string, error) {
-	coderAgent := o.routeToCoder(route)
-	if coderAgent == "" {
+	primaryCoder := o.routeToCoder(route)
+	if primaryCoder == "" {
 		return "", fmt.Errorf("no coder mapped for route %s", route)
+	}
+	coderCandidates := []string{primaryCoder}
+	if route == routing.RouteCODE || route == routing.RouteCODE1 {
+		for _, alt := range []string{"coder1", "coder2", "coder3"} {
+			if alt == primaryCoder {
+				continue
+			}
+			if o.isCoderConnected(alt) {
+				coderCandidates = append(coderCandidates, alt)
+			}
+		}
 	}
 
 	o.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
 	o.emitNote("mio", "user", "しろにコード実装の取りまとめをお願いしたよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-	o.emit("agent.start", "shiro", coderAgent, t.UserMessage(), string(route), jid, sessionID, t.Channel(), t.ChatID())
-	o.emitNote("shiro", "mio", fmt.Sprintf("%sにコーディング依頼しました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
 
-	coderMsg := domaintransport.NewMessage("shiro", coderAgent, sessionID, jid, t.UserMessage())
-	coderMsg.Type = domaintransport.MessageTypeTask
-	coderMsg.Context = map[string]interface{}{"route": string(route)}
-	o.memory.RecordMessage(coderMsg)
+	var lastErr error
+	for idx, coderAgent := range coderCandidates {
+		o.emit("agent.start", "shiro", coderAgent, t.UserMessage(), string(route), jid, sessionID, t.Channel(), t.ChatID())
+		o.emitNote("shiro", "mio", fmt.Sprintf("%sにコーディング依頼しました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
 
-	coderResult, err := o.executeToAgent(ctx, coderAgent, coderMsg)
-	if err != nil {
-		return "", err
-	}
-	o.emit("agent.response", coderAgent, "shiro", coderResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-	o.emitNote(coderAgent, "shiro", "おわったっす。", string(route), jid, sessionID, t.Channel(), t.ChatID())
+		coderMsg := domaintransport.NewMessage("shiro", coderAgent, sessionID, jid, t.UserMessage())
+		coderMsg.Type = domaintransport.MessageTypeTask
+		coderMsg.Context = map[string]interface{}{"route": string(route)}
+		o.memory.RecordMessage(coderMsg)
 
-	if coderResult.Proposal == nil {
-		// Proposalが返らない場合もShiroを必ず経由して最終応答を返す。
-		o.emit("agent.start", "shiro", "mio", "Coder結果をShiroで整形", string(route), jid, sessionID, t.Channel(), t.ChatID())
-		shiroTask := domaintransport.NewMessage("mio", "shiro", sessionID, jid, coderResult.Content)
-		shiroTask.Type = domaintransport.MessageTypeTask
-		shiroTask.Context = map[string]interface{}{"route": string(route), "coder_agent": coderAgent}
-		o.memory.RecordMessage(shiroTask)
-		shiroResult, err := o.executeToAgent(ctx, "shiro", shiroTask)
+		coderResult, err := o.executeToAgent(ctx, coderAgent, coderMsg)
 		if err != nil {
-			return "", err
+			lastErr = err
+			if idx < len(coderCandidates)-1 {
+				o.emitNote("shiro", "mio",
+					fmt.Sprintf("%s が失敗したので別のCoderに切り替えます。", displayAgentName(coderAgent)),
+					string(route), jid, sessionID, t.Channel(), t.ChatID())
+				continue
+			}
+			break
+		}
+		o.emit("agent.response", coderAgent, "shiro", coderResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
+		o.emitNote(coderAgent, "shiro", "おわったっす。", string(route), jid, sessionID, t.Channel(), t.ChatID())
+
+		if coderResult.Proposal == nil {
+			// Proposalが返らない場合もShiroを必ず経由して最終応答を返す。
+			o.emit("agent.start", "shiro", "mio", "Coder結果をShiroで整形", string(route), jid, sessionID, t.Channel(), t.ChatID())
+			shiroTask := domaintransport.NewMessage("mio", "shiro", sessionID, jid, coderResult.Content)
+			shiroTask.Type = domaintransport.MessageTypeTask
+			shiroTask.Context = map[string]interface{}{"route": string(route), "coder_agent": coderAgent}
+			o.memory.RecordMessage(shiroTask)
+			shiroResult, err := o.executeToAgent(ctx, "shiro", shiroTask)
+			if err != nil {
+				lastErr = err
+				if idx < len(coderCandidates)-1 {
+					o.emitNote("shiro", "mio",
+						fmt.Sprintf("%s の結果整形で失敗したため別Coderに切り替えます。", displayAgentName(coderAgent)),
+						string(route), jid, sessionID, t.Channel(), t.ChatID())
+					continue
+				}
+				break
+			}
+			o.emit("agent.response", "shiro", "mio", shiroResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			o.emitNote("shiro", "mio", fmt.Sprintf("%sの作業が終わりました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
+			return shiroResult.Content, nil
+		}
+
+		o.emit("agent.start", "shiro", "mio", "CoderのProposalをWorker実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
+
+		execMsg := domaintransport.NewMessage("mio", "shiro", sessionID, jid, "Execute coder proposal")
+		execMsg.Type = domaintransport.MessageTypeTask
+		execMsg.Context = map[string]interface{}{"route": string(route), "coder_agent": coderAgent}
+		execMsg.Proposal = coderResult.Proposal
+		o.memory.RecordMessage(execMsg)
+
+		shiroResult, err := o.executeToAgent(ctx, "shiro", execMsg)
+		if err != nil {
+			lastErr = err
+			if idx < len(coderCandidates)-1 {
+				o.emitNote("shiro", "mio",
+					fmt.Sprintf("%s の実行フェーズで失敗したため別Coderに切り替えます。", displayAgentName(coderAgent)),
+					string(route), jid, sessionID, t.Channel(), t.ChatID())
+				continue
+			}
+			break
 		}
 		o.emit("agent.response", "shiro", "mio", shiroResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
 		o.emitNote("shiro", "mio", fmt.Sprintf("%sの作業が終わりました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
 		return shiroResult.Content, nil
 	}
 
-	o.emit("agent.start", "shiro", "mio", "CoderのProposalをWorker実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
-
-	execMsg := domaintransport.NewMessage("mio", "shiro", sessionID, jid, "Execute coder proposal")
-	execMsg.Type = domaintransport.MessageTypeTask
-	execMsg.Context = map[string]interface{}{"route": string(route), "coder_agent": coderAgent}
-	execMsg.Proposal = coderResult.Proposal
-	o.memory.RecordMessage(execMsg)
-
-	shiroResult, err := o.executeToAgent(ctx, "shiro", execMsg)
-	if err != nil {
-		return "", err
+	if lastErr != nil {
+		// 最終フォールバック: Proposal経由が全滅した場合は、Shiroに直接タスク実行を委譲する。
+		o.emitNote("shiro", "mio",
+			"Coder経由の実行に失敗したため、しろが直接実装を試みます。",
+			string(route), jid, sessionID, t.Channel(), t.ChatID())
+		directTask := domaintransport.NewMessage("mio", "shiro", sessionID, jid, t.UserMessage())
+		directTask.Type = domaintransport.MessageTypeTask
+		directTask.Context = map[string]interface{}{
+			"route":               string(route),
+			"fallback_mode":       "direct_shiro",
+			"coder_failure_error": lastErr.Error(),
+		}
+		o.memory.RecordMessage(directTask)
+		directResult, err := o.executeToAgent(ctx, "shiro", directTask)
+		if err == nil {
+			o.emit("agent.response", "shiro", "mio", directResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			o.emitNote("shiro", "mio", "直接実装で完了しました。", string(route), jid, sessionID, t.Channel(), t.ChatID())
+			return directResult.Content, nil
+		}
+		return "", fmt.Errorf("all coder attempts failed (direct shiro fallback failed): %w", err)
 	}
-	o.emit("agent.response", "shiro", "mio", shiroResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-	o.emitNote("shiro", "mio", fmt.Sprintf("%sの作業が終わりました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
-	return shiroResult.Content, nil
+	return "", fmt.Errorf("all coder attempts failed")
 }
 
 // executeViaSSH はSSH Transport経由でリモートAgentと通信
@@ -291,6 +350,8 @@ func (o *DistributedOrchestrator) executeViaSSH(ctx context.Context, sshTranspor
 	log.Printf("[DistributedOrch] Received SSH response from %s (type=%s)", result.From, result.Type)
 
 	if result.Type == domaintransport.MessageTypeError {
+		log.Printf("[DistributedOrch] SSH error response: from=%s to=%s job=%s content=%s",
+			result.From, result.To, result.JobID, result.Content)
 		return "", fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
 	}
 
@@ -354,6 +415,8 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 	log.Printf("[DistributedOrch] Received response from %s (type=%s)", result.From, result.Type)
 
 	if result.Type == domaintransport.MessageTypeError {
+		log.Printf("[DistributedOrch] Local error response: from=%s to=%s job=%s content=%s",
+			result.From, result.To, result.JobID, result.Content)
 		return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
 	}
 
