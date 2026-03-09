@@ -1,6 +1,6 @@
 # PicoClaw ドキュメント
 
-**最終更新**: 2026-03-05
+**最終更新**: 2026-03-09
 
 ---
 
@@ -144,6 +144,17 @@ Discord / Slack / 音声入出力のアダプター追加仕様。
 | セッション ID 規約（チャネル横断） | 設計完了 |
 | 設定ファイル拡張 (channels) | 未実装 |
 
+### 2.7 実装仕様_OpenClaw移植_v1.md
+
+OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
+
+| 内容 | 状態 |
+|------|------|
+| Execution Contract（依頼→実行契約） | 設計完了 |
+| Autonomous Executor（Plan→Apply→Verify→Repair） | 設計完了 |
+| TTS Capability Pack（OpenAI→ElevenLabs→local） | 設計完了 |
+| Evidence（execution_report） | 設計完了 |
+
 ---
 
 ## 3. 設計文書
@@ -182,6 +193,12 @@ OpenClaw 機能を基準にした PicoClaw への移植計画。
 | Coder3_Claude_API仕様.md | Claude API 運用、Proposal生成 |
 | LLM_Worker_Spec_v1_0.md | Worker（Shiro）の仕様 |
 | LLM_Ollama常駐管理.md | Ollama 常駐管理、ヘルスチェック |
+
+### 4.3 実装ガイド進行管理
+
+| ファイル | 内容 |
+|---------|------|
+| 20260309_OpenClaw移植_runbook.md | OpenClaw移植の実機検証手順（E2E実再生完了判定） |
 
 ---
 

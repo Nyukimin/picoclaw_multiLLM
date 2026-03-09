@@ -500,6 +500,7 @@ picoclaw/
 - **[docs/仕様.md](docs/仕様.md)** - 要件定義（286行）
 - **[docs/実装仕様_v3.md](docs/実装仕様_v3.md)** - v3クリーンアーキテクチャ版（3,067行）
 - **[docs/実装仕様_分散実行_v4.md](docs/実装仕様_分散実行_v4.md)** - v4分散実行対応版（SSH Transport、統合バイナリ）
+- **[docs/実装仕様_OpenClaw移植_v1.md](docs/実装仕様_OpenClaw移植_v1.md)** - OpenClaw移植仕様（実装実行能力）
 
 ### LLM運用
 
@@ -514,6 +515,7 @@ picoclaw/
 ### その他
 
 - **[docs/README.md](docs/README.md)** - ドキュメント一覧
+- **[docs/06_実装ガイド進行管理/20260309_OpenClaw移植_runbook.md](docs/06_実装ガイド進行管理/20260309_OpenClaw移植_runbook.md)** - OpenClaw移植 実機検証Runbook
 - **[docs/archive/](docs/archive/)** - 旧ドキュメント（参考資料）
 
 ---
