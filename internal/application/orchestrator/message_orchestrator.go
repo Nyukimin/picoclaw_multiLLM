@@ -247,75 +247,10 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		return resp, err
 
 	case routing.RouteCODE:
-		return o.executeCodeFallbackChain(ctx, t)
+		return o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
 
-	case routing.RouteCODE1:
-		if o.coder1 == nil {
-			return "", fmt.Errorf("CODE1 route requested but no coder1 available")
-		}
-		o.emit("agent.start", "mio", "coder1", "仕様設計を依頼", "CODE1", jid, sessionID, channel, chatID)
-		resp, err := o.coder1.Generate(ctx, t, "You are a specification design assistant.")
-		if err == nil {
-			o.emit("agent.response", "coder1", "mio", truncate(resp, 500), "CODE1", jid, sessionID, channel, chatID)
-		}
-		return resp, err
-
-	case routing.RouteCODE2:
-		if o.coder2 == nil {
-			return "", fmt.Errorf("CODE2 route requested but no coder2 available")
-		}
-		o.emit("agent.start", "mio", "coder2", "実装を依頼", "CODE2", jid, sessionID, channel, chatID)
-		resp, err := o.coder2.Generate(ctx, t, "You are an implementation assistant.")
-		if err == nil {
-			o.emit("agent.response", "coder2", "mio", truncate(resp, 500), "CODE2", jid, sessionID, channel, chatID)
-		}
-		return resp, err
-
-	case routing.RouteCODE3:
-		if o.coder3 == nil {
-			return "", fmt.Errorf("CODE3 route requested but no coder3 available")
-		}
-
-		// Coder3がProposal生成をサポートするか確認
-		if coderWithProposal, ok := o.coder3.(CoderAgentWithProposal); ok {
-			o.emit("agent.start", "mio", "shiro", "Coder3にコード生成を依頼します", "CODE3", jid, sessionID, channel, chatID)
-			o.emit("agent.start", "shiro", "coder3", t.UserMessage(), "CODE3", jid, sessionID, channel, chatID)
-
-			// Proposal生成 → Worker即時実行
-			p, err := coderWithProposal.GenerateProposal(ctx, t)
-			if err != nil {
-				o.emit("agent.response", "coder3", "shiro", "エラー: "+err.Error(), "CODE3", jid, sessionID, channel, chatID)
-				return "", fmt.Errorf("coder3 proposal generation failed: %w", err)
-			}
-
-			if p == nil || !p.IsValid() {
-				o.emit("agent.response", "coder3", "shiro", "無効な Proposal が返されました", "CODE3", jid, sessionID, channel, chatID)
-				return "", fmt.Errorf("coder3 generated invalid proposal")
-			}
-
-			o.emit("agent.response", "coder3", "shiro", "## Plan\n"+p.Plan(), "CODE3", jid, sessionID, channel, chatID)
-			o.emit("agent.start", "shiro", "mio", "Patch を実行中...", "CODE3", jid, sessionID, channel, chatID)
-
-			// Worker即時実行（核心機能）
-			result, err := o.workerExecution.ExecuteProposal(ctx, t.JobID(), p)
-			if err != nil {
-				o.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), "CODE3", jid, sessionID, channel, chatID)
-				return "", fmt.Errorf("worker execution failed: %w", err)
-			}
-
-			// 結果をフォーマット
-			formatted := o.formatExecutionResult(p, result)
-			o.emit("agent.response", "shiro", "mio", formatted, "CODE3", jid, sessionID, channel, chatID)
-			return formatted, nil
-		}
-
-		// フォールバック：Proposal非対応の場合は通常のGenerate()を使用
-		o.emit("agent.start", "mio", "coder3", "コードレビューを依頼", "CODE3", jid, sessionID, channel, chatID)
-		resp, err := o.coder3.Generate(ctx, t, "You are a high-quality code review and reasoning assistant.")
-		if err == nil {
-			o.emit("agent.response", "coder3", "mio", truncate(resp, 500), "CODE3", jid, sessionID, channel, chatID)
-		}
-		return resp, err
+	case routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+		return o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
 
 	case routing.RoutePLAN:
 		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid, sessionID, channel, chatID)
@@ -355,6 +290,163 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 	}
 }
 
+type codeTarget struct {
+	name         string
+	coder        CoderAgent
+	systemPrompt string
+	release      func()
+}
+
+func (o *MessageOrchestrator) coderByName(name string) CoderAgent {
+	switch name {
+	case "coder1":
+		return o.coder1
+	case "coder2":
+		return o.coder2
+	case "coder3":
+		return o.coder3
+	default:
+		return nil
+	}
+}
+
+func explicitCodeRouteTarget(route routing.Route) (name, prompt string, ok bool) {
+	switch route {
+	case routing.RouteCODE1:
+		return "coder1", "You are a specification design assistant.", true
+	case routing.RouteCODE2:
+		return "coder2", "You are an implementation assistant.", true
+	case routing.RouteCODE3:
+		return "coder3", "You are a high-quality code review and reasoning assistant.", true
+	default:
+		return "", "", false
+	}
+}
+
+func (o *MessageOrchestrator) selectCoderForRoute(route routing.Route) (codeTarget, error) {
+	if name, prompt, ok := explicitCodeRouteTarget(route); ok {
+		coder := o.coderByName(name)
+		if coder == nil {
+			return codeTarget{}, fmt.Errorf("%s route requested but no %s available", route, name)
+		}
+		return codeTarget{name: name, coder: coder, systemPrompt: prompt}, nil
+	}
+
+	switch route {
+	case routing.RouteCODE:
+		type coderEntry struct {
+			name  string
+			coder CoderAgent
+		}
+		chain := []coderEntry{
+			{name: "coder1", coder: o.coder1},
+			{name: "coder2", coder: o.coder2},
+			{name: "coder3", coder: o.coder3},
+		}
+		for _, c := range chain {
+			if c.coder == nil {
+				continue
+			}
+			if !o.coderStatus.Acquire(c.name) {
+				continue
+			}
+			coderName := c.name
+			return codeTarget{
+				name:         coderName,
+				coder:        c.coder,
+				systemPrompt: "You are a code generation assistant.",
+				release: func() {
+					o.coderStatus.Release(coderName)
+				},
+			}, nil
+		}
+		return codeTarget{}, fmt.Errorf("CODE route requested but all coders are busy or unavailable")
+	default:
+		return codeTarget{}, fmt.Errorf("unknown code route: %s", route)
+	}
+}
+
+func (o *MessageOrchestrator) executeCodeViaShiro(
+	ctx context.Context,
+	t task.Task,
+	route routing.Route,
+	sessionID, channel, chatID string,
+) (string, error) {
+	jid := t.JobID().String()
+	target, err := o.selectCoderForRoute(route)
+	if err != nil {
+		return "", err
+	}
+	if target.release != nil {
+		defer target.release()
+	}
+
+	o.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", route.String(), jid, sessionID, channel, chatID)
+	o.emit("agent.start", "shiro", target.name, t.UserMessage(), route.String(), jid, sessionID, channel, chatID)
+
+	// CODE3 明示ルートは Proposal 生成が可能なら Worker で即時実行する。
+	if route == routing.RouteCODE3 && o.workerExecution != nil {
+		if resp, handled, err := o.tryExecuteProposalPath(ctx, t, route, target, sessionID, channel, chatID, jid); handled {
+			return resp, err
+		}
+	}
+
+	return o.executeCoderGeneratePath(ctx, t, route, target, sessionID, channel, chatID, jid)
+}
+
+func (o *MessageOrchestrator) tryExecuteProposalPath(
+	ctx context.Context,
+	t task.Task,
+	route routing.Route,
+	target codeTarget,
+	sessionID, channel, chatID, jid string,
+) (string, bool, error) {
+	coderWithProposal, ok := target.coder.(CoderAgentWithProposal)
+	if !ok {
+		return "", false, nil
+	}
+
+	p, err := coderWithProposal.GenerateProposal(ctx, t)
+	if err != nil {
+		o.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), route.String(), jid, sessionID, channel, chatID)
+		return "", true, fmt.Errorf("%s proposal generation failed: %w", target.name, err)
+	}
+	if p == nil || !p.IsValid() {
+		o.emit("agent.response", target.name, "shiro", "無効な Proposal が返されました", route.String(), jid, sessionID, channel, chatID)
+		return "", true, fmt.Errorf("%s generated invalid proposal", target.name)
+	}
+
+	o.emit("agent.response", target.name, "shiro", "## Plan\n"+p.Plan(), route.String(), jid, sessionID, channel, chatID)
+	o.emit("agent.start", "shiro", "mio", "Patch を実行中...", route.String(), jid, sessionID, channel, chatID)
+
+	result, err := o.workerExecution.ExecuteProposal(ctx, t.JobID(), p)
+	if err != nil {
+		o.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), route.String(), jid, sessionID, channel, chatID)
+		return "", true, fmt.Errorf("worker execution failed: %w", err)
+	}
+
+	formatted := o.formatExecutionResult(p, result)
+	o.emit("agent.response", "shiro", "mio", formatted, route.String(), jid, sessionID, channel, chatID)
+	return formatted, true, nil
+}
+
+func (o *MessageOrchestrator) executeCoderGeneratePath(
+	ctx context.Context,
+	t task.Task,
+	route routing.Route,
+	target codeTarget,
+	sessionID, channel, chatID, jid string,
+) (string, error) {
+	resp, err := target.coder.Generate(ctx, t, target.systemPrompt)
+	if err != nil {
+		o.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), route.String(), jid, sessionID, channel, chatID)
+		return "", err
+	}
+	o.emit("agent.response", target.name, "shiro", truncate(resp, 500), route.String(), jid, sessionID, channel, chatID)
+	o.emit("agent.response", "shiro", "mio", truncate(resp, 500), route.String(), jid, sessionID, channel, chatID)
+	return resp, nil
+}
+
 // truncate はビュワー表示用に長いテキストを切り詰める
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
@@ -374,33 +466,6 @@ func truncate(s string, maxLen int) string {
 		b.WriteString(line)
 	}
 	return b.String()
-}
-
-// executeCodeFallbackChain はCODEルートのフォールバックチェーン実行
-// Coder1 → Coder2 → Coder3 の順に利用可能なCoderを試行する
-func (o *MessageOrchestrator) executeCodeFallbackChain(ctx context.Context, t task.Task) (string, error) {
-	type coderEntry struct {
-		name  string
-		coder CoderAgent
-	}
-	chain := []coderEntry{
-		{"coder1", o.coder1},
-		{"coder2", o.coder2},
-		{"coder3", o.coder3},
-	}
-
-	for _, c := range chain {
-		if c.coder == nil {
-			continue
-		}
-		if !o.coderStatus.Acquire(c.name) {
-			continue // ビジー → 次へ
-		}
-		defer o.coderStatus.Release(c.name)
-		return c.coder.Generate(ctx, t, "You are a code generation assistant.")
-	}
-
-	return "", fmt.Errorf("CODE route requested but all coders are busy or unavailable")
 }
 
 // formatExecutionResult はProposalとPatchExecutionResultを整形

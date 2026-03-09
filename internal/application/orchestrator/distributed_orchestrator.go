@@ -376,15 +376,42 @@ func (o *DistributedOrchestrator) routeToAgent(route routing.Route) string {
 
 func (o *DistributedOrchestrator) routeToCoder(route routing.Route) string {
 	switch route {
-	case routing.RouteCODE, routing.RouteCODE1:
-		return "coder1"
+	case routing.RouteCODE:
+		for _, coder := range []string{"coder1", "coder2", "coder3"} {
+			if o.isCoderConnected(coder) {
+				return coder
+			}
+		}
+		return ""
+	case routing.RouteCODE1:
+		if o.isCoderConnected("coder1") {
+			return "coder1"
+		}
+		return ""
 	case routing.RouteCODE2:
-		return "coder2"
+		if o.isCoderConnected("coder2") {
+			return "coder2"
+		}
+		return ""
 	case routing.RouteCODE3:
-		return "coder3"
+		if o.isCoderConnected("coder3") {
+			return "coder3"
+		}
+		return ""
 	default:
 		return ""
 	}
+}
+
+func (o *DistributedOrchestrator) isCoderConnected(agent string) bool {
+	if _, ok := o.sshTransports[agent]; ok {
+		return true
+	}
+	if o.router == nil {
+		return false
+	}
+	_, ok := o.router.GetAgent(agent)
+	return ok
 }
 
 func isCodeRoute(route routing.Route) bool {

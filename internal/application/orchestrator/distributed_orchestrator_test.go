@@ -201,6 +201,55 @@ func TestDistributedOrchestrator_RouteToAgent(t *testing.T) {
 	}
 }
 
+func TestDistributedOrchestrator_RouteToCoder_ConnectionAware(t *testing.T) {
+	mockMio := &distMockMioAgent{}
+	mockRepo := &distMockSessionRepo{}
+
+	t.Run("CODE_falls_back_to_connected_coder", func(t *testing.T) {
+		router := transport.NewMessageRouter()
+		defer router.Stop()
+		router.RegisterAgent("coder2", transport.NewLocalTransport())
+		memory := session.NewCentralMemory()
+
+		orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+		if got := orch.routeToCoder(routing.RouteCODE); got != "coder2" {
+			t.Fatalf("routeToCoder(CODE) = %q, want coder2", got)
+		}
+	})
+
+	t.Run("CODE_uses_ssh_connected_coder", func(t *testing.T) {
+		router := transport.NewMessageRouter()
+		defer router.Stop()
+		memory := session.NewCentralMemory()
+
+		sshTransports := map[string]domaintransport.Transport{
+			"coder3": &distMockTransport{},
+		}
+		orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, sshTransports)
+		if got := orch.routeToCoder(routing.RouteCODE); got != "coder3" {
+			t.Fatalf("routeToCoder(CODE) = %q, want coder3", got)
+		}
+	})
+
+	t.Run("explicit_route_requires_its_own_coder_connection", func(t *testing.T) {
+		router := transport.NewMessageRouter()
+		defer router.Stop()
+		router.RegisterAgent("coder2", transport.NewLocalTransport())
+		memory := session.NewCentralMemory()
+		orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+
+		if got := orch.routeToCoder(routing.RouteCODE1); got != "" {
+			t.Fatalf("routeToCoder(CODE1) = %q, want empty", got)
+		}
+		if got := orch.routeToCoder(routing.RouteCODE2); got != "coder2" {
+			t.Fatalf("routeToCoder(CODE2) = %q, want coder2", got)
+		}
+		if got := orch.routeToCoder(routing.RouteCODE3); got != "" {
+			t.Fatalf("routeToCoder(CODE3) = %q, want empty", got)
+		}
+	})
+}
+
 // distMockTransport はSSH経路テスト用のmock Transport
 type distMockTransport struct {
 	sentMessages []domaintransport.Message
@@ -346,5 +395,28 @@ func TestDistributedOrchestrator_DistributedExecution(t *testing.T) {
 
 	if memory.AgentCount() < 2 {
 		t.Errorf("Expected at least 2 agents in memory, got %d", memory.AgentCount())
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_CodeRoute_UnconnectedExplicitCoder(t *testing.T) {
+	mockMio := &distMockMioAgent{routeResponse: "CODE1"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "test-session",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "generate code",
+	})
+	if err == nil {
+		t.Fatal("expected error for unconnected CODE1 coder")
+	}
+	if !strings.Contains(err.Error(), "no coder mapped for route CODE1") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
