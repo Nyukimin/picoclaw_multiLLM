@@ -302,18 +302,16 @@ func pickRandom(slice []string, n int) []string {
 }
 
 // chooseStrategy は生成戦略をランダムに選択
-// single: 25%, double: 40%, external: 25%, anti: 10%
+// single: 40%, double: 30%, external: 30%
 func chooseStrategy() TopicStrategy {
 	r := rand.Intn(100)
 	switch {
-	case r < 25:
+	case r < 40:
 		return StrategySingleGenre
-	case r < 65:
+	case r < 70:
 		return StrategyDoubleGenre
-	case r < 90:
-		return StrategyExternalStimulus
 	default:
-		return StrategyAntiPattern
+		return StrategyExternalStimulus
 	}
 }
 

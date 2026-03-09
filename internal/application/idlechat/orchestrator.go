@@ -480,9 +480,11 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 		prompt, source = generateExternalPrompt()
 		logInfo = fmt.Sprintf("external:%s", source)
 
-	case StrategyAntiPattern:
-		prompt = generateAntiPatternPrompt(recentTopics)
-		logInfo = "anti-pattern"
+	default:
+		// Fallback to single genre
+		var genres []string
+		prompt, genres = generateSingleGenrePrompt(recentTopics)
+		logInfo = fmt.Sprintf("single:%v (fallback)", genres)
 	}
 
 	log.Printf("[IdleChat] Strategy: %s (%s)", strategy, logInfo)
