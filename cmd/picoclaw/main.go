@@ -488,6 +488,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 7. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
+	centralMemory := domainsession.NewCentralMemory()
 
 	// セッションディレクトリ作成
 	if err := os.MkdirAll(cfg.Session.StorageDir, 0755); err != nil {
@@ -525,10 +526,52 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		})
 	}
 
-	// 9. v3/v4 モード分岐
+	// 9. IdleChat（有効な場合）
+	log.Printf("[DEBUG] IdleChat.Enabled=%v, Participants=%v, IntervalMin=%d",
+		cfg.IdleChat.Enabled, cfg.IdleChat.Participants, cfg.IdleChat.IntervalMin)
+	if cfg.IdleChat.Enabled {
+		idleChatOrch := idlechat.NewIdleChatOrchestrator(
+			ollamaProvider,
+			centralMemory,
+			cfg.IdleChat.Participants,
+			cfg.IdleChat.IntervalMin,
+			cfg.IdleChat.MaxTurns,
+			cfg.IdleChat.Temperature,
+			cfg.Prompts.IdleChatAgents,
+		)
+		topicStorePath := filepath.Join(cfg.Session.StorageDir, "idlechat_topics.jsonl")
+		if err := idleChatOrch.SetTopicStore(topicStorePath); err != nil {
+			log.Printf("WARN: idleChat topic store disabled: %v", err)
+		} else {
+			log.Printf("IdleChat topic store enabled: %s", topicStorePath)
+		}
+		if deps.eventHub != nil {
+			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) {
+				deps.eventHub.OnEvent(orchestrator.NewEvent(
+					ev.Type,
+					ev.From,
+					ev.To,
+					ev.Content,
+					"IDLECHAT",
+					"",
+					ev.SessionID,
+					"idlechat",
+					"idlechat",
+				))
+			})
+		}
+		if deps.eventRelay != nil {
+			deps.eventRelay.SetIdleChat(idleChatOrch)
+		}
+		idleChatOrch.Start()
+		deps.idleChatOrch = idleChatOrch
+		log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
+	}
+
+	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider, centralMemory)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 	} else {
 		log.Println("=== v3 Local Mode ===")
@@ -543,6 +586,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			workerExecutionService,
 		)
 		orch.SetEventListener(deps.eventRelay)
+		// IdleChat統合（有効な場合）
+		if deps.idleChatOrch != nil {
+			orch.SetIdleNotifier(deps.idleChatOrch)
+			log.Printf("IdleChat integrated with MessageOrchestrator")
+		}
 		deps.lineHandler = line.NewHandler(orch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 		deps.viewerSend = viewerSendFromOrch(orch)
 	}
@@ -594,6 +642,7 @@ func (d *Dependencies) buildDistributedMode(
 	sessionRepo orchestrator.SessionRepository,
 	mioAgent *agent.MioAgent,
 	ollamaProvider llm.LLMProvider,
+	centralMemory *domainsession.CentralMemory,
 ) {
 	// Transport Factory でAgent別Transport生成
 	factory := transport.NewTransportFactory()
@@ -623,9 +672,6 @@ func (d *Dependencies) buildDistributedMode(
 	d.router = router
 	d.sshTransports = sshTransports
 
-	// CentralMemory
-	centralMemory := domainsession.NewCentralMemory()
-
 	// DistributedOrchestrator（Local + SSH transports）
 	distOrch := orchestrator.NewDistributedOrchestrator(
 		sessionRepo,
@@ -640,45 +686,10 @@ func (d *Dependencies) buildDistributedMode(
 	}
 	d.lineHandler = line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 
-	// IdleChat（有効な場合）
-	if cfg.IdleChat.Enabled {
-		idleChatOrch := idlechat.NewIdleChatOrchestrator(
-			ollamaProvider,
-			centralMemory,
-			cfg.IdleChat.Participants,
-			cfg.IdleChat.IntervalMin,
-			cfg.IdleChat.MaxTurns,
-			cfg.IdleChat.Temperature,
-			cfg.Prompts.IdleChatAgents,
-		)
-		topicStorePath := filepath.Join(cfg.Session.StorageDir, "idlechat_topics.jsonl")
-		if err := idleChatOrch.SetTopicStore(topicStorePath); err != nil {
-			log.Printf("WARN: idleChat topic store disabled: %v", err)
-		} else {
-			log.Printf("IdleChat topic store enabled: %s", topicStorePath)
-		}
-		if d.eventHub != nil {
-			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) {
-				d.eventHub.OnEvent(orchestrator.NewEvent(
-					ev.Type,
-					ev.From,
-					ev.To,
-					ev.Content,
-					"IDLECHAT",
-					"",
-					ev.SessionID,
-					"idlechat",
-					"idlechat",
-				))
-			})
-		}
-		distOrch.SetIdleNotifier(idleChatOrch)
-		if d.eventRelay != nil {
-			d.eventRelay.SetIdleChat(idleChatOrch)
-		}
-		idleChatOrch.Start()
-		d.idleChatOrch = idleChatOrch
-		log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
+	// IdleChat統合（有効な場合）
+	if d.idleChatOrch != nil {
+		distOrch.SetIdleNotifier(d.idleChatOrch)
+		log.Printf("IdleChat integrated with DistributedOrchestrator")
 	}
 }
 

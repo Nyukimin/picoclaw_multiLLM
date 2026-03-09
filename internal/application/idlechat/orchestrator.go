@@ -19,7 +19,7 @@ import (
 
 const (
 	idleCheckInterval = 30 * time.Second
-	minTopicInterval  = 10 * time.Minute
+	minTopicInterval  = 10 * time.Second // テスト用: 10秒間隔
 	ttsCharsPerSecond = 8.0
 	ttsMinWait        = 2 * time.Second
 	ttsMaxWait        = 20 * time.Second
@@ -30,21 +30,11 @@ var jst = time.FixedZone("JST", 9*60*60)
 var randSeedOnce sync.Once
 var promptLeakLineRe = regexp.MustCompile(`(?i)(^|[。．\n])[^。．\n]{0,30}(発言として受け|要件[:：]|発言帰属ガード)[^。．\n]*`)
 
-type TopicCategory string
-
-const (
-	TopicUserRelated TopicCategory = "user_related"
-	TopicCurrent     TopicCategory = "current_events"
-	TopicTech        TopicCategory = "tech"
-	TopicWorkerDB    TopicCategory = "worker_db"
-	TopicRandom      TopicCategory = "random"
-)
-
 type SessionSummary struct {
 	SessionID       string        `json:"session_id"`
 	Title           string        `json:"title"`
 	Topic           string        `json:"topic"`
-	Category        TopicCategory `json:"category"`
+	Strategy        TopicStrategy `json:"strategy"` // 生成戦略（旧 Category）
 	Summary         string        `json:"summary"`
 	StartedAt       string        `json:"started_at"`
 	EndedAt         string        `json:"ended_at"`
@@ -82,7 +72,6 @@ type IdleChatOrchestrator struct {
 	currentTopic string
 	nextTopicAt  time.Time
 	history      []SessionSummary
-	categoryBag  []TopicCategory
 	emitEvent    func(TimelineEvent)
 	topicStore   *TopicStore
 
@@ -148,6 +137,13 @@ func NewIdleChatOrchestrator(
 
 // Start はIdleChatの監視ループを開始
 func (o *IdleChatOrchestrator) Start() {
+	// 起動時に外部シード取得（非同期）
+	go func() {
+		if err := fetchDailySeeds(); err != nil {
+			log.Printf("[IdleChat] Daily seeds fetch failed: %v", err)
+		}
+	}()
+
 	o.wg.Add(1)
 	go o.monitorLoop()
 	log.Printf("[IdleChat] Started (participants=%v, interval=%dmin, maxTurns=%d)",
@@ -306,6 +302,9 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	manualMode := o.manualMode
 	o.mu.Unlock()
 
+	log.Printf("[IdleChat] checkAndStartChat: active=%v, chatBusy=%v, workerBusy=%v, manualMode=%v, idleDuration=%v, threshold=%v, nextTopicAt=%v",
+		alreadyActive, chatBusy, workerBusy, manualMode, idleDuration.Round(time.Second), threshold, nextTopicAt)
+
 	if alreadyActive {
 		return
 	}
@@ -338,12 +337,12 @@ func (o *IdleChatOrchestrator) runChatSession() {
 	remainingTurns := o.maxTurns
 
 	for remainingTurns > 0 {
-		topic, category := o.generateTopicFromChat(sessionID)
+		topic, strategy := o.generateTopicFromChat(sessionID)
 		o.mu.Lock()
 		o.currentTopic = topic
 		o.mu.Unlock()
-		log.Printf("[IdleChat] Topic: %s (%s)", topic, category)
-		o.emitTopicToTimeline(sessionID, topic, category)
+		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
+		o.emitTopicToTimeline(sessionID, topic, strategy)
 
 		segmentTurns := 0
 		loopDetected := false
@@ -411,7 +410,7 @@ func (o *IdleChatOrchestrator) runChatSession() {
 
 		remainingTurns -= segmentTurns
 		endedAt := time.Now().In(jst)
-		o.saveSummary(sessionID, topic, category, transcript, startedAt, endedAt, segmentTurns, loopDetected)
+		o.saveSummary(sessionID, topic, strategy, transcript, startedAt, endedAt, segmentTurns, loopDetected)
 		o.mu.Lock()
 		o.nextTopicAt = endedAt.Add(minTopicInterval)
 		o.mu.Unlock()
@@ -460,17 +459,48 @@ func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
 	return 0
 }
 
-func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, TopicCategory) {
-	category := o.chooseTopicCategory()
-	contextHints := o.buildTopicHints(category)
+func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, TopicStrategy) {
+	// 戦略選択（chaos: 70%, external: 20%, anti: 10%）
+	strategy := chooseStrategy()
 	recentTopics := o.getRecentTopics(12)
 
+	var prompt string
+	var logInfo string
+
+	switch strategy {
+	case StrategyWeakChaos:
+		var genres []string
+		prompt, genres = generateWeakChaosPrompt(recentTopics)
+		logInfo = fmt.Sprintf("weak_chaos:%v", genres)
+
+	case StrategyStrongChaos:
+		var genres []string
+		prompt, genres = generateStrongChaosPrompt(recentTopics)
+		logInfo = fmt.Sprintf("strong_chaos:%v", genres)
+
+	case StrategyExternalStimulus:
+		var source string
+		prompt, source = generateExternalPrompt()
+		logInfo = fmt.Sprintf("external:%s", source)
+
+	case StrategyAntiPattern:
+		prompt = generateAntiPatternPrompt(recentTopics)
+		logInfo = "anti-pattern"
+	}
+
+	log.Printf("[IdleChat] Strategy: %s (%s)", strategy, logInfo)
+
+	// トピック生成（最大3回リトライ）
 	for attempt := 0; attempt < 3; attempt++ {
 		messages := []llm.Message{
 			{Role: "system", Content: o.getSystemPrompt("mio")},
-			{Role: "user", Content: fmt.Sprintf("idleChatの話題を1つだけ提案してください。カテゴリ=%s。要件: 深く考察でき、かつエンターテイメント性がある具体的な話題。さらに『え？そこいく？』と思う意外性を重視し、分野横断（例: 科学×文化、歴史×プロダクト）の切り口を優先。回答は話題1文のみ。過去トピックと同型・同趣旨を避ける。参考情報: %s。直近トピック: %s", category, contextHints, strings.Join(recentTopics, " / "))},
+			{Role: "user", Content: prompt},
 		}
-		req := llm.GenerateRequest{Messages: messages, MaxTokens: 120, Temperature: 0.8 + float64(attempt)*0.05}
+		req := llm.GenerateRequest{
+			Messages:    messages,
+			MaxTokens:   150,
+			Temperature: 0.9 + float64(attempt)*0.05, // 高めの温度で多様性確保
+		}
 		resp, err := o.llmProvider.Generate(o.ctx, req)
 		if err != nil {
 			log.Printf("[IdleChat] topic generation failed: %v", err)
@@ -484,30 +514,14 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 			log.Printf("[IdleChat] topic too similar to recent history, retrying: %s", truncate(topic, 80))
 			continue
 		}
-		return topic, category
+		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
+		return topic, strategy
 	}
 
-	return o.fallbackTopic(category), category
-}
-
-func (o *IdleChatOrchestrator) chooseTopicCategory() TopicCategory {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if len(o.categoryBag) == 0 {
-		o.categoryBag = []TopicCategory{
-			TopicUserRelated, TopicUserRelated,
-			TopicCurrent, TopicCurrent,
-			TopicTech, TopicTech,
-			TopicWorkerDB,
-			TopicRandom, TopicRandom, TopicRandom,
-		}
-		rand.Shuffle(len(o.categoryBag), func(i, j int) {
-			o.categoryBag[i], o.categoryBag[j] = o.categoryBag[j], o.categoryBag[i]
-		})
-	}
-	next := o.categoryBag[0]
-	o.categoryBag = o.categoryBag[1:]
-	return next
+	// フォールバック
+	fallback := "予想外の切り口を最優先にした自由討論"
+	log.Printf("[IdleChat] Topic (fallback): %s", fallback)
+	return fallback, strategy
 }
 
 func collectLatestSessionSnippets(entries []session.ConversationEntry, match func(domaintransport.Message) bool, max int) []string {
@@ -557,37 +571,6 @@ func (o *IdleChatOrchestrator) formatHintsFromLatestSession(entries []session.Co
 	return strings.Join(parts, " / ")
 }
 
-func (o *IdleChatOrchestrator) buildTopicHints(category TopicCategory) string {
-	entries := o.memory.GetUnifiedView(120)
-	switch category {
-	case TopicUserRelated:
-		return o.formatHintsFromLatestSession(entries, func(m domaintransport.Message) bool {
-			return isUserMessage(m) && !isIdleMessage(m)
-		}, "ユーザー発言履歴なし")
-	case TopicWorkerDB:
-		return o.formatHintsFromLatestSession(entries, func(m domaintransport.Message) bool {
-			return isWorkerMessage(m) && !isIdleMessage(m)
-		}, "worker関連履歴なし")
-	default:
-		return "内部履歴を踏まえて選定"
-	}
-}
-
-func (o *IdleChatOrchestrator) fallbackTopic(category TopicCategory) string {
-	switch category {
-	case TopicUserRelated:
-		return "最近のユーザー要望を、意外な別分野と接続して再解釈する話題"
-	case TopicCurrent:
-		return "最近の社会・技術トレンドを、長期の文化・倫理・遊びに接続する話題"
-	case TopicTech:
-		return "今のアーキテクチャ課題を、SF的発想や異分野メタファーで捉え直す話題"
-	case TopicWorkerDB:
-		return "workerの実行履歴データを補助線にしつつ、DB依存しすぎない改善発想"
-	default:
-		return "予想外の切り口を最優先にした自由討論（え？そこいく？系）"
-	}
-}
-
 func (o *IdleChatOrchestrator) isLooping(transcript []string) bool {
 	if len(transcript) < 6 {
 		return false
@@ -635,14 +618,14 @@ func isWhatIfRepetition(transcript []string) bool {
 	return repeated >= 4 && repeated*2 >= window
 }
 
-func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, category TopicCategory, transcript []string, startedAt, endedAt time.Time, turns int, loopRestarted bool) {
+func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy TopicStrategy, transcript []string, startedAt, endedAt time.Time, turns int, loopRestarted bool) {
 	summary := o.summarizeByWorker(topic, transcript)
 	title := fmt.Sprintf("%d月%d日の%sの話題まとめ", endedAt.Month(), endedAt.Day(), truncate(topic, 24))
 	record := SessionSummary{
 		SessionID:       sessionID,
 		Title:           title,
 		Topic:           topic,
-		Category:        category,
+		Strategy:        strategy,
 		Summary:         summary,
 		StartedAt:       startedAt.Format(time.RFC3339),
 		EndedAt:         endedAt.Format(time.RFC3339),
@@ -1101,8 +1084,8 @@ func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) {
 	}
 }
 
-func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, category TopicCategory) {
-	content := fmt.Sprintf("今日のお題（%s）: %s", category, topic)
+func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, strategy TopicStrategy) {
+	content := fmt.Sprintf("今日のお題（%s）: %s", strategy, topic)
 	msg := domaintransport.NewMessage("user", "mio", sessionID, "", content)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
