@@ -249,7 +249,8 @@ Go のテスト実行例：
 - `docs/実装仕様_会話LLM_v5.md`
 - `docs/実装仕様_会話エンジン_v5.1.md`
 - `docs/LLM運用/`
-- `docs/移植仕様.md`
+- `docs/実装仕様_OpenClaw移植_v1.md`
+- `docs/02_OpenClaw移植詳細仕様/`
 - `TOOL_CONTRACT.md`
 
 ### 共通ルール
@@ -258,6 +259,9 @@ Go のテスト実行例：
 - `rules/common/rules_backend.md`
 - `rules/common/rules_security.md`
 - `rules/common/rules_testing.md`
+
+### archive 参照ルール
+- `docs/archive/` は履歴参照専用。実装・仕様判断の一次参照に使わない。
 - `rules/common/rules_logging.md`
 
 アーカイブ文書は原則として直接編集しない。
