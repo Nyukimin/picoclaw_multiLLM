@@ -11,6 +11,7 @@ type EventListener interface {
 
 // OrchestratorEvent represents a significant event in message processing
 type OrchestratorEvent struct {
+	Seq       int64  `json:"seq,omitempty"`        // monotonic event sequence (set by EventHub)
 	Type      string `json:"type"`                 // message.received, routing.decision, agent.start, agent.response
 	From      string `json:"from"`                 // source agent
 	To        string `json:"to,omitempty"`         // target agent
