@@ -76,6 +76,7 @@ type MessageOrchestrator struct {
 	coderStatus     *CoderStatus
 	listener        EventListener
 	idleNotifier    IdleNotifier
+	ttsBridge       TTSBridge
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -108,6 +109,11 @@ func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 // SetIdleNotifier sets an optional notifier used to control idle chat.
 func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
 	o.idleNotifier = n
+}
+
+// SetTTSBridge sets an optional TTS bridge.
+func (o *MessageOrchestrator) SetTTSBridge(b TTSBridge) {
+	o.ttsBridge = b
 }
 
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
@@ -159,6 +165,10 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	// 3. タスクを作成
 	jobID := task.NewJobID()
 	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID)
+	ttsSessionID := ""
+	if o.ttsBridge != nil {
+		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
+	}
 
 	// 4. ルーティング決定
 	decision, err := o.mio.DecideAction(ctx, t)
@@ -173,6 +183,21 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 
 	// タスクにルートを設定
 	t = t.WithRoute(decision.Route)
+	if o.ttsBridge != nil && ttsSessionID != "" {
+		startReq := TTSSessionStart{
+			SessionID:             ttsSessionID,
+			ResponseID:            jobID.String(),
+			VoiceID:               "female_01",
+			SpeechMode:            speechModeForRoute(decision.Route),
+			Event:                 "conversation",
+			Urgency:               "normal",
+			ConversationMode:      "chat",
+			UserAttentionRequired: false,
+		}
+		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
+			log.Printf("[MessageOrch] TTS route update degraded: %v", err)
+		}
+	}
 
 	workerMarkedBusy := false
 	if o.idleNotifier != nil && decision.Route != routing.RouteCHAT {
@@ -184,9 +209,14 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 
 	// 4. ルートに応じて実行
-	response, err := o.executeTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID)
+	response, err := o.executeTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
+	}
+	if ttsSessionID != "" {
+		if err := o.ttsBridge.EndSession(ctx, ttsSessionID); err != nil {
+			log.Printf("[MessageOrch] TTS end degraded: %v", err)
+		}
 	}
 
 	// 5. タスクを履歴に追加
@@ -223,18 +253,17 @@ func (o *MessageOrchestrator) loadOrCreateSession(ctx context.Context, id, chann
 }
 
 // executeTask はルートに応じてタスクを実行
-func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID string) (string, error) {
+func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
 
 	switch route {
 	case routing.RouteCHAT:
 		o.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid, sessionID, channel, chatID)
-		streamCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "CHAT", jid, sessionID, channel, chatID)
-		})
+		streamCtx := o.withStreamHooks(ctx, "CHAT", jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(streamCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "CHAT", jid, sessionID, channel, chatID)
+			o.pushTTS(ctx, ttsSessionID, resp)
 		}
 		return resp, err
 
@@ -243,50 +272,91 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		resp, err := o.shiro.Execute(ctx, t)
 		if err == nil {
 			o.emit("agent.response", "shiro", "mio", resp, "OPS", jid, sessionID, channel, chatID)
+			o.pushTTS(ctx, ttsSessionID, resp)
 		}
 		return resp, err
 
 	case routing.RouteCODE:
-		return o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
+		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
+		if err == nil {
+			o.pushTTS(ctx, ttsSessionID, resp)
+		}
+		return resp, err
 
 	case routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
-		return o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
+		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
+		if err == nil {
+			o.pushTTS(ctx, ttsSessionID, resp)
+		}
+		return resp, err
 
 	case routing.RoutePLAN:
 		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid, sessionID, channel, chatID)
-		planCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "PLAN", jid, sessionID, channel, chatID)
-		})
+		planCtx := o.withStreamHooks(ctx, "PLAN", jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(planCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "PLAN", jid, sessionID, channel, chatID)
+			o.pushTTS(ctx, ttsSessionID, resp)
 		}
 		return resp, err
 
 	case routing.RouteANALYZE:
 		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
-		analyzeCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "ANALYZE", jid, sessionID, channel, chatID)
-		})
+		analyzeCtx := o.withStreamHooks(ctx, "ANALYZE", jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(analyzeCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+			o.pushTTS(ctx, ttsSessionID, resp)
 		}
 		return resp, err
 
 	case routing.RouteRESEARCH:
 		o.emit("agent.start", "mio", "user", "調査中...", "RESEARCH", jid, sessionID, channel, chatID)
-		researchCtx := llm.ContextWithStreamCallback(ctx, func(token string) {
-			o.emit("agent.thinking", "mio", "user", token, "RESEARCH", jid, sessionID, channel, chatID)
-		})
+		researchCtx := o.withStreamHooks(ctx, "RESEARCH", jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(researchCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid, sessionID, channel, chatID)
+			o.pushTTS(ctx, ttsSessionID, resp)
 		}
 		return resp, err
 
 	default:
 		return "", fmt.Errorf("unknown route: %s", route)
+	}
+}
+
+func (o *MessageOrchestrator) withStreamHooks(
+	ctx context.Context,
+	route string,
+	jid, sessionID, channel, chatID, ttsSessionID string,
+) context.Context {
+	prev := llm.StreamCallbackFromContext(ctx)
+	return llm.ContextWithStreamCallback(ctx, func(token string) {
+		if prev != nil {
+			prev(token)
+		}
+		o.emit("agent.thinking", "mio", "user", token, route, jid, sessionID, channel, chatID)
+		o.pushTTS(ctx, ttsSessionID, token)
+	})
+}
+
+func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID, text string) {
+	if o.ttsBridge == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(text) == "" {
+		return
+	}
+	if err := o.ttsBridge.PushText(ctx, sessionID, text); err != nil {
+		log.Printf("[MessageOrch] TTS push degraded: %v", err)
+	}
+}
+
+func speechModeForRoute(route routing.Route) string {
+	switch route {
+	case routing.RouteOPS:
+		return "report"
+	case routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH:
+		return "report"
+	default:
+		return "conversational"
 	}
 }
 

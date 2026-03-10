@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -14,9 +15,9 @@ import (
 
 // mockSessionRepository はテスト用のSessionRepository（エラー注入対応）
 type mockSessionRepository struct {
-	sessions  map[string]*session.Session
-	loadErr   error // non-nil ならLoad時にこのエラーを返す
-	saveErr   error // non-nil ならSave時にこのエラーを返す
+	sessions map[string]*session.Session
+	loadErr  error // non-nil ならLoad時にこのエラーを返す
+	saveErr  error // non-nil ならSave時にこのエラーを返す
 }
 
 func newMockSessionRepository() *mockSessionRepository {
@@ -111,6 +112,28 @@ type mockWorkerExecutionService struct{}
 
 func (m *mockWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID task.JobID, p interface{}) (interface{}, error) {
 	return nil, nil
+}
+
+type mockTTSBridge struct {
+	startReqs []TTSSessionStart
+	pushes    []string
+	ended     []string
+	startErr  error
+}
+
+func (m *mockTTSBridge) StartSession(ctx context.Context, req TTSSessionStart) error {
+	m.startReqs = append(m.startReqs, req)
+	return m.startErr
+}
+
+func (m *mockTTSBridge) PushText(ctx context.Context, sessionID string, text string) error {
+	m.pushes = append(m.pushes, text)
+	return nil
+}
+
+func (m *mockTTSBridge) EndSession(ctx context.Context, sessionID string) error {
+	m.ended = append(m.ended, sessionID)
+	return nil
 }
 
 func TestNewMessageOrchestrator(t *testing.T) {
@@ -231,6 +254,70 @@ func TestMessageOrchestrator_ProcessMessage_OPSRoute(t *testing.T) {
 
 	if resp.Response != "Command executed successfully" {
 		t.Errorf("Expected Shiro response, got '%s'", resp.Response)
+	}
+}
+
+func TestMessageOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		chatFunc: func(ctx context.Context, t task.Task) (string, error) {
+			if cb := llm.StreamCallbackFromContext(ctx); cb != nil {
+				cb("tok1")
+				cb("tok2")
+			}
+			return "final response", nil
+		},
+	}
+	shiro := &mockShiroAgent{response: "executed"}
+	bridge := &mockTTSBridge{}
+
+	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	o.SetTTSBridge(bridge)
+
+	_, err := o.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-1",
+		Channel:     "viewer",
+		ChatID:      "u1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if len(bridge.startReqs) != 1 {
+		t.Fatalf("expected one start request, got %d", len(bridge.startReqs))
+	}
+	if len(bridge.pushes) < 2 {
+		t.Fatalf("expected streamed pushes, got %v", bridge.pushes)
+	}
+	if len(bridge.ended) != 1 {
+		t.Fatalf("expected end session once, got %d", len(bridge.ended))
+	}
+}
+
+func TestMessageOrchestrator_TTSBridge_DegradedOnStartError(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		response: "ok",
+	}
+	shiro := &mockShiroAgent{response: "executed"}
+	bridge := &mockTTSBridge{startErr: fmt.Errorf("down")}
+
+	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	o.SetTTSBridge(bridge)
+
+	resp, err := o.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-2",
+		Channel:     "viewer",
+		ChatID:      "u1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage should continue in degraded mode, got err=%v", err)
+	}
+	if resp.Response != "ok" {
+		t.Fatalf("unexpected response: %q", resp.Response)
 	}
 }
 

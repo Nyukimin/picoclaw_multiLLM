@@ -162,6 +162,13 @@ heartbeat:
 tts:
   enabled: false
   output_dir: "./workspace/tts"
+  http_base_url: "http://127.0.0.1:8765"
+  ws_url: "ws://127.0.0.1:8765/sessions"
+  connect_timeout_ms: 3000
+  receive_timeout_ms: 15000
+  chunk_gap_timeout_ms: 3000
+  voice_id: "female_01"
+  speech_mode: "conversational"
   provider_priority:
     - "sbv2"
     - "azure"

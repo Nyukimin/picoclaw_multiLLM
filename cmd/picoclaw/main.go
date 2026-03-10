@@ -1557,6 +1557,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	deps.eventRelay = &idleAwareEventListener{hub: hub}
 	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
 	ttsRuntime := buildTTSEntryRuntime(cfg)
+	ttsBridge := buildTTSClientBridge(cfg)
 	if reportStore, err := executionpersistence.NewJSONLReportStore(reportPath); err != nil {
 		log.Printf("WARN: evidence API disabled: %v", err)
 	} else {
@@ -1683,7 +1684,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider, centralMemory)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider, centralMemory, ttsBridge)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = entryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = chromeBridgeFromOrch(deps.distOrch)
@@ -1700,6 +1701,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			workerExecutionService,
 		)
 		orch.SetEventListener(deps.eventRelay)
+		orch.SetTTSBridge(ttsBridge)
 		// IdleChat統合（有効な場合）
 		if deps.idleChatOrch != nil {
 			orch.SetIdleNotifier(deps.idleChatOrch)
@@ -1772,6 +1774,7 @@ func (d *Dependencies) buildDistributedMode(
 	mioAgent *agent.MioAgent,
 	ollamaProvider llm.LLMProvider,
 	centralMemory *domainsession.CentralMemory,
+	ttsBridge orchestrator.TTSBridge,
 ) {
 	// Transport Factory でAgent別Transport生成
 	factory := transport.NewTransportFactory()
@@ -1810,6 +1813,7 @@ func (d *Dependencies) buildDistributedMode(
 		sshTransports,
 	)
 	d.distOrch = distOrch
+	distOrch.SetTTSBridge(ttsBridge)
 	if d.eventRelay != nil {
 		distOrch.SetEventListener(d.eventRelay)
 	}

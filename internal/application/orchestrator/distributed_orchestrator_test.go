@@ -132,6 +132,34 @@ func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 	}
 }
 
+func TestDistributedOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "Hello from Mio!"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	bridge := &mockTTSBridge{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetTTSBridge(bridge)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "test-session",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if len(bridge.startReqs) != 1 {
+		t.Fatalf("expected one tts start, got %d", len(bridge.startReqs))
+	}
+	if len(bridge.ended) != 1 {
+		t.Fatalf("expected one tts end, got %d", len(bridge.ended))
+	}
+}
+
 func TestDistributedOrchestrator_AttributionGuardOnUserChat(t *testing.T) {
 	mockMio := &distMockMioAgent{chatResponse: "ok"}
 	mockRepo := &distMockSessionRepo{}
