@@ -26,6 +26,18 @@
 4. `Evidence Layer`  
    - 実行証跡の永続化と表示
 
+## 2.1 詳細仕様（分割実装）
+
+実装は依存順で詳細仕様へ分割する。以下を一次参照とする。
+
+1. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_01_実行基盤とセキュリティ境界.md`
+2. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_02_チャネル網羅不足.md`
+3. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_03_Tools体系の差.md`
+4. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_04_Nodes_デバイス能力の差.md`
+5. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_05_Gateway_Ops_CLIの差.md`
+6. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_06_Security_Sandboxの差.md`
+7. `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_07_App_Platform導線の差.md`
+
 ---
 
 ## 3. Execution Contract 仕様
@@ -157,4 +169,3 @@ Viewerでは証跡を一次情報として表示する。
   - `feat/openclaw-autonomous-executor`
   - `feat/openclaw-tts-capability-pack`
   - `feat/openclaw-evidence-layer`
-

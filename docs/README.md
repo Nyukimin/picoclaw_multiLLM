@@ -1,6 +1,6 @@
 # PicoClaw ドキュメント
 
-**最終更新**: 2026-03-09
+**最終更新**: 2026-03-10
 
 ---
 
@@ -17,8 +17,9 @@ PicoClaw の仕様は **4つの系統** で構成される。
                                      実装仕様_会話エンジン_v5.1.md
 
 [設計文書]                          [運用仕様]
-  Chat_Worker_Coder_アーキテクチャ.md   移植仕様.md
-  仕様_会話エンジン_v1.1.md             LLM運用/
+  Chat_Worker_Coder_アーキテクチャ.md   実装仕様_OpenClaw移植_v1.md
+                                       02_OpenClaw移植詳細仕様/
+                                       LLM運用/
 ```
 
 ### 読む順序
@@ -27,7 +28,7 @@ PicoClaw の仕様は **4つの系統** で構成される。
 |------|----------|---------|
 | 全体理解 | 仕様.md → この README | Chat_Worker_Coder_アーキテクチャ.md |
 | 実装作業 | 実装仕様_v3.md | 対象領域の実装仕様（v4/v5/v5.1） |
-| 機能追加 | 移植仕様.md | TOOL_CONTRACT.md |
+| 機能追加 | 実装仕様_OpenClaw移植_v1.md | TOOL_CONTRACT.md |
 | 会話システム | 会話LLM仕様_v1.0.md | 実装仕様_会話LLM_v5.md → v5.1 |
 | データ基盤拡張 | 拡張設計仕様.md | -- |
 
@@ -137,12 +138,12 @@ Discord / Slack / 音声入出力のアダプター追加仕様。
 
 | 内容 | 状態 |
 |------|------|
-| ChannelAdapter 共通インターフェース | 未実装 |
-| Discord アダプター (WebSocket Gateway) | 未実装 |
-| Slack アダプター (Socket Mode) | 未実装 |
+| ChannelAdapter 共通インターフェース | 実装完了（HTTP/Webhook基盤） |
+| Discord アダプター (WebSocket Gateway) | 部分実装（Webhook/Interaction） |
+| Slack アダプター (Socket Mode) | 部分実装（Events API） |
 | 音声アダプター (STT + TTS) | 未実装 |
-| セッション ID 規約（チャネル横断） | 設計完了 |
-| 設定ファイル拡張 (channels) | 未実装 |
+| セッション ID 規約（チャネル横断） | 実装完了 |
+| 設定ファイル拡張 (channels) | 実装完了（Telegram/Discord/Slack） |
 
 ### 2.7 実装仕様_OpenClaw移植_v1.md
 
@@ -150,10 +151,27 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 
 | 内容 | 状態 |
 |------|------|
-| Execution Contract（依頼→実行契約） | 設計完了 |
+| Execution Contract（依頼→実行契約） | 部分実装（正規化/検証） |
 | Autonomous Executor（Plan→Apply→Verify→Repair） | 設計完了 |
 | TTS Capability Pack（OpenAI→ElevenLabs→local） | 設計完了 |
-| Evidence（execution_report） | 設計完了 |
+| Evidence（execution_report） | 部分実装（Execution監査ログ） |
+
+### 2.8 OpenClaw移植詳細仕様（分割）
+
+`docs/02_OpenClaw移植詳細仕様/` 配下に、依存順で詳細実装仕様を配置する。
+
+| ファイル | 内容 | 状態 |
+|---------|------|------|
+| 詳細実装仕様_01_実行基盤とセキュリティ境界.md | Tools実行制御・承認・監査ログ・運用CLI | 実装進行中 |
+| 詳細実装仕様_02_チャネル網羅不足.md | Telegram/Discord/Slack追加と共通イベント契約 | 実装進行中 |
+| 詳細実装仕様_03_Tools体系の差.md | ToolManifest/Registry/ExecutionEnvelope | 実装進行中 |
+| 詳細実装仕様_04_Nodes_デバイス能力の差.md | NodeCapabilityと要件ベース選定 | 実装進行中 |
+| 詳細実装仕様_05_Gateway_Ops_CLIの差.md | gateway/channels/status/health/doctor/logs | 実装進行中 |
+| 詳細実装仕様_06_Security_Sandboxの差.md | SecurityProfileと権限スコープ・監査 | 実装進行中 |
+| 詳細実装仕様_07_App_Platform導線の差.md | Unified Entryと進行イベント統一 | 実装進行中 |
+
+補助資料:
+- `OpenClaw機能差分比較表_20260310.md`（OpenClawとの機能差分サマリ）
 
 ---
 
@@ -163,28 +181,13 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 
 Chat/Worker/Coder の役割・責務・指揮命令系統。分散実行の設計思想を含む。
 
-### 3.2 仕様_会話エンジン_v1.1.md
-
-会話エンジンの上位仕様（要件レベル）。v5.0/v5.1 実装仕様の前提。
-
 ---
 
 ## 4. 運用仕様
 
-### 4.1 移植仕様.md
+### 4.1 実装仕様_OpenClaw移植_v1.md
 
-OpenClaw 機能を基準にした PicoClaw への移植計画。
-
-| 内容 | 要点 |
-|------|------|
-| 現状分析 | 44機能中17実装済み (39%) + 独自4機能 |
-| 全機能判定 | 移植(10) / 適応(11) / 見送り(11) / 実装済み(4) |
-| Phase 1 | 上流移植完了（ContextBuilder, Health, Skills, Subagent） |
-| Phase 2 | CLI管理コマンド（status, health, doctor, models, memory） |
-| Phase 3 | チャット内コマンド（/status, /stop, /compact, /context, /new） |
-| Phase 4 | チャネル拡張（Telegram, Discord, Slack） |
-| Phase 5 | 自動化拡張（Subagent仕上げ, cron） |
-| Phase 6 | 音声（Edge TTS） |
+OpenClaw 能力移植の正本仕様。実装は `02_OpenClaw移植詳細仕様/` の分割仕様を一次参照として進行する。
 
 ### 4.2 LLM運用/
 
@@ -219,7 +222,7 @@ OpenClaw 機能を基準にした PicoClaw への移植計画。
   |
   +-- Chat_Worker_Coder_アーキテクチャ.md（設計思想）
   |
-  +-- 移植仕様.md（機能拡張計画）
+  +-- 実装仕様_OpenClaw移植_v1.md（OpenClaw移植の正本）
 
 会話LLM仕様_v1.0.md（設計原則）
   |
@@ -240,6 +243,9 @@ TOOL_CONTRACT.md（ツール契約）
 
 `archive/` 配下のドキュメントは参考資料。直接編集しない。
 
+**重要**: `docs/archive/` 配下は履歴参照専用。実装の一次参照として使用しない。  
+実装判断は `docs/` 直下の正本仕様と `docs/02_OpenClaw移植詳細仕様/` を参照する。
+
 | ディレクトリ | 内容 |
 |------------|------|
 | 01_正本仕様_v2/ | v2実装仕様（v3完成により不要） |
@@ -250,6 +256,7 @@ TOOL_CONTRACT.md（ツール契約）
 | 06_実装ガイド/ | 完了済み実装ガイド |
 | 07_調査/ | 調査レポート |
 | 08_AI提案/ | AI提案・設計案・照合レポート |
+| 09_旧仕様_20260310/ | 現行実装と不整合になった旧仕様 |
 | codebase-map/ | コードベースマップ |
 
 ---

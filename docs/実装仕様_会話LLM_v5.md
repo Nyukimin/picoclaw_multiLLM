@@ -1482,7 +1482,7 @@ picoclaw-memory-admin stats
 
 - **LangGraph公式**: https://github.com/langchain-ai/langgraph
 - **PicoClaw v4.0実装仕様**: `docs/実装仕様_分散実行_v4.md`
-- **会話LLM統合設計プラン**: `docs/06_実装ガイド進行管理/20260304_会話LLM統合設計プラン.md`
+- **会話LLM統合設計プラン（旧版/アーカイブ）**: `docs/archive/09_旧仕様_20260310/20260304_会話LLM統合設計プラン.md`
 - **Chat/Worker/Coderアーキテクチャ**: `docs/Chat_Worker_Coder_アーキテクチャ.md`
 
 ---
