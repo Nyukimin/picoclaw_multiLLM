@@ -240,6 +240,102 @@ session:
 	if cfg.IdleChat.Enabled {
 		t.Error("IdleChat should be disabled by default")
 	}
+
+	if cfg.Security.PolicyMode != "balanced" {
+		t.Errorf("Expected Security PolicyMode 'balanced', got '%s'", cfg.Security.PolicyMode)
+	}
+	if cfg.Security.ApprovalMode != "never" {
+		t.Errorf("Expected Security ApprovalMode 'never', got '%s'", cfg.Security.ApprovalMode)
+	}
+	if cfg.Security.ApprovalTTLMinutes != 10 {
+		t.Errorf("Expected Security ApprovalTTLMinutes 10, got %d", cfg.Security.ApprovalTTLMinutes)
+	}
+	if cfg.Security.NetworkScope != "" {
+		t.Errorf("Expected Security NetworkScope '', got '%s'", cfg.Security.NetworkScope)
+	}
+}
+
+func TestLoadConfig_SecurityNetworkSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "network.yaml")
+
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+security:
+  enabled: true
+  policy_mode: "strict"
+  approval_mode: "on_demand"
+  approval_ttl_minutes: 10
+  network_scope: "allowlist"
+  network_allowlist:
+    - "api.openai.com"
+  audit:
+    backend: "jsonl"
+    path: "logs/execution_audit.jsonl"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.Security.NetworkScope != "allowlist" {
+		t.Fatalf("expected network_scope allowlist, got %s", cfg.Security.NetworkScope)
+	}
+	if len(cfg.Security.NetworkAllowlist) != 1 || cfg.Security.NetworkAllowlist[0] != "api.openai.com" {
+		t.Fatalf("unexpected network_allowlist: %+v", cfg.Security.NetworkAllowlist)
+	}
+}
+
+func TestLoadConfig_TTSSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "tts.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+tts:
+  enabled: true
+  output_dir: "./workspace/tts"
+  provider_priority: ["sbv2", "azure", "eleven"]
+  playback_commands:
+    - name: "ffplay"
+      args: ["-autoexit", "{audio}"]
+  sbv2:
+    enabled: true
+    base_url: "http://127.0.0.1:5000/synthesis"
+    voice_id: "mio"
+    timeout_sec: 20
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.TTS.Enabled {
+		t.Fatal("expected tts enabled")
+	}
+	if got := cfg.TTS.SBV2.BaseURL; got != "http://127.0.0.1:5000/synthesis" {
+		t.Fatalf("unexpected sbv2 base url: %s", got)
+	}
+	if len(cfg.TTS.PlaybackCommands) != 1 || cfg.TTS.PlaybackCommands[0].Name != "ffplay" {
+		t.Fatalf("unexpected playback commands: %+v", cfg.TTS.PlaybackCommands)
+	}
 }
 
 func TestConfig_Validate(t *testing.T) {
@@ -261,6 +357,63 @@ func TestConfig_Validate(t *testing.T) {
 				},
 				Session: SessionConfig{
 					StorageDir: "./data/sessions",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Invalid security approval_mode",
+			config: &Config{
+				Server:  ServerConfig{Port: 8080},
+				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+				Session: SessionConfig{StorageDir: "./data/sessions"},
+				Security: SecurityConfig{
+					Enabled:      true,
+					PolicyMode:   "balanced",
+					ApprovalMode: "invalid",
+					Audit: SecurityAuditConfig{
+						Backend: "jsonl",
+						Path:    "logs/execution_audit.jsonl",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Invalid security network_scope",
+			config: &Config{
+				Server:  ServerConfig{Port: 8080},
+				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+				Session: SessionConfig{StorageDir: "./data/sessions"},
+				Security: SecurityConfig{
+					Enabled:            true,
+					PolicyMode:         "balanced",
+					ApprovalMode:       "never",
+					ApprovalTTLMinutes: 10,
+					NetworkScope:       "weird",
+					Audit: SecurityAuditConfig{
+						Backend: "jsonl",
+						Path:    "logs/execution_audit.jsonl",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Valid security policy_mode dev",
+			config: &Config{
+				Server:  ServerConfig{Port: 8080},
+				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+				Session: SessionConfig{StorageDir: "./data/sessions"},
+				Security: SecurityConfig{
+					Enabled:            true,
+					PolicyMode:         "dev",
+					ApprovalMode:       "never",
+					ApprovalTTLMinutes: 10,
+					Audit: SecurityAuditConfig{
+						Backend: "jsonl",
+						Path:    "logs/execution_audit.jsonl",
+					},
 				},
 			},
 			wantErr: false,

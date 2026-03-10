@@ -20,6 +20,9 @@ type Config struct {
 	Session  SessionConfig  `yaml:"session"`
 	Worker   WorkerConfig   `yaml:"worker"`
 	Line     LineConfig     `yaml:"line"`
+	Telegram TelegramConfig `yaml:"telegram"`
+	Discord  DiscordConfig  `yaml:"discord"`
+	Slack    SlackConfig    `yaml:"slack"`
 	Log      LogConfig      `yaml:"log"`
 
 	// === v4.0 追加フィールド ===
@@ -43,6 +46,12 @@ type Config struct {
 
 	// === Subagent ===
 	Subagent SubagentConfig `yaml:"subagent"`
+
+	// === Security / Execution Audit ===
+	Security SecurityConfig `yaml:"security"`
+
+	// === TTS / OpenClaw parity ===
+	TTS TTSConfig `yaml:"tts"`
 }
 
 // ServerConfig はサーバー設定
@@ -111,6 +120,22 @@ type LineConfig struct {
 	AccessToken   string `yaml:"access_token"`   // 環境変数 LINE_CHANNEL_TOKEN 推奨
 }
 
+type TelegramConfig struct {
+	BotToken      string `yaml:"bot_token"`
+	WebhookSecret string `yaml:"webhook_secret"`
+}
+
+type DiscordConfig struct {
+	BotToken  string `yaml:"bot_token"`
+	PublicKey string `yaml:"public_key"` // Interaction署名検証用(HEX)
+}
+
+type SlackConfig struct {
+	AppToken      string `yaml:"app_token"` // Socket Mode 用（将来利用）
+	BotToken      string `yaml:"bot_token"` // chat.postMessage 用
+	SigningSecret string `yaml:"signing_secret"`
+}
+
 // LogConfig はログ設定
 type LogConfig struct {
 	Level  string `yaml:"level"`
@@ -126,22 +151,22 @@ type DistributedConfig struct {
 
 // TransportConfig はAgent別のTransport設定
 type TransportConfig struct {
-	Type             string `yaml:"type"`              // "local" or "ssh"
-	RemoteHost       string `yaml:"remote_host"`       // SSH接続先（例: "192.168.1.100:22"）
-	RemoteUser       string `yaml:"remote_user"`       // SSHユーザー名
-	SSHKeyPath       string `yaml:"ssh_key_path"`      // SSH秘密鍵パス
-	StrictHostKey    bool   `yaml:"strict_host_key"`   // true: known_hosts必須（本番用）、false: Insecureフォールバック許可
-	RemoteAgentPath  string `yaml:"remote_agent_path"` // リモートのpicoclaw-agentパス（例: "C:/Users/nyuki/picoclaw-agent.exe"）
+	Type             string `yaml:"type"`               // "local" or "ssh"
+	RemoteHost       string `yaml:"remote_host"`        // SSH接続先（例: "192.168.1.100:22"）
+	RemoteUser       string `yaml:"remote_user"`        // SSHユーザー名
+	SSHKeyPath       string `yaml:"ssh_key_path"`       // SSH秘密鍵パス
+	StrictHostKey    bool   `yaml:"strict_host_key"`    // true: known_hosts必須（本番用）、false: Insecureフォールバック許可
+	RemoteAgentPath  string `yaml:"remote_agent_path"`  // リモートのpicoclaw-agentパス（例: "C:/Users/nyuki/picoclaw-agent.exe"）
 	RemoteConfigPath string `yaml:"remote_config_path"` // リモートのconfig.yamlパス（例: "C:/Users/nyuki/.picoclaw/config.yaml"）
 }
 
 // IdleChatConfig はAgent間雑談モードの設定
 type IdleChatConfig struct {
-	Enabled      bool     `yaml:"enabled"`       // 雑談モードの有効化（デフォルト: false）
-	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["mio", "shiro"]）
-	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
-	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
-	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
+	Enabled      bool     `yaml:"enabled"`      // 雑談モードの有効化（デフォルト: false）
+	Participants []string `yaml:"participants"` // 参加Agent名（デフォルト: ["mio", "shiro"]）
+	IntervalMin  int      `yaml:"interval_min"` // 雑談開始までのアイドル時間・分（デフォルト: 5）
+	MaxTurns     int      `yaml:"max_turns"`    // 1回の雑談の最大ターン数（デフォルト: 10）
+	Temperature  float64  `yaml:"temperature"`  // 雑談時の温度（デフォルト: 0.8）
 }
 
 // ConversationConfig は会話LLMの設定
@@ -163,10 +188,69 @@ type HeartbeatConfig struct {
 
 // SubagentConfig はサブエージェントシステムの設定
 type SubagentConfig struct {
-	Enabled       bool   `yaml:"enabled"`                // サブエージェント有効化（デフォルト: false）
-	MaxIterations int    `yaml:"max_iterations"`         // ReActループ最大反復回数（デフォルト: 10）
-	Provider      string `yaml:"provider,omitempty"`     // LLMプロバイダー: "ollama"(default), "claude", "openai", "deepseek"
-	Model         string `yaml:"model,omitempty"`        // 使用モデル（空=各プロバイダーのデフォルトモデルを使用）
+	Enabled       bool   `yaml:"enabled"`            // サブエージェント有効化（デフォルト: false）
+	MaxIterations int    `yaml:"max_iterations"`     // ReActループ最大反復回数（デフォルト: 10）
+	Provider      string `yaml:"provider,omitempty"` // LLMプロバイダー: "ollama"(default), "claude", "openai", "deepseek"
+	Model         string `yaml:"model,omitempty"`    // 使用モデル（空=各プロバイダーのデフォルトモデルを使用）
+}
+
+// SecurityConfig は実行ポリシーと監査設定
+type SecurityConfig struct {
+	Enabled            bool                `yaml:"enabled"`
+	PolicyMode         string              `yaml:"policy_mode"`          // strict|balanced|dev
+	ApprovalMode       string              `yaml:"approval_mode"`        // never|on_demand|always
+	ApprovalTTLMinutes int                 `yaml:"approval_ttl_minutes"` // 承認待ちTTL
+	NetworkScope       string              `yaml:"network_scope"`        // blocked|allowlist|full (optional: fallback to profile)
+	NetworkAllowlist   []string            `yaml:"network_allowlist"`    // host allowlist when network_scope=allowlist
+	DenyCommands       []string            `yaml:"deny_commands"`
+	WorkspaceEnforced  bool                `yaml:"workspace_enforced"`
+	Audit              SecurityAuditConfig `yaml:"audit"`
+}
+
+// SecurityAuditConfig は監査ログ出力設定
+type SecurityAuditConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Backend string `yaml:"backend"` // jsonl|sqlite
+	Path    string `yaml:"path"`
+}
+
+// TTSConfig configures provider fallback and playback verification.
+type TTSConfig struct {
+	Enabled          bool                `yaml:"enabled"`
+	OutputDir        string              `yaml:"output_dir"`
+	ProviderPriority []string            `yaml:"provider_priority"` // e.g. sbv2,azure,eleven
+	PlaybackCommands []TTSCommandConfig  `yaml:"playback_commands"`
+	SBV2             TTSSBV2Config       `yaml:"sbv2"`
+	Azure            TTSAzureConfig      `yaml:"azure"`
+	Eleven           TTSElevenLabsConfig `yaml:"eleven"`
+}
+
+type TTSCommandConfig struct {
+	Name string   `yaml:"name"`
+	Args []string `yaml:"args"`
+}
+
+type TTSSBV2Config struct {
+	Enabled    bool   `yaml:"enabled"`
+	BaseURL    string `yaml:"base_url"`
+	VoiceID    string `yaml:"voice_id"`
+	TimeoutSec int    `yaml:"timeout_sec"`
+}
+
+type TTSAzureConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Endpoint   string `yaml:"endpoint"`
+	APIKey     string `yaml:"api_key"`
+	VoiceName  string `yaml:"voice_name"`
+	TimeoutSec int    `yaml:"timeout_sec"`
+}
+
+type TTSElevenLabsConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	APIKey     string `yaml:"api_key"`
+	VoiceID    string `yaml:"voice_id"`
+	ModelID    string `yaml:"model_id"`
+	TimeoutSec int    `yaml:"timeout_sec"`
 }
 
 // GoogleSearchConfig はGoogle Search API設定
@@ -309,6 +393,25 @@ func (c *Config) setDefaults() {
 		c.Subagent.MaxIterations = 10
 	}
 
+	if c.Security.PolicyMode == "" {
+		c.Security.PolicyMode = "balanced"
+	}
+	if c.Security.ApprovalMode == "" {
+		c.Security.ApprovalMode = "never"
+	}
+	if c.Security.ApprovalTTLMinutes == 0 {
+		c.Security.ApprovalTTLMinutes = 10
+	}
+	if len(c.Security.DenyCommands) == 0 {
+		c.Security.DenyCommands = []string{"rm -rf", "git reset --hard"}
+	}
+	if c.Security.Audit.Backend == "" {
+		c.Security.Audit.Backend = "jsonl"
+	}
+	if c.Security.Audit.Path == "" {
+		c.Security.Audit.Path = "logs/execution_audit.jsonl"
+	}
+
 	// v5.1 プロンプト/workspace デフォルト
 	if c.PromptsDir == "" {
 		c.PromptsDir = "./prompts"
@@ -316,8 +419,13 @@ func (c *Config) setDefaults() {
 	if c.WorkspaceDir == "" {
 		c.WorkspaceDir = "./workspace"
 	}
+	if len(c.TTS.ProviderPriority) == 0 {
+		c.TTS.ProviderPriority = []string{"sbv2", "azure", "eleven"}
+	}
+	if c.TTS.OutputDir == "" {
+		c.TTS.OutputDir = "./workspace/tts"
+	}
 }
-
 
 // Validate は設定の妥当性を検証
 func (c *Config) Validate() error {
@@ -401,6 +509,27 @@ func (c *Config) Validate() error {
 		}
 		if c.Conversation.VectorDBURL == "" {
 			return fmt.Errorf("conversation.vectordb_url is required when conversation.enabled=true")
+		}
+	}
+
+	if c.Security.Enabled {
+		if c.Security.PolicyMode != "strict" && c.Security.PolicyMode != "balanced" && c.Security.PolicyMode != "dev" {
+			return fmt.Errorf("security.policy_mode must be 'strict', 'balanced', or 'dev'")
+		}
+		if c.Security.ApprovalMode != "never" && c.Security.ApprovalMode != "on_demand" && c.Security.ApprovalMode != "always" {
+			return fmt.Errorf("security.approval_mode must be 'never', 'on_demand', or 'always'")
+		}
+		if c.Security.NetworkScope != "" &&
+			c.Security.NetworkScope != "blocked" &&
+			c.Security.NetworkScope != "allowlist" &&
+			c.Security.NetworkScope != "full" {
+			return fmt.Errorf("security.network_scope must be 'blocked', 'allowlist', or 'full'")
+		}
+		if c.Security.ApprovalTTLMinutes < 1 {
+			return fmt.Errorf("security.approval_ttl_minutes must be >= 1")
+		}
+		if c.Security.Audit.Backend != "jsonl" && c.Security.Audit.Backend != "sqlite" {
+			return fmt.Errorf("security.audit.backend must be 'jsonl' or 'sqlite'")
 		}
 	}
 

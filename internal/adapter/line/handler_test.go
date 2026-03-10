@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -283,6 +284,41 @@ func TestHandler_WebhookEndpoint_InvalidSignature(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
+func TestHandler_NormalizeEvent(t *testing.T) {
+	orch := &mockOrchestrator{}
+	handler := NewHandler(orch, "test-secret", "test-token")
+	ev := WebhookEvent{
+		Type: "message",
+		Message: EventMessage{
+			Type: "text",
+			Text: "hello",
+			ID:   "m1",
+		},
+		Source: EventSource{
+			Type:   "user",
+			UserID: "U123",
+		},
+		Timestamp: time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC).UnixMilli(),
+	}
+	got := handler.NormalizeEvent(ev, []byte(`{"raw":true}`))
+	if got.Channel != "line" || got.ChatID != "U123" || got.UserID != "U123" || got.Text != "hello" || got.MessageID != "m1" {
+		t.Fatalf("unexpected normalized event: %+v", got)
+	}
+}
+
+func TestHandler_Verify(t *testing.T) {
+	orch := &mockOrchestrator{}
+	handler := NewHandler(orch, "test-secret", "test-token")
+	body := []byte(`{"events":[]}`)
+	sig := generateSignature(body, "test-secret")
+	if err := handler.Verify(nil, body, sig); err != nil {
+		t.Fatalf("expected verify success, got %v", err)
+	}
+	if err := handler.Verify(nil, body, "invalid"); err == nil {
+		t.Fatal("expected verify failure")
 	}
 }
 

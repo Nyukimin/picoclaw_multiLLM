@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	adapterchannels "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels"
+	channelapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/channel"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
 
@@ -19,11 +21,57 @@ type Orchestrator interface {
 
 // Handler はLINE webhookハンドラー
 type Handler struct {
-	orchestrator     Orchestrator
-	channelSecret    string
-	sender           *MessageSender
-	mediaDownloader  *MediaDownloader
-	botUserID        string // Bot's LINE user ID for mention detection
+	orchestrator    Orchestrator
+	channelSecret   string
+	sender          *MessageSender
+	mediaDownloader *MediaDownloader
+	botUserID       string // Bot's LINE user ID for mention detection
+}
+
+// Name returns channel name.
+func (h *Handler) Name() string { return "line" }
+
+// Probe checks basic readiness of LINE adapter.
+func (h *Handler) Probe(ctx context.Context) error {
+	if h.sender == nil {
+		return fmt.Errorf("line sender is nil")
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	return nil
+}
+
+// Send pushes a message to a LINE user.
+func (h *Handler) Send(ctx context.Context, chatID, text string) error {
+	return h.sender.SendPushMessage(ctx, chatID, text)
+}
+
+// Verify validates request signature against LINE channel secret.
+func (h *Handler) Verify(_ *http.Request, body []byte, signature string) error {
+	if !verifySignature(body, signature, h.channelSecret) {
+		return fmt.Errorf("invalid signature")
+	}
+	return nil
+}
+
+// NormalizeEvent converts LINE webhook event into a channel-agnostic event.
+func (h *Handler) NormalizeEvent(event WebhookEvent, raw []byte) adapterchannels.ChannelEvent {
+	timestamp := time.Now().UTC()
+	if event.Timestamp > 0 {
+		timestamp = time.UnixMilli(event.Timestamp).UTC()
+	}
+	return adapterchannels.ChannelEvent{
+		Channel:   "line",
+		ChatID:    event.Source.UserID,
+		UserID:    event.Source.UserID,
+		MessageID: event.Message.ID,
+		Text:      event.Message.Text,
+		Timestamp: timestamp,
+		Raw:       raw,
+	}
 }
 
 // NewHandler は新しいHandlerを作成
@@ -161,9 +209,7 @@ func (h *Handler) processEvent(event WebhookEvent) {
 
 // generateSessionID はセッションIDを生成
 func (h *Handler) generateSessionID(userID string) string {
-	// フォーマット: YYYYMMDD-line-{userID}
-	datePrefix := time.Now().Format("20060102")
-	return fmt.Sprintf("%s-line-%s", datePrefix, userID)
+	return channelapp.BuildSessionID(time.Now(), "line", userID)
 }
 
 // WebhookPayload はLINE webhookペイロード
@@ -173,20 +219,20 @@ type WebhookPayload struct {
 
 // WebhookEvent はLINE webhookイベント
 type WebhookEvent struct {
-	Type       string        `json:"type"`
-	Message    EventMessage  `json:"message"`
-	Source     EventSource   `json:"source"`
-	ReplyToken string        `json:"replyToken"`
-	Timestamp  int64         `json:"timestamp"`
+	Type       string       `json:"type"`
+	Message    EventMessage `json:"message"`
+	Source     EventSource  `json:"source"`
+	ReplyToken string       `json:"replyToken"`
+	Timestamp  int64        `json:"timestamp"`
 }
 
 // EventMessage はイベントメッセージ
 type EventMessage struct {
-	Type       string      `json:"type"`
-	Text       string      `json:"text"`
-	ID         string      `json:"id"`
-	QuoteToken string      `json:"quoteToken"`
-	Mention    *Mention    `json:"mention,omitempty"`
+	Type       string   `json:"type"`
+	Text       string   `json:"text"`
+	ID         string   `json:"id"`
+	QuoteToken string   `json:"quoteToken"`
+	Mention    *Mention `json:"mention,omitempty"`
 }
 
 // Mention はメンション情報

@@ -32,6 +32,19 @@ line:
   channel_secret: "${LINE_CHANNEL_SECRET}"
   access_token: "${LINE_CHANNEL_TOKEN}"
 
+telegram:
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  webhook_secret: "${TELEGRAM_WEBHOOK_SECRET}"
+
+discord:
+  bot_token: "${DISCORD_BOT_TOKEN}"
+  public_key: "${DISCORD_PUBLIC_KEY}"
+
+slack:
+  app_token: "${SLACK_APP_TOKEN}"
+  bot_token: "${SLACK_BOT_TOKEN}"
+  signing_secret: "${SLACK_SIGNING_SECRET}"
+
 # Google Search API (Chat用 - mio)
 google_search_chat:
   api_key: "${GOOGLE_API_KEY_CHAT}"
@@ -63,6 +76,25 @@ worker:
   show_execution_summary: true    # 実行前にコマンド数・種別を表示
   parallel_execution: false       # v4: true で Type-Based Phased Execution
   max_parallelism: 4              # v4: 並列度上限
+
+# 実行ポリシー/監査（OpenClaw parity: Phase 01）
+security:
+  enabled: false                  # true で policy runner を有効化
+  policy_mode: "balanced"         # "strict" | "balanced" | "dev"
+  approval_mode: "never"          # "never" | "on_demand" | "always"
+  network_scope: ""               # ""(profile default) | "blocked" | "allowlist" | "full"
+  network_allowlist:              # used when network_scope=allowlist
+    - "localhost"
+    - "127.0.0.1"
+  approval_ttl_minutes: 10
+  deny_commands:
+    - "rm -rf"
+    - "git reset --hard"
+  workspace_enforced: true
+  audit:
+    enabled: true
+    backend: "jsonl"              # "jsonl" | "sqlite"（sqliteは将来拡張）
+    path: "logs/execution_audit.jsonl"
 
 # プロンプトファイルディレクトリ（未設定時はビルトインフォールバック）
 prompts_dir: "./prompts"       # デフォルトプロンプト（リポジトリ固定）
@@ -125,3 +157,32 @@ heartbeat:
   enabled: false
   interval: 30            # チェック間隔（分）、最小5分
   chat_id: "${PICOCLAW_HEARTBEAT_CHAT_ID}"
+
+# TTS実行能力（OpenClaw parity）
+tts:
+  enabled: false
+  output_dir: "./workspace/tts"
+  provider_priority:
+    - "sbv2"
+    - "azure"
+    - "eleven"
+  playback_commands:
+    - name: "ffplay"
+      args: ["-autoexit", "-nodisp", "{audio}"]
+  sbv2:
+    enabled: true
+    base_url: "http://127.0.0.1:5000/synthesis"
+    voice_id: "mio"
+    timeout_sec: 20
+  azure:
+    enabled: false
+    endpoint: "${AZURE_TTS_ENDPOINT}"
+    api_key: "${AZURE_TTS_API_KEY}"
+    voice_name: "ja-JP-NanamiNeural"
+    timeout_sec: 20
+  eleven:
+    enabled: false
+    api_key: "${ELEVENLABS_API_KEY}"
+    voice_id: ""
+    model_id: "eleven_multilingual_v2"
+    timeout_sec: 20

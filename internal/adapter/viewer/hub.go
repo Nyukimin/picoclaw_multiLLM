@@ -15,6 +15,7 @@ type EventHub struct {
 	clients map[chan []byte]struct{}
 	history []orchestrator.OrchestratorEvent
 	maxHist int
+	nextSeq int64
 }
 
 // NewEventHub creates a new EventHub with the given history capacity.
@@ -27,19 +28,21 @@ func NewEventHub(maxHistory int) *EventHub {
 
 // OnEvent implements orchestrator.EventListener.
 func (h *EventHub) OnEvent(ev orchestrator.OrchestratorEvent) {
+	h.mu.Lock()
+	h.nextSeq++
+	ev.Seq = h.nextSeq
+	h.history = append(h.history, ev)
+	if len(h.history) > h.maxHist {
+		h.history = h.history[len(h.history)-h.maxHist:]
+	}
+	clientCount := len(h.clients)
+	h.mu.Unlock()
+
 	data, err := json.Marshal(ev)
 	if err != nil {
 		log.Printf("[EventHub] OnEvent: marshal error: %v", err)
 		return
 	}
-
-	h.mu.Lock()
-	clientCount := len(h.clients)
-	h.history = append(h.history, ev)
-	if len(h.history) > h.maxHist {
-		h.history = h.history[len(h.history)-h.maxHist:]
-	}
-	h.mu.Unlock()
 
 	log.Printf("[EventHub] OnEvent: eventType=%s from=%s to=%s clients=%d", ev.Type, ev.From, ev.To, clientCount)
 	h.broadcast(data)
