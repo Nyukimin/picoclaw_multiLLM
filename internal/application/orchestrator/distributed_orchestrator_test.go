@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -248,6 +249,29 @@ func TestDistributedOrchestrator_RouteToCoder_ConnectionAware(t *testing.T) {
 			t.Fatalf("routeToCoder(CODE3) = %q, want empty", got)
 		}
 	})
+}
+
+func TestDistributedOrchestrator_RouteToCoderForMessage_UsesCapability(t *testing.T) {
+	mockMio := &distMockMioAgent{}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	router.RegisterAgent("coder1", transport.NewLocalTransport())
+	router.RegisterAgent("coder2", transport.NewLocalTransport())
+	router.RegisterAgent("coder3", transport.NewLocalTransport())
+	memory := session.NewCentralMemory()
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetNodeCapabilities(map[string]domainnode.Capability{
+		"coder1": {NodeID: "coder1", HasAudioOut: false},
+		"coder2": {NodeID: "coder2", HasAudioOut: true},
+		"coder3": {NodeID: "coder3", HasAudioOut: true},
+	})
+
+	got := orch.routeToCoderForMessage(routing.RouteCODE, "TTSを実装して")
+	if got != "coder3" {
+		t.Fatalf("routeToCoderForMessage(CODE,TTS) = %q, want coder3", got)
+	}
 }
 
 // distMockTransport はSSH経路テスト用のmock Transport

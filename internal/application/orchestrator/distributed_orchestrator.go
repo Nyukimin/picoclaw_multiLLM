@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -28,6 +29,8 @@ type DistributedOrchestrator struct {
 	sshTransports map[string]domaintransport.Transport // SSH経由のリモートAgent
 	listener      EventListener
 	idleNotifier  IdleNotifier
+	nodeSelector  *NodeSelector
+	nodeCaps      map[string]domainnode.Capability
 }
 
 // NewDistributedOrchestrator は新しいDistributedOrchestratorを作成
@@ -47,7 +50,18 @@ func NewDistributedOrchestrator(
 		router:        router,
 		memory:        memory,
 		sshTransports: sshTransports,
+		nodeSelector:  NewNodeSelector(),
+		nodeCaps:      make(map[string]domainnode.Capability),
 	}
+}
+
+// SetNodeCapabilities sets capability map used by RouteCODE coder selection.
+func (o *DistributedOrchestrator) SetNodeCapabilities(caps map[string]domainnode.Capability) {
+	if caps == nil {
+		o.nodeCaps = make(map[string]domainnode.Capability)
+		return
+	}
+	o.nodeCaps = caps
 }
 
 // SetEventListener sets an optional listener for monitoring events.
@@ -211,7 +225,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	route routing.Route,
 	sessionID, jid string,
 ) (string, error) {
-	coderAgent := o.routeToCoder(route)
+	coderAgent := o.routeToCoderForMessage(route, t.UserMessage())
 	if coderAgent == "" {
 		return "", fmt.Errorf("no coder mapped for route %s", route)
 	}
@@ -401,6 +415,24 @@ func (o *DistributedOrchestrator) routeToCoder(route routing.Route) string {
 	default:
 		return ""
 	}
+}
+
+func (o *DistributedOrchestrator) routeToCoderForMessage(route routing.Route, userMessage string) string {
+	if route != routing.RouteCODE || o.nodeSelector == nil || len(o.nodeCaps) == 0 {
+		return o.routeToCoder(route)
+	}
+	candidates := make([]string, 0, 3)
+	for _, coder := range []string{"coder1", "coder2", "coder3"} {
+		if o.isCoderConnected(coder) {
+			candidates = append(candidates, coder)
+		}
+	}
+	req := inferTaskRequirement(userMessage)
+	selected := o.nodeSelector.Select(candidates, o.nodeCaps, req)
+	if selected != "" {
+		return selected
+	}
+	return o.routeToCoder(route)
 }
 
 func (o *DistributedOrchestrator) isCoderConnected(agent string) bool {
