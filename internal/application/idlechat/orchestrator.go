@@ -678,6 +678,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 
 func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID string, turn int, topic string) (string, error) {
 	systemPrompt := o.getSystemPrompt(speaker)
+	temp := o.temperatureForSpeaker(speaker)
 
 	// 直近の会話履歴を取得（最新発話の重みを上げるため30件）
 	recentEntries := o.memory.GetUnifiedView(30)
@@ -725,7 +726,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	req := llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   256,
-		Temperature: o.temperature,
+		Temperature: temp,
 	}
 
 	resp, err := o.llmProvider.Generate(o.ctx, req)
@@ -742,7 +743,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		respLeak, errLeak := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryLeak,
 			MaxTokens:   256,
-			Temperature: o.temperature,
+			Temperature: temp,
 		})
 		if errLeak == nil && strings.TrimSpace(respLeak.Content) != "" {
 			first = sanitizeIdleResponse(respLeak.Content, topic)
@@ -757,7 +758,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		resp2, err2 := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retry,
 			MaxTokens:   256,
-			Temperature: o.temperature,
+			Temperature: temp,
 		})
 		if err2 == nil && strings.TrimSpace(resp2.Content) != "" {
 			return sanitizeIdleResponse(resp2.Content, topic), nil
@@ -765,6 +766,15 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	}
 
 	return first, nil
+}
+
+func (o *IdleChatOrchestrator) temperatureForSpeaker(speaker string) float64 {
+	switch strings.ToLower(strings.TrimSpace(speaker)) {
+	case "mio", "shiro":
+		return 0.8
+	default:
+		return o.temperature
+	}
 }
 
 func (o *IdleChatOrchestrator) getRecentTopics(limit int) []string {

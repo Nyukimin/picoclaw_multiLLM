@@ -16,10 +16,12 @@ type mockLLMProvider struct {
 	err       error
 	callCount int
 	delay     time.Duration // Generate呼び出し時の遅延
+	lastReq   llm.GenerateRequest
 }
 
 func (m *mockLLMProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
 	m.callCount++
+	m.lastReq = req
 	if m.delay > 0 {
 		time.Sleep(m.delay)
 	}
@@ -55,6 +57,39 @@ func TestNewIdleChatOrchestrator(t *testing.T) {
 	}
 	if len(o.participants) != 2 {
 		t.Errorf("Expected 2 participants, got %d", len(o.participants))
+	}
+}
+
+func TestIdleChatOrchestrator_TemperatureForSpeaker_MioAndShiroFixed(t *testing.T) {
+	provider := &mockLLMProvider{response: "新しい観点を出してみよう。"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.2, nil)
+
+	if _, err := o.generateResponse("mio", "shiro", "idle-temp", 0, "話題"); err != nil {
+		t.Fatalf("generateResponse(mio) failed: %v", err)
+	}
+	if provider.lastReq.Temperature != 0.8 {
+		t.Fatalf("expected mio idlechat temperature 0.8, got %v", provider.lastReq.Temperature)
+	}
+
+	if _, err := o.generateResponse("shiro", "mio", "idle-temp", 1, "話題"); err != nil {
+		t.Fatalf("generateResponse(shiro) failed: %v", err)
+	}
+	if provider.lastReq.Temperature != 0.8 {
+		t.Fatalf("expected shiro idlechat temperature 0.8, got %v", provider.lastReq.Temperature)
+	}
+}
+
+func TestIdleChatOrchestrator_TemperatureForSpeaker_OthersUseConfiguredValue(t *testing.T) {
+	provider := &mockLLMProvider{response: "別の案として考えると面白い。"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"gin", "mio"}, 5, 10, 0.35, nil)
+
+	if _, err := o.generateResponse("gin", "mio", "idle-temp", 0, "話題"); err != nil {
+		t.Fatalf("generateResponse(gin) failed: %v", err)
+	}
+	if provider.lastReq.Temperature != 0.35 {
+		t.Fatalf("expected non-mio/shiro idlechat temperature 0.35, got %v", provider.lastReq.Temperature)
 	}
 }
 

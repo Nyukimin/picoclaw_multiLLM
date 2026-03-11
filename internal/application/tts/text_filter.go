@@ -12,6 +12,18 @@ var (
 	onlyPunctRe  = regexp.MustCompile(`^[\p{P}\p{S}\s]+$`)
 	multiSpaceRe = regexp.MustCompile(`\s+`)
 	ackPrefixRe  = regexp.MustCompile(`^(はい、承知いたしました。|はい、承知しました。|承知いたしました。|承知しました。|了解しました。|かしこまりました。)\s*`)
+	speakNameRe  = strings.NewReplacer(
+		"Mio", "みお",
+		"mio", "みお",
+		"Shiro", "しろ",
+		"shiro", "しろ",
+		"Aka", "あか",
+		"aka", "あか",
+		"Ao", "あお",
+		"ao", "あお",
+		"Gin", "ぎん",
+		"gin", "ぎん",
+	)
 )
 
 func FilterSpeakableText(eventType, route, text string) string {
@@ -41,6 +53,7 @@ func FilterSpeakableText(eventType, route, text string) string {
 	s = strings.Join(out, " ")
 	s = multiSpaceRe.ReplaceAllString(s, " ")
 	s = ackPrefixRe.ReplaceAllString(s, "")
+	s = speakNameRe.Replace(s)
 	s = strings.TrimSpace(s)
 	if onlyPunctRe.MatchString(s) {
 		return ""

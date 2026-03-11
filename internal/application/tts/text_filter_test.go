@@ -24,3 +24,12 @@ func TestFilterSpeakableText_StripsAckPrefix(t *testing.T) {
 		t.Fatalf("unexpected filtered text: %q", got)
 	}
 }
+
+func TestFilterSpeakableText_ReplacesAgentNamesForSpeech(t *testing.T) {
+	in := "Mio が Shiro に相談して、Aka と Ao と Gin、mio と shiro と aka と ao と gin でも確認します。"
+	got := FilterSpeakableText("agent.response", "CHAT", in)
+	want := "みお が しろ に相談して、あか と あお と ぎん、みお と しろ と あか と あお と ぎん でも確認します。"
+	if got != want {
+		t.Fatalf("unexpected filtered text: got %q want %q", got, want)
+	}
+}
