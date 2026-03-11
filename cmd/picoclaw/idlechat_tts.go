@@ -4,28 +4,31 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 )
 
 const (
-	idleChatRoute             = "IDLECHAT"
-	idleChatDefaultVoiceID    = "female_01"
-	idleChatDefaultVoiceProf  = "lumina_female"
-	idleChatMaleVoiceID       = "male_01"
-	idleChatMaleVoiceProf     = "lumina_male"
+	idleChatRoute            = "IDLECHAT"
+	idleChatDefaultVoiceID   = "female_01"
+	idleChatDefaultVoiceProf = "lumina_female"
+	idleChatMaleVoiceID      = "male_01"
+	idleChatMaleVoiceProf    = "lumina_male"
 )
+
+var idleChatTopicPrefixRe = regexp.MustCompile(`^今日のお題（[^）]+）:\s*`)
 
 func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) {
 	if bridge == nil || strings.TrimSpace(ev.Content) == "" || ev.Type != "idlechat.message" {
 		return
 	}
 
-	filtered := ttsapp.FilterSpeakableText("agent.response", idleChatRoute, ev.Content)
+	filtered := ttsapp.FilterSpeakableText("agent.response", idleChatRoute, formatIdleChatTTSText(ev))
 	if filtered == "" {
 		return
 	}
@@ -64,6 +67,35 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 	}
 	if err := bridge.EndSession(ctx, sessionID); err != nil {
 		log.Printf("[IdleChat] TTS end failed: %v", err)
+	}
+}
+
+func formatIdleChatTTSText(ev idlechat.TimelineEvent) string {
+	content := strings.TrimSpace(ev.Content)
+	if strings.EqualFold(ev.From, "user") && strings.EqualFold(ev.To, "mio") && idleChatTopicPrefixRe.MatchString(content) {
+		topic := strings.TrimSpace(idleChatTopicPrefixRe.ReplaceAllString(content, ""))
+		if topic == "" {
+			return "今日のお題です！"
+		}
+		return "今日のお題です。。" + topic + "。。です！。"
+	}
+	return ensureIdleChatSentencePause(content)
+}
+
+func ensureIdleChatSentencePause(content string) string {
+	if content == "" {
+		return ""
+	}
+	switch {
+	case strings.HasSuffix(content, "。"),
+		strings.HasSuffix(content, "！"),
+		strings.HasSuffix(content, "？"),
+		strings.HasSuffix(content, "."),
+		strings.HasSuffix(content, "!"),
+		strings.HasSuffix(content, "?"):
+		return content
+	default:
+		return content + "。"
 	}
 }
 

@@ -64,6 +64,45 @@ func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 	}
 }
 
+func TestEmitIdleChatTTS_AppendsSentencePauseForAgentMessage(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "shiro",
+		Content:   "次は別の観点で見てみよう",
+		SessionID: "idle-3",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	if got := bridge.pushTexts[0]; got != "次は別の観点で見てみよう。" {
+		t.Fatalf("unexpected filtered text: %q", got)
+	}
+}
+
+func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "user",
+		To:        "mio",
+		Content:   "今日のお題（external）: 震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？",
+		SessionID: "idle-topic-1",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	want := "今日のお題です。。震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？。。です！。"
+	if bridge.pushTexts[0] != want {
+		t.Fatalf("unexpected topic tts text: got %q want %q", bridge.pushTexts[0], want)
+	}
+}
+
 func TestEmitIdleChatTTSSkipsNonMessageEvent(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 

@@ -33,3 +33,12 @@ func TestFilterSpeakableText_ReplacesAgentNamesForSpeech(t *testing.T) {
 		t.Fatalf("unexpected filtered text: got %q want %q", got, want)
 	}
 }
+
+func TestFilterSpeakableText_StripsLeadingPunctuation(t *testing.T) {
+	in := "、、。。! ! みお、今日はいい天気です。"
+	got := FilterSpeakableText("agent.response", "CHAT", in)
+	want := "みお、今日はいい天気です。"
+	if got != want {
+		t.Fatalf("unexpected filtered text: got %q want %q", got, want)
+	}
+}

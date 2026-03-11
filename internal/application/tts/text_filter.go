@@ -3,6 +3,7 @@ package ttsapp
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 var (
@@ -54,6 +55,9 @@ func FilterSpeakableText(eventType, route, text string) string {
 	s = multiSpaceRe.ReplaceAllString(s, " ")
 	s = ackPrefixRe.ReplaceAllString(s, "")
 	s = speakNameRe.Replace(s)
+	s = strings.TrimLeftFunc(s, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r)
+	})
 	s = strings.TrimSpace(s)
 	if onlyPunctRe.MatchString(s) {
 		return ""
