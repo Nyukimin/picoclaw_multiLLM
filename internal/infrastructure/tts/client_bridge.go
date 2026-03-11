@@ -1,9 +1,11 @@
 package tts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"golang.org/x/net/websocket"
 )
 
@@ -23,6 +26,7 @@ type ClientConfig struct {
 	ConnectTimeout  time.Duration
 	ReceiveTimeout  time.Duration
 	ChunkGapTimeout time.Duration
+	OnChunkReady    func(sessionID string, chunkIndex int, text, audioPath, audioURL string)
 }
 
 type ttsSession struct {
@@ -95,6 +99,12 @@ func (b *ClientBridge) StartSession(ctx context.Context, req orchestrator.TTSSes
 			"urgency":                 chooseDefault(req.Urgency, "normal"),
 			"conversation_mode":       chooseDefault(req.ConversationMode, "chat"),
 			"user_attention_required": req.UserAttentionRequired,
+			"user_waiting_time_sec":   req.Context.UserWaitingTimeSec,
+			"time_of_day":             req.Context.TimeOfDay,
+			"previous_event":          req.Context.PreviousEvent,
+			"retry_count":             req.Context.RetryCount,
+			"consecutive_failures":    req.Context.ConsecutiveFailures,
+			"voice_profile":           req.VoiceProfile,
 		},
 	}
 	if err := websocket.JSON.Send(conn, start); err != nil {
@@ -110,14 +120,14 @@ func (b *ClientBridge) StartSession(ctx context.Context, req orchestrator.TTSSes
 	return nil
 }
 
-func (b *ClientBridge) PushText(ctx context.Context, sessionID string, text string) error {
+func (b *ClientBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
 	session, ok := b.getSession(sessionID)
-	if !ok {
-		return fmt.Errorf("tts session not found: %s", sessionID)
-	}
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
+	}
+	if !ok {
+		return b.synthesizeFallback(ctx, sessionID, text, emotion)
 	}
 
 	session.mu.Lock()
@@ -129,6 +139,9 @@ func (b *ClientBridge) PushText(ctx context.Context, sessionID string, text stri
 		"seq":        seq,
 		"text":       text,
 		"emitted_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	if emotion != nil {
+		payload["emotion_state"] = emotion
 	}
 	err := websocket.JSON.Send(session.conn, payload)
 	session.mu.Unlock()
@@ -277,12 +290,14 @@ func (b *ClientBridge) receiveLoop(sessionID string, s *ttsSession) {
 			s.buffer.add(ch, time.Now().UTC())
 			for _, item := range s.buffer.drain(time.Now().UTC(), false) {
 				log.Printf("tts_audio_chunk_received session=%s chunk=%d", sessionID, item.ChunkIndex)
+				b.notifyChunkReady(sessionID, item)
 				if err := b.sink.SubmitChunk(context.Background(), sessionID, item); err != nil {
 					log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, item.ChunkIndex, err)
 				}
 			}
 		case "session_completed":
 			for _, item := range s.buffer.drain(time.Now().UTC(), true) {
+				b.notifyChunkReady(sessionID, item)
 				if err := b.sink.SubmitChunk(context.Background(), sessionID, item); err != nil {
 					log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, item.ChunkIndex, err)
 				}
@@ -320,11 +335,13 @@ func parseAudioChunk(msg map[string]any) (audioChunk, bool) {
 	}
 	text, _ := msg["text"].(string)
 	path, _ := msg["audio_path"].(string)
+	audioURL, _ := msg["audio_url"].(string)
 	pause, _ := msg["pause_after"].(string)
 	chunk.Text = text
 	chunk.AudioPath = path
+	chunk.AudioURL = audioURL
 	chunk.PauseAfter = pause
-	return chunk, strings.TrimSpace(path) != ""
+	return chunk, strings.TrimSpace(path) != "" || strings.TrimSpace(audioURL) != ""
 }
 
 func chooseDefault(v, def string) string {
@@ -339,4 +356,65 @@ func (b *ClientBridge) getSession(sessionID string) (*ttsSession, bool) {
 	defer b.mu.RUnlock()
 	s, ok := b.sessions[sessionID]
 	return s, ok
+}
+
+func (b *ClientBridge) notifyChunkReady(sessionID string, ch audioChunk) {
+	if b.cfg.OnChunkReady == nil {
+		return
+	}
+	audioURL := resolveAudioURL(b.cfg.HTTPBaseURL, ch.AudioPath, ch.AudioURL)
+	b.cfg.OnChunkReady(sessionID, ch.ChunkIndex, ch.Text, ch.AudioPath, audioURL)
+}
+
+func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+	base := strings.TrimRight(strings.TrimSpace(b.cfg.HTTPBaseURL), "/")
+	if base == "" {
+		return fmt.Errorf("tts fallback unavailable: http_base_url is empty")
+	}
+	payload := map[string]any{
+		"text":     text,
+		"voice_id": b.cfg.VoiceID,
+	}
+	if emotion != nil {
+		payload["emotion_state"] = emotion
+	}
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal synthesize fallback request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/synthesize", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("build synthesize fallback request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("tts fallback request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("tts fallback bad status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		Text      string `json:"text"`
+		AudioPath string `json:"audio_path"`
+		AudioURL  string `json:"audio_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return fmt.Errorf("decode synthesize fallback response: %w", err)
+	}
+	ch := audioChunk{
+		ChunkIndex: 0,
+		Text:       chooseDefault(out.Text, text),
+		AudioPath:  out.AudioPath,
+		AudioURL:   out.AudioURL,
+	}
+	b.notifyChunkReady(sessionID, ch)
+	if b.sink != nil {
+		if err := b.sink.SubmitChunk(context.Background(), sessionID, ch); err != nil {
+			log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, ch.ChunkIndex, err)
+		}
+	}
+	return nil
 }

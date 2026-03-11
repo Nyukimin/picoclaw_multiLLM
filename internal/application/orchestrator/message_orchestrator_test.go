@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -117,6 +118,7 @@ func (m *mockWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID 
 type mockTTSBridge struct {
 	startReqs []TTSSessionStart
 	pushes    []string
+	emotions  []*ttsapp.EmotionState
 	ended     []string
 	startErr  error
 }
@@ -126,8 +128,9 @@ func (m *mockTTSBridge) StartSession(ctx context.Context, req TTSSessionStart) e
 	return m.startErr
 }
 
-func (m *mockTTSBridge) PushText(ctx context.Context, sessionID string, text string) error {
+func (m *mockTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
 	m.pushes = append(m.pushes, text)
+	m.emotions = append(m.emotions, emotion)
 	return nil
 }
 
@@ -287,8 +290,11 @@ func TestMessageOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
 	if len(bridge.startReqs) != 1 {
 		t.Fatalf("expected one start request, got %d", len(bridge.startReqs))
 	}
-	if len(bridge.pushes) < 2 {
-		t.Fatalf("expected streamed pushes, got %v", bridge.pushes)
+	if len(bridge.pushes) != 1 || bridge.pushes[0] != "final response" {
+		t.Fatalf("expected single final push, got %v", bridge.pushes)
+	}
+	if len(bridge.emotions) != 1 || bridge.emotions[0] == nil {
+		t.Fatalf("expected emotion payload, got %+v", bridge.emotions)
 	}
 	if len(bridge.ended) != 1 {
 		t.Fatalf("expected end session once, got %d", len(bridge.ended))

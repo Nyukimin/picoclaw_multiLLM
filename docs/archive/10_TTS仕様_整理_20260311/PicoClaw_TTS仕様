@@ -1,0 +1,696 @@
+了解。
+いま**実際に動いた構成**を前提に、まずはぶれない仕様としてまとめるね。
+今回は「理想案」ではなく、**現状の成功状態を土台にした v0.1 仕様**にする。
+
+````md
+# PicoClaw TTS Server 連携仕様 v0.1
+実測反映版 / Style-Bert-VITS2 CPU常駐
+
+## 1. 目的
+
+本仕様は、PicoClaw から Style-Bert-VITS2 を利用してリアルタイム音声出力を行うための、
+最小かつ安定した接続仕様を定義する。
+
+本バージョンでは、以下を目的とする。
+
+- Style-Bert-VITS2 を CPU 常駐プロセスとして運用する
+- PicoClaw から HTTP / WebSocket で音声合成を要求できる
+- 初回ロードの重さを起動時に吸収する
+- voice_id により音声を切り替えられる
+- 将来的な Emotion Planner / Speech Planner / リアルタイム chunk 合成へ拡張可能な構造を維持する
+
+---
+
+## 2. 現在の到達状態
+
+現時点で以下は確認済み。
+
+- Python 3.10 環境で Style-Bert-VITS2 推論成功
+- JP BERT tokenizer / model のロード成功
+- 音声モデル `amitaro` のロード成功
+- `infer()` による wav 生成成功
+- FastAPI サーバ化成功
+- `GET /health/ready` 成功
+- `POST /synthesize` 成功
+- 生成 wav の再生成功
+
+現時点の運用 voice は以下。
+
+- `female_01` -> `amitaro`
+
+---
+
+## 3. スコープ
+
+### 3.1 本仕様に含むもの
+
+- TTS Server の常駐起動
+- health check
+- 単発音声合成 API
+- WebSocket による session ベース接続仕様
+- PicoClaw 側からの呼び出し仕様
+- voice_id による音声切替
+- CPU 常駐前提の実装方針
+
+### 3.2 本仕様に含まないもの
+
+- STT（音声認識）
+- 音声再生デバイス制御
+- 音声ストリームのバイナリ返送
+- GPU 最適化
+- 学習
+- TTS Editor UI の運用
+
+---
+
+## 4. 前提
+
+- TTS Engine は Style-Bert-VITS2 を使用する
+- TTS Server は PicoClaw と同一ホスト、または LAN 上の到達可能ホストで動作する
+- 初期構成では `127.0.0.1` バインドとする
+- TTS Engine は CPU 常駐とする
+- 日本語 BERT は 1 回だけロードする
+- 音声モデルは起動時に preload する
+- SSH は保守専用であり、音声合成 API の通信路には使用しない
+
+---
+
+## 5. 全体構成
+
+```text
+PicoClaw Chat / Worker
+  ↓
+Speech Bridge
+  ↓
+TTS Client
+  ↓  HTTP / WebSocket
+TTS Server
+  ├─ Health API
+  ├─ Session Manager
+  ├─ Speech Buffer
+  ├─ Emotion Planner (段階導入)
+  ├─ Speech Planner (段階導入)
+  ├─ TTS Adapter
+  └─ Synth Worker
+  ↓
+wav file / audio chunk metadata
+  ↓
+PicoClaw Audio Sink
+````
+
+---
+
+## 6. コンポーネント責務
+
+## 6.1 PicoClaw 側
+
+### Speech Bridge
+
+* LLM の出力を受け取る
+* 応答 session を開始する
+* text delta を順番に TTS Server へ送る
+* session_end を送る
+
+### TTS Client
+
+* HTTP / WebSocket 接続を管理する
+* 再接続、タイムアウト、受信処理を担当する
+
+### Audio Sink
+
+* 生成された wav のパス、または音声 chunk を受け取る
+* 順序制御して再生する
+* 必要に応じて保存する
+
+---
+
+## 6.2 TTS Server 側
+
+### Health API
+
+* live / ready / model 状態を返す
+
+### Session Manager
+
+* session 単位の状態を保持する
+* text buffer、seq、chunk_index を管理する
+
+### Speech Buffer
+
+* text delta を蓄積する
+* 発話可能な単位へ切り出す
+
+### Emotion Planner
+
+* event / context / text feature から emotion_state を生成する
+* 本 v0.1 では最小ルールベースとする
+
+### Speech Planner
+
+* text normalization
+* pause planning
+* 発話単位補正
+
+### TTS Adapter
+
+* 中間表現を Style-Bert-VITS2 のパラメータに変換する
+
+### Synth Worker
+
+* preload 済み BERT / voice model を使って `infer()` を実行する
+* wav を出力する
+
+---
+
+## 7. 起動仕様
+
+## 7.1 起動シーケンス
+
+1. config 読み込み
+2. voice registry 読み込み
+3. JP BERT tokenizer load
+4. JP BERT model load
+5. 各 voice model load
+6. FastAPI 起動
+7. ready 状態へ遷移
+
+## 7.2 ready 条件
+
+以下をすべて満たした時点で ready とする。
+
+* JP BERT tokenizer 読込済み
+* JP BERT model 読込済み
+* すべての preload 対象 voice 読込済み
+* Health API が応答可能
+
+---
+
+## 8. 音声モデル仕様
+
+## 8.1 voice_id
+
+PicoClaw は音声モデルの実体を知らず、`voice_id` のみを指定する。
+
+例:
+
+```json
+{
+  "female_01": {
+    "model_name": "amitaro",
+    "speaker_id": 0,
+    "default_style": "Neutral",
+    "style_weight": 2.0,
+    "language": "JP",
+    "voice_profile": "lumina_female"
+  }
+}
+```
+
+## 8.2 現在の搭載 voice
+
+* `female_01`
+
+## 8.3 将来追加予定
+
+* `male_01`
+
+---
+
+## 9. HTTP API 仕様
+
+## 9.1 GET /health/live
+
+### 目的
+
+プロセスが生きているか確認する。
+
+### 応答例
+
+```json
+{
+  "status": "live"
+}
+```
+
+---
+
+## 9.2 GET /health/ready
+
+### 目的
+
+BERT / voice preload が完了しているか確認する。
+
+### 応答例
+
+```json
+{
+  "status": "ready",
+  "voices": ["female_01"]
+}
+```
+
+---
+
+## 9.3 GET /health/models
+
+### 目的
+
+ロード済み voice 一覧を返す。
+
+### 応答例
+
+```json
+{
+  "voices": {
+    "female_01": {
+      "model_name": "amitaro",
+      "speaker_id": 0,
+      "style": "Neutral"
+    }
+  }
+}
+```
+
+---
+
+## 9.4 POST /synthesize
+
+### 目的
+
+単発音声合成を行う。
+デバッグ、疎通確認、単発利用に使う。
+
+### リクエスト例
+
+```json
+{
+  "text": "こんにちは。PicoClaw のテストです。",
+  "voice_id": "female_01",
+  "event": "conversation",
+  "speech_mode": "conversational",
+  "urgency": "normal",
+  "session_id": null
+}
+```
+
+### レスポンス例
+
+```json
+{
+  "session_id": "oneshot-00c54fb0",
+  "chunk_index": 0,
+  "text": "こんにちは。ピコクロウ のテストです。",
+  "audio_path": "cache/oneshot-00c54fb0_000.wav",
+  "sample_rate": 44100,
+  "emotion_state": {
+    "primary_emotion": "warm"
+  },
+  "speech_plan": {
+    "normalized_text": "こんにちは。ピコクロウ のテストです。",
+    "pause_after": "medium"
+  }
+}
+```
+
+---
+
+## 10. WebSocket API 仕様
+
+## 10.1 エンドポイント
+
+* `WS /sessions`
+
+### 目的
+
+PicoClaw から text delta を逐次受け取り、chunk 単位で音声化する。
+
+---
+
+## 10.2 message: session_start
+
+```json
+{
+  "type": "session_start",
+  "session_id": "sess-001",
+  "response_id": "resp-001",
+  "voice_id": "female_01",
+  "speech_mode": "conversational",
+  "context": {
+    "event": "conversation",
+    "urgency": "normal",
+    "conversation_mode": "chat",
+    "user_attention_required": false
+  }
+}
+```
+
+---
+
+## 10.3 message: text_delta
+
+```json
+{
+  "type": "text_delta",
+  "session_id": "sess-001",
+  "seq": 1,
+  "text": "今日はですね、",
+  "emitted_at": "2026-03-11T07:40:00+09:00"
+}
+```
+
+---
+
+## 10.4 message: session_end
+
+```json
+{
+  "type": "session_end",
+  "session_id": "sess-001",
+  "is_final": true
+}
+```
+
+---
+
+## 10.5 message: audio_chunk_ready
+
+```json
+{
+  "type": "audio_chunk_ready",
+  "session_id": "sess-001",
+  "chunk_index": 0,
+  "text": "今日はですね、",
+  "audio_path": "cache/sess-001_000.wav",
+  "sample_rate": 44100,
+  "pause_after": "short"
+}
+```
+
+---
+
+## 10.6 message: session_completed
+
+```json
+{
+  "type": "session_completed",
+  "session_id": "sess-001"
+}
+```
+
+---
+
+## 10.7 message: error
+
+```json
+{
+  "type": "error",
+  "session_id": "sess-001",
+  "code": "VOICE_NOT_FOUND",
+  "message": "voice_id 'female_99' is not registered"
+}
+```
+
+---
+
+## 11. Session 仕様
+
+## 11.1 session state
+
+```json
+{
+  "session_id": "sess-001",
+  "response_id": "resp-001",
+  "voice_id": "female_01",
+  "speech_mode": "conversational",
+  "event": "conversation",
+  "urgency": "normal",
+  "conversation_mode": "chat",
+  "user_attention_required": false,
+  "text_buffer": "",
+  "next_seq": 1,
+  "next_chunk_index": 0
+}
+```
+
+## 11.2 状態遷移
+
+* created
+* streaming
+* flushing
+* completed
+* error
+* timeout
+
+---
+
+## 12. Speech Buffer 仕様
+
+## 12.1 目的
+
+LLM の文字列をためて、発話可能な単位に切る。
+
+## 12.2 flush 条件
+
+優先順位は以下。
+
+1. `。！？`
+2. `、` かつ一定長以上
+3. 30文字超で分割候補
+4. 45文字超で強制分割
+5. session_end 受信時に残り全 flush
+
+## 12.3 v0.1 の方針
+
+* 過剰に賢くしない
+* まずは句読点ベース
+* 長文暴走だけ防ぐ
+
+---
+
+## 13. Emotion Planner 仕様
+
+## 13.1 v0.1 の目的
+
+完全な感情推定ではなく、最低限の prosody 用中間表現を作る。
+
+## 13.2 入力
+
+* event
+* speech_mode
+* voice_profile
+
+## 13.3 出力
+
+* primary_emotion
+* emotion_vector
+* prosody
+* reason_trace
+
+## 13.4 v0.1 の実装方針
+
+* `warning` / `error` -> alert
+* `report` -> serious
+* それ以外 -> warm
+
+---
+
+## 14. Speech Planner 仕様
+
+## 14.1 目的
+
+読み上げ向けに文字列を軽く整える。
+
+## 14.2 text normalization
+
+例:
+
+* PicoClaw -> ピコクロウ
+* AI -> エーアイ
+* LLM -> エル・エル・エム
+* URL -> URL省略
+
+## 14.3 pause planning
+
+* `、` -> short
+* `。！？` -> medium
+* 後続なし or flush 終端 -> long 候補
+
+---
+
+## 15. TTS Adapter 仕様
+
+## 15.1 目的
+
+Emotion / Speech の中間表現を Style-Bert-VITS2 パラメータへ変換する。
+
+## 15.2 v0.1 の変換対象
+
+* style
+* style_weight
+* sdp_ratio
+* speaker_id
+* language
+
+## 15.3 設計原則
+
+* Emotion Planner は Style-Bert 固有値を知らない
+* Speech Planner は Style-Bert 固有値を知らない
+* Adapter のみがエンジン依存を持つ
+
+---
+
+## 16. Synth Worker 仕様
+
+## 16.1 目的
+
+preload 済みの BERT / model を使って `infer()` を呼ぶ。
+
+## 16.2 実行単位
+
+* 1 chunk ごとに 1 回実行
+
+## 16.3 実行方式
+
+* 初版は直列キュー
+* `asyncio.Lock` で排他
+* 同時合成は行わない
+
+## 16.4 出力
+
+* wav file path
+* sample_rate
+* duration_ms（将来）
+* synth_elapsed_ms（将来）
+
+---
+
+## 17. PicoClaw 側仕様
+
+## 17.1 PicoClaw 側の責務
+
+* session_id 発行
+* session_start 送信
+* text_delta 順次送信
+* session_end 送信
+* audio_chunk_ready 受信
+* chunk 順に再生
+
+## 17.2 PicoClaw 側が持たないもの
+
+* BERT
+* 発話 chunking ロジック
+* TTS パラメータ変換
+* 音声モデル内部知識
+
+## 17.3 PicoClaw 側の最小メタ情報
+
+* session_id
+* response_id
+* voice_id
+* speech_mode
+* event
+* urgency
+
+---
+
+## 18. エラー処理
+
+## 18.1 TTS Server 側
+
+* voice_id 不明 -> error
+* session 不明 -> error
+* seq 不正 -> error
+* infer 失敗 -> error / 継続可能
+* startup 未完了 -> 503
+
+## 18.2 PicoClaw 側
+
+* 接続失敗 -> 再接続または音声なし継続
+* chunk 欠番 -> 一定時間待機後スキップ
+* session timeout -> session 廃棄
+
+---
+
+## 19. ログ仕様
+
+## 19.1 TTS Server 側
+
+最低限出すもの：
+
+* startup begin
+* bert tokenizer loaded
+* bert model loaded
+* voice model loaded
+* session started
+* text delta received
+* chunk flushed
+* synth started
+* synth finished
+* audio chunk ready
+* session completed
+* error
+
+## 19.2 PicoClaw 側
+
+* tts session start
+* tts delta send
+* audio chunk received
+* audio play start
+* audio play done
+* session end
+
+---
+
+## 20. セキュリティ
+
+* 初期実装は `127.0.0.1` バインド
+* 外部公開しない
+* SSH は保守用
+* API 呼出に SSH を使わない
+* 将来リモート化する場合のみ認証追加を検討する
+
+---
+
+## 21. v0.1 の完成条件
+
+以下を満たした時点で v0.1 完了とする。
+
+* `python tts_server.py` で起動できる
+* `/health/ready` が `ready` を返す
+* `POST /synthesize` で wav が生成される
+* `female_01` で音声が出る
+* WebSocket session の基本送受信が通る
+* PicoClaw 側から text delta を送れる
+
+---
+
+## 22. 次フェーズ
+
+### v0.2
+
+* `male_01` 追加
+* WebSocket 実運用化
+* PicoClaw 側 client 実装
+* chunk 再生順制御
+
+### v0.3
+
+* binary audio chunk 返却
+* Emotion Planner 拡張
+* Speech Planner 拡張
+* latency metrics 収集
+
+---
+
+## 23. 一行要約
+
+PicoClaw は LLM の文字列を session 単位で TTS Server に送り、
+TTS Server はそれを発話可能な chunk に分割し、
+Emotion / Speech の中間処理を経て、
+CPU 常駐 Style-Bert-VITS2 により wav を生成して返す。
+
+```
+
+この次は、この仕様に合わせて  
+**PicoClaw 側クライアント仕様**を別紙で切り出すのがきれいです。
+```

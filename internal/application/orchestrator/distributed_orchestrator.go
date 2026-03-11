@@ -134,15 +134,18 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	ttsSessionID := ""
 	if o.ttsBridge != nil {
 		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
+		ttsCtx := buildTTSContext(decision.Route, "normal", false)
 		startReq := TTSSessionStart{
 			SessionID:             ttsSessionID,
 			ResponseID:            jobID.String(),
 			VoiceID:               "female_01",
 			SpeechMode:            speechModeForRoute(decision.Route),
-			Event:                 "conversation",
-			Urgency:               "normal",
-			ConversationMode:      "chat",
-			UserAttentionRequired: false,
+			Event:                 eventForRoute(decision.Route),
+			Urgency:               ttsCtx.Urgency,
+			ConversationMode:      ttsCtx.ConversationMode,
+			UserAttentionRequired: ttsCtx.UserAttentionRequired,
+			Context:               ttsCtx,
+			VoiceProfile:          defaultTTSVoiceProfile,
 		}
 		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
 			log.Printf("[DistributedOrch] TTS start degraded: %v", err)
@@ -204,7 +207,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 	if isCodeRoute(route) {
 		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, jid)
 		if err == nil {
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 	}
@@ -227,7 +230,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 			o.memory.RecordMessage(respMsg)
 			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 			o.emitNote("mio", "user", "会話処理が終わったよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 	}
@@ -247,7 +250,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 		o.emitNote(targetAgent, "mio",
 			fmt.Sprintf("%s の作業が終わりました。", displayAgentName(targetAgent)),
 			string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.pushTTS(ctx, ttsSessionID, result.Content)
+		o.pushTTS(ctx, ttsSessionID, route, "agent.response", result.Content)
 	}
 	return result.Content, err
 }
@@ -263,17 +266,13 @@ func (o *DistributedOrchestrator) withStreamHooks(
 			prev(token)
 		}
 		o.emit("agent.thinking", "mio", "user", token, route, jid, sessionID, channel, chatID)
-		o.pushTTS(ctx, ttsSessionID, token)
 	})
 }
 
-func (o *DistributedOrchestrator) pushTTS(ctx context.Context, sessionID, text string) {
-	if o.ttsBridge == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(text) == "" {
-		return
-	}
-	if err := o.ttsBridge.PushText(ctx, sessionID, text); err != nil {
-		log.Printf("[DistributedOrch] TTS push degraded: %v", err)
-	}
+func (o *DistributedOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
+	ttsCtx := buildTTSContext(route, "normal", false)
+	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, defaultTTSVoiceProfile)
+	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[DistributedOrch] TTS push degraded:")
 }
 
 func (o *DistributedOrchestrator) executeCodeViaShiro(

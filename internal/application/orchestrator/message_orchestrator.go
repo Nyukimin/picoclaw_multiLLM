@@ -184,15 +184,18 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	// タスクにルートを設定
 	t = t.WithRoute(decision.Route)
 	if o.ttsBridge != nil && ttsSessionID != "" {
+		ttsCtx := buildTTSContext(decision.Route, "normal", false)
 		startReq := TTSSessionStart{
 			SessionID:             ttsSessionID,
 			ResponseID:            jobID.String(),
 			VoiceID:               "female_01",
 			SpeechMode:            speechModeForRoute(decision.Route),
-			Event:                 "conversation",
-			Urgency:               "normal",
-			ConversationMode:      "chat",
-			UserAttentionRequired: false,
+			Event:                 eventForRoute(decision.Route),
+			Urgency:               ttsCtx.Urgency,
+			ConversationMode:      ttsCtx.ConversationMode,
+			UserAttentionRequired: ttsCtx.UserAttentionRequired,
+			Context:               ttsCtx,
+			VoiceProfile:          defaultTTSVoiceProfile,
 		}
 		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
 			log.Printf("[MessageOrch] TTS route update degraded: %v", err)
@@ -263,7 +266,7 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		resp, err := o.mio.Chat(streamCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "CHAT", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
@@ -272,21 +275,21 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		resp, err := o.shiro.Execute(ctx, t)
 		if err == nil {
 			o.emit("agent.response", "shiro", "mio", resp, "OPS", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
 	case routing.RouteCODE:
 		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
 		if err == nil {
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
 	case routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
 		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
 		if err == nil {
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
@@ -296,7 +299,7 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		resp, err := o.mio.Chat(planCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "PLAN", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
@@ -306,7 +309,7 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		resp, err := o.mio.Chat(analyzeCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
@@ -316,7 +319,7 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		resp, err := o.mio.Chat(researchCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, resp)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
 
@@ -336,17 +339,13 @@ func (o *MessageOrchestrator) withStreamHooks(
 			prev(token)
 		}
 		o.emit("agent.thinking", "mio", "user", token, route, jid, sessionID, channel, chatID)
-		o.pushTTS(ctx, ttsSessionID, token)
 	})
 }
 
-func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID, text string) {
-	if o.ttsBridge == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(text) == "" {
-		return
-	}
-	if err := o.ttsBridge.PushText(ctx, sessionID, text); err != nil {
-		log.Printf("[MessageOrch] TTS push degraded: %v", err)
-	}
+func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
+	ttsCtx := buildTTSContext(route, "normal", false)
+	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, defaultTTSVoiceProfile)
+	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[MessageOrch] TTS push degraded:")
 }
 
 func speechModeForRoute(route routing.Route) string {
