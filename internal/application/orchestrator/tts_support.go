@@ -10,7 +10,12 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 )
 
-const defaultTTSVoiceProfile = "lumina_female"
+const (
+	defaultTTSVoiceID      = "female_01"
+	defaultTTSVoiceProfile = "lumina_female"
+	maleTTSVoiceID         = "male_01"
+	maleTTSVoiceProfile    = "lumina_male"
+)
 
 func buildTTSContext(route routing.Route, urgency string, attention bool) ttsapp.EmotionContext {
 	timeOfDay := "day"
@@ -56,6 +61,24 @@ func buildTTSPayload(eventType string, route routing.Route, text string, ctx tts
 		VoiceProfile: chooseNonEmpty(voiceProfile, defaultTTSVoiceProfile),
 	})
 	return filtered, &emotion
+}
+
+func voiceForSpeaker(speaker string) (voiceID, voiceProfile string) {
+	switch strings.ToLower(strings.TrimSpace(speaker)) {
+	case "shiro":
+		return maleTTSVoiceID, maleTTSVoiceProfile
+	default:
+		return defaultTTSVoiceID, defaultTTSVoiceProfile
+	}
+}
+
+func speakerForRoute(route routing.Route) string {
+	switch route {
+	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+		return "shiro"
+	default:
+		return "mio"
+	}
 }
 
 func chooseNonEmpty(v, def string) string {

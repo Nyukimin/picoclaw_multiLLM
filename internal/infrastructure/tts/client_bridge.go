@@ -116,7 +116,7 @@ func (b *ClientBridge) StartSession(ctx context.Context, req orchestrator.TTSSes
 	b.sessions[req.SessionID] = session
 	b.mu.Unlock()
 	go b.receiveLoop(req.SessionID, session)
-	log.Printf("tts_session_start_sent session=%s", req.SessionID)
+	log.Printf("tts_session_start_sent session=%s voice_id=%s voice_profile=%s", req.SessionID, chooseDefault(req.VoiceID, b.cfg.VoiceID), req.VoiceProfile)
 	return nil
 }
 
@@ -373,7 +373,7 @@ func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string,
 	}
 	payload := map[string]any{
 		"text":     text,
-		"voice_id": b.cfg.VoiceID,
+		"voice_id": fallbackVoiceID(b.cfg.VoiceID, emotion),
 	}
 	if emotion != nil {
 		payload["emotion_state"] = emotion
@@ -417,4 +417,16 @@ func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string,
 		}
 	}
 	return nil
+}
+
+func fallbackVoiceID(defaultVoiceID string, emotion *ttsapp.EmotionState) string {
+	if emotion != nil {
+		switch strings.ToLower(strings.TrimSpace(emotion.ReasonTrace.VoiceProfile)) {
+		case "lumina_male":
+			return "male_01"
+		case "lumina_female":
+			return "female_01"
+		}
+	}
+	return defaultVoiceID
 }

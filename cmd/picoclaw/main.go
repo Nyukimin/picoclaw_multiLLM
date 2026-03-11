@@ -1263,6 +1263,7 @@ type Dependencies struct {
 	chromeBridgeEvents http.HandlerFunc                      // chrome bridge SSE endpoint
 	distOrch           *orchestrator.DistributedOrchestrator // v4 distributed orchestrator
 	router             *transport.MessageRouter              // v4 distributed mode
+	localTransports    map[string]*transport.LocalTransport  // v4 local transports
 	idleChatOrch       *idlechat.IdleChatOrchestrator        // v4 idle chat
 	sshTransports      map[string]domaintransport.Transport  // v4 SSH transports
 	heartbeatSvc       *heartbeat.HeartbeatService           // heartbeat service
@@ -1294,6 +1295,12 @@ func (l *idleAwareEventListener) OnEvent(ev orchestrator.OrchestratorEvent) {
 }
 
 func shouldStopIdleChatByEvent(ev orchestrator.OrchestratorEvent) bool {
+	if strings.EqualFold(ev.Route, "IDLECHAT") {
+		return false
+	}
+	if ev.Type == "tts.audio_chunk" || strings.EqualFold(ev.From, "tts") {
+		return false
+	}
 	if ev.Type == "message.received" {
 		return true
 	}
@@ -1317,6 +1324,11 @@ func (d *Dependencies) Shutdown() {
 	for name, t := range d.sshTransports {
 		if err := t.Close(); err != nil {
 			log.Printf("Failed to close SSH transport for %s: %v", name, err)
+		}
+	}
+	for name, t := range d.localTransports {
+		if err := t.Close(); err != nil {
+			log.Printf("Failed to close Local transport for %s: %v", name, err)
 		}
 	}
 	if d.router != nil {
@@ -1557,7 +1569,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	deps.eventRelay = &idleAwareEventListener{hub: hub}
 	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
 	ttsRuntime := buildTTSEntryRuntime(cfg)
-	ttsBridge := buildTTSClientBridge(cfg)
+	ttsBridge := buildTTSClientBridge(cfg, func(ev orchestrator.OrchestratorEvent) {
+		if deps.eventRelay != nil {
+			deps.eventRelay.OnEvent(ev)
+		}
+	})
 	if reportStore, err := executionpersistence.NewJSONLReportStore(reportPath); err != nil {
 		log.Printf("WARN: evidence API disabled: %v", err)
 	} else {
@@ -1671,6 +1687,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 					"idlechat",
 					"idlechat",
 				))
+				emitIdleChatTTSAsync(ttsBridge, ev)
 			})
 		}
 		if deps.eventRelay != nil {
@@ -1684,7 +1701,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, ollamaProvider, centralMemory, ttsBridge)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, workerExecutionService, ollamaProvider, centralMemory, ttsBridge)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = entryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = chromeBridgeFromOrch(deps.distOrch)
@@ -1772,6 +1789,11 @@ func (d *Dependencies) buildDistributedMode(
 	cfg *config.Config,
 	sessionRepo orchestrator.SessionRepository,
 	mioAgent *agent.MioAgent,
+	shiroAgent *agent.ShiroAgent,
+	coder1Adapter *coderAdapter,
+	coder2Adapter *coderAdapter,
+	coder3Adapter *coderAdapter,
+	workerExecution service.WorkerExecutionService,
 	ollamaProvider llm.LLMProvider,
 	centralMemory *domainsession.CentralMemory,
 	ttsBridge orchestrator.TTSBridge,
@@ -1786,11 +1808,17 @@ func (d *Dependencies) buildDistributedMode(
 	// MessageRouter 構築（LocalTransport専用）
 	router := transport.NewMessageRouter()
 	sshTransports := make(map[string]domaintransport.Transport)
+	localTransports := make(map[string]*transport.LocalTransport)
 
 	for agentName, t := range transports {
 		switch v := t.(type) {
 		case *transport.LocalTransport:
+			if !localAgentEnabled(agentName, coder1Adapter, coder2Adapter, coder3Adapter) {
+				log.Printf("Skipped LocalTransport for agent '%s' (agent not enabled in this process)", agentName)
+				continue
+			}
 			router.RegisterAgent(agentName, v)
+			localTransports[agentName] = v
 			log.Printf("Registered LocalTransport for agent '%s'", agentName)
 		case *transport.SSHTransport:
 			// SSH接続を確立
@@ -1802,7 +1830,23 @@ func (d *Dependencies) buildDistributedMode(
 		}
 	}
 	d.router = router
+	d.localTransports = localTransports
 	d.sshTransports = sshTransports
+
+	mioTransport := d.ensureLocalTransport("mio")
+	shiroTransport := d.ensureLocalTransport("shiro")
+	d.startLocalWorkerAgent("shiro", shiroTransport, shiroAgent, workerExecution)
+
+	if lt, ok := d.localTransports["coder1"]; ok && coder1Adapter != nil {
+		d.startLocalCoderAgent("coder1", lt, coder1Adapter)
+	}
+	if lt, ok := d.localTransports["coder2"]; ok && coder2Adapter != nil {
+		d.startLocalCoderAgent("coder2", lt, coder2Adapter)
+	}
+	if lt, ok := d.localTransports["coder3"]; ok && coder3Adapter != nil {
+		d.startLocalCoderAgent("coder3", lt, coder3Adapter)
+	}
+	_ = mioTransport
 
 	// DistributedOrchestrator（Local + SSH transports）
 	distOrch := orchestrator.NewDistributedOrchestrator(
@@ -1837,6 +1881,164 @@ func (d *Dependencies) buildDistributedMode(
 		distOrch.SetIdleNotifier(d.idleChatOrch)
 		log.Printf("IdleChat integrated with DistributedOrchestrator")
 	}
+}
+
+func localAgentEnabled(agentName string, coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter) bool {
+	switch agentName {
+	case "mio", "shiro":
+		return true
+	case "coder1":
+		return coder1Adapter != nil
+	case "coder2":
+		return coder2Adapter != nil
+	case "coder3":
+		return coder3Adapter != nil
+	default:
+		return true
+	}
+}
+
+func (d *Dependencies) ensureLocalTransport(agentName string) *transport.LocalTransport {
+	if d.localTransports == nil {
+		d.localTransports = make(map[string]*transport.LocalTransport)
+	}
+	if lt, ok := d.localTransports[agentName]; ok {
+		return lt
+	}
+	if d.router != nil {
+		if lt, ok := d.router.GetAgent(agentName); ok {
+			d.localTransports[agentName] = lt
+			return lt
+		}
+	}
+	lt := transport.NewLocalTransport()
+	d.router.RegisterAgent(agentName, lt)
+	d.localTransports[agentName] = lt
+	log.Printf("Registered implicit LocalTransport for agent '%s'", agentName)
+	return lt
+}
+
+func (d *Dependencies) startLocalWorkerAgent(agentName string, lt *transport.LocalTransport, shiroAgent *agent.ShiroAgent, workerExecution service.WorkerExecutionService) {
+	if lt == nil || shiroAgent == nil {
+		return
+	}
+	go func() {
+		for {
+			msg, err := lt.Receive(context.Background())
+			if err != nil {
+				log.Printf("Local worker '%s' loop stopped: %v", agentName, err)
+				return
+			}
+			resp := handleLocalWorkerMessage(agentName, msg, shiroAgent, workerExecution)
+			d.deliverLocalAgentResponse(resp)
+		}
+	}()
+}
+
+func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shiroAgent *agent.ShiroAgent, workerExecution service.WorkerExecutionService) domaintransport.Message {
+	if msg.Proposal != nil && workerExecution != nil {
+		p := proposal.Reconstruct(msg.Proposal.Plan, msg.Proposal.Patch, msg.Proposal.Risk, msg.Proposal.CostHint)
+		jobID, err := task.ParseJobID(msg.JobID)
+		if err != nil {
+			return newLocalAgentError(agentName, msg, fmt.Sprintf("invalid job ID: %v", err))
+		}
+		result, err := workerExecution.ExecuteProposal(context.Background(), jobID, p)
+		if err != nil {
+			return newLocalAgentError(agentName, msg, fmt.Sprintf("patch execution failed: %v", err))
+		}
+		resp := domaintransport.NewMessage(agentName, msg.From, msg.SessionID, msg.JobID, result.Summary)
+		resp.Type = domaintransport.MessageTypeResult
+		resp.Result = &domaintransport.ResultPayload{
+			Success:      result.FailedCmds == 0,
+			Summary:      result.Summary,
+			ExecutedCmds: result.ExecutedCmds,
+			FailedCmds:   result.FailedCmds,
+			GitCommit:    result.GitCommit,
+		}
+		return resp
+	}
+
+	jobID, err := task.ParseJobID(msg.JobID)
+	if err != nil {
+		jobID = task.NewJobID()
+	}
+	t := task.NewTask(jobID, msg.Content, "distributed", msg.SessionID)
+	result, err := shiroAgent.Execute(context.Background(), t)
+	if err != nil {
+		return newLocalAgentError(agentName, msg, fmt.Sprintf("worker execution failed: %v", err))
+	}
+	resp := domaintransport.NewMessage(agentName, msg.From, msg.SessionID, msg.JobID, result)
+	resp.Type = domaintransport.MessageTypeResult
+	resp.Result = &domaintransport.ResultPayload{
+		Success: true,
+		Summary: result,
+	}
+	return resp
+}
+
+func (d *Dependencies) startLocalCoderAgent(agentName string, lt *transport.LocalTransport, coder *coderAdapter) {
+	if lt == nil || coder == nil {
+		return
+	}
+	go func() {
+		for {
+			msg, err := lt.Receive(context.Background())
+			if err != nil {
+				log.Printf("Local coder '%s' loop stopped: %v", agentName, err)
+				return
+			}
+			jobID, parseErr := task.ParseJobID(msg.JobID)
+			if parseErr != nil {
+				jobID = task.NewJobID()
+			}
+			t := task.NewTask(jobID, msg.Content, "distributed", msg.SessionID)
+			p, err := coder.GenerateProposal(context.Background(), t)
+			if err != nil {
+				d.deliverLocalAgentResponse(newLocalAgentError(agentName, msg, fmt.Sprintf("proposal generation failed: %v", err)))
+				continue
+			}
+			if p == nil {
+				d.deliverLocalAgentResponse(newLocalAgentError(agentName, msg, "proposal generation returned empty result"))
+				continue
+			}
+			resp := domaintransport.NewMessage(agentName, localCoderReplyTarget(msg), msg.SessionID, msg.JobID, fmt.Sprintf("Proposal generated by %s", agentName))
+			resp.Type = domaintransport.MessageTypeResult
+			resp.Proposal = &domaintransport.ProposalPayload{
+				Plan:     p.Plan(),
+				Patch:    p.Patch(),
+				Risk:     p.Risk(),
+				CostHint: p.CostHint(),
+			}
+			d.deliverLocalAgentResponse(resp)
+		}
+	}()
+}
+
+func (d *Dependencies) deliverLocalAgentResponse(msg domaintransport.Message) {
+	if d.router == nil {
+		return
+	}
+	target, ok := d.router.GetAgent(msg.To)
+	if !ok {
+		log.Printf("Local agent response dropped: target '%s' not registered", msg.To)
+		return
+	}
+	if err := target.PutInboundMessage(msg); err != nil {
+		log.Printf("Local agent response delivery failed to '%s': %v", msg.To, err)
+	}
+}
+
+func newLocalAgentError(agentName string, msg domaintransport.Message, errMsg string) domaintransport.Message {
+	resp := domaintransport.NewMessage(agentName, localCoderReplyTarget(msg), msg.SessionID, msg.JobID, errMsg)
+	resp.Type = domaintransport.MessageTypeError
+	return resp
+}
+
+func localCoderReplyTarget(msg domaintransport.Message) string {
+	if strings.EqualFold(strings.TrimSpace(msg.From), "shiro") {
+		return "mio"
+	}
+	return msg.From
 }
 
 func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {

@@ -47,6 +47,35 @@ func TestSBV2Provider_SynthesizeFromAudioPath(t *testing.T) {
 	}
 }
 
+func TestSBV2Provider_SynthesizeFromAudioPath_WithRootMapping(t *testing.T) {
+	p := NewSBV2Provider(SBV2Config{
+		BaseURL:       "http://sbv2.local/synthesis",
+		VoiceID:       "mio",
+		AudioPathRoot: "/mnt/e/GenerativeAI/Style-Bert-VITS2",
+	})
+	p.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		out, _ := json.Marshal(map[string]any{
+			"audio_path":  `cache\\oneshot-abc_000.wav`,
+			"duration_ms": 100,
+			"voice_id":    "mio",
+		})
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(out)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	out, err := p.Synthesize(context.Background(), SynthesisInput{Text: "hello"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	want := "/mnt/e/GenerativeAI/Style-Bert-VITS2/cache/oneshot-abc_000.wav"
+	if out.AudioFilePath != want {
+		t.Fatalf("unexpected mapped audio path: got=%q want=%q", out.AudioFilePath, want)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {

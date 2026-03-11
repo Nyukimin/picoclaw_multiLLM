@@ -11,15 +11,17 @@ import (
 )
 
 type SBV2Config struct {
-	BaseURL string
-	VoiceID string
-	Timeout time.Duration
+	BaseURL       string
+	VoiceID       string
+	Timeout       time.Duration
+	AudioPathRoot string
 }
 
 type SBV2Provider struct {
-	baseURL string
-	voiceID string
-	client  *http.Client
+	baseURL       string
+	voiceID       string
+	audioPathRoot string
+	client        *http.Client
 }
 
 func NewSBV2Provider(cfg SBV2Config) *SBV2Provider {
@@ -28,9 +30,10 @@ func NewSBV2Provider(cfg SBV2Config) *SBV2Provider {
 		timeout = 20 * time.Second
 	}
 	return &SBV2Provider{
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
-		voiceID: cfg.VoiceID,
-		client:  &http.Client{Timeout: timeout},
+		baseURL:       strings.TrimRight(cfg.BaseURL, "/"),
+		voiceID:       cfg.VoiceID,
+		audioPathRoot: cfg.AudioPathRoot,
+		client:        &http.Client{Timeout: timeout},
 	}
 }
 
@@ -91,7 +94,7 @@ func (p *SBV2Provider) Synthesize(ctx context.Context, in SynthesisInput) (Synth
 	return SynthesisOutput{
 		Provider:      "sbv2",
 		VoiceID:       voiceID,
-		AudioFilePath: out.AudioPath,
+		AudioFilePath: resolveAudioPath(out.AudioPath, p.audioPathRoot),
 		DurationMS:    out.DurationMS,
 	}, nil
 }

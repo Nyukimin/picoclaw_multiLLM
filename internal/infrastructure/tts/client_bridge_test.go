@@ -74,11 +74,48 @@ func TestClientBridge_PushText_FallbackSynthesize(t *testing.T) {
 	if got["emotion_state"] == nil {
 		t.Fatal("expected emotion_state in fallback request")
 	}
+	if got["voice_id"] != "female_01" {
+		t.Fatalf("expected default female voice_id, got %v", got["voice_id"])
+	}
 	if !gotChunk {
 		t.Fatal("expected on chunk callback")
 	}
 	if sink.calls != 1 {
 		t.Fatalf("expected sink submit once, got %d", sink.calls)
+	}
+}
+
+func TestClientBridge_PushText_FallbackSynthesize_UsesVoiceProfileVoice(t *testing.T) {
+	var got map[string]any
+
+	b := NewClientBridge(ClientConfig{
+		HTTPBaseURL: "http://tts.local",
+		VoiceID:     "female_01",
+	}, &sinkStub{})
+	b.client = &http.Client{
+		Transport: clientBridgeRoundTripper(func(r *http.Request) (*http.Response, error) {
+			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"text":"done","audio_url":"/cache/x.wav"}`)),
+			}, nil
+		}),
+	}
+
+	emotion := &ttsapp.EmotionState{
+		PrimaryEmotion: "calm",
+		ReasonTrace: ttsapp.ReasonTrace{
+			VoiceProfile: "lumina_male",
+		},
+	}
+	if err := b.PushText(context.Background(), "s2", "hello", emotion); err != nil {
+		t.Fatalf("expected fallback synth success, got %v", err)
+	}
+	if got["voice_id"] != "male_01" {
+		t.Fatalf("expected male_01 voice_id from voice profile, got %v", got["voice_id"])
 	}
 }
 

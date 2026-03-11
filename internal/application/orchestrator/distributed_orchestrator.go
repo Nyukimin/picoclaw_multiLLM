@@ -135,17 +135,18 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	if o.ttsBridge != nil {
 		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
 		ttsCtx := buildTTSContext(decision.Route, "normal", false)
+		voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
 		startReq := TTSSessionStart{
 			SessionID:             ttsSessionID,
 			ResponseID:            jobID.String(),
-			VoiceID:               "female_01",
+			VoiceID:               voiceID,
 			SpeechMode:            speechModeForRoute(decision.Route),
 			Event:                 eventForRoute(decision.Route),
 			Urgency:               ttsCtx.Urgency,
 			ConversationMode:      ttsCtx.ConversationMode,
 			UserAttentionRequired: ttsCtx.UserAttentionRequired,
 			Context:               ttsCtx,
-			VoiceProfile:          defaultTTSVoiceProfile,
+			VoiceProfile:          voiceProfile,
 		}
 		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
 			log.Printf("[DistributedOrch] TTS start degraded: %v", err)
@@ -271,7 +272,8 @@ func (o *DistributedOrchestrator) withStreamHooks(
 
 func (o *DistributedOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
 	ttsCtx := buildTTSContext(route, "normal", false)
-	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, defaultTTSVoiceProfile)
+	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
+	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, voiceProfile)
 	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[DistributedOrch] TTS push degraded:")
 }
 
@@ -296,7 +298,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	coderMsg.Context = map[string]interface{}{"route": string(route)}
 	o.memory.RecordMessage(coderMsg)
 
-	coderResult, err := o.executeToAgent(ctx, coderAgent, coderMsg)
+	coderResult, err := o.executeToAgentViaMailbox(ctx, coderAgent, coderMsg, "mio")
 	if err != nil {
 		return "", err
 	}
@@ -368,6 +370,10 @@ func (o *DistributedOrchestrator) executeViaSSH(ctx context.Context, sshTranspor
 }
 
 func (o *DistributedOrchestrator) executeToAgent(ctx context.Context, targetAgent string, msg domaintransport.Message) (domaintransport.Message, error) {
+	return o.executeToAgentViaMailbox(ctx, targetAgent, msg, msg.From)
+}
+
+func (o *DistributedOrchestrator) executeToAgentViaMailbox(ctx context.Context, targetAgent string, msg domaintransport.Message, receiveOnAgent string) (domaintransport.Message, error) {
 	if sshTransport, ok := o.sshTransports[targetAgent]; ok {
 		if err := sshTransport.Send(ctx, msg); err != nil {
 			return domaintransport.Message{}, fmt.Errorf("failed to send message to %s via SSH: %w", targetAgent, err)
@@ -384,7 +390,7 @@ func (o *DistributedOrchestrator) executeToAgent(ctx context.Context, targetAgen
 		}
 		return result, nil
 	}
-	return o.executeViaLocal(ctx, targetAgent, msg, msg.From)
+	return o.executeViaLocal(ctx, targetAgent, msg, receiveOnAgent)
 }
 
 // executeViaLocal はMessageRouter経由でローカルAgentと通信

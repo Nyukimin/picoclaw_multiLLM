@@ -8,7 +8,7 @@ import (
 
 func TestBuildTTSClientBridge_Disabled(t *testing.T) {
 	cfg := &config.Config{}
-	if got := buildTTSClientBridge(cfg); got != nil {
+	if got := buildTTSClientBridge(cfg, nil); got != nil {
 		t.Fatal("expected nil bridge when tts is disabled")
 	}
 }
@@ -26,7 +26,7 @@ func TestBuildTTSClientBridge_Enabled(t *testing.T) {
 			},
 		},
 	}
-	if got := buildTTSClientBridge(cfg); got == nil {
+	if got := buildTTSClientBridge(cfg, nil); got == nil {
 		t.Fatal("expected non-nil bridge when tts is enabled")
 	}
 }

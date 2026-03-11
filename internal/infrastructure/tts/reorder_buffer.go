@@ -9,6 +9,7 @@ type audioChunk struct {
 	ChunkIndex int
 	Text       string
 	AudioPath  string
+	AudioURL   string
 	PauseAfter string
 }
 

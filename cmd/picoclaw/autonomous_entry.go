@@ -161,9 +161,10 @@ func buildTTSEntryRuntime(cfg *config.Config) ttsEntryRuntime {
 		case "sbv2":
 			if cfg.TTS.SBV2.Enabled && strings.TrimSpace(cfg.TTS.SBV2.BaseURL) != "" {
 				providers = append(providers, ttsinfra.NewSBV2Provider(ttsinfra.SBV2Config{
-					BaseURL: cfg.TTS.SBV2.BaseURL,
-					VoiceID: cfg.TTS.SBV2.VoiceID,
-					Timeout: time.Duration(cfg.TTS.SBV2.TimeoutSec) * time.Second,
+					BaseURL:       cfg.TTS.SBV2.BaseURL,
+					VoiceID:       cfg.TTS.SBV2.VoiceID,
+					Timeout:       time.Duration(cfg.TTS.SBV2.TimeoutSec) * time.Second,
+					AudioPathRoot: cfg.TTS.AudioPathRoot,
 				}))
 			} else {
 				providers = append(providers, ttsinfra.NewUnavailableProvider("sbv2", "sbv2 is not configured"))

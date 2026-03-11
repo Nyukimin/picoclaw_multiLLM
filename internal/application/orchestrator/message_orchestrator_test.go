@@ -260,6 +260,39 @@ func TestMessageOrchestrator_ProcessMessage_OPSRoute(t *testing.T) {
 	}
 }
 
+func TestMessageOrchestrator_ProcessMessage_OPSRoute_StartsMaleTTSVoice(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteOPS, 0.9, "OPS route"),
+	}
+	shiro := &mockShiroAgent{response: "Command executed successfully"}
+	ttsBridge := &mockTTSBridge{}
+
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator.SetTTSBridge(ttsBridge)
+
+	req := ProcessMessageRequest{
+		SessionID:   "20260302-line-U123",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "ls -la",
+	}
+
+	if _, err := orchestrator.ProcessMessage(context.Background(), req); err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+
+	if len(ttsBridge.startReqs) != 1 {
+		t.Fatalf("expected 1 TTS start request, got %d", len(ttsBridge.startReqs))
+	}
+	if ttsBridge.startReqs[0].VoiceID != "male_01" {
+		t.Fatalf("expected male_01 voice for OPS/Shiro route, got %q", ttsBridge.startReqs[0].VoiceID)
+	}
+	if ttsBridge.startReqs[0].VoiceProfile != "lumina_male" {
+		t.Fatalf("expected lumina_male voice profile for OPS/Shiro route, got %q", ttsBridge.startReqs[0].VoiceProfile)
+	}
+}
+
 func TestMessageOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
 	repo := newMockSessionRepository()
 	mio := &mockMioAgent{

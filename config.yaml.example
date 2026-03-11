@@ -162,6 +162,9 @@ heartbeat:
 tts:
   enabled: false
   output_dir: "./workspace/tts"
+  # Optional: map relative audio_path (e.g. cache\\xxx.wav) to local playable path.
+  # Example on Linux with mounted Windows drive: /mnt/e/GenerativeAI/Style-Bert-VITS2
+  audio_path_root: ""
   http_base_url: "http://127.0.0.1:8765"
   ws_url: "ws://127.0.0.1:8765/sessions"
   connect_timeout_ms: 3000

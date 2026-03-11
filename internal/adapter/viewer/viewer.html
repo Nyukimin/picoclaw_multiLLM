@@ -72,6 +72,8 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .idle-empty{color:var(--t2);font-size:12px;padding:10px 12px}
 .small{color:var(--t2);font-size:11px}
 .code{font-family:'JetBrains Mono',monospace}
+.sys-content{white-space:pre-wrap;word-break:break-word;line-height:1.5;min-width:320px}
+.sys-actions{display:flex;gap:6px;align-items:center}
 
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .filters input,.filters select{
@@ -172,6 +174,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 <div class="tabs">
   <button class="tab-btn active" data-tab="overview">Overview</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
+  <button class="tab-btn" data-tab="system">System</button>
   <button class="tab-btn" data-tab="idlechat">IdleChat</button>
   <button class="tab-btn" data-tab="sessions">Sessions</button>
   <button class="tab-btn" data-tab="jobs">Jobs</button>
@@ -197,6 +200,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <option>agent.start</option>
         <option>agent.thinking</option>
         <option>agent.response</option>
+        <option>tts.audio_chunk</option>
         <option>idlechat.message</option>
         <option>idlechat.summary</option>
       </select>
@@ -217,6 +221,24 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
         <div style="font-size:15px">Waiting for messages...</div>
         <div style="font-size:12px;margin-top:4px">LINE / CLI からメッセージを送ると、ここにリアルタイムで表示されます</div>
       </div>
+    </div>
+  </section>
+
+  <section id="panel-system" class="panel">
+    <div class="filters">
+      <select id="sysType">
+        <option value="">type: all</option>
+        <option>routing.decision</option>
+        <option>entry.stage</option>
+        <option>tts.audio_chunk</option>
+      </select>
+      <input id="sysText" placeholder="content contains...">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Type</th><th>From</th><th>To</th><th>Route</th><th>Job</th><th>Content</th><th>Copy</th></tr></thead>
+        <tbody id="systemBody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -447,6 +469,11 @@ const ctr = document.getElementById('ctr');
 const cnt = document.getElementById('cnt');
 const toastEl = document.getElementById('toast');
 const thinkingBubbles = {};
+const ttsPlayback = {
+  queue: [],
+  audio: null,
+  playing: false,
+};
 let userScrolledUp = false;
 let derivedDirty = false;
 
@@ -454,6 +481,7 @@ const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const panels = {
   overview: document.getElementById('panel-overview'),
   timeline: document.getElementById('panel-timeline'),
+  system: document.getElementById('panel-system'),
   idlechat: document.getElementById('panel-idlechat'),
   sessions: document.getElementById('panel-sessions'),
   jobs: document.getElementById('panel-jobs'),
@@ -464,6 +492,8 @@ const fltAgent = document.getElementById('fltAgent');
 const fltRoute = document.getElementById('fltRoute');
 const fltJob = document.getElementById('fltJob');
 const fltText = document.getElementById('fltText');
+const sysType = document.getElementById('sysType');
+const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
@@ -483,12 +513,20 @@ function switchTab(tab) {
 tabs.forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 
 function matchesFilters(ev) {
+  if (isSystemEvent(ev)) return false;
   if (fltType.value && ev.type !== fltType.value) return false;
   if (fltAgent.value && ev.from !== fltAgent.value && ev.to !== fltAgent.value) return false;
   if (fltRoute.value && (ev.route || '') !== fltRoute.value) return false;
   if (fltJob.value && !(ev.job_id || '').toLowerCase().includes(fltJob.value.toLowerCase())) return false;
   if (fltText.value && !(ev.content || '').toLowerCase().includes(fltText.value.toLowerCase())) return false;
   return true;
+}
+function isSystemEvent(ev) {
+  if (!ev) return false;
+  if (ev.type === 'routing.decision' || ev.type === 'entry.stage' || ev.type === 'tts.audio_chunk') return true;
+  if ((ev.from || '').toLowerCase() === 'system' || (ev.to || '').toLowerCase() === 'system') return true;
+  if ((ev.from || '').toLowerCase() === 'tts') return true;
+  return false;
 }
 function resetTimeline() {
   chat.innerHTML = '';
@@ -498,6 +536,54 @@ function resetTimeline() {
 }
 [fltType, fltAgent, fltRoute].forEach((el) => el.addEventListener('change', resetTimeline));
 [fltJob, fltText].forEach((el) => el.addEventListener('input', resetTimeline));
+
+function matchesSystemFilters(ev) {
+  if (!isSystemEvent(ev)) return false;
+  if (sysType && sysType.value && ev.type !== sysType.value) return false;
+  if (sysText && sysText.value && !(ev.content || '').toLowerCase().includes(sysText.value.toLowerCase())) return false;
+  return true;
+}
+
+function renderSystem() {
+  const body = document.getElementById('systemBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const list = state.logs.filter(matchesSystemFilters).slice().reverse();
+  if (list.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="8" class="small">No system events</td>';
+    body.appendChild(tr);
+    return;
+  }
+  list.forEach((ev) => {
+    const raw = String(ev.content || '');
+    const linePayload = JSON.stringify({
+      timestamp: ev.timestamp || '',
+      type: ev.type || '',
+      from: ev.from || '',
+      to: ev.to || '',
+      route: ev.route || '',
+      job_id: ev.job_id || '',
+      content: raw,
+    }, null, 2);
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(ev.timestamp)) + '</td>' +
+      '<td>' + esc(ev.type || '-') + '</td>' +
+      '<td>' + esc(agName(ev.from || '-')) + '</td>' +
+      '<td>' + esc(agName(ev.to || '-')) + '</td>' +
+      '<td>' + esc(ev.route || '-') + '</td>' +
+      '<td class="code">' + esc(ev.job_id || '-') + '</td>' +
+      '<td><div class="sys-content" data-raw="' + esc(raw) + '">' + esc(raw || '-') + '</div></td>' +
+      '<td><div class="sys-actions">' +
+        '<button class="ctl-btn" onclick="copyTextPayload(this, ' + escAttr(JSON.stringify(raw)) + ')">Text</button>' +
+        '<button class="ctl-btn" onclick="copyTextPayload(this, ' + escAttr(JSON.stringify(linePayload)) + ')">Row</button>' +
+      '</div></td>';
+    body.appendChild(tr);
+  });
+}
+if (sysType) sysType.addEventListener('change', renderSystem);
+if (sysText) sysText.addEventListener('input', renderSystem);
 
 function setIdleState(manual, active) {
   const on = !!manual;
@@ -753,6 +839,31 @@ function copyMsg(btn) {
   });
 }
 window.copyMsg = copyMsg;
+
+function escAttr(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function copyTextPayload(btn, payload) {
+  navigator.clipboard.writeText(String(payload || '')).then(() => {
+    const old = btn.textContent;
+    btn.textContent = 'Copied';
+    btn.classList.add('ok');
+    showToast('Copied to clipboard', 'success');
+    setTimeout(() => {
+      btn.textContent = old;
+      btn.classList.remove('ok');
+    }, 1200);
+  }).catch((err) => {
+    console.error(err);
+    showToast('Copy failed', 'error');
+  });
+}
+window.copyTextPayload = copyTextPayload;
 
 function upsertSession(ev) {
   const sid = ev.session_id || 'viewer';
@@ -1048,6 +1159,7 @@ function renderEvidenceSummary() {
 
 function refreshDerivedViews() {
   renderOverview();
+  renderSystem();
   renderSessions();
   renderJobs();
   renderEvidence();
@@ -1377,7 +1489,56 @@ function ingestEvent(ev) {
   upsertJob(ev);
   updateAgents(ev);
   addMsgToTimeline(ev);
+  handleTTSAudioEvent(ev);
   derivedDirty = true;
+}
+
+function handleTTSAudioEvent(ev) {
+  if (!ev || ev.type !== 'tts.audio_chunk') return;
+  let payload = null;
+  try {
+    payload = JSON.parse(ev.content || '{}');
+  } catch (_) {
+    return;
+  }
+  const url = String(payload.audio_url || '').trim();
+  if (!url) return;
+  enqueueTTSAudio(url);
+}
+
+function ensureTTSAudio() {
+  if (!ttsPlayback.audio) {
+    ttsPlayback.audio = new Audio();
+    ttsPlayback.audio.preload = 'auto';
+    ttsPlayback.audio.addEventListener('ended', function() {
+      ttsPlayback.playing = false;
+      playNextTTSAudio();
+    });
+    ttsPlayback.audio.addEventListener('error', function() {
+      ttsPlayback.playing = false;
+      playNextTTSAudio();
+    });
+  }
+  return ttsPlayback.audio;
+}
+
+function enqueueTTSAudio(url) {
+  ttsPlayback.queue.push(url);
+  playNextTTSAudio();
+}
+
+function playNextTTSAudio() {
+  if (ttsPlayback.playing) return;
+  if (ttsPlayback.queue.length === 0) return;
+  const next = ttsPlayback.queue.shift();
+  const audio = ensureTTSAudio();
+  ttsPlayback.playing = true;
+  audio.src = next;
+  audio.play().catch(function(err) {
+    ttsPlayback.playing = false;
+    console.error('tts audio play failed', err);
+    showToast('TTS audio blocked. Click viewer once and retry.', 'error');
+  });
 }
 
 const inp = document.getElementById('inp');

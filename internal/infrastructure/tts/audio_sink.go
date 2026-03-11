@@ -15,11 +15,12 @@ type AudioSink interface {
 
 // PlaybackAudioSink reuses CommandPlayer to play generated audio paths.
 type PlaybackAudioSink struct {
-	player Player
+	player        Player
+	audioPathRoot string
 }
 
-func NewPlaybackAudioSink(player Player) *PlaybackAudioSink {
-	return &PlaybackAudioSink{player: player}
+func NewPlaybackAudioSink(player Player, audioPathRoot string) *PlaybackAudioSink {
+	return &PlaybackAudioSink{player: player, audioPathRoot: audioPathRoot}
 }
 
 func (s *PlaybackAudioSink) SubmitChunk(ctx context.Context, sessionID string, ch audioChunk) error {
@@ -29,7 +30,8 @@ func (s *PlaybackAudioSink) SubmitChunk(ctx context.Context, sessionID string, c
 	if strings.TrimSpace(ch.AudioPath) == "" {
 		return fmt.Errorf("audio_path is empty")
 	}
-	r, err := s.player.Play(ctx, ch.AudioPath)
+	resolvedPath := resolveAudioPath(ch.AudioPath, s.audioPathRoot)
+	r, err := s.player.Play(ctx, resolvedPath)
 	if err != nil {
 		return err
 	}

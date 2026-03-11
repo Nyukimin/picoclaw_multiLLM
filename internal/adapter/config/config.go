@@ -218,6 +218,7 @@ type SecurityAuditConfig struct {
 type TTSConfig struct {
 	Enabled           bool                `yaml:"enabled"`
 	OutputDir         string              `yaml:"output_dir"`
+	AudioPathRoot     string              `yaml:"audio_path_root"`
 	HTTPBaseURL       string              `yaml:"http_base_url"`
 	WSURL             string              `yaml:"ws_url"`
 	ConnectTimeoutMS  int                 `yaml:"connect_timeout_ms"`

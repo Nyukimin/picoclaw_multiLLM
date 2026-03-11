@@ -185,17 +185,18 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	t = t.WithRoute(decision.Route)
 	if o.ttsBridge != nil && ttsSessionID != "" {
 		ttsCtx := buildTTSContext(decision.Route, "normal", false)
+		voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
 		startReq := TTSSessionStart{
 			SessionID:             ttsSessionID,
 			ResponseID:            jobID.String(),
-			VoiceID:               "female_01",
+			VoiceID:               voiceID,
 			SpeechMode:            speechModeForRoute(decision.Route),
 			Event:                 eventForRoute(decision.Route),
 			Urgency:               ttsCtx.Urgency,
 			ConversationMode:      ttsCtx.ConversationMode,
 			UserAttentionRequired: ttsCtx.UserAttentionRequired,
 			Context:               ttsCtx,
-			VoiceProfile:          defaultTTSVoiceProfile,
+			VoiceProfile:          voiceProfile,
 		}
 		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
 			log.Printf("[MessageOrch] TTS route update degraded: %v", err)
@@ -344,7 +345,8 @@ func (o *MessageOrchestrator) withStreamHooks(
 
 func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
 	ttsCtx := buildTTSContext(route, "normal", false)
-	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, defaultTTSVoiceProfile)
+	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
+	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, voiceProfile)
 	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[MessageOrch] TTS push degraded:")
 }
 
