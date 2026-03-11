@@ -334,6 +334,47 @@ func TestMessageOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
 	}
 }
 
+func TestMessageOrchestrator_TTSBridge_StreamsSentenceChunks(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		chatFunc: func(ctx context.Context, t task.Task) (string, error) {
+			if cb := llm.StreamCallbackFromContext(ctx); cb != nil {
+				cb("最初の説明文です。")
+				cb("次の説明文です。")
+			}
+			return "最初の説明文です。次の説明文です。", nil
+		},
+	}
+	shiro := &mockShiroAgent{response: "executed"}
+	bridge := &mockTTSBridge{}
+
+	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	o.SetTTSBridge(bridge)
+
+	_, err := o.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-stream",
+		Channel:     "viewer",
+		ChatID:      "u1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if len(bridge.pushes) != 2 {
+		t.Fatalf("expected 2 chunk pushes, got %v", bridge.pushes)
+	}
+	if bridge.pushes[0] != "最初の説明文です。" {
+		t.Fatalf("unexpected first chunk: %q", bridge.pushes[0])
+	}
+	if bridge.pushes[1] != "次の説明文です。" {
+		t.Fatalf("unexpected second chunk: %q", bridge.pushes[1])
+	}
+	if len(bridge.ended) != 1 {
+		t.Fatalf("expected end session once, got %d", len(bridge.ended))
+	}
+}
+
 func TestMessageOrchestrator_TTSBridge_DegradedOnStartError(t *testing.T) {
 	repo := newMockSessionRepository()
 	mio := &mockMioAgent{

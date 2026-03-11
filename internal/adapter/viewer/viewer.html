@@ -226,6 +226,12 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 
   <section id="panel-system" class="panel">
     <div class="filters">
+      <select id="sysPreset">
+        <option value="all">view: all</option>
+        <option value="no-tts-audio">view: hide tts audio</option>
+        <option value="tts-only">view: tts only</option>
+        <option value="tts-audio-only">view: tts audio only</option>
+      </select>
       <select id="sysType">
         <option value="">type: all</option>
         <option>routing.decision</option>
@@ -492,6 +498,7 @@ const fltAgent = document.getElementById('fltAgent');
 const fltRoute = document.getElementById('fltRoute');
 const fltJob = document.getElementById('fltJob');
 const fltText = document.getElementById('fltText');
+const sysPreset = document.getElementById('sysPreset');
 const sysType = document.getElementById('sysType');
 const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
@@ -539,6 +546,10 @@ function resetTimeline() {
 
 function matchesSystemFilters(ev) {
   if (!isSystemEvent(ev)) return false;
+  const preset = sysPreset ? sysPreset.value : 'all';
+  if (preset === 'no-tts-audio' && ev.type === 'tts.audio_chunk') return false;
+  if (preset === 'tts-only' && (ev.from || '').toLowerCase() !== 'tts' && ev.type !== 'tts.audio_chunk') return false;
+  if (preset === 'tts-audio-only' && ev.type !== 'tts.audio_chunk') return false;
   if (sysType && sysType.value && ev.type !== sysType.value) return false;
   if (sysText && sysText.value && !(ev.content || '').toLowerCase().includes(sysText.value.toLowerCase())) return false;
   return true;
@@ -582,6 +593,7 @@ function renderSystem() {
     body.appendChild(tr);
   });
 }
+if (sysPreset) sysPreset.addEventListener('change', renderSystem);
 if (sysType) sysType.addEventListener('change', renderSystem);
 if (sysText) sysText.addEventListener('input', renderSystem);
 

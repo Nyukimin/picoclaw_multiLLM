@@ -222,8 +222,8 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 		o.memory.RecordMessage(userMsg)
 
 		o.emit("agent.start", "mio", "user", "考え中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
-		// ストリーミングコールバック: トークンを agent.thinking イベントとして配信
-		streamCtx := o.withStreamHooks(ctx, string(route), jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+		// ストリーミングコールバック: トークンを agent.thinking イベントとして配信しつつ、文単位でTTSへ送る。
+		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
 		resp, err := o.mio.Chat(streamCtx, guardedTask)
 		if err == nil {
 			respMsg := domaintransport.NewMessage("mio", "user", sessionID, jid, resp)
@@ -231,7 +231,7 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 			o.memory.RecordMessage(respMsg)
 			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 			o.emitNote("mio", "user", "会話処理が終わったよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 	}
@@ -258,16 +258,18 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 
 func (o *DistributedOrchestrator) withStreamHooks(
 	ctx context.Context,
-	route string,
+	route routing.Route,
 	jid, sessionID, channel, chatID, ttsSessionID string,
-) context.Context {
+) (context.Context, *ttsStreamForwarder) {
 	prev := llm.StreamCallbackFromContext(ctx)
+	ttsStream := newTTSStreamForwarder(o.ttsBridge, ttsSessionID, route, "agent.response", "[DistributedOrch] TTS push degraded:")
 	return llm.ContextWithStreamCallback(ctx, func(token string) {
 		if prev != nil {
 			prev(token)
 		}
-		o.emit("agent.thinking", "mio", "user", token, route, jid, sessionID, channel, chatID)
-	})
+		o.emit("agent.thinking", "mio", "user", token, string(route), jid, sessionID, channel, chatID)
+		ttsStream.OnToken(ctx, token)
+	}), ttsStream
 }
 
 func (o *DistributedOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -20,6 +21,7 @@ type distMockMioAgent struct {
 	chatResponse  string
 	routeResponse string // "CHAT", "OPS", etc.
 	lastChatInput string
+	chatFunc      func(ctx context.Context, t task.Task) (string, error)
 }
 
 func (m *distMockMioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
@@ -34,6 +36,9 @@ func (m *distMockMioAgent) DecideAction(ctx context.Context, t task.Task) (routi
 }
 
 func (m *distMockMioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	if m.chatFunc != nil {
+		return m.chatFunc(ctx, t)
+	}
 	m.lastChatInput = t.UserMessage()
 	return m.chatResponse, nil
 }
@@ -157,6 +162,45 @@ func TestDistributedOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
 	}
 	if len(bridge.ended) != 1 {
 		t.Fatalf("expected one tts end, got %d", len(bridge.ended))
+	}
+}
+
+func TestDistributedOrchestrator_TTSBridge_StreamsSentenceChunks(t *testing.T) {
+	mockMio := &distMockMioAgent{
+		chatFunc: func(ctx context.Context, t task.Task) (string, error) {
+			if cb := llm.StreamCallbackFromContext(ctx); cb != nil {
+				cb("最初の文です。")
+				cb("二つ目の文です。")
+			}
+			return "最初の文です。二つ目の文です。", nil
+		},
+	}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	bridge := &mockTTSBridge{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetTTSBridge(bridge)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "test-session",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if len(bridge.pushes) != 2 {
+		t.Fatalf("expected 2 chunk pushes, got %v", bridge.pushes)
+	}
+	if bridge.pushes[0] != "最初の文です。" {
+		t.Fatalf("unexpected first chunk: %q", bridge.pushes[0])
+	}
+	if bridge.pushes[1] != "二つ目の文です。" {
+		t.Fatalf("unexpected second chunk: %q", bridge.pushes[1])
 	}
 }
 

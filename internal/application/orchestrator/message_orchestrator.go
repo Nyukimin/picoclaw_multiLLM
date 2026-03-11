@@ -263,11 +263,11 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 	switch route {
 	case routing.RouteCHAT:
 		o.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid, sessionID, channel, chatID)
-		streamCtx := o.withStreamHooks(ctx, "CHAT", jid, sessionID, channel, chatID, ttsSessionID)
+		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(streamCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "CHAT", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 
@@ -296,31 +296,31 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 
 	case routing.RoutePLAN:
 		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid, sessionID, channel, chatID)
-		planCtx := o.withStreamHooks(ctx, "PLAN", jid, sessionID, channel, chatID, ttsSessionID)
+		planCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(planCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "PLAN", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 
 	case routing.RouteANALYZE:
 		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
-		analyzeCtx := o.withStreamHooks(ctx, "ANALYZE", jid, sessionID, channel, chatID, ttsSessionID)
+		analyzeCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(analyzeCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 
 	case routing.RouteRESEARCH:
 		o.emit("agent.start", "mio", "user", "調査中...", "RESEARCH", jid, sessionID, channel, chatID)
-		researchCtx := o.withStreamHooks(ctx, "RESEARCH", jid, sessionID, channel, chatID, ttsSessionID)
+		researchCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
 		resp, err := o.mio.Chat(researchCtx, t)
 		if err == nil {
 			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid, sessionID, channel, chatID)
-			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 
@@ -331,16 +331,18 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 
 func (o *MessageOrchestrator) withStreamHooks(
 	ctx context.Context,
-	route string,
+	route routing.Route,
 	jid, sessionID, channel, chatID, ttsSessionID string,
-) context.Context {
+) (context.Context, *ttsStreamForwarder) {
 	prev := llm.StreamCallbackFromContext(ctx)
+	ttsStream := newTTSStreamForwarder(o.ttsBridge, ttsSessionID, route, "agent.response", "[MessageOrch] TTS push degraded:")
 	return llm.ContextWithStreamCallback(ctx, func(token string) {
 		if prev != nil {
 			prev(token)
 		}
-		o.emit("agent.thinking", "mio", "user", token, route, jid, sessionID, channel, chatID)
-	})
+		o.emit("agent.thinking", "mio", "user", token, string(route), jid, sessionID, channel, chatID)
+		ttsStream.OnToken(ctx, token)
+	}), ttsStream
 }
 
 func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {

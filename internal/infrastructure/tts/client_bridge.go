@@ -116,7 +116,6 @@ func (b *ClientBridge) StartSession(ctx context.Context, req orchestrator.TTSSes
 	b.sessions[req.SessionID] = session
 	b.mu.Unlock()
 	go b.receiveLoop(req.SessionID, session)
-	log.Printf("tts_session_start_sent session=%s voice_id=%s voice_profile=%s", req.SessionID, chooseDefault(req.VoiceID, b.cfg.VoiceID), req.VoiceProfile)
 	return nil
 }
 
@@ -148,7 +147,17 @@ func (b *ClientBridge) PushText(ctx context.Context, sessionID string, text stri
 	if err != nil {
 		return fmt.Errorf("send text_delta: %w", err)
 	}
-	log.Printf("tts_text_delta_sent session=%s seq=%d", sessionID, seq)
+	log.Printf(
+		"tts_text_delta_sent session=%s seq=%d text=%q emotion=%s speed=%.2f pitch=%.2f pause=%.2f expressiveness=%.2f",
+		sessionID,
+		seq,
+		text,
+		primaryEmotion(emotion),
+		prosodySpeed(emotion),
+		prosodyPitch(emotion),
+		prosodyPause(emotion),
+		prosodyExpressiveness(emotion),
+	)
 	return nil
 }
 
@@ -168,7 +177,6 @@ func (b *ClientBridge) EndSession(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("send session_end: %w", err)
 	}
 	_ = ctx
-	log.Printf("tts_session_end_sent session=%s", sessionID)
 	return nil
 }
 
@@ -227,7 +235,6 @@ func (b *ClientBridge) ensureReady(ctx context.Context, voiceID string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("tts_health_check_start")
 	resp, err := b.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("tts health check failed: %w", err)
@@ -259,8 +266,42 @@ func (b *ClientBridge) ensureReady(ctx context.Context, voiceID string) error {
 			return fmt.Errorf("voice not ready: %s", targetVoice)
 		}
 	}
-	log.Printf("tts_health_check_ready")
 	return nil
+}
+
+func primaryEmotion(emotion *ttsapp.EmotionState) string {
+	if emotion == nil {
+		return ""
+	}
+	return emotion.PrimaryEmotion
+}
+
+func prosodySpeed(emotion *ttsapp.EmotionState) float64 {
+	if emotion == nil {
+		return 0
+	}
+	return emotion.Prosody.Speed
+}
+
+func prosodyPitch(emotion *ttsapp.EmotionState) float64 {
+	if emotion == nil {
+		return 0
+	}
+	return emotion.Prosody.Pitch
+}
+
+func prosodyPause(emotion *ttsapp.EmotionState) float64 {
+	if emotion == nil {
+		return 0
+	}
+	return emotion.Prosody.Pause
+}
+
+func prosodyExpressiveness(emotion *ttsapp.EmotionState) float64 {
+	if emotion == nil {
+		return 0
+	}
+	return emotion.Prosody.Expressiveness
 }
 
 func (b *ClientBridge) receiveLoop(sessionID string, s *ttsSession) {
@@ -289,21 +330,15 @@ func (b *ClientBridge) receiveLoop(sessionID string, s *ttsSession) {
 			}
 			s.buffer.add(ch, time.Now().UTC())
 			for _, item := range s.buffer.drain(time.Now().UTC(), false) {
-				log.Printf("tts_audio_chunk_received session=%s chunk=%d", sessionID, item.ChunkIndex)
 				b.notifyChunkReady(sessionID, item)
-				if err := b.sink.SubmitChunk(context.Background(), sessionID, item); err != nil {
-					log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, item.ChunkIndex, err)
-				}
+				_ = b.sink.SubmitChunk(context.Background(), sessionID, item)
 			}
 		case "session_completed":
 			for _, item := range s.buffer.drain(time.Now().UTC(), true) {
 				b.notifyChunkReady(sessionID, item)
-				if err := b.sink.SubmitChunk(context.Background(), sessionID, item); err != nil {
-					log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, item.ChunkIndex, err)
-				}
+				_ = b.sink.SubmitChunk(context.Background(), sessionID, item)
 			}
 			_ = b.sink.CompleteSession(context.Background(), sessionID)
-			log.Printf("tts_session_completed_received session=%s", sessionID)
 			return
 		case "error":
 			code, _ := msg["code"].(string)

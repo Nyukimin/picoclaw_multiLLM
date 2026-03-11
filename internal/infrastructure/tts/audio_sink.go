@@ -3,7 +3,6 @@ package tts
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -35,7 +34,6 @@ func (s *PlaybackAudioSink) SubmitChunk(ctx context.Context, sessionID string, c
 	if err != nil {
 		return err
 	}
-	log.Printf("tts_audio_chunk_play_done session=%s chunk=%d cmd=%q exit=%d", sessionID, ch.ChunkIndex, r.Command, r.ExitCode)
 	if r.ExitCode != 0 {
 		return fmt.Errorf("audio playback exit code=%d", r.ExitCode)
 	}
@@ -43,6 +41,6 @@ func (s *PlaybackAudioSink) SubmitChunk(ctx context.Context, sessionID string, c
 }
 
 func (s *PlaybackAudioSink) CompleteSession(_ context.Context, sessionID string) error {
-	log.Printf("tts_session_completed session=%s", sessionID)
+	_ = sessionID
 	return nil
 }
