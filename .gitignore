@@ -52,6 +52,8 @@ tasks/
 # Cache directories
 .cache/
 .gocache/
+.gomodcache/
+scripts/__pycache__/
 
 # Added by goreleaser init:
 dist/
