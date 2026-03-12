@@ -262,7 +262,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Title</th><th>Category</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
+        <thead><tr><th>Title</th><th>Strategy</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
         <tbody id="idlechatBody"></tbody>
       </table>
     </div>
@@ -633,9 +633,10 @@ function renderIdleChat() {
   rows.forEach((r, rowIndex) => {
     const tr = document.createElement('tr');
     const isOpen = state.idleChat.openIndex === rowIndex;
+    const strategy = r.strategy || r.category || '-';
     tr.innerHTML =
       '<td><button class="ctl-btn idle-open idle-title-btn" data-idx="' + esc(String(rowIndex)) + '"><span class="idle-arrow ' + (isOpen ? 'open' : '') + '">&#9654;</span><span>' + esc(r.title || '-') + '</span></button></td>' +
-      '<td class="code">' + esc(r.category || '-') + '</td>' +
+      '<td class="code">' + esc(strategy) + '</td>' +
       '<td>' + esc(short(r.topic || '-', 80)) + '</td>' +
       '<td>' + esc(String(r.turns || 0)) + '</td>' +
       '<td>' + esc(r.loop_restarted ? 'yes' : 'no') + '</td>' +
