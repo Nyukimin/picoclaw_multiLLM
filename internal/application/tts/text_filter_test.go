@@ -42,3 +42,12 @@ func TestFilterSpeakableText_StripsLeadingPunctuation(t *testing.T) {
 		t.Fatalf("unexpected filtered text: got %q want %q", got, want)
 	}
 }
+
+func TestFilterSpeakableText_PreservesIdleChatTopicPause(t *testing.T) {
+	in := "きょうのおだいです、震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？です！"
+	got := FilterSpeakableText("agent.response", "IDLECHAT", in)
+	want := "きょうのおだいです、震災の追悼の杜で 記憶と風景の関係をどう捉えたらどうだろう？です！"
+	if got != want {
+		t.Fatalf("unexpected filtered text: got %q want %q", got, want)
+	}
+}

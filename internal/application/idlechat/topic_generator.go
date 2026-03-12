@@ -16,10 +16,9 @@ import (
 type TopicStrategy string
 
 const (
-	StrategySingleGenre      TopicStrategy = "single"      // 1ジャンル単体 (25%)
-	StrategyDoubleGenre      TopicStrategy = "double"      // 2ジャンル掛け合わせ (40%)
-	StrategyExternalStimulus TopicStrategy = "external"    // 外部刺激 (25%)
-	StrategyAntiPattern      TopicStrategy = "anti"        // 反逆パターン (10%)
+	StrategySingleGenre      TopicStrategy = "single"   // 1ジャンル単体 (25%)
+	StrategyDoubleGenre      TopicStrategy = "double"   // 2ジャンル掛け合わせ (40%)
+	StrategyExternalStimulus TopicStrategy = "external" // 外部刺激 (25%)
 )
 
 // genrePool はカオストピック生成用の多様なジャンル（260個）
@@ -315,8 +314,16 @@ func chooseStrategy() TopicStrategy {
 	}
 }
 
+func topicPromptFooter() string {
+	return `回答はお題だけを1行で出力してください。
+- 質問文・感想文・呼びかけは禁止
+- 「〜って面白いんじゃない？」のような会話調は禁止
+- 体言止め、または「〜の関係」「〜を考える」のような題名調にする
+- 40文字以内を目安に簡潔にする`
+}
+
 // generateSingleGenrePrompt は1ジャンル単体のプロンプトを生成
-func generateSingleGenrePrompt(recentTopics []string) (string, []string) {
+func generateSingleGenrePrompt() (string, []string) {
 	genres := pickRandom(genrePool, 1)
 
 	bannedKeywords := extractBannedKeywords()
@@ -336,13 +343,13 @@ func generateSingleGenrePrompt(recentTopics []string) (string, []string) {
 - 教科書的な真面目な説明は避ける
 - 直近トピックと類似した内容は避ける
 
-回答は話題1文のみ。`, genres[0], strings.Join(bannedKeywords, "、"))
+%s`, genres[0], strings.Join(bannedKeywords, "、"), topicPromptFooter())
 
 	return prompt, genres
 }
 
 // generateDoubleGenrePrompt は2ジャンル掛け合わせのプロンプトを生成
-func generateDoubleGenrePrompt(recentTopics []string) (string, []string) {
+func generateDoubleGenrePrompt() (string, []string) {
 	genres := pickRandom(genrePool, 2)
 
 	bannedKeywords := extractBannedKeywords()
@@ -362,7 +369,7 @@ func generateDoubleGenrePrompt(recentTopics []string) (string, []string) {
 - 教科書的な真面目な組み合わせは避ける
 - 直近トピックと類似した内容は避ける
 
-回答は話題1文のみ。`, genres[0], genres[1], strings.Join(bannedKeywords, "、"))
+%s`, genres[0], genres[1], strings.Join(bannedKeywords, "、"), topicPromptFooter())
 
 	return prompt, genres
 }
@@ -372,7 +379,7 @@ func generateExternalPrompt() (string, string) {
 	cache := getDailyCache()
 	if cache == nil {
 		// フォールバック: 2ジャンル生成
-		p, _ := generateDoubleGenrePrompt([]string{})
+		p, _ := generateDoubleGenrePrompt()
 		return p, "fallback"
 	}
 
@@ -396,7 +403,7 @@ func generateExternalPrompt() (string, string) {
 		source = "News"
 	} else {
 		// フォールバック: 2ジャンル
-		p, _ := generateDoubleGenrePrompt([]string{})
+		p, _ := generateDoubleGenrePrompt()
 		return p, "fallback"
 	}
 
@@ -417,44 +424,9 @@ func generateExternalPrompt() (string, string) {
 - %s に関するトピックは避ける
 - 「もし〜だったら」形式は使わない
 
-回答は話題1文のみ。`, source, seed, genre, strings.Join(bannedKeywords, "、"))
+%s`, source, seed, genre, strings.Join(bannedKeywords, "、"), topicPromptFooter())
 
 	return prompt, source + ":" + seed
-}
-
-// generateAntiPatternPrompt は反逆パターンのプロンプトを生成
-func generateAntiPatternPrompt(recentTopics []string) string {
-	// 最近使っていないジャンルを優先
-	usedGenres := extractGenresFromTopics(recentTopics)
-	unusedPool := filterOutGenres(genrePool, usedGenres)
-
-	var genres []string
-	if len(unusedPool) >= 3 {
-		genres = pickRandom(unusedPool, 3)
-	} else {
-		genres = pickRandom(genrePool, 3)
-	}
-
-	bannedKeywords := extractBannedKeywords()
-	recentSnippets := ""
-	if len(recentTopics) > 0 {
-		recentSnippets = strings.Join(recentTopics[:min(5, len(recentTopics))], " / ")
-	}
-
-	prompt := fmt.Sprintf(`以下の3つのジャンルを組み合わせた話題を提案してください。
-
-ジャンル: %s × %s × %s
-
-禁止ワード: %s
-（これらの単語や類似概念は絶対に使わないこと）
-
-最近の話題: %s
-（これらと完全に違う方向性で）
-
-最近の話題と完全に違う方向性で、意外性を重視してください。
-回答は話題1文のみ。`, genres[0], genres[1], genres[2], strings.Join(bannedKeywords, "、"), recentSnippets)
-
-	return prompt
 }
 
 // extractBannedKeywords は頻出キーワードを抽出
@@ -463,35 +435,4 @@ func extractBannedKeywords() []string {
 		"AI", "タイムマシン", "過去", "未来", "宇宙人",
 		"もし", "だったら", "なら", "想像", "考えて",
 	}
-}
-
-// extractGenresFromTopics は最近のトピックから使用されたジャンルを抽出（簡易版）
-func extractGenresFromTopics(topics []string) map[string]bool {
-	used := make(map[string]bool)
-	for _, topic := range topics {
-		for _, genre := range genrePool {
-			if strings.Contains(topic, genre) {
-				used[genre] = true
-			}
-		}
-	}
-	return used
-}
-
-// filterOutGenres は使用済みジャンルを除外
-func filterOutGenres(pool []string, used map[string]bool) []string {
-	result := []string{}
-	for _, genre := range pool {
-		if !used[genre] {
-			result = append(result, genre)
-		}
-	}
-	return result
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

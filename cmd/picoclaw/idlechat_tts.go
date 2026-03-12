@@ -101,7 +101,7 @@ func formatIdleChatTTSText(ev idlechat.TimelineEvent) string {
 		if topic == "" {
 			return "きょうのおだいです！"
 		}
-		return "きょうのおだいです。" + ensureIdleChatSentencePause(topic) + "です！"
+		return "きょうのおだいです、" + ensureIdleChatSentencePause(topic) + "です！"
 	}
 	return ensureIdleChatSentencePause(content)
 }

@@ -489,13 +489,13 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	switch strategy {
 	case StrategySingleGenre:
 		var genres []string
-		prompt, genres = generateSingleGenrePrompt(recentTopics)
+		prompt, genres = generateSingleGenrePrompt()
 		logInfo = fmt.Sprintf("single:%v", genres)
 		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "")
 
 	case StrategyDoubleGenre:
 		var genres []string
-		prompt, genres = generateDoubleGenrePrompt(recentTopics)
+		prompt, genres = generateDoubleGenrePrompt()
 		logInfo = fmt.Sprintf("double:%v", genres)
 		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "")
 
@@ -508,7 +508,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	default:
 		// Fallback to single genre
 		var genres []string
-		prompt, genres = generateSingleGenrePrompt(recentTopics)
+		prompt, genres = generateSingleGenrePrompt()
 		logInfo = fmt.Sprintf("single:%v (fallback)", genres)
 		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "")
 	}
@@ -531,7 +531,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 			log.Printf("[IdleChat] topic generation failed: %v", err)
 			break
 		}
-		topic := strings.TrimSpace(resp.Content)
+		topic := normalizeIdleTopic(resp.Content)
 		if topic == "" {
 			continue
 		}
@@ -544,9 +544,9 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	}
 
 	// フォールバック
-	fallback := strings.TrimSpace(fallbackTopic)
+	fallback := normalizeIdleTopic(fallbackTopic)
 	if fallback == "" {
-		fallback = "予想外の切り口を最優先にした自由討論"
+		fallback = "予想外の切り口から考える論点"
 	}
 	log.Printf("[IdleChat] Topic (fallback): %s", fallback)
 	return fallback, strategy
@@ -556,11 +556,11 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 	switch strategy {
 	case StrategySingleGenre:
 		if len(genres) >= 1 && strings.TrimSpace(genres[0]) != "" {
-			return fmt.Sprintf("%sを題材に、普段は見落としがちな判断基準を洗い出す自由討論", genres[0])
+			return fmt.Sprintf("%sで見落としがちな判断基準", genres[0])
 		}
 	case StrategyDoubleGenre:
 		if len(genres) >= 2 && strings.TrimSpace(genres[0]) != "" && strings.TrimSpace(genres[1]) != "" {
-			return fmt.Sprintf("%sと%sを並べたときに共通して見えてくる設計思想を掘る自由討論", genres[0], genres[1])
+			return fmt.Sprintf("%sと%sに共通する設計思想", genres[0], genres[1])
 		}
 	case StrategyExternalStimulus:
 		sourceName := source
@@ -571,13 +571,64 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 			seedText = parts[1]
 		}
 		if strings.TrimSpace(seedText) != "" {
-			return fmt.Sprintf("「%s」から連想できる盲点や前提を掘り起こす自由討論", seedText)
+			return fmt.Sprintf("「%s」から掘る盲点と前提", seedText)
 		}
 		if strings.TrimSpace(sourceName) != "" {
-			return fmt.Sprintf("%s由来の刺激から、見落としがちな前提を掘り起こす自由討論", sourceName)
+			return fmt.Sprintf("%s由来の刺激から掘る盲点と前提", sourceName)
 		}
 	}
-	return "予想外の切り口を最優先にした自由討論"
+	return "予想外の切り口から考える論点"
+}
+
+func normalizeIdleTopic(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	replacers := []string{
+		"話題:", "",
+		"トピック:", "",
+		"お題:", "",
+		"話題：", "",
+		"トピック：", "",
+		"お題：", "",
+		"「", "",
+		"」", "",
+		"\"", "",
+	}
+	s = strings.NewReplacer(replacers...).Replace(s)
+	s = strings.TrimSpace(s)
+
+	for _, marker := range []string{"、つまり、", "。つまり、", " つまり、", "っていうのは", "ってのは", "というのは"} {
+		if idx := strings.Index(s, marker); idx > 0 {
+			s = strings.TrimSpace(s[:idx])
+			break
+		}
+	}
+	for _, ending := range []string{
+		"って、めちゃくちゃ面白いんじゃない？",
+		"って、面白いんじゃない？",
+		"って面白いんじゃない？",
+		"ってどうだろう？",
+		"じゃない？",
+		"でしょうか？",
+		"どうだろう？",
+	} {
+		s = strings.TrimSpace(strings.TrimSuffix(s, ending))
+	}
+	s = strings.TrimSpace(strings.TrimRight(s, "。！？!? "))
+	s = multiSpaceForTopic(s)
+	if utf8.RuneCountInString(s) > 48 {
+		s = truncate(s, 48)
+	}
+	return strings.TrimSpace(s)
+}
+
+func multiSpaceForTopic(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func collectLatestSessionSnippets(entries []session.ConversationEntry, match func(domaintransport.Message) bool, max int) []string {

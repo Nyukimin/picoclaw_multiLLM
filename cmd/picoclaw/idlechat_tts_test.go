@@ -97,7 +97,7 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	if len(bridge.pushTexts) != 1 {
 		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
 	}
-	want := "きょうのおだいです。震災の追悼の杜で 記憶と風景の関係をどう捉えたらどうだろう？です！"
+	want := "きょうのおだいです、震災の追悼の杜で 記憶と風景の関係をどう捉えたらどうだろう？です！"
 	if bridge.pushTexts[0] != want {
 		t.Fatalf("unexpected topic tts text: got %q want %q", bridge.pushTexts[0], want)
 	}

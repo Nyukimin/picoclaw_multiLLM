@@ -392,6 +392,28 @@ func TestFallbackTopicForStrategy_ExternalUsesSeed(t *testing.T) {
 	}
 }
 
+func TestNormalizeIdleTopic_StripsChattyAnnouncementStyle(t *testing.T) {
+	raw := "ユン食堂の食材調達における薬学的なアプローチ、つまり、それぞれの食材の成分組成と、それらを組み合わせた料理で生み出される生理活性効果を、徹底的に分析していくってのは、めちゃくちゃ面白いんじゃない？"
+	got := normalizeIdleTopic(raw)
+	want := "ユン食堂の食材調達における薬学的なアプローチ"
+	if got != want {
+		t.Fatalf("normalizeIdleTopic() = %q, want %q", got, want)
+	}
+}
+
+func TestGenerateTopicFromChat_NormalizesChattyOutput(t *testing.T) {
+	provider := &mockLLMProvider{
+		response: "ユン食堂の食材調達における薬学的なアプローチ、つまり、それぞれの食材の成分組成と、それらを組み合わせた料理で生み出される生理活性効果を、徹底的に分析していくってのは、めちゃくちゃ面白いんじゃない？",
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	topic, _ := o.generateTopicFromChat("idle-topic-normalize")
+	if topic != "ユン食堂の食材調達における薬学的なアプローチ" {
+		t.Fatalf("unexpected normalized topic: %q", topic)
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		input    string
