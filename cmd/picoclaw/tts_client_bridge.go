@@ -63,6 +63,9 @@ func buildTTSClientBridge(cfg *config.Config, onChunk func(ev orchestrator.Orche
 				"viewer-user",
 			))
 		},
+		OnSessionCompleted: func(sessionID string) {
+			notifyIdleChatTTSCompleted(sessionID)
+		},
 	}, sink)
 	log.Printf("TTS client bridge enabled (http=%s ws=%s)", cfg.TTS.HTTPBaseURL, cfg.TTS.WSURL)
 	return bridge

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -106,6 +107,8 @@ func main() {
 		cmdChannels()
 	case "gateway":
 		cmdGateway()
+	case "ollama":
+		cmdOllama()
 	case "logs":
 		cmdLogs()
 	case "evidence":
@@ -704,6 +707,30 @@ func cmdGateway() {
 	}
 }
 
+func cmdOllama() {
+	cfg, err := config.LoadConfig(getConfigPath())
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	target, restart, err := buildOllamaRestartAction(cfg)
+	if err != nil {
+		log.Fatalf("Failed to build ollama restart action: %v", err)
+	}
+	code := runOllamaCommand(
+		os.Args[2:],
+		cfg,
+		buildHealthService(cfg),
+		os.Stdout,
+		os.Stderr,
+		target,
+		restart,
+		func() time.Time { return time.Now().UTC() },
+	)
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
 func runGatewayCommand(
 	args []string,
 	cfg *config.Config,
@@ -814,6 +841,92 @@ func runGatewayCommand(
 	}
 }
 
+func runOllamaCommand(
+	args []string,
+	cfg *config.Config,
+	checker healthChecker,
+	out io.Writer,
+	errOut io.Writer,
+	restartTarget string,
+	restart func() error,
+	now func() time.Time,
+) int {
+	subcmd := "status"
+	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
+		subcmd = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	jsonOut := hasFlag(args, "--json")
+
+	switch subcmd {
+	case "status":
+		report := checker.RunChecks(context.Background())
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{
+				"ok":        report.Status != domainhealth.StatusDown,
+				"timestamp": now().Format(time.RFC3339),
+				"component": "ollama",
+				"status":    report.Status,
+				"details": map[string]any{
+					"base_url": cfg.Ollama.BaseURL,
+					"model":    cfg.Ollama.Model,
+					"checks":   report.Checks,
+				},
+			}, true)
+		} else {
+			fmt.Fprintf(out, "Ollama: %s (model: %s)\n", cfg.Ollama.BaseURL, cfg.Ollama.Model)
+			for _, c := range report.Checks {
+				fmt.Fprintf(out, "  [%s] %s: %s (%dms)\n", c.Status, c.Name, c.Message, c.Duration.Milliseconds())
+			}
+			fmt.Fprintf(out, "\nOverall: %s\n", report.Status)
+		}
+		if report.Status == domainhealth.StatusDown {
+			return 1
+		}
+		return 0
+	case "restart":
+		if err := restart(); err != nil {
+			if jsonOut {
+				writeJSONCLI(out, map[string]any{
+					"ok":        false,
+					"timestamp": now().Format(time.RFC3339),
+					"component": "ollama",
+					"status":    "down",
+					"code":      "E_OLLAMA_RESTART_FAILED",
+					"hint":      "ollama service と SSH 設定を確認",
+					"details": map[string]any{
+						"base_url": cfg.Ollama.BaseURL,
+						"target":   restartTarget,
+						"error":    err.Error(),
+					},
+				}, true)
+			} else {
+				fmt.Fprintf(errOut, "failed to restart ollama via %s: %v\n", restartTarget, err)
+			}
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{
+				"ok":        true,
+				"timestamp": now().Format(time.RFC3339),
+				"component": "ollama",
+				"status":    "restarted",
+				"details": map[string]any{
+					"base_url": cfg.Ollama.BaseURL,
+					"model":    cfg.Ollama.Model,
+					"target":   restartTarget,
+				},
+			}, true)
+		} else {
+			fmt.Fprintf(out, "ollama restarted via %s\n", restartTarget)
+		}
+		return 0
+	default:
+		fmt.Fprintf(errOut, "unknown ollama subcommand: %s\n", subcmd)
+		fmt.Fprintln(errOut, "usage: picoclaw ollama [status|restart]")
+		return 1
+	}
+}
+
 func gatewayHealthURL(cfg *config.Config) string {
 	host := strings.TrimSpace(cfg.Server.Host)
 	switch host {
@@ -821,6 +934,53 @@ func gatewayHealthURL(cfg *config.Config) string {
 		host = "127.0.0.1"
 	}
 	return fmt.Sprintf("http://%s:%d/health", host, cfg.Server.Port)
+}
+
+func buildOllamaRestartAction(cfg *config.Config) (string, func() error, error) {
+	u, err := url.Parse(strings.TrimSpace(cfg.Ollama.BaseURL))
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid ollama.base_url: %w", err)
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	restartCmd := strings.TrimSpace(os.Getenv("PICOCLAW_OLLAMA_RESTART_CMD"))
+	if restartCmd == "" {
+		restartCmd = "sudo systemctl restart ollama"
+	}
+	if isLocalOllamaHost(host) {
+		return "local systemctl", func() error {
+			return exec.Command("bash", "-lc", restartCmd).Run()
+		}, nil
+	}
+
+	sshUser := strings.TrimSpace(os.Getenv("PICOCLAW_OLLAMA_SSH_USER"))
+	if sshUser == "" {
+		sshUser = strings.TrimSpace(os.Getenv("USER"))
+	}
+	if sshUser == "" {
+		return "", nil, fmt.Errorf("PICOCLAW_OLLAMA_SSH_USER is required for remote ollama restart")
+	}
+
+	sshArgs := []string{fmt.Sprintf("%s@%s", sshUser, host), restartCmd}
+	if keyPath := strings.TrimSpace(os.Getenv("PICOCLAW_OLLAMA_SSH_KEY_PATH")); keyPath != "" {
+		sshArgs = append([]string{"-i", keyPath}, sshArgs...)
+	}
+
+	target := fmt.Sprintf("ssh %s@%s", sshUser, host)
+	return target, func() error {
+		return exec.Command("ssh", sshArgs...).Run()
+	}, nil
+}
+
+func isLocalOllamaHost(host string) bool {
+	switch strings.TrimSpace(strings.ToLower(host)) {
+	case "", "localhost", "127.0.0.1", "::1", "0.0.0.0":
+		return true
+	default:
+		return false
+	}
 }
 
 func cmdLogs() {
@@ -1215,6 +1375,7 @@ Commands:
   doctor    Diagnose config and runtime prerequisites
   channels  List/probe channel adapters
   gateway   Gateway status/restart operations
+  ollama    Ollama status/restart operations
   logs      Show logs (use --follow to stream)
   evidence  List/show/summarize execution evidence
   help      Show this help message
@@ -1304,11 +1465,9 @@ func shouldStopIdleChatByEvent(ev orchestrator.OrchestratorEvent) bool {
 	if ev.Type == "message.received" {
 		return true
 	}
-	if ev.From != "" && ev.From != "user" {
-		return true
-	}
-	if ev.To != "" && ev.To != "user" {
-		return true
+	if ev.Type == "entry.stage" {
+		stage := strings.ToLower(strings.TrimSpace(ev.Content))
+		return stage == "received" || stage == "planning"
 	}
 	return false
 }

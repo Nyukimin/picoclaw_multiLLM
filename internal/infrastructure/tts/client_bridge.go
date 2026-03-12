@@ -19,14 +19,15 @@ import (
 )
 
 type ClientConfig struct {
-	HTTPBaseURL     string
-	WSURL           string
-	VoiceID         string
-	SpeechMode      string
-	ConnectTimeout  time.Duration
-	ReceiveTimeout  time.Duration
-	ChunkGapTimeout time.Duration
-	OnChunkReady    func(sessionID string, chunkIndex int, text, audioPath, audioURL string)
+	HTTPBaseURL        string
+	WSURL              string
+	VoiceID            string
+	SpeechMode         string
+	ConnectTimeout     time.Duration
+	ReceiveTimeout     time.Duration
+	ChunkGapTimeout    time.Duration
+	OnChunkReady       func(sessionID string, chunkIndex int, text, audioPath, audioURL string)
+	OnSessionCompleted func(sessionID string)
 }
 
 type ttsSession struct {
@@ -318,6 +319,7 @@ func (b *ClientBridge) receiveLoop(sessionID string, s *ttsSession) {
 		if err := websocket.JSON.Receive(s.conn, &msg); err != nil {
 			log.Printf("tts_session_abort session=%s err=%v", sessionID, err)
 			_ = b.sink.CompleteSession(context.Background(), sessionID)
+			b.notifySessionCompleted(sessionID)
 			return
 		}
 
@@ -339,12 +341,14 @@ func (b *ClientBridge) receiveLoop(sessionID string, s *ttsSession) {
 				_ = b.sink.SubmitChunk(context.Background(), sessionID, item)
 			}
 			_ = b.sink.CompleteSession(context.Background(), sessionID)
+			b.notifySessionCompleted(sessionID)
 			return
 		case "error":
 			code, _ := msg["code"].(string)
 			message, _ := msg["message"].(string)
 			log.Printf("tts_error_received session=%s code=%s message=%s", sessionID, code, message)
 			_ = b.sink.CompleteSession(context.Background(), sessionID)
+			b.notifySessionCompleted(sessionID)
 			return
 		}
 	}
@@ -401,6 +405,13 @@ func (b *ClientBridge) notifyChunkReady(sessionID string, ch audioChunk) {
 	b.cfg.OnChunkReady(sessionID, ch.ChunkIndex, ch.Text, ch.AudioPath, audioURL)
 }
 
+func (b *ClientBridge) notifySessionCompleted(sessionID string) {
+	if b.cfg.OnSessionCompleted == nil {
+		return
+	}
+	b.cfg.OnSessionCompleted(sessionID)
+}
+
 func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
 	base := strings.TrimRight(strings.TrimSpace(b.cfg.HTTPBaseURL), "/")
 	if base == "" {
@@ -451,6 +462,7 @@ func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string,
 			log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, ch.ChunkIndex, err)
 		}
 	}
+	b.notifySessionCompleted(sessionID)
 	return nil
 }
 

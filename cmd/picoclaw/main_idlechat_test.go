@@ -27,6 +27,16 @@ func TestShouldStopIdleChatByEvent(t *testing.T) {
 			ev:   orchestrator.NewEvent("tts.audio_chunk", "tts", "user", "{}", "TTS", "", "", "", ""),
 			want: false,
 		},
+		{
+			name: "entry received stops idlechat",
+			ev:   orchestrator.NewEvent("entry.stage", "chrome", "system", "received", "", "", "", "", ""),
+			want: true,
+		},
+		{
+			name: "internal routing event does not stop idlechat",
+			ev:   orchestrator.NewEvent("routing.decision", "mio", "", "confidence 92%", "CHAT", "job-1", "sess-1", "line", "user-1"),
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {

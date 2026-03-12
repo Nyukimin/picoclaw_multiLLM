@@ -52,8 +52,9 @@ func FilterSpeakableText(eventType, route, text string) string {
 		out = append(out, line)
 	}
 	s = strings.Join(out, " ")
-	s = multiSpaceRe.ReplaceAllString(s, " ")
 	s = ackPrefixRe.ReplaceAllString(s, "")
+	s = strings.NewReplacer("、", " ", ",", " ", "，", " ").Replace(s)
+	s = multiSpaceRe.ReplaceAllString(s, " ")
 	s = speakNameRe.Replace(s)
 	s = strings.TrimLeftFunc(s, func(r rune) bool {
 		return unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r)

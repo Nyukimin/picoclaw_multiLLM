@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 // mockLLMProvider はテスト用のモックLLMプロバイダー
 type mockLLMProvider struct {
 	response  string
+	responses []string
 	err       error
 	callCount int
 	delay     time.Duration // Generate呼び出し時の遅延
@@ -27,6 +29,17 @@ func (m *mockLLMProvider) Generate(ctx context.Context, req llm.GenerateRequest)
 	}
 	if m.err != nil {
 		return llm.GenerateResponse{}, m.err
+	}
+	if len(m.responses) > 0 {
+		idx := m.callCount - 1
+		if idx >= len(m.responses) {
+			idx = len(m.responses) - 1
+		}
+		return llm.GenerateResponse{
+			Content:      m.responses[idx],
+			TokensUsed:   10,
+			FinishReason: "stop",
+		}, nil
 	}
 	return llm.GenerateResponse{
 		Content:      m.response,
@@ -209,7 +222,7 @@ func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
 	provider := &mockLLMProvider{response: "response", delay: 5 * time.Millisecond}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 100, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 100, 0.8, nil)
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -226,6 +239,29 @@ func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
 	// 100ターン全部は実行されていないはず
 	if provider.callCount >= 100 {
 		t.Error("Chat should have been interrupted before 100 turns")
+	}
+	if until := time.Until(o.nextTopicAt); until < 4*time.Minute {
+		t.Fatalf("expected interruption to apply idle cooldown, got nextTopicAt in %v", until)
+	}
+}
+
+func TestIdleChatOrchestrator_GenerationErrorAppliesCooldown(t *testing.T) {
+	provider := &mockLLMProvider{err: context.DeadlineExceeded}
+	memory := session.NewCentralMemory()
+
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	o.mu.Lock()
+	o.chatActive = true
+	o.mu.Unlock()
+
+	o.runChatSession()
+
+	if until := time.Until(o.nextTopicAt); until < 4*time.Minute {
+		t.Fatalf("expected generation error to apply idle cooldown, got nextTopicAt in %v", until)
+	}
+	if len(o.GetHistory(10)) != 0 {
+		t.Fatalf("expected no summary history for zero-turn failed session, got %d", len(o.GetHistory(10)))
 	}
 }
 
@@ -335,6 +371,27 @@ func TestGetSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestFallbackTopicForStrategy_SingleUsesGenre(t *testing.T) {
+	got := fallbackTopicForStrategy(StrategySingleGenre, []string{"昆虫学"}, "", "")
+	if !strings.Contains(got, "昆虫学") {
+		t.Fatalf("expected single fallback to include genre, got %q", got)
+	}
+}
+
+func TestFallbackTopicForStrategy_DoubleUsesBothGenres(t *testing.T) {
+	got := fallbackTopicForStrategy(StrategyDoubleGenre, []string{"茶道", "歯車"}, "", "")
+	if !strings.Contains(got, "茶道") || !strings.Contains(got, "歯車") {
+		t.Fatalf("expected double fallback to include both genres, got %q", got)
+	}
+}
+
+func TestFallbackTopicForStrategy_ExternalUsesSeed(t *testing.T) {
+	got := fallbackTopicForStrategy(StrategyExternalStimulus, nil, "Wikipedia:アレクサンドリア", "")
+	if !strings.Contains(got, "アレクサンドリア") {
+		t.Fatalf("expected external fallback to include seed, got %q", got)
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -372,6 +429,121 @@ func TestIsLooping_DetectsAlternatingSimilarity(t *testing.T) {
 	}
 	if !o.isLooping(transcript) {
 		t.Fatal("expected alternating repetitive transcript to be detected as loop")
+	}
+}
+
+func TestIsLooping_DetectsRepeatedSpeakerTemplates(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	transcript := []string{
+		"mio: まさに！音色を形にするって、まるで自分の心の風景を立体的に表現していくみたいじゃない？",
+		"shiro: [mio]の表現は、非常に的確で、具体的なイメージを喚起するものです。しかし、音の質をどう扱うべきでしょうか。",
+		"mio: まさに！感情そのものを具現化するって、まるで音色で自分の心模様を鮮やかに描き出すようなものじゃない？",
+		"shiro: [mio]の表現は、非常に興味深いですね。しかし、その表現を成し遂げるには、どのような工夫が必要でしょうか。",
+		"mio: まさに！物語を紡ぎ出すって、すごくロマンチックじゃない？",
+		"shiro: [mio]の表現は、非常に興味深いですね。しかし、物語のテーマを明確にする必要があるのではないでしょうか。",
+	}
+	if !o.isLooping(transcript) {
+		t.Fatal("expected repeated speaker templates to be detected as loop")
+	}
+	if reason := detectLoopReason(transcript); reason != "template_repeat" {
+		t.Fatalf("expected template_repeat, got %q", reason)
+	}
+}
+
+func TestAnnotateLoopSummary_AddsReasonNote(t *testing.T) {
+	got := annotateLoopSummary("本文", true, "template_repeat")
+	want := "注記: テンプレ反復で打ち切り\n\n本文"
+	if got != want {
+		t.Fatalf("unexpected annotated summary: got %q want %q", got, want)
+	}
+}
+
+func TestSanitizeIdleResponse_StripsLeadingPunctuation(t *testing.T) {
+	got := sanitizeIdleResponse("。「。」なるほど！じゃあ、観察対象を絞ろう。", "話題")
+	want := "なるほど！じゃあ、観察対象を絞ろう。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponse() = %q, want %q", got, want)
+	}
+}
+
+func TestInvalidIdleResponse_RejectsLeadingPunctuation(t *testing.T) {
+	tests := []string{
+		"。",
+		"、まるですごろくが戦略を読み解こうとするなんて、めっちゃ面白い！",
+		"。「。」なるほど！じゃあ、足切れる場所を特定するために考えよう。",
+	}
+	for _, input := range tests {
+		if !invalidIdleResponse(input) {
+			t.Fatalf("expected invalidIdleResponse(%q) to be true", input)
+		}
+	}
+}
+
+func TestGenerateResponse_RetriesInvalidLeadingPunctuation(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"。「。」なるほど！じゃあ、足切れる場所を特定するために考えよう。",
+			"なるほど！じゃあ、足切れる場所を特定するために、どのマスで失速するか集計してみよう。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	got, err := o.generateResponse("mio", "shiro", "idle-invalid", 1, "すごろく")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	if provider.callCount < 2 {
+		t.Fatalf("expected retry on invalid response, got %d calls", provider.callCount)
+	}
+	if strings.HasPrefix(got, "。") || strings.HasPrefix(got, "、") {
+		t.Fatalf("expected sanitized retry result without leading punctuation, got %q", got)
+	}
+}
+
+func TestHasAwkwardIdleStyle_DetectsShiroCliches(t *testing.T) {
+	if !hasAwkwardIdleStyle("shiro", "mioさんのご発言、まさにその通りですね。非常に興味深いですね。") {
+		t.Fatal("expected awkward shiro cliche to be detected")
+	}
+	if hasAwkwardIdleStyle("shiro", "その視点は面白いです。ここで条件を一つ足すと見え方が変わりそうです。") {
+		t.Fatal("expected natural shiro response to pass")
+	}
+}
+
+func TestHasExcessivePhraseRepetition_DetectsRepeatedPhrases(t *testing.T) {
+	if !hasExcessivePhraseRepetition("まさに まさに まさに 面白いですね。") {
+		t.Fatal("expected repeated token to be detected")
+	}
+	if !hasExcessivePhraseRepetition("同じ こと を 考える。同じ こと を 考える。") {
+		t.Fatal("expected repeated phrase to be detected")
+	}
+	if hasExcessivePhraseRepetition("その視点は面白いです。条件を変えると結果も動きそうです。") {
+		t.Fatal("expected non-repetitive response to pass")
+	}
+}
+
+func TestGenerateResponse_RetriesAwkwardShiroStyle(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"mioさんのご発言、まさにその通りですね。前に自分も触れたように、非常に興味深いですね。",
+			"その見方は面白いです。どの条件で差が出るのかを先に切り分けたいですね。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	got, err := o.generateResponse("shiro", "mio", "idle-style", 1, "すごろく")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	if provider.callCount < 2 {
+		t.Fatalf("expected retry on awkward style, got %d calls", provider.callCount)
+	}
+	if hasAwkwardIdleStyle("shiro", got) {
+		t.Fatalf("expected retried shiro response to avoid awkward style, got %q", got)
 	}
 }
 

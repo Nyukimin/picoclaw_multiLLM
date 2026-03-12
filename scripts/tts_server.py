@@ -33,6 +33,15 @@ VOICE_REGISTRY: dict[str, dict[str, Any]] = {
         "language": "JP",
         "voice_profile": "lumina_female",
     },
+    # Temporary alias until a dedicated male model is registered.
+    "male_01": {
+        "model_name": "amitaro",
+        "speaker_id": 0,
+        "default_style": "Neutral",
+        "style_weight": 2.0,
+        "language": "JP",
+        "voice_profile": "lumina_male",
+    },
 }
 
 CONNECTIVE_HINTS = (

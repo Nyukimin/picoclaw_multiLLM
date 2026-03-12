@@ -36,7 +36,7 @@ func (m *idleChatMockTTSBridge) EndSession(_ context.Context, sessionID string) 
 func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 
-	emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "shiro",
 		To:        "mio",
@@ -67,7 +67,7 @@ func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 func TestEmitIdleChatTTS_AppendsSentencePauseForAgentMessage(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 
-	emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "mio",
 		To:        "shiro",
@@ -86,7 +86,7 @@ func TestEmitIdleChatTTS_AppendsSentencePauseForAgentMessage(t *testing.T) {
 func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 
-	emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "user",
 		To:        "mio",
@@ -97,7 +97,7 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	if len(bridge.pushTexts) != 1 {
 		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
 	}
-	want := "今日のお題です。。震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？。。です！。"
+	want := "きょうのおだいです。震災の追悼の杜で 記憶と風景の関係をどう捉えたらどうだろう？です！"
 	if bridge.pushTexts[0] != want {
 		t.Fatalf("unexpected topic tts text: got %q want %q", bridge.pushTexts[0], want)
 	}
@@ -106,7 +106,7 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 func TestEmitIdleChatTTSSkipsNonMessageEvent(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 
-	emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
 		Type:      "idlechat.summary",
 		From:      "shiro",
 		Content:   "summary",
