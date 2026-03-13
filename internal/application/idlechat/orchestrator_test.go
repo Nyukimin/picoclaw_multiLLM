@@ -74,6 +74,37 @@ func TestNewIdleChatOrchestrator(t *testing.T) {
 	}
 }
 
+func TestIdleChatOrchestrator_UsesSpeakerSpecificProviders(t *testing.T) {
+	chatProvider := &mockLLMProvider{response: "話題"}
+	workerProvider := &mockLLMProvider{response: "要約"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(chatProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{
+		"mio":   chatProvider,
+		"shiro": workerProvider,
+	})
+
+	o.generateTopicFromChat("idle-provider-routing")
+	if chatProvider.callCount == 0 {
+		t.Fatal("expected mio/chat provider to be used for topic generation")
+	}
+
+	workerProvider.response = "短い要約"
+	_ = o.summarizeByWorker("話題", []string{"mio: こんにちは", "shiro: 条件を見たい。"})
+	if workerProvider.callCount == 0 {
+		t.Fatal("expected shiro/worker provider to be used for summary")
+	}
+
+	chatProvider.response = "そこは面白いね。次は場面を見たい。"
+	_, err := o.generateResponse("mio", "shiro", "idle-provider-routing", 1, 1, "話題")
+	if err != nil {
+		t.Fatalf("generateResponse(mio) failed: %v", err)
+	}
+	if chatProvider.callCount < 2 {
+		t.Fatal("expected mio/chat provider to be used for mio response generation")
+	}
+}
+
 func TestIdleChatOrchestrator_TemperatureForSpeaker_MioAndShiroFixed(t *testing.T) {
 	provider := &mockLLMProvider{response: "新しい観点を出してみよう。"}
 	memory := session.NewCentralMemory()

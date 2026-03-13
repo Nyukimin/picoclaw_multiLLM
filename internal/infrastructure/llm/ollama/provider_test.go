@@ -109,6 +109,37 @@ func TestOllamaProviderGenerate_WithSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestOllamaProviderGenerate_SendsNumCtxWhenConfigured(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		options, ok := reqBody["options"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected options in request: %#v", reqBody)
+		}
+		if got := int(options["num_ctx"].(float64)); got != 32768 {
+			t.Fatalf("expected num_ctx=32768, got %v", options["num_ctx"])
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"response": "ok",
+			"done":     true,
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOllamaProviderWithNumCtx(server.URL, "test-model", 32768)
+	_, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages:  []llm.Message{{Role: "user", Content: "テスト"}},
+		MaxTokens: 16,
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
 func TestOllamaProviderGenerate_ServerError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -284,6 +315,43 @@ func TestChat_WithoutToolCalls(t *testing.T) {
 	}
 	if len(resp.Message.ToolCalls) != 0 {
 		t.Errorf("expected no tool calls, got %d", len(resp.Message.ToolCalls))
+	}
+}
+
+func TestChat_SendsNumCtxWhenConfigured(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		options, ok := reqBody["options"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected options in request: %#v", reqBody)
+		}
+		if got := int(options["num_ctx"].(float64)); got != 16384 {
+			t.Fatalf("expected num_ctx=16384, got %v", options["num_ctx"])
+		}
+
+		resp := ollamaChatResponse{
+			Model: "test-model",
+			Message: ollamaChatMessage{
+				Role:    "assistant",
+				Content: "こんにちは！",
+			},
+			Done: true,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewOllamaProviderWithNumCtx(server.URL, "test-model", 16384)
+	_, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "user", Content: "こんにちは"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
 	}
 }
 

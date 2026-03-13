@@ -264,7 +264,11 @@ func initHandler(agentType string, cfg *config.Config) (AgentHandler, error) {
 
 // initWorkerHandler はWorkerハンドラを初期化
 func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
-	ollamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
+	model := strings.TrimSpace(cfg.Ollama.WorkerModel)
+	if model == "" {
+		model = cfg.Ollama.Model
+	}
+	ollamaProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, model, 16384)
 	toolRunnerCfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:         os.Getenv("GOOGLE_API_KEY_WORKER"),
 		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_WORKER"),

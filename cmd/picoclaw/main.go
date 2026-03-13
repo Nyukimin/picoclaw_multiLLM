@@ -1522,9 +1522,15 @@ func (d *Dependencies) Shutdown() {
 
 // buildDependencies は依存関係を構築
 func buildDependencies(cfg *config.Config) *Dependencies {
-	// 1. LLM Provider (v4: 単一共通モデル) + 日時注入デコレータ
-	rawOllamaProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
-	ollamaProvider := infrallm.NewDateTimeProvider(rawOllamaProvider)
+	// 1. LLM Provider
+	chatRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, cfg.Ollama.Model, 32768)
+	chatProvider := infrallm.NewDateTimeProvider(chatRawProvider)
+	workerModel := strings.TrimSpace(cfg.Ollama.WorkerModel)
+	if workerModel == "" {
+		workerModel = cfg.Ollama.Model
+	}
+	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
+	workerProvider := infrallm.NewDateTimeProvider(workerRawProvider)
 
 	var coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter
 
@@ -1553,7 +1559,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 
 	// 2. Routing Components
-	classifier := routing.NewLLMClassifier(ollamaProvider, cfg.Prompts.Classifier)
+	classifier := routing.NewLLMClassifier(chatProvider, cfg.Prompts.Classifier)
 	ruleDictionary := routing.NewRuleDictionary()
 
 	// 3. Tool Runner（Chat用とWorker用で分離）
@@ -1575,7 +1581,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// Subagent配線（2段階構築: ToolRunner作成後にManagerを注入）
 	var subagentMgr *subagentapp.Manager
 	if cfg.Subagent.Enabled {
-		subagentProvider := resolveSubagentProvider(cfg, ollamaProvider)
+		subagentProvider := resolveSubagentProvider(cfg, workerProvider)
 		toolDefs := workerToolRunnerV2.ToolDefinitions()
 
 		subagentMgr = subagentapp.NewManager(
@@ -1719,7 +1725,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	log.Printf("MemoryStore initialized (workspace: %s)", cfg.WorkspaceDir)
 
 	// 6. Agents
-	mioAgent := agent.NewMioAgent(ollamaProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
+	mioAgent := agent.NewMioAgent(chatProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
 	if realMgr != nil {
 		mioAgent = mioAgent.WithConversationManager(realMgr)
 		log.Printf("Mio: ConversationManager injected (KB autosave enabled)")
@@ -1728,7 +1734,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
 	log.Printf("Mio: PersonaEditor injected (workspace: %s)", cfg.WorkspaceDir)
 
-	shiroAgent := agent.NewShiroAgent(ollamaProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
+	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 
 	// 7. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
@@ -1843,7 +1849,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 9. IdleChat（有効な場合）
 	if cfg.IdleChat.Enabled {
 		idleChatOrch := idlechat.NewIdleChatOrchestrator(
-			ollamaProvider,
+			chatProvider,
 			centralMemory,
 			cfg.IdleChat.Participants,
 			cfg.IdleChat.IntervalMin,
@@ -1851,6 +1857,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			cfg.IdleChat.Temperature,
 			cfg.Prompts.IdleChatAgents,
 		)
+		idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
+			"mio":   chatProvider,
+			"shiro": workerProvider,
+		})
 		topicStorePath := filepath.Join(cfg.Session.StorageDir, "idlechat_topics.jsonl")
 		if err := idleChatOrch.SetTopicStore(topicStorePath); err != nil {
 			log.Printf("WARN: idleChat topic store disabled: %v", err)
@@ -1884,7 +1894,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, workerExecutionService, ollamaProvider, centralMemory, ttsBridge)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = entryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = chromeBridgeFromOrch(deps.distOrch)

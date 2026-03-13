@@ -60,6 +60,7 @@ type TimelineEvent struct {
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 type IdleChatOrchestrator struct {
 	llmProvider    llm.LLMProvider
+	speakerLLMs    map[string]llm.LLMProvider
 	memory         *session.CentralMemory
 	participants   []string
 	intervalMin    int
@@ -125,6 +126,7 @@ func NewIdleChatOrchestrator(
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
 		llmProvider:    llmProvider,
+		speakerLLMs:    make(map[string]llm.LLMProvider),
 		memory:         memory,
 		participants:   participants,
 		intervalMin:    intervalMin,
@@ -137,6 +139,27 @@ func NewIdleChatOrchestrator(
 		ctx:            ctx,
 		cancel:         cancel,
 	}
+}
+
+func (o *IdleChatOrchestrator) SetSpeakerProviders(providers map[string]llm.LLMProvider) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.speakerLLMs = make(map[string]llm.LLMProvider, len(providers))
+	for name, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		o.speakerLLMs[strings.ToLower(strings.TrimSpace(name))] = provider
+	}
+}
+
+func (o *IdleChatOrchestrator) providerForSpeaker(name string) llm.LLMProvider {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if provider, ok := o.speakerLLMs[strings.ToLower(strings.TrimSpace(name))]; ok && provider != nil {
+		return provider
+	}
+	return o.llmProvider
 }
 
 // Start はIdleChatの監視ループを開始
@@ -533,7 +556,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 			MaxTokens:   150,
 			Temperature: 0.9 + float64(attempt)*0.05, // 高めの温度で多様性確保
 		}
-		resp, err := o.llmProvider.Generate(o.ctx, req)
+		resp, err := o.providerForSpeaker("mio").Generate(o.ctx, req)
 		if err != nil {
 			log.Printf("[IdleChat] topic generation failed: %v", err)
 			break
@@ -848,7 +871,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。硬い報告書ではなく、読んで雰囲気が分かる短い要約にしてください。1. いちばん面白かった点 2. 何が話を前に進めたか 3. 次に広がりそうな観点、の順で自然にまとめてください。\n話題: %s\n\n%s", topic, body)},
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 800, Temperature: 0.4}
-	resp, err := o.llmProvider.Generate(o.ctx, req)
+	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, req)
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
 		return truncate(body, 200)
 	}
@@ -952,7 +975,8 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		Temperature: temp,
 	}
 
-	resp, err := o.llmProvider.Generate(o.ctx, req)
+	provider := o.providerForSpeaker(speaker)
+	resp, err := provider.Generate(o.ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("LLM generate primary: %w", err)
 	}
@@ -964,7 +988,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "今の返答は無効です。記号だけや空文をやめて、自然な会話文を1-2文で言い直してください。",
 		})
-		respInvalid, errInvalid := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
+		respInvalid, errInvalid := provider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryInvalid,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -983,7 +1007,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "評価や言い直し宣言は書かず、別の手で自然に返してください。直前の言い回しをなぞらず、1文目で反応し、2文目で新しい具体例か問いを一つだけ足してください。",
 		})
-		respStyle, errStyle := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
+		respStyle, errStyle := provider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryStyle,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -1002,7 +1026,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "指示文の断片を消して、自然な会話文だけを1-2文で言い直してください。メタ表現は禁止です。",
 		})
-		respLeak, errLeak := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
+		respLeak, errLeak := provider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryLeak,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -1020,7 +1044,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "発言帰属が曖昧です。相手の案を受ける形にして、1-2文で言い直してください。",
 		})
-		resp2, err2 := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
+		resp2, err2 := provider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retry,
 			MaxTokens:   160,
 			Temperature: temp,

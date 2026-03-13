@@ -17,14 +17,21 @@ import (
 type OllamaProvider struct {
 	baseURL string
 	model   string
+	numCtx  int
 	client  *http.Client
 }
 
 // NewOllamaProvider は新しいOllamaProviderを作成
 func NewOllamaProvider(baseURL, model string) *OllamaProvider {
+	return NewOllamaProviderWithNumCtx(baseURL, model, 0)
+}
+
+// NewOllamaProviderWithNumCtx は num_ctx を明示した OllamaProvider を作成
+func NewOllamaProviderWithNumCtx(baseURL, model string, numCtx int) *OllamaProvider {
 	return &OllamaProvider{
 		baseURL: baseURL,
 		model:   model,
+		numCtx:  numCtx,
 		client: &http.Client{
 			Timeout: 120 * time.Second, // Ollamaは遅い場合があるため長めに設定
 		},
@@ -49,6 +56,9 @@ func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 			"num_predict": req.MaxTokens,
 			"stop":        []string{},
 		},
+	}
+	if p.numCtx > 0 {
+		ollamaReq["options"].(map[string]interface{})["num_ctx"] = p.numCtx
 	}
 
 	reqBody, err := json.Marshal(ollamaReq)
@@ -193,6 +203,12 @@ func (p *OllamaProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 	if req.Temperature > 0 {
 		chatReq.Options = &ollamaChatOptions{Temperature: req.Temperature}
 	}
+	if p.numCtx > 0 {
+		if chatReq.Options == nil {
+			chatReq.Options = &ollamaChatOptions{}
+		}
+		chatReq.Options.NumCtx = p.numCtx
+	}
 
 	reqBody, err := json.Marshal(chatReq)
 	if err != nil {
@@ -267,6 +283,7 @@ type ollamaChatRequest struct {
 
 type ollamaChatOptions struct {
 	Temperature float64 `json:"temperature,omitempty"`
+	NumCtx      int     `json:"num_ctx,omitempty"`
 }
 
 type ollamaChatMessage struct {
