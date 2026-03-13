@@ -373,7 +373,7 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			speaker := o.participants[currentSpeaker]
 			nextSpeaker := o.participants[(currentSpeaker+1)%len(o.participants)]
 
-			response, err := o.generateResponse(speaker, nextSpeaker, sessionID, turn, topic)
+			response, err := o.generateResponse(speaker, nextSpeaker, sessionID, turn, segmentTurns, topic)
 			if err != nil {
 				log.Printf("[IdleChat] Generation error: %v", err)
 				generationFailed = true
@@ -880,7 +880,7 @@ func loopReasonLabel(reason string) string {
 	case "what_if_repeat":
 		return "仮定表現の反復で打ち切り"
 	case "topic_turn_limit":
-		return "ターン上限で打ち切り"
+		return ""
 	case "interrupted":
 		return "中断で終了"
 	case "generation_error":
@@ -892,7 +892,7 @@ func loopReasonLabel(reason string) string {
 	}
 }
 
-func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID string, turn int, topic string) (string, error) {
+func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID string, turn int, segmentTurns int, topic string) (string, error) {
 	systemPrompt := o.getSystemPrompt(speaker)
 	temp := o.temperatureForSpeaker(speaker)
 
@@ -937,12 +937,12 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	if turn == 0 {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: buildIdleTurnPrompt(topic, target, "", "", turn, true),
+			Content: buildIdleTurnPrompt(topic, target, "", "", turn, segmentTurns, true),
 		})
 	} else {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: buildIdleTurnPrompt(topic, speaker, latestOther, latestSelf, turn, false),
+			Content: buildIdleTurnPrompt(topic, speaker, latestOther, latestSelf, turn, segmentTurns, false),
 		})
 	}
 
@@ -1415,9 +1415,11 @@ func buildIdleResponseGuardPrompt(speaker string, selfCtx, otherCtx []string) st
 	)
 }
 
-func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string, turn int, firstTurn bool) string {
-	move := idleTurnMove(speakerOrTarget, turn, firstTurn, isMovieTopicPrompt(topic))
-	audience := idleAudienceAngle(turn, isMovieTopicPrompt(topic))
+func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string, turn int, segmentTurns int, firstTurn bool) string {
+	movieMode := isMovieTopicPrompt(topic)
+	closingMode := !firstTurn && turnsLeftInTopic(segmentTurns) <= 2
+	move := idleTurnMove(speakerOrTarget, turn, firstTurn, movieMode, closingMode)
+	audience := idleAudienceAngle(turn, movieMode, closingMode)
 	shiftHint := idleShiftHint(latestOther, latestSelf)
 	if firstTurn {
 		return fmt.Sprintf(
@@ -1429,7 +1431,7 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 		)
 	}
 	return fmt.Sprintf(
-		"話題: %s\n%sとして1-2文で返答してください。\n直前の相手発言: %s\n自分の直前発言: %s\n今回の役割: %s\n読者の楽しみ: %s\nルール:\n- 1文目は反応、2文目で前に進める\n- 直前と同じ比喩の型を繰り返さず、因果・場面・手順のどれかにずらす\n%s\n- 抽象語だけで逃げず、少し具体化する\n- 映画お題なら主人公・事件・対立・反転のどれかを進める",
+		"話題: %s\n%sとして1-2文で返答してください。\n直前の相手発言: %s\n自分の直前発言: %s\n今回の役割: %s\n読者の楽しみ: %s\nルール:\n- 1文目は反応、2文目で前に進める\n- 直前と同じ比喩の型を繰り返さず、因果・場面・手順のどれかにずらす\n%s\n- 抽象語だけで逃げず、少し具体化する\n- 映画お題なら主人公・事件・対立・反転のどれかを進める\n%s",
 		topic,
 		speakerOrTarget,
 		quoteOrDash(latestOther),
@@ -1437,11 +1439,32 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 		move,
 		audience,
 		shiftHint,
+		idleClosingHint(closingMode, movieMode),
 	)
 }
 
-func idleTurnMove(speaker string, turn int, firstTurn, movieMode bool) string {
+func turnsLeftInTopic(segmentTurns int) int {
+	left := maxTurnsPerTopic - segmentTurns
+	if left < 0 {
+		return 0
+	}
+	return left
+}
+
+func idleTurnMove(speaker string, turn int, firstTurn, movieMode, closingMode bool) string {
 	name := strings.ToLower(strings.TrimSpace(speaker))
+	if closingMode {
+		if movieMode {
+			if name == "shiro" {
+				return "ここまでの筋を一度まとめ、最後に残る不穏さか余韻を一つ置く"
+			}
+			return "ここまでで一番強い場面か感情を拾い、締めの一言に寄せる"
+		}
+		if name == "shiro" {
+			return "ここまでで見えた核心を一段だけ整理し、最後に残る問いを一つ置く"
+		}
+		return "ここまでの話を受けて、いちばん面白い芯を拾い、最後に余韻のある問いか感想で締める"
+	}
 	if movieMode {
 		if firstTurn {
 			if name == "shiro" {
@@ -1488,7 +1511,13 @@ func idleTurnMove(speaker string, turn int, firstTurn, movieMode bool) string {
 	return steps[turn%len(steps)]
 }
 
-func idleAudienceAngle(turn int, movieMode bool) string {
+func idleAudienceAngle(turn int, movieMode, closingMode bool) string {
+	if closingMode {
+		if movieMode {
+			return "締めに向かって、見終わったあとの余韻が少し残ること"
+		}
+		return "最後に話の芯がまとまり、少し余韻が残ること"
+	}
 	if movieMode {
 		angles := []string{
 			"最初の一場面が目に浮かぶこと",
@@ -1505,6 +1534,16 @@ func idleAudienceAngle(turn int, movieMode bool) string {
 		"話題の輪郭が一段くっきりすること",
 	}
 	return angles[turn%len(angles)]
+}
+
+func idleClosingHint(closingMode, movieMode bool) string {
+	if !closingMode {
+		return "- まだ広げてよいが、論点は一つに絞る"
+	}
+	if movieMode {
+		return "- そろそろ締める。新要素を増やしすぎず、最後の1-2ターンとして余韻や締めの像に寄せる"
+	}
+	return "- そろそろ締める。新論点を増やしすぎず、ここまでの芯を拾って最後の1-2ターンらしくまとめに入る"
 }
 
 func idleShiftHint(latestOther, latestSelf string) string {

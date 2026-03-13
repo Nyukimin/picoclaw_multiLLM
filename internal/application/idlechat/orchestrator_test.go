@@ -79,14 +79,14 @@ func TestIdleChatOrchestrator_TemperatureForSpeaker_MioAndShiroFixed(t *testing.
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.2, nil)
 
-	if _, err := o.generateResponse("mio", "shiro", "idle-temp", 0, "話題"); err != nil {
+	if _, err := o.generateResponse("mio", "shiro", "idle-temp", 0, 0, "話題"); err != nil {
 		t.Fatalf("generateResponse(mio) failed: %v", err)
 	}
 	if provider.lastReq.Temperature != 0.65 {
 		t.Fatalf("expected mio idlechat temperature 0.65, got %v", provider.lastReq.Temperature)
 	}
 
-	if _, err := o.generateResponse("shiro", "mio", "idle-temp", 1, "話題"); err != nil {
+	if _, err := o.generateResponse("shiro", "mio", "idle-temp", 1, 1, "話題"); err != nil {
 		t.Fatalf("generateResponse(shiro) failed: %v", err)
 	}
 	if provider.lastReq.Temperature != 0.65 {
@@ -99,7 +99,7 @@ func TestIdleChatOrchestrator_TemperatureForSpeaker_OthersUseConfiguredValue(t *
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"gin", "mio"}, 5, 10, 0.35, nil)
 
-	if _, err := o.generateResponse("gin", "mio", "idle-temp", 0, "話題"); err != nil {
+	if _, err := o.generateResponse("gin", "mio", "idle-temp", 0, 0, "話題"); err != nil {
 		t.Fatalf("generateResponse(gin) failed: %v", err)
 	}
 	if provider.lastReq.Temperature != 0.35 {
@@ -112,7 +112,7 @@ func TestGenerateResponse_ShowsSpeakerStyleConstraintsInPrompt(t *testing.T) {
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	_, err := o.generateResponse("shiro", "mio", "idle-shiro-prompt", 1, "古代塔")
+	_, err := o.generateResponse("shiro", "mio", "idle-shiro-prompt", 1, 1, "古代塔")
 	if err != nil {
 		t.Fatalf("generateResponse(shiro) failed: %v", err)
 	}
@@ -142,10 +142,10 @@ func TestGenerateResponse_ShowsSpeakerStyleConstraintsInPrompt(t *testing.T) {
 }
 
 func TestIdleAudienceAngle_Varies(t *testing.T) {
-	if idleAudienceAngle(0, false) == idleAudienceAngle(1, false) {
+	if idleAudienceAngle(0, false, false) == idleAudienceAngle(1, false, false) {
 		t.Fatal("expected non-movie audience angle to vary")
 	}
-	if idleAudienceAngle(0, true) == idleAudienceAngle(1, true) {
+	if idleAudienceAngle(0, true, false) == idleAudienceAngle(1, true, false) {
 		t.Fatal("expected movie audience angle to vary")
 	}
 }
@@ -157,12 +157,22 @@ func TestIdleShiftHint_PrefersNonAnalogyAfterAnalogy(t *testing.T) {
 	}
 }
 
+func TestBuildIdleTurnPrompt_ClosingModeAddsEndingGuidance(t *testing.T) {
+	got := buildIdleTurnPrompt("鏡の表面", "shiro", "まるで映画みたいだね。", "光が揺れる。", 10, 10, false)
+	if !strings.Contains(got, "そろそろ締める") {
+		t.Fatalf("expected closing guidance, got %q", got)
+	}
+	if !strings.Contains(got, "最後の1-2ターン") {
+		t.Fatalf("expected ending-turn hint, got %q", got)
+	}
+}
+
 func TestGenerateResponse_AddsMovieTopicGuidance(t *testing.T) {
 	provider := &mockLLMProvider{response: "廃墟の余韻が先に立つ作品かもしれない。音の扱いでかなり印象が変わりそうだ。"}
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	_, err := o.generateResponse("shiro", "mio", "idle-movie-prompt", 0, "「瓦礫のセレナーデ」ってどんな映画？")
+	_, err := o.generateResponse("shiro", "mio", "idle-movie-prompt", 0, 0, "「瓦礫のセレナーデ」ってどんな映画？")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -588,6 +598,13 @@ func TestAnnotateLoopSummary_AddsReasonNote(t *testing.T) {
 	}
 }
 
+func TestAnnotateLoopSummary_SkipsNoteForTopicTurnLimit(t *testing.T) {
+	got := annotateLoopSummary("本文", true, "topic_turn_limit")
+	if got != "本文" {
+		t.Fatalf("unexpected annotated summary: got %q want %q", got, "本文")
+	}
+}
+
 func TestSanitizeIdleResponse_StripsLeadingPunctuation(t *testing.T) {
 	got := sanitizeIdleResponse("。「。」なるほど！じゃあ、観察対象を絞ろう。", "話題")
 	want := "なるほど！じゃあ、観察対象を絞ろう。"
@@ -643,7 +660,7 @@ func TestGenerateResponse_RetriesInvalidLeadingPunctuation(t *testing.T) {
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	got, err := o.generateResponse("mio", "shiro", "idle-invalid", 1, "すごろく")
+	got, err := o.generateResponse("mio", "shiro", "idle-invalid", 1, 1, "すごろく")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -665,7 +682,7 @@ func TestGenerateResponse_AcceptsSanitizedResponseWhenRetryInvalidIsEmpty(t *tes
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	got, err := o.generateResponse("mio", "shiro", "idle-sanitized-ok", 1, "音の反射")
+	got, err := o.generateResponse("mio", "shiro", "idle-sanitized-ok", 1, 1, "音の反射")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -708,7 +725,7 @@ func TestGenerateResponse_RetriesAwkwardShiroStyle(t *testing.T) {
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	got, err := o.generateResponse("shiro", "mio", "idle-style", 1, "すごろく")
+	got, err := o.generateResponse("shiro", "mio", "idle-style", 1, 1, "すごろく")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -730,7 +747,7 @@ func TestGenerateResponse_RetriesSelfReferentialShiroRewrite(t *testing.T) {
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	got, err := o.generateResponse("shiro", "mio", "idle-style-self-ref", 1, "地下構造")
+	got, err := o.generateResponse("shiro", "mio", "idle-style-self-ref", 1, 1, "地下構造")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -766,7 +783,7 @@ func TestGenerateResponse_RetriesShiroMirroringLatestOther(t *testing.T) {
 		Content:   "舞台の幕開けみたいじゃないですか？ 権力や繁栄の象徴として捉えるのも一理ありますが、もっとロマンチックな側面も持ち合わせている気がしませんか？",
 	})
 
-	got, err := o.generateResponse("shiro", "mio", "idle-mirror", 1, "あす予算委、職権で桜咲く")
+	got, err := o.generateResponse("shiro", "mio", "idle-mirror", 1, 1, "あす予算委、職権で桜咲く")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -794,7 +811,7 @@ func TestGenerateResponse_RetriesMioMirroringLatestOther(t *testing.T) {
 		Content:   "その光が届かない混乱の可能性、ご懸念はもっともかと存じます。",
 	})
 
-	got, err := o.generateResponse("mio", "shiro", "idle-mio-mirror", 1, "予算案")
+	got, err := o.generateResponse("mio", "shiro", "idle-mio-mirror", 1, 1, "予算案")
 	if err != nil {
 		t.Fatalf("generateResponse() failed: %v", err)
 	}
@@ -816,7 +833,7 @@ func TestGenerateResponse_InvalidMovieResponseStopsInsteadOfLooping(t *testing.T
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	_, err := o.generateResponse("mio", "shiro", "idle-movie-fallback", 1, "「ブルーノート・コード」ってどんな映画？")
+	_, err := o.generateResponse("mio", "shiro", "idle-movie-fallback", 1, 1, "「ブルーノート・コード」ってどんな映画？")
 	if !errors.Is(err, errIdleInvalidResponse) {
 		t.Fatalf("expected errIdleInvalidResponse, got %v", err)
 	}
@@ -832,7 +849,7 @@ func TestGenerateResponse_ReturnsInvalidResponseErrorAfterRetry(t *testing.T) {
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	_, err := o.generateResponse("shiro", "mio", "idle-invalid-stop", 1, "すごろく")
+	_, err := o.generateResponse("shiro", "mio", "idle-invalid-stop", 1, 1, "すごろく")
 	if !errors.Is(err, errIdleInvalidResponse) {
 		t.Fatalf("expected errIdleInvalidResponse, got %v", err)
 	}
