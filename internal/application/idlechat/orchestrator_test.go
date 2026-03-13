@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -81,15 +82,15 @@ func TestIdleChatOrchestrator_TemperatureForSpeaker_MioAndShiroFixed(t *testing.
 	if _, err := o.generateResponse("mio", "shiro", "idle-temp", 0, "話題"); err != nil {
 		t.Fatalf("generateResponse(mio) failed: %v", err)
 	}
-	if provider.lastReq.Temperature != 0.8 {
-		t.Fatalf("expected mio idlechat temperature 0.8, got %v", provider.lastReq.Temperature)
+	if provider.lastReq.Temperature != 0.65 {
+		t.Fatalf("expected mio idlechat temperature 0.65, got %v", provider.lastReq.Temperature)
 	}
 
 	if _, err := o.generateResponse("shiro", "mio", "idle-temp", 1, "話題"); err != nil {
 		t.Fatalf("generateResponse(shiro) failed: %v", err)
 	}
-	if provider.lastReq.Temperature != 0.8 {
-		t.Fatalf("expected shiro idlechat temperature 0.8, got %v", provider.lastReq.Temperature)
+	if provider.lastReq.Temperature != 0.65 {
+		t.Fatalf("expected shiro idlechat temperature 0.65, got %v", provider.lastReq.Temperature)
 	}
 }
 
@@ -103,6 +104,84 @@ func TestIdleChatOrchestrator_TemperatureForSpeaker_OthersUseConfiguredValue(t *
 	}
 	if provider.lastReq.Temperature != 0.35 {
 		t.Fatalf("expected non-mio/shiro idlechat temperature 0.35, got %v", provider.lastReq.Temperature)
+	}
+}
+
+func TestGenerateResponse_ShowsSpeakerStyleConstraintsInPrompt(t *testing.T) {
+	provider := &mockLLMProvider{response: "その見方は面白い。条件を一つずつ確かめたい。"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	_, err := o.generateResponse("shiro", "mio", "idle-shiro-prompt", 1, "古代塔")
+	if err != nil {
+		t.Fatalf("generateResponse(shiro) failed: %v", err)
+	}
+	if len(provider.lastReq.Messages) == 0 {
+		t.Fatal("expected prompt messages to be sent")
+	}
+	joined := make([]string, 0, len(provider.lastReq.Messages))
+	for _, msg := range provider.lastReq.Messages {
+		joined = append(joined, msg.Content)
+	}
+	promptText := strings.Join(joined, "\n")
+	for _, phrase := range []string{
+		"相手や自分の直前の言い回しをなぞらない",
+		"同じ比喩やたとえの型を続けず",
+		"言いよどみや同意テンプレで始めない",
+		"直前の相手発言",
+		"自分の直前発言",
+		"話し方契約",
+		"読者の楽しみ",
+		"数値や出典を求めて詰問しない",
+		"研究発表みたいな硬い締め方を避け",
+	} {
+		if !strings.Contains(promptText, phrase) {
+			t.Fatalf("expected prompt to mention %q, got %q", phrase, promptText)
+		}
+	}
+}
+
+func TestIdleAudienceAngle_Varies(t *testing.T) {
+	if idleAudienceAngle(0, false) == idleAudienceAngle(1, false) {
+		t.Fatal("expected non-movie audience angle to vary")
+	}
+	if idleAudienceAngle(0, true) == idleAudienceAngle(1, true) {
+		t.Fatal("expected movie audience angle to vary")
+	}
+}
+
+func TestIdleShiftHint_PrefersNonAnalogyAfterAnalogy(t *testing.T) {
+	got := idleShiftHint("まるで映画のセットみたいだね。", "")
+	if !strings.Contains(got, "今回は比喩で返さず") {
+		t.Fatalf("expected non-analogy shift hint, got %q", got)
+	}
+}
+
+func TestGenerateResponse_AddsMovieTopicGuidance(t *testing.T) {
+	provider := &mockLLMProvider{response: "廃墟の余韻が先に立つ作品かもしれない。音の扱いでかなり印象が変わりそうだ。"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	_, err := o.generateResponse("shiro", "mio", "idle-movie-prompt", 0, "「瓦礫のセレナーデ」ってどんな映画？")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	joined := make([]string, 0, len(provider.lastReq.Messages))
+	for _, msg := range provider.lastReq.Messages {
+		joined = append(joined, msg.Content)
+	}
+	promptText := strings.Join(joined, "\n")
+	if !strings.Contains(promptText, "架空映画の妄想会話") {
+		t.Fatalf("expected compact movie prompt, got %q", promptText)
+	}
+	if !strings.Contains(promptText, "主人公・事件・場面") {
+		t.Fatalf("expected concrete movie guidance in prompt, got %q", promptText)
+	}
+	if !strings.Contains(promptText, "前に見た") {
+		t.Fatalf("expected movie prompt to ban known-work framing, got %q", promptText)
+	}
+	if !strings.Contains(promptText, "対立") || !strings.Contains(promptText, "反転") {
+		t.Fatalf("expected progression guidance in prompt, got %q", promptText)
 	}
 }
 
@@ -372,32 +451,57 @@ func TestGetSystemPrompt(t *testing.T) {
 }
 
 func TestFallbackTopicForStrategy_SingleUsesGenre(t *testing.T) {
-	got := fallbackTopicForStrategy(StrategySingleGenre, []string{"昆虫学"}, "", "")
-	if !strings.Contains(got, "昆虫学") {
-		t.Fatalf("expected single fallback to include genre, got %q", got)
+	got := fallbackTopicForStrategy(StrategySingleGenre, []string{"昆虫学"}, "", "", false)
+	if !strings.Contains(got, "昆虫学") || strings.HasSuffix(got, "ってどんな映画？") {
+		t.Fatalf("expected normal single fallback, got %q", got)
 	}
 }
 
 func TestFallbackTopicForStrategy_DoubleUsesBothGenres(t *testing.T) {
-	got := fallbackTopicForStrategy(StrategyDoubleGenre, []string{"茶道", "歯車"}, "", "")
-	if !strings.Contains(got, "茶道") || !strings.Contains(got, "歯車") {
-		t.Fatalf("expected double fallback to include both genres, got %q", got)
+	got := fallbackTopicForStrategy(StrategyDoubleGenre, []string{"茶道", "歯車"}, "", "", false)
+	if !strings.Contains(got, "茶道") || !strings.Contains(got, "歯車") || strings.HasSuffix(got, "ってどんな映画？") {
+		t.Fatalf("expected normal double fallback, got %q", got)
 	}
 }
 
 func TestFallbackTopicForStrategy_ExternalUsesSeed(t *testing.T) {
-	got := fallbackTopicForStrategy(StrategyExternalStimulus, nil, "Wikipedia:アレクサンドリア", "")
-	if !strings.Contains(got, "アレクサンドリア") {
-		t.Fatalf("expected external fallback to include seed, got %q", got)
+	got := fallbackTopicForStrategy(StrategyExternalStimulus, nil, "Wikipedia:アレクサンドリア", "", false)
+	if !strings.Contains(got, "アレクサンドリア") || strings.HasSuffix(got, "ってどんな映画？") {
+		t.Fatalf("expected normal external fallback to include seed, got %q", got)
 	}
 }
 
 func TestNormalizeIdleTopic_StripsChattyAnnouncementStyle(t *testing.T) {
 	raw := "ユン食堂の食材調達における薬学的なアプローチ、つまり、それぞれの食材の成分組成と、それらを組み合わせた料理で生み出される生理活性効果を、徹底的に分析していくってのは、めちゃくちゃ面白いんじゃない？"
-	got := normalizeIdleTopic(raw)
+	got := normalizeIdleTopic(raw, false)
 	want := "ユン食堂の食材調達における薬学的なアプローチ"
 	if got != want {
 		t.Fatalf("normalizeIdleTopic() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeIdleTopic_MovieModeFormatsAsMoviePrompt(t *testing.T) {
+	raw := "ユン食堂の食材調達における薬学的なアプローチ、つまり、それぞれの食材の成分組成と、それらを組み合わせた料理で生み出される生理活性効果を、徹底的に分析していくってのは、めちゃくちゃ面白いんじゃない？"
+	got := normalizeIdleTopic(raw, true)
+	want := "「ユン食堂の食材調達における薬学的なアプローチ」ってどんな映画？"
+	if got != want {
+		t.Fatalf("normalizeIdleTopic(movie) = %q, want %q", got, want)
+	}
+}
+
+func TestFormatMovieTopicPrompt_StripsNestedMovieSuffix(t *testing.T) {
+	got := formatMovieTopicPrompt("「瓦礫のセレナーデ」ってどんな映画」ってどんな映画？")
+	want := "「瓦礫のセレナーデ」ってどんな映画？"
+	if got != want {
+		t.Fatalf("formatMovieTopicPrompt() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatMovieTopicPrompt_StripsWrappedMoviePrompt(t *testing.T) {
+	got := formatMovieTopicPrompt("「『暗殺の墨色』ってどんな映画？」")
+	want := "「暗殺の墨色」ってどんな映画？"
+	if got != want {
+		t.Fatalf("formatMovieTopicPrompt() = %q, want %q", got, want)
 	}
 }
 
@@ -409,7 +513,8 @@ func TestGenerateTopicFromChat_NormalizesChattyOutput(t *testing.T) {
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
 	topic, _ := o.generateTopicFromChat("idle-topic-normalize")
-	if topic != "ユン食堂の食材調達における薬学的なアプローチ" {
+	if topic != "ユン食堂の食材調達における薬学的なアプローチ" &&
+		topic != "「ユン食堂の食材調達における薬学的なアプローチ」ってどんな映画？" {
 		t.Fatalf("unexpected normalized topic: %q", topic)
 	}
 }
@@ -491,6 +596,30 @@ func TestSanitizeIdleResponse_StripsLeadingPunctuation(t *testing.T) {
 	}
 }
 
+func TestSanitizeIdleResponse_StripsSpeakerPrefix(t *testing.T) {
+	got := sanitizeIdleResponse("Mio：コンコルドの涙、すごく切なそうだね。", "話題")
+	want := "コンコルドの涙、すごく切なそうだね。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponse() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeIdleResponse_StripsBracketedSpeakerPrefix(t *testing.T) {
+	got := sanitizeIdleResponse("[mio]: コンコルドの涙、すごく切なそうだね。", "話題")
+	want := "コンコルドの涙、すごく切なそうだね。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponse() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeIdleResponse_StripsRepeatedSpeakerPrefix(t *testing.T) {
+	got := sanitizeIdleResponse("mio]: mio]: 鏡の表面って、まるで映画のセットみたいだね。", "話題")
+	want := "鏡の表面って、まるで映画のセットみたいだね。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponse() = %q, want %q", got, want)
+	}
+}
+
 func TestInvalidIdleResponse_RejectsLeadingPunctuation(t *testing.T) {
 	tests := []string{
 		"。",
@@ -526,9 +655,31 @@ func TestGenerateResponse_RetriesInvalidLeadingPunctuation(t *testing.T) {
 	}
 }
 
+func TestGenerateResponse_AcceptsSanitizedResponseWhenRetryInvalidIsEmpty(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"。「。」たとえば、雨上がりの舗道で音が一斉に跳ね返る場面があると、ぐっと立ち上がる。",
+			"",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	got, err := o.generateResponse("mio", "shiro", "idle-sanitized-ok", 1, "音の反射")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	if got != "たとえば、雨上がりの舗道で音が一斉に跳ね返る場面があると、ぐっと立ち上がる。" {
+		t.Fatalf("unexpected sanitized response: %q", got)
+	}
+}
+
 func TestHasAwkwardIdleStyle_DetectsShiroCliches(t *testing.T) {
 	if !hasAwkwardIdleStyle("shiro", "mioさんのご発言、まさにその通りですね。非常に興味深いですね。") {
 		t.Fatal("expected awkward shiro cliche to be detected")
+	}
+	if !hasAwkwardIdleStyle("shiro", "なるほど、確かに少し硬すぎましたね。言い直すと、そこが面白いです。") {
+		t.Fatal("expected self-referential retry wording to be detected")
 	}
 	if hasAwkwardIdleStyle("shiro", "その視点は面白いです。ここで条件を一つ足すと見え方が変わりそうです。") {
 		t.Fatal("expected natural shiro response to pass")
@@ -566,6 +717,131 @@ func TestGenerateResponse_RetriesAwkwardShiroStyle(t *testing.T) {
 	}
 	if hasAwkwardIdleStyle("shiro", got) {
 		t.Fatalf("expected retried shiro response to avoid awkward style, got %q", got)
+	}
+}
+
+func TestGenerateResponse_RetriesSelfReferentialShiroRewrite(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"なるほど、確かに少し硬すぎましたね。言い直すと、そこが面白いです。",
+			"その発想は面白いです。地下構造の違いが地震波にどう出るかを先に見たいですね。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	got, err := o.generateResponse("shiro", "mio", "idle-style-self-ref", 1, "地下構造")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	if provider.callCount < 2 {
+		t.Fatalf("expected retry on self-referential style, got %d calls", provider.callCount)
+	}
+	if hasAwkwardIdleStyle("shiro", got) {
+		t.Fatalf("expected retried shiro response to avoid self-referential style, got %q", got)
+	}
+}
+
+func TestMirrorsLatestOther_DetectsBorrowedLongPhrase(t *testing.T) {
+	latest := "舞台の幕開けみたいじゃないですか？ 権力や繁栄の象徴として捉えるのも一理ありますが、もっとロマンチックな側面も持ち合わせている気がしませんか？"
+	response := "舞台の幕開け、まるで権力に染め上げられた絢爛な舞踏ですね。"
+	if !mirrorsLatestOther(response, latest, "あす予算委、職権で桜咲く") {
+		t.Fatal("expected mirrored long phrase to be detected")
+	}
+}
+
+func TestGenerateResponse_RetriesShiroMirroringLatestOther(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"舞台の幕開け、まるで権力に染め上げられた絢爛な舞踏ですね。",
+			"そこには演出の気配がありますね。誰が得をする構図なのかを見ると輪郭が出そうです。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	memory.RecordMessage(domaintransport.Message{
+		From:      "mio",
+		To:        "shiro",
+		SessionID: "idle-mirror",
+		Content:   "舞台の幕開けみたいじゃないですか？ 権力や繁栄の象徴として捉えるのも一理ありますが、もっとロマンチックな側面も持ち合わせている気がしませんか？",
+	})
+
+	got, err := o.generateResponse("shiro", "mio", "idle-mirror", 1, "あす予算委、職権で桜咲く")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	if provider.callCount < 2 {
+		t.Fatalf("expected retry on mirrored wording, got %d calls", provider.callCount)
+	}
+	if strings.Contains(got, "舞台の幕開け") {
+		t.Fatalf("expected retried shiro response to avoid mirrored phrase, got %q", got)
+	}
+}
+
+func TestGenerateResponse_RetriesMioMirroringLatestOther(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"混乱の可能性、ご懸念もっともかと存じます！",
+			"そこは確かに悩ましいよね。先に見せる範囲を絞れば、混乱はかなり減らせそう！",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	memory.RecordMessage(domaintransport.Message{
+		From:      "shiro",
+		To:        "mio",
+		SessionID: "idle-mio-mirror",
+		Content:   "その光が届かない混乱の可能性、ご懸念はもっともかと存じます。",
+	})
+
+	got, err := o.generateResponse("mio", "shiro", "idle-mio-mirror", 1, "予算案")
+	if err != nil {
+		t.Fatalf("generateResponse() failed: %v", err)
+	}
+	if provider.callCount < 2 {
+		t.Fatalf("expected retry on mio mirrored wording, got %d calls", provider.callCount)
+	}
+	if strings.Contains(got, "ご懸念もっともかと存じます") {
+		t.Fatalf("expected retried mio response to avoid mirrored phrase, got %q", got)
+	}
+}
+
+func TestGenerateResponse_InvalidMovieResponseStopsInsteadOfLooping(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"!!!",
+			"。。。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	_, err := o.generateResponse("mio", "shiro", "idle-movie-fallback", 1, "「ブルーノート・コード」ってどんな映画？")
+	if !errors.Is(err, errIdleInvalidResponse) {
+		t.Fatalf("expected errIdleInvalidResponse, got %v", err)
+	}
+}
+
+func TestGenerateResponse_ReturnsInvalidResponseErrorAfterRetry(t *testing.T) {
+	provider := &mockLLMProvider{
+		responses: []string{
+			"!!!",
+			"。。。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	_, err := o.generateResponse("shiro", "mio", "idle-invalid-stop", 1, "すごろく")
+	if !errors.Is(err, errIdleInvalidResponse) {
+		t.Fatalf("expected errIdleInvalidResponse, got %v", err)
+	}
+}
+
+func TestSanitizeIdleResponse_EmptyStaysEmpty(t *testing.T) {
+	got := sanitizeIdleResponse("!!!", "話題")
+	if got != "" {
+		t.Fatalf("sanitizeIdleResponse() = %q, want empty string", got)
 	}
 }
 

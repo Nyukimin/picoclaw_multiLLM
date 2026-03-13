@@ -66,6 +66,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .idle-arrow{display:inline-block;transition:transform .15s}
 .idle-arrow.open{transform:rotate(90deg)}
 .idle-expand td{background:rgba(255,255,255,.02);padding:0}
+.idle-actions{display:flex;justify-content:flex-end;padding:10px 12px 0}
 .idle-transcript{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .idle-bubble{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 10px;line-height:1.5}
 .idle-meta{font-size:11px;color:var(--t2);margin-bottom:3px}
@@ -650,7 +651,7 @@ function renderIdleChat() {
       exp.className = 'idle-expand';
       const transcript = Array.isArray(r.transcript) ? r.transcript : [];
       if (transcript.length === 0) {
-        exp.innerHTML = '<td colspan="8"><div class="idle-empty">Transcript not available</div></td>';
+        exp.innerHTML = '<td colspan="8"><div class="idle-actions"><button class="ctl-btn idle-copy-chat" data-idx="' + esc(String(rowIndex)) + '">Copy Chat</button></div><div class="idle-empty">Transcript not available</div></td>';
       } else {
         const items = transcript.map((line) => {
           const idx = String(line || '').indexOf(':');
@@ -663,7 +664,7 @@ function renderIdleChat() {
           const info = ag(speaker);
           return '<div class="idle-bubble"><div class="idle-meta" style="color:' + info.c + '">' + info.e + ' ' + info.l + '</div><div>' + esc(content || '-') + '</div></div>';
         }).join('');
-        exp.innerHTML = '<td colspan="8"><div class="idle-transcript">' + items + '</div></td>';
+        exp.innerHTML = '<td colspan="8"><div class="idle-actions"><button class="ctl-btn idle-copy-chat" data-idx="' + esc(String(rowIndex)) + '">Copy Chat</button></div><div class="idle-transcript">' + items + '</div></td>';
       }
       body.appendChild(exp);
     }
@@ -676,6 +677,39 @@ function renderIdleChat() {
       renderIdleChat();
     });
   });
+  body.querySelectorAll('.idle-copy-chat').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx || '-1');
+      const row = rows[idx];
+      if (!row) {
+        showToast('Copy failed', 'error');
+        return;
+      }
+      copyTextPayload(btn, formatIdleChatTranscript(row));
+    });
+  });
+}
+
+function formatIdleChatTranscript(row) {
+  const lines = [];
+  lines.push('Title: ' + String(row && row.title || '-'));
+  lines.push('Topic: ' + String(row && row.topic || '-'));
+  lines.push('Strategy: ' + String(row && (row.strategy || row.category) || '-'));
+  lines.push('Turns: ' + String(row && row.turns || 0));
+  lines.push('Started: ' + String(row && row.started_at || ''));
+  lines.push('Ended: ' + String(row && row.ended_at || ''));
+  lines.push('');
+  lines.push('Summary:');
+  lines.push(String(row && row.summary || '-'));
+  lines.push('');
+  lines.push('Transcript:');
+  const transcript = Array.isArray(row && row.transcript) ? row.transcript : [];
+  if (transcript.length === 0) {
+    lines.push('(not available)');
+  } else {
+    transcript.forEach((line) => lines.push(String(line || '')));
+  }
+  return lines.join('\n');
 }
 
 async function refreshIdleStatus() {
@@ -845,7 +879,7 @@ function scrollToBottom() {
 function copyMsg(btn) {
   const mc = btn.parentElement.querySelector('.mc');
   const text = mc.dataset.raw || mc.textContent;
-  navigator.clipboard.writeText(text).then(() => {
+  writeClipboardText(text).then(() => {
     btn.textContent = 'OK';
     btn.classList.add('ok');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1200);
@@ -861,8 +895,37 @@ function escAttr(s) {
     .replace(/>/g, '&gt;');
 }
 
+function writeClipboardText(text) {
+  const value = String(text || '');
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(value);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    ta.style.left = '-1000px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch (err) {
+      document.body.removeChild(ta);
+      reject(err);
+      return;
+    }
+    document.body.removeChild(ta);
+    if (ok) resolve();
+    else reject(new Error('copy command failed'));
+  });
+}
+
 function copyTextPayload(btn, payload) {
-  navigator.clipboard.writeText(String(payload || '')).then(() => {
+  writeClipboardText(String(payload || '')).then(() => {
     const old = btn.textContent;
     btn.textContent = 'Copied';
     btn.classList.add('ok');

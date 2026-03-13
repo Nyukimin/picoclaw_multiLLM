@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -24,11 +25,12 @@ const (
 	ttsCharsPerSecond = 8.0
 	ttsMinWait        = 2 * time.Second
 	ttsMaxWait        = 20 * time.Second
-	maxTurnsPerTopic  = 50
+	maxTurnsPerTopic  = 12
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
 var randSeedOnce sync.Once
+var errIdleInvalidResponse = errors.New("idlechat invalid response")
 var promptLeakLineRe = regexp.MustCompile(`(?i)(^|[。．\n])[^。．\n]{0,30}(発言として受け|要件[:：]|発言帰属ガード)[^。．\n]*`)
 
 type SessionSummary struct {
@@ -375,7 +377,11 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			if err != nil {
 				log.Printf("[IdleChat] Generation error: %v", err)
 				generationFailed = true
-				loopReason = "generation_error"
+				if errors.Is(err, errIdleInvalidResponse) {
+					loopReason = "invalid_response"
+				} else {
+					loopReason = "generation_error"
+				}
 				break
 			}
 			if isResponseTooSimilar(response, transcript) {
@@ -480,6 +486,7 @@ func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, TopicStrategy) {
 	// 戦略選択（chaos: 70%, external: 20%, anti: 10%）
 	strategy := chooseStrategy()
+	movieMode := rand.Intn(100) < 20
 	recentTopics := o.getRecentTopics(12)
 
 	var prompt string
@@ -489,31 +496,31 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	switch strategy {
 	case StrategySingleGenre:
 		var genres []string
-		prompt, genres = generateSingleGenrePrompt()
+		prompt, genres = generateSingleGenrePrompt(movieMode)
 		logInfo = fmt.Sprintf("single:%v", genres)
-		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "")
+		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", movieMode)
 
 	case StrategyDoubleGenre:
 		var genres []string
-		prompt, genres = generateDoubleGenrePrompt()
+		prompt, genres = generateDoubleGenrePrompt(movieMode)
 		logInfo = fmt.Sprintf("double:%v", genres)
-		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "")
+		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", movieMode)
 
 	case StrategyExternalStimulus:
 		var source string
-		prompt, source = generateExternalPrompt()
+		prompt, source = generateExternalPrompt(movieMode)
 		logInfo = fmt.Sprintf("external:%s", source)
-		fallbackTopic = fallbackTopicForStrategy(strategy, nil, source, "")
+		fallbackTopic = fallbackTopicForStrategy(strategy, nil, source, "", movieMode)
 
 	default:
 		// Fallback to single genre
 		var genres []string
-		prompt, genres = generateSingleGenrePrompt()
+		prompt, genres = generateSingleGenrePrompt(movieMode)
 		logInfo = fmt.Sprintf("single:%v (fallback)", genres)
-		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "")
+		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "", movieMode)
 	}
 
-	log.Printf("[IdleChat] Strategy: %s (%s)", strategy, logInfo)
+	log.Printf("[IdleChat] Strategy: %s (%s, movie=%t)", strategy, logInfo, movieMode)
 
 	// トピック生成（最大3回リトライ）
 	for attempt := 0; attempt < 3; attempt++ {
@@ -531,7 +538,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 			log.Printf("[IdleChat] topic generation failed: %v", err)
 			break
 		}
-		topic := normalizeIdleTopic(resp.Content)
+		topic := normalizeIdleTopic(resp.Content, movieMode)
 		if topic == "" {
 			continue
 		}
@@ -544,7 +551,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	}
 
 	// フォールバック
-	fallback := normalizeIdleTopic(fallbackTopic)
+	fallback := normalizeIdleTopic(fallbackTopic, movieMode)
 	if fallback == "" {
 		fallback = "予想外の切り口から考える論点"
 	}
@@ -552,14 +559,20 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 	return fallback, strategy
 }
 
-func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string) string {
+func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, movieMode bool) string {
 	switch strategy {
 	case StrategySingleGenre:
 		if len(genres) >= 1 && strings.TrimSpace(genres[0]) != "" {
+			if movieMode {
+				return formatMovieTopicPrompt(genres[0] + "の裏側")
+			}
 			return fmt.Sprintf("%sで見落としがちな判断基準", genres[0])
 		}
 	case StrategyDoubleGenre:
 		if len(genres) >= 2 && strings.TrimSpace(genres[0]) != "" && strings.TrimSpace(genres[1]) != "" {
+			if movieMode {
+				return formatMovieTopicPrompt(genres[0] + "と" + genres[1])
+			}
 			return fmt.Sprintf("%sと%sに共通する設計思想", genres[0], genres[1])
 		}
 	case StrategyExternalStimulus:
@@ -571,16 +584,25 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 			seedText = parts[1]
 		}
 		if strings.TrimSpace(seedText) != "" {
+			if movieMode {
+				return formatMovieTopicPrompt(seedText)
+			}
 			return fmt.Sprintf("「%s」から掘る盲点と前提", seedText)
 		}
 		if strings.TrimSpace(sourceName) != "" {
+			if movieMode {
+				return formatMovieTopicPrompt(sourceName + "の裏側")
+			}
 			return fmt.Sprintf("%s由来の刺激から掘る盲点と前提", sourceName)
 		}
+	}
+	if movieMode {
+		return formatMovieTopicPrompt("予想外の切り口")
 	}
 	return "予想外の切り口から考える論点"
 }
 
-func normalizeIdleTopic(raw string) string {
+func normalizeIdleTopic(raw string, movieMode bool) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return ""
@@ -595,8 +617,6 @@ func normalizeIdleTopic(raw string) string {
 		"話題：", "",
 		"トピック：", "",
 		"お題：", "",
-		"「", "",
-		"」", "",
 		"\"", "",
 	}
 	s = strings.NewReplacer(replacers...).Replace(s)
@@ -621,10 +641,49 @@ func normalizeIdleTopic(raw string) string {
 	}
 	s = strings.TrimSpace(strings.TrimRight(s, "。！？!? "))
 	s = multiSpaceForTopic(s)
+	if movieMode {
+		return formatMovieTopicPrompt(s)
+	}
 	if utf8.RuneCountInString(s) > 48 {
 		s = truncate(s, 48)
 	}
 	return strings.TrimSpace(s)
+}
+
+func formatMovieTopicPrompt(raw string) string {
+	title := strings.TrimSpace(raw)
+	if title == "" {
+		return ""
+	}
+	for {
+		switch {
+		case strings.HasPrefix(title, "「") && strings.HasSuffix(title, "」"):
+			title = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(title, "「"), "」"))
+			continue
+		case strings.HasPrefix(title, "『") && strings.HasSuffix(title, "』"):
+			title = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(title, "『"), "』"))
+			continue
+		}
+		break
+	}
+	if idx := strings.Index(title, "ってどんな映画"); idx >= 0 {
+		title = title[:idx]
+	}
+	title = strings.TrimSpace(strings.Trim(title, "「」『』\"'"))
+	title = multiSpaceForTopic(title)
+	if title == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(title) > 24 {
+		title = truncate(title, 24)
+		title = strings.TrimSpace(strings.TrimSuffix(title, "..."))
+	}
+	return fmt.Sprintf("「%s」ってどんな映画？", title)
+}
+
+func isMovieTopicPrompt(topic string) bool {
+	s := strings.TrimSpace(topic)
+	return strings.HasPrefix(s, "「") && strings.Contains(s, "」ってどんな映画")
 }
 
 func multiSpaceForTopic(s string) string {
@@ -786,7 +845,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 	body := strings.Join(transcript, "\n")
 	messages := []llm.Message{
 		{Role: "system", Content: o.getSystemPrompt("shiro")},
-		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。要件: ユーザーが会話中で最も驚きそうな点、\"これは凄い！\"と感じそうな点に最優先でフォーカスする。続いて重要論点・結論・次の観点を簡潔にまとめる。\n話題: %s\n\n%s", topic, body)},
+		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。硬い報告書ではなく、読んで雰囲気が分かる短い要約にしてください。1. いちばん面白かった点 2. 何が話を前に進めたか 3. 次に広がりそうな観点、の順で自然にまとめてください。\n話題: %s\n\n%s", topic, body)},
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 800, Temperature: 0.4}
 	resp, err := o.llmProvider.Generate(o.ctx, req)
@@ -826,6 +885,8 @@ func loopReasonLabel(reason string) string {
 		return "中断で終了"
 	case "generation_error":
 		return "生成エラーで終了"
+	case "invalid_response":
+		return "返答崩れで終了"
 	default:
 		return "反復検知で打ち切り"
 	}
@@ -835,58 +896,65 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	systemPrompt := o.getSystemPrompt(speaker)
 	temp := o.temperatureForSpeaker(speaker)
 
-	// 直近の会話履歴を取得（最新発話の重みを上げるため30件）
-	recentEntries := o.memory.GetUnifiedView(30)
+	// 履歴は浅めにして、古いテンプレが自己強化しないようにする。
+	recentEntries := o.memory.GetUnifiedView(12)
 	messages := []llm.Message{
 		{Role: "system", Content: systemPrompt},
 	}
-	selfCtx, otherCtx := splitSpeakerContexts(recentEntries, sessionID, speaker, 5)
+	selfCtx, otherCtx := splitSpeakerContexts(recentEntries, sessionID, speaker, 2)
 	latestOther := latestOtherUtterance(recentEntries, sessionID, speaker)
+	latestSelf := latestSelfUtterance(recentEntries, sessionID, speaker)
 
-	for _, entry := range recentEntries {
-		if entry.Message.SessionID == sessionID {
-			role := "assistant"
-			if entry.Message.From != speaker {
-				role = "user"
-			}
-			messages = append(messages, llm.Message{
-				Role:    role,
-				Content: fmt.Sprintf("[%s]: %s", entry.Message.From, entry.Message.Content),
-			})
+	sessionEntries := make([]session.ConversationEntry, 0, 4)
+	for i := len(recentEntries) - 1; i >= 0 && len(sessionEntries) < 4; i-- {
+		if recentEntries[i].Message.SessionID == sessionID {
+			sessionEntries = append(sessionEntries, recentEntries[i])
 		}
+	}
+	for i := len(sessionEntries) - 1; i >= 0; i-- {
+		entry := sessionEntries[i]
+		role := "assistant"
+		if entry.Message.From != speaker {
+			role = "user"
+		}
+		messages = append(messages, llm.Message{
+			Role:    role,
+			Content: fmt.Sprintf("[%s]: %s", entry.Message.From, entry.Message.Content),
+		})
 	}
 
 	messages = append(messages, llm.Message{
-		Role: "user",
-		Content: fmt.Sprintf(
-			"発言帰属ガード:\n- あなたは %s。\n- 自分の過去発言(要約): %s\n- 他者の発言(要約): %s\n要件: 他者の発言を自分の新規アイデアとして扱わない。誰の着想か曖昧にしない。ただし『前に自分も触れた』『相手の発言として受ける』『ご発言』『まさにその通りですね』のようなメタ定型句は使わない。",
-			speaker,
-			strings.Join(selfCtx, " / "),
-			strings.Join(otherCtx, " / "),
-		),
+		Role:    "user",
+		Content: buildIdleResponseGuardPrompt(speaker, selfCtx, otherCtx),
 	})
+	if isMovieTopicPrompt(topic) {
+		messages = append(messages, llm.Message{
+			Role:    "user",
+			Content: "これは架空映画の妄想会話です。実在作品として扱わず、『聞いたことがある』『前に見た』『有名作だ』のような既知前提は禁止。抽象論より、主人公・事件・場面・対立・反転を早めに一つ出してください。",
+		})
+	}
 
 	if turn == 0 {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("（話題: %s）%sに会話を始めてください。要件: 深く考察しつつエンターテイメント性も出す。相手へ問い返しや新しい観点を必ず1つ入れる。直近の表現や主張の繰り返しは禁止。同じ単語・同じ言い回し・同じ導入句をこの会話内で何度も使わない。発言帰属（誰のアイデアか）を曖昧にしない。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, target),
+			Content: buildIdleTurnPrompt(topic, target, "", "", turn, true),
 		})
 	} else {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: fmt.Sprintf("（話題: %s）%sとして返答してください。直前の相手発言: %s\n要件: 1文目は必ずこの直前発言への直接応答にする。2文目で深掘りか新しい観点か問い返しを入れる。深く考察しつつエンターテイメント性も出す。直近の表現や主張の繰り返しは禁止。同じ単語・同じ言い回し・同じ導入句をこの会話内で何度も使わない。発言帰属（誰のアイデアか）を曖昧にしない。自分の名前プレフィックス（例: [mio]:）は出力しない。短く1-2文。", topic, speaker, quoteOrDash(latestOther)),
+			Content: buildIdleTurnPrompt(topic, speaker, latestOther, latestSelf, turn, false),
 		})
 	}
 
 	req := llm.GenerateRequest{
 		Messages:    messages,
-		MaxTokens:   256,
+		MaxTokens:   160,
 		Temperature: temp,
 	}
 
 	resp, err := o.llmProvider.Generate(o.ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("LLM generate: %w", err)
+		return "", fmt.Errorf("LLM generate primary: %w", err)
 	}
 	firstRaw := strings.TrimSpace(resp.Content)
 	first := sanitizeIdleResponse(resp.Content, topic)
@@ -894,29 +962,35 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		retryInvalid := append([]llm.Message{}, messages...)
 		retryInvalid = append(retryInvalid, llm.Message{
 			Role:    "user",
-			Content: "今の返答は無効です。句読点だけ、記号だけ、空文、または文頭が記号の返答は禁止です。自然な会話文だけで1-2文に言い直してください。",
+			Content: "今の返答は無効です。記号だけや空文をやめて、自然な会話文を1-2文で言い直してください。",
 		})
 		respInvalid, errInvalid := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryInvalid,
-			MaxTokens:   256,
+			MaxTokens:   160,
 			Temperature: temp,
 		})
+		if errInvalid != nil {
+			log.Printf("[IdleChat] retryInvalid failed (%s turn=%d): %v", speaker, turn, errInvalid)
+		}
 		if errInvalid == nil && strings.TrimSpace(respInvalid.Content) != "" {
 			first = sanitizeIdleResponse(respInvalid.Content, topic)
 			firstRaw = strings.TrimSpace(respInvalid.Content)
 		}
 	}
-	if hasAwkwardIdleStyle(speaker, first) || hasExcessivePhraseRepetition(first) {
+	if needsIdleStyleRetry(speaker, first, latestOther, latestSelf, topic) {
 		retryStyle := append([]llm.Message{}, messages...)
 		retryStyle = append(retryStyle, llm.Message{
 			Role:    "user",
-			Content: "今の返答は不自然です。堅すぎる敬語、メタ定型句、同じ単語や言い回しの反復を避けて、自然な会話文に1回だけ言い直してください。特に『ご発言』『まさにその通りですね』『前に自分も触れた』は使わないでください。",
+			Content: "評価や言い直し宣言は書かず、別の手で自然に返してください。直前の言い回しをなぞらず、1文目で反応し、2文目で新しい具体例か問いを一つだけ足してください。",
 		})
 		respStyle, errStyle := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryStyle,
-			MaxTokens:   256,
+			MaxTokens:   160,
 			Temperature: temp,
 		})
+		if errStyle != nil {
+			log.Printf("[IdleChat] retryStyle failed (%s turn=%d): %v", speaker, turn, errStyle)
+		}
 		if errStyle == nil && strings.TrimSpace(respStyle.Content) != "" {
 			first = sanitizeIdleResponse(respStyle.Content, topic)
 			firstRaw = strings.TrimSpace(respStyle.Content)
@@ -926,13 +1000,16 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		retryLeak := append([]llm.Message{}, messages...)
 		retryLeak = append(retryLeak, llm.Message{
 			Role:    "user",
-			Content: "今の返答には指示文の断片が混ざっています。自然な会話文だけで1-2文に言い直してください。『要件』『発言帰属』『相手の発言として受ける』などのメタ表現は出力しないでください。",
+			Content: "指示文の断片を消して、自然な会話文だけを1-2文で言い直してください。メタ表現は禁止です。",
 		})
 		respLeak, errLeak := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retryLeak,
-			MaxTokens:   256,
+			MaxTokens:   160,
 			Temperature: temp,
 		})
+		if errLeak != nil {
+			log.Printf("[IdleChat] retryLeak failed (%s turn=%d): %v", speaker, turn, errLeak)
+		}
 		if errLeak == nil && strings.TrimSpace(respLeak.Content) != "" {
 			first = sanitizeIdleResponse(respLeak.Content, topic)
 		}
@@ -941,29 +1018,24 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		retry := append([]llm.Message{}, messages...)
 		retry = append(retry, llm.Message{
 			Role:    "user",
-			Content: "直前の返答は発言帰属が曖昧です。相手の発言を受ける形で、誰のアイデアかを明示して1回だけ言い直してください。1-2文。",
+			Content: "発言帰属が曖昧です。相手の案を受ける形にして、1-2文で言い直してください。",
 		})
 		resp2, err2 := o.llmProvider.Generate(o.ctx, llm.GenerateRequest{
 			Messages:    retry,
-			MaxTokens:   256,
+			MaxTokens:   160,
 			Temperature: temp,
 		})
+		if err2 != nil {
+			log.Printf("[IdleChat] retryAttribution failed (%s turn=%d): %v", speaker, turn, err2)
+		}
 		if err2 == nil && strings.TrimSpace(resp2.Content) != "" {
 			return sanitizeIdleResponse(resp2.Content, topic), nil
 		}
 	}
 
 	if invalidIdleResponse(first) {
-		if turn == 0 {
-			return "その見方は面白いね。まずは、どこに一番大きな特徴が現れるのか整理してみよう。", nil
-		}
-		return "なるほど。そこから一歩進めるなら、具体的にどの条件を見れば違いが出るかを考えてみたい。", nil
-	}
-	if invalidIdleResponse(firstRaw) {
-		if turn == 0 {
-			return "その見方は面白いね。まずは、どこに一番大きな特徴が現れるのか整理してみよう。", nil
-		}
-		return "なるほど。そこから一歩進めるなら、具体的にどの条件を見れば違いが出るかを考えてみたい。", nil
+		log.Printf("[IdleChat] invalid_response sanitized (%s turn=%d): raw=%q sanitized=%q", speaker, turn, firstRaw, first)
+		return "", errIdleInvalidResponse
 	}
 
 	return first, nil
@@ -972,7 +1044,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 func (o *IdleChatOrchestrator) temperatureForSpeaker(speaker string) float64 {
 	switch strings.ToLower(strings.TrimSpace(speaker)) {
 	case "mio", "shiro":
-		return 0.8
+		return 0.65
 	default:
 		return o.temperature
 	}
@@ -1307,6 +1379,17 @@ func latestOtherUtterance(entries []session.ConversationEntry, sessionID, speake
 	return ""
 }
 
+func latestSelfUtterance(entries []session.ConversationEntry, sessionID, speaker string) string {
+	for i := len(entries) - 1; i >= 0; i-- {
+		m := entries[i].Message
+		if m.SessionID != sessionID || !strings.EqualFold(m.From, speaker) {
+			continue
+		}
+		return strings.TrimSpace(m.Content)
+	}
+	return ""
+}
+
 func violatesAttribution(response, latestOther string) bool {
 	resp := normalizeLoopText(response)
 	other := normalizeLoopText(latestOther)
@@ -1323,12 +1406,140 @@ func violatesAttribution(response, latestOther string) bool {
 	return true
 }
 
+func buildIdleResponseGuardPrompt(speaker string, selfCtx, otherCtx []string) string {
+	_ = selfCtx
+	_ = otherCtx
+	return fmt.Sprintf(
+		"あなたは %s。\nルール:\n- 相手や自分の直前の言い回しをなぞらない\n- 同じ比喩やたとえの型を続けず、次は因果・場面・手順のどれかに切り替える\n- 言いよどみや同意テンプレで始めない\n- メタ定型句や堅い敬語導入を避ける",
+		speaker,
+	)
+}
+
+func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string, turn int, firstTurn bool) string {
+	move := idleTurnMove(speakerOrTarget, turn, firstTurn, isMovieTopicPrompt(topic))
+	audience := idleAudienceAngle(turn, isMovieTopicPrompt(topic))
+	shiftHint := idleShiftHint(latestOther, latestSelf)
+	if firstTurn {
+		return fmt.Sprintf(
+			"話題: %s\n%sとして1-2文で始めてください。\n今回の役割: %s\n読者の楽しみ: %s\nルール:\n- 自然に入る\n- 相手が返しやすい観点か問いを1つ入れる\n- 映画お題なら主人公・事件・場面のどれかを出す",
+			topic,
+			speakerOrTarget,
+			move,
+			audience,
+		)
+	}
+	return fmt.Sprintf(
+		"話題: %s\n%sとして1-2文で返答してください。\n直前の相手発言: %s\n自分の直前発言: %s\n今回の役割: %s\n読者の楽しみ: %s\nルール:\n- 1文目は反応、2文目で前に進める\n- 直前と同じ比喩の型を繰り返さず、因果・場面・手順のどれかにずらす\n%s\n- 抽象語だけで逃げず、少し具体化する\n- 映画お題なら主人公・事件・対立・反転のどれかを進める",
+		topic,
+		speakerOrTarget,
+		quoteOrDash(latestOther),
+		quoteOrDash(latestSelf),
+		move,
+		audience,
+		shiftHint,
+	)
+}
+
+func idleTurnMove(speaker string, turn int, firstTurn, movieMode bool) string {
+	name := strings.ToLower(strings.TrimSpace(speaker))
+	if movieMode {
+		if firstTurn {
+			if name == "shiro" {
+				return "設定を整理しつつ、最初の異変か事件を一つ置く"
+			}
+			return "印象的な一場面か主人公像を先に出して、話を動かす"
+		}
+		if name == "shiro" {
+			steps := []string{
+				"前の案を少し整理して、条件か制約を一つ足す",
+				"前の案の弱いところを示して、対立か障害を一つ足す",
+				"前の案を保ったまま、ラストの反転候補を一つ足す",
+			}
+			return steps[turn%len(steps)]
+		}
+		steps := []string{
+			"前の案を受けて、場面を一つ具体化する",
+			"前の案を受けて、主人公の感情か動機を一つ具体化する",
+			"前の案を受けて、行動か出来事を一つ具体化する",
+		}
+		return steps[turn%len(steps)]
+	}
+	if firstTurn {
+		if name == "shiro" {
+			return "論点を一つに絞り、どこが核心かを示す"
+		}
+		return "比喩か具体例で入口を作り、相手が掘れる論点を一つ出す"
+	}
+	if name == "shiro" {
+		steps := []string{
+			"相手の案を整理し、因果のつながりを一段だけはっきりさせる",
+			"相手の案を整理し、反対側から見た条件を一つ足す",
+			"相手の案を整理し、身近な具体例を一つ足す",
+			"相手の案を整理し、次に起きそうな場面を一つ置く",
+		}
+		return steps[turn%len(steps)]
+	}
+	steps := []string{
+		"相手の案を受けて、場面や手触りを一つ足して前に進める",
+		"相手の案を受けて、具体的な手順や動きを一つ足して前に進める",
+		"相手の案を受けて、感情の動きを一つ足して前に進める",
+		"相手の案を受けて、意外な応用先を一つ足して前に進める",
+	}
+	return steps[turn%len(steps)]
+}
+
+func idleAudienceAngle(turn int, movieMode bool) string {
+	if movieMode {
+		angles := []string{
+			"最初の一場面が目に浮かぶこと",
+			"次に何が起きるか少し気になること",
+			"主人公の感情が一段動くこと",
+			"最後にどう反転するか想像したくなること",
+		}
+		return angles[turn%len(angles)]
+	}
+	angles := []string{
+		"意外な結びつきに軽く驚けること",
+		"身近な例で急に腑に落ちること",
+		"見方が少し反転して先を読みたくなること",
+		"話題の輪郭が一段くっきりすること",
+	}
+	return angles[turn%len(angles)]
+}
+
+func idleShiftHint(latestOther, latestSelf string) string {
+	if hasIdleAnalogyMarker(latestOther) || hasIdleAnalogyMarker(latestSelf) {
+		return "- 直前が比喩寄りなので、今回は比喩で返さず、因果・観察・手順のどれかで返す"
+	}
+	return "- 直前と入口を変える"
+}
+
+func hasIdleAnalogyMarker(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "まるで") || strings.Contains(lower, "みたい") || strings.Contains(lower, "ような")
+}
+
 func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 	idlePolicy := "この会話はidleChatです。外部検索（Web検索/API検索）は行わず、既存の内部文脈だけで自然に会話してください。"
+	idleStyle := idleSpeakerContract(agentName)
 	if prompt, ok := o.personalities[agentName]; ok {
-		return prompt + "\n\n" + idlePolicy
+		return prompt + "\n\n" + idlePolicy + "\n" + idleStyle
 	}
-	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s", agentName, idlePolicy)
+	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleStyle)
+}
+
+func idleSpeakerContract(agentName string) string {
+	switch strings.ToLower(strings.TrimSpace(agentName)) {
+	case "mio":
+		return "話し方契約: 2文まで。言いよどみや過剰なおだては使わない。毎回違う入口から入る。比喩は一つまで。相手の言葉をなぞらず、自分の具体例か問いで前に進める。"
+	case "shiro":
+		return "話し方契約: 2文まで。礼儀テンプレや賞賛で始めない。相手の案を短く整理し、条件・制約・含意のどれか一つだけ足す。抽象語を重ねず、論点を一つに絞る。雑談で数値や出典を求めて詰問しない。研究発表みたいな硬い締め方を避け、場面や身近な例に寄せる。"
+	default:
+		return "話し方契約: 2文まで。相手の言葉をなぞらず、一つの論点だけ前に進める。"
+	}
 }
 
 func truncate(s string, maxLen int) string {
@@ -1392,15 +1603,44 @@ func sanitizeIdleResponse(s, topic string) string {
 	for _, leak := range leaks {
 		out = strings.ReplaceAll(out, leak, "")
 	}
+	speakerPrefixes := []string{
+		"[mio]:",
+		"[mio]：",
+		"[shiro]:",
+		"[shiro]：",
+		"mio]:",
+		"mio]：",
+		"shiro]:",
+		"shiro]：",
+		"mio:",
+		"mio：",
+		"shiro:",
+		"shiro：",
+		"mioさん:",
+		"mio さん:",
+		"shiroさん:",
+		"shiro さん:",
+	}
+	for {
+		lowerOut := strings.ToLower(out)
+		stripped := false
+		for _, prefix := range speakerPrefixes {
+			if strings.HasPrefix(lowerOut, prefix) {
+				out = strings.TrimSpace(out[len(prefix):])
+				stripped = true
+				break
+			}
+		}
+		if !stripped {
+			break
+		}
+	}
 	out = promptLeakLineRe.ReplaceAllString(out, "")
 	out = strings.TrimLeftFunc(out, func(r rune) bool {
 		return unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r)
 	})
 	out = strings.ReplaceAll(out, "  ", " ")
 	out = strings.TrimSpace(out)
-	if out == "" {
-		return "その視点いいね。もう一段深掘りすると、具体的な条件設計が鍵になりそう。"
-	}
 	return out
 }
 
@@ -1452,6 +1692,9 @@ func hasAwkwardIdleStyle(speaker, s string) bool {
 			"mio さん",
 			"非常に興味深いですね",
 			"非常に的確",
+			"硬すぎました",
+			"言い直すと",
+			"少し硬すぎました",
 		}
 		for _, phrase := range shiroBanned {
 			if strings.Contains(lower, strings.ToLower(phrase)) {
@@ -1459,7 +1702,83 @@ func hasAwkwardIdleStyle(speaker, s string) bool {
 			}
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(speaker), "mio") {
+		mioBanned := []string{
+			"ご懸念はもっともかと存じます",
+			"非常に興味深いですね",
+			"その光",
+		}
+		for _, phrase := range mioBanned {
+			if strings.Contains(lower, strings.ToLower(phrase)) {
+				return true
+			}
+		}
+	}
 	return false
+}
+
+func needsIdleStyleRetry(speaker, response, latestOther, latestSelf, topic string) bool {
+	return hasAwkwardIdleStyle(speaker, response) ||
+		hasExcessivePhraseRepetition(response) ||
+		mirrorsLatestOther(response, latestOther, topic) ||
+		repeatsLatestSelf(response, latestSelf)
+}
+
+func mirrorsLatestOther(response, latestOther, topic string) bool {
+	resp := strings.TrimSpace(response)
+	other := strings.TrimSpace(latestOther)
+	if resp == "" || other == "" {
+		return false
+	}
+	common := longestCommonSubstring(resp, other)
+	if utf8.RuneCountInString(common) < 6 {
+		return false
+	}
+	if strings.TrimSpace(topic) != "" && strings.Contains(strings.TrimSpace(topic), common) {
+		return false
+	}
+	return true
+}
+
+func repeatsLatestSelf(response, latestSelf string) bool {
+	resp := strings.TrimSpace(response)
+	self := strings.TrimSpace(latestSelf)
+	if resp == "" || self == "" {
+		return false
+	}
+	common := longestCommonSubstring(resp, self)
+	return utf8.RuneCountInString(common) >= 10
+}
+
+func longestCommonSubstring(a, b string) string {
+	ar := []rune(a)
+	br := []rune(b)
+	if len(ar) == 0 || len(br) == 0 {
+		return ""
+	}
+	dp := make([]int, len(br)+1)
+	bestLen := 0
+	bestEnd := 0
+	for i := 1; i <= len(ar); i++ {
+		prev := 0
+		for j := 1; j <= len(br); j++ {
+			tmp := dp[j]
+			if ar[i-1] == br[j-1] {
+				dp[j] = prev + 1
+				if dp[j] > bestLen {
+					bestLen = dp[j]
+					bestEnd = i
+				}
+			} else {
+				dp[j] = 0
+			}
+			prev = tmp
+		}
+	}
+	if bestLen == 0 {
+		return ""
+	}
+	return string(ar[bestEnd-bestLen : bestEnd])
 }
 
 func hasExcessivePhraseRepetition(s string) bool {

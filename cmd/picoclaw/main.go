@@ -1390,20 +1390,44 @@ Agent Mode:
 func buildHealthService(cfg *config.Config) *healthapp.HealthService {
 	checks := []domainhealth.Check{
 		infrahealth.NewOllamaCheck(cfg.Ollama.BaseURL),
-		infrahealth.NewOllamaModelCheck(cfg.Ollama.BaseURL, cfg.Ollama.Model),
+	}
+	requirements := collectOllamaHealthRequirements(cfg)
+	for _, req := range requirements {
+		checks = append(checks, infrahealth.NewOllamaModelCheck(cfg.Ollama.BaseURL, req.Name))
 	}
 
 	// 常駐モデルのコンテキスト長チェック（max_context が設定されている場合のみ）
 	if cfg.Ollama.MaxContext > 0 {
 		checks = append(checks, infrahealth.NewOllamaModelsCheck(
 			cfg.Ollama.BaseURL,
-			[]infrahealth.ModelRequirement{
-				{Name: cfg.Ollama.Model, MaxContext: cfg.Ollama.MaxContext},
-			},
+			requirements,
 		))
 	}
 
 	return healthapp.NewHealthService(checks...)
+}
+
+func collectOllamaHealthRequirements(cfg *config.Config) []infrahealth.ModelRequirement {
+	if cfg == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	add := func(out []infrahealth.ModelRequirement, name string) []infrahealth.ModelRequirement {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return out
+		}
+		if _, ok := seen[name]; ok {
+			return out
+		}
+		seen[name] = struct{}{}
+		return append(out, infrahealth.ModelRequirement{Name: name, MaxContext: cfg.Ollama.MaxContext})
+	}
+
+	out := make([]infrahealth.ModelRequirement, 0, 3)
+	out = add(out, cfg.Ollama.Model)
+	out = add(out, cfg.Ollama.WorkerModel)
+	return out
 }
 
 // Dependencies はアプリケーション依存関係

@@ -314,7 +314,15 @@ func chooseStrategy() TopicStrategy {
 	}
 }
 
-func topicPromptFooter() string {
+func topicPromptFooter(movieMode bool) string {
+	if movieMode {
+		return `回答は映画タイトル妄想のお題だけを1行で出力してください。
+- 必ず「〜ってどんな映画？」の形にする
+- 実在映画名は使わない
+- タイトル部分は短く印象的にする
+- 質問文は最後の「どんな映画？」だけにする
+- 40文字以内を目安に簡潔にする`
+	}
 	return `回答はお題だけを1行で出力してください。
 - 質問文・感想文・呼びかけは禁止
 - 「〜って面白いんじゃない？」のような会話調は禁止
@@ -323,7 +331,7 @@ func topicPromptFooter() string {
 }
 
 // generateSingleGenrePrompt は1ジャンル単体のプロンプトを生成
-func generateSingleGenrePrompt() (string, []string) {
+func generateSingleGenrePrompt(movieMode bool) (string, []string) {
 	genres := pickRandom(genrePool, 1)
 
 	bannedKeywords := extractBannedKeywords()
@@ -343,13 +351,13 @@ func generateSingleGenrePrompt() (string, []string) {
 - 教科書的な真面目な説明は避ける
 - 直近トピックと類似した内容は避ける
 
-%s`, genres[0], strings.Join(bannedKeywords, "、"), topicPromptFooter())
+%s`, genres[0], strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
 
 	return prompt, genres
 }
 
 // generateDoubleGenrePrompt は2ジャンル掛け合わせのプロンプトを生成
-func generateDoubleGenrePrompt() (string, []string) {
+func generateDoubleGenrePrompt(movieMode bool) (string, []string) {
 	genres := pickRandom(genrePool, 2)
 
 	bannedKeywords := extractBannedKeywords()
@@ -369,17 +377,17 @@ func generateDoubleGenrePrompt() (string, []string) {
 - 教科書的な真面目な組み合わせは避ける
 - 直近トピックと類似した内容は避ける
 
-%s`, genres[0], genres[1], strings.Join(bannedKeywords, "、"), topicPromptFooter())
+%s`, genres[0], genres[1], strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
 
 	return prompt, genres
 }
 
 // generateExternalPrompt は外部刺激を使ったプロンプトを生成
-func generateExternalPrompt() (string, string) {
+func generateExternalPrompt(movieMode bool) (string, string) {
 	cache := getDailyCache()
 	if cache == nil {
 		// フォールバック: 2ジャンル生成
-		p, _ := generateDoubleGenrePrompt()
+		p, _ := generateDoubleGenrePrompt(movieMode)
 		return p, "fallback"
 	}
 
@@ -403,7 +411,7 @@ func generateExternalPrompt() (string, string) {
 		source = "News"
 	} else {
 		// フォールバック: 2ジャンル
-		p, _ := generateDoubleGenrePrompt()
+		p, _ := generateDoubleGenrePrompt(movieMode)
 		return p, "fallback"
 	}
 
@@ -424,7 +432,7 @@ func generateExternalPrompt() (string, string) {
 - %s に関するトピックは避ける
 - 「もし〜だったら」形式は使わない
 
-%s`, source, seed, genre, strings.Join(bannedKeywords, "、"), topicPromptFooter())
+%s`, source, seed, genre, strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
 
 	return prompt, source + ":" + seed
 }
