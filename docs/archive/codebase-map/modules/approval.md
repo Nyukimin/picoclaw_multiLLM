@@ -14,7 +14,7 @@ phase_2_verification: completed
 
 ## 概要
 
-PicoClaw の承認フロー（`pkg/approval/`）は、Coder3（Claude API）による破壊的操作の提案に対する承認追跡・管理を担当するモジュールです。job_id ベースのジョブ追跡、Auto-Approve モード（Scope/TTL 付き）、承認要求メッセージの生成を提供し、Chat/Worker/Coder の責務分離を支えます。
+RenCrow の承認フロー（`pkg/approval/`）は、Coder3（Claude API）による破壊的操作の提案に対する承認追跡・管理を担当するモジュールです。job_id ベースのジョブ追跡、Auto-Approve モード（Scope/TTL 付き）、承認要求メッセージの生成を提供し、Chat/Worker/Coder の責務分離を支えます。
 
 ## 関連ドキュメント
 - **プロファイル**: `codebase-analysis-profile.yaml`

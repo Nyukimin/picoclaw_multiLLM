@@ -1,4 +1,4 @@
-# PicoClaw 開発コマンド
+# RenCrow 開発コマンド
 
 ## ビルドとインストール
 ```bash

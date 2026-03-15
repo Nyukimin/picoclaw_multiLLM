@@ -1,14 +1,14 @@
-# 実装仕様: PicoClaw TTSクライアント v0.1
+# 実装仕様: RenCrow TTSクライアント v0.1
 
 **作成日**: 2026-03-10  
 **対象ブランチ**: `integration/openclaw-parity`  
-**正本参照**: `docs/TTS仕様/PicoClaw_TTSクライアント仕様.md`
+**正本参照**: `docs/TTS仕様/RenCrow_TTSクライアント仕様.md`
 
 ---
 
 ## 1. 目的
 
-本仕様は、PicoClaw 側 TTS クライアント連携の **実装済みスコープ** を定義する。  
+本仕様は、RenCrow 側 TTS クライアント連携の **実装済みスコープ** を定義する。  
 対象は「仕様 v0.1 に対して今回コードへ反映した内容」であり、未実装項目を明確化する。
 
 ---

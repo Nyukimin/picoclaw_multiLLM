@@ -41,6 +41,7 @@ type MioAgent struct {
 	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
 	conversationMgr    ConversationManager             // Phase 4.2: KB自動保存用（nilを許容）
 	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
+	recentContext      func(context.Context, int) (string, error)
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -72,6 +73,11 @@ func (m *MioAgent) WithConversationManager(mgr ConversationManager) *MioAgent {
 // WithPersonaEditor はPersonaEditorを設定（ペルソナ自己編集用）
 func (m *MioAgent) WithPersonaEditor(editor PersonaEditor) *MioAgent {
 	m.personaEditor = editor
+	return m
+}
+
+func (m *MioAgent) WithRecentContextProvider(provider func(context.Context, int) (string, error)) *MioAgent {
+	m.recentContext = provider
 	return m
 }
 
@@ -155,6 +161,17 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 				strings.Join(otherCtx, " / "),
 			),
 		})
+	}
+
+	if m.recentContext != nil {
+		if glossaryContext, err := m.recentContext(ctx, 6); err != nil {
+			log.Printf("[Mio] recent context failed: %v", err)
+		} else if strings.TrimSpace(glossaryContext) != "" {
+			messages = append(messages, llm.Message{
+				Role:    "system",
+				Content: glossaryContext + "\n最近の語彙は、断定せず軽い補足として扱ってください。",
+			})
+		}
 	}
 
 	// ユーザーメッセージを最後に追加

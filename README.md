@@ -1,4 +1,4 @@
-# PicoClaw - 超軽量AIアシスタント（v3 Clean Architecture）
+# RenCrow - 超軽量AIアシスタント（v3 Clean Architecture）
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -26,7 +26,7 @@
 
 ## 🎯 概要
 
-**PicoClaw** は、Go言語で実装された超軽量なパーソナルAIアシスタントです。
+**RenCrow** は、Go言語で実装された超軽量なパーソナルAIアシスタントです。
 
 ### 特徴
 
@@ -51,7 +51,7 @@
 
 ### 1. マルチLLMルーティング
 
-PicoClawは、タスクの種類に応じて最適なLLMを自動選択します：
+RenCrowは、タスクの種類に応じて最適なLLMを自動選択します：
 
 | 役割 | 愛称 | LLM | 責務 |
 |------|------|-----|------|
@@ -667,4 +667,4 @@ grep -A 10 "distributed:" config.yaml
 
 ---
 
-**PicoClaw v3.0** - Clean Architecture for Ultra-Lightweight AI Assistant
+**RenCrow v3.0** - Clean Architecture for Ultra-Lightweight AI Assistant

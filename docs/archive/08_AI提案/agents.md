@@ -26,7 +26,7 @@ LLM
 - Qwen2.5（local）
 
 責務
-- 収集→分析→サマリ→次の一手（PicoClawループの主導）
+- 収集→分析→サマリ→次の一手（RenCrowループの主導）
 - タスク分解（Subagentテンプレでモード切替）
 - ルーティング（Coder呼び分け、DeepSeek→ChatGPT昇格）
 - Coder出力の検品（acceptanceで合否判定）

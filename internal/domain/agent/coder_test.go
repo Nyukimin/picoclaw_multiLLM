@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -222,6 +223,54 @@ Low risk
 
 	if proposal.Plan() == "" || proposal.Patch() == "" {
 		t.Error("Plan and Patch should not be empty")
+	}
+}
+
+func TestCoderAgentExtractProposal_UnwrapsJSONFenceInPatch(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	content := `## Plan
+Step 1
+
+## Patch
+` + "```json\n[\n  {\n    \"type\": \"shell_command\",\n    \"action\": \"run\",\n    \"target\": \"go test ./...\"\n  }\n]\n```" + `
+
+## Risk
+Low
+
+## CostHint
+Low`
+
+	proposal := coder.extractProposal(content)
+	if proposal == nil {
+		t.Fatal("Proposal should not be nil")
+	}
+	if got := proposal.Patch(); got == "" || got[0] != '[' {
+		t.Fatalf("expected raw json patch, got %q", got)
+	}
+}
+
+func TestCoderAgentExtractProposal_UnwrapsMarkdownFenceInPatch(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	content := `## Plan
+Step 1
+
+## Patch
+` + "```markdown\n```go:main.go\npackage main\n```\n```\n" + `
+
+## Risk
+Low
+
+## CostHint
+Low`
+
+	proposal := coder.extractProposal(content)
+	if proposal == nil {
+		t.Fatal("Proposal should not be nil")
+	}
+	if got := proposal.Patch(); !strings.Contains(got, "```go:main.go") {
+		t.Fatalf("expected markdown patch blocks, got %q", got)
 	}
 }
 

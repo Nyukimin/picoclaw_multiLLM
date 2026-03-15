@@ -3,18 +3,18 @@
 今回は「理想案」ではなく、**現状の成功状態を土台にした v0.1 仕様**にする。
 
 ````md
-# PicoClaw TTS Server 連携仕様 v0.1
+# RenCrow TTS Server 連携仕様 v0.1
 実測反映版 / Style-Bert-VITS2 CPU常駐
 
 ## 1. 目的
 
-本仕様は、PicoClaw から Style-Bert-VITS2 を利用してリアルタイム音声出力を行うための、
+本仕様は、RenCrow から Style-Bert-VITS2 を利用してリアルタイム音声出力を行うための、
 最小かつ安定した接続仕様を定義する。
 
 本バージョンでは、以下を目的とする。
 
 - Style-Bert-VITS2 を CPU 常駐プロセスとして運用する
-- PicoClaw から HTTP / WebSocket で音声合成を要求できる
+- RenCrow から HTTP / WebSocket で音声合成を要求できる
 - 初回ロードの重さを起動時に吸収する
 - voice_id により音声を切り替えられる
 - 将来的な Emotion Planner / Speech Planner / リアルタイム chunk 合成へ拡張可能な構造を維持する
@@ -48,7 +48,7 @@
 - health check
 - 単発音声合成 API
 - WebSocket による session ベース接続仕様
-- PicoClaw 側からの呼び出し仕様
+- RenCrow 側からの呼び出し仕様
 - voice_id による音声切替
 - CPU 常駐前提の実装方針
 
@@ -66,7 +66,7 @@
 ## 4. 前提
 
 - TTS Engine は Style-Bert-VITS2 を使用する
-- TTS Server は PicoClaw と同一ホスト、または LAN 上の到達可能ホストで動作する
+- TTS Server は RenCrow と同一ホスト、または LAN 上の到達可能ホストで動作する
 - 初期構成では `127.0.0.1` バインドとする
 - TTS Engine は CPU 常駐とする
 - 日本語 BERT は 1 回だけロードする
@@ -78,7 +78,7 @@
 ## 5. 全体構成
 
 ```text
-PicoClaw Chat / Worker
+RenCrow Chat / Worker
   ↓
 Speech Bridge
   ↓
@@ -95,14 +95,14 @@ TTS Server
   ↓
 wav file / audio chunk metadata
   ↓
-PicoClaw Audio Sink
+RenCrow Audio Sink
 ````
 
 ---
 
 ## 6. コンポーネント責務
 
-## 6.1 PicoClaw 側
+## 6.1 RenCrow 側
 
 ### Speech Bridge
 
@@ -189,7 +189,7 @@ PicoClaw Audio Sink
 
 ## 8.1 voice_id
 
-PicoClaw は音声モデルの実体を知らず、`voice_id` のみを指定する。
+RenCrow は音声モデルの実体を知らず、`voice_id` のみを指定する。
 
 例:
 
@@ -284,7 +284,7 @@ BERT / voice preload が完了しているか確認する。
 
 ```json
 {
-  "text": "こんにちは。PicoClaw のテストです。",
+  "text": "こんにちは。RenCrow のテストです。",
   "voice_id": "female_01",
   "event": "conversation",
   "speech_mode": "conversational",
@@ -322,7 +322,7 @@ BERT / voice preload が完了しているか確認する。
 
 ### 目的
 
-PicoClaw から text delta を逐次受け取り、chunk 単位で音声化する。
+RenCrow から text delta を逐次受け取り、chunk 単位で音声化する。
 
 ---
 
@@ -504,7 +504,7 @@ LLM の文字列をためて、発話可能な単位に切る。
 
 例:
 
-* PicoClaw -> ピコクロウ
+* RenCrow -> ピコクロウ
 * AI -> エーアイ
 * LLM -> エル・エル・エム
 * URL -> URL省略
@@ -564,9 +564,9 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 
 ---
 
-## 17. PicoClaw 側仕様
+## 17. RenCrow 側仕様
 
-## 17.1 PicoClaw 側の責務
+## 17.1 RenCrow 側の責務
 
 * session_id 発行
 * session_start 送信
@@ -575,14 +575,14 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 * audio_chunk_ready 受信
 * chunk 順に再生
 
-## 17.2 PicoClaw 側が持たないもの
+## 17.2 RenCrow 側が持たないもの
 
 * BERT
 * 発話 chunking ロジック
 * TTS パラメータ変換
 * 音声モデル内部知識
 
-## 17.3 PicoClaw 側の最小メタ情報
+## 17.3 RenCrow 側の最小メタ情報
 
 * session_id
 * response_id
@@ -603,7 +603,7 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 * infer 失敗 -> error / 継続可能
 * startup 未完了 -> 503
 
-## 18.2 PicoClaw 側
+## 18.2 RenCrow 側
 
 * 接続失敗 -> 再接続または音声なし継続
 * chunk 欠番 -> 一定時間待機後スキップ
@@ -630,7 +630,7 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 * session completed
 * error
 
-## 19.2 PicoClaw 側
+## 19.2 RenCrow 側
 
 * tts session start
 * tts delta send
@@ -660,7 +660,7 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 * `POST /synthesize` で wav が生成される
 * `female_01` で音声が出る
 * WebSocket session の基本送受信が通る
-* PicoClaw 側から text delta を送れる
+* RenCrow 側から text delta を送れる
 
 ---
 
@@ -670,7 +670,7 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 
 * `male_01` 追加
 * WebSocket 実運用化
-* PicoClaw 側 client 実装
+* RenCrow 側 client 実装
 * chunk 再生順制御
 
 ### v0.3
@@ -684,7 +684,7 @@ preload 済みの BERT / model を使って `infer()` を呼ぶ。
 
 ## 23. 一行要約
 
-PicoClaw は LLM の文字列を session 単位で TTS Server に送り、
+RenCrow は LLM の文字列を session 単位で TTS Server に送り、
 TTS Server はそれを発話可能な chunk に分割し、
 Emotion / Speech の中間処理を経て、
 CPU 常駐 Style-Bert-VITS2 により wav を生成して返す。
@@ -692,5 +692,5 @@ CPU 常駐 Style-Bert-VITS2 により wav を生成して返す。
 ```
 
 この次は、この仕様に合わせて  
-**PicoClaw 側クライアント仕様**を別紙で切り出すのがきれいです。
+**RenCrow 側クライアント仕様**を別紙で切り出すのがきれいです。
 ```

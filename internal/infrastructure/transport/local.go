@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
@@ -54,8 +55,10 @@ func (t *LocalTransport) Receive(ctx context.Context) (domaintransport.Message, 
 		if !ok {
 			return domaintransport.Message{}, fmt.Errorf("transport is closed")
 		}
+		log.Printf("[LocalTransport] recv from=%s to=%s type=%s job=%s", msg.From, msg.To, msg.Type, msg.JobID)
 		return msg, nil
 	case <-ctx.Done():
+		log.Printf("[LocalTransport] recv canceled err=%v", ctx.Err())
 		return domaintransport.Message{}, ctx.Err()
 	case <-t.done:
 		return domaintransport.Message{}, fmt.Errorf("transport is closed")
@@ -99,8 +102,10 @@ func (t *LocalTransport) PutInboundMessage(msg domaintransport.Message) error {
 
 	select {
 	case t.inbound <- msg:
+		log.Printf("[LocalTransport] enqueue from=%s to=%s type=%s job=%s", msg.From, msg.To, msg.Type, msg.JobID)
 		return nil
 	default:
+		log.Printf("[LocalTransport] enqueue drop from=%s to=%s type=%s job=%s reason=inbound_full", msg.From, msg.To, msg.Type, msg.JobID)
 		return fmt.Errorf("inbound channel full for agent, message dropped")
 	}
 }

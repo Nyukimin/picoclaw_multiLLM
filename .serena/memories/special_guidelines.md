@@ -1,9 +1,9 @@
-# PicoClaw 特殊ガイドラインと設計パターン
+# RenCrow 特殊ガイドラインと設計パターン
 
 ## アーキテクチャの重要原則
 
 ### 1. ルーティング拡張アーキテクチャ
-PicoClaw は Chat/Worker/Coder の3役割モデルを採用：
+RenCrow は Chat/Worker/Coder の3役割モデルを採用：
 - **Chat (Mio)**: ユーザー対話窓口（必ず Ollama chat-v1 モデル）
 - **Worker**: データ分析・検証などの非コード作業（Ollama worker-v1）
 - **Coder**: コード生成・修正（クラウド API のみ）

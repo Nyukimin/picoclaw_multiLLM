@@ -184,7 +184,7 @@ func fetchWikipediaRandom(limit int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "PicoClaw/1.0 (https://github.com/Nyukimin/picoclaw_multiLLM)")
+	req.Header.Set("User-Agent", "RenCrow/1.0 (https://github.com/Nyukimin/picoclaw_multiLLM)")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -233,7 +233,7 @@ func fetchNewsHeadlinesFrom(rssURL string, limit int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "PicoClaw/1.0 (https://github.com/Nyukimin/picoclaw_multiLLM)")
+	req.Header.Set("User-Agent", "RenCrow/1.0 (https://github.com/Nyukimin/picoclaw_multiLLM)")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)

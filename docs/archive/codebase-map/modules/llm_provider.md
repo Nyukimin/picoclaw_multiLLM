@@ -12,7 +12,7 @@ module_group_id: llm_provider
 
 ## 概要
 
-複数の LLM プロバイダー（Ollama, Claude API, OpenAI, DeepSeek 等）への統一インターフェースを提供し、認証、リトライ、タイムアウト、ストリーム処理、ヘルスチェックを管理するモジュール。PicoClaw の役割分離（Chat/Worker/Coder）を支える基盤レイヤー。
+複数の LLM プロバイダー（Ollama, Claude API, OpenAI, DeepSeek 等）への統一インターフェースを提供し、認証、リトライ、タイムアウト、ストリーム処理、ヘルスチェックを管理するモジュール。RenCrow の役割分離（Chat/Worker/Coder）を支える基盤レイヤー。
 
 ## 関連ドキュメント
 
@@ -204,7 +204,7 @@ pkg/providers/
 1. **タイムアウトとログの非対称性** (L149-176, `http_provider.go`):
    - HTTP リクエストが 120 秒でタイムアウトする（L54, `Timeout: 120 * time.Second`）が、Ollama 側は処理を継続している可能性あり
    - タイムアウト時に画像ファイルが削除されていないかを `enrichAuditAfterTimeout` (L387-408) で再確認
-   - ログに `note: "Ollama may have responded but PicoClaw timed out before reading"` を記録（L167）
+   - ログに `note: "Ollama may have responded but RenCrow timed out before reading"` を記録（L167）
    - `isTimeoutError` (L411-423) で `context.DeadlineExceeded`, `net.Error.Timeout()`, エラー文字列の 3 通りを検出
    - **※Phase 2 で確認**: タイムアウトエラー判定の実装は堅牢（3 段階チェック）
 

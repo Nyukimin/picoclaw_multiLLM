@@ -1,4 +1,4 @@
-# PicoClaw v5.0 実装仕様書: 会話LLMシステム統合
+# RenCrow v5.0 実装仕様書: 会話LLMシステム統合
 
 **バージョン**: 5.0.0
 **作成日**: 2026-03-04
@@ -82,7 +82,7 @@ conversation:
 
 ### 1.1 目的
 
-PicoClaw v5.0 では、**会話LLMシステム**を統合し、以下を実現します:
+RenCrow v5.0 では、**会話LLMシステム**を統合し、以下を実現します:
 
 - **継続的な会話**: ユーザーとChatの会話を記憶し、文脈を保持
 - **複数キャラクター**: Chat（Mio）とWorker（Shiro）が会話に参加
@@ -1330,7 +1330,7 @@ func TestAgentStatus_CanJoinConversation(t *testing.T) {
 
 ### 11.1 メモリ使用量
 
-**目標**: <10MB（PicoClaw本体のみ）
+**目標**: <10MB（RenCrow本体のみ）
 
 **内訳**:
 - LangGraph State（RAM）: ~2MB（Thread 12メッセージ × 複数Session）
@@ -1422,7 +1422,7 @@ picoclaw-memory-admin stats
    picoclaw-memory-admin init
    ```
 
-4. **PicoClaw再起動**:
+4. **RenCrow再起動**:
    ```bash
    sudo systemctl restart picoclaw
    ```
@@ -1448,7 +1448,7 @@ picoclaw-memory-admin stats
      enabled: false  # 無効化
    ```
 
-2. **PicoClaw再起動**:
+2. **RenCrow再起動**:
    ```bash
    sudo systemctl restart picoclaw
    ```
@@ -1481,7 +1481,7 @@ picoclaw-memory-admin stats
 ### 13.2 参考資料
 
 - **LangGraph公式**: https://github.com/langchain-ai/langgraph
-- **PicoClaw v4.0実装仕様**: `docs/実装仕様_分散実行_v4.md`
+- **RenCrow v4.0実装仕様**: `docs/実装仕様_分散実行_v4.md`
 - **会話LLM統合設計プラン（旧版/アーカイブ）**: `docs/archive/09_旧仕様_20260310/20260304_会話LLM統合設計プラン.md`
 - **Chat/Worker/Coderアーキテクチャ**: `docs/Chat_Worker_Coder_アーキテクチャ.md`
 
@@ -1541,7 +1541,7 @@ ollama list | grep nomic-embed-text
 ### 14.5 KB自動保存動作確認
 
 ```bash
-# PicoClaw起動
+# RenCrow起動
 ./picoclaw
 
 # 別ターミナルで動作確認
@@ -1610,7 +1610,7 @@ docker compose -f docker-compose.infra.yml restart qdrant
 # Embedder 再 pull
 ollama pull nomic-embed-text
 
-# PicoClaw 再起動
+# RenCrow 再起動
 systemctl --user restart picoclaw
 ```
 

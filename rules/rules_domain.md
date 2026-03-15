@@ -1,8 +1,8 @@
-# rules_domain.md - PicoClaw ドメイン固有ルール
+# rules_domain.md - RenCrow ドメイン固有ルール
 
 **作成日**: 2026-02-24
-**プロジェクト名**: PicoClaw (picoclaw_multiLLM)
-**目的**: PicoClaw プロジェクト固有の技術的詳細・実装パターン
+**プロジェクト名**: RenCrow (picoclaw_multiLLM)
+**目的**: RenCrow プロジェクト固有の技術的詳細・実装パターン
 
 ---
 

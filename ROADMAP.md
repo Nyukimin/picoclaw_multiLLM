@@ -1,5 +1,5 @@
 
-# 🦐 PicoClaw Roadmap
+# 🦐 RenCrow Roadmap
 
 > **Vision**: To build the ultimate lightweight, secure, and fully autonomous AI Agent infrastructure.automate the mundane, unleash your creativity
 
@@ -7,7 +7,7 @@
 
 ## 🚀 1. Core Optimization: Extreme Lightweight
 
-*Our defining characteristic. We fight software bloat to ensure PicoClaw runs smoothly on the smallest embedded devices.*
+*Our defining characteristic. We fight software bloat to ensure RenCrow runs smoothly on the smallest embedded devices.*
 
 * [**Memory Footprint Reduction**](https://github.com/sipeed/picoclaw/issues/346) 
   * **Goal**: Run smoothly on 64MB RAM embedded boards (e.g., low-end RISC-V SBCs) with the core process consuming < 20MB.
@@ -71,7 +71,7 @@
 * **Multi-Agent Collaboration**
   * [**Basic Multi-Agent**](https://github.com/sipeed/picoclaw/issues/294) implement
   * [**Model Routing**](https://github.com/sipeed/picoclaw/issues/295): "Smart Routing" — dispatch simple tasks to small/local models (fast/cheap) and complex tasks to SOTA models (smart).
-  * [**Swarm Mode**](https://github.com/sipeed/picoclaw/issues/284): Collaboration between multiple PicoClaw instances on the same network.
+  * [**Swarm Mode**](https://github.com/sipeed/picoclaw/issues/284): Collaboration between multiple RenCrow instances on the same network.
   * [**AIEOS**](https://github.com/sipeed/picoclaw/issues/296): Exploring AI-Native Operating System interaction paradigms.
 
 

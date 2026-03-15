@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -40,6 +41,7 @@ func (m *Manager) RunSync(ctx context.Context, task agent.SubagentTask) (agent.S
 	if task.Instruction == "" {
 		return agent.SubagentResult{}, fmt.Errorf("instruction is required")
 	}
+	log.Printf("[Subagent] start agent=%s instruction_len=%d", task.AgentName, len(task.Instruction))
 
 	systemPrompt := task.SystemPrompt
 	if systemPrompt == "" {
@@ -53,8 +55,10 @@ func (m *Manager) RunSync(ctx context.Context, task agent.SubagentTask) (agent.S
 
 	output, err := toolloop.Run(ctx, m.provider, m.toolRunner, m.toolDefs, messages, m.loopConfig)
 	if err != nil {
+		log.Printf("[Subagent] error agent=%s err=%v", task.AgentName, err)
 		return agent.SubagentResult{}, fmt.Errorf("subagent %s failed: %w", task.AgentName, err)
 	}
+	log.Printf("[Subagent] complete agent=%s output_len=%d", task.AgentName, len(output))
 
 	return agent.SubagentResult{
 		AgentName: task.AgentName,

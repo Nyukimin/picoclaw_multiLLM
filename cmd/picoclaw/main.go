@@ -132,7 +132,7 @@ func cmdRun() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	log.Printf("PicoClaw %s (commit: %s, built: %s)", Version, Commit, BuildDate)
+	log.Printf("RenCrow %s (commit: %s, built: %s)", Version, Commit, BuildDate)
 	log.Printf("Loaded config from: %s", configPath)
 
 	dependencies := buildDependencies(cfg)
@@ -150,7 +150,7 @@ func cmdRun() {
 
 	// HTTPサーバー起動
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Starting PicoClaw server on %s", addr)
+	log.Printf("Starting RenCrow server on %s", addr)
 
 	mux := http.NewServeMux()
 	mux.Handle("/webhook", dependencies.lineHandler)
@@ -345,7 +345,7 @@ func runStatusCommand(
 		}
 		return 0
 	}
-	fmt.Fprintf(out, "PicoClaw %s\n", Version)
+	fmt.Fprintf(out, "RenCrow %s\n", Version)
 	fmt.Fprintf(out, "Ollama: %s (model: %s)\n", cfg.Ollama.BaseURL, cfg.Ollama.Model)
 	fmt.Fprintf(out, "Server: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
 	fmt.Fprintln(out)
@@ -1368,7 +1368,7 @@ func followFileTo(path string, out io.Writer) error {
 
 // cmdHelp はヘルプメッセージを表示
 func cmdHelp() {
-	fmt.Printf(`PicoClaw %s - Multi-LLM AI Assistant
+	fmt.Printf(`RenCrow %s - Multi-LLM AI Assistant (RenCrow)
 
 Usage: picoclaw [command]
 

@@ -1,17 +1,17 @@
 
 ```markdown
-# PicoClaw Emotion Voice System Specification
+# RenCrow Emotion Voice System Specification
 Emotion Planner + TTS Adapter
 
 Version: 1.0  
-Author: PicoClaw Architecture  
+Author: RenCrow Architecture  
 Status: Draft
 
 ---
 
 # 1. Purpose
 
-PicoClaw の音声出力を以下の条件で実装する。
+RenCrow の音声出力を以下の条件で実装する。
 
 - 状況に応じた感情を持つ音声を生成する
 - TTSエンジンに依存しない設計にする
@@ -64,7 +64,7 @@ Audio Output
 - Emotion決定
 - TTS生成要求
 
-Chat は PicoClaw の **人格レイヤー** として振る舞う。
+Chat は RenCrow の **人格レイヤー** として振る舞う。
 
 ---
 

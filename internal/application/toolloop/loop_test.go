@@ -82,7 +82,7 @@ func TestRun_SingleToolCall(t *testing.T) {
 							ID: "call_1",
 							Function: llm.ToolCallFunction{
 								Name:      "web_search",
-								Arguments: map[string]any{"query": "PicoClaw"},
+								Arguments: map[string]any{"query": "RenCrow"},
 							},
 						},
 					},
@@ -91,7 +91,7 @@ func TestRun_SingleToolCall(t *testing.T) {
 			},
 			// 2回目: 最終応答
 			{
-				Message:      llm.ChatMessage{Role: "assistant", Content: "検索結果: PicoClawはAIアシスタントです"},
+				Message:      llm.ChatMessage{Role: "assistant", Content: "検索結果: RenCrowはAIアシスタントです"},
 				FinishReason: "stop",
 			},
 		},
@@ -99,18 +99,18 @@ func TestRun_SingleToolCall(t *testing.T) {
 
 	runner := &mockRunnerV2{
 		results: map[string]*tool.ToolResponse{
-			"web_search": tool.NewSuccess("PicoClaw is an AI assistant"),
+			"web_search": tool.NewSuccess("RenCrow is an AI assistant"),
 		},
 	}
 
 	result, err := Run(context.Background(), provider, runner, nil,
-		[]llm.ChatMessage{{Role: "user", Content: "PicoClawを検索して"}},
+		[]llm.ChatMessage{{Role: "user", Content: "RenCrowを検索して"}},
 		Config{MaxIterations: 10})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "検索結果: PicoClawはAIアシスタントです" {
+	if result != "検索結果: RenCrowはAIアシスタントです" {
 		t.Errorf("unexpected result: %s", result)
 	}
 	if provider.callIndex != 2 {

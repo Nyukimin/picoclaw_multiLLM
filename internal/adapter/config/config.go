@@ -40,6 +40,9 @@ type Config struct {
 	// === Heartbeat ===
 	Heartbeat HeartbeatConfig `yaml:"heartbeat"`
 
+	// === Glossary / Recent Topics ===
+	Glossary GlossaryConfig `yaml:"glossary"`
+
 	// === Google Search API ===
 	GoogleSearchChat   GoogleSearchConfig `yaml:"google_search_chat"`
 	GoogleSearchWorker GoogleSearchConfig `yaml:"google_search_worker"`
@@ -184,6 +187,14 @@ type HeartbeatConfig struct {
 	Enabled  bool   `yaml:"enabled"`  // ハートビートの有効化（デフォルト: false）
 	Interval int    `yaml:"interval"` // チェック間隔（分）、最小5分（デフォルト: 30）
 	ChatID   string `yaml:"chat_id"`  // LINE Push通知先のユーザーID
+}
+
+type GlossaryConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	DBPath            string   `yaml:"db_path"`
+	RefreshIntervalHr int      `yaml:"refresh_interval_hr"`
+	MaxEntries        int      `yaml:"max_entries"`
+	FeedURLs          []string `yaml:"feed_urls"`
 }
 
 // SubagentConfig はサブエージェントシステムの設定
@@ -394,6 +405,23 @@ func (c *Config) setDefaults() {
 	// Heartbeat デフォルト
 	if c.Heartbeat.Interval == 0 {
 		c.Heartbeat.Interval = 30
+	}
+
+	if c.Glossary.DBPath == "" {
+		c.Glossary.DBPath = "./workspace/glossary.db"
+	}
+	if c.Glossary.RefreshIntervalHr == 0 {
+		c.Glossary.RefreshIntervalHr = 6
+	}
+	if c.Glossary.MaxEntries == 0 {
+		c.Glossary.MaxEntries = 8
+	}
+	if len(c.Glossary.FeedURLs) == 0 {
+		c.Glossary.FeedURLs = []string{
+			"https://www3.nhk.or.jp/rss/news/cat0.xml",
+			"https://feeds.bbci.co.uk/news/world/rss.xml",
+			"https://feeds.bbci.co.uk/news/technology/rss.xml",
+		}
 	}
 
 	// Subagent デフォルト

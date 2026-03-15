@@ -1,13 +1,13 @@
-# PicoClaw コードスタイルと規約
+# RenCrow コードスタイルと規約
 
 ## ファイルヘッダー
 すべての Go ファイルには以下のヘッダーを含める：
 ```go
-// PicoClaw - Ultra-lightweight personal AI agent
+// RenCrow - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 RenCrow contributors
 ```
 
 ## 命名規則

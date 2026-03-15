@@ -1,4 +1,4 @@
-# PicoClaw 設定サンプル
+# RenCrow 設定サンプル
 # このファイルをコピーして config.yaml として使用
 # ${ENV_VAR} は環境変数から自動展開される
 

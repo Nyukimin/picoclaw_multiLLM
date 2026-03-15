@@ -1,5 +1,5 @@
 [Unit]
-Description=PicoClaw Ops Watchdog (oneshot)
+Description=RenCrow Ops Watchdog (oneshot)
 After=network-online.target
 Wants=network-online.target
 

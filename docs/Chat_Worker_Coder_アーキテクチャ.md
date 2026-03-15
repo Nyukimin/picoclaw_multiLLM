@@ -23,7 +23,7 @@
 
 ## 概要
 
-PicoClawは、**Chat（Mio）**、**Worker（Shiro）**、**Coder（Aka/Ao/Gin）** の役割を持つエージェントで構成されています。
+RenCrowは、**Chat（Mio）**、**Worker（Shiro）**、**Coder（Aka/Ao/Gin）** の役割を持つエージェントで構成されています。
 
 ### 役割一覧
 

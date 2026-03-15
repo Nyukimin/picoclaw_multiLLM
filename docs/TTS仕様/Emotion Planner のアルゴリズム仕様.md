@@ -1,4 +1,4 @@
-# PicoClaw Emotion Planner Algorithm Specification
+# RenCrow Emotion Planner Algorithm Specification
 
 ## 1. Goal
 

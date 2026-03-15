@@ -38,7 +38,7 @@ ollama create chat-v1 -f Modelfile.chat
 ollama run chat-v1 "みおです。テストです。"
 ```
 
-## 手順4: PicoClaw Gateway 再起動
+## 手順4: RenCrow Gateway 再起動
 
 ```bash
 systemctl --user restart picoclaw-gateway.service

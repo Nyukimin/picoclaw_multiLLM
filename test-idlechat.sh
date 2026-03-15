@@ -3,7 +3,7 @@
 
 set -e
 
-echo "=== PicoClaw IdleChat Test ==="
+echo "=== RenCrow IdleChat Test ==="
 
 # 既存プロセスを停止
 echo "1. Stopping existing picoclaw processes..."

@@ -402,6 +402,7 @@ func (o *MessageOrchestrator) selectCoderForRoute(route routing.Route) (codeTarg
 		if coder == nil {
 			return codeTarget{}, fmt.Errorf("%s route requested but no %s available", route, name)
 		}
+		log.Printf("[MessageOrch] coder selected route=%s target=%s mode=explicit", route, name)
 		return codeTarget{name: name, coder: coder, systemPrompt: prompt}, nil
 	}
 
@@ -418,12 +419,15 @@ func (o *MessageOrchestrator) selectCoderForRoute(route routing.Route) (codeTarg
 		}
 		for _, c := range chain {
 			if c.coder == nil {
+				log.Printf("[MessageOrch] coder skip route=%s target=%s reason=unavailable", route, c.name)
 				continue
 			}
 			if !o.coderStatus.Acquire(c.name) {
+				log.Printf("[MessageOrch] coder skip route=%s target=%s reason=busy", route, c.name)
 				continue
 			}
 			coderName := c.name
+			log.Printf("[MessageOrch] coder selected route=%s target=%s mode=auto", route, coderName)
 			return codeTarget{
 				name:         coderName,
 				coder:        c.coder,
@@ -453,6 +457,7 @@ func (o *MessageOrchestrator) executeCodeViaShiro(
 	if target.release != nil {
 		defer target.release()
 	}
+	log.Printf("[MessageOrch] code handoff route=%s target=%s job=%s", route, target.name, jid)
 
 	o.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", route.String(), jid, sessionID, channel, chatID)
 	o.emit("agent.start", "shiro", target.name, t.UserMessage(), route.String(), jid, sessionID, channel, chatID)

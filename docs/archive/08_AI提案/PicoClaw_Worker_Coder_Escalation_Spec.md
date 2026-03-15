@@ -1,4 +1,4 @@
-# PicoClaw Worker→Coder エスカレーション仕様
+# RenCrow Worker→Coder エスカレーション仕様
 
 ## 1. 目的
 

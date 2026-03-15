@@ -14,6 +14,16 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
+func TestWorkerShellCommand_PrefersBashLoginShell(t *testing.T) {
+	cmd := workerShellCommand(context.Background(), "echo ok")
+	if filepath.Base(cmd.Path) != "bash" {
+		t.Skip("bash is not available in test environment")
+	}
+	if len(cmd.Args) < 3 || cmd.Args[1] != "-lc" || cmd.Args[2] != "echo ok" {
+		t.Fatalf("unexpected bash args: %#v", cmd.Args)
+	}
+}
+
 func TestExecuteProposal_Success_JSONPatch(t *testing.T) {
 	// テスト用ワークスペース作成
 	tmpDir := t.TempDir()

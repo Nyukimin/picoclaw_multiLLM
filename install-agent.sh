@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# PicoClaw Agent インストールスクリプト
+# RenCrow Agent インストールスクリプト
 # エージェントPC用（分散実行対応）
 # 使い方: ./install-agent.sh <agent-type>
 #   agent-type: worker, coder1, coder2, coder3
@@ -29,7 +29,7 @@ case "$AGENT_TYPE" in
 esac
 
 echo "=========================================="
-echo "PicoClaw Agent インストーラー v1.0"
+echo "RenCrow Agent インストーラー v1.0"
 echo "  Agent Type: $AGENT_TYPE"
 echo "=========================================="
 echo ""
@@ -80,7 +80,7 @@ esac
 echo ""
 
 # ビルド
-echo "[2/6] PicoClaw Agent のビルド..."
+echo "[2/6] RenCrow Agent のビルド..."
 cd "$(dirname "$0")"
 go build -o picoclaw-agent ./cmd/picoclaw-agent
 echo "  ✓ ビルド完了（エージェント専用バイナリ）"
@@ -140,7 +140,7 @@ esac
 
 # .env 生成
 cat > "$PICOCLAW_HOME/.env" <<EOF
-# PicoClaw Agent 環境変数
+# RenCrow Agent 環境変数
 # Agent Type: $AGENT_TYPE
 # 生成日時: $(date)
 
@@ -166,7 +166,7 @@ echo "[6/6] systemd サービスの設定..."
 # picoclaw-agent-<type>.service
 cat > "$SYSTEMD_USER_DIR/picoclaw-agent-$AGENT_TYPE.service" <<EOF
 [Unit]
-Description=PicoClaw Agent ($AGENT_TYPE)
+Description=RenCrow Agent ($AGENT_TYPE)
 After=network-online.target
 Wants=network-online.target
 

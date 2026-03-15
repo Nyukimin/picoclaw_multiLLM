@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== PicoClaw Mio Web Search Test ===")
+	fmt.Println("=== RenCrow Mio Web Search Test ===")
 
 	// 1. ToolRunner初期化（Web検索含む）
 	cfg := tools.ToolRunnerConfig{

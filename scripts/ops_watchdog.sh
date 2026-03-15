@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-# PicoClaw ops watchdog:
+# RenCrow ops watchdog:
 # - Gateway process/ports
 # - Health/Ready endpoints
 # - Tailscale Funnel/Webhook reachability

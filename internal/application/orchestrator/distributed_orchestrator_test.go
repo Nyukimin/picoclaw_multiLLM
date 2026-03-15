@@ -112,6 +112,13 @@ func routeFromString(s string) routing.Route {
 	}
 }
 
+func proposalForTest(plan, patch string) *domaintransport.ProposalPayload {
+	return &domaintransport.ProposalPayload{
+		Plan:  plan,
+		Patch: patch,
+	}
+}
+
 func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 	mockMio := &distMockMioAgent{chatResponse: "Hello from Mio!"}
 	mockRepo := &distMockSessionRepo{}
@@ -202,6 +209,30 @@ func TestDistributedOrchestrator_TTSBridge_StreamsSentenceChunks(t *testing.T) {
 	if bridge.pushes[1] != "二つ目の文です。" {
 		t.Fatalf("unexpected second chunk: %q", bridge.pushes[1])
 	}
+}
+
+func TestDistributedWaitTimeout(t *testing.T) {
+	t.Run("default chat path stays short", func(t *testing.T) {
+		msg := domaintransport.NewMessage("mio", "shiro", "sess", "job", "hello")
+		if got := distributedWaitTimeout("shiro", msg); got != distributedDefaultTimeout {
+			t.Fatalf("expected default timeout %s, got %s", distributedDefaultTimeout, got)
+		}
+	})
+
+	t.Run("coder path gets extended timeout", func(t *testing.T) {
+		msg := domaintransport.NewMessage("shiro", "coder1", "sess", "job", "code please")
+		if got := distributedWaitTimeout("coder1", msg); got != distributedCoderTimeout {
+			t.Fatalf("expected coder timeout %s, got %s", distributedCoderTimeout, got)
+		}
+	})
+
+	t.Run("worker proposal execution gets extended timeout", func(t *testing.T) {
+		msg := domaintransport.NewMessage("mio", "shiro", "sess", "job", "Execute coder proposal")
+		msg.Proposal = proposalForTest("plan", "patch")
+		if got := distributedWaitTimeout("shiro", msg); got != distributedWorkerTimeout {
+			t.Fatalf("expected worker timeout %s, got %s", distributedWorkerTimeout, got)
+		}
+	})
 }
 
 func TestDistributedOrchestrator_AttributionGuardOnUserChat(t *testing.T) {

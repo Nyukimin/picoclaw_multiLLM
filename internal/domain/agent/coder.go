@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -34,6 +35,7 @@ func NewCoderAgent(
 
 // GenerateProposal はplan/patchを生成
 func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
+	log.Printf("[CoderAgent] proposal generate start provider=%s job=%s prompt_len=%d", c.llmProvider.Name(), t.JobID().String(), len(t.UserMessage()))
 	req := llm.GenerateRequest{
 		Messages: []llm.Message{
 			{
@@ -51,11 +53,19 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 
 	resp, err := c.llmProvider.Generate(ctx, req)
 	if err != nil {
+		log.Printf("[CoderAgent] proposal generate error provider=%s job=%s err=%v", c.llmProvider.Name(), t.JobID().String(), err)
 		return nil, err
 	}
+	log.Printf("[CoderAgent] proposal generate response provider=%s job=%s content_len=%d finish=%s", c.llmProvider.Name(), t.JobID().String(), len(resp.Content), resp.FinishReason)
 
 	// レスポンスからProposalを抽出
-	return c.extractProposal(resp.Content), nil
+	p := c.extractProposal(resp.Content)
+	if p == nil {
+		log.Printf("[CoderAgent] proposal extract empty provider=%s job=%s", c.llmProvider.Name(), t.JobID().String())
+	} else {
+		log.Printf("[CoderAgent] proposal extract complete provider=%s job=%s plan_len=%d patch_len=%d", c.llmProvider.Name(), t.JobID().String(), len(p.Plan()), len(p.Patch()))
+	}
+	return p, nil
 }
 
 // GenerateWithPrompt は指定されたシステムプロンプトでLLM応答を生成
@@ -80,7 +90,7 @@ func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, system
 // extractProposal はLLM応答からProposalを抽出
 func (c *CoderAgent) extractProposal(content string) *proposal.Proposal {
 	plan := c.extractSection(content, "## Plan", "##")
-	patch := c.extractSection(content, "## Patch", "##")
+	patch := normalizeProposalPatch(c.extractSection(content, "## Patch", "##"))
 	risk := c.extractSection(content, "## Risk", "##")
 	costHint := c.extractSection(content, "## CostHint", "##")
 
@@ -89,6 +99,43 @@ func (c *CoderAgent) extractProposal(content string) *proposal.Proposal {
 	}
 
 	return proposal.NewProposal(plan, patch, risk, costHint)
+}
+
+func normalizeProposalPatch(patch string) string {
+	trimmed := strings.TrimSpace(patch)
+	if trimmed == "" {
+		return ""
+	}
+
+	if unwrapped, ok := unwrapSingleFence(trimmed); ok {
+		trimmed = strings.TrimSpace(unwrapped)
+	}
+
+	return trimmed
+}
+
+func unwrapSingleFence(content string) (string, bool) {
+	if !strings.HasPrefix(content, "```") || !strings.HasSuffix(content, "```") {
+		return "", false
+	}
+
+	firstNL := strings.IndexByte(content, '\n')
+	if firstNL == -1 {
+		return "", false
+	}
+
+	header := strings.TrimSpace(content[3:firstNL])
+	body := strings.TrimSpace(content[firstNL+1 : len(content)-3])
+	if body == "" {
+		return "", false
+	}
+
+	switch header {
+	case "json", "markdown", "md", "":
+		return body, true
+	default:
+		return "", false
+	}
 }
 
 // extractSection はコンテンツからセクションを抽出

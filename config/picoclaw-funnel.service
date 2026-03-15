@@ -1,5 +1,5 @@
 [Unit]
-Description=Tailscale Funnel for PicoClaw
+Description=Tailscale Funnel for RenCrow
 After=tailscaled.service
 
 [Service]

@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	distributedTimeout = 120 * time.Second
+	distributedDefaultTimeout = 120 * time.Second
+	distributedCoderTimeout   = 6 * time.Minute
+	distributedWorkerTimeout  = 6 * time.Minute
 )
 
 // DistributedOrchestrator はTransport経由でメッセージを送受信する分散オーケストレータ
@@ -289,6 +291,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	if coderAgent == "" {
 		return "", fmt.Errorf("no coder mapped for route %s", route)
 	}
+	log.Printf("[DistributedOrch] code handoff route=%s target=%s job=%s", route, coderAgent, jid)
 
 	o.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
 	o.emitNote("mio", "user", "しろにコード実装の取りまとめをお願いしたよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
@@ -351,7 +354,8 @@ func (o *DistributedOrchestrator) executeViaSSH(ctx context.Context, sshTranspor
 	log.Printf("[DistributedOrch] Sent task to %s via SSH (job=%s)", targetAgent, msg.JobID)
 
 	// 応答待機（同一transport上で受信）
-	timeoutCtx, cancel := context.WithTimeout(ctx, distributedTimeout)
+	waitTimeout := distributedWaitTimeout(targetAgent, msg)
+	timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 
 	result, err := sshTransport.Receive(timeoutCtx)
@@ -376,17 +380,22 @@ func (o *DistributedOrchestrator) executeToAgent(ctx context.Context, targetAgen
 }
 
 func (o *DistributedOrchestrator) executeToAgentViaMailbox(ctx context.Context, targetAgent string, msg domaintransport.Message, receiveOnAgent string) (domaintransport.Message, error) {
+	log.Printf("[DistributedOrch] mailbox send target=%s receive_on=%s via=%s job=%s type=%s has_proposal=%t", targetAgent, receiveOnAgent, transportMode(o.sshTransports, targetAgent), msg.JobID, msg.Type, msg.Proposal != nil)
 	if sshTransport, ok := o.sshTransports[targetAgent]; ok {
 		if err := sshTransport.Send(ctx, msg); err != nil {
 			return domaintransport.Message{}, fmt.Errorf("failed to send message to %s via SSH: %w", targetAgent, err)
 		}
-		timeoutCtx, cancel := context.WithTimeout(ctx, distributedTimeout)
+		waitTimeout := distributedWaitTimeout(targetAgent, msg)
+		timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 		defer cancel()
+		log.Printf("[DistributedOrch] mailbox wait target=%s via=ssh timeout=%s job=%s", targetAgent, waitTimeout, msg.JobID)
 		result, err := sshTransport.Receive(timeoutCtx)
 		if err != nil {
+			log.Printf("[DistributedOrch] mailbox wait error target=%s via=ssh job=%s err=%v", targetAgent, msg.JobID, err)
 			return domaintransport.Message{}, fmt.Errorf("waiting for SSH response from %s: %w", targetAgent, err)
 		}
 		o.memory.RecordMessage(result)
+		log.Printf("[DistributedOrch] mailbox recv target=%s via=ssh from=%s type=%s job=%s", targetAgent, result.From, result.Type, result.JobID)
 		if result.Type == domaintransport.MessageTypeError {
 			return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
 		}
@@ -407,7 +416,7 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 		return domaintransport.Message{}, fmt.Errorf("failed to send message to %s: %w", targetAgent, err)
 	}
 
-	log.Printf("[DistributedOrch] Sent task to %s via Local (job=%s)", targetAgent, msg.JobID)
+	log.Printf("[DistributedOrch] Sent task to %s via Local (job=%s type=%s receive_on=%s)", targetAgent, msg.JobID, msg.Type, receiveOnAgent)
 
 	// 応答待機（指定agent経由。未登録ならmioにフォールバック）
 	receiveTransport, ok := o.router.GetAgent(receiveOnAgent)
@@ -418,24 +427,45 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 		return domaintransport.Message{}, fmt.Errorf("receive transport not registered (agent=%s)", receiveOnAgent)
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, distributedTimeout)
+	waitTimeout := distributedWaitTimeout(targetAgent, msg)
+	timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
+	log.Printf("[DistributedOrch] wait local response target=%s receive_on=%s timeout=%s job=%s", targetAgent, receiveOnAgent, waitTimeout, msg.JobID)
 
 	result, err := receiveTransport.Receive(timeoutCtx)
 	if err != nil {
+		log.Printf("[DistributedOrch] wait local response error target=%s receive_on=%s job=%s err=%v", targetAgent, receiveOnAgent, msg.JobID, err)
 		return domaintransport.Message{}, fmt.Errorf("waiting for response from %s: %w", targetAgent, err)
 	}
 
 	// メモリに記録
 	o.memory.RecordMessage(result)
 
-	log.Printf("[DistributedOrch] Received response from %s (type=%s)", result.From, result.Type)
+	log.Printf("[DistributedOrch] Received response from %s (type=%s job=%s to=%s)", result.From, result.Type, result.JobID, result.To)
 
 	if result.Type == domaintransport.MessageTypeError {
 		return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
 	}
 
 	return result, nil
+}
+
+func transportMode(sshTransports map[string]domaintransport.Transport, targetAgent string) string {
+	if _, ok := sshTransports[targetAgent]; ok {
+		return "ssh"
+	}
+	return "local"
+}
+
+func distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
+	switch {
+	case strings.HasPrefix(targetAgent, "coder"):
+		return distributedCoderTimeout
+	case targetAgent == "shiro" && msg.Proposal != nil:
+		return distributedWorkerTimeout
+	default:
+		return distributedDefaultTimeout
+	}
 }
 
 // routeToAgent はルートをAgent名にマッピング
@@ -457,24 +487,32 @@ func (o *DistributedOrchestrator) routeToCoder(route routing.Route) string {
 	case routing.RouteCODE:
 		for _, coder := range []string{"coder1", "coder2", "coder3"} {
 			if o.isCoderConnected(coder) {
+				log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=fallback_chain", route, coder)
 				return coder
 			}
+			log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, coder)
 		}
 		return ""
 	case routing.RouteCODE1:
 		if o.isCoderConnected("coder1") {
+			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder1")
 			return "coder1"
 		}
+		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder1")
 		return ""
 	case routing.RouteCODE2:
 		if o.isCoderConnected("coder2") {
+			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder2")
 			return "coder2"
 		}
+		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder2")
 		return ""
 	case routing.RouteCODE3:
 		if o.isCoderConnected("coder3") {
+			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder3")
 			return "coder3"
 		}
+		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder3")
 		return ""
 	default:
 		return ""
@@ -494,8 +532,10 @@ func (o *DistributedOrchestrator) routeToCoderForMessage(route routing.Route, us
 	req := inferTaskRequirement(userMessage)
 	selected := o.nodeSelector.Select(candidates, o.nodeCaps, req)
 	if selected != "" {
+		log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=capability candidates=%v req=%+v", route, selected, candidates, req)
 		return selected
 	}
+	log.Printf("[DistributedOrch] coder capability select fell back route=%s candidates=%v req=%+v", route, candidates, req)
 	return o.routeToCoder(route)
 }
 

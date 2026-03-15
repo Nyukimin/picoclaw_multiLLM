@@ -237,7 +237,7 @@ func TestChat_WithToolCalls(t *testing.T) {
 					{
 						Function: ollamaToolCallFunction{
 							Name:      "web_search",
-							Arguments: map[string]any{"query": "PicoClaw"},
+							Arguments: map[string]any{"query": "RenCrow"},
 						},
 					},
 				},
@@ -251,7 +251,7 @@ func TestChat_WithToolCalls(t *testing.T) {
 	provider := NewOllamaProvider(server.URL, "test-model")
 	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
 		Messages: []llm.ChatMessage{
-			{Role: "user", Content: "PicoClawを検索して"},
+			{Role: "user", Content: "RenCrowを検索して"},
 		},
 		Tools: []llm.ToolDefinition{
 			{
@@ -278,8 +278,8 @@ func TestChat_WithToolCalls(t *testing.T) {
 	if tc.Function.Name != "web_search" {
 		t.Errorf("expected tool name=web_search, got %s", tc.Function.Name)
 	}
-	if tc.Function.Arguments["query"] != "PicoClaw" {
-		t.Errorf("expected query=PicoClaw, got %v", tc.Function.Arguments["query"])
+	if tc.Function.Arguments["query"] != "RenCrow" {
+		t.Errorf("expected query=RenCrow, got %v", tc.Function.Arguments["query"])
 	}
 }
 

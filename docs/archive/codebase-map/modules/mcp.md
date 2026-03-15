@@ -77,8 +77,8 @@ module_group_id: mcp
 - `encoding/json`: JSON シリアライズ・デシリアライズ
 - `time`: タイムアウト設定（デフォルト 30 秒）
 
-**PicoClaw パッケージへの依存なし**:
-- このモジュールは純粋な MCP クライアントとして、他の PicoClaw モジュールに依存しない
+**RenCrow パッケージへの依存なし**:
+- このモジュールは純粋な MCP クライアントとして、他の RenCrow モジュールに依存しない
 - ロガーや設定も直接参照せず、Agent Loop 側で初期化時に設定を読み取る
 
 ### 被依存（このモジュールに依存する他モジュール）
@@ -120,7 +120,7 @@ pkg/mcp/
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ PicoClaw (Linux)                                                │
+│ RenCrow (Linux)                                                │
 │   pkg/agent/loop.go                                             │
 │     └─ mcpClient = mcp.NewClient(cfg.MCP.Chrome.BaseURL)       │
 │         ↓                                                       │

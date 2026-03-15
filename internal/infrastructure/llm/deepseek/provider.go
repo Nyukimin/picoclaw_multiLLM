@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -30,7 +31,7 @@ func NewDeepSeekProvider(apiKey, model string) *DeepSeekProvider {
 		model:   model,
 		baseURL: defaultBaseURL,
 		client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 }
@@ -71,18 +72,22 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, req llm.GenerateRequest
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	log.Printf("[DeepSeek] request start model=%s messages=%d max_tokens=%v temperature=%v", p.model, len(deepseekReq["messages"].([]map[string]interface{})), deepseekReq["max_tokens"], deepseekReq["temperature"])
 
 	// リクエスト実行
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
+		log.Printf("[DeepSeek] request error model=%s err=%v", p.model, err)
 		return llm.GenerateResponse{}, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[DeepSeek] request bad_status model=%s status=%d", p.model, resp.StatusCode)
 		return llm.GenerateResponse{}, fmt.Errorf("deepseek API error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
+	log.Printf("[DeepSeek] response headers model=%s status=%d", p.model, resp.StatusCode)
 
 	// レスポンスパース（OpenAI互換）
 	var deepseekResp struct {
@@ -99,6 +104,7 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, req llm.GenerateRequest
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&deepseekResp); err != nil {
+		log.Printf("[DeepSeek] decode error model=%s err=%v", p.model, err)
 		return llm.GenerateResponse{}, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -109,6 +115,7 @@ func (p *DeepSeekProvider) Generate(ctx context.Context, req llm.GenerateRequest
 		content = deepseekResp.Choices[0].Message.Content
 		finishReason = deepseekResp.Choices[0].FinishReason
 	}
+	log.Printf("[DeepSeek] response complete model=%s choices=%d finish=%s content_len=%d tokens=%d", p.model, len(deepseekResp.Choices), finishReason, len(content), deepseekResp.Usage.TotalTokens)
 
 	return llm.GenerateResponse{
 		Content:      content,

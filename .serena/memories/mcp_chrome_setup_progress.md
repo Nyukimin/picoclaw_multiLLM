@@ -35,11 +35,11 @@
 
 ---
 
-## PicoClaw側の実装（Phase 5-B） ⏳ 次のステップ
+## RenCrow側の実装（Phase 5-B） ⏳ 次のステップ
 
 ### アーキテクチャ
 ```
-PicoClaw (Linux) → HTTP API → Win11 (mcp-chrome-bridge) → Chrome拡張機能 → Chromeブラウザ
+RenCrow (Linux) → HTTP API → Win11 (mcp-chrome-bridge) → Chrome拡張機能 → Chromeブラウザ
 ```
 
 ### 実装が必要な項目
@@ -156,4 +156,4 @@ mcp-chrome-bridge doctor
 
 ---
 
-**次回の続行ポイント**: PicoClaw側で `pkg/mcp/` パッケージを作成し、MCP Chrome クライアントを実装
+**次回の続行ポイント**: RenCrow側で `pkg/mcp/` パッケージを作成し、MCP Chrome クライアントを実装

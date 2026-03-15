@@ -291,14 +291,15 @@ func (w *workerExecutionService) executeShellCommand(
 
 	// コマンド実行
 	command := cmd.Target
-	shellCmd := exec.CommandContext(ctx, "sh", "-c", command)
+	shellCmd := workerShellCommand(ctx, command)
 
 	// ワークスペース内で実行
 	shellCmd.Dir = w.config.Workspace
 
-	// 環境変数（Metadataから取得）
+	// 基本環境 + Metadataからの上書き
+	shellCmd.Env = append([]string(nil), os.Environ()...)
 	if env := cmd.Metadata["env"]; env != "" {
-		shellCmd.Env = append(os.Environ(), strings.Split(env, ",")...)
+		shellCmd.Env = append(shellCmd.Env, strings.Split(env, ",")...)
 	}
 
 	output, err := shellCmd.CombinedOutput()
@@ -307,6 +308,13 @@ func (w *workerExecutionService) executeShellCommand(
 	}
 
 	return string(output), nil
+}
+
+func workerShellCommand(ctx context.Context, command string) *exec.Cmd {
+	if _, err := exec.LookPath("bash"); err == nil {
+		return exec.CommandContext(ctx, "bash", "-lc", command)
+	}
+	return exec.CommandContext(ctx, "sh", "-c", command)
 }
 
 // executeGitOperation はGit操作を実行

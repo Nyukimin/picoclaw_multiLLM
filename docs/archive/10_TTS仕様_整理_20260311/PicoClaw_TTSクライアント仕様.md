@@ -1,13 +1,13 @@
 了解。
-では、**PicoClaw 側クライアント仕様**だけを切り出して、実装に使える形でまとめるね。
+では、**RenCrow 側クライアント仕様**だけを切り出して、実装に使える形でまとめるね。
 
 ````md
-# PicoClaw TTS Client 仕様 v0.1
+# RenCrow TTS Client 仕様 v0.1
 TTS Server 接続クライアント / 実装側仕様
 
 ## 1. 目的
 
-本仕様は、PicoClaw 側から TTS Server を利用するためのクライアント実装仕様を定義する。
+本仕様は、RenCrow 側から TTS Server を利用するためのクライアント実装仕様を定義する。
 
 対象は以下。
 
@@ -18,7 +18,7 @@ TTS Server 接続クライアント / 実装側仕様
 - 再生順制御
 - エラー時の挙動
 
-本仕様は、PicoClaw の Chat / Worker / Audio Sink 間の責務境界も含む。
+本仕様は、RenCrow の Chat / Worker / Audio Sink 間の責務境界も含む。
 
 ---
 
@@ -157,7 +157,7 @@ TTS Server から返ってきた audio chunk を順序通りに扱う。
 
 ## 5.2 起動前 health check
 
-PicoClaw は session 開始前に必要に応じて `/health/ready` を確認する。
+RenCrow は session 開始前に必要に応じて `/health/ready` を確認する。
 
 ### 成功条件
 
@@ -176,7 +176,7 @@ PicoClaw は session 開始前に必要に応じて `/health/ready` を確認す
 
 ## 6.1 session_id
 
-PicoClaw 側で払い出す一意識別子。
+RenCrow 側で払い出す一意識別子。
 
 形式例：
 
@@ -187,7 +187,7 @@ sess-20260311-0001
 ## 6.2 response_id
 
 Chat 側の応答識別子。
-PicoClaw 内部の追跡用。
+RenCrow 内部の追跡用。
 
 ## 6.3 session の単位
 
@@ -441,7 +441,7 @@ TTS Server 側で session 処理完了。
 
 ## 11.1 基本方針
 
-PicoClaw 側は voice 実体を知らず、`voice_id` のみを選択する。
+RenCrow 側は voice 実体を知らず、`voice_id` のみを選択する。
 
 ## 11.2 既定値
 
@@ -457,7 +457,7 @@ PicoClaw 側は voice 実体を知らず、`voice_id` のみを選択する。
 
 ## 12. speech_mode 指定仕様
 
-PicoClaw 側は session 開始時に `speech_mode` を指定する。
+RenCrow 側は session 開始時に `speech_mode` を指定する。
 
 候補：
 
@@ -671,7 +671,7 @@ class AudioSink:
 
 ## 18. v0.1 完成条件
 
-以下を満たした時点で PicoClaw TTS Client v0.1 完了とする。
+以下を満たした時点で RenCrow TTS Client v0.1 完了とする。
 
 * `/health/ready` が確認できる
 * `session_start` を送れる
@@ -685,7 +685,7 @@ class AudioSink:
 
 ## 19. 一行要約
 
-PicoClaw TTS Client は、LLM の文字列ストリームを session 単位で TTS Server に送信し、返ってくる音声 chunk を順序制御して Audio Sink に渡す責務を持つ。
+RenCrow TTS Client は、LLM の文字列ストリームを session 単位で TTS Server に送信し、返ってくる音声 chunk を順序制御して Audio Sink に渡す責務を持つ。
 
 ```
 

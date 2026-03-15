@@ -12,7 +12,7 @@ module_group_id: agent
 
 ## 概要
 
-PicoClaw のリクエスト処理コア。ユーザー入力を受け取り、ルーティング決定（CHAT/PLAN/ANALYZE/OPS/RESEARCH/CODE1/CODE2/CODE3 の選択）、エージェントループ（LLM 反復呼び出しとツール実行）、承認フロー管理を担当する。
+RenCrow のリクエスト処理コア。ユーザー入力を受け取り、ルーティング決定（CHAT/PLAN/ANALYZE/OPS/RESEARCH/CODE1/CODE2/CODE3 の選択）、エージェントループ（LLM 反復呼び出しとツール実行）、承認フロー管理を担当する。
 
 ## 関連ドキュメント
 

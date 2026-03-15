@@ -1,6 +1,6 @@
 # kb-admin - Knowledge Base 管理CLI
 
-PicoClaw の Knowledge Base (KB) を管理するための CLI ツールです。
+RenCrow の Knowledge Base (KB) を管理するための CLI ツールです。
 
 ## 機能
 

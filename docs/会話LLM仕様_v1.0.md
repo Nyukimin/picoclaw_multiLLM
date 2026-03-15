@@ -2,7 +2,7 @@
 
 **作成日**: 2026-03-05
 **バージョン**: 1.0
-**対象**: PicoClaw Chat/Worker/Coder 対応
+**対象**: RenCrow Chat/Worker/Coder 対応
 **ステータス**: 正本仕様（会話システム設計の一次参照）
 **前提**: Spawn 禁止 / Subagent あり
 
@@ -353,7 +353,7 @@ job_id / turn_id / thread_id / session_id / event_id
 
 ### A.3 設計判断メモ: Worker 委譲について
 
-仕様では Worker が想起パック生成を担当するが、現在の PicoClaw では:
+仕様では Worker が想起パック生成を担当するが、現在の RenCrow では:
 
 - Mio（Chat）が ConversationEngine を直接保持
 - BeginTurn/EndTurn は Mio.Chat() 内で呼ばれる

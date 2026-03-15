@@ -272,7 +272,7 @@ mcp-chrome-bridge fix-permissions
 
 ## 次のステップ
 
-セットアップが完了したら、Linux 側で PicoClaw の統合テストを実行:
+セットアップが完了したら、Linux 側で RenCrow の統合テストを実行:
 
 ```bash
 cd /home/nyukimi/picoclaw_multiLLM

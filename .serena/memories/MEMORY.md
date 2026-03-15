@@ -1,4 +1,4 @@
-# PicoClaw Memory Index
+# RenCrow Memory Index
 
 ## Design Principles (MUST FOLLOW)
 - **既存コードの設計が間違っていたら、踏襲せず最初に指摘して正す。** 問題のあるパターンに合わせて追加コードを書くのではなく、根本から直す提案をすること。

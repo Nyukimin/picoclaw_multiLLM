@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# PicoClaw インストールスクリプト
+# RenCrow インストールスクリプト
 # 使い方: curl -fsSL https://raw.githubusercontent.com/Nyukimin/picoclaw_multiLLM/main/install.sh | bash
 # または: ./install.sh
 
@@ -10,7 +10,7 @@ PICOCLAW_BIN="$HOME/.local/bin"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 
 echo "=========================================="
-echo "PicoClaw インストーラー v1.0"
+echo "RenCrow インストーラー v1.0"
 echo "=========================================="
 echo ""
 
@@ -106,7 +106,7 @@ fi
 echo ""
 
 # ビルド
-echo "[2/7] PicoClaw のビルド..."
+echo "[2/7] RenCrow のビルド..."
 cd "$(dirname "$0")"
 go build -o picoclaw ./cmd/picoclaw
 echo "  ✓ ビルド完了（サーバーモード）"
@@ -161,7 +161,7 @@ read -r openai_key
 
 # .env 生成
 cat > "$PICOCLAW_HOME/.env" <<EOF
-# PicoClaw 環境変数
+# RenCrow 環境変数
 # 生成日時: $(date)
 
 # Anthropic Claude API (Coder3)
@@ -200,7 +200,7 @@ echo "[6/7] systemd サービスの設定..."
 # picoclaw.service
 cat > "$SYSTEMD_USER_DIR/picoclaw.service" <<EOF
 [Unit]
-Description=PicoClaw - Ultra-Lightweight AI Assistant
+Description=RenCrow - Ultra-Lightweight AI Assistant
 After=network-online.target
 Wants=network-online.target
 
@@ -277,5 +277,5 @@ echo ""
 echo "次のステップ:"
 echo "  1. Tailscale認証（未実施の場合）: tailscale up"
 echo "  2. LINE Messaging API設定（webhook URLを登録）"
-echo "  3. PicoClaw起動: systemctl --user start picoclaw"
+echo "  3. RenCrow起動: systemctl --user start picoclaw"
 echo ""

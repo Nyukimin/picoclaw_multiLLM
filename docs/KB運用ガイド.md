@@ -2,7 +2,7 @@
 
 **バージョン:** 1.0
 **更新日:** 2026-03-07
-**対象:** PicoClaw v5.0 Conversation System with KB
+**対象:** RenCrow v5.0 Conversation System with KB
 
 ---
 
@@ -23,7 +23,7 @@
 
 ### Knowledge Base (KB) とは
 
-PicoClaw の **Knowledge Base (KB)** は、Web検索結果やその他の外部情報を永続化し、
+RenCrow の **Knowledge Base (KB)** は、Web検索結果やその他の外部情報を永続化し、
 後続の会話で再利用するための仕組みです。
 
 **主な用途:**

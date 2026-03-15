@@ -17,7 +17,7 @@ OpenClawは実行ノードを能力単位で扱い、ノード選定をタスク
 
 ## 1. 現状差分
 
-- PicoClaw現状: Local/SSH Transportはあるが、能力モデルが薄くノード選定が静的。
+- RenCrow現状: Local/SSH Transportはあるが、能力モデルが薄くノード選定が静的。
 - 差分の本質: Node Capability Model とスケジューリング戦略不足。
 
 ---

@@ -3,6 +3,7 @@ package toolloop
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
@@ -44,35 +45,44 @@ func Run(ctx context.Context, provider llm.ToolCallingProvider,
 			return "", ctx.Err()
 		default:
 		}
+		log.Printf("[ToolLoop] iteration=%d/%d messages=%d tools=%d", i+1, maxIter, len(messages), len(toolDefs))
 
 		resp, err := provider.Chat(ctx, llm.ChatRequest{
 			Messages: messages,
 			Tools:    toolDefs,
 		})
 		if err != nil {
+			log.Printf("[ToolLoop] chat error iteration=%d err=%v", i+1, err)
 			return "", fmt.Errorf("chat error at iteration %d: %w", i, err)
 		}
+		log.Printf("[ToolLoop] chat finish iteration=%d finish=%s tool_calls=%d content_len=%d", i+1, resp.FinishReason, len(resp.Message.ToolCalls), len(resp.Message.Content))
 
 		// assistantメッセージを履歴に追加
 		messages = append(messages, resp.Message)
 
 		// tool_calls がなければ最終応答
 		if len(resp.Message.ToolCalls) == 0 {
+			log.Printf("[ToolLoop] complete iteration=%d", i+1)
 			return resp.Message.Content, nil
 		}
 
 		// 各ツール呼び出しを実行
 		for _, tc := range resp.Message.ToolCalls {
+			log.Printf("[ToolLoop] tool start name=%s args_keys=%d", tc.Function.Name, len(tc.Function.Arguments))
 			result, err := toolRunner.ExecuteV2(ctx, tc.Function.Name, tc.Function.Arguments)
 
 			var content string
 			if err != nil {
+				log.Printf("[ToolLoop] tool error name=%s err=%v", tc.Function.Name, err)
 				content = fmt.Sprintf("Error: %v", err)
 			} else if result != nil && result.Error == nil {
+				log.Printf("[ToolLoop] tool complete name=%s", tc.Function.Name)
 				content = fmt.Sprintf("%v", result.Result)
 			} else if result != nil && result.Error != nil {
+				log.Printf("[ToolLoop] tool returned error name=%s err=%s", tc.Function.Name, result.Error.Message)
 				content = fmt.Sprintf("Error: %s", result.Error.Message)
 			} else {
+				log.Printf("[ToolLoop] tool nil response name=%s", tc.Function.Name)
 				content = "Error: nil response"
 			}
 
@@ -87,6 +97,7 @@ func Run(ctx context.Context, provider llm.ToolCallingProvider,
 	// MaxIterations超過 → 最後のassistantメッセージを返す
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "assistant" {
+			log.Printf("[ToolLoop] max iterations reached max=%d returning_last_assistant", maxIter)
 			return messages[i].Content, nil
 		}
 	}
