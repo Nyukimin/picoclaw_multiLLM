@@ -539,7 +539,7 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 		LoopRestarted:   loopRestarted,
 		LoopReason:      loopReason,
 		TopicProvider:   "forecast",
-		SummaryProvider: "coder2",
+		SummaryProvider: "shiro",
 		Transcript:      append([]string(nil), transcript...),
 	}
 	o.mu.Lock()
@@ -556,12 +556,12 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 	}
 
 	// タイムラインに要約を emit
-	msg := domaintransport.NewMessage("coder2", "forecast_summary", sessionID, "", title+"\n"+summary)
+	msg := domaintransport.NewMessage("shiro", "forecast_summary", sessionID, "", title+"\n"+summary)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
 	o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.summary",
-		From:      "coder2",
+		From:      "shiro",
 		To:        "forecast_summary",
 		Content:   title + "\n" + summary,
 		SessionID: sessionID,
