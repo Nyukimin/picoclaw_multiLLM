@@ -171,6 +171,45 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
   .idle-tools{gap:6px}
   .ctr{right:12px}
 }
+
+/* === Live Mode (配信用 1920x1080) === */
+body.live-mode header{padding:16px 40px 12px}
+body.live-mode .logo{font-size:26px;gap:14px}
+body.live-mode .logo span:first-child{font-size:32px}
+body.live-mode .stat{font-size:16px}
+body.live-mode .dot{width:12px;height:12px}
+body.live-mode .tabs,
+body.live-mode .input-bar,
+body.live-mode .ctr,
+body.live-mode .filters,
+body.live-mode .toast{display:none !important}
+body.live-mode main{padding:20px 0 20px;overflow-y:auto}
+body.live-mode #chat{max-width:1800px;padding:0 48px}
+body.live-mode .panel{max-width:1800px;padding:0 48px}
+body.live-mode .panel.active{display:block}
+body.live-mode .msg{gap:16px;margin-bottom:8px}
+body.live-mode .av{width:52px;height:52px;font-size:24px}
+body.live-mode .an{font-size:20px}
+body.live-mode .dir{font-size:16px}
+body.live-mode .tm{font-size:15px}
+body.live-mode .mc{font-size:22px;line-height:1.75;padding:16px 24px;border-radius:4px 16px 16px 16px;max-height:600px}
+body.live-mode .mc code{font-size:20px;padding:2px 8px}
+body.live-mode .mh{margin-bottom:6px;gap:12px}
+body.live-mode .sys{margin:20px 0}
+body.live-mode .sb{font-size:16px;padding:6px 20px;border-radius:14px}
+body.live-mode .rt{font-size:15px;padding:2px 10px}
+body.live-mode .sl{max-width:160px}
+body.live-mode .cp{display:none}
+body.live-mode .empty b{font-size:64px}
+body.live-mode .empty{font-size:18px}
+body.live-mode .live-topic-bar{
+  display:flex;align-items:center;gap:16px;
+  background:rgba(244,114,182,.08);border:1px solid rgba(244,114,182,.2);
+  border-radius:12px;padding:14px 32px;margin:0 48px 16px;font-size:18px;color:var(--t1);
+}
+body.live-mode .live-topic-bar .live-topic-label{color:var(--mio);font-weight:700;font-size:16px;white-space:nowrap}
+body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
+.live-topic-bar{display:none}
 </style>
 </head>
 <body>
@@ -181,6 +220,10 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
     <span id="stxt">Connecting...</span>
   </div>
 </header>
+<div class="live-topic-bar" id="liveTopicBar">
+  <span class="live-topic-label">TOPIC</span>
+  <span class="live-topic-text" id="liveTopicText">-</span>
+</div>
 <div class="tabs">
   <button class="tab-btn active" data-tab="overview">Overview</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
@@ -1494,6 +1537,28 @@ function initTabFromQuery() {
   } catch (_) {}
 }
 
+function initLiveMode() {
+  try {
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('mode') !== 'live') return false;
+    document.body.classList.add('live-mode');
+    switchTab('timeline');
+    // ライブモードではIdleChat状態をポーリングしてトピックバーを更新
+    setInterval(async () => {
+      try {
+        const r = await fetch('/viewer/idlechat/status');
+        if (!r.ok) return;
+        const d = await r.json();
+        const topicEl = document.getElementById('liveTopicText');
+        if (topicEl) {
+          topicEl.textContent = d.current_topic || '-';
+        }
+      } catch (_) {}
+    }, 5000);
+    return true;
+  } catch (_) { return false; }
+}
+
 function initEvidenceFromQuery() {
   try {
     const u = new URL(window.location.href);
@@ -1762,7 +1827,9 @@ refreshDerivedViews();
 renderIdleChat();
 refreshIdleStatus();
 refreshIdleLogs();
-initTabFromQuery();
+if (!initLiveMode()) {
+  initTabFromQuery();
+}
 initEvidenceFromQuery();
 refreshEvidence();
 refreshEvidenceSummary();
