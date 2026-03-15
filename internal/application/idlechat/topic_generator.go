@@ -19,6 +19,7 @@ const (
 	StrategySingleGenre      TopicStrategy = "single"   // 1ジャンル単体 (25%)
 	StrategyDoubleGenre      TopicStrategy = "double"   // 2ジャンル掛け合わせ (40%)
 	StrategyExternalStimulus TopicStrategy = "external" // 外部刺激 (25%)
+	StrategyForecast         TopicStrategy = "forecast" // 未来展望セッション
 )
 
 // genrePool はカオストピック生成用の多様なジャンル（260個）
@@ -221,12 +222,14 @@ func fetchWikipediaRandom(limit int) ([]string, error) {
 	return titles, nil
 }
 
-// fetchNewsHeadlines はNHK News RSSからヘッドラインを取得
+// fetchNewsHeadlines はNHK News RSSトップニュースからヘッドラインを取得
 func fetchNewsHeadlines(limit int) ([]string, error) {
-	// NHK News RSS（トップニュース）
-	url := "https://www.nhk.or.jp/rss/news/cat0.xml"
+	return fetchNewsHeadlinesFrom("https://www.nhk.or.jp/rss/news/cat0.xml", limit)
+}
 
-	req, err := http.NewRequest("GET", url, nil)
+// fetchNewsHeadlinesFrom は指定URLのNHK RSSからヘッドラインを取得
+func fetchNewsHeadlinesFrom(rssURL string, limit int) ([]string, error) {
+	req, err := http.NewRequest("GET", rssURL, nil)
 	if err != nil {
 		return nil, err
 	}

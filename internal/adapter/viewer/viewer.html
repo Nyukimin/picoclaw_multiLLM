@@ -348,6 +348,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
       <button id="idleStart" class="ctl-btn" title="IdleChatモードを開始">IdleChat開始</button>
       <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
       <span id="idleState" class="idle-off">IdleChat: off</span>
+      <button id="idleForecast" class="ctl-btn" title="未来展望セッション（6ドメイン×100ターン）" style="margin-left:12px;background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.4)">未来展望</button>
     </div>
   </div>
 </div>
@@ -370,6 +371,7 @@ const RC = {
   CHAT:'#f472b6', OPS:'#22d3ee', CODE:'#fb923c',
   CODE1:'#fb923c', CODE2:'#818cf8', CODE3:'#a78bfa',
   PLAN:'#4ade80', ANALYZE:'#fbbf24', RESEARCH:'#34d399',
+  IDLECHAT:'#a78bfa',
 };
 const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3'];
 const OFFLINE_MS = 120000;
@@ -515,6 +517,7 @@ const sysPreset = document.getElementById('sysPreset');
 const sysType = document.getElementById('sysType');
 const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
+const idleForecastBtn = document.getElementById('idleForecast');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
 const audioBtn = document.getElementById('audioBtn');
@@ -648,9 +651,11 @@ function renderIdleChat() {
     const tr = document.createElement('tr');
     const isOpen = state.idleChat.openIndex === rowIndex;
     const strategy = r.strategy || r.category || '-';
+    const isForecast = strategy === 'forecast';
+    if (isForecast) tr.style.borderLeft = '3px solid rgba(59,130,246,.5)';
     tr.innerHTML =
       '<td><button class="ctl-btn idle-open idle-title-btn" data-idx="' + esc(String(rowIndex)) + '"><span class="idle-arrow ' + (isOpen ? 'open' : '') + '">&#9654;</span><span>' + esc(r.title || '-') + '</span></button></td>' +
-      '<td class="code">' + esc(strategy) + '</td>' +
+      '<td class="code"' + (isForecast ? ' style="color:rgba(59,130,246,.9)"' : '') + '>' + esc(strategy) + '</td>' +
       '<td>' + esc(short(r.topic || '-', 80)) + '</td>' +
       '<td>' + esc(String(r.turns || 0)) + '</td>' +
       '<td>' + esc(r.loop_restarted ? 'yes' : 'no') + '</td>' +
@@ -785,6 +790,7 @@ async function controlIdle(path) {
 }
 
 idleStartBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/start'));
+idleForecastBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/forecast'));
 idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
 
 function stateClass(s) { return 'state-' + normState(s); }

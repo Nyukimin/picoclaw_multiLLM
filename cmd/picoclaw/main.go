@@ -199,6 +199,7 @@ func cmdRun() {
 		mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
 		mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
 		mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
+		mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())
 	}
 
 	healthHandler := dependencies.buildHealthHandler(cfg)
@@ -1548,8 +1549,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 
 	// OpenAI (Coder2) - API キーがある場合のみ
+	var openaiProvider llm.LLMProvider
 	if cfg.OpenAI.APIKey != "" {
-		openaiProvider := openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
+		openaiProvider = openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
 		domainCoder := agent.NewCoderAgent(openaiProvider, nil, nil, cfg.Prompts.CoderProposal)
 		coder2Adapter = &coderAdapter{domainCoder: domainCoder}
 		log.Printf("OpenAI (Coder2) enabled with model: %s", cfg.OpenAI.Model)
@@ -1906,6 +1908,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			"mio":   chatProvider,
 			"shiro": chatProvider,
 		})
+		if openaiProvider != nil {
+			idleChatOrch.SetForecastProvider(openaiProvider)
+			log.Printf("IdleChat: Forecast provider set to OpenAI (Coder2: %s)", cfg.OpenAI.Model)
+		}
 		if recentGlossaryTopics != nil {
 			idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
 			log.Printf("IdleChat: Glossary topics injected")
@@ -2386,6 +2392,28 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
+	}
+}
+
+func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		if d.idleChatOrch.IsChatActive() {
+			http.Error(w, "chat session already active", http.StatusConflict)
+			return
+		}
+		go d.idleChatOrch.RunForecastSession()
+		writeJSON(w, map[string]any{
+			"ok":   true,
+			"mode": "forecast",
 		})
 	}
 }

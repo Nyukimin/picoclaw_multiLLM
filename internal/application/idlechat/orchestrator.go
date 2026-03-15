@@ -57,9 +57,11 @@ type TimelineEvent struct {
 
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 type IdleChatOrchestrator struct {
-	llmProvider    llm.LLMProvider
-	speakerLLMs    map[string]llm.LLMProvider
-	memory         *session.CentralMemory
+	llmProvider      llm.LLMProvider
+	speakerLLMs      map[string]llm.LLMProvider
+	forecastProvider llm.LLMProvider // 未来展望セッションの思考用（Coder2等の高性能モデル）
+	sessionContext   string          // 現在のセッション固有コンテキスト（既出テーマ等）
+	memory           *session.CentralMemory
 	participants   []string
 	intervalMin    int
 	maxTurns       int
@@ -90,6 +92,13 @@ func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan s
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.emitEvent = emit
+}
+
+// SetForecastProvider sets a high-capability LLM for forecast topic generation and keyword extraction.
+func (o *IdleChatOrchestrator) SetForecastProvider(provider llm.LLMProvider) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.forecastProvider = provider
 }
 
 func (o *IdleChatOrchestrator) SetRecentTopicProvider(provider func(context.Context, int) ([]string, error)) {
@@ -453,7 +462,8 @@ func (o *IdleChatOrchestrator) runChatSession() {
 		remainingTurns -= segmentTurns
 		endedAt := time.Now().In(jst)
 		if segmentTurns > 0 {
-			o.saveSummary(sessionID, topic, strategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
+			summary := o.saveSummary(sessionID, topic, strategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
+			o.speakSummary(sessionID, summary)
 		}
 		cooldown := topicBreak
 		if sessionInterrupted || generationFailed {
@@ -839,7 +849,7 @@ func isWhatIfRepetition(transcript []string) bool {
 	return repeated >= 4 && repeated*2 >= window
 }
 
-func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy TopicStrategy, transcript []string, startedAt, endedAt time.Time, turns int, loopRestarted bool, loopReason string) {
+func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy TopicStrategy, transcript []string, startedAt, endedAt time.Time, turns int, loopRestarted bool, loopReason string) string {
 	summary := o.summarizeByWorker(topic, transcript)
 	summary = annotateLoopSummary(summary, loopRestarted, loopReason)
 	title := fmt.Sprintf("%d月%d日の%sの話題まとめ", endedAt.Month(), endedAt.Day(), truncate(topic, 24))
@@ -881,6 +891,27 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 		Content:   title + "\n" + summary,
 		SessionID: sessionID,
 	})
+	return summary
+}
+
+// speakSummary は Mio にまとめを読み上げさせ、TTS 完了を待つ。
+func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
+	if strings.TrimSpace(summary) == "" {
+		return
+	}
+	msg := domaintransport.NewMessage("mio", "user", sessionID, "", summary)
+	msg.Type = domaintransport.MessageTypeIdleChat
+	o.memory.RecordMessage(msg)
+	ttsDone := o.emitTimelineEvent(TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "user",
+		Content:   summary,
+		SessionID: sessionID,
+	})
+	log.Printf("[IdleChat] Mio reading summary: %s", truncate(summary, 80))
+	o.waitForTTSDone(ttsDone)
+	o.waitBreak(topicBreak)
 }
 
 func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []string) string {
@@ -965,6 +996,17 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		messages = append(messages, llm.Message{
 			Role:    role,
 			Content: fmt.Sprintf("[%s]: %s", entry.Message.From, entry.Message.Content),
+		})
+	}
+
+	// セッション固有コンテキスト（既出テーマ等）があれば注入
+	o.mu.Lock()
+	sc := o.sessionContext
+	o.mu.Unlock()
+	if sc != "" {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: sc,
 		})
 	}
 
