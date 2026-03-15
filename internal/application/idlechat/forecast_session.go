@@ -314,6 +314,32 @@ func generateForecastTopicPrompt(domain ForecastDomain, seeds []string) string {
 - 50文字以内を目安に簡潔にする`, domain.Name, seedSection, domain.Name)
 }
 
+// buildForecastLLMTopic は LLM に渡す詳細版トピックを構築する。
+// 背景情報・ニュースシード・議論の方向性を含む。Viewer/TTS には使わない。
+func buildForecastLLMTopic(domain ForecastDomain, displayTopic string, seeds []string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("【%s 未来展望】%s\n\n", domain.Name, displayTopic))
+	if len(seeds) > 0 {
+		sb.WriteString("背景情報（最新ニュース・トレンド）:\n")
+		shown := seeds
+		if len(shown) > 8 {
+			shown = shown[:8]
+		}
+		for _, s := range shown {
+			sb.WriteString("- ")
+			sb.WriteString(s)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(`議論の方向性:
+- 上記の最新動向を踏まえ、3〜10年後の社会への具体的な影響を議論する
+- 楽観/悲観の両面から、根拠のある主張を展開する
+- 抽象論ではなく、具体的な事例・数字・影響を挙げる
+- 過去の類似事例との比較や、国際的な視点も取り入れる`)
+	return sb.String()
+}
+
 // RunForecastSession は6ドメインを順に回す未来展望セッションを実行する。
 func (o *IdleChatOrchestrator) RunForecastSession() {
 	sessionID := fmt.Sprintf("forecast-%d", time.Now().Unix())
@@ -368,13 +394,15 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		o.waitForTTSDone(ttsDone)
 
 		// ドメイン特化トピック生成: ストックから取得（空ならインライン生成）
-		topic, _ := o.popForecastTopic(domain)
+		displayTopic, seeds := o.popForecastTopic(domain)
+		llmTopic := buildForecastLLMTopic(domain, displayTopic, seeds)
 
 		o.mu.Lock()
-		o.currentTopic = fmt.Sprintf("[%s] %s", domain.Name, topic)
+		o.currentTopic = fmt.Sprintf("[%s] %s", domain.Name, displayTopic)
 		o.mu.Unlock()
 
-		topicAnnounce := fmt.Sprintf("お題は、%s", topic)
+		// Viewer/TTS にはシンプルなお題を表示
+		topicAnnounce := fmt.Sprintf("お題は、%s", displayTopic)
 		topicMsg := domaintransport.NewMessage("user", "mio", sessionID, "", topicAnnounce)
 		topicMsg.Type = domaintransport.MessageTypeIdleChat
 		o.memory.RecordMessage(topicMsg)
@@ -388,9 +416,10 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		o.waitForTTSDone(ttsDone)
 		o.waitBreak(topicBreak)
 
-		// ドメイン内ターンループ
+		// ドメイン内ターンループ（generateResponse には詳細版 llmTopic を渡す）
+		topic := displayTopic // saveSummary 用
 		transcript := make([]string, 0, forecastTurnsPerDomain)
-		coveredThemes := make([]string, 0, 8) // 蓄積型の既出テーマリスト
+		coveredThemes := make([]string, 0, 8)
 		currentSpeaker := o.chatSpeakerIndex()
 		segmentTurns := 0
 		loopReason := ""
@@ -423,15 +452,16 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 
 			// チェックポイント: 既出テーマを蓄積し sessionContext に反映
 			if segmentTurns > 0 && segmentTurns%forecastCheckpointInterval == 0 {
-				newThemes := o.extractCoveredThemes(domain, topic, transcript, coveredThemes)
+				newThemes := o.extractCoveredThemes(domain, displayTopic, transcript, coveredThemes)
 				if len(newThemes) > 0 {
 					coveredThemes = append(coveredThemes, newThemes...)
-					o.updateForecastSessionContext(domain, topic, coveredThemes)
+					o.updateForecastSessionContext(domain, displayTopic, coveredThemes)
 					log.Printf("[Forecast] Checkpoint at turn %d: covered themes now %d", segmentTurns, len(coveredThemes))
 				}
 			}
 
-			response, err := o.generateResponse(speaker, nextSpeaker, sessionID, totalTurns+turn, segmentTurns, topic)
+			// LLM には詳細な背景情報付きトピックを渡す
+			response, err := o.generateResponse(speaker, nextSpeaker, sessionID, totalTurns+turn, segmentTurns, llmTopic)
 			if err != nil {
 				log.Printf("[Forecast] Generation error: %v", err)
 				genFailed = true
