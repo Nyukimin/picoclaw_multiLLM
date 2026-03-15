@@ -142,6 +142,15 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .input-wrap{max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
 .input-main{display:flex;align-items:flex-end;gap:10px}
 .idle-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.audio-btn{
+  width:42px;height:42px;border-radius:12px;border:1px solid var(--border);cursor:pointer;
+  background:rgba(255,255,255,.05);color:var(--t2);font-size:18px;display:flex;align-items:center;
+  justify-content:center;transition:transform .15s,border-color .2s,color .2s,background .2s;flex-shrink:0
+}
+.audio-btn:hover{transform:translateY(-1px);color:var(--t1);background:rgba(255,255,255,.08)}
+.audio-btn:active{transform:scale(.96)}
+.audio-btn.ready{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
+.audio-btn.blocked{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
 .input-wrap textarea{flex:1;resize:none;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:12px;padding:10px 16px;color:var(--t1);font-size:16px;line-height:1.5;font-family:inherit;outline:none;min-height:42px;max-height:120px;transition:border-color .2s,box-shadow .2s}
 .input-wrap textarea::placeholder{color:var(--t3)}
 .input-wrap textarea:focus{border-color:rgba(244,114,182,.4);box-shadow:0 0 0 3px rgba(244,114,182,.08)}
@@ -331,6 +340,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 <div class="input-bar">
   <div class="input-wrap">
     <div class="input-main">
+      <button class="audio-btn" id="audioBtn" type="button" title="音声を有効化">🔊</button>
       <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
       <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
     </div>
@@ -480,6 +490,8 @@ const ttsPlayback = {
   queue: [],
   audio: null,
   playing: false,
+  unlocked: false,
+  blocked: false,
 };
 let userScrolledUp = false;
 let derivedDirty = false;
@@ -505,6 +517,7 @@ const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
+const audioBtn = document.getElementById('audioBtn');
 const eviStatus = document.getElementById('eviStatus');
 const eviErrorKind = document.getElementById('eviErrorKind');
 const eviPrev = document.getElementById('eviPrev');
@@ -1465,6 +1478,16 @@ function syncEvidenceQuery(jobID) {
   window.history.replaceState(null, '', u.toString());
 }
 
+function initTabFromQuery() {
+  try {
+    const u = new URL(window.location.href);
+    const tab = (u.searchParams.get('tab') || '').trim().toLowerCase();
+    if (tab && panels[tab]) {
+      switchTab(tab);
+    }
+  } catch (_) {}
+}
+
 function initEvidenceFromQuery() {
   try {
     const u = new URL(window.location.href);
@@ -1582,6 +1605,47 @@ function handleTTSAudioEvent(ev) {
   enqueueTTSAudio(url);
 }
 
+function updateAudioButton() {
+  if (!audioBtn) return;
+  const status = ttsPlayback.blocked ? 'blocked' : (ttsPlayback.unlocked ? 'ready' : '');
+  audioBtn.classList.remove('ready', 'blocked');
+  if (status) audioBtn.classList.add(status);
+  if (ttsPlayback.blocked) {
+    audioBtn.title = '音声がブロックされています。タップして再許可';
+    audioBtn.setAttribute('aria-label', '音声がブロックされています。タップして再許可');
+  } else if (ttsPlayback.unlocked) {
+    audioBtn.title = '音声は有効です';
+    audioBtn.setAttribute('aria-label', '音声は有効です');
+  } else {
+    audioBtn.title = '音声を有効化';
+    audioBtn.setAttribute('aria-label', '音声を有効化');
+  }
+}
+
+async function unlockTTSAudio() {
+  const audio = ensureTTSAudio();
+  try {
+    audio.pause();
+    audio.muted = true;
+    audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAA';
+    await audio.play();
+    audio.pause();
+    audio.currentTime = 0;
+    audio.removeAttribute('src');
+    audio.load();
+    audio.muted = false;
+    ttsPlayback.unlocked = true;
+    ttsPlayback.blocked = false;
+    updateAudioButton();
+    playNextTTSAudio();
+  } catch (err) {
+    ttsPlayback.unlocked = false;
+    ttsPlayback.blocked = true;
+    updateAudioButton();
+    console.error('tts audio unlock failed', err);
+  }
+}
+
 function ensureTTSAudio() {
   if (!ttsPlayback.audio) {
     ttsPlayback.audio = new Audio();
@@ -1610,15 +1674,24 @@ function playNextTTSAudio() {
   const audio = ensureTTSAudio();
   ttsPlayback.playing = true;
   audio.src = next;
-  audio.play().catch(function(err) {
+  audio.play().then(function() {
+    ttsPlayback.unlocked = true;
+    ttsPlayback.blocked = false;
+    updateAudioButton();
+  }).catch(function(err) {
     ttsPlayback.playing = false;
+    ttsPlayback.blocked = true;
+    ttsPlayback.unlocked = false;
     console.error('tts audio play failed', err);
-    showToast('TTS audio blocked. Click viewer once and retry.', 'error');
+    updateAudioButton();
+    ttsPlayback.queue.unshift(next);
   });
 }
 
 const inp = document.getElementById('inp');
 const sendBtn = document.getElementById('sendBtn');
+if (audioBtn) audioBtn.addEventListener('click', unlockTTSAudio);
+updateAudioButton();
 let sending = false;
 function autoResize() {
   inp.style.height = 'auto';
@@ -1683,6 +1756,7 @@ refreshDerivedViews();
 renderIdleChat();
 refreshIdleStatus();
 refreshIdleLogs();
+initTabFromQuery();
 initEvidenceFromQuery();
 refreshEvidence();
 refreshEvidenceSummary();
