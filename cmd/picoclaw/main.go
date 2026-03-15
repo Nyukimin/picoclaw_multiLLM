@@ -166,6 +166,7 @@ func cmdRun() {
 
 	// Live Viewer
 	mux.HandleFunc("/viewer", viewer.HandlePage)
+	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)

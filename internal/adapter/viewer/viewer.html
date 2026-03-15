@@ -175,7 +175,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 /* === Live Mode (配信用 1920x1080) === */
 body.live-mode header{padding:16px 40px 12px}
 body.live-mode .logo{font-size:26px;gap:14px}
-body.live-mode .logo span:first-child{font-size:32px}
+body.live-mode .logo img{height:96px !important}
 body.live-mode .stat{font-size:16px}
 body.live-mode .dot{width:12px;height:12px}
 body.live-mode .tabs,
@@ -214,7 +214,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
 </head>
 <body>
 <header>
-  <div class="logo"><span>&#x1f43e;</span><span>RenCrow Live</span></div>
+  <div class="logo"><img src="/viewer/logo.png" alt="RenCrow" style="height:64px;width:auto"><span>RenCrow Live</span></div>
   <div class="stat">
     <div class="dot" id="dot"></div>
     <span id="stxt">Connecting...</span>
