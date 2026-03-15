@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -58,23 +59,74 @@ var forecastDomains = []ForecastDomain{
 
 // PreparedTopic は事前生成済みのお題。
 type PreparedTopic struct {
-	Domain  ForecastDomain
-	Topic   string
-	Seeds   []string
-	Created time.Time
+	Domain  ForecastDomain `json:"domain"`
+	Topic   string         `json:"topic"`
+	Seeds   []string       `json:"seeds"`
+	Created time.Time      `json:"created"`
 }
 
-// forecastTopicStock はドメインごとのお題バッファ。
+// forecastTopicStock はドメインごとのお題バッファ（ファイル永続化付き）。
 type forecastTopicStock struct {
 	mu      sync.Mutex
 	stock   map[string][]PreparedTopic
-	filling map[string]bool // 同一ドメインの重複生成防止
+	filling map[string]bool
+	path    string // 永続化ファイルパス
 }
 
-func newForecastTopicStock() *forecastTopicStock {
-	return &forecastTopicStock{
+// stockFile はファイル保存形式。
+type stockFile struct {
+	Stock map[string][]PreparedTopic `json:"stock"`
+}
+
+func newForecastTopicStock(path string) *forecastTopicStock {
+	s := &forecastTopicStock{
 		stock:   make(map[string][]PreparedTopic),
 		filling: make(map[string]bool),
+		path:    path,
+	}
+	s.load()
+	return s
+}
+
+func (s *forecastTopicStock) load() {
+	if s.path == "" {
+		log.Printf("[Forecast] Stock file path is empty, skipping load")
+		return
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		log.Printf("[Forecast] Stock file not found or unreadable (%s): %v", s.path, err)
+		return
+	}
+	var f stockFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		log.Printf("[Forecast] Stock file parse error: %v", err)
+		return
+	}
+	if f.Stock == nil || len(f.Stock) == 0 {
+		log.Printf("[Forecast] Stock file empty or nil")
+		return
+	}
+	s.stock = f.Stock
+	total := 0
+	for _, items := range s.stock {
+		total += len(items)
+	}
+	log.Printf("[Forecast] Stock loaded from file: %d topics across %d domains", total, len(f.Stock))
+}
+
+func (s *forecastTopicStock) save() {
+	if s.path == "" {
+		return
+	}
+	f := stockFile{Stock: s.stock}
+	data, err := json.Marshal(f)
+	if err != nil {
+		log.Printf("[Forecast] Stock file marshal error: %v", err)
+		return
+	}
+	if err := os.WriteFile(s.path, data, 0644); err != nil {
+		log.Printf("[Forecast] Stock file write error: %v", err)
 	}
 }
 
@@ -88,6 +140,7 @@ func (s *forecastTopicStock) pop(domain string) *PreparedTopic {
 	}
 	item := items[0]
 	s.stock[domain] = items[1:]
+	s.save()
 	return &item
 }
 
@@ -100,6 +153,7 @@ func (s *forecastTopicStock) push(domain string, item PreparedTopic) {
 		return
 	}
 	s.stock[domain] = append(items, item)
+	s.save()
 }
 
 // count はドメインのストック数を返す。
@@ -127,13 +181,14 @@ func (s *forecastTopicStock) doneFilling(domain string) {
 }
 
 // InitForecastTopicStock はお題ストックを初期化し、全ドメインのバックグラウンド補充を開始する。
-func (o *IdleChatOrchestrator) InitForecastTopicStock() {
+// path はストックの永続化ファイルパス。
+func (o *IdleChatOrchestrator) InitForecastTopicStock(path string) {
 	o.mu.Lock()
 	if o.topicStockBuf != nil {
 		o.mu.Unlock()
 		return
 	}
-	o.topicStockBuf = newForecastTopicStock()
+	o.topicStockBuf = newForecastTopicStock(path)
 	o.mu.Unlock()
 	log.Printf("[Forecast] Topic stock initialized, starting background fill for %d domains", len(forecastDomains))
 	for _, domain := range forecastDomains {
