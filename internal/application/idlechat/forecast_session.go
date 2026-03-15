@@ -300,7 +300,7 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 		SessionID:       sessionID,
 		Title:           title,
 		Topic:           fullTopic,
-		Strategy:        StrategyForecast,
+		Strategy:        TopicStrategy(fmt.Sprintf("forecast/%s", domain.Name)),
 		Summary:         summary,
 		StartedAt:       startedAt.Format(time.RFC3339),
 		EndedAt:         endedAt.Format(time.RFC3339),

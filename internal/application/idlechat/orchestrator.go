@@ -462,7 +462,8 @@ func (o *IdleChatOrchestrator) runChatSession() {
 		remainingTurns -= segmentTurns
 		endedAt := time.Now().In(jst)
 		if segmentTurns > 0 {
-			summary := o.saveSummary(sessionID, topic, strategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
+			displayStrategy := TopicStrategy(fmt.Sprintf("%s: %s", strategy, truncate(topic, 30)))
+			summary := o.saveSummary(sessionID, topic, displayStrategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
 			o.speakSummary(sessionID, summary)
 		}
 		cooldown := topicBreak
