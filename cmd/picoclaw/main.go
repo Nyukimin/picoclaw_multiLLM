@@ -48,6 +48,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	glossary "github.com/Nyukimin/picoclaw_multiLLM/internal/glossary"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
@@ -177,6 +178,9 @@ func cmdRun() {
 	}
 	if dependencies.evidenceSummary != nil {
 		mux.HandleFunc("/viewer/evidence/summary", dependencies.evidenceSummary)
+	}
+	if dependencies.glossaryRecent != nil {
+		mux.HandleFunc("/viewer/glossary/recent", dependencies.glossaryRecent)
 	}
 	if dependencies.entryHandler != nil {
 		mux.HandleFunc("/entry", dependencies.entryHandler)
@@ -1442,6 +1446,7 @@ type Dependencies struct {
 	evidenceHandler    http.HandlerFunc                      // viewer evidence API
 	evidenceDetail     http.HandlerFunc                      // viewer evidence detail API
 	evidenceSummary    http.HandlerFunc                      // viewer evidence summary API
+	glossaryRecent     http.HandlerFunc                      // viewer glossary API
 	entryHandler       http.HandlerFunc                      // unified entry endpoint
 	chromeBridge       http.HandlerFunc                      // chrome bridge endpoint
 	chromeBridgeStatus http.HandlerFunc                      // chrome bridge status endpoint
@@ -1680,7 +1685,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			summaryModel = cfg.Ollama.Model
 		}
 		if summaryModel != "" {
-			summaryProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, summaryModel)
+			summaryProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768)
 			summarizer := conversationpersistence.NewLLMSummarizer(summaryProvider)
 			realMgr.WithSummarizer(summarizer)
 			log.Printf("  Summarizer: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
@@ -1696,7 +1701,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		// ProfileExtractor（summary_model を再利用）
 		var profileExtractor conversation.ProfileExtractor
 		if summaryModel != "" {
-			profileProvider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, summaryModel)
+			profileProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768)
 			profileExtractor = conversationpersistence.NewLLMProfileExtractor(profileProvider)
 			log.Printf("  ProfileExtractor: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
 		}
@@ -1724,8 +1729,47 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	memStore := memorypersistence.NewFileStore(cfg.WorkspaceDir)
 	log.Printf("MemoryStore initialized (workspace: %s)", cfg.WorkspaceDir)
 
+	var recentGlossaryContext func(context.Context, int) (string, error)
+	var recentGlossaryTopics func(context.Context, int) ([]string, error)
+	var glossaryRecentHandler http.HandlerFunc
+	if cfg.Glossary.Enabled {
+		dbPath := cfg.Glossary.DBPath
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+			log.Printf("WARN: glossary directory create failed: %v", err)
+		} else if glossaryModule, err := glossary.NewGlossaryModule(dbPath); err != nil {
+			log.Printf("WARN: glossary disabled: %v", err)
+		} else {
+			syncGlossary := func() {
+				count, err := glossaryModule.SyncFeeds(context.Background(), cfg.Glossary.FeedURLs)
+				if err != nil {
+					log.Printf("WARN: glossary sync failed: %v", err)
+					return
+				}
+				log.Printf("Glossary sync complete: %d items", count)
+			}
+			syncGlossary()
+			if cfg.Glossary.RefreshIntervalHr > 0 {
+				go func(interval time.Duration) {
+					ticker := time.NewTicker(interval)
+					defer ticker.Stop()
+					for range ticker.C {
+						syncGlossary()
+					}
+				}(time.Duration(cfg.Glossary.RefreshIntervalHr) * time.Hour)
+			}
+			recentGlossaryContext = glossaryModule.MioAdapter.GetRecentContext
+			recentGlossaryTopics = glossaryModule.MioAdapter.GetRecentTopics
+			glossaryRecentHandler = viewer.HandleGlossaryRecent(glossaryModule.Service)
+			log.Printf("Glossary enabled: db=%s feeds=%d", dbPath, len(cfg.Glossary.FeedURLs))
+		}
+	}
+
 	// 6. Agents
 	mioAgent := agent.NewMioAgent(chatProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
+	if recentGlossaryContext != nil {
+		mioAgent = mioAgent.WithRecentContextProvider(recentGlossaryContext)
+		log.Printf("Mio: Glossary context injected")
+	}
 	if realMgr != nil {
 		mioAgent = mioAgent.WithConversationManager(realMgr)
 		log.Printf("Mio: ConversationManager injected (KB autosave enabled)")
@@ -1751,6 +1795,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
 
 	deps := &Dependencies{}
+	deps.glossaryRecent = glossaryRecentHandler
 
 	// EventHub (Live Viewer)
 	hub := viewer.NewEventHub(200)
@@ -1859,8 +1904,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		)
 		idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 			"mio":   chatProvider,
-			"shiro": workerProvider,
+			"shiro": chatProvider,
 		})
+		if recentGlossaryTopics != nil {
+			idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
+			log.Printf("IdleChat: Glossary topics injected")
+		}
 		topicStorePath := filepath.Join(cfg.Session.StorageDir, "idlechat_topics.jsonl")
 		if err := idleChatOrch.SetTopicStore(topicStorePath); err != nil {
 			log.Printf("WARN: idleChat topic store disabled: %v", err)
@@ -1868,7 +1917,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			log.Printf("IdleChat topic store enabled: %s", topicStorePath)
 		}
 		if deps.eventHub != nil {
-			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) {
+			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) <-chan struct{} {
 				deps.eventHub.OnEvent(orchestrator.NewEvent(
 					ev.Type,
 					ev.From,
@@ -1880,7 +1929,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 					"idlechat",
 					"idlechat",
 				))
-				emitIdleChatTTSAsync(ttsBridge, ev)
+				return emitIdleChatTTSAsync(ttsBridge, ev)
 			})
 		}
 		if deps.eventRelay != nil {
@@ -2129,14 +2178,18 @@ func (d *Dependencies) startLocalWorkerAgent(agentName string, lt *transport.Loc
 }
 
 func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shiroAgent *agent.ShiroAgent, workerExecution service.WorkerExecutionService) domaintransport.Message {
+	log.Printf("[LocalWorker] recv agent=%s from=%s to=%s type=%s job=%s content_len=%d has_proposal=%t", agentName, msg.From, msg.To, msg.Type, msg.JobID, len(msg.Content), msg.Proposal != nil)
 	if msg.Proposal != nil && workerExecution != nil {
 		p := proposal.Reconstruct(msg.Proposal.Plan, msg.Proposal.Patch, msg.Proposal.Risk, msg.Proposal.CostHint)
 		jobID, err := task.ParseJobID(msg.JobID)
 		if err != nil {
+			log.Printf("[LocalWorker] invalid job id agent=%s job=%s err=%v", agentName, msg.JobID, err)
 			return newLocalAgentError(agentName, msg, fmt.Sprintf("invalid job ID: %v", err))
 		}
+		log.Printf("[LocalWorker] proposal execute start agent=%s job=%s", agentName, msg.JobID)
 		result, err := workerExecution.ExecuteProposal(context.Background(), jobID, p)
 		if err != nil {
+			log.Printf("[LocalWorker] proposal execute error agent=%s job=%s err=%v", agentName, msg.JobID, err)
 			return newLocalAgentError(agentName, msg, fmt.Sprintf("patch execution failed: %v", err))
 		}
 		resp := domaintransport.NewMessage(agentName, msg.From, msg.SessionID, msg.JobID, result.Summary)
@@ -2148,6 +2201,7 @@ func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shi
 			FailedCmds:   result.FailedCmds,
 			GitCommit:    result.GitCommit,
 		}
+		log.Printf("[LocalWorker] proposal execute complete agent=%s job=%s success=%t summary_len=%d", agentName, msg.JobID, result.FailedCmds == 0, len(result.Summary))
 		return resp
 	}
 
@@ -2156,8 +2210,10 @@ func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shi
 		jobID = task.NewJobID()
 	}
 	t := task.NewTask(jobID, msg.Content, "distributed", msg.SessionID)
+	log.Printf("[LocalWorker] shiro execute start agent=%s job=%s", agentName, msg.JobID)
 	result, err := shiroAgent.Execute(context.Background(), t)
 	if err != nil {
+		log.Printf("[LocalWorker] shiro execute error agent=%s job=%s err=%v", agentName, msg.JobID, err)
 		return newLocalAgentError(agentName, msg, fmt.Sprintf("worker execution failed: %v", err))
 	}
 	resp := domaintransport.NewMessage(agentName, msg.From, msg.SessionID, msg.JobID, result)
@@ -2166,6 +2222,7 @@ func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shi
 		Success: true,
 		Summary: result,
 	}
+	log.Printf("[LocalWorker] shiro execute complete agent=%s job=%s result_len=%d", agentName, msg.JobID, len(result))
 	return resp
 }
 
@@ -2180,20 +2237,30 @@ func (d *Dependencies) startLocalCoderAgent(agentName string, lt *transport.Loca
 				log.Printf("Local coder '%s' loop stopped: %v", agentName, err)
 				return
 			}
+			log.Printf("[LocalCoder] recv agent=%s from=%s to=%s type=%s job=%s content_len=%d", agentName, msg.From, msg.To, msg.Type, msg.JobID, len(msg.Content))
+			d.emitLocalAgentNote(agentName, msg.From, "依頼を受領しました。", msg)
 			jobID, parseErr := task.ParseJobID(msg.JobID)
 			if parseErr != nil {
 				jobID = task.NewJobID()
 			}
 			t := task.NewTask(jobID, msg.Content, "distributed", msg.SessionID)
+			log.Printf("[LocalCoder] proposal start agent=%s job=%s", agentName, msg.JobID)
+			d.emitLocalAgentNote(agentName, msg.From, "proposal 生成を開始しました。", msg)
 			p, err := coder.GenerateProposal(context.Background(), t)
 			if err != nil {
+				log.Printf("[LocalCoder] proposal error agent=%s job=%s err=%v", agentName, msg.JobID, err)
+				d.emitLocalAgentNote(agentName, msg.From, "proposal 生成で失敗しました。", msg)
 				d.deliverLocalAgentResponse(newLocalAgentError(agentName, msg, fmt.Sprintf("proposal generation failed: %v", err)))
 				continue
 			}
 			if p == nil {
+				log.Printf("[LocalCoder] proposal empty agent=%s job=%s", agentName, msg.JobID)
+				d.emitLocalAgentNote(agentName, msg.From, "proposal が空でした。", msg)
 				d.deliverLocalAgentResponse(newLocalAgentError(agentName, msg, "proposal generation returned empty result"))
 				continue
 			}
+			log.Printf("[LocalCoder] proposal complete agent=%s job=%s plan_len=%d patch_len=%d", agentName, msg.JobID, len(p.Plan()), len(p.Patch()))
+			d.emitLocalAgentNote(agentName, msg.From, "proposal 生成が完了しました。", msg)
 			resp := domaintransport.NewMessage(agentName, localCoderReplyTarget(msg), msg.SessionID, msg.JobID, fmt.Sprintf("Proposal generated by %s", agentName))
 			resp.Type = domaintransport.MessageTypeResult
 			resp.Proposal = &domaintransport.ProposalPayload{
@@ -2209,6 +2276,7 @@ func (d *Dependencies) startLocalCoderAgent(agentName string, lt *transport.Loca
 
 func (d *Dependencies) deliverLocalAgentResponse(msg domaintransport.Message) {
 	if d.router == nil {
+		log.Printf("[LocalDeliver] drop reason=no_router to=%s from=%s job=%s", msg.To, msg.From, msg.JobID)
 		return
 	}
 	target, ok := d.router.GetAgent(msg.To)
@@ -2216,9 +2284,12 @@ func (d *Dependencies) deliverLocalAgentResponse(msg domaintransport.Message) {
 		log.Printf("Local agent response dropped: target '%s' not registered", msg.To)
 		return
 	}
+	log.Printf("[LocalDeliver] send to=%s from=%s type=%s job=%s content_len=%d has_proposal=%t", msg.To, msg.From, msg.Type, msg.JobID, len(msg.Content), msg.Proposal != nil)
 	if err := target.PutInboundMessage(msg); err != nil {
 		log.Printf("Local agent response delivery failed to '%s': %v", msg.To, err)
+		return
 	}
+	log.Printf("[LocalDeliver] sent to=%s from=%s job=%s", msg.To, msg.From, msg.JobID)
 }
 
 func newLocalAgentError(agentName string, msg domaintransport.Message, errMsg string) domaintransport.Message {
@@ -2255,6 +2326,29 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
 	}
+}
+
+func (d *Dependencies) emitLocalAgentNote(from, to, content string, msg domaintransport.Message) {
+	if d.eventRelay == nil {
+		return
+	}
+	route := ""
+	if msg.Context != nil {
+		if v, ok := msg.Context["route"].(string); ok {
+			route = v
+		}
+	}
+	d.eventRelay.OnEvent(orchestrator.NewEvent(
+		"agent.note",
+		from,
+		to,
+		content,
+		route,
+		msg.JobID,
+		msg.SessionID,
+		"distributed",
+		msg.SessionID,
+	))
 }
 
 func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {

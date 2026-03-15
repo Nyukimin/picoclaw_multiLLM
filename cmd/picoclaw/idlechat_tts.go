@@ -123,20 +123,30 @@ func ensureIdleChatSentencePause(content string) string {
 	}
 }
 
-func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) {
+func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) <-chan struct{} {
 	if bridge == nil {
-		return
+		return nil
 	}
 	if !isIdleChatTopicAnnouncement(ev) {
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
 			// Non-topic lines wait until the topic TTS closes its gate for this idle session.
 			waitIdleChatTopicGate(ev.SessionID)
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			_, _ = emitIdleChatTTS(ctx, bridge, ev)
+			ttsCh, ok := emitIdleChatTTS(ctx, bridge, ev)
+			if ok && ttsCh != nil {
+				select {
+				case <-ttsCh:
+				case <-ctx.Done():
+					clearIdleChatTTSPendingByChan(ttsCh)
+				}
+			}
 		}()
-		return
+		return done
 	}
+	// Topic announcements: serial queue, orchestrator doesn't wait.
 	idleChatTTSOnce.Do(func() {
 		idleChatTTSQueue = make(chan idleChatTTSItem, 128)
 		go func() {
@@ -161,6 +171,7 @@ func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEve
 		defer cancel()
 		_, _ = emitIdleChatTTS(ctx, bridge, ev)
 	}
+	return nil
 }
 
 func isIdleChatTopicAnnouncement(ev idlechat.TimelineEvent) bool {

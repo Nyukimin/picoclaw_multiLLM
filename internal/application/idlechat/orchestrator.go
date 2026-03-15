@@ -21,11 +21,9 @@ import (
 
 const (
 	idleCheckInterval = 30 * time.Second
-	minTopicInterval  = 10 * time.Second // テスト用: 10秒間隔
-	ttsCharsPerSecond = 8.0
-	ttsMinWait        = 2 * time.Second
-	ttsMaxWait        = 20 * time.Second
 	maxTurnsPerTopic  = 12
+	speakerBreak = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
+	topicBreak   = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
@@ -67,7 +65,6 @@ type IdleChatOrchestrator struct {
 	maxTurns       int
 	temperature    float64
 	personalities  map[string]string
-	ttsWaitEnabled bool
 
 	lastActivity time.Time
 	chatActive   bool
@@ -77,8 +74,9 @@ type IdleChatOrchestrator struct {
 	currentTopic string
 	nextTopicAt  time.Time
 	history      []SessionSummary
-	emitEvent    func(TimelineEvent)
+	emitEvent    func(TimelineEvent) <-chan struct{}
 	topicStore   *TopicStore
+	recentTopics func(context.Context, int) ([]string, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -87,10 +85,17 @@ type IdleChatOrchestrator struct {
 }
 
 // SetEventEmitter sets an optional timeline event emitter used by viewer SSE.
-func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent)) {
+// The callback returns a channel that closes when TTS playback completes (nil = no TTS).
+func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan struct{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.emitEvent = emit
+}
+
+func (o *IdleChatOrchestrator) SetRecentTopicProvider(provider func(context.Context, int) ([]string, error)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.recentTopics = provider
 }
 
 // SetTopicStore configures persistent storage for topic summaries.
@@ -119,22 +124,17 @@ func NewIdleChatOrchestrator(
 	randSeedOnce.Do(func() {
 		rand.Seed(time.Now().UnixNano())
 	})
-	ttsWaitEnabled := true
-	if llmProvider != nil && llmProvider.Name() == "mock" {
-		ttsWaitEnabled = false
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
-		llmProvider:    llmProvider,
-		speakerLLMs:    make(map[string]llm.LLMProvider),
-		memory:         memory,
-		participants:   participants,
-		intervalMin:    intervalMin,
-		maxTurns:       maxTurns,
-		temperature:    temperature,
-		personalities:  personalities,
-		ttsWaitEnabled: ttsWaitEnabled,
-		lastActivity:   time.Now(),
+		llmProvider:   llmProvider,
+		speakerLLMs:   make(map[string]llm.LLMProvider),
+		memory:        memory,
+		participants:  participants,
+		intervalMin:   intervalMin,
+		maxTurns:      maxTurns,
+		temperature:   temperature,
+		personalities: personalities,
+		lastActivity:  time.Now(),
 		history:        make([]SessionSummary, 0, 32),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -352,6 +352,7 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	o.mu.Lock()
 	o.chatActive = false
 	o.currentTopic = ""
+	o.lastActivity = time.Now() // セッション終了でアイドル計測をリセット
 	o.mu.Unlock()
 }
 
@@ -414,10 +415,12 @@ func (o *IdleChatOrchestrator) runChatSession() {
 				break
 			}
 
+			response = ensureTrailingPeriod(response)
+
 			msg := domaintransport.NewMessage(speaker, nextSpeaker, sessionID, "", response)
 			msg.Type = domaintransport.MessageTypeIdleChat
 			o.memory.RecordMessage(msg)
-			o.emitTimelineEvent(TimelineEvent{
+			ttsDone := o.emitTimelineEvent(TimelineEvent{
 				Type:      "idlechat.message",
 				From:      speaker,
 				To:        nextSpeaker,
@@ -428,7 +431,8 @@ func (o *IdleChatOrchestrator) runChatSession() {
 			segmentTurns++
 
 			log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
-			o.waitForTTS(response)
+			o.waitForTTSDone(ttsDone)
+			o.waitBreak(speakerBreak)
 
 			if segmentTurns >= maxTurnsPerTopic {
 				loopDetected = true
@@ -451,7 +455,7 @@ func (o *IdleChatOrchestrator) runChatSession() {
 		if segmentTurns > 0 {
 			o.saveSummary(sessionID, topic, strategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
 		}
-		cooldown := minTopicInterval
+		cooldown := topicBreak
 		if sessionInterrupted || generationFailed {
 			idleCooldown := time.Duration(o.intervalMin) * time.Minute
 			if idleCooldown > cooldown {
@@ -467,34 +471,44 @@ func (o *IdleChatOrchestrator) runChatSession() {
 	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, o.maxTurns)
 }
 
-func estimateTTSWait(content string) time.Duration {
-	runes := len([]rune(strings.TrimSpace(content)))
-	if runes <= 0 {
-		return ttsMinWait
-	}
-	seconds := float64(runes) / ttsCharsPerSecond
-	d := time.Duration(seconds * float64(time.Second))
-	if d < ttsMinWait {
-		return ttsMinWait
-	}
-	if d > ttsMaxWait {
-		return ttsMaxWait
-	}
-	return d
-}
-
-func (o *IdleChatOrchestrator) waitForTTS(content string) {
-	if !o.ttsWaitEnabled {
+// waitForTTSDone はTTS完了チャネルを待つ。nilなら即座に返る。
+func (o *IdleChatOrchestrator) waitForTTSDone(ch <-chan struct{}) {
+	if ch == nil {
 		return
 	}
-	wait := estimateTTSWait(content)
-	timer := time.NewTimer(wait)
+	select {
+	case <-o.ctx.Done():
+		return
+	case <-ch:
+	}
+}
+
+// waitBreak はTTS完了後の沈黙を待つ。
+func (o *IdleChatOrchestrator) waitBreak(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-o.ctx.Done():
 		return
 	case <-timer.C:
 	}
+}
+
+// ensureTrailingPeriod はセリフ末尾に句読点がなければ「。」を追記する。
+func ensureTrailingPeriod(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	last, _ := utf8.DecodeLastRuneInString(s)
+	switch last {
+	case '。', '！', '？', '!', '?', '…':
+		return s
+	}
+	return s + "。"
 }
 
 func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
@@ -541,6 +555,14 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, 
 		prompt, genres = generateSingleGenrePrompt(movieMode)
 		logInfo = fmt.Sprintf("single:%v (fallback)", genres)
 		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "", movieMode)
+	}
+
+	if o.recentTopics != nil {
+		if glossaryTopics, err := o.recentTopics(o.ctx, 6); err != nil {
+			log.Printf("[IdleChat] glossary topics failed: %v", err)
+		} else if len(glossaryTopics) > 0 {
+			prompt += "\n\n最近語彙メモ:\n- " + strings.Join(glossaryTopics, "\n- ") + "\n上の語彙は、最近の時事語彙や固有名詞の種です。詳細断言ではなく、お題の発想補助として軽く使ってください。"
+		}
 	}
 
 	log.Printf("[IdleChat] Strategy: %s (%s, movie=%t)", strategy, logInfo, movieMode)
@@ -950,6 +972,16 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		Role:    "user",
 		Content: buildIdleResponseGuardPrompt(speaker, selfCtx, otherCtx),
 	})
+	if o.recentTopics != nil {
+		if glossaryTopics, err := o.recentTopics(o.ctx, 5); err != nil {
+			log.Printf("[IdleChat] glossary context failed: %v", err)
+		} else if len(glossaryTopics) > 0 {
+			messages = append(messages, llm.Message{
+				Role:    "system",
+				Content: "最近語彙メモ:\n- " + strings.Join(glossaryTopics, "\n- ") + "\n最近語彙は会話の種としてだけ使い、詳細断言はしないでください。",
+			})
+		}
+	}
 	if isMovieTopicPrompt(topic) {
 		messages = append(messages, llm.Message{
 			Role:    "user",
@@ -1885,13 +1917,14 @@ func splitIdleTokens(s string) []string {
 	})
 }
 
-func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) {
+func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) <-chan struct{} {
 	o.mu.Lock()
 	emit := o.emitEvent
 	o.mu.Unlock()
 	if emit != nil {
-		emit(ev)
+		return emit(ev)
 	}
+	return nil
 }
 
 func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, strategy TopicStrategy) {
