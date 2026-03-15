@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	forecastTurnsPerDomain      = 100 // 1ドメインあたりの最大ターン数
-	forecastCheckpointInterval  = 15  // 進行チェックポイントの間隔（ターン数）
+	forecastTurnsPerDomain     = 100 // 1ドメインあたりの最大ターン数
+	forecastCheckpointInterval = 15  // 進行チェックポイントの間隔（ターン数）
+	forecastTopicStockSize     = 2   // ドメインあたりのお題ストック数
 )
 
 // ForecastDomain は未来展望セッションの1ドメインを定義する。
@@ -51,6 +52,158 @@ var forecastDomains = []ForecastDomain{
 		Name:    "経済",
 		RSSURLs: []string{"https://www.nhk.or.jp/rss/news/cat4.xml"},
 	},
+}
+
+// --- お題ストック ---
+
+// PreparedTopic は事前生成済みのお題。
+type PreparedTopic struct {
+	Domain  ForecastDomain
+	Topic   string
+	Seeds   []string
+	Created time.Time
+}
+
+// forecastTopicStock はドメインごとのお題バッファ。
+type forecastTopicStock struct {
+	mu      sync.Mutex
+	stock   map[string][]PreparedTopic
+	filling map[string]bool // 同一ドメインの重複生成防止
+}
+
+func newForecastTopicStock() *forecastTopicStock {
+	return &forecastTopicStock{
+		stock:   make(map[string][]PreparedTopic),
+		filling: make(map[string]bool),
+	}
+}
+
+// pop はドメインのストックから1つ取得する。空なら nil。
+func (s *forecastTopicStock) pop(domain string) *PreparedTopic {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.stock[domain]
+	if len(items) == 0 {
+		return nil
+	}
+	item := items[0]
+	s.stock[domain] = items[1:]
+	return &item
+}
+
+// push はドメインのストックに追加する（上限 forecastTopicStockSize）。
+func (s *forecastTopicStock) push(domain string, item PreparedTopic) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.stock[domain]
+	if len(items) >= forecastTopicStockSize {
+		return
+	}
+	s.stock[domain] = append(items, item)
+}
+
+// count はドメインのストック数を返す。
+func (s *forecastTopicStock) count(domain string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.stock[domain])
+}
+
+// startFilling は重複生成を防止しつつ filling フラグを立てる。既に filling なら false。
+func (s *forecastTopicStock) startFilling(domain string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.filling[domain] {
+		return false
+	}
+	s.filling[domain] = true
+	return true
+}
+
+func (s *forecastTopicStock) doneFilling(domain string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.filling[domain] = false
+}
+
+// InitForecastTopicStock はお題ストックを初期化し、全ドメインのバックグラウンド補充を開始する。
+func (o *IdleChatOrchestrator) InitForecastTopicStock() {
+	o.mu.Lock()
+	if o.topicStockBuf != nil {
+		o.mu.Unlock()
+		return
+	}
+	o.topicStockBuf = newForecastTopicStock()
+	o.mu.Unlock()
+	log.Printf("[Forecast] Topic stock initialized, starting background fill for %d domains", len(forecastDomains))
+	for _, domain := range forecastDomains {
+		o.refillTopicStockAsync(domain)
+	}
+}
+
+// popForecastTopic はストックからお題を取得し、バックグラウンドで補充をトリガーする。
+// ストックが空の場合はインラインで生成する（フォールバック）。
+func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, []string) {
+	o.mu.Lock()
+	stock := o.topicStockBuf
+	o.mu.Unlock()
+
+	if stock != nil {
+		if item := stock.pop(domain.Name); item != nil {
+			log.Printf("[Forecast] Topic popped from stock: %s (remaining=%d)", domain.Name, stock.count(domain.Name))
+			o.refillTopicStockAsync(domain)
+			return item.Topic, item.Seeds
+		}
+	}
+
+	// ストック空 → インライン生成（フォールバック）
+	log.Printf("[Forecast] Stock empty for %s, generating inline", domain.Name)
+	return o.generateForecastTopicInline(domain)
+}
+
+// generateForecastTopicInline は従来のインライン生成パイプライン。
+func (o *IdleChatOrchestrator) generateForecastTopicInline(domain ForecastDomain) (string, []string) {
+	trendSeeds := fetchTrendSeeds(domain)
+	nhkSeeds := fetchDomainSeeds(domain, 10)
+	allHeadlines := append(trendSeeds, nhkSeeds...)
+	keyword := o.extractForecastKeyword(domain, allHeadlines)
+	deepSeeds := fetchGoogleNewsSeeds(keyword, 5)
+	seeds := append(allHeadlines, deepSeeds...)
+	log.Printf("[Forecast] %s: keyword=%q trends=%d nhk=%d google=%d", domain.Name, keyword, len(trendSeeds), len(nhkSeeds), len(deepSeeds))
+	topic := o.generateForecastTopic(domain, seeds)
+	return topic, seeds
+}
+
+// refillTopicStockAsync はバックグラウンドでストックを forecastTopicStockSize まで補充する。
+func (o *IdleChatOrchestrator) refillTopicStockAsync(domain ForecastDomain) {
+	o.mu.Lock()
+	stock := o.topicStockBuf
+	o.mu.Unlock()
+	if stock == nil {
+		return
+	}
+
+	if stock.count(domain.Name) >= forecastTopicStockSize {
+		return
+	}
+	if !stock.startFilling(domain.Name) {
+		return // 別の goroutine が補充中
+	}
+	go func(d ForecastDomain) {
+		defer stock.doneFilling(d.Name)
+		topic, seeds := o.generateForecastTopicInline(d)
+		if topic != "" {
+			stock.push(d.Name, PreparedTopic{
+				Domain:  d,
+				Topic:   topic,
+				Seeds:   seeds,
+				Created: time.Now(),
+			})
+			log.Printf("[Forecast] Stock refilled: %s (count=%d)", d.Name, stock.count(d.Name))
+		}
+		// まだ足りなければ再帰的に補充
+		o.refillTopicStockAsync(d)
+	}(domain)
 }
 
 // fetchDomainSeeds は指定ドメインのRSSからシードを取得する。
@@ -159,15 +312,8 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		})
 		o.waitForTTSDone(ttsDone)
 
-		// ドメイン特化トピック生成: トレンド + NHK → キーワード抽出 → Google News 深掘り
-		trendSeeds := fetchTrendSeeds(domain)
-		nhkSeeds := fetchDomainSeeds(domain, 10)
-		allHeadlines := append(trendSeeds, nhkSeeds...)
-		keyword := o.extractForecastKeyword(domain, allHeadlines)
-		deepSeeds := fetchGoogleNewsSeeds(keyword, 5)
-		seeds := append(allHeadlines, deepSeeds...)
-		log.Printf("[Forecast] %s: keyword=%q trends=%d nhk=%d google=%d", domain.Name, keyword, len(trendSeeds), len(nhkSeeds), len(deepSeeds))
-		topic := o.generateForecastTopic(domain, seeds)
+		// ドメイン特化トピック生成: ストックから取得（空ならインライン生成）
+		topic, _ := o.popForecastTopic(domain)
 
 		o.mu.Lock()
 		o.currentTopic = fmt.Sprintf("[%s] %s", domain.Name, topic)

@@ -77,8 +77,9 @@ type IdleChatOrchestrator struct {
 	nextTopicAt  time.Time
 	history      []SessionSummary
 	emitEvent    func(TimelineEvent) <-chan struct{}
-	topicStore   *TopicStore
-	recentTopics func(context.Context, int) ([]string, error)
+	topicStore      *TopicStore
+	topicStockBuf   *forecastTopicStock // 未来展望お題ストック
+	recentTopics    func(context.Context, int) ([]string, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc

@@ -1910,7 +1910,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		})
 		if openaiProvider != nil {
 			idleChatOrch.SetForecastProvider(openaiProvider)
-			log.Printf("IdleChat: Forecast provider set to OpenAI (Coder2: %s)", cfg.OpenAI.Model)
+			idleChatOrch.InitForecastTopicStock()
+			log.Printf("IdleChat: Forecast provider set to OpenAI (Coder2: %s), topic stock filling", cfg.OpenAI.Model)
 		}
 		if recentGlossaryTopics != nil {
 			idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
