@@ -75,6 +75,8 @@ type IdleChatOrchestrator struct {
 	manualMode    bool
 	sessionMode   string
 	currentTopic  string
+	autoStep      int
+	forecastStep  int
 	nextTopicAt   time.Time
 	history       []SessionSummary
 	emitEvent     func(TimelineEvent) <-chan struct{}
@@ -86,6 +88,12 @@ type IdleChatOrchestrator struct {
 	cancel context.CancelFunc
 	mu     sync.Mutex
 	wg     sync.WaitGroup
+}
+
+type idleSessionPlan struct {
+	mode     string
+	strategy TopicStrategy
+	domain   *ForecastDomain
 }
 
 // SetEventEmitter sets an optional timeline event emitter used by viewer SSE.
@@ -437,11 +445,21 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 
 	o.mu.Lock()
 	o.chatActive = true
-	o.sessionMode = "idle"
+	plan := o.nextIdleSessionPlanLocked()
+	o.sessionMode = plan.mode
 	o.mu.Unlock()
 
-	log.Printf("[IdleChat] Idle for %v, starting chat session", idleDuration.Round(time.Second))
-	o.runChatSession()
+	log.Printf("[IdleChat] Idle for %v, starting %s session", idleDuration.Round(time.Second), plan.mode)
+	switch plan.mode {
+	case "forecast":
+		if plan.domain == nil {
+			log.Printf("[Forecast] Missing domain in session plan, skipping")
+		} else {
+			o.runForecastDomainSession(*plan.domain)
+		}
+	default:
+		o.runChatSession(plan.strategy)
+	}
 
 	o.mu.Lock()
 	o.chatActive = false
@@ -451,13 +469,36 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	o.mu.Unlock()
 }
 
-func (o *IdleChatOrchestrator) runChatSession() {
+func (o *IdleChatOrchestrator) nextIdleSessionPlanLocked() idleSessionPlan {
+	normalStrategies := []TopicStrategy{
+		StrategySingleGenre,
+		StrategyDoubleGenre,
+		StrategyExternalStimulus,
+	}
+	if o.autoStep < len(normalStrategies) {
+		plan := idleSessionPlan{
+			mode:     "idle",
+			strategy: normalStrategies[o.autoStep],
+		}
+		o.autoStep++
+		return plan
+	}
+	domain := forecastDomains[o.forecastStep%len(forecastDomains)]
+	o.forecastStep = (o.forecastStep + 1) % len(forecastDomains)
+	o.autoStep = 0
+	return idleSessionPlan{
+		mode:   "forecast",
+		domain: &domain,
+	}
+}
+
+func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 	sessionID := fmt.Sprintf("idle-%d", time.Now().Unix())
 	startedAt := time.Now().In(jst)
 	remainingTurns := o.maxTurns
 
 	for remainingTurns > 0 {
-		topic, strategy := o.generateTopicFromChat(sessionID)
+		topic, strategy := o.generateTopicFromChat(sessionID, strategy)
 		o.mu.Lock()
 		o.currentTopic = topic
 		o.mu.Unlock()
@@ -617,9 +658,7 @@ func (o *IdleChatOrchestrator) chatSpeakerIndex() int {
 	return 0
 }
 
-func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string) (string, TopicStrategy) {
-	// 戦略選択（chaos: 70%, external: 20%, anti: 10%）
-	strategy := chooseStrategy()
+func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy TopicStrategy) (string, TopicStrategy) {
 	movieMode := rand.Intn(100) < 20
 	recentTopics := o.getRecentTopics(12)
 

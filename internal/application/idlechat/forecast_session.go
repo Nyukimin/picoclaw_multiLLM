@@ -19,8 +19,8 @@ import (
 
 const (
 	forecastTurnsPerDomain     = 100 // 1ドメインあたりの最大ターン数
-	forecastCheckpointInterval = 15 // 進行チェックポイントの間隔（ターン数）
-	forecastTopicStockSize     = 2  // ドメインあたりのお題ストック数
+	forecastCheckpointInterval = 15  // 進行チェックポイントの間隔（ターン数）
+	forecastTopicStockSize     = 2   // ドメインあたりのお題ストック数
 	forecastSeedLimit          = 10
 	forecastGoogleTrendLimit   = 2
 )
@@ -392,8 +392,7 @@ func buildForecastLLMTopic(domain ForecastDomain, displayTopic string, seeds []s
 func (o *IdleChatOrchestrator) RunForecastSession() {
 	sessionID := fmt.Sprintf("forecast-%d", time.Now().Unix())
 	startedAt := time.Now().In(jst)
-	totalTurns := 0
-	sessionDomains := shuffledForecastDomains()
+	sessionDomains := append([]ForecastDomain(nil), forecastDomains...)
 
 	log.Printf("[Forecast] Session %s started (%d domains, max %d turns/domain)", sessionID, len(sessionDomains), forecastTurnsPerDomain)
 
@@ -402,21 +401,32 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 	o.sessionMode = "forecast"
 	o.mu.Unlock()
 
-	defer func() {
-		o.mu.Lock()
-		o.chatActive = false
-		o.sessionMode = ""
-		o.currentTopic = ""
-		o.sessionContext = ""
-		o.lastActivity = time.Now()
-		o.mu.Unlock()
-		log.Printf("[Forecast] Session %s completed (%d total turns)", sessionID, totalTurns)
-	}()
+	totalTurns := o.runForecastSessionDomains(sessionID, startedAt, sessionDomains)
+
+	o.mu.Lock()
+	o.chatActive = false
+	o.sessionMode = ""
+	o.currentTopic = ""
+	o.sessionContext = ""
+	o.lastActivity = time.Now()
+	o.mu.Unlock()
+	log.Printf("[Forecast] Session %s completed (%d total turns)", sessionID, totalTurns)
+}
+
+func (o *IdleChatOrchestrator) runForecastDomainSession(domain ForecastDomain) {
+	sessionID := fmt.Sprintf("forecast-%d", time.Now().Unix())
+	startedAt := time.Now().In(jst)
+	totalTurns := o.runForecastSessionDomains(sessionID, startedAt, []ForecastDomain{domain})
+	log.Printf("[Forecast] Session %s completed (%d total turns)", sessionID, totalTurns)
+}
+
+func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, startedAt time.Time, sessionDomains []ForecastDomain) int {
+	totalTurns := 0
 
 	for domainIdx, domain := range sessionDomains {
 		select {
 		case <-o.ctx.Done():
-			return
+			return totalTurns
 		default:
 		}
 
@@ -424,7 +434,7 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		if !o.chatActive {
 			o.mu.Unlock()
 			log.Printf("[Forecast] Session interrupted before domain %s", domain.Name)
-			return
+			return totalTurns
 		}
 		o.mu.Unlock()
 
@@ -485,7 +495,7 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		for turn := 0; turn < forecastTurnsPerDomain; turn++ {
 			select {
 			case <-o.ctx.Done():
-				return
+				return totalTurns
 			default:
 			}
 
@@ -562,7 +572,7 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		}
 
 		if interrupted {
-			return
+			return totalTurns
 		}
 
 		// ドメイン間ブレイク（最後のドメイン以外）
@@ -570,6 +580,8 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 			o.waitBreak(topicBreak)
 		}
 	}
+
+	return totalTurns
 }
 
 // saveForecastSummary は Coder2 で要約+継続考察テーマを生成して保存する。

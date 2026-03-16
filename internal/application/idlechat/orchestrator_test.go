@@ -84,7 +84,7 @@ func TestIdleChatOrchestrator_UsesSpeakerSpecificProviders(t *testing.T) {
 		"shiro": workerProvider,
 	})
 
-	o.generateTopicFromChat("idle-provider-routing")
+	o.generateTopicFromChat("idle-provider-routing", StrategySingleGenre)
 	if chatProvider.callCount == 0 {
 		t.Fatal("expected mio/chat provider to be used for topic generation")
 	}
@@ -337,6 +337,37 @@ func TestIdleChatOrchestrator_StartForecastMode_RejectsActiveSession(t *testing.
 	}
 }
 
+func TestIdleChatOrchestrator_NextIdleSessionPlan_RotatesNormalAndForecast(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	plan1 := o.nextIdleSessionPlanLocked()
+	plan2 := o.nextIdleSessionPlanLocked()
+	plan3 := o.nextIdleSessionPlanLocked()
+	plan4 := o.nextIdleSessionPlanLocked()
+	plan5 := o.nextIdleSessionPlanLocked()
+
+	if plan1.mode != "idle" || plan1.strategy != StrategySingleGenre {
+		t.Fatalf("expected first plan single idle, got mode=%q strategy=%q", plan1.mode, plan1.strategy)
+	}
+	if plan2.mode != "idle" || plan2.strategy != StrategyDoubleGenre {
+		t.Fatalf("expected second plan double idle, got mode=%q strategy=%q", plan2.mode, plan2.strategy)
+	}
+	if plan3.mode != "idle" || plan3.strategy != StrategyExternalStimulus {
+		t.Fatalf("expected third plan external idle, got mode=%q strategy=%q", plan3.mode, plan3.strategy)
+	}
+	if plan4.mode != "forecast" || plan4.domain == nil || plan4.domain.Name != forecastDomains[0].Name {
+		t.Fatalf("expected fourth plan forecast %q, got mode=%q domain=%v", forecastDomains[0].Name, plan4.mode, plan4.domain)
+	}
+	if plan5.mode != "idle" || plan5.strategy != StrategySingleGenre {
+		t.Fatalf("expected fifth plan to restart at single idle, got mode=%q strategy=%q", plan5.mode, plan5.strategy)
+	}
+}
+
 func TestIdleChatOrchestrator_IsChatActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
@@ -359,7 +390,7 @@ func TestIdleChatOrchestrator_RunChatSession(t *testing.T) {
 	o.chatActive = true
 	o.mu.Unlock()
 
-	o.runChatSession()
+	o.runChatSession(StrategySingleGenre)
 
 	// 話題生成1回 + 会話maxTurns回 + 要約1回
 	minExpectedCalls := maxTurns + 2
@@ -392,7 +423,7 @@ func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
 		o.NotifyActivity()
 	}()
 
-	o.runChatSession()
+	o.runChatSession(StrategySingleGenre)
 
 	// 100ターン全部は実行されていないはず
 	if provider.callCount >= 100 {
@@ -413,7 +444,7 @@ func TestIdleChatOrchestrator_GenerationErrorAppliesCooldown(t *testing.T) {
 	o.chatActive = true
 	o.mu.Unlock()
 
-	o.runChatSession()
+	o.runChatSession(StrategySingleGenre)
 
 	if until := time.Until(o.nextTopicAt); until < 4*time.Minute {
 		t.Fatalf("expected generation error to apply idle cooldown, got nextTopicAt in %v", until)
@@ -591,7 +622,7 @@ func TestGenerateTopicFromChat_NormalizesChattyOutput(t *testing.T) {
 	memory := session.NewCentralMemory()
 	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
-	topic, _ := o.generateTopicFromChat("idle-topic-normalize")
+	topic, _ := o.generateTopicFromChat("idle-topic-normalize", StrategySingleGenre)
 	if topic != "ユン食堂の食材調達における薬学的なアプローチ" &&
 		topic != "「ユン食堂の食材調達における薬学的なアプローチ」ってどんな映画？" {
 		t.Fatalf("unexpected normalized topic: %q", topic)
