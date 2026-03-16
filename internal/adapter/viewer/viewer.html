@@ -413,7 +413,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
       <button id="idleStart" class="ctl-btn" title="IdleChatモードを開始">IdleChat開始</button>
       <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
       <span id="idleState" class="idle-off">IdleChat: off</span>
-      <button id="idleForecast" class="ctl-btn" title="未来展望セッション（6ドメイン×100ターン）" style="margin-left:12px;background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.4)">未来展望</button>
+      <button id="idleForecast" class="ctl-btn" title="未来展望セッション（6ドメイン×10ターン）" style="margin-left:12px;background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.4)">未来展望</button>
     </div>
   </div>
 </div>
@@ -887,6 +887,7 @@ function trimTimelineNodes() {
 
 function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
+  if (ev.type === 'idlechat.summary') return;
 
   const em = document.getElementById('empty');
   if (em) em.remove();

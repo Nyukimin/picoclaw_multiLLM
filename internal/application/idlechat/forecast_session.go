@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,9 +18,11 @@ import (
 )
 
 const (
-	forecastTurnsPerDomain     = 100 // 1ドメインあたりの最大ターン数
+	forecastTurnsPerDomain     = 10 // 1ドメインあたりの最大ターン数
 	forecastCheckpointInterval = 15  // 進行チェックポイントの間隔（ターン数）
 	forecastTopicStockSize     = 2   // ドメインあたりのお題ストック数
+	forecastSeedLimit          = 10
+	forecastGoogleTrendLimit   = 2
 )
 
 // ForecastDomain は未来展望セッションの1ドメインを定義する。
@@ -53,6 +56,25 @@ var forecastDomains = []ForecastDomain{
 		Name:    "経済",
 		RSSURLs: []string{"https://www.nhk.or.jp/rss/news/cat4.xml"},
 	},
+}
+
+var forecastTopicAngles = []string{
+	"制度・規制・ガバナンスの変化",
+	"生活者の行動変化と受け止め方",
+	"地方と都市の格差・インフラ影響",
+	"雇用・教育・働き方の再編",
+	"国際競争と地政学リスク",
+	"コスト構造・投資・産業再編",
+	"倫理・信頼・説明責任",
+	"現場運用で起きる意外な副作用",
+}
+
+func shuffledForecastDomains() []ForecastDomain {
+	out := append([]ForecastDomain(nil), forecastDomains...)
+	rand.Shuffle(len(out), func(i, j int) {
+		out[i], out[j] = out[j], out[i]
+	})
+	return out
 }
 
 // --- お題ストック ---
@@ -139,7 +161,15 @@ func (s *forecastTopicStock) pop(domain string) *PreparedTopic {
 		return nil
 	}
 	item := items[0]
-	s.stock[domain] = items[1:]
+	usedKey := normalizeLoopText(item.Topic)
+	remaining := make([]PreparedTopic, 0, len(items)-1)
+	for _, candidate := range items[1:] {
+		if usedKey != "" && normalizeLoopText(candidate.Topic) == usedKey {
+			continue
+		}
+		remaining = append(remaining, candidate)
+	}
+	s.stock[domain] = remaining
 	s.save()
 	return &item
 }
@@ -149,6 +179,12 @@ func (s *forecastTopicStock) push(domain string, item PreparedTopic) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := s.stock[domain]
+	itemKey := normalizeLoopText(item.Topic)
+	for _, existing := range items {
+		if itemKey != "" && normalizeLoopText(existing.Topic) == itemKey {
+			return
+		}
+	}
 	if len(items) >= forecastTopicStockSize {
 		return
 	}
@@ -220,10 +256,10 @@ func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, 
 func (o *IdleChatOrchestrator) generateForecastTopicInline(domain ForecastDomain) (string, []string) {
 	trendSeeds := fetchTrendSeeds(domain)
 	nhkSeeds := fetchDomainSeeds(domain, 10)
-	allHeadlines := append(trendSeeds, nhkSeeds...)
+	allHeadlines := rankForecastSeeds(domain, append(trendSeeds, nhkSeeds...))
 	keyword := o.extractForecastKeyword(domain, allHeadlines)
 	deepSeeds := fetchGoogleNewsSeeds(keyword, 5)
-	seeds := append(allHeadlines, deepSeeds...)
+	seeds := rankForecastSeeds(domain, append(allHeadlines, deepSeeds...))
 	log.Printf("[Forecast] %s: keyword=%q trends=%d nhk=%d google=%d", domain.Name, keyword, len(trendSeeds), len(nhkSeeds), len(deepSeeds))
 	topic := o.generateForecastTopic(domain, seeds)
 	return topic, seeds
@@ -289,7 +325,7 @@ func fetchDomainSeeds(domain ForecastDomain, limit int) []string {
 }
 
 // generateForecastTopicPrompt はドメインとニュースシードから未来展望トピックのプロンプトを生成する。
-func generateForecastTopicPrompt(domain ForecastDomain, seeds []string) string {
+func generateForecastTopicPrompt(domain ForecastDomain, seeds []string, avoidThemes []string) string {
 	seedSection := ""
 	if len(seeds) > 0 {
 		picked := seeds
@@ -298,20 +334,32 @@ func generateForecastTopicPrompt(domain ForecastDomain, seeds []string) string {
 		}
 		seedSection = fmt.Sprintf("\n\n最新ニュース（%s）:\n- %s", domain.Name, strings.Join(picked, "\n- "))
 	}
+	angle := forecastTopicAngles[rand.Intn(len(forecastTopicAngles))]
+	avoidSection := ""
+	if len(avoidThemes) > 0 {
+		picked := avoidThemes
+		if len(picked) > 4 {
+			picked = picked[:4]
+		}
+		avoidSection = fmt.Sprintf("\n\n避けたい既出テーマ:\n- %s", strings.Join(picked, "\n- "))
+	}
 
-	return fmt.Sprintf(`あなたは「%s」分野の未来を展望する議論のお題を1つ提案してください。%s
+	return fmt.Sprintf(`あなたは「%s」分野の未来を展望する議論のお題を1つ提案してください。%s%s
 
 要件:
 - 現在の動向・ニュースから3〜10年後の社会への影響を考えさせるお題
 - 具体的な論点が含まれ、賛否両論が生まれるもの
 - 「もし〜だったら」形式は使わない
 - 楽観/悲観の両面から議論できるもの
+- 今回は特に「%s」という切り口を強める
+- 同じような論点の焼き直しを避け、切り口をずらす
+- 既出テーマに近い案は避ける
 
 回答はお題だけを1行で出力してください。
 - 質問文・感想文は禁止
 - 「%sの未来:」のような接頭辞は不要
 - 体言止め、または「〜を考える」「〜の行方」のような題名調にする
-- 50文字以内を目安に簡潔にする`, domain.Name, seedSection, domain.Name)
+- 50文字以内を目安に簡潔にする`, domain.Name, seedSection, avoidSection, angle, domain.Name)
 }
 
 // buildForecastLLMTopic は LLM に渡す詳細版トピックを構築する。
@@ -345,8 +393,9 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 	sessionID := fmt.Sprintf("forecast-%d", time.Now().Unix())
 	startedAt := time.Now().In(jst)
 	totalTurns := 0
+	sessionDomains := shuffledForecastDomains()
 
-	log.Printf("[Forecast] Session %s started (%d domains, max %d turns/domain)", sessionID, len(forecastDomains), forecastTurnsPerDomain)
+	log.Printf("[Forecast] Session %s started (%d domains, max %d turns/domain)", sessionID, len(sessionDomains), forecastTurnsPerDomain)
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -362,7 +411,7 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		log.Printf("[Forecast] Session %s completed (%d total turns)", sessionID, totalTurns)
 	}()
 
-	for domainIdx, domain := range forecastDomains {
+	for domainIdx, domain := range sessionDomains {
 		select {
 		case <-o.ctx.Done():
 			return
@@ -379,7 +428,7 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 
 		// ドメインアナウンス
 		announce := fmt.Sprintf("%sのテーマの時間です。", domain.Name)
-		log.Printf("[Forecast] [Domain %d/%d] %s", domainIdx+1, len(forecastDomains), domain.Name)
+		log.Printf("[Forecast] [Domain %d/%d] %s", domainIdx+1, len(sessionDomains), domain.Name)
 
 		announceMsg := domaintransport.NewMessage("user", "mio", sessionID, "", announce)
 		announceMsg.Type = domaintransport.MessageTypeIdleChat
@@ -515,7 +564,7 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 		}
 
 		// ドメイン間ブレイク（最後のドメイン以外）
-		if domainIdx < len(forecastDomains)-1 {
+		if domainIdx < len(sessionDomains)-1 {
 			o.waitBreak(topicBreak)
 		}
 	}
@@ -695,10 +744,11 @@ func (o *IdleChatOrchestrator) forecastLLM() llm.LLMProvider {
 
 // generateForecastTopic はドメイン特化のトピックをLLM生成する。
 func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seeds []string) string {
-	prompt := generateForecastTopicPrompt(domain, seeds)
 	recentTopics := o.getRecentTopics(12)
+	pastTitleThemes := o.getHistoricalTitleThemes(500)
 
 	for attempt := 0; attempt < 3; attempt++ {
+		prompt := generateForecastTopicPrompt(domain, seeds, pastTitleThemes)
 		messages := []llm.Message{
 			{Role: "system", Content: o.getSystemPrompt("mio")},
 			{Role: "user", Content: prompt},
@@ -719,6 +769,10 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 		}
 		if topicTooSimilar(topic, recentTopics) {
 			log.Printf("[Forecast] Topic too similar, retrying: %s", truncate(topic, 80))
+			continue
+		}
+		if topicTooSimilar(topic, pastTitleThemes) {
+			log.Printf("[Forecast] Topic overlaps with past title memory, retrying: %s", truncate(topic, 80))
 			continue
 		}
 		return topic
@@ -844,6 +898,10 @@ type TrendSourceSet struct {
 	HatenaCategory string
 }
 
+type forecastDomainProfile struct {
+	Keywords []string
+}
+
 var domainTrendSources = map[string]TrendSourceSet{
 	"AI技術":     {RedditSubs: []string{"artificial", "MachineLearning"}, HatenaCategory: "it"},
 	"その他技術": {RedditSubs: []string{"technology"}, HatenaCategory: "it"},
@@ -851,6 +909,27 @@ var domainTrendSources = map[string]TrendSourceSet{
 	"社会保障":   {HatenaCategory: "social"},
 	"政治":       {HatenaCategory: "economics"},
 	"経済":       {RedditSubs: []string{"economics"}, HatenaCategory: "economics"},
+}
+
+var forecastDomainProfiles = map[string]forecastDomainProfile{
+	"AI技術": {
+		Keywords: []string{"ai", "人工知能", "生成ai", "llm", "機械学習", "半導体", "推論", "モデル", "自動運転", "ロボット"},
+	},
+	"その他技術": {
+		Keywords: []string{"量子", "宇宙", "電池", "通信", "ネットワーク", "デバイス", "センサー", "材料", "エネルギー", "クラウド"},
+	},
+	"医療": {
+		Keywords: []string{"医療", "病院", "診療", "治療", "創薬", "薬", "患者", "ワクチン", "手術", "介護"},
+	},
+	"社会保障": {
+		Keywords: []string{"年金", "介護", "保険", "福祉", "少子化", "高齢化", "給付", "負担", "子育て", "生活保護"},
+	},
+	"政治": {
+		Keywords: []string{"政権", "国会", "選挙", "外交", "防衛", "法案", "行政", "自治体", "官僚", "首相"},
+	},
+	"経済": {
+		Keywords: []string{"金利", "為替", "株", "物価", "景気", "投資", "賃金", "雇用", "企業", "貿易"},
+	},
 }
 
 // TrendCache は1時間TTLのトレンドキャッシュ。
@@ -954,11 +1033,11 @@ func fetchTrendSeeds(domain ForecastDomain) []string {
 	src := domainTrendSources[domain.Name]
 	var all []string
 
-	// Google Trends（全ドメイン共通、最大5件）
+	// Google Trends は全ドメイン共通なので混ぜすぎない。
 	if len(cache.GoogleTrends) > 0 {
 		gt := cache.GoogleTrends
-		if len(gt) > 5 {
-			gt = pickRandom(gt, 5)
+		if len(gt) > forecastGoogleTrendLimit {
+			gt = pickRandom(gt, forecastGoogleTrendLimit)
 		}
 		all = append(all, gt...)
 	}
@@ -998,7 +1077,64 @@ func fetchTrendSeeds(domain ForecastDomain) []string {
 			unique = append(unique, h)
 		}
 	}
+	unique = rankForecastSeeds(domain, unique)
+	if len(unique) > forecastSeedLimit {
+		unique = unique[:forecastSeedLimit]
+	}
 	return unique
+}
+
+func rankForecastSeeds(domain ForecastDomain, seeds []string) []string {
+	if len(seeds) < 2 {
+		return seeds
+	}
+	type scoredSeed struct {
+		text  string
+		score int
+	}
+	scored := make([]scoredSeed, 0, len(seeds))
+	for _, seed := range seeds {
+		scored = append(scored, scoredSeed{
+			text:  seed,
+			score: scoreForecastSeed(domain, seed),
+		})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		return rand.Intn(2) == 0
+	})
+	out := make([]string, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, item.text)
+	}
+	return out
+}
+
+func scoreForecastSeed(domain ForecastDomain, seed string) int {
+	s := strings.ToLower(strings.TrimSpace(seed))
+	if s == "" {
+		return 0
+	}
+	score := 1
+	for _, kw := range forecastDomainProfiles[domain.Name].Keywords {
+		kw = strings.ToLower(strings.TrimSpace(kw))
+		if kw == "" {
+			continue
+		}
+		if strings.Contains(s, kw) {
+			score += 4
+		}
+	}
+	if strings.Contains(s, strings.ToLower(domain.Name)) {
+		score += 3
+	}
+	// 少し長めで具体性のある見出しを優先する。
+	if n := len([]rune(s)); n >= 16 && n <= 48 {
+		score += 1
+	}
+	return score
 }
 
 // --- トレンド取得関数 ---

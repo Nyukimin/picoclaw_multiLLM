@@ -616,8 +616,8 @@ func TestIsLooping_DetectsRepeatedSpeakerTemplates(t *testing.T) {
 	if !o.isLooping(transcript) {
 		t.Fatal("expected repeated speaker templates to be detected as loop")
 	}
-	if reason := detectLoopReason(transcript); reason != "template_repeat" {
-		t.Fatalf("expected template_repeat, got %q", reason)
+	if reason := detectLoopReason(transcript); reason != "short_template_repeat" {
+		t.Fatalf("expected short_template_repeat, got %q", reason)
 	}
 }
 
@@ -903,6 +903,152 @@ func TestTopicTooSimilar(t *testing.T) {
 	}
 	if topicTooSimilar("量子通信が一般家庭に来たときの意外な副作用", recent) {
 		t.Fatal("expected clearly different topic to be accepted")
+	}
+}
+
+func TestDetectLoopReason_ShortAlternatingRepeat(t *testing.T) {
+	transcript := []string{
+		"mio: それって、まるで映画みたいだね。",
+		"shiro: 映画のように構造化して考えるといいでしょう。",
+		"mio: それって、まるで映画みたいだね。",
+		"shiro: 映画のように構造化して考えるといいでしょう。",
+	}
+	if reason := detectLoopReason(transcript); reason != "short_alternating_repeat" {
+		t.Fatalf("expected short_alternating_repeat, got %q", reason)
+	}
+}
+
+func TestDetectLoopReason_ShortTemplateRepeat(t *testing.T) {
+	transcript := []string{
+		"mio: なるほど、まるで時計みたいだね。",
+		"shiro: 具体的には入力条件を分けて考えるべきです。",
+		"mio: なるほど、まるでパズルみたいだね。",
+		"shiro: 具体的には実装条件を分けて考えるべきです。",
+	}
+	if reason := detectLoopReason(transcript); reason != "short_template_repeat" {
+		t.Fatalf("expected short_template_repeat, got %q", reason)
+	}
+}
+
+func TestThemeFromSummaryTitle(t *testing.T) {
+	cases := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{
+			name:  "forecast title with domain prefix",
+			title: "3月15日の[AI技術] AIエージェントが行政判断を補助する社会の話題まとめ",
+			want:  "AIエージェントが行政判断を補助する社会",
+		},
+		{
+			name:  "generic summary title",
+			title: "3月15日の月面都市の建設競争とAI設計の未来の話題まとめ",
+			want:  "月面都市の建設競争とAI設計の未来",
+		},
+		{
+			name:  "empty title",
+			title: "   ",
+			want:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := themeFromSummaryTitle(tc.title); got != tc.want {
+				t.Fatalf("themeFromSummaryTitle() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetHistoricalTitleThemes(t *testing.T) {
+	o := &IdleChatOrchestrator{
+		history: []SessionSummary{
+			{Title: "3月15日の[AI技術] AIエージェントが行政判断を補助する社会の話題まとめ"},
+			{Title: "3月14日の[AI技術] AIエージェントが行政判断を補助する社会の話題まとめ"},
+			{Title: "3月13日の医療AIが診断インフラになる時代の話題まとめ"},
+		},
+	}
+	got := o.getHistoricalTitleThemes(10)
+	want := []string{
+		"医療AIが診断インフラになる時代",
+		"AIエージェントが行政判断を補助する社会",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len(getHistoricalTitleThemes()) = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("getHistoricalTitleThemes()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestForecastTopicStockPopRemovesSameThemeDuplicates(t *testing.T) {
+	s := &forecastTopicStock{
+		stock: map[string][]PreparedTopic{
+			"AI技術": {
+				{Topic: "AIエージェントが行政判断を補助する社会"},
+				{Topic: "AIエージェントが行政判断を補助する社会"},
+				{Topic: "医療AIが診断インフラになる時代"},
+			},
+		},
+		filling: make(map[string]bool),
+	}
+	item := s.pop("AI技術")
+	if item == nil || item.Topic != "AIエージェントが行政判断を補助する社会" {
+		t.Fatalf("pop() topic = %#v", item)
+	}
+	got := s.stock["AI技術"]
+	if len(got) != 1 {
+		t.Fatalf("len(stock after pop) = %d, want 1", len(got))
+	}
+	if got[0].Topic != "医療AIが診断インフラになる時代" {
+		t.Fatalf("remaining topic = %q", got[0].Topic)
+	}
+}
+
+func TestForecastTopicStockPushSkipsSameThemeDuplicates(t *testing.T) {
+	s := &forecastTopicStock{
+		stock: map[string][]PreparedTopic{
+			"AI技術": {
+				{Topic: "AIエージェントが行政判断を補助する社会"},
+			},
+		},
+		filling: make(map[string]bool),
+	}
+	s.push("AI技術", PreparedTopic{Topic: "AIエージェントが行政判断を補助する社会"})
+	if got := len(s.stock["AI技術"]); got != 1 {
+		t.Fatalf("len(stock after duplicate push) = %d, want 1", got)
+	}
+	s.push("AI技術", PreparedTopic{Topic: "医療AIが診断インフラになる時代"})
+	if got := len(s.stock["AI技術"]); got != 2 {
+		t.Fatalf("len(stock after unique push) = %d, want 2", got)
+	}
+}
+
+func TestScoreForecastSeed(t *testing.T) {
+	if got := scoreForecastSeed(ForecastDomain{Name: "AI技術"}, "生成AI向け半導体投資が加速"); got <= scoreForecastSeed(ForecastDomain{Name: "AI技術"}, "地方の祭りが再開") {
+		t.Fatal("expected AI-related seed to score higher for AI技術")
+	}
+	if got := scoreForecastSeed(ForecastDomain{Name: "経済"}, "日銀の金利政策で為替が変動"); got <= scoreForecastSeed(ForecastDomain{Name: "経済"}, "最新ロボット展示会が開催") {
+		t.Fatal("expected economics-related seed to score higher for 経済")
+	}
+}
+
+func TestRankForecastSeeds(t *testing.T) {
+	seeds := []string{
+		"地方の祭りが再開",
+		"生成AI向け半導体投資が加速",
+		"ロボット開発で自動運転技術が進展",
+	}
+	ranked := rankForecastSeeds(ForecastDomain{Name: "AI技術"}, seeds)
+	if len(ranked) != len(seeds) {
+		t.Fatalf("len(rankForecastSeeds()) = %d, want %d", len(ranked), len(seeds))
+	}
+	top := ranked[0]
+	if top != "生成AI向け半導体投資が加速" && top != "ロボット開発で自動運転技術が進展" {
+		t.Fatalf("unexpected top-ranked AI seed: %q", top)
 	}
 }
 

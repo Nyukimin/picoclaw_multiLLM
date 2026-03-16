@@ -311,6 +311,50 @@ func (o *IdleChatOrchestrator) GetHistory(limit int) []SessionSummary {
 	return out
 }
 
+func (o *IdleChatOrchestrator) getHistoricalTitleThemes(limit int) []string {
+	history := o.GetHistory(limit)
+	if len(history) == 0 {
+		return nil
+	}
+	themes := make([]string, 0, len(history))
+	seen := make(map[string]struct{}, len(history))
+	for _, item := range history {
+		theme := themeFromSummaryTitle(item.Title)
+		if theme == "" {
+			continue
+		}
+		key := normalizeLoopText(theme)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		themes = append(themes, theme)
+	}
+	return themes
+}
+
+func themeFromSummaryTitle(title string) string {
+	s := strings.TrimSpace(title)
+	if s == "" {
+		return ""
+	}
+	if idx := strings.Index(s, "日の"); idx >= 0 {
+		s = strings.TrimSpace(s[idx+len("日の"):])
+	}
+	for _, suffix := range []string{"の話題まとめ", "のまとめ", "まとめ"} {
+		s = strings.TrimSpace(strings.TrimSuffix(s, suffix))
+	}
+	if strings.HasPrefix(s, "[") {
+		if end := strings.Index(s, "]"); end >= 0 {
+			s = strings.TrimSpace(s[end+1:])
+		}
+	}
+	return normalizeIdleTopic(s, false)
+}
+
 func (o *IdleChatOrchestrator) monitorLoop() {
 	defer o.wg.Done()
 
@@ -799,6 +843,9 @@ func (o *IdleChatOrchestrator) isLooping(transcript []string) bool {
 }
 
 func detectLoopReason(transcript []string) string {
+	if reason := detectShortLoopReason(transcript); reason != "" {
+		return reason
+	}
 	if len(transcript) < 6 {
 		return ""
 	}
@@ -827,6 +874,22 @@ func detectLoopReason(transcript []string) string {
 	}
 	if isWhatIfRepetition(transcript) {
 		return "what_if_repeat"
+	}
+	return ""
+}
+
+func detectShortLoopReason(transcript []string) string {
+	if len(transcript) < 4 {
+		return ""
+	}
+	if hasShortAlternatingLoop(transcript) {
+		return "short_alternating_repeat"
+	}
+	if hasShortSpeakerTemplateLoop(transcript) {
+		return "short_template_repeat"
+	}
+	if hasShortHighSimilarityLoop(transcript) {
+		return "short_high_similarity"
 	}
 	return ""
 }
@@ -901,17 +964,19 @@ func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 	if strings.TrimSpace(summary) == "" {
 		return
 	}
-	msg := domaintransport.NewMessage("mio", "user", sessionID, "", summary)
+	o.waitBreak(topicBreak)
+	spokenSummary := "今回のまとめです。\n" + strings.TrimSpace(summary)
+	msg := domaintransport.NewMessage("mio", "user", sessionID, "", spokenSummary)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
 	ttsDone := o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "mio",
 		To:        "user",
-		Content:   summary,
+		Content:   spokenSummary,
 		SessionID: sessionID,
 	})
-	log.Printf("[IdleChat] Mio reading summary: %s", truncate(summary, 80))
+	log.Printf("[IdleChat] Mio reading summary: %s", truncate(spokenSummary, 80))
 	o.waitForTTSDone(ttsDone)
 	o.waitBreak(topicBreak)
 }
@@ -949,6 +1014,12 @@ func annotateLoopSummary(summary string, loopRestarted bool, loopReason string) 
 
 func loopReasonLabel(reason string) string {
 	switch reason {
+	case "short_template_repeat":
+		return "短周期テンプレ反復で即打ち切り"
+	case "short_alternating_repeat":
+		return "短周期の交互反復で即打ち切り"
+	case "short_high_similarity":
+		return "短周期の類似反復で即打ち切り"
 	case "template_repeat":
 		return "テンプレ反復で打ち切り"
 	case "alternating_repeat":
@@ -1189,6 +1260,20 @@ func hasAlternatingLoop(transcript []string) bool {
 	return matches >= 3
 }
 
+func hasShortAlternatingLoop(transcript []string) bool {
+	if len(transcript) < 4 {
+		return false
+	}
+	a := normalizeLoopText(transcript[len(transcript)-1])
+	b := normalizeLoopText(transcript[len(transcript)-2])
+	c := normalizeLoopText(transcript[len(transcript)-3])
+	d := normalizeLoopText(transcript[len(transcript)-4])
+	if a == "" || b == "" || c == "" || d == "" {
+		return false
+	}
+	return textSimilarity(a, c) >= 0.9 && textSimilarity(b, d) >= 0.9
+}
+
 func hasHighSimilarityLoop(transcript []string) bool {
 	if len(transcript) < 10 {
 		return false
@@ -1215,6 +1300,32 @@ func hasHighSimilarityLoop(transcript []string) bool {
 		}
 	}
 	return totalPairs > 0 && similarPairs*3 >= totalPairs
+}
+
+func hasShortHighSimilarityLoop(transcript []string) bool {
+	if len(transcript) < 4 {
+		return false
+	}
+	start := len(transcript) - 4
+	base := make([]string, 0, 4)
+	for i := start; i < len(transcript); i++ {
+		t := normalizeLoopText(transcript[i])
+		if t != "" {
+			base = append(base, t)
+		}
+	}
+	if len(base) < 4 {
+		return false
+	}
+	similarPairs := 0
+	for i := 0; i < len(base); i++ {
+		for j := i + 1; j < len(base); j++ {
+			if textSimilarity(base[i], base[j]) >= 0.94 {
+				similarPairs++
+			}
+		}
+	}
+	return similarPairs >= 3
 }
 
 func hasSpeakerTemplateLoop(transcript []string) bool {
@@ -1274,6 +1385,41 @@ func hasSpeakerTemplateLoop(transcript []string) bool {
 			}
 		}
 		if similarPairs >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasShortSpeakerTemplateLoop(transcript []string) bool {
+	if len(transcript) < 4 {
+		return false
+	}
+	type speakerTurn struct {
+		speaker string
+		text    string
+	}
+	turns := make([]speakerTurn, 0, 4)
+	for i := len(transcript) - 4; i < len(transcript); i++ {
+		speaker, text := splitTranscriptSpeaker(transcript[i])
+		if speaker == "" || text == "" {
+			continue
+		}
+		turns = append(turns, speakerTurn{speaker: speaker, text: text})
+	}
+	if len(turns) < 4 {
+		return false
+	}
+	perSpeaker := map[string][]string{}
+	for _, turn := range turns {
+		key := transcriptLeadPattern(turn.text)
+		if key == "" {
+			continue
+		}
+		perSpeaker[turn.speaker] = append(perSpeaker[turn.speaker], key)
+	}
+	for _, keys := range perSpeaker {
+		if len(keys) >= 2 && keys[len(keys)-1] == keys[len(keys)-2] {
 			return true
 		}
 	}
