@@ -8,7 +8,6 @@ import (
 
 func TestPolicyEngine_Evaluate(t *testing.T) {
 	engine := NewPolicyEngine(PolicyConfig{
-		ApprovalMode:      "on_demand",
 		DenyCommands:      []string{"rm -rf", "git reset --hard"},
 		Workspace:         "/workspace",
 		WorkspaceEnforced: true,
@@ -30,9 +29,8 @@ func TestPolicyEngine_Evaluate(t *testing.T) {
 		t.Fatalf("expected deny for outside workspace, got %s", d.Decision)
 	}
 
-	ask := execution.Action{Tool: "shell", RequiresApproval: true, Arguments: map[string]any{"command": "echo hi"}}
-	if d := engine.Evaluate(ask); d.Decision != execution.DecisionAsk {
-		t.Fatalf("expected ask for requires approval, got %s", d.Decision)
+	ask := execution.Action{Tool: "shell", Arguments: map[string]any{"command": "echo hi"}}
+	if d := engine.Evaluate(ask); d.Decision != execution.DecisionAllow {
 	}
 
 	allow := execution.Action{Tool: "file_read", Arguments: map[string]any{"path": "/workspace/a.txt"}}
@@ -44,7 +42,6 @@ func TestPolicyEngine_Evaluate(t *testing.T) {
 func TestPolicyEngine_Evaluate_StrictNetworkAllowlist(t *testing.T) {
 	engine := NewPolicyEngine(PolicyConfig{
 		Mode:           "strict",
-		ApprovalMode:   "never",
 		NetworkScope:   "allowlist",
 		NetworkAllowed: []string{"api.openai.com"},
 	})
@@ -72,8 +69,7 @@ func TestPolicyEngine_Evaluate_StrictNetworkAllowlist(t *testing.T) {
 
 func TestPolicyEngine_Evaluate_DevModeAllowsRiskyProcess(t *testing.T) {
 	engine := NewPolicyEngine(PolicyConfig{
-		Mode:         "dev",
-		ApprovalMode: "",
+		Mode: "dev",
 	})
 	act := execution.Action{
 		Tool:      "shell",

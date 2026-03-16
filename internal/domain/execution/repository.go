@@ -7,6 +7,5 @@ type Repository interface {
 	Create(ctx context.Context, record Record) error
 	UpdateStatus(ctx context.Context, jobID, actionID string, status Status, errMsg string) (Record, error)
 	Get(ctx context.Context, jobID, actionID string) (Record, error)
-	ListPendingApprovals(ctx context.Context, limit int) ([]Record, error)
 	CountByStatus(ctx context.Context) (map[Status]int, error)
 }

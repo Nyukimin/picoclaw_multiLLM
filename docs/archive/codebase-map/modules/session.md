@@ -48,7 +48,6 @@ module_group_id: session
    - `OriginMessageID` / `OriginRoute`: 元メッセージ情報（再ルーティング用）
    - `PendingOriginReply`: Origin への返信待ち状態
    - `WorkOverlayTurnsLeft` / `WorkOverlayDirective`: 仕事モード制御
-   - `PendingApprovalJobID`: Coder3 承認待ちジョブ ID
 
 ### 対外インターフェース
 
@@ -89,7 +88,6 @@ SessionFlags:
   - PendingOriginReply: bool
   - WorkOverlayTurnsLeft: int
   - WorkOverlayDirective: string
-  - PendingApprovalJobID: string
 ```
 
 **セッションキーの構成**:

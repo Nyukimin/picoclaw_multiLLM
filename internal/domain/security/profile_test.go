@@ -8,11 +8,6 @@ func TestSecurityProfile_Validate(t *testing.T) {
 		t.Fatalf("strict profile should be valid: %v", err)
 	}
 	bad := p
-	bad.ApprovalMode = "invalid"
-	if err := bad.Validate(); err == nil {
-		t.Fatal("expected invalid approval mode error")
-	}
-	bad = p
 	bad.SandboxLevel = "vm"
 	if err := bad.Validate(); err == nil {
 		t.Fatal("expected invalid sandbox level error")

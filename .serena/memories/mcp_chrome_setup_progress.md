@@ -71,16 +71,11 @@ RenCrow (Linux) → HTTP API → Win11 (mcp-chrome-bridge) → Chrome拡張機�
 #### 4. Coder3 統合
 - `pkg/provider/anthropic.go` に Chrome 操作の plan 生成を追加
 - plan に `uses_browser: true` フラグを追加
-- Worker が実行前に承認を確認
 
 #### 5. Worker に Chrome 操作実行を追加
-- 承認済み job_id の確認
 - MCP Chrome API の呼び出し
 - 実行結果のログ記録
 
-#### 6. 承認フローの更新
-- Chrome操作には必ず承認が必要
-- Auto-Approve は Chrome 操作を **対象外** とする
 
 ---
 
@@ -88,7 +83,6 @@ RenCrow (Linux) → HTTP API → Win11 (mcp-chrome-bridge) → Chrome拡張機�
 
 ### 実装プラン
 - **MCP Chrome 統合手順**: `docs/06_実装ガイド進行管理/20260225_MCP_Chrome統合手順.md`
-- **Coder3承認フロー実装**: `docs/06_実装ガイド進行管理/20260224_Coder3承認フロー実装プラン.md`
 - **Coder3統合仕様**: `docs/06_実装ガイド進行管理/20260224_Coder3統合仕様反映.md`
 
 ### LLM運用仕様
@@ -121,10 +115,7 @@ func TestChromeNavigate(t *testing.T) {
 }
 ```
 
-### 3. 承認フローテスト
 - Coder3 が Chrome 操作の plan を生成
-- Chat が承認要求を送信（job_id 付き）
-- `/approve <job_id>` で承認
 - Worker が Chrome 操作を実行
 
 ---

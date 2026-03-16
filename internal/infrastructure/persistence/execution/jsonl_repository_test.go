@@ -46,30 +46,3 @@ func TestJSONLRepository_CreateUpdateCount(t *testing.T) {
 		t.Fatalf("expected succeeded=1, got %d", counts[domain.StatusSucceeded])
 	}
 }
-
-func TestJSONLRepository_ListPendingApprovals(t *testing.T) {
-	repo, err := NewJSONLRepository(filepath.Join(t.TempDir(), "audit.jsonl"))
-	if err != nil {
-		t.Fatalf("NewJSONLRepository failed: %v", err)
-	}
-
-	rec := domain.Record{
-		JobID:     "j2",
-		ActionID:  "a2",
-		Tool:      "file_write",
-		Decision:  domain.DecisionAsk,
-		Status:    domain.StatusWaitingApproval,
-		StartedAt: time.Now().UTC(),
-	}
-	if err := repo.Create(context.Background(), rec); err != nil {
-		t.Fatalf("Create failed: %v", err)
-	}
-
-	list, err := repo.ListPendingApprovals(context.Background(), 10)
-	if err != nil {
-		t.Fatalf("ListPendingApprovals failed: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 pending record, got %d", len(list))
-	}
-}

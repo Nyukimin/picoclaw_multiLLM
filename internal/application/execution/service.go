@@ -3,7 +3,6 @@ package execution
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	domain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
@@ -20,17 +19,12 @@ type ToolExecutor interface {
 	ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error)
 }
 
-// Service は RequestToolExecution / ApproveExecution を提供する
-// ask 判定時は in-memory キューに保持する（再起動永続化は今後拡張）
+// Service はツール実行要求を評価して実行する。
 type Service struct {
 	policy      PolicyEvaluator
 	executor    ToolExecutor
 	repo        domain.Repository
-	approvalTTL time.Duration
 	now         func() time.Time
-
-	mu      sync.Mutex
-	pending map[string]domain.Action
 }
 
 // Result は実行結果
@@ -39,10 +33,7 @@ type Result struct {
 	Response *tool.ToolResponse
 }
 
-func NewService(policy PolicyEvaluator, executor ToolExecutor, repo domain.Repository, approvalTTL time.Duration) *Service {
-	if approvalTTL <= 0 {
-		approvalTTL = 10 * time.Minute
-	}
+func NewService(policy PolicyEvaluator, executor ToolExecutor, repo domain.Repository) *Service {
 	if repo == nil {
 		repo = &noopRepository{}
 	}
@@ -50,9 +41,7 @@ func NewService(policy PolicyEvaluator, executor ToolExecutor, repo domain.Repos
 		policy:      policy,
 		executor:    executor,
 		repo:        repo,
-		approvalTTL: approvalTTL,
 		now:         time.Now,
-		pending:     make(map[string]domain.Action),
 	}
 }
 
@@ -82,15 +71,6 @@ func (s *Service) RequestToolExecution(ctx context.Context, action domain.Action
 			return nil, err
 		}
 		return &Result{Record: rec}, nil
-	case domain.DecisionAsk:
-		rec.Status = domain.StatusWaitingApproval
-		if err := s.repo.Create(ctx, rec); err != nil {
-			return nil, err
-		}
-		s.mu.Lock()
-		s.pending[pendingKey(action.JobID, action.ActionID)] = action
-		s.mu.Unlock()
-		return &Result{Record: rec}, nil
 	default:
 		rec.Status = domain.StatusRunning
 		if err := s.repo.Create(ctx, rec); err != nil {
@@ -119,65 +99,6 @@ func (s *Service) RequestToolExecution(ctx context.Context, action domain.Action
 	}
 }
 
-func (s *Service) ApproveExecution(ctx context.Context, jobID, actionID string) (*Result, error) {
-	key := pendingKey(jobID, actionID)
-	s.mu.Lock()
-	action, ok := s.pending[key]
-	s.mu.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("pending action not found: %s", key)
-	}
-
-	requestedAt := action.RequestedAt
-	if requestedAt.IsZero() {
-		requestedAt = s.now().UTC()
-	}
-	if s.now().After(requestedAt.Add(s.approvalTTL)) {
-		denied, err := s.repo.UpdateStatus(ctx, jobID, actionID, domain.StatusDenied, "approval ttl exceeded")
-		if err != nil {
-			return nil, err
-		}
-		s.mu.Lock()
-		delete(s.pending, key)
-		s.mu.Unlock()
-		return &Result{Record: denied}, nil
-	}
-
-	running, err := s.repo.UpdateStatus(ctx, jobID, actionID, domain.StatusRunning, "")
-	if err != nil {
-		return nil, err
-	}
-
-	resp, execErr := s.executor.ExecuteV2(ctx, action.Tool, action.Arguments)
-	s.mu.Lock()
-	delete(s.pending, key)
-	s.mu.Unlock()
-	if execErr != nil {
-		failed, err := s.repo.UpdateStatus(ctx, jobID, actionID, domain.StatusFailed, execErr.Error())
-		if err != nil {
-			return nil, err
-		}
-		return &Result{Record: failed}, nil
-	}
-	if resp != nil && resp.Error != nil {
-		failed, err := s.repo.UpdateStatus(ctx, jobID, actionID, domain.StatusFailed, resp.Error.Message)
-		if err != nil {
-			return nil, err
-		}
-		return &Result{Record: failed, Response: resp}, nil
-	}
-	_ = running
-	success, err := s.repo.UpdateStatus(ctx, jobID, actionID, domain.StatusSucceeded, "")
-	if err != nil {
-		return nil, err
-	}
-	return &Result{Record: success, Response: resp}, nil
-}
-
-func pendingKey(jobID, actionID string) string {
-	return jobID + "::" + actionID
-}
-
 func eventTypeFromDecision(d domain.Decision) string {
 	if d == domain.DecisionDeny {
 		return "security.violation"
@@ -202,10 +123,6 @@ func (n *noopRepository) UpdateStatus(_ context.Context, jobID, actionID string,
 
 func (n *noopRepository) Get(context.Context, string, string) (domain.Record, error) {
 	return domain.Record{}, fmt.Errorf("record not found")
-}
-
-func (n *noopRepository) ListPendingApprovals(context.Context, int) ([]domain.Record, error) {
-	return nil, nil
 }
 
 func (n *noopRepository) CountByStatus(context.Context) (map[domain.Status]int, error) {

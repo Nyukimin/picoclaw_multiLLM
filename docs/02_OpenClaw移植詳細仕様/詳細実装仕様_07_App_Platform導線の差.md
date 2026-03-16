@@ -27,7 +27,6 @@ OpenClawは利用者導線（Chat UI/CLI/連携アプリ）から同一実行基
 
 1. Unified Entry API（platform非依存の入力窓口）
 2. セッション導線統一（開始/進行/完了イベント）
-3. 実行状況カード（進捗、承認待ち、完了証跡）の標準化
 4. Claude in Chrome / Canvas導線の状態同期
 
 ---

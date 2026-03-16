@@ -16,9 +16,9 @@ func TestToolManifest_Validate(t *testing.T) {
 }
 
 func TestManifestFromMetadata(t *testing.T) {
-	meta := ToolMetadata{ToolID: "file_write", Version: "1.0.0", Category: "mutation", RequiresApproval: true}
+	meta := ToolMetadata{ToolID: "file_write", Version: "1.0.0", Category: "mutation"}
 	m := ManifestFromMetadata(meta)
-	if m.ID != "file_write" || m.SideEffect != SideEffectLocalWrite || !m.RequiresApproval {
+	if m.ID != "file_write" || m.SideEffect != SideEffectLocalWrite {
 		t.Fatalf("unexpected manifest conversion: %+v", m)
 	}
 }

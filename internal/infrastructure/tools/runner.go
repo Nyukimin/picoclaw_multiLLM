@@ -104,7 +104,7 @@ func (r *ToolRunner) registerTools() {
 	// メタデータ登録
 	r.metadata["shell"] = tool.ToolMetadata{
 		ToolID: "shell", Version: "1.0.0", Category: "mutation",
-		RequiresApproval: true, DryRun: true,
+		DryRun: true,
 		Description: "シェルコマンドを実行する",
 		Parameters: map[string]any{
 			"type": "object",
@@ -129,7 +129,7 @@ func (r *ToolRunner) registerTools() {
 	}
 	r.metadata["file_write"] = tool.ToolMetadata{
 		ToolID: "file_write", Version: "1.0.0", Category: "mutation",
-		RequiresApproval: true, DryRun: true,
+		DryRun: true,
 		Description: "ファイルに内容を書き込む",
 		Parameters: map[string]any{
 			"type": "object",

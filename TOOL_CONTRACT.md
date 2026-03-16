@@ -113,7 +113,6 @@ Coder が大量にツールを作り始めると、何も決めていない状�
 |--------|------|
 | **dry-run 必須** | 書き込み系は必ず `--dry-run`（または `mode=plan`）を実装する |
 | 差分表示 | 実行前に差分や対象件数を返す |
-| 承認フラグ | 書き込み系はメタデータで「承認が必要」フラグを宣言する |
 
 dry-run の出力例:
 
@@ -220,7 +219,6 @@ dry-run の出力例:
 tool_id: tmdb_fetcher
 version: 1.0.0
 category: etl
-requires_approval: false
 dry_run: true
 invariants:
   - "dry-run 必須（書き込み系）"
@@ -266,7 +264,6 @@ Coder が新ツールを出すたびに、以下のチェックリストを通�
 ### 5.2 書き込み系のみ
 
 - [ ] **dry-run (plan)** -- `mode=plan` で差分・対象件数を返す
-- [ ] **承認フラグ** -- メタデータで `requires_approval` を宣言している
 
 ### 5.3 取得系のみ
 
@@ -389,7 +386,6 @@ picoclaw_multiLLM/
 tool_id: <tool_id>
 version: 1.0.0
 category: <etl|query|mutation|admin>
-requires_approval: <true|false>
 dry_run: <true|false>
 invariants:
   - "JSON 入出力"

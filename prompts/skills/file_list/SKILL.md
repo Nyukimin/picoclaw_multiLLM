@@ -3,7 +3,6 @@ name: file_list
 tool_id: file_list
 version: "1.0.0"
 category: query
-requires_approval: false
 dry_run: false
 invariants:
   - "path must be non-empty"

@@ -5,7 +5,6 @@ import "fmt"
 // SecurityProfile defines runtime permission scopes.
 type SecurityProfile struct {
 	Name            string
-	ApprovalMode    string // never|on_demand|always
 	FilesystemScope string // workspace|readonly|none
 	NetworkScope    string // blocked|allowlist|full
 	ProcessScope    string // none|limited|full
@@ -16,9 +15,6 @@ type SecurityProfile struct {
 func (p SecurityProfile) Validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("profile name is required")
-	}
-	if p.ApprovalMode != "never" && p.ApprovalMode != "on_demand" && p.ApprovalMode != "always" {
-		return fmt.Errorf("invalid approval mode: %s", p.ApprovalMode)
 	}
 	if p.FilesystemScope != "workspace" && p.FilesystemScope != "readonly" && p.FilesystemScope != "none" {
 		return fmt.Errorf("invalid filesystem scope: %s", p.FilesystemScope)
@@ -41,7 +37,6 @@ func (p SecurityProfile) Validate() error {
 func StrictProfile() SecurityProfile {
 	return SecurityProfile{
 		Name:            "strict",
-		ApprovalMode:    "on_demand",
 		FilesystemScope: "workspace",
 		NetworkScope:    "allowlist",
 		ProcessScope:    "limited",
@@ -53,7 +48,6 @@ func StrictProfile() SecurityProfile {
 func BalancedProfile() SecurityProfile {
 	return SecurityProfile{
 		Name:            "balanced",
-		ApprovalMode:    "never",
 		FilesystemScope: "workspace",
 		NetworkScope:    "full",
 		ProcessScope:    "limited",
@@ -65,7 +59,6 @@ func BalancedProfile() SecurityProfile {
 func DevProfile() SecurityProfile {
 	return SecurityProfile{
 		Name:            "dev",
-		ApprovalMode:    "never",
 		FilesystemScope: "workspace",
 		NetworkScope:    "full",
 		ProcessScope:    "full",

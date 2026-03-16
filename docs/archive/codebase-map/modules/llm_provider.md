@@ -19,7 +19,6 @@ module_group_id: llm_provider
 - プロファイル: `/home/nyukimi/picoclaw_multiLLM/codebase-analysis-profile.yaml`
 - 外部資料: `docs/codebase-map/refs_mapping.md` (llm_provider セクション)
   - `docs/05_LLM運用プロンプト設計/LLM_Ollama常駐管理.md` (Ollama 常駐化・MaxContext 制約)
-  - `docs/05_LLM運用プロンプト設計/Coder3_Claude_API仕様.md` (Claude API 統合・承認フロー)
   - `docs/05_LLM運用プロンプト設計/LLM_deepseek運用仕様.md` (DeepSeek キャッシュ設計)
   - `docs/05_LLM運用プロンプト設計/LLM_Worker_Spec_v1_0.md` (Worker 仕様)
   - `docs/05_LLM運用プロンプト設計/CHAT_PERSONA設計.md` (Chat ペルソナ設計)

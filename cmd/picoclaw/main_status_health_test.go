@@ -99,10 +99,9 @@ func TestRunStatusCommand_DeepUsageJSON(t *testing.T) {
 	}}
 	statsLoader := func(_ *config.Config) (map[domainexecution.Status]int, error) {
 		return map[domainexecution.Status]int{
-			domainexecution.StatusRunning:         2,
-			domainexecution.StatusWaitingApproval: 1,
-			domainexecution.StatusDenied:          0,
-			domainexecution.StatusFailed:          3,
+			domainexecution.StatusRunning: 2,
+			domainexecution.StatusDenied:  0,
+			domainexecution.StatusFailed:  3,
 		}, nil
 	}
 	usageLoader := func(_ *config.Config) (map[string]map[string]int, error) {

@@ -178,7 +178,6 @@ func (al *AgentLoop) resolveRouteLLMWithTask(route, taskText string) (string, st
 
 3. **CLAUDE.md の記載不整合**:
    - L95-101: 責務の分離で「Chat/Worker/Coder」の3役割を定義
-   - L108-113: 承認フロー（現在は削除済み）の記載が残っている
    - ProcessHeartbeat の動作仕様が明記されていない
 
 ---
@@ -515,14 +514,8 @@ func TestProcessHeartbeat_MultipleRoutes(t *testing.T) {
 
 ### CLAUDE.md
 
-**L108-113 削除**（承認フローは既に削除済み）:
 ```markdown
-#### 3.3.2 承認フロー（必須）
 
-- Coder3（Claude API）による提案には**承認が必須**
-- job_id でジョブを追跡（ログ、承認状態）
-- 承認コマンド: `/approve <job_id>`, `/deny <job_id>`
-- Auto-Approve モードは Scope/TTL 付き、即時 OFF 可能
 ```
 
 **追加すべき内容**:
@@ -592,4 +585,3 @@ ProcessHeartbeat が Chat ルート固定により、Worker/Coder LLM の長時�
 
 ---
 
-**次のアクション**: このレポートに基づき、Phase 1実装の承認を得る。

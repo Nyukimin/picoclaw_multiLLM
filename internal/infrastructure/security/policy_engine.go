@@ -11,7 +11,6 @@ import (
 // PolicyConfig はポリシー判定設定
 type PolicyConfig struct {
 	Mode              string
-	ApprovalMode      string
 	NetworkScope      string
 	NetworkAllowed    []string
 	DenyCommands      []string
@@ -87,29 +86,6 @@ func (e *PolicyEngine) Evaluate(action execution.Action) execution.PolicyDecisio
 					Reason:        fmt.Sprintf("host not in allowlist: %s", host),
 					MatchedRuleID: "deny.network.host.not_allowlisted",
 				}
-			}
-		}
-	}
-
-	approvalMode := strings.TrimSpace(e.cfg.ApprovalMode)
-	if approvalMode == "" {
-		approvalMode = e.profileByMode().ApprovalMode
-	}
-
-	// 3) 承認モード
-	switch approvalMode {
-	case "always":
-		return execution.PolicyDecision{
-			Decision:      execution.DecisionAsk,
-			Reason:        "approval_mode=always",
-			MatchedRuleID: "ask.always",
-		}
-	case "on_demand":
-		if action.RequiresApproval {
-			return execution.PolicyDecision{
-				Decision:      execution.DecisionAsk,
-				Reason:        "tool requires approval",
-				MatchedRuleID: "ask.tool.requires_approval",
 			}
 		}
 	}

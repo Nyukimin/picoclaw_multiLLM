@@ -18,7 +18,6 @@ OpenClawはセキュリティを実行時制御で担保し、ツールの権限
 
 ## 1. 現状差分
 
-- RenCrow現状: ガードは存在するが、権限モデル・承認モード・隔離レベルが統一されていない。
 - 差分の本質: 「誰が何をどこまでできるか」のポリシー表現不足。
 
 ---
@@ -27,7 +26,6 @@ OpenClawはセキュリティを実行時制御で担保し、ツールの権限
 
 1. `SecurityProfile`（strict/balanced/dev）
 2. 実行権限スコープ（filesystem/network/process/git）
-3. 承認モード（never/on-demand/always）
 4. サンドボックスレベル（workspace/process/container）
 5. 監査イベント分類（security.decision / security.violation）
 
@@ -87,7 +85,6 @@ type SecurityProfile struct {
 2. 禁止コマンド拒否テスト
 3. allowlist外通信拒否テスト
 4. 監査イベント完全性テスト
-5. 承認モード切替の回帰テスト
 
 受け入れ基準:
 - strictプロファイルで危険操作の実行成功が0件

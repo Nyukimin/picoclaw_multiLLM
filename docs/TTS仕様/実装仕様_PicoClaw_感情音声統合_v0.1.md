@@ -211,9 +211,7 @@ Emotion Planner は RenCrow 側に配置する。
 
 - `task_success`
 - `task_failure`
-- `approval_requested`
-- `approval_completed`
-- `warning`
+- - - `warning`
 - `error`
 - `analysis_report`
 - `conversation`

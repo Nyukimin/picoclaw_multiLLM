@@ -105,7 +105,6 @@ md_content = """# Coder3 仕様（Claude API 専用・RenCrow用）
 ---
 
 ## 6. Worker 即時実行統合（完全自動化）
-Coder3は「案を作る」ことはできるが、**実行（適用）は Worker が即座に担当**（承認フローなし）。
 
 ### 6-1. 標準フロー
 1. Coder3が「提案（plan）」と「適用差分（patch）」を生成
@@ -144,7 +143,6 @@ Coder3は「案を作る」ことはできるが、**実行（適用）は Worke
 - 連続リトライは回数制限（例: 2回まで）
 
 ### 9-2. コスト閾値による停止
-- 推定コストが閾値を超える場合、Coder3は「続行可否を承認要求」に切り替える
 
 ---
 
@@ -182,9 +180,7 @@ routing:
     - "ambiguous_spec"
   avoid_coder3_when:
     - "simple_template_work"
-    - "no_approval_flow"
 
-approval:
   required_by_default: true
   auto_approve:
     enabled: false
@@ -193,7 +189,6 @@ approval:
       allowed_paths_prefix: ["docs/"]
       deny_operations: ["delete", "rename", "push_public"]
     ttl_minutes: 60
-    hard_require_approval:
       - "delete"
       - "rename"
       - "send_sensitive"
@@ -214,21 +209,15 @@ Ubuntu (RenCrow)
   │
   ├─ Coder3: Chrome 操作の plan を生成（例: "example.com にアクセスしてタイトルを取得"）
   │           ↓
-  ├─ Chat: 承認要求を送信（job_id 付き）
   │           ↓
-  └─ 人間: /approve <job_id> または 永続承認（期限付き）
               ↓
 Ubuntu (Worker)
   ↓ HTTP
 Win11 (mcp-chrome-bridge)
   ↓ Native Messaging
-Chrome: 承認された操作のみ実行
 ```
 
-### 13-3. 承認フローの必須化
 - Chrome 操作は **すべて job_id で追跡**
-- 承認なしでは実行されない
-- 承認要求メッセージには以下を含む:
   - `job_id`
   - 操作内容（URL、クリック対象、入力内容等）
   - リスク（外部送信、個人情報、セッション利用等）
@@ -240,16 +229,10 @@ MCP Chrome 経由で以下の操作が可能:
 - **chrome_click**: 指定セレクタの要素をクリック
 - **chrome_get_text**: 指定セレクタのテキストを取得
 - **chrome_screenshot**: ページのスクリーンショットを取得
-- **chrome_execute_script**: JavaScript を実行（高リスク・要明示承認）
 
 ### 13-5. セキュリティ制約
-- ログイン状態の流用は **原則禁止**（例外: 明示的承認が必要）
-- 機密情報（パスワード、トークン等）の入力は **高リスク承認**
-- 外部送信を伴う操作は **必ず承認要求に明記**
 - セッション/クッキーの取得・送信は **禁止**
 
-### 13-6. Auto-Approve 対象外
-Chrome 操作は Auto-Approve の対象外（例外なく承認必須）。
 理由: ブラウザ操作は予期しない副作用（外部送信、ログイン状態変更等）のリスクが高いため。
 
 ---
@@ -257,10 +240,5 @@ Chrome 操作は Auto-Approve の対象外（例外なく承認必須）。
 ## 14. 受け入れ条件（Acceptance）
 
 - OAuthトークン/ブラウザセッションを一切使わずに動作する
-- 承認フローなしに破壊的変更が適用されない
-- **Chrome 操作は job_id で追跡され、承認なしで実行されない**
-- **ブラウザ操作の承認要求には `uses_browser: true` フラグが含まれる**
-- Auto-ApproveはScopeとTTLで事故範囲が限定され、即OFFできる
-- **Chrome 操作は Auto-Approve の対象外**（例外なく承認必須）
 - すべての処理が job_id で追跡できる
 - Chat/Worker/Coderの責務が混ざらず、実行はWorker、意思決定はChat、設計/生成はCoderで運用できる

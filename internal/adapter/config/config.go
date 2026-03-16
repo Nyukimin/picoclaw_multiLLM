@@ -209,8 +209,6 @@ type SubagentConfig struct {
 type SecurityConfig struct {
 	Enabled            bool                `yaml:"enabled"`
 	PolicyMode         string              `yaml:"policy_mode"`          // strict|balanced|dev
-	ApprovalMode       string              `yaml:"approval_mode"`        // never|on_demand|always
-	ApprovalTTLMinutes int                 `yaml:"approval_ttl_minutes"` // 承認待ちTTL
 	NetworkScope       string              `yaml:"network_scope"`        // blocked|allowlist|full (optional: fallback to profile)
 	NetworkAllowlist   []string            `yaml:"network_allowlist"`    // host allowlist when network_scope=allowlist
 	DenyCommands       []string            `yaml:"deny_commands"`
@@ -432,12 +430,6 @@ func (c *Config) setDefaults() {
 	if c.Security.PolicyMode == "" {
 		c.Security.PolicyMode = "balanced"
 	}
-	if c.Security.ApprovalMode == "" {
-		c.Security.ApprovalMode = "never"
-	}
-	if c.Security.ApprovalTTLMinutes == 0 {
-		c.Security.ApprovalTTLMinutes = 10
-	}
 	if len(c.Security.DenyCommands) == 0 {
 		c.Security.DenyCommands = []string{"rm -rf", "git reset --hard"}
 	}
@@ -573,17 +565,11 @@ func (c *Config) Validate() error {
 		if c.Security.PolicyMode != "strict" && c.Security.PolicyMode != "balanced" && c.Security.PolicyMode != "dev" {
 			return fmt.Errorf("security.policy_mode must be 'strict', 'balanced', or 'dev'")
 		}
-		if c.Security.ApprovalMode != "never" && c.Security.ApprovalMode != "on_demand" && c.Security.ApprovalMode != "always" {
-			return fmt.Errorf("security.approval_mode must be 'never', 'on_demand', or 'always'")
-		}
 		if c.Security.NetworkScope != "" &&
 			c.Security.NetworkScope != "blocked" &&
 			c.Security.NetworkScope != "allowlist" &&
 			c.Security.NetworkScope != "full" {
 			return fmt.Errorf("security.network_scope must be 'blocked', 'allowlist', or 'full'")
-		}
-		if c.Security.ApprovalTTLMinutes < 1 {
-			return fmt.Errorf("security.approval_ttl_minutes must be >= 1")
 		}
 		if c.Security.Audit.Backend != "jsonl" && c.Security.Audit.Backend != "sqlite" {
 			return fmt.Errorf("security.audit.backend must be 'jsonl' or 'sqlite'")

@@ -604,7 +604,6 @@ func LogWorkerFail(jobID, sessionID, errorMsg string) {
 #### 8.1.2 Red フェーズの例
 
 ```go
-// pkg/approval/manager_test.go
 func TestManager_CreateJob_Duplicate(t *testing.T) {
     // Arrange
     mgr := NewManager()
@@ -632,7 +631,6 @@ func TestManager_CreateJob_Duplicate(t *testing.T) {
 #### 8.1.3 Green フェーズの例
 
 ```go
-// pkg/approval/manager.go
 func (m *Manager) CreateJob(jobID, plan, patch string, risk map[string]interface{}) error {
     m.mu.Lock()
     defer m.mu.Unlock()

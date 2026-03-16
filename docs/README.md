@@ -94,7 +94,7 @@ v3.0 の完全実装仕様。**全実装の基盤**。
 | 内容 | 状態 |
 |------|------|
 | Clean Architecture 4層構造 | 実装完了 |
-| Worker即時実行（承認フロー廃止） | 実装完了 |
+| Worker即時実行（Worker即時実行化） | 実装完了 |
 | Domain/Application/Infrastructure/Adapter | 実装完了 |
 | テストカバレッジ 87.1% | 達成済み |
 
@@ -162,7 +162,6 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 
 | ファイル | 内容 | 状態 |
 |---------|------|------|
-| 詳細実装仕様_01_実行基盤とセキュリティ境界.md | Tools実行制御・承認・監査ログ・運用CLI | 実装進行中 |
 | 詳細実装仕様_02_チャネル網羅不足.md | Telegram/Discord/Slack追加と共通イベント契約 | 実装進行中 |
 | 詳細実装仕様_03_Tools体系の差.md | ToolManifest/Registry/ExecutionEnvelope | 実装進行中 |
 | 詳細実装仕様_04_Nodes_デバイス能力の差.md | NodeCapabilityと要件ベース選定 | 実装進行中 |

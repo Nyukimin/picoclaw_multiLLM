@@ -39,7 +39,6 @@ RenCrow の観測性（Observability）と設定管理を担う基盤層。構�
 - **標準出力**: 人間可読な整形ログ（開発・デバッグ用）
 - **コンポーネント識別**: `component` タグによるログ発生源の明示
 - **フィールド拡張**: `fields` による任意メタデータの付与
-- **承認フロー専用ヘルパー**: `LogApprovalRequested`, `LogApprovalGranted`, `LogApprovalDenied`, `LogApprovalAutoApproved`
 - **Coder 専用ヘルパー**: `LogCoderPlanGenerated`
 
 #### **pkg/config**: 設定の読み込みとバリデーション
@@ -58,11 +57,6 @@ RenCrow の観測性（Observability）と設定管理を担う基盤層。構�
 - `Debug(message)`, `DebugC(component, message)`, `DebugF(message, fields)`, `DebugCF(component, message, fields)`
 - `Info*`, `Warn*`, `Error*`, `Fatal*` も同様のバリエーション
 
-**承認フロー専用ログ**:
-- `LogApprovalRequested(jobID, plan, patch, risk)`: 承認要求の記録
-- `LogApprovalGranted(jobID, approver)`: 承認許可の記録
-- `LogApprovalDenied(jobID, approver)`: 承認拒否の記録
-- `LogApprovalAutoApproved(jobID, reason)`: 自動承認の記録
 
 **Coder 専用ログ**:
 - `LogCoderPlanGenerated(jobID, plan)`: plan/patch 生成の記録
@@ -89,7 +83,6 @@ RenCrow の観測性（Observability）と設定管理を担う基盤層。構�
 type LogEntry struct {
     Level     string                 // DEBUG/INFO/WARN/ERROR/FATAL
     Timestamp string                 // RFC3339 UTC
-    Component string                 // 発生源コンポーネント（router, classifier, approval, coder 等）
     Message   string                 // ログメッセージ
     Fields    map[string]interface{} // 任意の構造化データ
     Caller    string                 // 呼び出し元（ファイル:行番号 (関数名)）
@@ -173,16 +166,10 @@ pkg/
 - `loop.stop`: ループ停止
 - `final.route`: 最終ルート確定
 
-**承認フロー（logger に専用関数あり）**:
-- `approval.requested`: 承認要求
-- `approval.granted`: 承認許可
-- `approval.denied`: 承認拒否
-- `approval.auto_approved`: 自動承認
 
 **Coder**:
 - `coder.plan_generated`: plan/patch 生成
 
-※推測: 実際のログ出力時には `logger.InfoCF("approval", "approval.requested", fields)` のように `component` と `message` で記録。
 
 ### マスキング機構
 
@@ -195,7 +182,6 @@ pkg/
 
 **仕様上の要求**:
 - `CLAUDE.md` 3.4.3節「API キー管理」: 環境変数からの取得、平文保存禁止
-- `docs/01_正本仕様/実装仕様.md` 6章「セキュリティ」: 承認フロー、安全な取り扱い（詳細は未確認）
 
 **※推測**: API キーは環境変数で管理されログに出力されない設計を前提としており、積極的なマスキングは不要と判断された可能性。
 
@@ -289,11 +275,6 @@ RestartMaxCount: 3                   // 窓内最大再起動回数
 ### 変更時の注意事項
 
 #### **ログヘルパー関数の追加**（※Phase 2 で確認: L241-283）
-- **承認フロー専用**: `LogApprovalRequested` 等は `InfoCF("approval", "approval.requested", fields)` をラップ
-  - `LogApprovalRequested` (L243-251): component="approval", message="approval.requested"
-  - `LogApprovalGranted` (L253-259): component="approval", message="approval.granted"
-  - `LogApprovalDenied` (L261-267): component="approval", message="approval.denied"
-  - `LogApprovalAutoApproved` (L269-275): component="approval", message="approval.auto_approved"
   - `LogCoderPlanGenerated` (L277-283): component="coder", message="coder.plan_generated"
 - **命名規則**: `Log<Domain><Action>` の形式（例: `LogCoderPlanGenerated`）
 - **注意**: component と message を固定して呼び出すことで、ログイベント種別の一貫性を保つ
@@ -342,7 +323,6 @@ RestartMaxCount: 3                   // 窓内最大再起動回数
 
 ### 構造マップの正確性検証
 - ✅ ファイル構成: 正確（logger.go (283 行), config.go (598 行) を確認）
-- ✅ ログイベント種別: 正確（approval.requested 等のイベント種別を確認）
 - ✅ 設定構造: 正確（Config 構造体、デフォルト値を確認）
 
 ### 落とし穴の網羅性検証

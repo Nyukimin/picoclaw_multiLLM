@@ -244,12 +244,6 @@ session:
 	if cfg.Security.PolicyMode != "balanced" {
 		t.Errorf("Expected Security PolicyMode 'balanced', got '%s'", cfg.Security.PolicyMode)
 	}
-	if cfg.Security.ApprovalMode != "never" {
-		t.Errorf("Expected Security ApprovalMode 'never', got '%s'", cfg.Security.ApprovalMode)
-	}
-	if cfg.Security.ApprovalTTLMinutes != 10 {
-		t.Errorf("Expected Security ApprovalTTLMinutes 10, got %d", cfg.Security.ApprovalTTLMinutes)
-	}
 	if cfg.Security.NetworkScope != "" {
 		t.Errorf("Expected Security NetworkScope '', got '%s'", cfg.Security.NetworkScope)
 	}
@@ -270,8 +264,6 @@ session:
 security:
   enabled: true
   policy_mode: "strict"
-  approval_mode: "on_demand"
-  approval_ttl_minutes: 10
   network_scope: "allowlist"
   network_allowlist:
     - "api.openai.com"
@@ -375,7 +367,7 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Invalid security approval_mode",
+			name: "Invalid security network_scope",
 			config: &Config{
 				Server:  ServerConfig{Port: 8080},
 				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
@@ -383,27 +375,7 @@ func TestConfig_Validate(t *testing.T) {
 				Security: SecurityConfig{
 					Enabled:      true,
 					PolicyMode:   "balanced",
-					ApprovalMode: "invalid",
-					Audit: SecurityAuditConfig{
-						Backend: "jsonl",
-						Path:    "logs/execution_audit.jsonl",
-					},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "Invalid security network_scope",
-			config: &Config{
-				Server:  ServerConfig{Port: 8080},
-				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
-				Session: SessionConfig{StorageDir: "./data/sessions"},
-				Security: SecurityConfig{
-					Enabled:            true,
-					PolicyMode:         "balanced",
-					ApprovalMode:       "never",
-					ApprovalTTLMinutes: 10,
-					NetworkScope:       "weird",
+					NetworkScope: "weird",
 					Audit: SecurityAuditConfig{
 						Backend: "jsonl",
 						Path:    "logs/execution_audit.jsonl",
@@ -419,10 +391,8 @@ func TestConfig_Validate(t *testing.T) {
 				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
 				Session: SessionConfig{StorageDir: "./data/sessions"},
 				Security: SecurityConfig{
-					Enabled:            true,
-					PolicyMode:         "dev",
-					ApprovalMode:       "never",
-					ApprovalTTLMinutes: 10,
+					Enabled:    true,
+					PolicyMode: "dev",
 					Audit: SecurityAuditConfig{
 						Backend: "jsonl",
 						Path:    "logs/execution_audit.jsonl",

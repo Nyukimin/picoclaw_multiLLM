@@ -5,7 +5,6 @@ type ToolMetadata struct {
 	ToolID           string         `json:"tool_id"`
 	Version          string         `json:"version"`
 	Category         string         `json:"category"`                    // query, mutation, admin
-	RequiresApproval bool           `json:"requires_approval"`
 	DryRun           bool           `json:"dry_run"`
 	Deprecated       bool           `json:"deprecated"`
 	ReplacedBy       string         `json:"replaced_by,omitempty"`

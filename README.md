@@ -33,7 +33,7 @@
 - **超軽量**: メモリ使用量 <10MB、$10デバイスでも動作
 - **マルチLLM対応**: Ollama、Claude、DeepSeek、OpenAI等を統合
 - **インテリジェントルーティング**: Chat（会話）/ Worker（実行）/ Coder（設計・実装）の自動振り分け
-- **Worker即時実行**: Coderが生成したpatchをWorkerが自動実行（承認フロー廃止）
+- **Worker即時実行**: Coderが生成したpatchをWorkerが自動実行（Worker即時実行化）
 - **Clean Architecture**: v3.0クリーンアーキテクチャで保守性向上
 - **高テストカバレッジ**: internal/配下 83.6%（Domain層 93.5%）
 
@@ -211,7 +211,6 @@ picoclaw/
 
 | カテゴリ | 完成度 | 詳細 |
 |---------|--------|------|
-| **承認フロー廃止** | ✅ 100% | pkg/approval/ 削除完了 |
 | **Worker即時実行** | ✅ 100% | WorkerExecutionService実装完了 |
 | **Coder→Worker統合** | ✅ 100% | MessageOrchestrator統合完成 |
 | **Infrastructure層** | ✅ 95% | LLM/MCP/Tools/Config/Session |
@@ -236,7 +235,7 @@ picoclaw/
   - 統合バイナリ（サーバー + エージェントモード）
   - install-agent.sh（1コマンドセットアップ）
   - SSH通信（JSON over stdin/stdout）
-- ✅ **v3.0 承認フロー廃止**（2026-03-02完了）
+- ✅ **v3.0 Worker即時実行化**（2026-03-02完了）
   - Worker即時実行（WorkerExecutionService、390行 + テスト651行）
   - Coder3統合（CODE3ルート、Proposal → Worker自動連携）
   - セーフガード実装（保護ファイル、workspace制限等）

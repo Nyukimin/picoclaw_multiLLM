@@ -10,6 +10,22 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 )
 
+func newLoadedModelServer(t *testing.T, model string, handler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/ps" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{
+					{"name": model, "context_length": 8192},
+				},
+			})
+			return
+		}
+		handler(w, r)
+	}))
+}
+
 func TestNewOllamaProvider(t *testing.T) {
 	provider := NewOllamaProvider("http://localhost:11434", "test-model")
 
@@ -24,7 +40,7 @@ func TestNewOllamaProvider(t *testing.T) {
 
 func TestOllamaProviderGenerate_Success(t *testing.T) {
 	// モックOllamaサーバー
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/generate" {
 			t.Errorf("Expected path '/api/generate', got '%s'", r.URL.Path)
 		}
@@ -41,7 +57,7 @@ func TestOllamaProviderGenerate_Success(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -69,7 +85,10 @@ func TestOllamaProviderGenerate_Success(t *testing.T) {
 }
 
 func TestOllamaProviderGenerate_WithSystemPrompt(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("expected path '/api/generate', got '%s'", r.URL.Path)
+		}
 		var reqBody map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&reqBody)
 
@@ -89,7 +108,7 @@ func TestOllamaProviderGenerate_WithSystemPrompt(t *testing.T) {
 		}
 
 		json.NewEncoder(w).Encode(response)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -110,7 +129,10 @@ func TestOllamaProviderGenerate_WithSystemPrompt(t *testing.T) {
 }
 
 func TestOllamaProviderGenerate_SendsNumCtxWhenConfigured(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("expected path '/api/generate', got '%s'", r.URL.Path)
+		}
 		var reqBody map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("decode request: %v", err)
@@ -127,7 +149,7 @@ func TestOllamaProviderGenerate_SendsNumCtxWhenConfigured(t *testing.T) {
 			"response": "ok",
 			"done":     true,
 		})
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProviderWithNumCtx(server.URL, "test-model", 32768)
@@ -141,10 +163,13 @@ func TestOllamaProviderGenerate_SendsNumCtxWhenConfigured(t *testing.T) {
 }
 
 func TestOllamaProviderGenerate_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("expected path '/api/generate', got '%s'", r.URL.Path)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal server error"))
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -162,10 +187,13 @@ func TestOllamaProviderGenerate_ServerError(t *testing.T) {
 }
 
 func TestOllamaProviderGenerate_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("expected path '/api/generate', got '%s'", r.URL.Path)
+		}
 		// タイムアウトをシミュレート（レスポンスを返さない）
 		<-r.Context().Done()
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -186,7 +214,10 @@ func TestOllamaProviderGenerate_Timeout(t *testing.T) {
 }
 
 func TestOllamaProviderGenerate_MultipleMessages(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("expected path '/api/generate', got '%s'", r.URL.Path)
+		}
 		var reqBody map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&reqBody)
 
@@ -202,7 +233,7 @@ func TestOllamaProviderGenerate_MultipleMessages(t *testing.T) {
 		}
 
 		json.NewEncoder(w).Encode(response)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -224,7 +255,7 @@ func TestOllamaProviderGenerate_MultipleMessages(t *testing.T) {
 // --- Chat (tool calling) テスト ---
 
 func TestChat_WithToolCalls(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/chat" {
 			t.Errorf("expected path /api/chat, got %s", r.URL.Path)
 		}
@@ -245,7 +276,7 @@ func TestChat_WithToolCalls(t *testing.T) {
 			Done: true,
 		}
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -284,7 +315,10 @@ func TestChat_WithToolCalls(t *testing.T) {
 }
 
 func TestChat_WithoutToolCalls(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("expected path '/api/chat', got '%s'", r.URL.Path)
+		}
 		resp := ollamaChatResponse{
 			Model: "test-model",
 			Message: ollamaChatMessage{
@@ -294,7 +328,7 @@ func TestChat_WithoutToolCalls(t *testing.T) {
 			Done: true,
 		}
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -319,7 +353,10 @@ func TestChat_WithoutToolCalls(t *testing.T) {
 }
 
 func TestChat_SendsNumCtxWhenConfigured(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("expected path '/api/chat', got '%s'", r.URL.Path)
+		}
 		var reqBody map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("decode request: %v", err)
@@ -341,7 +378,7 @@ func TestChat_SendsNumCtxWhenConfigured(t *testing.T) {
 			Done: true,
 		}
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProviderWithNumCtx(server.URL, "test-model", 16384)
@@ -356,7 +393,10 @@ func TestChat_SendsNumCtxWhenConfigured(t *testing.T) {
 }
 
 func TestChat_MultipleToolCalls(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("expected path '/api/chat', got '%s'", r.URL.Path)
+		}
 		resp := ollamaChatResponse{
 			Model: "test-model",
 			Message: ollamaChatMessage{
@@ -369,7 +409,7 @@ func TestChat_MultipleToolCalls(t *testing.T) {
 			Done: true,
 		}
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")
@@ -390,10 +430,13 @@ func TestChat_MultipleToolCalls(t *testing.T) {
 }
 
 func TestChat_ErrorResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newLoadedModelServer(t, "test-model", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("expected path '/api/chat', got '%s'", r.URL.Path)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("model not found"))
-	}))
+	})
 	defer server.Close()
 
 	provider := NewOllamaProvider(server.URL, "test-model")

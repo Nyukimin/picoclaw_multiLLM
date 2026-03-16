@@ -3,7 +3,6 @@ name: web_search
 tool_id: web_search
 version: "1.0.0"
 category: query
-requires_approval: false
 dry_run: false
 invariants:
   - "query must be non-empty string (max 500 chars)"

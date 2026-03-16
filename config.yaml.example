@@ -81,12 +81,10 @@ worker:
 security:
   enabled: false                  # true で policy runner を有効化
   policy_mode: "balanced"         # "strict" | "balanced" | "dev"
-  approval_mode: "never"          # "never" | "on_demand" | "always"
   network_scope: ""               # ""(profile default) | "blocked" | "allowlist" | "full"
   network_allowlist:              # used when network_scope=allowlist
     - "localhost"
     - "127.0.0.1"
-  approval_ttl_minutes: 10
   deny_commands:
     - "rm -rf"
     - "git reset --hard"

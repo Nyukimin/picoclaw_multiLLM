@@ -141,7 +141,6 @@ Emotion Planner の出力。
   "pause": "normal",
   "expressiveness": 0.35,
   "reason": {
-    "event": "approval_completed",
     "context": ["user_waiting"],
     "text_features": ["gratitude"]
   }
@@ -191,8 +190,6 @@ Emotion Planner の主要入力。
 
 task_success
 task_failure
-approval_requested
-approval_completed
 warning
 error
 analysis_report
@@ -207,8 +204,6 @@ system_notification
 
 task_success → cheerful
 task_failure → serious
-approval_requested → calm
-approval_completed → warm
 warning → alert
 error → alert
 analysis_report → calm

@@ -3,12 +3,11 @@ package execution
 import "time"
 
 // Decision はポリシー判定結果
-// allow: 実行許可, ask: 承認待ち, deny: 実行拒否
+// allow: 実行許可, deny: 実行拒否
 type Decision string
 
 const (
 	DecisionAllow Decision = "allow"
-	DecisionAsk   Decision = "ask"
 	DecisionDeny  Decision = "deny"
 )
 
@@ -16,13 +15,12 @@ const (
 type Status string
 
 const (
-	StatusPending         Status = "pending"
-	StatusWaitingApproval Status = "waiting_approval"
-	StatusRunning         Status = "running"
-	StatusSucceeded       Status = "succeeded"
-	StatusFailed          Status = "failed"
-	StatusDenied          Status = "denied"
-	StatusCanceled        Status = "canceled"
+	StatusPending   Status = "pending"
+	StatusRunning   Status = "running"
+	StatusSucceeded Status = "succeeded"
+	StatusFailed    Status = "failed"
+	StatusDenied    Status = "denied"
+	StatusCanceled  Status = "canceled"
 )
 
 // PolicyDecision はポリシー評価結果
@@ -34,13 +32,12 @@ type PolicyDecision struct {
 
 // Action は1回のツール実行要求
 type Action struct {
-	JobID            string         `json:"job_id"`
-	ActionID         string         `json:"action_id"`
-	Tool             string         `json:"tool"`
-	Arguments        map[string]any `json:"arguments"`
-	RequestedBy      string         `json:"requested_by"`
-	RequiresApproval bool           `json:"requires_approval"`
-	RequestedAt      time.Time      `json:"requested_at"`
+	JobID       string         `json:"job_id"`
+	ActionID    string         `json:"action_id"`
+	Tool        string         `json:"tool"`
+	Arguments   map[string]any `json:"arguments"`
+	RequestedBy string         `json:"requested_by"`
+	RequestedAt time.Time      `json:"requested_at"`
 }
 
 // Record は実行監査レコード
@@ -80,9 +77,7 @@ func CanTransition(from, to Status) bool {
 	}
 	switch from {
 	case StatusPending:
-		return to == StatusWaitingApproval || to == StatusRunning || to == StatusDenied
-	case StatusWaitingApproval:
-		return to == StatusRunning || to == StatusCanceled || to == StatusDenied
+		return to == StatusRunning || to == StatusDenied || to == StatusCanceled
 	case StatusRunning:
 		return to == StatusSucceeded || to == StatusFailed
 	default:

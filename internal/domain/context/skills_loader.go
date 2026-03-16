@@ -122,8 +122,6 @@ func parseSkillFile(content string, dirName string) SkillMetadata {
 			meta.Version = value
 		case "category":
 			meta.Category = value
-		case "requires_approval":
-			meta.RequiresApproval = value == "true"
 		case "dry_run":
 			meta.DryRun = value == "true"
 		case "deprecated":

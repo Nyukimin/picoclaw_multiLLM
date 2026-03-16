@@ -79,26 +79,6 @@ func (r *JSONLRepository) Get(_ context.Context, jobID, actionID string) (domain
 	return rec, nil
 }
 
-func (r *JSONLRepository) ListPendingApprovals(_ context.Context, limit int) ([]domain.Record, error) {
-	records, err := r.loadLatestByAction()
-	if err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		limit = 100
-	}
-	out := make([]domain.Record, 0, limit)
-	for _, rec := range records {
-		if rec.Status == domain.StatusWaitingApproval {
-			out = append(out, rec)
-			if len(out) >= limit {
-				break
-			}
-		}
-	}
-	return out, nil
-}
-
 func (r *JSONLRepository) CountByStatus(_ context.Context) (map[domain.Status]int, error) {
 	records, err := r.loadLatestByAction()
 	if err != nil {

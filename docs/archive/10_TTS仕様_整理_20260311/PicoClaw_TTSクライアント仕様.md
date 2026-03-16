@@ -465,7 +465,6 @@ RenCrow 側は session 開始時に `speech_mode` を指定する。
 * `notification`
 * `report`
 * `warning`
-* `approval_prompt`
 
 ### 初期方針
 

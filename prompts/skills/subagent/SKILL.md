@@ -3,7 +3,6 @@ name: subagent
 tool_id: subagent
 version: "1.0.0"
 category: query
-requires_approval: false
 dry_run: false
 invariants:
   - "agent name must be non-empty"

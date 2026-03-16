@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
@@ -29,9 +28,9 @@ func TestPolicyRunner_DenyBlockedCommand(t *testing.T) {
 		t.Fatalf("repo init failed: %v", err)
 	}
 
-	inner := &fakeRunner{metas: []tool.ToolMetadata{{ToolID: "shell", RequiresApproval: true}}}
-	engine := NewPolicyEngine(PolicyConfig{ApprovalMode: "never", DenyCommands: []string{"rm -rf"}})
-	runner, err := NewPolicyRunner(inner, engine, repo, "test", 10*time.Minute)
+	inner := &fakeRunner{metas: []tool.ToolMetadata{{ToolID: "shell"}}}
+	engine := NewPolicyEngine(PolicyConfig{DenyCommands: []string{"rm -rf"}})
+	runner, err := NewPolicyRunner(inner, engine, repo, "test")
 	if err != nil {
 		t.Fatalf("NewPolicyRunner failed: %v", err)
 	}

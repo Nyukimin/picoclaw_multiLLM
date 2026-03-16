@@ -20,7 +20,6 @@
 ### 実行パラメータ
 
 - **対象ディレクトリ**: /home/nyukimi/picoclaw_multiLLM
-- **解析モジュール数**: 7 モジュール（core, agent, approval, llm_provider, session, mcp, infra）
 - **外部資料**: docs/ ディレクトリ（60+ ファイル、37 ファイルをマッピング）
 - **既存調査**: 監査差分分析 3 ファイル、実装ガイド進捗レポート 5 ファイル
 
@@ -42,7 +41,6 @@
 | 1-1 | モジュール解析: core | ✅ 完了 | modules/core.md |
 | 1-2 | モジュール解析: agent | ✅ 完了 | modules/agent.md |
 | 1-3 | モジュール解析: llm_provider | ✅ 完了 | modules/llm_provider.md |
-| 1-4 | モジュール解析: approval | ✅ 完了 | modules/approval.md |
 | 1-5 | モジュール解析: session | ✅ 完了 | modules/session.md |
 | 1-6 | モジュール解析: mcp | ✅ 完了 | modules/mcp.md |
 | 1-7 | モジュール解析: infra | ✅ 完了 | modules/infra.md |
@@ -78,8 +76,6 @@
   - Phase 2 追加: Skills 管理、Watchdog、15 個の落とし穴
 - `modules/agent.md` (750 行) - ルーティング・ループ
   - Phase 2 追加: 45 種類のログイベント、5 つの設計書との乖離
-- `modules/approval.md` (466 行) - 承認フロー
-  - Phase 2 追加: Auto-Approve 完全未実装、cost_hint 未実装
 - `modules/llm_provider.md` (300 行) - LLM プロバイダー
   - Phase 2 追加: タイムアウト実装詳細、Ollama 判定ロジック
 - `modules/session.md` (300 行) - セッション管理
@@ -129,11 +125,7 @@
 #### agent（ルーティング・ループ）
 - ✅ 45 種類のログイベントを網羅的にカタログ化
 - ✅ RouteApprove/RouteDeny の存在確認
-- ❌ 設計書との乖離 5 項目発見（Worker 実行委譲、Auto-Approve、再ルーティング、会話LLM提案IF、WorkerInput/Output スキーマ）
 
-#### approval（承認フロー）
-- ✅ Phase 1-3 完了（基本承認フローは完全実装済み）
-- ❌ Auto-Approve は完全に未実装（Phase 4-6 予定）
 - ❌ cost_hint フィールド未実装（設計書との乖離）
 
 #### llm_provider（LLM プロバイダー）
@@ -160,9 +152,7 @@
 
 | 項目 | 実装仕様記載 | 実装状況 | Phase |
 |------|-------------|---------|-------|
-| 基本承認フロー | 6.1-6.3 節 | ✅ 完了 | Phase 1-3 |
 | Worker 実行委譲 | 6.2 節 | ❌ 未実装 | Phase 4 予定 |
-| Auto-Approve | 6.4 節 | ❌ 未実装 | Phase 4-6 予定 |
 | 再ルーティング | 3.3 節 | ❌ 未実装 | 未定 |
 | 会話LLM提案IF | 3.4 節 | ❌ 未実装 | 未定 |
 | cost_hint | Coder3 仕様 8-2 | ❌ 未実装 | 未定 |
@@ -171,8 +161,6 @@
 ### 異常リスト
 
 **高優先度（短期対応必須）**: 4 項目
-1. 承認後の Worker 実行委譲が未実装
-2. Auto-Approve 機能が完全未実装
 3. Chrome 操作の実行ロジックが未統合（Phase 5-C）
 4. cost_hint フィールドが未実装
 
@@ -191,7 +179,6 @@
 14. WorkerInput/Output スキーマの未実装
 15. タイムゾーンハードコード
 16. 設定ホットリロード未サポート
-17. 承認ジョブの永続化なし
 
 **総異常数**: 17 項目
 
@@ -206,9 +193,7 @@
    - Worker が patch から Chrome コマンドをパースする実装
    - mcpClient 呼び出しと実行結果ログ記録
 
-2. **承認フロー完成**: Worker 実行委譲、Auto-Approve、cost_hint 実装
    - Worker への patch 適用委譲ロジックを agent/loop.go に追加
-   - Auto-Approve の Scope/TTL 判定ロジック実装
    - Job 構造体に CostHint フィールド追加
 
 3. **環境変数タグ検証**: `caarlos0/env` の動作確認
@@ -224,7 +209,6 @@
 
 ### 長期（Phase 7+）
 
-8. **永続化強化**: 承認ジョブの DB 永続化、セッションの Redis 化
 9. **タイムゾーン設定可能化**: カットオーバー時刻の設定ファイル化
 10. **メトリクス収集**: Prometheus 対応、パフォーマンス監視
 11. **高度なルーティング**: 再ルーティング、LLM提案IF、Worker スキーマ実装
@@ -239,7 +223,6 @@
 - **主要モジュール数**: 7 モジュール
 - **総コード行数**: 推定 7,000+ 行（Phase 2 検証で確認）
 - **最大ファイル**: agent/loop.go（1,980 行）
-- **テストカバレッジ**: 重要パッケージ（approval, session）は 100%
 
 ### 解析規模
 

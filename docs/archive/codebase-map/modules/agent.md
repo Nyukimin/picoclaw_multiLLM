@@ -12,7 +12,6 @@ module_group_id: agent
 
 ## 概要
 
-RenCrow のリクエスト処理コア。ユーザー入力を受け取り、ルーティング決定（CHAT/PLAN/ANALYZE/OPS/RESEARCH/CODE1/CODE2/CODE3 の選択）、エージェントループ（LLM 反復呼び出しとツール実行）、承認フロー管理を担当する。
 
 ## 関連ドキュメント
 
@@ -40,23 +39,12 @@ RenCrow のリクエスト処理コア。ユーザー入力を受け取り、ル
    - メッセージ受信・処理パイプライン
    - LLM プロバイダーの動的切り替え（CHAT→Ollama chat-v1、CODE3→Claude API 等）
    - LLM 反復呼び出しとツール実行のループ管理
-   - 停止条件判定（max_loops, max_millis, 承認待ち等）
    - 日次カットオーバー処理（セッションのリセット・アーカイブ）
 
-3. **承認フロー統合** (loop.go)
    - Coder3（Claude API）の出力解析（plan/patch/risk）
      - 実装箇所: loop.go:490-523（parseCoder3Output 呼び出し）
-     - 構造体: Coder3Output（JobID, Plan, Patch, Risk, CostHint, NeedApproval）
-   - ジョブ作成と承認要求メッセージ生成
-     - approvalMgr.CreateJob(jobID, Plan, Patch, Risk, usesBrowser) で登録
-     - approval.FormatApprovalRequest(job) で承認要求メッセージ生成
-     - セッションに job_id を保存（flags.PendingApprovalJobID）
    - `/approve <job_id>`, `/deny <job_id>` コマンド処理
      - 実装箇所: loop.go:1910-1947（handleCommand 内）
-     - approvalMgr.Approve(jobID, userID) / Deny(jobID, userID)
-     - ログ出力: logger.LogApprovalGranted / LogApprovalDenied
-   - ※Phase 2 で確認: 承認後の Worker 実行委譲は未実装（Phase 4 予定）
-     - 現状は承認完了メッセージのみ返却
      - loop.go:1931 に TODO コメント: "Worker による差分適用は次のフェーズで実装予定"
    - ※Phase 2 で確認: Chrome 操作検出（usesBrowser フラグ設定）も未実装
      - loop.go:501 に TODO コメント: "Patch から Chrome 操作を検出して usesBrowser を設定"
@@ -120,8 +108,6 @@ RenCrow のリクエスト処理コア。ユーザー入力を受け取り、ル
   - LLM プロバイダー抽象化: `LLMProvider.Chat()`, `Message`, `ToolDefinition`
   - 利用箇所: LLM 呼び出し、ツール実行、ルート別プロバイダー切り替え
 
-- **approval** (`pkg/approval`)
-  - 承認フロー管理: `Manager.CreateJob()`, `GetJob()`, `Approve()`, `Deny()`
   - 利用箇所: Coder3 の plan/patch 解析後のジョブ作成、`/approve` / `/deny` コマンド処理
 
 - **config** (`pkg/config`)
@@ -174,7 +160,6 @@ RenCrow のリクエスト処理コア。ユーザー入力を受け取り、ル
 pkg/agent/
 ├── router.go            ルーティング決定（明示コマンド・辞書・分類器）
 ├── router_test.go       ルーティング単体テスト
-├── loop.go              エージェントループ（メッセージ処理・LLM 呼び出し・承認フロー）
 ├── loop_test.go         ループ統合テスト
 ├── classifier.go        LLM ベース分類器
 ├── context.go           コンテキスト構築（システムプロンプト・履歴・FewShot）
@@ -201,7 +186,6 @@ const (
     RouteCode1    = "CODE1"
     RouteCode2    = "CODE2"
     RouteCode3    = "CODE3"
-    RouteApprove  = "APPROVE"  // ※Phase 2 で追加: 承認コマンド用ルート
     RouteDeny     = "DENY"     // ※Phase 2 で追加: 拒否コマンド用ルート
 )
 
@@ -262,7 +246,6 @@ type AgentLoop struct {
     running        atomic.Bool
     summarizing    sync.Map // ※Phase 2 で修正: Tracks which sessions are currently being summarized
     channelManager *channels.Manager
-    approvalMgr    *approval.Manager // ※Phase 2 で追加: 承認フロー管理
     mcpClient      *mcp.Client       // ※Phase 2 で追加: MCP クライアント（Chrome DevTools Protocol 統合中）
 }
 
@@ -328,7 +311,6 @@ const (
     ├─ マッチ → 即座に決定（confidence=1.0）
     │   ├─ /local → LocalOnly=true、DirectResponse 返却、前回ルート維持
     │   ├─ /cloud → LocalOnly=false、DirectResponse 返却、前回ルート維持
-    │   ├─ /approve → RouteApprove（承認コマンド処理へ）
     │   ├─ /deny → RouteDeny（拒否コマンド処理へ）
     │   └─ その他 → ルート決定、stripped にコマンド除去後テキスト
     └─ 不一致 → 次へ
@@ -369,8 +351,6 @@ const (
   1. `confidence >= MinConfidenceForCode`（デフォルト 0.8）
   2. `hasStrongCodeEvidence()` が true（コードブロック、diff、拡張子等）
   - どちらか欠ける場合は CHAT にフォールバック
-- **/approve, /deny コマンド**: 承認フロー専用ルート（RouteApprove/RouteDeny）
-  - handleCommand() で処理され、approvalMgr.Approve()/Deny() を呼び出す
 
 ### エージェントループフロー
 
@@ -397,16 +377,10 @@ applyRouteLLM() → LLM プロバイダー切り替え
 runAgentLoop() → LLM 反復呼び出しループ
     ├─ BuildMessages() → システムプロンプト + 履歴構築
     ├─ runLLMIteration() → LLM 呼び出しとツール実行
-    │   ├─ 停止条件: max_loops / max_millis / 承認待ち
     │   └─ ツール実行結果を履歴に追加
     ├─ Ollama ヘルスチェック + 自動再起動（Ollama ルート時）
-    └─ CODE3 出力解析 → 承認要求生成
     ↓
-承認フロー（CODE3 時）
     ├─ CoderOutput 解析（plan/patch/risk）
-    ├─ ジョブ作成（approvalMgr.CreateJob()）
-    ├─ 承認要求メッセージ返却
-    └─ ユーザー承認待ち（/approve or /deny）
     ↓
 応答送信（bus.PublishOutbound()）
     ├─ セッション保存
@@ -419,7 +393,6 @@ runAgentLoop() → LLM 反復呼び出しループ
 - `iteration >= maxIterations` (デフォルト: 3)
 - `elapsed >= maxMillis` (デフォルト: 90000ms)
 - LLM エラー（リトライ後も失敗）
-- 承認待ち（`NeedApproval=true`）
 - ツール実行エラー（回復不能）
 
 **日次カットオーバー処理**
@@ -480,11 +453,7 @@ maybeDailyCutover(sessionKey)
    - Ollama の場合、モデルロードに数秒〜数十秒かかる可能性
    - 緩和策: 分類器は明示コマンド・ルール辞書の後の最終手段として配置
 
-2. **承認フロー実装の未完成部分**
-   - ※Phase 2 で確認: 承認後の Worker 実行委譲ロジックは未実装
    - 実装箇所: loop.go:1931 に明示されたメッセージ "Worker による差分適用は次のフェーズで実装予定"
-   - 現状の動作: /approve コマンドで承認すると、ジョブは Approved 状態になるが実行はされない
-   - 次の実装ステップ: 承認完了後に Worker へ差分適用タスクを委譲する機能追加
    - Chrome 操作検出（`usesBrowser` フラグ設定）も未実装
      - loop.go:501 のコメント: "TODO: Patch から Chrome 操作を検出して usesBrowser を設定"
 
@@ -524,21 +493,13 @@ maybeDailyCutover(sessionKey)
    - loop.go:374-383 で `line_forced_chat` として実装
 3. **Coder 三重ルーティング**: 実装仕様 1.1 節に準拠
    - CODE1/CODE2/CODE3 の3段階分岐（loop.go:865-879, selectCoderRoute）
-4. **承認フロー基本**: 実装仕様 6章に部分準拠
-   - ジョブ作成、承認要求メッセージ生成は完成（loop.go:490-523）
    - `/approve`, `/deny` コマンド処理は完成（loop.go:1910-1947）
 5. **日次カットオーバー**: 実装仕様 9章に準拠
    - 04:00 JST 境界計算、論理日付管理、日次ノート保存（loop.go:1481-1535, memory.go:145-168）
 
 #### 未実装・将来実装予定部分
 
-1. **承認後の Worker 実行委譲**: 実装仕様 6.2 節（4番目のステップ）
-   - 仕様: "4. 承認後、Worker が適用実行"
    - 実装状況: 未実装（Phase 4 予定）
-   - 現状: 承認完了メッセージのみ返却（loop.go:1931）
-2. **Auto-Approve モード**: 実装仕様 6.4 節
-   - 仕様: Scope/TTL 付き自動承認、即時 OFF 可能
-   - 実装状況: approval.Manager に一部機能あり、統合未完
 3. **再ルーティング（最大1回）**: 実装仕様 3.3 節
    - 仕様: `fit=false` かつ `suggested_route` 有効時に再ルート
    - 実装状況: 未実装（`max_reroute=1` の制約のみコメントに記載）
@@ -583,19 +544,10 @@ maybeDailyCutover(sessionKey)
    - 特に履歴取得（`GetHistory()`）、フラグ管理（`GetFlags()`, `SetFlags()`）の変更は要注意
    - テストカバレッジを確認（`loop_test.go` で主要シナリオをカバー）
 
-4. **承認フロー拡張時**
-   - ※Phase 2 で確認: `approvalMgr` の呼び出し箇所は loop.go の 3 箇所
      - ジョブ作成: loop.go:502（CreateJob）
-     - 承認: loop.go:1917（Approve）
      - 拒否: loop.go:1940（Deny）
-   - Auto-Approve 機能追加時は `approval.Manager` の API 拡張が必要
      - 現状: 基本機能（CreateJob/GetJob/Approve/Deny）のみ実装
      - 追加予定: Scope/TTL 管理、即時 OFF 機能
-   - ログイベント種別（`approval.requested`, `approval.granted` 等）は実装済み
-     - logger.LogApprovalRequested（loop.go:515）
-     - logger.LogApprovalGranted（loop.go:1922）
-     - logger.LogApprovalDenied（loop.go:1945）
-   - 承認後の Worker 実行委譲は未実装（Phase 4 予定）
      - 実装時は loop.go:1931 付近に委譲ロジックを追加
 
 5. **LLM プロバイダー追加時**
@@ -631,15 +583,11 @@ maybeDailyCutover(sessionKey)
 - **mvp.stop** - ループ停止（loop.go:571-577）
   - フィールド: session_key, final_route, stop_reason, error_reason
 - **classifier.error** - 分類器エラー（エラー詳細）※推測: 分類器内部
-- **approval.requested** - 承認要求（loop.go:515 経由で logger.LogApprovalRequested）
   - フィールド: job_id, plan, patch, risk
-- **approval.granted** - 承認許可（loop.go:1922 経由で logger.LogApprovalGranted）
   - フィールド: job_id, approver
-- **approval.denied** - 承認拒否（loop.go:1945 経由で logger.LogApprovalDenied）
   - フィールド: job_id, denier
 - **coder.plan_generated** - Coder プラン生成（loop.go:516 経由で logger.LogCoderPlanGenerated）
   - フィールド: job_id, plan
-- **approval.create_job_error** - 承認ジョブ作成エラー（loop.go:504-506）
   - フィールド: error
 - **coder3.parse_error** - Coder3 出力パースエラー（loop.go:493-495）※Phase 2 で追加
   - フィールド: error
@@ -678,7 +626,6 @@ maybeDailyCutover(sessionKey)
 
 ## 参考: ファイルサイズと複雑度
 
-- `loop.go`: 1900+ 行（エージェントループ、承認フロー、日次カットオーバー、Ollama 監視、MCP 統合等を含む最大ファイル）
 - `router.go`: 278 行（ルーティング決定ロジック）
 - `context.go`: 646 行（コンテキスト構築、FewShot 管理、添付ファイル処理）
 - `memory.go`: 244 行（メモリ管理、日次ノート、カットオーバー計算）
@@ -703,22 +650,17 @@ maybeDailyCutover(sessionKey)
    - `docs/01_正本仕様/実装仕様.md`（2章、6章、7章）
    - `docs/02_v2統合分割仕様/実装仕様_v2_02_ルーティング.md`
 4. **Grep による詳細確認**:
-   - 承認フロー関連（RouteApprove, RouteDeny, parseCoder3Output, CreateJob）
    - 日次カットオーバー関連（GetCutoverBoundary, GetLogicalDate, maybeDailyCutover）
 
 ### 主要な発見・修正
 
 #### 正確性向上
 
-1. **ルート定数の追加**: RouteApprove/RouteDeny（承認コマンド用）を追加
 2. **Coder3Output 構造体**: parseCoder3Output の実装を確認し、エラーハンドリングが適切に実装済みであることを確認
 3. **日次カットオーバーの詳細フロー**: GetCutoverBoundary/GetLogicalDate の計算ロジックを精査
-4. **承認フロー統合の現状**: Phase 4 まで Worker 実行委譲が未実装であることを明確化
 
 #### 設計書との乖離検出
 
-1. **承認後の Worker 実行委譲**: 実装仕様 6.2 節（4番目のステップ）が未実装
-2. **Auto-Approve モード**: 実装仕様 6.4 節が未実装
 3. **再ルーティング（最大1回）**: 実装仕様 3.3 節が未実装
 4. **会話LLM提案IF**: 実装仕様 3.4 節が未実装
 5. **分類器のシステムプロンプト**: CODE1/CODE2/CODE3 は分類器の出力対象外（仕様と実装の設計判断の違い）
@@ -736,7 +678,6 @@ maybeDailyCutover(sessionKey)
 - ルーティング決定フロー: /approve, /deny 処理の詳細化
 - 特殊処理: LINE 強制 CHAT の実装箇所明記
 - 日次カットオーバー処理: GetLogicalDate の挙動詳細化
-- 承認フロー統合: 未実装部分の明確化、TODO コメント参照
 - 既知の問題: エラーハンドリング実装済みを確認
 - 設計書との乖離: 5項目の未実装機能を明記
 - 変更時の注意事項: 実装箇所の行番号と関数名を追記

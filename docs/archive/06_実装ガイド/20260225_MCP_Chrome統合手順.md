@@ -9,7 +9,6 @@
 ## 0. 概要
 
 ### 目的
-Coder3（Claude API）にブラウザ操作機能を追加する。**すべての Chrome 操作は承認フロー（job_id）を通してのみ実行される**。
 
 ### アーキテクチャ
 ```
@@ -17,9 +16,7 @@ RenCrow (Linux)
   │
   ├─ Coder3: Chrome 操作の plan を生成
   │           ↓
-  ├─ Chat: 承認要求を送信（job_id 付き）
   │           ↓
-  └─ 人間: /approve <job_id> または 永続承認（期限付き）
               ↓
 RenCrow Worker
   ↓ HTTP
@@ -27,14 +24,9 @@ Win11 (100.83.235.65:12306)
   ↓ Native Messaging (mcp-chrome-bridge)
 Chrome 拡張機能
   ↓
-ブラウザ操作（承認済みのみ実行）
 ```
 
-### 承認フローの必須化
 - Chrome 操作は **job_id で追跡**
-- 承認なしでは実行されない
-- 承認要求には `uses_browser: true` フラグが含まれる
-- Auto-Approve の対象外（例外なく承認必須）
 
 ### 実装範囲
 - **Phase 5-A**: Win11 側のセットアップ（mcp-chrome-bridge + Chrome 拡張）
@@ -676,7 +668,6 @@ func (s *AgentLoop) buildCoder3Prompt(req *Request) string {
 				prompt += fmt.Sprintf("- **%s**: %s\n", tool.Name, tool.Description)
 			}
 			prompt += "\n**重要**: これらのツールは plan として提案するのみ。直接実行はしない。\n"
-			prompt += "実行は Worker が承認済み job_id を確認してから行う。\n\n"
 		}
 	}
 
@@ -686,13 +677,10 @@ func (s *AgentLoop) buildCoder3Prompt(req *Request) string {
 }
 ```
 
-**注意**: Coder3 は Chrome 操作を **plan（提案）** として生成するのみ。実際の実行は Worker が承認後に行う。
 
 ---
 
-### C-3. 承認フローに「ブラウザ操作」リスクを追加
 
-**pkg/approval/manager.go** の Job 構造体を拡張:
 
 ```go
 type Job struct {
@@ -721,12 +709,9 @@ func (m *Manager) CreateJob(jobID, plan, patch string, risk map[string]interface
 }
 ```
 
-**承認要求メッセージにブラウザ操作警告を追加**:
 
 ```go
-func FormatApprovalRequest(job *Job) string {
 	msg := fmt.Sprintf(`
-【承認要求】
 Job ID: %s
 
 【操作要約】
@@ -744,7 +729,6 @@ Job ID: %s
 	}
 
 	msg += fmt.Sprintf(`
-承認する場合: /approve %s
 拒否する場合: /deny %s
 `, job.JobID, job.JobID)
 
@@ -756,18 +740,14 @@ Job ID: %s
 
 ### C-4. Worker による Chrome 操作実行
 
-**pkg/agent/loop.go** で承認後の実行処理:
 
 ```go
 func (s *AgentLoop) executeApprovedJob(ctx context.Context, jobID string) error {
 	// 1. ジョブを取得
-	job, err := s.approvalMgr.GetJob(jobID)
 	if err != nil {
 		return fmt.Errorf("get job: %w", err)
 	}
 
-	// 2. 承認状態を確認
-	approved, err := s.approvalMgr.IsApproved(jobID)
 	if err != nil || !approved {
 		return fmt.Errorf("job not approved: %s", jobID)
 	}
@@ -827,8 +807,6 @@ type ChromeCommand struct {
 ```
 
 **重要な実装ポイント**:
-- Worker は**必ず job_id の承認状態を確認**してから実行
-- 承認されていない job_id は実行しない
 - すべての Chrome 操作をログに記録（job_id 付き）
 - エラー時は詳細を構造化して Chat に返す
 
@@ -978,7 +956,6 @@ curl -X POST http://100.83.235.65:12306/mcp \
 - [ ] client_test.go 実装
 - [ ] config.json に MCP 設定追加
 - [ ] Coder3 に MCP クライアント統合
-- [ ] 承認フローに「ブラウザ操作」リスク追加
 - [ ] End-to-End テスト
 
 ### 統合テスト
@@ -986,7 +963,6 @@ curl -X POST http://100.83.235.65:12306/mcp \
 - [ ] tools/list 呼び出しテスト
 - [ ] chrome_navigate テスト
 - [ ] Coder3 経由でのブラウザ操作テスト
-- [ ] 承認フロー全体のテスト
 
 ---
 

@@ -109,21 +109,6 @@ func validateID(id string) error {
 - `mode=plan` では副作用（DB書き込み、ファイル変更、API呼び出し）を**一切**実行しない
 - 対象件数が 0 の場合も正常応答（空の actions 配列）を返す
 
-### 2.2 承認フラグ
-
-SKILL.md の frontmatter で宣言:
-
-```yaml
-requires_approval: true
-```
-
-Worker は `requires_approval: true` のツールを実行する前に:
-1. dry-run を実行して差分を取得
-2. 差分を Chat 経由でユーザーに提示
-3. 承認を受けてから本実行
-
----
-
 ## 3. 取得系の制約
 
 ### 3.1 フィールド制限

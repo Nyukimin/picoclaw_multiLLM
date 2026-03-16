@@ -37,12 +37,12 @@ func newMemRepo() *memRepo {
 }
 
 func (m *memRepo) Create(_ context.Context, record domain.Record) error {
-	m.records[pendingKey(record.JobID, record.ActionID)] = record
+	m.records[recordKey(record.JobID, record.ActionID)] = record
 	return nil
 }
 
 func (m *memRepo) UpdateStatus(_ context.Context, jobID, actionID string, status domain.Status, errMsg string) (domain.Record, error) {
-	k := pendingKey(jobID, actionID)
+	k := recordKey(jobID, actionID)
 	rec := m.records[k]
 	rec.Status = status
 	rec.Error = errMsg
@@ -55,17 +55,7 @@ func (m *memRepo) UpdateStatus(_ context.Context, jobID, actionID string, status
 }
 
 func (m *memRepo) Get(_ context.Context, jobID, actionID string) (domain.Record, error) {
-	return m.records[pendingKey(jobID, actionID)], nil
-}
-
-func (m *memRepo) ListPendingApprovals(_ context.Context, _ int) ([]domain.Record, error) {
-	out := []domain.Record{}
-	for _, r := range m.records {
-		if r.Status == domain.StatusWaitingApproval {
-			out = append(out, r)
-		}
-	}
-	return out, nil
+	return m.records[recordKey(jobID, actionID)], nil
 }
 
 func (m *memRepo) CountByStatus(_ context.Context) (map[domain.Status]int, error) {
@@ -79,7 +69,7 @@ func (m *memRepo) CountByStatus(_ context.Context) (map[domain.Status]int, error
 func TestService_RequestToolExecution_Deny(t *testing.T) {
 	repo := newMemRepo()
 	exec := &stubExecutor{}
-	svc := NewService(&stubPolicy{decision: domain.PolicyDecision{Decision: domain.DecisionDeny}}, exec, repo, 10*time.Minute)
+	svc := NewService(&stubPolicy{decision: domain.PolicyDecision{Decision: domain.DecisionDeny}}, exec, repo)
 
 	res, err := svc.RequestToolExecution(context.Background(), domain.Action{JobID: "j", ActionID: "a", Tool: "shell"})
 	if err != nil {
@@ -96,14 +86,14 @@ func TestService_RequestToolExecution_Deny(t *testing.T) {
 	}
 }
 
-func TestService_RequestAskApprove_Success(t *testing.T) {
+func TestService_RequestAllowExecutesImmediately(t *testing.T) {
 	repo := newMemRepo()
 	exec := &stubExecutor{resp: tool.NewSuccess("ok")}
-	svc := NewService(&stubPolicy{decision: domain.PolicyDecision{Decision: domain.DecisionAsk}}, exec, repo, 10*time.Minute)
+	svc := NewService(&stubPolicy{decision: domain.PolicyDecision{Decision: domain.DecisionAllow}}, exec, repo)
 	now := time.Now().UTC()
 	svc.now = func() time.Time { return now }
 
-	_, err := svc.RequestToolExecution(context.Background(), domain.Action{
+	res, err := svc.RequestToolExecution(context.Background(), domain.Action{
 		JobID:       "j1",
 		ActionID:    "a1",
 		Tool:        "shell",
@@ -113,13 +103,8 @@ func TestService_RequestAskApprove_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RequestToolExecution failed: %v", err)
 	}
-
-	res, err := svc.ApproveExecution(context.Background(), "j1", "a1")
-	if err != nil {
-		t.Fatalf("ApproveExecution failed: %v", err)
-	}
 	if !exec.called {
-		t.Fatal("executor should be called after approve")
+		t.Fatal("executor should be called immediately for allow decision")
 	}
 	if res.Record.Status != domain.StatusSucceeded {
 		t.Fatalf("expected succeeded, got %s", res.Record.Status)
@@ -127,4 +112,8 @@ func TestService_RequestAskApprove_Success(t *testing.T) {
 	if res.Record.EventType != "security.decision" {
 		t.Fatalf("expected security.decision event, got %s", res.Record.EventType)
 	}
+}
+
+func recordKey(jobID, actionID string) string {
+	return jobID + "::" + actionID
 }

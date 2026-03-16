@@ -55,7 +55,7 @@ func TestRunDoctorCommand_JSONError(t *testing.T) {
 		WorkspaceDir: "/workspace/missing",
 		Security: config.SecurityConfig{
 			Enabled:           true,
-			ApprovalMode:      "strict",
+			PolicyMode:        "strict",
 			WorkspaceEnforced: true,
 		},
 	}

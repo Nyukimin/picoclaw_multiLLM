@@ -2,7 +2,6 @@
 tool_id: {{TOOL_ID}}
 version: 1.0.0
 category: {{CATEGORY}}
-requires_approval: {{REQUIRES_APPROVAL}}
 dry_run: {{DRY_RUN}}
 invariants:
   - "JSON 入出力"
@@ -50,4 +49,3 @@ replaced_by: null
 - JSON 入出力（stdout=結果, stderr=ログ）
 - 入力バリデーション（パストラバーサル、制御文字、ID汚染を弾く）
 - {{#IF DRY_RUN}}dry-run (mode=plan) で差分・対象件数を返す{{/IF}}
-- {{#IF REQUIRES_APPROVAL}}承認フラグ宣言済み{{/IF}}

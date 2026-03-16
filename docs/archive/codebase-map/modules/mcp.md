@@ -12,7 +12,6 @@ module_group_id: mcp
 
 ## 概要
 
-外部 MCP (Model Context Protocol) サーバーへの HTTP 接続を管理し、Chrome DevTools Protocol 経由のブラウザ操作を提供するモジュール。Win11 環境で稼働する mcp-chrome-bridge との通信により、承認フローを経由したブラウザ自動化を実現する。
 
 ## 関連ドキュメント
 
@@ -20,7 +19,6 @@ module_group_id: mcp
 - 外部資料: `docs/codebase-map/refs_mapping.md` (mcp セクション)
 - MCP Chrome 統合手順: `docs/06_実装ガイド進行管理/20260225_MCP_Chrome統合手順.md`
 - Windows 11 セットアップ: `docs/06_実装ガイド進行管理/win11_manual_setup.md`, `docs/06_実装ガイド進行管理/README_Win11_Setup.md`
-- Coder3 承認フロー: `docs/06_実装ガイド進行管理/20260224_Coder3承認フロー実装プラン.md`
 - メモリ: `.serena/memories/mcp_chrome_setup_progress.md`
 
 ---
@@ -32,7 +30,6 @@ module_group_id: mcp
 1. **MCP サーバー接続管理**: HTTP API 経由で外部 MCP サーバー（mcp-chrome-bridge）への接続、ヘルスチェック、タイムアウト・リトライ処理。
 2. **Chrome 操作ラッパー**: ブラウザ操作（navigate, click, screenshot, get_text）を Go の型安全な API として提供。
 3. **ツール列挙**: MCP サーバーが提供するツール一覧の取得（tools/list）と、汎用的なツール呼び出し（tools/call）。
-4. **承認フロー統合**: すべての Chrome 操作は `job_id` と承認フローを経由して実行される前提で設計（※現在は Agent Loop で初期化のみ、実行ロジックは未統合）。
 
 ### 対外インターフェース（公開 API）
 
@@ -90,7 +87,6 @@ module_group_id: mcp
 
 **将来の統合計画**（※推測、実装仕様未記載）:
 - **`pkg/providers/anthropic.go`** (Coder3): Chrome 操作を含む plan/patch の生成時に `uses_browser: true` フラグを設定（未実装）
-- **`pkg/agent/loop.go`** (Worker 実行): 承認済み job_id の patch から Chrome 操作コマンドをパースし、`mcpClient` 経由で実行（未実装）
 
 **設定での統合**:
 - **`pkg/config/config.go`**: `MCPConfig` と `MCPChromeConfig` 構造体を定義
@@ -98,9 +94,6 @@ module_group_id: mcp
   - `MCP.Chrome.BaseURL`: mcp-chrome-bridge の URL（デフォルト: `http://100.83.235.65:12306`）
   - `MCP.Chrome.TimeoutSec`: タイムアウト（秒）
 
-**承認フローでの統合**:
-- **`pkg/approval/manager.go`**: `Job.UsesBrowser` フィールドでブラウザ操作を追跡
-- **`pkg/approval/message.go`**: 承認要求メッセージに "⚠️ **この操作はブラウザ操作を含みます**" 警告を追加
 
 ---
 
@@ -184,7 +177,6 @@ pkg/mcp/
 - `ChromeClick(ctx, selector)` → `CallTool(ctx, "chrome_click", {"selector": selector})` のラッパー
 - レスポンスパース: `Content[0]["text"]` または `Content[0]["data"]` から結果を抽出
 
-### 承認フローとの統合（計画）
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -193,15 +185,9 @@ pkg/mcp/
 │    └─ patch: "chrome_navigate: https://google.com?q=..."       │
 │    └─ uses_browser: true                                        │
 │         ↓                                                       │
-│ 2. Chat が承認要求を送信（job_id 付き）                        │
-│    └─ approval.CreateJob(jobID, plan, patch, risk, usesBrowser)│
 │    └─ "⚠️ **この操作はブラウザ操作を含みます**"                │
 │         ↓                                                       │
-│ 3. 人間が承認（/approve <job_id>）                            │
-│    └─ approval.Approve(jobID, approver)                         │
 │         ↓                                                       │
-│ 4. Worker が承認済みジョブを実行                               │
-│    └─ job, _ := approvalMgr.GetJob(jobID)                      │
 │    └─ if job.UsesBrowser && mcpClient != nil {                 │
 │          parseChromeCommands(job.Patch) → mcpClient 呼び出し   │
 │       }                                                         │
@@ -232,13 +218,10 @@ pkg/mcp/
    - ※Phase 2 で確認: client.go と chrome_tools.go は完全に実装されており、Phase 5-B（クライアント実装）は完了
    - ※Phase 2 で確認: Phase 5-C（Agent Loop 統合）は未着手
 
-2. **承認フローの未検証**: `Job.UsesBrowser` フラグは実装済みだが、実際にブラウザ操作が承認フローを通過するエンドツーエンドテストが存在しない。
 
-3. **Auto-Approve の対象外**: 統合手順書では「Auto-Approve は Chrome 操作を対象外とする」とあるが、`pkg/approval` には Auto-Approve のロジックが見当たらない（※推測: 未実装または別モジュール）。
 
 4. **Win11 環境の可用性**: mcp-chrome-bridge が停止すると MCP 機能全体が使用不可になる。フォールバック機能なし。
 
-5. **セキュリティ**: Chrome 操作は破壊的操作と同等のリスクがあるが、承認フローの実装が不完全なため、実運用前に慎重な検証が必須。
 
 ### 変更時の注意事項
 

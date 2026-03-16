@@ -166,9 +166,6 @@ func TestToolRunner_ListTools_MutationCategory(t *testing.T) {
 			if m.Category != "mutation" {
 				t.Errorf("%s category = %q, want %q", m.ToolID, m.Category, "mutation")
 			}
-			if !m.RequiresApproval {
-				t.Errorf("%s should require approval", m.ToolID)
-			}
 		case "file_read", "file_list", "web_search":
 			if m.Category != "query" {
 				t.Errorf("%s category = %q, want %q", m.ToolID, m.Category, "query")

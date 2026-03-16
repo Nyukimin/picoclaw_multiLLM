@@ -318,10 +318,9 @@ func runStatusCommand(
 			details["checks"] = report.Checks
 			if statsErr == nil {
 				details["execution"] = map[string]int{
-					"running":          stats[domainexecution.StatusRunning],
-					"waiting_approval": stats[domainexecution.StatusWaitingApproval],
-					"denied":           stats[domainexecution.StatusDenied],
-					"failed":           stats[domainexecution.StatusFailed],
+					"running": stats[domainexecution.StatusRunning],
+					"denied":  stats[domainexecution.StatusDenied],
+					"failed":  stats[domainexecution.StatusFailed],
 				}
 			} else {
 				details["execution_error"] = statsErr.Error()
@@ -359,7 +358,6 @@ func runStatusCommand(
 	if statsErr == nil {
 		fmt.Fprintln(out, "\nExecution:")
 		fmt.Fprintf(out, "  running: %d\n", stats[domainexecution.StatusRunning])
-		fmt.Fprintf(out, "  waiting_approval: %d\n", stats[domainexecution.StatusWaitingApproval])
 		fmt.Fprintf(out, "  denied: %d\n", stats[domainexecution.StatusDenied])
 		fmt.Fprintf(out, "  failed: %d\n", stats[domainexecution.StatusFailed])
 	} else {
@@ -370,7 +368,6 @@ func runStatusCommand(
 		fmt.Fprintln(out, "\nDetails:")
 		fmt.Fprintf(out, "  timestamp: %s\n", now().Format(time.RFC3339))
 		fmt.Fprintf(out, "  security.enabled: %t\n", cfg.Security.Enabled)
-		fmt.Fprintf(out, "  security.approval_mode: %s\n", cfg.Security.ApprovalMode)
 	}
 	if usage {
 		fmt.Fprintln(out, "\nUsage:")
@@ -431,13 +428,6 @@ func runDoctorCommand(
 	findings := make([]doctorFinding, 0)
 
 	if cfg.Security.Enabled {
-		if cfg.Security.ApprovalMode != "never" && !lineConfigured {
-			findings = append(findings, doctorFinding{
-				Level: "WARN",
-				Msg:   "security approval is enabled, but LINE webhook credentials are not fully configured",
-				Hint:  "set line.channel_secret and line.access_token, or switch security.approval_mode=never",
-			})
-		}
 		if cfg.Security.WorkspaceEnforced {
 			if err := statPath(cfg.WorkspaceDir); err != nil {
 				findings = append(findings, doctorFinding{
@@ -1621,26 +1611,24 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 		policy := securityinfra.NewPolicyEngine(securityinfra.PolicyConfig{
 			Mode:              cfg.Security.PolicyMode,
-			ApprovalMode:      cfg.Security.ApprovalMode,
 			NetworkScope:      cfg.Security.NetworkScope,
 			NetworkAllowed:    cfg.Security.NetworkAllowlist,
 			DenyCommands:      cfg.Security.DenyCommands,
 			Workspace:         cfg.WorkspaceDir,
 			WorkspaceEnforced: cfg.Security.WorkspaceEnforced,
 		})
-		ttl := time.Duration(cfg.Security.ApprovalTTLMinutes) * time.Minute
 
-		securedChatRunner, err := securityinfra.NewPolicyRunner(chatToolRunnerV2, policy, execRepo, "chat", ttl)
+		securedChatRunner, err := securityinfra.NewPolicyRunner(chatToolRunnerV2, policy, execRepo, "chat")
 		if err != nil {
 			log.Fatalf("Failed to create chat policy runner: %v", err)
 		}
-		securedWorkerRunner, err := securityinfra.NewPolicyRunner(workerToolRunnerV2, policy, execRepo, "worker", ttl)
+		securedWorkerRunner, err := securityinfra.NewPolicyRunner(workerToolRunnerV2, policy, execRepo, "worker")
 		if err != nil {
 			log.Fatalf("Failed to create worker policy runner: %v", err)
 		}
 		chatRunnerV2 = securedChatRunner
 		workerRunnerV2 = securedWorkerRunner
-		log.Printf("Security policy runner enabled (mode=%s, approval=%s)", cfg.Security.PolicyMode, cfg.Security.ApprovalMode)
+		log.Printf("Security policy runner enabled (mode=%s)", cfg.Security.PolicyMode)
 	}
 
 	// LegacyRunner アダプター（V2 → V1 ブリッジ）で agents に注入

@@ -21,7 +21,6 @@ type ToolManifest struct {
 	InputSchema      map[string]any `json:"input_schema,omitempty"`
 	OutputSchema     map[string]any `json:"output_schema,omitempty"`
 	SideEffect       SideEffect     `json:"side_effect"`
-	RequiresApproval bool           `json:"requires_approval"`
 	TimeoutSec       int            `json:"timeout_sec,omitempty"`
 }
 
@@ -50,11 +49,10 @@ func ManifestFromMetadata(meta ToolMetadata) ToolManifest {
 		sideEffect = SideEffectProcess
 	}
 	return ToolManifest{
-		ID:               meta.ToolID,
-		Version:          meta.Version,
-		Description:      meta.Description,
-		InputSchema:      meta.Parameters,
-		SideEffect:       sideEffect,
-		RequiresApproval: meta.RequiresApproval,
+		ID:          meta.ToolID,
+		Version:     meta.Version,
+		Description: meta.Description,
+		InputSchema: meta.Parameters,
+		SideEffect:  sideEffect,
 	}
 }

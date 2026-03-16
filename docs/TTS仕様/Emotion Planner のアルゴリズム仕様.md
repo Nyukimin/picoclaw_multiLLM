@@ -51,9 +51,7 @@ Emotion Planner は以下の順序で感情を決定する。
 
 - task_success
 - task_failure
-- approval_requested
-- approval_completed
-- warning
+- - - warning
 - error
 - analysis_report
 - conversation

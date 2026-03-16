@@ -18,7 +18,7 @@ type PolicyRunner struct {
 	requestedBy  string
 }
 
-func NewPolicyRunner(inner tool.RunnerV2, engine *PolicyEngine, repo domainexecution.Repository, requestedBy string, approvalTTL time.Duration) (*PolicyRunner, error) {
+func NewPolicyRunner(inner tool.RunnerV2, engine *PolicyEngine, repo domainexecution.Repository, requestedBy string) (*PolicyRunner, error) {
 	if inner == nil {
 		return nil, fmt.Errorf("inner runner is required")
 	}
@@ -33,7 +33,7 @@ func NewPolicyRunner(inner tool.RunnerV2, engine *PolicyEngine, repo domainexecu
 	for _, m := range metas {
 		metaMap[m.ToolID] = m
 	}
-	svc := executionapp.NewService(engine, inner, repo, approvalTTL)
+	svc := executionapp.NewService(engine, inner, repo)
 	return &PolicyRunner{
 		inner:        inner,
 		execService:  svc,
@@ -43,19 +43,18 @@ func NewPolicyRunner(inner tool.RunnerV2, engine *PolicyEngine, repo domainexecu
 }
 
 func (r *PolicyRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
-	meta, exists := r.toolMetaByID[toolName]
+	_, exists := r.toolMetaByID[toolName]
 	if !exists {
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
 
 	action := domainexecution.Action{
-		JobID:            fmt.Sprintf("job-%d", time.Now().UnixNano()),
-		ActionID:         fmt.Sprintf("act-%d", time.Now().UnixNano()),
-		Tool:             toolName,
-		Arguments:        args,
-		RequestedBy:      r.requestedBy,
-		RequiresApproval: meta.RequiresApproval,
-		RequestedAt:      time.Now().UTC(),
+		JobID:       fmt.Sprintf("job-%d", time.Now().UnixNano()),
+		ActionID:    fmt.Sprintf("act-%d", time.Now().UnixNano()),
+		Tool:        toolName,
+		Arguments:   args,
+		RequestedBy: r.requestedBy,
+		RequestedAt: time.Now().UTC(),
 	}
 	result, err := r.execService.RequestToolExecution(ctx, action)
 	if err != nil {
@@ -63,8 +62,6 @@ func (r *PolicyRunner) ExecuteV2(ctx context.Context, toolName string, args map[
 	}
 
 	switch result.Record.Status {
-	case domainexecution.StatusWaitingApproval:
-		return tool.NewError(tool.ErrPermissionDenied, "approval required: use CLI approve command", map[string]any{"job_id": action.JobID, "action_id": action.ActionID}), nil
 	case domainexecution.StatusDenied:
 		return tool.NewError(tool.ErrPermissionDenied, result.Record.Reason, map[string]any{"rule": "policy_deny"}), nil
 	default:

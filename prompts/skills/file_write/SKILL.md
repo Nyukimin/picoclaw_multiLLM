@@ -3,7 +3,6 @@ name: file_write
 tool_id: file_write
 version: "1.0.0"
 category: mutation
-requires_approval: true
 dry_run: true
 invariants:
   - "path must be non-empty"
@@ -59,7 +58,6 @@ Write content to a file. Supports dry-run mode.
 
 ## Safety
 
-- **Requires approval**: Yes (mutation category)
 - **Dry-run**: `mode=plan` previews without writing
 - **Path validation**: Traversal (`../`) and control characters rejected
 - **Auto-mkdir**: Parent directories created automatically

@@ -71,7 +71,6 @@ name: file_write
 tool_id: file_write
 version: "1.0.0"
 category: mutation
-requires_approval: true
 dry_run: true
 invariants:
   - "path must be non-empty"
@@ -91,9 +90,6 @@ invariants:
 	if meta.Category != "mutation" {
 		t.Errorf("Category = %q, want %q", meta.Category, "mutation")
 	}
-	if !meta.RequiresApproval {
-		t.Error("RequiresApproval should be true")
-	}
 	if !meta.DryRun {
 		t.Error("DryRun should be true")
 	}
@@ -111,7 +107,6 @@ name: file_read
 tool_id: file_read
 version: "1.0.0"
 category: query
-requires_approval: false
 dry_run: false
 ---
 
@@ -120,9 +115,6 @@ dry_run: false
 	meta := parseSkillFile(content, "file_read")
 	if meta.Category != "query" {
 		t.Errorf("Category = %q, want %q", meta.Category, "query")
-	}
-	if meta.RequiresApproval {
-		t.Error("RequiresApproval should be false")
 	}
 	if meta.DryRun {
 		t.Error("DryRun should be false")

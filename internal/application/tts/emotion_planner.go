@@ -48,10 +48,6 @@ func baseVectorForEvent(event string) EmotionVector {
 		return EmotionVector{Warmth: 0.55, Cheerfulness: 0.70, Seriousness: 0.20, Alertness: 0.15, Calmness: 0.55, Expressiveness: 0.45}
 	case "task_failure":
 		return EmotionVector{Warmth: 0.35, Cheerfulness: 0.10, Seriousness: 0.70, Alertness: 0.50, Calmness: 0.25, Expressiveness: 0.25}
-	case "approval_requested":
-		return EmotionVector{Warmth: 0.40, Cheerfulness: 0.15, Seriousness: 0.45, Alertness: 0.25, Calmness: 0.55, Expressiveness: 0.20}
-	case "approval_completed":
-		return EmotionVector{Warmth: 0.65, Cheerfulness: 0.35, Seriousness: 0.25, Alertness: 0.15, Calmness: 0.65, Expressiveness: 0.35}
 	case "warning", "error":
 		return EmotionVector{Warmth: 0.20, Cheerfulness: 0.05, Seriousness: 0.75, Alertness: 0.82, Calmness: 0.18, Expressiveness: 0.30}
 	case "analysis_report":

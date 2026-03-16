@@ -3,7 +3,6 @@ name: shell
 tool_id: shell
 version: "1.0.0"
 category: mutation
-requires_approval: true
 dry_run: true
 invariants:
   - "command must be non-empty string (max 10000 chars)"
@@ -52,7 +51,6 @@ Returns combined stdout+stderr as a string.
 
 ## Safety
 
-- **Requires approval**: Yes (mutation category)
 - **Dry-run**: `mode=plan` shows command without executing
 - **Command restriction**: `AllowedShellCommands` config limits executable commands
 - **Timeout**: 30 seconds
