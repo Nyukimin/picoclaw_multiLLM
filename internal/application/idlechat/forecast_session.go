@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	forecastTurnsPerDomain     = 10 // 1ドメインあたりの最大ターン数
-	forecastCheckpointInterval = 15  // 進行チェックポイントの間隔（ターン数）
-	forecastTopicStockSize     = 2   // ドメインあたりのお題ストック数
+	forecastTurnsPerDomain     = 100 // 1ドメインあたりの最大ターン数
+	forecastCheckpointInterval = 15 // 進行チェックポイントの間隔（ターン数）
+	forecastTopicStockSize     = 2  // ドメインあたりのお題ストック数
 	forecastSeedLimit          = 10
 	forecastGoogleTrendLimit   = 2
 )
@@ -399,11 +399,13 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 
 	o.mu.Lock()
 	o.chatActive = true
+	o.sessionMode = "forecast"
 	o.mu.Unlock()
 
 	defer func() {
 		o.mu.Lock()
 		o.chatActive = false
+		o.sessionMode = ""
 		o.currentTopic = ""
 		o.sessionContext = ""
 		o.lastActivity = time.Now()
@@ -903,12 +905,12 @@ type forecastDomainProfile struct {
 }
 
 var domainTrendSources = map[string]TrendSourceSet{
-	"AI技術":     {RedditSubs: []string{"artificial", "MachineLearning"}, HatenaCategory: "it"},
+	"AI技術":  {RedditSubs: []string{"artificial", "MachineLearning"}, HatenaCategory: "it"},
 	"その他技術": {RedditSubs: []string{"technology"}, HatenaCategory: "it"},
-	"医療":       {HatenaCategory: "social"},
-	"社会保障":   {HatenaCategory: "social"},
-	"政治":       {HatenaCategory: "economics"},
-	"経済":       {RedditSubs: []string{"economics"}, HatenaCategory: "economics"},
+	"医療":    {HatenaCategory: "social"},
+	"社会保障":  {HatenaCategory: "social"},
+	"政治":    {HatenaCategory: "economics"},
+	"経済":    {RedditSubs: []string{"economics"}, HatenaCategory: "economics"},
 }
 
 var forecastDomainProfiles = map[string]forecastDomainProfile{

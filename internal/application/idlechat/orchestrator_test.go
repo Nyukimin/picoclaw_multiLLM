@@ -299,6 +299,44 @@ func TestIdleChatOrchestrator_ManualMode_StopsOnActivity(t *testing.T) {
 	}
 }
 
+func TestIdleChatOrchestrator_StartForecastMode_SwitchesFromManualMode(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	if err := o.StartManualMode(); err != nil {
+		t.Fatalf("StartManualMode failed: %v", err)
+	}
+	if err := o.StartForecastMode(); err != nil {
+		t.Fatalf("StartForecastMode failed: %v", err)
+	}
+
+	if o.IsManualMode() {
+		t.Fatal("manual mode should be disabled after switching to forecast")
+	}
+	if !o.IsChatActive() {
+		t.Fatal("chat should be active after switching to forecast")
+	}
+	if got := o.CurrentMode(); got != "forecast" {
+		t.Fatalf("expected current mode forecast, got %q", got)
+	}
+}
+
+func TestIdleChatOrchestrator_StartForecastMode_RejectsActiveSession(t *testing.T) {
+	provider := &mockLLMProvider{response: "hello"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	o.mu.Lock()
+	o.chatActive = true
+	o.sessionMode = "idle"
+	o.mu.Unlock()
+
+	if err := o.StartForecastMode(); err == nil {
+		t.Fatal("expected StartForecastMode to reject active session")
+	}
+}
+
 func TestIdleChatOrchestrator_IsChatActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()

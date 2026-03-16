@@ -87,6 +87,8 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
   border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;
 }
 .ctl-btn:disabled{opacity:.5;cursor:default}
+.ctl-btn.is-selected{background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.45);color:#fff}
+.ctl-btn.mode-forecast.is-selected{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.45)}
 .idle-on{color:var(--ok);font-size:12px;align-self:center}
 .idle-off{color:var(--t2);font-size:12px;align-self:center}
 
@@ -410,10 +412,11 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
       <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
     </div>
     <div class="idle-tools">
-      <button id="idleStart" class="ctl-btn" title="IdleChatモードを開始">IdleChat開始</button>
+      <button id="idleModeNormal" class="ctl-btn" title="通常のIdleChat会話を選択">通常Chat</button>
+      <button id="idleModeForecast" class="ctl-btn mode-forecast" title="未来展望セッション（6ドメイン×100ターン）を選択">未来展望</button>
+      <button id="idleStart" class="ctl-btn" title="選択中のモードを開始">IdleChat開始</button>
       <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
       <span id="idleState" class="idle-off">IdleChat: off</span>
-      <button id="idleForecast" class="ctl-btn" title="未来展望セッション（6ドメイン×10ターン）" style="margin-left:12px;background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.4)">未来展望</button>
     </div>
   </div>
 </div>
@@ -527,6 +530,8 @@ const state = {
   pendingEvidenceJobID: '',
   agents: {},
   idleChat: {
+    selectedMode: localStorage.getItem('idlechat.selectedMode') || 'manual',
+    mode: '',
     manualMode: false,
     chatActive: false,
     currentTopic: '',
@@ -590,7 +595,8 @@ const sysPreset = document.getElementById('sysPreset');
 const sysType = document.getElementById('sysType');
 const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
-const idleForecastBtn = document.getElementById('idleForecast');
+const idleModeNormalBtn = document.getElementById('idleModeNormal');
+const idleModeForecastBtn = document.getElementById('idleModeForecast');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
 const audioBtn = document.getElementById('audioBtn');
@@ -689,10 +695,33 @@ if (sysPreset) sysPreset.addEventListener('change', renderSystem);
 if (sysType) sysType.addEventListener('change', renderSystem);
 if (sysText) sysText.addEventListener('input', renderSystem);
 
-function setIdleState(manual, active) {
-  const on = !!manual;
-  idleStateEl.textContent = 'IdleChat: ' + (on ? (active ? 'on (talking)' : 'on') : 'off');
-  idleStateEl.className = on ? 'idle-on' : 'idle-off';
+function setIdleState(mode, manual, active) {
+  const currentMode = String(mode || '');
+  if (currentMode === 'forecast') {
+    idleStateEl.textContent = 'Forecast: ' + (active ? 'talking' : 'ready');
+    idleStateEl.className = active ? 'idle-on' : 'idle-off';
+    return;
+  }
+  if (active) {
+    idleStateEl.textContent = 'IdleChat: talking';
+    idleStateEl.className = 'idle-on';
+    return;
+  }
+  if (manual) {
+    idleStateEl.textContent = 'IdleChat: on';
+    idleStateEl.className = 'idle-on';
+    return;
+  }
+  idleStateEl.textContent = 'IdleChat: off';
+  idleStateEl.className = 'idle-off';
+}
+
+function setIdleSelectedMode(mode) {
+  const next = mode === 'forecast' ? 'forecast' : 'manual';
+  state.idleChat.selectedMode = next;
+  localStorage.setItem('idlechat.selectedMode', next);
+  if (idleModeNormalBtn) idleModeNormalBtn.classList.toggle('is-selected', next === 'manual');
+  if (idleModeForecastBtn) idleModeForecastBtn.classList.toggle('is-selected', next === 'forecast');
 }
 
 function setBadge(el, enabled) {
@@ -810,8 +839,11 @@ async function refreshIdleStatus() {
     const r = await fetch('/viewer/idlechat/status');
     if (!r.ok) {
       idleStartBtn.disabled = true;
+      if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
+      if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
       idleStopBtn.disabled = true;
-      setIdleState(false, false);
+      setIdleState('', false, false);
+      state.idleChat.mode = '';
       state.idleChat.manualMode = false;
       state.idleChat.chatActive = false;
       state.idleChat.currentTopic = '';
@@ -819,17 +851,23 @@ async function refreshIdleStatus() {
       return;
     }
     const d = await r.json();
-    setIdleState(!!d.manual_mode, !!d.chat_active);
-    idleStartBtn.disabled = !!d.manual_mode;
-    idleStopBtn.disabled = !d.manual_mode;
+    setIdleState(d.mode || '', !!d.manual_mode, !!d.chat_active);
+    idleStartBtn.disabled = !!d.manual_mode || !!d.chat_active;
+    if (idleModeNormalBtn) idleModeNormalBtn.disabled = !!d.chat_active;
+    if (idleModeForecastBtn) idleModeForecastBtn.disabled = !!d.chat_active;
+    idleStopBtn.disabled = !d.manual_mode && !d.chat_active;
+    state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
     state.idleChat.chatActive = !!d.chat_active;
     state.idleChat.currentTopic = d.current_topic || '';
     renderIdleChat();
   } catch (_) {
     idleStartBtn.disabled = true;
+    if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
+    if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
     idleStopBtn.disabled = true;
-    setIdleState(false, false);
+    setIdleState('', false, false);
+    state.idleChat.mode = '';
     state.idleChat.manualMode = false;
     state.idleChat.chatActive = false;
     state.idleChat.currentTopic = '';
@@ -842,6 +880,7 @@ async function refreshIdleLogs() {
     const r = await fetch('/viewer/idlechat/logs?limit=20');
     if (!r.ok) return;
     const d = await r.json();
+    state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
     state.idleChat.chatActive = !!d.chat_active;
     state.idleChat.currentTopic = d.current_topic || '';
@@ -852,7 +891,7 @@ async function refreshIdleLogs() {
 }
 
 async function controlIdle(path) {
-  const btns = [idleStartBtn, idleStopBtn];
+  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleStopBtn].filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
   try {
     const r = await fetch(path, {method: 'POST'});
@@ -864,8 +903,14 @@ async function controlIdle(path) {
   }
 }
 
-idleStartBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/start'));
-idleForecastBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/forecast'));
+idleStartBtn.addEventListener('click', () => {
+  const path = state.idleChat.selectedMode === 'forecast'
+    ? '/viewer/idlechat/forecast'
+    : '/viewer/idlechat/start';
+  controlIdle(path);
+});
+if (idleModeNormalBtn) idleModeNormalBtn.addEventListener('click', () => setIdleSelectedMode('manual'));
+if (idleModeForecastBtn) idleModeForecastBtn.addEventListener('click', () => setIdleSelectedMode('forecast'));
 idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
 
 function stateClass(s) { return 'state-' + normState(s); }
@@ -1910,6 +1955,7 @@ function connect() {
 
 refreshDerivedViews();
 renderIdleChat();
+setIdleSelectedMode(state.idleChat.selectedMode);
 refreshIdleStatus();
 refreshIdleLogs();
 if (!initLiveMode()) {

@@ -22,8 +22,8 @@ import (
 const (
 	idleCheckInterval = 30 * time.Second
 	maxTurnsPerTopic  = 12
-	speakerBreak = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
-	topicBreak   = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
+	speakerBreak      = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
+	topicBreak        = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
 
 var jst = time.FixedZone("JST", 9*60*60)
@@ -62,24 +62,25 @@ type IdleChatOrchestrator struct {
 	forecastProvider llm.LLMProvider // 未来展望セッションの思考用（Coder2等の高性能モデル）
 	sessionContext   string          // 現在のセッション固有コンテキスト（既出テーマ等）
 	memory           *session.CentralMemory
-	participants   []string
-	intervalMin    int
-	maxTurns       int
-	temperature    float64
-	personalities  map[string]string
+	participants     []string
+	intervalMin      int
+	maxTurns         int
+	temperature      float64
+	personalities    map[string]string
 
-	lastActivity time.Time
-	chatActive   bool
-	chatBusy     bool
-	workerBusy   bool
-	manualMode   bool
-	currentTopic string
-	nextTopicAt  time.Time
-	history      []SessionSummary
-	emitEvent    func(TimelineEvent) <-chan struct{}
-	topicStore      *TopicStore
-	topicStockBuf   *forecastTopicStock // 未来展望お題ストック
-	recentTopics    func(context.Context, int) ([]string, error)
+	lastActivity  time.Time
+	chatActive    bool
+	chatBusy      bool
+	workerBusy    bool
+	manualMode    bool
+	sessionMode   string
+	currentTopic  string
+	nextTopicAt   time.Time
+	history       []SessionSummary
+	emitEvent     func(TimelineEvent) <-chan struct{}
+	topicStore    *TopicStore
+	topicStockBuf *forecastTopicStock // 未来展望お題ストック
+	recentTopics  func(context.Context, int) ([]string, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -145,9 +146,9 @@ func NewIdleChatOrchestrator(
 		temperature:   temperature,
 		personalities: personalities,
 		lastActivity:  time.Now(),
-		history:        make([]SessionSummary, 0, 32),
-		ctx:            ctx,
-		cancel:         cancel,
+		history:       make([]SessionSummary, 0, 32),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -206,6 +207,7 @@ func (o *IdleChatOrchestrator) NotifyActivity() {
 	if o.chatActive {
 		log.Println("[IdleChat] Task arrived, interrupting chat session")
 		o.chatActive = false
+		o.sessionMode = ""
 	}
 }
 
@@ -223,6 +225,7 @@ func (o *IdleChatOrchestrator) SetChatBusy(busy bool) {
 		if o.chatActive {
 			log.Println("[IdleChat] Chat is active, interrupting chat session")
 			o.chatActive = false
+			o.sessionMode = ""
 		}
 	}
 }
@@ -241,6 +244,7 @@ func (o *IdleChatOrchestrator) SetWorkerBusy(busy bool) {
 		if o.chatActive {
 			log.Println("[IdleChat] Worker is active, interrupting chat session")
 			o.chatActive = false
+			o.sessionMode = ""
 		}
 	}
 }
@@ -258,6 +262,26 @@ func (o *IdleChatOrchestrator) StartManualMode() error {
 	return nil
 }
 
+// StartForecastMode switches from manual idlechat into forecast mode immediately.
+func (o *IdleChatOrchestrator) StartForecastMode() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.participants) < 2 {
+		return fmt.Errorf("idlechat requires at least 2 participants")
+	}
+	if o.chatActive {
+		return fmt.Errorf("chat session already active")
+	}
+	o.manualMode = false
+	o.chatActive = true
+	o.sessionMode = "forecast"
+	o.currentTopic = ""
+	o.sessionContext = ""
+	o.lastActivity = time.Now()
+	log.Println("[Forecast] Forecast mode started")
+	return nil
+}
+
 // StopManualMode stops idle chat mode and interrupts an ongoing session.
 func (o *IdleChatOrchestrator) StopManualMode() {
 	o.mu.Lock()
@@ -267,7 +291,9 @@ func (o *IdleChatOrchestrator) StopManualMode() {
 	}
 	o.manualMode = false
 	o.chatActive = false
+	o.sessionMode = ""
 	o.currentTopic = ""
+	o.sessionContext = ""
 	o.lastActivity = time.Now()
 }
 
@@ -283,6 +309,19 @@ func (o *IdleChatOrchestrator) IsChatActive() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.chatActive
+}
+
+// CurrentMode returns the current idlechat/forecast mode.
+func (o *IdleChatOrchestrator) CurrentMode() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.chatActive && o.sessionMode != "" {
+		return o.sessionMode
+	}
+	if o.manualMode {
+		return "manual"
+	}
+	return ""
 }
 
 // CurrentTopic は現在のIdleChatトピックを返す。
@@ -398,6 +437,7 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 
 	o.mu.Lock()
 	o.chatActive = true
+	o.sessionMode = "idle"
 	o.mu.Unlock()
 
 	log.Printf("[IdleChat] Idle for %v, starting chat session", idleDuration.Round(time.Second))
@@ -405,6 +445,7 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 
 	o.mu.Lock()
 	o.chatActive = false
+	o.sessionMode = ""
 	o.currentTopic = ""
 	o.lastActivity = time.Now() // セッション終了でアイドル計測をリセット
 	o.mu.Unlock()

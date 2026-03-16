@@ -2329,6 +2329,7 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 		}
 		writeJSON(w, map[string]any{
 			"ok":            true,
+			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
@@ -2372,6 +2373,7 @@ func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {
 		d.idleChatOrch.StopManualMode()
 		writeJSON(w, map[string]any{
 			"ok":            true,
+			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
@@ -2391,6 +2393,7 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 		}
 		writeJSON(w, map[string]any{
 			"ok":            true,
+			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
@@ -2408,14 +2411,21 @@ func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
-		if d.idleChatOrch.IsChatActive() {
-			http.Error(w, "chat session already active", http.StatusConflict)
+		if err := d.idleChatOrch.StartForecastMode(); err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "already active") {
+				status = http.StatusConflict
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 		go d.idleChatOrch.RunForecastSession()
 		writeJSON(w, map[string]any{
-			"ok":   true,
-			"mode": "forecast",
+			"ok":            true,
+			"mode":          d.idleChatOrch.CurrentMode(),
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
 	}
 }
@@ -2438,6 +2448,7 @@ func (d *Dependencies) handleIdleChatLogs() http.HandlerFunc {
 		}
 		writeJSON(w, map[string]any{
 			"ok":            true,
+			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
