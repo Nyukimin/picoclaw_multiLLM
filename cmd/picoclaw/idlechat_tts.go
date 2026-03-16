@@ -50,6 +50,7 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 	}
 
 	voiceID, voiceProfile := idleChatVoiceForSpeaker(ev.From)
+	characterID := normalizeIdleChatCharacterID(ev.From)
 	emotion := ttsapp.PlanEmotion(ttsapp.EmotionInput{
 		Event: "conversation",
 		Text:  filtered,
@@ -68,6 +69,7 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 	}
 	if err := bridge.StartSession(ctx, orchestrator.TTSSessionStart{
 		SessionID:        sessionID,
+		CharacterID:      characterID,
 		VoiceID:          voiceID,
 		SpeechMode:       "conversational",
 		Event:            "conversation",
@@ -258,11 +260,22 @@ func waitIdleChatTopicGate(idleSessionID string) {
 }
 
 func idleChatVoiceForSpeaker(speaker string) (voiceID, voiceProfile string) {
-	switch strings.ToLower(strings.TrimSpace(speaker)) {
+	switch normalizeIdleChatCharacterID(speaker) {
 	case "shiro":
 		return idleChatMaleVoiceID, idleChatMaleVoiceProf
 	default:
 		return idleChatDefaultVoiceID, idleChatDefaultVoiceProf
+	}
+}
+
+func normalizeIdleChatCharacterID(speaker string) string {
+	switch strings.ToLower(strings.TrimSpace(speaker)) {
+	case "shiro", "しろ":
+		return "shiro"
+	case "mio", "みお", "れん", "ren", "user":
+		return "mio"
+	default:
+		return strings.ToLower(strings.TrimSpace(speaker))
 	}
 }
 

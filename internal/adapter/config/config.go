@@ -55,6 +55,12 @@ type Config struct {
 
 	// === TTS / OpenClaw parity ===
 	TTS TTSConfig `yaml:"tts"`
+
+	// === VTuber / VTube Studio integration ===
+	VTuber VTuberConfig `yaml:"vtuber"`
+
+	// === Coder4 AudioRouter ===
+	AudioRouter AudioRouterConfig `yaml:"audio_router"`
 }
 
 // ServerConfig はサーバー設定
@@ -207,13 +213,13 @@ type SubagentConfig struct {
 
 // SecurityConfig は実行ポリシーと監査設定
 type SecurityConfig struct {
-	Enabled            bool                `yaml:"enabled"`
-	PolicyMode         string              `yaml:"policy_mode"`          // strict|balanced|dev
-	NetworkScope       string              `yaml:"network_scope"`        // blocked|allowlist|full (optional: fallback to profile)
-	NetworkAllowlist   []string            `yaml:"network_allowlist"`    // host allowlist when network_scope=allowlist
-	DenyCommands       []string            `yaml:"deny_commands"`
-	WorkspaceEnforced  bool                `yaml:"workspace_enforced"`
-	Audit              SecurityAuditConfig `yaml:"audit"`
+	Enabled           bool                `yaml:"enabled"`
+	PolicyMode        string              `yaml:"policy_mode"`       // strict|balanced|dev
+	NetworkScope      string              `yaml:"network_scope"`     // blocked|allowlist|full (optional: fallback to profile)
+	NetworkAllowlist  []string            `yaml:"network_allowlist"` // host allowlist when network_scope=allowlist
+	DenyCommands      []string            `yaml:"deny_commands"`
+	WorkspaceEnforced bool                `yaml:"workspace_enforced"`
+	Audit             SecurityAuditConfig `yaml:"audit"`
 }
 
 // SecurityAuditConfig は監査ログ出力設定
@@ -268,6 +274,38 @@ type TTSElevenLabsConfig struct {
 	VoiceID    string `yaml:"voice_id"`
 	ModelID    string `yaml:"model_id"`
 	TimeoutSec int    `yaml:"timeout_sec"`
+}
+
+// VTuberConfig configures VTube Studio emotion event delivery.
+type VTuberConfig struct {
+	Enabled        bool                             `yaml:"enabled"`
+	TickIntervalMS int                              `yaml:"tick_interval_ms"`
+	ConnectTimeout int                              `yaml:"connect_timeout_ms"`
+	WriteTimeout   int                              `yaml:"write_timeout_ms"`
+	Characters     map[string]VTuberCharacterConfig `yaml:"characters"`
+}
+
+type VTuberCharacterConfig struct {
+	AudioOutput   string            `yaml:"audio_output"`
+	VTSHost       string            `yaml:"vts_host"`
+	VTSPort       int               `yaml:"vts_port"`
+	ExpressionMap map[string]string `yaml:"expression_map"`
+}
+
+// AudioRouterConfig configures Coder4-side audio routing.
+type AudioRouterConfig struct {
+	Enabled           bool                               `yaml:"enabled"`
+	SSEURL            string                             `yaml:"sse_url"`
+	ConnectTimeoutMS  int                                `yaml:"connect_timeout_ms"`
+	DownloadTimeoutMS int                                `yaml:"download_timeout_ms"`
+	RetryDelayMS      int                                `yaml:"retry_delay_ms"`
+	BufferMS          int                                `yaml:"buffer_ms"`
+	DeviceMap         map[string]AudioRouterDeviceConfig `yaml:"device_map"`
+}
+
+type AudioRouterDeviceConfig struct {
+	DeviceID    string `yaml:"device_id"`
+	DisplayName string `yaml:"display_name"`
 }
 
 // GoogleSearchConfig はGoogle Search API設定
@@ -474,6 +512,27 @@ func (c *Config) setDefaults() {
 	if c.TTS.SpeechMode == "" {
 		c.TTS.SpeechMode = "conversational"
 	}
+	if c.VTuber.TickIntervalMS <= 0 {
+		c.VTuber.TickIntervalMS = 100
+	}
+	if c.VTuber.ConnectTimeout <= 0 {
+		c.VTuber.ConnectTimeout = 3000
+	}
+	if c.VTuber.WriteTimeout <= 0 {
+		c.VTuber.WriteTimeout = 2000
+	}
+	if c.AudioRouter.ConnectTimeoutMS <= 0 {
+		c.AudioRouter.ConnectTimeoutMS = 5000
+	}
+	if c.AudioRouter.DownloadTimeoutMS <= 0 {
+		c.AudioRouter.DownloadTimeoutMS = 15000
+	}
+	if c.AudioRouter.RetryDelayMS <= 0 {
+		c.AudioRouter.RetryDelayMS = 2000
+	}
+	if c.AudioRouter.BufferMS <= 0 {
+		c.AudioRouter.BufferMS = 120
+	}
 }
 
 // Validate は設定の妥当性を検証
@@ -502,6 +561,55 @@ func (c *Config) Validate() error {
 	hasToken := c.Line.AccessToken != ""
 	if hasSecret != hasToken {
 		log.Println("WARN: LINE config incomplete - both channel_secret and access_token are required for webhook")
+	}
+
+	if c.VTuber.Enabled {
+		if c.VTuber.TickIntervalMS < 50 || c.VTuber.TickIntervalMS > 100 {
+			return fmt.Errorf("vtuber.tick_interval_ms must be between 50 and 100, got %d", c.VTuber.TickIntervalMS)
+		}
+		if len(c.VTuber.Characters) == 0 {
+			return fmt.Errorf("vtuber.enabled=true requires at least one character")
+		}
+		for name, ch := range c.VTuber.Characters {
+			if ch.AudioOutput == "" {
+				return fmt.Errorf("vtuber.characters.%s.audio_output is required", name)
+			}
+			if ch.VTSHost == "" {
+				return fmt.Errorf("vtuber.characters.%s.vts_host is required", name)
+			}
+			if ch.VTSPort < 1 || ch.VTSPort > 65535 {
+				return fmt.Errorf("vtuber.characters.%s.vts_port must be 1-65535, got %d", name, ch.VTSPort)
+			}
+			if len(ch.ExpressionMap) == 0 {
+				return fmt.Errorf("vtuber.characters.%s.expression_map is required", name)
+			}
+		}
+	}
+
+	if c.AudioRouter.Enabled {
+		if c.AudioRouter.SSEURL == "" {
+			return fmt.Errorf("audio_router.sse_url is required when audio_router.enabled=true")
+		}
+		if len(c.AudioRouter.DeviceMap) == 0 {
+			return fmt.Errorf("audio_router.device_map is required when audio_router.enabled=true")
+		}
+		for name, dev := range c.AudioRouter.DeviceMap {
+			if dev.DeviceID == "" {
+				return fmt.Errorf("audio_router.device_map.%s.device_id is required", name)
+			}
+		}
+		if c.AudioRouter.ConnectTimeoutMS < 1000 {
+			return fmt.Errorf("audio_router.connect_timeout_ms must be >= 1000")
+		}
+		if c.AudioRouter.DownloadTimeoutMS < 1000 {
+			return fmt.Errorf("audio_router.download_timeout_ms must be >= 1000")
+		}
+		if c.AudioRouter.RetryDelayMS < 250 {
+			return fmt.Errorf("audio_router.retry_delay_ms must be >= 250")
+		}
+		if c.AudioRouter.BufferMS < 20 || c.AudioRouter.BufferMS > 5000 {
+			return fmt.Errorf("audio_router.buffer_ms must be between 20 and 5000")
+		}
 	}
 
 	// v4.0 Distributed設定検証

@@ -26,15 +26,16 @@ type ClientConfig struct {
 	ConnectTimeout     time.Duration
 	ReceiveTimeout     time.Duration
 	ChunkGapTimeout    time.Duration
-	OnChunkReady       func(sessionID string, chunkIndex int, text, audioPath, audioURL string)
+	OnChunkReady       func(sessionID string, chunkIndex int, characterID, text, audioPath, audioURL string)
 	OnSessionCompleted func(sessionID string)
 }
 
 type ttsSession struct {
-	conn    *websocket.Conn
-	mu      sync.Mutex
-	nextSeq int
-	buffer  *reorderBuffer
+	characterID string
+	conn        *websocket.Conn
+	mu          sync.Mutex
+	nextSeq     int
+	buffer      *reorderBuffer
 }
 
 // ClientBridge is a best-effort TTS bridge implementation.
@@ -84,15 +85,17 @@ func (b *ClientBridge) StartSession(ctx context.Context, req orchestrator.TTSSes
 		return err
 	}
 	session := &ttsSession{
-		conn:    conn,
-		nextSeq: 1,
-		buffer:  newReorderBuffer(b.cfg.ChunkGapTimeout),
+		characterID: strings.TrimSpace(req.CharacterID),
+		conn:        conn,
+		nextSeq:     1,
+		buffer:      newReorderBuffer(b.cfg.ChunkGapTimeout),
 	}
 
 	start := map[string]any{
 		"type":        "session_start",
 		"session_id":  req.SessionID,
 		"response_id": req.ResponseID,
+		"character":   req.CharacterID,
 		"voice_id":    chooseDefault(req.VoiceID, b.cfg.VoiceID),
 		"speech_mode": chooseDefault(req.SpeechMode, b.cfg.SpeechMode),
 		"context": map[string]any{
@@ -332,12 +335,12 @@ func (b *ClientBridge) receiveLoop(sessionID string, s *ttsSession) {
 			}
 			s.buffer.add(ch, time.Now().UTC())
 			for _, item := range s.buffer.drain(time.Now().UTC(), false) {
-				b.notifyChunkReady(sessionID, item)
+				b.notifyChunkReady(sessionID, s.characterID, item)
 				_ = b.sink.SubmitChunk(context.Background(), sessionID, item)
 			}
 		case "session_completed":
 			for _, item := range s.buffer.drain(time.Now().UTC(), true) {
-				b.notifyChunkReady(sessionID, item)
+				b.notifyChunkReady(sessionID, s.characterID, item)
 				_ = b.sink.SubmitChunk(context.Background(), sessionID, item)
 			}
 			_ = b.sink.CompleteSession(context.Background(), sessionID)
@@ -397,12 +400,12 @@ func (b *ClientBridge) getSession(sessionID string) (*ttsSession, bool) {
 	return s, ok
 }
 
-func (b *ClientBridge) notifyChunkReady(sessionID string, ch audioChunk) {
+func (b *ClientBridge) notifyChunkReady(sessionID string, characterID string, ch audioChunk) {
 	if b.cfg.OnChunkReady == nil {
 		return
 	}
 	audioURL := resolveAudioURL(b.cfg.HTTPBaseURL, ch.AudioPath, ch.AudioURL)
-	b.cfg.OnChunkReady(sessionID, ch.ChunkIndex, ch.Text, ch.AudioPath, audioURL)
+	b.cfg.OnChunkReady(sessionID, ch.ChunkIndex, chooseDefault(characterID, ""), ch.Text, ch.AudioPath, audioURL)
 }
 
 func (b *ClientBridge) notifySessionCompleted(sessionID string) {
@@ -456,7 +459,7 @@ func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string,
 		AudioPath:  out.AudioPath,
 		AudioURL:   out.AudioURL,
 	}
-	b.notifyChunkReady(sessionID, ch)
+	b.notifyChunkReady(sessionID, "", ch)
 	if b.sink != nil {
 		if err := b.sink.SubmitChunk(context.Background(), sessionID, ch); err != nil {
 			log.Printf("tts_audio_chunk_play_error session=%s chunk=%d err=%v", sessionID, ch.ChunkIndex, err)

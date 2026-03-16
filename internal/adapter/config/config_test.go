@@ -247,6 +247,41 @@ session:
 	if cfg.Security.NetworkScope != "" {
 		t.Errorf("Expected Security NetworkScope '', got '%s'", cfg.Security.NetworkScope)
 	}
+	if cfg.AudioRouter.ConnectTimeoutMS != 5000 {
+		t.Errorf("Expected AudioRouter ConnectTimeoutMS 5000, got %d", cfg.AudioRouter.ConnectTimeoutMS)
+	}
+	if cfg.AudioRouter.BufferMS != 120 {
+		t.Errorf("Expected AudioRouter BufferMS 120, got %d", cfg.AudioRouter.BufferMS)
+	}
+}
+
+func TestLoadConfig_AudioRouterValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "audio_router.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+audio_router:
+  enabled: true
+  sse_url: "http://127.0.0.1:18790/audio-router/events"
+  device_map:
+    mio:
+      device_id: "{mio-device}"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.AudioRouter.DeviceMap["mio"].DeviceID != "{mio-device}" {
+		t.Fatalf("unexpected mio device_id: %q", cfg.AudioRouter.DeviceMap["mio"].DeviceID)
+	}
 }
 
 func TestLoadConfig_SecurityNetworkSettings(t *testing.T) {
@@ -340,6 +375,62 @@ tts:
 	}
 	if cfg.TTS.ConnectTimeoutMS != 3000 || cfg.TTS.ReceiveTimeoutMS != 15000 || cfg.TTS.ChunkGapTimeoutMS != 3000 {
 		t.Fatalf("unexpected tts client timeouts: %+v", cfg.TTS)
+	}
+}
+
+func TestLoadConfig_VTuberSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "vtuber.yaml")
+
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+vtuber:
+  enabled: true
+  tick_interval_ms: 100
+  characters:
+    mio:
+      audio_output: "Audio-Out-Mio"
+      vts_host: "127.0.0.1"
+      vts_port: 8001
+      expression_map:
+        happy: "ExpHappy"
+        calm: "ExpCalm"
+    shiro:
+      audio_output: "Audio-Out-Shiro"
+      vts_host: "127.0.0.1"
+      vts_port: 8002
+      expression_map:
+        happy: "ExpHappy"
+        calm: "ExpCalm"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if !cfg.VTuber.Enabled {
+		t.Fatalf("expected vtuber enabled")
+	}
+	if cfg.VTuber.TickIntervalMS != 100 {
+		t.Fatalf("expected tick interval 100, got %d", cfg.VTuber.TickIntervalMS)
+	}
+	if cfg.VTuber.ConnectTimeout != 3000 {
+		t.Fatalf("expected default connect timeout 3000, got %d", cfg.VTuber.ConnectTimeout)
+	}
+	if cfg.VTuber.Characters["mio"].VTSPort != 8001 {
+		t.Fatalf("expected mio port 8001, got %d", cfg.VTuber.Characters["mio"].VTSPort)
+	}
+	if cfg.VTuber.Characters["shiro"].ExpressionMap["happy"] != "ExpHappy" {
+		t.Fatalf("expected shiro happy expression mapping")
 	}
 }
 

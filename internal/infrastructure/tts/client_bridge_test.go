@@ -47,7 +47,7 @@ func TestClientBridge_PushText_FallbackSynthesize(t *testing.T) {
 	gotChunk := false
 	b := NewClientBridge(ClientConfig{
 		HTTPBaseURL: "http://tts.local",
-		OnChunkReady: func(sessionID string, chunkIndex int, text, audioPath, audioURL string) {
+		OnChunkReady: func(sessionID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
 			gotChunk = sessionID == "s1" && chunkIndex == 0 && audioURL == "http://tts.local/cache/x.wav"
 		},
 	}, sink)

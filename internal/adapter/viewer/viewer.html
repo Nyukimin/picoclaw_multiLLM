@@ -569,6 +569,7 @@ const ttsPlayback = {
   playing: false,
   unlocked: false,
   blocked: false,
+  currentCharacterId: '',
 };
 let timelineAutoFollow = true;
 let timelineUserInteracting = false;
@@ -1802,8 +1803,9 @@ function handleTTSAudioEvent(ev) {
     return;
   }
   const url = String(payload.audio_url || '').trim();
+  const characterId = String(payload.character_id || '').trim().toLowerCase();
   if (!url) return;
-  enqueueTTSAudio(url);
+  enqueueTTSAudio(url, characterId);
 }
 
 function updateAudioButton() {
@@ -1863,8 +1865,11 @@ function ensureTTSAudio() {
   return ttsPlayback.audio;
 }
 
-function enqueueTTSAudio(url) {
-  ttsPlayback.queue.push(url);
+function enqueueTTSAudio(url, characterId) {
+  ttsPlayback.queue.push({
+    url: url,
+    characterId: characterId || '',
+  });
   playNextTTSAudio();
 }
 
@@ -1874,7 +1879,9 @@ function playNextTTSAudio() {
   const next = ttsPlayback.queue.shift();
   const audio = ensureTTSAudio();
   ttsPlayback.playing = true;
-  audio.src = next;
+  ttsPlayback.currentCharacterId = String((next && next.characterId) || '');
+  audio.dataset.characterId = ttsPlayback.currentCharacterId;
+  audio.src = String((next && next.url) || '');
   audio.play().then(function() {
     ttsPlayback.unlocked = true;
     ttsPlayback.blocked = false;

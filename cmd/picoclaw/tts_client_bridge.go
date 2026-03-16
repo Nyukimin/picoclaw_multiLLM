@@ -36,16 +36,17 @@ func buildTTSClientBridge(cfg *config.Config, onChunk func(ev orchestrator.Orche
 		ConnectTimeout:  time.Duration(cfg.TTS.ConnectTimeoutMS) * time.Millisecond,
 		ReceiveTimeout:  time.Duration(cfg.TTS.ReceiveTimeoutMS) * time.Millisecond,
 		ChunkGapTimeout: time.Duration(cfg.TTS.ChunkGapTimeoutMS) * time.Millisecond,
-		OnChunkReady: func(sessionID string, chunkIndex int, text, audioPath, audioURL string) {
+		OnChunkReady: func(sessionID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
 			if onChunk == nil {
 				return
 			}
 			payload, err := json.Marshal(map[string]any{
-				"session_id":  sessionID,
-				"chunk_index": chunkIndex,
-				"text":        text,
-				"audio_path":  audioPath,
-				"audio_url":   audioURL,
+				"session_id":   sessionID,
+				"chunk_index":  chunkIndex,
+				"character_id": characterID,
+				"text":         text,
+				"audio_path":   audioPath,
+				"audio_url":    audioURL,
 			})
 			if err != nil {
 				log.Printf("WARN: tts chunk payload marshal failed: %v", err)

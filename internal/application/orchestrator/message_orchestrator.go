@@ -77,6 +77,7 @@ type MessageOrchestrator struct {
 	listener        EventListener
 	idleNotifier    IdleNotifier
 	ttsBridge       TTSBridge
+	vtuberBridge    VTuberBridge
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -114,6 +115,11 @@ func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
 // SetTTSBridge sets an optional TTS bridge.
 func (o *MessageOrchestrator) SetTTSBridge(b TTSBridge) {
 	o.ttsBridge = b
+}
+
+// SetVTuberBridge sets an optional VTuber bridge.
+func (o *MessageOrchestrator) SetVTuberBridge(b VTuberBridge) {
+	o.vtuberBridge = b
 }
 
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
@@ -189,6 +195,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		startReq := TTSSessionStart{
 			SessionID:             ttsSessionID,
 			ResponseID:            jobID.String(),
+			CharacterID:           speakerForRoute(decision.Route),
 			VoiceID:               voiceID,
 			SpeechMode:            speechModeForRoute(decision.Route),
 			Event:                 eventForRoute(decision.Route),
@@ -333,16 +340,18 @@ func (o *MessageOrchestrator) withStreamHooks(
 	ctx context.Context,
 	route routing.Route,
 	jid, sessionID, channel, chatID, ttsSessionID string,
-) (context.Context, *ttsStreamForwarder) {
+) (context.Context, *streamBundle) {
 	prev := llm.StreamCallbackFromContext(ctx)
 	ttsStream := newTTSStreamForwarder(o.ttsBridge, ttsSessionID, route, "agent.response", "[MessageOrch] TTS push degraded:")
+	vtuberStream := newVTuberStreamForwarder(o.vtuberBridge, ttsSessionID, route, "agent.response", "[MessageOrch] VTuber push degraded:")
 	return llm.ContextWithStreamCallback(ctx, func(token string) {
 		if prev != nil {
 			prev(token)
 		}
 		o.emit("agent.thinking", "mio", "user", token, string(route), jid, sessionID, channel, chatID)
 		ttsStream.OnToken(ctx, token)
-	}), ttsStream
+		vtuberStream.OnToken(ctx, token)
+	}), &streamBundle{tts: ttsStream, vtuber: vtuberStream}
 }
 
 func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
@@ -350,6 +359,10 @@ func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID string, rou
 	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
 	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, voiceProfile)
 	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[MessageOrch] TTS push degraded:")
+	req, ok := buildVTuberRequest(eventType, route, sessionID, text, ttsCtx, voiceProfile)
+	if ok {
+		pushVTuber(ctx, o.vtuberBridge, req, "[MessageOrch] VTuber push degraded:")
+	}
 }
 
 func speechModeForRoute(route routing.Route) string {

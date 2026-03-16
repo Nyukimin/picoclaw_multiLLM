@@ -3,10 +3,12 @@ module github.com/Nyukimin/picoclaw_multiLLM
 go 1.25.0
 
 require (
+	github.com/go-ole/go-ole v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/mmcdole/gofeed v1.3.0
+	github.com/moutend/go-wca v0.3.0
 	github.com/qdrant/go-client v1.17.1
 	github.com/redis/go-redis/v9 v9.18.0
 	golang.org/x/crypto v0.49.0

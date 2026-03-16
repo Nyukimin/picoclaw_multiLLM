@@ -168,6 +168,7 @@ func cmdRun() {
 	mux.HandleFunc("/viewer", viewer.HandlePage)
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
+	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
 	}
@@ -1799,6 +1800,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			deps.eventRelay.OnEvent(ev)
 		}
 	})
+	vtuberBridge := buildVTuberBridge(cfg)
 	if reportStore, err := executionpersistence.NewJSONLReportStore(reportPath); err != nil {
 		log.Printf("WARN: evidence API disabled: %v", err)
 	} else {
@@ -1939,7 +1941,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge, vtuberBridge)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = entryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = chromeBridgeFromOrch(deps.distOrch)
@@ -1957,6 +1959,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		)
 		orch.SetEventListener(deps.eventRelay)
 		orch.SetTTSBridge(ttsBridge)
+		orch.SetVTuberBridge(vtuberBridge)
 		// IdleChat統合（有効な場合）
 		if deps.idleChatOrch != nil {
 			orch.SetIdleNotifier(deps.idleChatOrch)
@@ -2035,6 +2038,7 @@ func (d *Dependencies) buildDistributedMode(
 	ollamaProvider llm.LLMProvider,
 	centralMemory *domainsession.CentralMemory,
 	ttsBridge orchestrator.TTSBridge,
+	vtuberBridge orchestrator.VTuberBridge,
 ) {
 	// Transport Factory でAgent別Transport生成
 	factory := transport.NewTransportFactory()
@@ -2096,6 +2100,7 @@ func (d *Dependencies) buildDistributedMode(
 	)
 	d.distOrch = distOrch
 	distOrch.SetTTSBridge(ttsBridge)
+	distOrch.SetVTuberBridge(vtuberBridge)
 	if d.eventRelay != nil {
 		distOrch.SetEventListener(d.eventRelay)
 	}
