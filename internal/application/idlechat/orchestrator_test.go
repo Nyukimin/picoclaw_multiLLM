@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -337,6 +338,28 @@ func TestIdleChatOrchestrator_StartForecastMode_RejectsActiveSession(t *testing.
 	}
 }
 
+func TestIdleChatOrchestrator_StartStoryMode_SwitchesFromManualMode(t *testing.T) {
+	provider := &mockLLMProvider{response: "story"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+
+	if err := o.StartManualMode(); err != nil {
+		t.Fatalf("StartManualMode failed: %v", err)
+	}
+	if err := o.StartStoryMode(); err != nil {
+		t.Fatalf("StartStoryMode failed: %v", err)
+	}
+	if o.IsManualMode() {
+		t.Fatal("manual mode should be disabled after switching to story")
+	}
+	if !o.IsChatActive() {
+		t.Fatal("chat should be active after switching to story")
+	}
+	if got := o.CurrentMode(); got != "story" {
+		t.Fatalf("expected current mode story, got %q", got)
+	}
+}
+
 func TestIdleChatOrchestrator_NextIdleSessionPlan_RotatesNormalAndForecast(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
@@ -365,6 +388,15 @@ func TestIdleChatOrchestrator_NextIdleSessionPlan_RotatesNormalAndForecast(t *te
 	}
 	if plan5.mode != "idle" || plan5.strategy != StrategySingleGenre {
 		t.Fatalf("expected fifth plan to restart at single idle, got mode=%q strategy=%q", plan5.mode, plan5.strategy)
+	}
+}
+
+func TestChooseStoryRewriteStyle_AvoidsImmediateRepeat(t *testing.T) {
+	history := []SessionSummary{{Strategy: "story:role_shift", RewriteStyle: "role_shift"}}
+	for i := 0; i < 20; i++ {
+		if got := chooseStoryRewriteStyle(history); got == "role_shift" {
+			t.Fatalf("expected style to avoid immediate repeat, got %q", got)
+		}
 	}
 }
 
@@ -405,6 +437,456 @@ func TestIdleChatOrchestrator_RunChatSession(t *testing.T) {
 	if totalEntries < maxTurns {
 		t.Errorf("Expected at least %d total entries across agents, got %d", maxTurns, totalEntries)
 	}
+}
+
+func TestSplitStoryNarration_SplitsLongParagraph(t *testing.T) {
+	text := "昔々あるところに、とても長い導入がありました。主人公はまだ何も知らず、町の端から端まで歩き続けていました。やがて奇妙な知らせが届き、話は別の方向へ進みます。"
+	got := splitStoryNarration(text, 40)
+	if len(got) < 2 {
+		t.Fatalf("expected multiple chunks, got %v", got)
+	}
+	for _, chunk := range got {
+		if utf8.RuneCountInString(chunk) > 40 {
+			t.Fatalf("chunk too long: %q", chunk)
+		}
+	}
+}
+
+func TestSaveStorySummary_StoresStoryMetadata(t *testing.T) {
+	origStoryRandIntn := storyRandIntn
+	storyRandIntn = func(n int) int { return 0 }
+	defer func() { storyRandIntn = origStoryRandIntn }()
+
+	provider := &mockLLMProvider{response: "unused"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	source := StorySource{ID: "momotaro", Title: "桃太郎"}
+	plan := StoryRewritePlan{RewriteStyle: "role_shift", StoryTitle: "港の桃太郎", Premise: "桃太郎が港で異変を追う", EndingFlavor: "皮肉", MotifMap: []string{"桃=>桃印", "きびだんご=>夜食の配給券"}}
+	draftText := "夜の港に、桃印の新人が立っていた。"
+	revisionNote := "前半から因果が通るよう整えた。"
+	storyText := "夜の港に、桃印の新人が立っていた。夜食の配給券が沈黙を買い、最後に皮肉だけが残った。"
+	transcript := []string{"mio: 今夜の物語です。", "mio: 夜の港に、桃印の新人が立っていた。"}
+	startedAt := time.Now().In(jst)
+	endedAt := startedAt.Add(time.Minute)
+
+	o.saveStorySummary("story-test", source, plan, draftText, revisionNote, storyText, transcript, startedAt, endedAt)
+
+	history := o.GetHistory(1)
+	if len(history) != 1 {
+		t.Fatalf("expected one story history item, got %d", len(history))
+	}
+	if history[0].SourceTitle != "桃太郎" || history[0].StoryTitle != "港の桃太郎" || history[0].StoryText != storyText {
+		t.Fatalf("expected story metadata to be stored, got %+v", history[0])
+	}
+}
+
+func TestRetryStoryDraft_RetriesBeforeSuccess(t *testing.T) {
+	shiroProvider := &mockLLMProvider{
+		responses: []string{
+			"",
+			"",
+			"桃太郎は夜の港で桃印の検品ロッカーを開け、点呼表を片手に犬と猿と雉の担当者を集めた。検品番号ゼロ番の出自と呼ばれるその新人は、夜食の配給券を一枚ずつ渡しながら、誰が鬼ヶ島の便を黙って通したのかを確かめようとした。\n\n「鬼ヶ島の便だけ帳簿が消えてる」犬が低く言い、猿は濡れた伝票を差し出した。雉は高い棚によじ登って封印された箱の列を見渡し、誰かが夜のうちに宝のような帳簿を移していると知らせた。\n\n桃太郎は保税倉庫へ向かい、配給券で沈黙を買われた作業員から話を引き出した。扉を開けると隠された帳簿が台車の下から現れ、内部不正の摘発が必要だと分かった。彼は帳簿を抱えて岸壁まで走り、持ち帰る前に黙っていた仲間たちと視線を交わした。",
+		},
+	}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{"shiro": shiroProvider})
+	source := StorySource{ID: "momotaro", Title: "桃太郎", SourceLabel: "日本昔話", Text: "昔々、川から流れてきた大きな桃から男の子が生まれました。桃太郎と名づけられたその子は、やがて立派に育ち、村を困らせる鬼を退治するため鬼ヶ島へ向かいます。道中で犬、猿、雉を家来にし、きびだんごを分け与えながら心を一つにしました。鬼ヶ島では力だけでなく知恵も使って鬼の油断を突き、宝を持ち帰って村に平和を戻しました。"}
+	analysis := analyzeStorySource(source)
+	plan := StoryRewritePlan{
+		SourceTitle:  "桃太郎",
+		RewriteStyle: "role_shift",
+		StoryTitle:   "港の桃太郎",
+		Premise:      "桃太郎が夜の港湾で積み荷の異変を追う",
+		Setting:      "現代の港湾都市",
+		Viewpoint:    "桃太郎の一人称",
+		Tone:         "きびきびして少し切ない",
+		EndingFlavor: "皮肉",
+		MotifMap: []string{
+			"桃から生まれる=>検品番号ゼロ番の出自",
+			"きびだんご=>夜食の配給券",
+			"鬼退治=>内部不正の摘発",
+		},
+	}
+	beatPlan := StoryBeatPlan{
+		Opening:   "桃太郎は夜の港で点呼表を持って立っていた。",
+		Deviation: "配給券の束が、仲間集めではなく沈黙の口止めに使われ始める。",
+		Reversal:  "鬼ヶ島とあだ名される保税倉庫で、内部不正の摘発が必要だと分かる。",
+		Landing:   "最後に残るのは、勝利ではなく皮肉だった。",
+	}
+	adaptation := buildStoryAdaptationPlan(analysis.Skeleton, plan, beatPlan)
+
+	draft, err := o.retryStoryDraft(source, analysis, plan, adaptation, beatPlan)
+	if err != nil {
+		t.Fatalf("expected retry to recover story draft, got %v", err)
+	}
+	if shiroProvider.callCount < 3 {
+		t.Fatalf("expected at least 3 draft attempts, got %d", shiroProvider.callCount)
+	}
+	if !strings.Contains(draft, "桃印") && !strings.Contains(draft, "鬼ヶ島") && !strings.Contains(draft, "宝") {
+		t.Fatalf("expected valid draft after retries, got %q", draft)
+	}
+}
+
+func TestRetryStoryDraft_UsesDeterministicFallbackAfterExhaustedRetries(t *testing.T) {
+	shiroProvider := &mockLLMProvider{responses: []string{"", "", ""}}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{"shiro": shiroProvider})
+	source := StorySource{ID: "issun", Title: "一寸法師", SourceLabel: "日本昔話", Text: "一寸ほどの小さな男の子は、針を刀、椀を舟にして都へ向かいました。都では働き者として姫のそばに仕えますが、ある日鬼にさらわれそうになります。小さな体を生かして鬼の口や腹の中で暴れ、打ち出の小槌を手に入れました。その力で元の大きさに育ち、勇気と機転で姫を守った功績が認められます。"}
+	analysis := analyzeStorySource(source)
+	plan := groundStoryRewritePlan(source, analysis, fallbackStoryRewritePlan(source, analysis, "view_shift"))
+	beatPlan := groundedStoryBeatPlan(source, analysis, plan)
+	adaptation := buildStoryAdaptationPlan(analysis.Skeleton, plan, beatPlan)
+
+	draft, err := o.retryStoryDraft(source, analysis, plan, adaptation, beatPlan)
+	if err != nil {
+		t.Fatalf("expected deterministic fallback draft, got %v", err)
+	}
+	for _, want := range []string{"一寸", "針", "椀", "鬼", "小槌"} {
+		if !strings.Contains(draft, want) {
+			t.Fatalf("expected fallback draft to preserve cue %q, got %q", want, draft)
+		}
+	}
+}
+
+func TestRunStorySession_UsesDeterministicStoryAfterThreeSourceFailures(t *testing.T) {
+	origStoryRandIntn := storyRandIntn
+	storyRandIntn = func(n int) int { return 0 }
+	defer func() { storyRandIntn = origStoryRandIntn }()
+
+	mioProvider := &mockLLMProvider{
+		response: "unused",
+	}
+	shiroResponses := make([]string, 0, 10)
+	for i := 0; i < 9; i++ {
+		shiroResponses = append(shiroResponses, "")
+	}
+	shiroProvider := &mockLLMProvider{responses: shiroResponses}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(mioProvider, memory, []string{"mio", "shiro"}, 5, 1, 0.8, nil)
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{"mio": mioProvider, "shiro": shiroProvider})
+
+	o.RunStorySession()
+
+	history := o.GetHistory(1)
+	if len(history) != 1 {
+		t.Fatalf("expected one story history item, got %d", len(history))
+	}
+	if !strings.HasPrefix(string(history[0].Strategy), "story:") {
+		t.Fatalf("expected story history, got %+v", history[0])
+	}
+	if history[0].StoryText == "" {
+		t.Fatalf("expected deterministic story payload, got %+v", history[0])
+	}
+	if !strings.Contains(history[0].StoryRevisionNote, "第1稿") {
+		t.Fatalf("expected draft to be kept after bad revisions, got %+v", history[0])
+	}
+}
+
+func TestStoryCoreMotifs_ShitakiriIncludesCanonicalElements(t *testing.T) {
+	motifs := storyCoreMotifs(StorySource{ID: "shitakiri", Title: "舌切り雀"})
+	for _, want := range []string{"舌を切る", "小さいつづら", "大きいつづら", "欲深さの報い"} {
+		if !containsString(motifs, want) {
+			t.Fatalf("expected motif %q in %v", want, motifs)
+		}
+	}
+}
+
+func TestParseStoryRewritePlan_PrefersCanonicalStyleField(t *testing.T) {
+	raw := "STORY_TITLE: 現代の舌切り雀\nPREMISE: 舌切り雀を配送センターの話にする\nSETTING: 深夜の配送センター\nVIEWPOINT: 雀を見ていた同僚の一人称\nTONE: 乾いた現場劇\nHOOK: もし舌を切る代わりに音声認証を剥奪していたら\nENDING: 欲の差が最後に露呈する\nENDING_FLAVOR: 皮肉\nCORE_MOTIFS: 舌を切る / 小さいつづら / 大きいつづら / 欲深さの報い\nMOTIF_MAP: 舌を切る=>音声認証を剥奪される / 小さいつづら=>小型ケース / 大きいつづら=>大型コンテナ / 欲深さの報い=>過剰請求の発覚\nSTYLE: view_shift"
+	plan := parseStoryRewritePlan("舌切り雀", "role_shift", raw, chooseStoryTwist(StorySource{ID: "shitakiri", Title: "舌切り雀"}, "role_shift"), storyCoreMotifs(StorySource{ID: "shitakiri", Title: "舌切り雀"}))
+	if plan.RewriteStyle != "view_shift" {
+		t.Fatalf("expected canonical rewrite style, got %q", plan.RewriteStyle)
+	}
+	if !containsString(plan.CoreMotifs, "舌を切る") {
+		t.Fatalf("expected core motifs to include tongue-cut motif, got %v", plan.CoreMotifs)
+	}
+	if !containsString(plan.MotifMap, "舌を切る=>音声認証を剥奪される") {
+		t.Fatalf("expected motif map to preserve transformed motif, got %v", plan.MotifMap)
+	}
+}
+
+func TestParseStoryRewritePlan_ParsesSingleLineFields(t *testing.T) {
+	raw := "STORY_TITLE: 光る竹の少女  PREMISE: 研究施設で保護された天才少女が月へ引き戻される。  SETTING: 地方研究所  VIEWPOINT: 所長の近接三人称  TONE: 冷静  HOOK: 竹の中から現れた少女がいた。  ENDING: 見送るしかない別れ  ENDING_FLAVOR: 喪失  CORE_MOTIFS: 竹 / 姫 / 難題 / 月  MOTIF_MAP: 竹=>光る試験管 / 月=>回収契約  STYLE: role_shift"
+	plan := parseStoryRewritePlan("竹取物語", "role_shift", raw, chooseStoryTwist(StorySource{ID: "kaguya", Title: "竹取物語"}, "role_shift"), storyCoreMotifs(StorySource{ID: "kaguya", Title: "竹取物語"}))
+	if plan.StoryTitle != "光る竹の少女" || plan.Premise == "" || plan.Setting != "地方研究所" {
+		t.Fatalf("expected single-line rewrite plan to parse, got %+v", plan)
+	}
+}
+
+func TestParseStoryBeatPlan_ParsesSingleLineFields(t *testing.T) {
+	raw := "OPENING: 雨の夜に招待状が届いた。  DEVIATION: 箱を受け取った瞬間に帰る理由が消えた。  REVERSAL: 開封で時間の代償が一気に押し寄せる。  LANDING: 最後に残るのは喪失だった。"
+	plan := StoryRewritePlan{Hook: "hook", Premise: "premise", EndingShape: "ending", EndingFlavor: "喪失"}
+	beat := parseStoryBeatPlan(raw, plan)
+	if beat.Opening != "雨の夜に招待状が届いた。" || beat.Landing != "最後に残るのは喪失だった。" {
+		t.Fatalf("expected single-line beat plan to parse, got %+v", beat)
+	}
+}
+
+func TestStoryNarrativeLooksLikeProse_RejectsOverblownModernization(t *testing.T) {
+	story := "雨が降っていた。主人公はスマホを握りしめ、SNSで集まった観光客に囲まれながら、巨大企業の高層ビルへ入った。そこで権限トークンを受け取り、いいねの数だけ運命が決まると言われた。彼は黙ってうなずき、またスマホを見た。"
+	if storyNarrativeLooksLikeProse(story) {
+		t.Fatalf("expected overblown modernization to be rejected")
+	}
+}
+
+func TestStoryNarrativeLooksLikeProse_RejectsAtmosphericOpeningWithoutAction(t *testing.T) {
+	story := "雨音は冷たく、まるで忘れられた記憶のように窓を打っていた。薄い明かりが床をなぞり、部屋は深い影を抱え込んでいた。息をひそめたまま、夜だけが長く伸びていった。やがて静けさはさらに濃くなり、誰も何も決めないまま時間だけが過ぎた。"
+	if storyNarrativeLooksLikeProse(story) {
+		t.Fatalf("expected atmospheric non-story opening to be rejected")
+	}
+}
+
+func TestReviseStoryNarrative_RejectsSkeletonRegression(t *testing.T) {
+	shiroProvider := &mockLLMProvider{response: "REVISION_NOTE:\nまとまりだけ整えた。\nSTORY:\n一寸ほどの背丈しかない若者は町へ向かった。彼は店先で昔を思い出し、静かな夜を見上げた。やがて何も起きないまま朝になり、喪失だけが残った。"}
+	memory := session.NewCentralMemory()
+	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{"shiro": shiroProvider})
+	source := StorySource{ID: "issun", Title: "一寸法師", SourceLabel: "日本昔話"}
+	analysis := analyzeStorySource(source)
+	plan := groundStoryRewritePlan(source, analysis, fallbackStoryRewritePlan(source, analysis, "view_shift"))
+	beatPlan := groundedStoryBeatPlan(source, analysis, plan)
+	adaptation := buildStoryAdaptationPlan(analysis.Skeleton, plan, beatPlan)
+	draft := deterministicStoryDraft(source, analysis, plan, adaptation, beatPlan)
+
+	if _, _, err := o.reviseStoryNarrative(source, analysis, plan, adaptation, beatPlan, draft); err == nil {
+		t.Fatal("expected revision with missing cues to be rejected")
+	}
+}
+
+func TestStoryNarrativeLooksLikeProse_RejectsDistractingDigression(t *testing.T) {
+	story := "おじいさんは庭の土を掘る犬の前にしゃがみこみ、何が出るのか息をひそめた。土の中から小さな箱が出てきた。その姿を見て、私は幼い頃に見た花を思い出した。おじいさんは箱を抱えたまま立ち尽くし、隣の男はそれを奪おうと腕を伸ばした。"
+	if storyNarrativeLooksLikeProse(story) {
+		t.Fatalf("expected distracting digression to be rejected")
+	}
+}
+
+func TestNormalizeStoryNarrative_DedupesMetaAndRepeatedSentences(t *testing.T) {
+	raw := "（余韻）\nマッチの火が消えた後、少女は静かに息を引き取った。\nマッチの火が消えた後、少女は静かに息を引き取った。\n\nマッチの火が消えた後、少女は静かに息を引き取った。"
+	got := normalizeStoryNarrative(raw)
+	if strings.Contains(got, "（余韻）") {
+		t.Fatalf("expected meta label removed, got %q", got)
+	}
+	if strings.Count(got, "マッチの火が消えた後") != 1 {
+		t.Fatalf("expected duplicate sentence removed, got %q", got)
+	}
+}
+
+func TestGroundStoryRewritePlan_ReplacesCorporateSetting(t *testing.T) {
+	source := StorySource{ID: "beauty", Title: "美女と野獣"}
+	analysis := analyzeStorySource(source)
+	plan := groundStoryRewritePlan(source, analysis, StoryRewritePlan{
+		SourceTitle:  source.Title,
+		RewriteStyle: "view_shift",
+		StoryTitle:   "獣のSaaS",
+		Premise:      "巨大企業の権限トークンを巡る話にする。",
+		Setting:      "高層ビルと会員制リゾート",
+		Viewpoint:    "AI部門の一人称",
+		Hook:         "SNSで話題になった野獣。",
+	})
+	if strings.Contains(plan.Setting, "高層") || strings.Contains(plan.Premise, "巨大企業") || strings.Contains(plan.Hook, "SNS") {
+		t.Fatalf("expected grounded rewrite plan, got %+v", plan)
+	}
+	if plan.Setting != "町はずれの古い洋館" {
+		t.Fatalf("expected grounded setting, got %q", plan.Setting)
+	}
+}
+
+func TestAnalyzeStorySource_SnowwhiteKeepsTabooAndAftertaste(t *testing.T) {
+	analysis := analyzeStorySource(StorySource{ID: "snowwhite", Title: "白雪姫"})
+	if !containsString(analysis.CoreMotifs, "毒りんご") {
+		t.Fatalf("expected poison apple motif, got %v", analysis.CoreMotifs)
+	}
+	if analysis.TabooOrRule == "" || analysis.EmotionalAftertaste == "" {
+		t.Fatalf("expected taboo and aftertaste, got %+v", analysis)
+	}
+}
+
+func TestAnalyzeStorySource_AladdinKeepsSpecificStructure(t *testing.T) {
+	analysis := analyzeStorySource(StorySource{ID: "aladdin", Title: "アラジンと魔法のランプ"})
+	for _, want := range []string{"洞窟でだまされる", "王女との結婚", "機転で奪還する"} {
+		if !containsString(analysis.CoreMotifs, want) {
+			t.Fatalf("expected motif %q in %v", want, analysis.CoreMotifs)
+		}
+	}
+	if !containsString(analysis.RoleMap, "命令に従う魔人") {
+		t.Fatalf("expected aladdin-specific role map, got %v", analysis.RoleMap)
+	}
+	if analysis.TabooOrRule == "" || analysis.RewardAndPunish == "" || analysis.EmotionalAftertaste == "" {
+		t.Fatalf("expected aladdin analysis fields, got %+v", analysis)
+	}
+}
+
+func TestStorySkeleton_RedridingHasRecognizableBeats(t *testing.T) {
+	skeleton := storySkeleton(StorySource{ID: "redriding", Title: "赤ずきん"})
+	for _, want := range []string{"届け物の出発", "道中の足止め", "先回り", "変装と誤認", "危機と救出"} {
+		if !containsString(storyBeatLabels(skeleton.RequiredBeats), want) {
+			t.Fatalf("expected beat %q in %v", want, storyBeatLabels(skeleton.RequiredBeats))
+		}
+	}
+	for _, cue := range []string{"赤い頭巾", "おばあさん", "狼"} {
+		if !containsString(skeleton.RecognitionCues, cue) {
+			t.Fatalf("expected cue %q in %v", cue, skeleton.RecognitionCues)
+		}
+	}
+}
+
+func TestStorySpecs_CoverEntireCorpus(t *testing.T) {
+	for _, source := range storyCorpus {
+		spec, ok := storySpecForSource(source)
+		if !ok {
+			t.Fatalf("missing story spec for %s", source.ID)
+		}
+		if strings.TrimSpace(spec.Skeleton.SourceTitle) == "" {
+			t.Fatalf("missing source title in skeleton for %s", source.ID)
+		}
+		if len(spec.Skeleton.RequiredBeats) == 0 {
+			t.Fatalf("missing required beats for %s", source.ID)
+		}
+		if len(spec.Skeleton.RecognitionCues) == 0 {
+			t.Fatalf("missing recognition cues for %s", source.ID)
+		}
+		for _, style := range []string{"role_shift", "view_shift", "value_shift"} {
+			twists := spec.Twists[style]
+			if len(twists) == 0 {
+				t.Fatalf("missing %s twist for %s", style, source.ID)
+			}
+			for _, twist := range twists {
+				if strings.TrimSpace(twist.StoryTitle) == "" || strings.TrimSpace(twist.Hook) == "" || strings.TrimSpace(twist.VisibleTwist) == "" {
+					t.Fatalf("incomplete %s twist for %s: %+v", style, source.ID, twist)
+				}
+			}
+		}
+	}
+}
+
+func TestStorySkeleton_KasajizoHasGiftAndReturnBeats(t *testing.T) {
+	skeleton := storySkeleton(StorySource{ID: "kasajizo", Title: "笠地蔵"})
+	for _, want := range []string{"年の暮れの困窮と売れ残り", "地蔵に笠をかぶせる", "足りない一体に手ぬぐいを巻く", "夜の返礼と温かな正月"} {
+		if !containsString(storyBeatLabels(skeleton.RequiredBeats), want) {
+			t.Fatalf("expected beat %q in %v", want, storyBeatLabels(skeleton.RequiredBeats))
+		}
+	}
+	for _, cue := range []string{"笠", "地蔵", "手ぬぐい", "正月"} {
+		if !containsString(skeleton.RecognitionCues, cue) {
+			t.Fatalf("expected cue %q in %v", cue, skeleton.RecognitionCues)
+		}
+	}
+}
+
+func TestChooseStoryTwist_KasajizoUsesDedicatedReturnStructure(t *testing.T) {
+	twist := chooseStoryTwist(StorySource{ID: "kasajizo", Title: "笠地蔵"}, "role_shift")
+	if !strings.Contains(twist.VisibleTwist, "笠地蔵") {
+		t.Fatalf("expected kasajizo twist to anchor source title, got %+v", twist)
+	}
+	if twist.Setting != "雪の積もる町はずれの道" {
+		t.Fatalf("expected grounded kasajizo setting, got %q", twist.Setting)
+	}
+}
+
+func TestChooseRoleShiftTwist_RedridingUsesDeliveryStructure(t *testing.T) {
+	twist := chooseRoleShiftTwist(StorySource{ID: "redriding", Title: "赤ずきん"})
+	if !strings.Contains(twist.VisibleTwist, "赤ずきん") {
+		t.Fatalf("expected source-anchored twist, got %+v", twist)
+	}
+	if twist.Setting != "町外れの林道と祖母の家" {
+		t.Fatalf("expected grounded redriding setting, got %q", twist.Setting)
+	}
+}
+
+func TestStorySatisfiesSkeleton_RedridingRequiresRecognitionCues(t *testing.T) {
+	skeleton := storySkeleton(StorySource{ID: "redriding", Title: "赤ずきん"})
+	plan := StoryRewritePlan{
+		RewriteStyle: "role_shift",
+		MotifMap: []string{
+			"赤い頭巾=>赤い頭巾",
+			"狼の先回り=>先回り",
+			"おばあさんに化ける=>変装",
+		},
+	}
+	beatPlan := StoryBeatPlan{
+		Opening:   "赤い頭巾のスタッフが祖母役の入居者へ薬を届けに出る。",
+		Deviation: "途中で不審者に足止めされ、訪問ルートを変えさせられる。",
+		Reversal:  "相手は先回りし、おばあさんに化けて待っていた。",
+		Landing:   "閉じ込められた入居者は救出されるが、油断の代償が残る。",
+	}
+	adaptation := buildStoryAdaptationPlan(skeleton, plan, beatPlan)
+	story := "赤い頭巾のスタッフは、祖母のように慕う入居者へ薬を届けに出た。途中で足止めされて遠回りをさせられたあいだに、相手は先回りし、おばあさんに化けて部屋で待っていた。違和感のある会話の末に閉じ込められた入居者は救出されたが、油断の代償だけが残った。"
+	if !storySatisfiesSkeleton(story, skeleton, adaptation) {
+		t.Fatalf("expected recognizable redriding story to satisfy skeleton")
+	}
+}
+
+func TestNormalizeStoryRewriteStyle_RejectsEraShiftAndMapsCurrentModes(t *testing.T) {
+	cases := map[string]string{
+		"role_shift":  "role_shift",
+		"what_if":     "role_shift",
+		"view_shift":  "view_shift",
+		"value_shift": "value_shift",
+		"era_shift":   "era_shift",
+	}
+	for in, want := range cases {
+		if got := normalizeStoryRewriteStyle(in); got != want {
+			t.Fatalf("normalizeStoryRewriteStyle(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestChooseViewShiftTwist_AladdinUsesSpecificPerspective(t *testing.T) {
+	twist := chooseViewShiftTwist(StorySource{ID: "aladdin", Title: "アラジンと魔法のランプ"})
+	if !strings.Contains(twist.Hook, "アラジンと魔法のランプ") {
+		t.Fatalf("expected hook to anchor source title, got %q", twist.Hook)
+	}
+	if twist.Setting != "市場通りと古い倉庫" {
+		t.Fatalf("expected grounded aladdin setting, got %q", twist.Setting)
+	}
+}
+
+func TestStoryNarrativeLooksSettled_RejectsMetaLeak(t *testing.T) {
+	plan := StoryRewritePlan{
+		StoryTitle:   "王女が見ていたランプ",
+		Setting:      "王宮",
+		Viewpoint:    "王女の一人称",
+		EndingFlavor: "救い",
+		MotifMap:     []string{"魔法のランプ=>魔法のランプ"},
+	}
+	beatPlan := StoryBeatPlan{Landing: "最後に残るのは救いだ。"}
+	story := "元の『アラジンと魔法のランプ』で禁じられていたのは約束を破らないことだった。最後に残るのは救いという読後感だった。"
+	if storyNarrativeLooksSettled(story, "draft", plan, beatPlan) {
+		t.Fatal("expected meta leak to be rejected")
+	}
+}
+
+func TestRepairStoryDraft_StripsMetaLeakAndKeepsLanding(t *testing.T) {
+	source := StorySource{ID: "aladdin", Title: "アラジンと魔法のランプ", Text: "若者アラジンは怪しい男に導かれて洞窟へ入り、古びたランプを持ち帰りました。ランプの精の力で貧しさを抜け出し、王女と心を通わせます。しかし力を奪おうとする者に狙われ、ランプを取り戻すための機転が試されました。最後にアラジンは王女と再会し、奪われたものを自分の手で取り返します。"}
+	analysis := analyzeStorySource(source)
+	plan := StoryRewritePlan{
+		StoryTitle:   "王女が見ていたランプ",
+		Setting:      "王宮",
+		Viewpoint:    "王女の一人称",
+		EndingFlavor: "救い",
+		MotifMap:     []string{"魔法のランプ=>魔法のランプ"},
+	}
+	beatPlan := StoryBeatPlan{Landing: "最後に残るのは救いだ。"}
+	adaptation := buildStoryAdaptationPlan(analysis.Skeleton, plan, beatPlan)
+	draft := "王女は魔法のランプの光を見た。元の『アラジンと魔法のランプ』で禁じられていたのは約束を破らないことだった。"
+	got := repairStoryDraft(source, analysis, plan, adaptation, beatPlan, draft)
+	if strings.Contains(got, "元の『") {
+		t.Fatalf("expected meta leak to be stripped, got %q", got)
+	}
+	if !strings.Contains(got, "救い") {
+		t.Fatalf("expected ending flavor to be restored, got %q", got)
+	}
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
@@ -561,23 +1043,57 @@ func TestGetSystemPrompt(t *testing.T) {
 }
 
 func TestFallbackTopicForStrategy_SingleUsesGenre(t *testing.T) {
-	got := fallbackTopicForStrategy(StrategySingleGenre, []string{"昆虫学"}, "", "", false)
+	got := fallbackTopicForStrategy(StrategySingleGenre, []string{"昆虫学"}, "", "", topicAnchor{Kind: "人物", Value: "地方博物館の学芸員"}, false)
 	if !strings.Contains(got, "昆虫学") || strings.HasSuffix(got, "ってどんな映画？") {
 		t.Fatalf("expected normal single fallback, got %q", got)
+	}
+	if !strings.Contains(got, "地方博物館の学芸員") {
+		t.Fatalf("expected concrete anchor in single fallback, got %q", got)
 	}
 }
 
 func TestFallbackTopicForStrategy_DoubleUsesBothGenres(t *testing.T) {
-	got := fallbackTopicForStrategy(StrategyDoubleGenre, []string{"茶道", "歯車"}, "", "", false)
+	got := fallbackTopicForStrategy(StrategyDoubleGenre, []string{"茶道", "歯車"}, "", "", topicAnchor{Kind: "物", Value: "壊れたオルゴール"}, false)
 	if !strings.Contains(got, "茶道") || !strings.Contains(got, "歯車") || strings.HasSuffix(got, "ってどんな映画？") {
 		t.Fatalf("expected normal double fallback, got %q", got)
+	}
+	if !strings.Contains(got, "壊れたオルゴール") {
+		t.Fatalf("expected concrete anchor in double fallback, got %q", got)
 	}
 }
 
 func TestFallbackTopicForStrategy_ExternalUsesSeed(t *testing.T) {
-	got := fallbackTopicForStrategy(StrategyExternalStimulus, nil, "Wikipedia:アレクサンドリア", "", false)
+	got := fallbackTopicForStrategy(StrategyExternalStimulus, nil, "Wikipedia:アレクサンドリア", "", topicAnchor{}, false)
 	if !strings.Contains(got, "アレクサンドリア") || strings.HasSuffix(got, "ってどんな映画？") {
 		t.Fatalf("expected normal external fallback to include seed, got %q", got)
+	}
+}
+
+func TestBuildSingleGenrePrompt_RequiresConcreteAnchor(t *testing.T) {
+	got := buildSingleGenrePrompt("音楽", topicAnchor{Kind: "人物", Value: "駆け出しのアーティスト"}, false)
+	for _, want := range []string{
+		"ジャンル: 音楽",
+		"具体アンカー (人物): 駆け出しのアーティスト",
+		"人・物・場所・場面のどれかを1つ必ず入れる",
+		"抽象語だけで閉じた題名にしない",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected single prompt to contain %q, got %q", want, got)
+		}
+	}
+}
+
+func TestBuildDoubleGenrePrompt_RequiresConcreteAnchor(t *testing.T) {
+	got := buildDoubleGenrePrompt([]string{"音楽", "橋"}, topicAnchor{Kind: "場所", Value: "始発前の駅"}, false)
+	for _, want := range []string{
+		"ジャンル: 音楽 × 橋",
+		"具体アンカー (場所): 始発前の駅",
+		"2ジャンルに具体アンカーを接続し",
+		"抽象語だけで閉じた題名にしない",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected double prompt to contain %q, got %q", want, got)
+		}
 	}
 }
 
