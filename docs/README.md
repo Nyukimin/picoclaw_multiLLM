@@ -147,7 +147,7 @@ Discord / Slack / 音声入出力のアダプター追加仕様。
 | ChannelAdapter 共通インターフェース | 実装完了（HTTP/Webhook基盤） |
 | Discord アダプター (WebSocket Gateway) | 部分実装（Webhook/Interaction） |
 | Slack アダプター (Socket Mode) | 部分実装（Events API） |
-| 音声アダプター (STT + TTS) | 未実装 |
+| 音声アダプター (STT + TTS) | 部分実装（TTS/Audio Router、STT未実装） |
 | セッション ID 規約（チャネル横断） | 実装完了 |
 | 設定ファイル拡張 (channels) | 実装完了（Telegram/Discord/Slack） |
 
@@ -158,8 +158,8 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 | 内容 | 状態 |
 |------|------|
 | Execution Contract（依頼→実行契約） | 部分実装（正規化/検証） |
-| Autonomous Executor（Plan→Apply→Verify→Repair） | 設計完了 |
-| TTS Capability Pack（OpenAI→ElevenLabs→local） | 設計完了 |
+| Autonomous Executor（Plan→Apply→Verify→Repair） | 部分実装（最小ループ / `/entry` 経路） |
+| TTS Capability Pack（OpenAI→ElevenLabs→local） | 部分実装（TTS運用系あり、正本仕様は整理中） |
 | Evidence（execution_report） | 部分実装（Execution監査ログ） |
 
 ### 2.8 OpenClaw移植詳細仕様（分割）
@@ -168,12 +168,12 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 
 | ファイル | 内容 | 状態 |
 |---------|------|------|
-| 詳細実装仕様_02_チャネル網羅不足.md | Telegram/Discord/Slack追加と共通イベント契約 | 実装進行中 |
-| 詳細実装仕様_03_Tools体系の差.md | ToolManifest/Registry/ExecutionEnvelope | 実装進行中 |
-| 詳細実装仕様_04_Nodes_デバイス能力の差.md | NodeCapabilityと要件ベース選定 | 実装進行中 |
-| 詳細実装仕様_05_Gateway_Ops_CLIの差.md | gateway/channels/status/health/doctor/logs | 実装進行中 |
-| 詳細実装仕様_06_Security_Sandboxの差.md | SecurityProfileと権限スコープ・監査 | 実装進行中 |
-| 詳細実装仕様_07_App_Platform導線の差.md | Unified Entryと進行イベント統一 | 実装進行中 |
+| 詳細実装仕様_02_チャネル網羅不足.md | Telegram/Discord/Slack追加と共通イベント契約 | 現行実装ベース |
+| 詳細実装仕様_03_Tools体系の差.md | ToolManifest/Registry/ExecutionEnvelope | 現行実装ベース |
+| 詳細実装仕様_04_Nodes_デバイス能力の差.md | NodeCapabilityと要件ベース選定 | 現行実装ベース |
+| 詳細実装仕様_05_Gateway_Ops_CLIの差.md | gateway/channels/status/health/doctor/logs | 現行実装ベース |
+| 詳細実装仕様_06_Security_Sandboxの差.md | SecurityProfileと権限スコープ・監査 | 現行実装ベース |
+| 詳細実装仕様_07_App_Platform導線の差.md | Unified Entryと進行イベント統一 | 現行実装ベース |
 
 補助資料:
 - `OpenClaw機能差分比較表_20260310.md`（OpenClawとの機能差分サマリ）
