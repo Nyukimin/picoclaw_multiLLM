@@ -55,6 +55,15 @@ tasks/
 .gomodcache/
 scripts/__pycache__/
 
+# Local generated artifacts
+/test-story
+/.serena/go-build/
+/.serena/gomodcache/
+/.serena/logs/
+/.serena/xdg-cache/
+/.serena/serena_config.yml
+/.serena/memories/story_mode_pipeline_status.md
+
 # Added by goreleaser init:
 dist/
 config/config.yaml
