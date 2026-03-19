@@ -194,6 +194,14 @@ Viewer のタブ構成、SSE、evidence API、IdleChat 制御を含む運用/UI 
 
 ログViewerの実装責務、EventHub、SSE、evidence、IdleChat連携、および目標仕様との差分を整理した実装仕様。
 
+### 3.4 実装仕様_操作ログJSON保持_v1.md
+
+Chat / Worker / Coder の操作ログを JSONL で永続化し、TTL で削除するための実装仕様。
+
+### 3.5 ログViewer現行仕様サマリ_20260319.md
+
+現行の Viewer 運用で見るべきタブ、Progress の段階、JSON ログ、主要 API を一枚でまとめた要約仕様。
+
 ---
 
 ## 4. 運用仕様
