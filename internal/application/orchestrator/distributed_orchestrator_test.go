@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -209,6 +210,22 @@ func TestDistributedOrchestrator_ProcessMessage_SavesEvidenceOnSuccess(t *testin
 	}
 	if len(report.Steps) == 0 || report.Steps[len(report.Steps)-1] != "done" {
 		t.Fatalf("expected done steps, got %#v", report.Steps)
+	}
+}
+
+func TestClassifyDistributedExecutionError_ProposalFailure(t *testing.T) {
+	err := errors.New("agent coder1 returned error: proposal generation failed: " + agent.ProposalFailureInvalidPatch + ": proposal patch is not runnable")
+
+	kind, reason, retryable := classifyDistributedExecutionError(err)
+
+	if kind != agent.ProposalFailureInvalidPatch {
+		t.Fatalf("expected kind %s, got %s", agent.ProposalFailureInvalidPatch, kind)
+	}
+	if !retryable {
+		t.Fatal("expected proposal invalid patch to be retryable")
+	}
+	if !strings.Contains(reason, agent.ProposalFailureInvalidPatch) {
+		t.Fatalf("expected reason to include failure kind, got %s", reason)
 	}
 }
 

@@ -504,7 +504,11 @@ func (o *MessageOrchestrator) tryExecuteProposalPath(
 	}
 	if p == nil || !p.IsValid() {
 		o.emit("agent.response", target.name, "shiro", "無効な Proposal が返されました", route.String(), jid, sessionID, channel, chatID)
-		return "", true, fmt.Errorf("%s generated invalid proposal", target.name)
+		return "", true, fmt.Errorf("%s proposal generation failed: %w", target.name, &agent.ProposalError{
+			Kind:      agent.ProposalFailureEmpty,
+			Reason:    "generated invalid proposal",
+			Retryable: true,
+		})
 	}
 
 	o.emit("agent.response", target.name, "shiro", "## Plan\n"+p.Plan(), route.String(), jid, sessionID, channel, chatID)

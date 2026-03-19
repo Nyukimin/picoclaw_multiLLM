@@ -98,6 +98,67 @@ func TestMonitorStoreReducesAgentAndJobState(t *testing.T) {
 	}
 }
 
+func TestMonitorStoreClearsRecoveredFailureOnFinalSuccess(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+	jobID := "job-retry"
+	now := time.Now().Format(time.RFC3339)
+
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "worker.classified_failure",
+		From:      "shiro",
+		To:        "coder1",
+		Content:   "proposal_empty: missing Plan and Patch sections",
+		Route:     "CODE",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "mailbox.received",
+		From:      "coder1",
+		To:        "mio",
+		Content:   "via=local type=result",
+		Route:     "CODE",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "agent.response",
+		From:      "shiro",
+		To:        "mio",
+		Content:   "実行: 1 件, 成功: 1 件, 失敗: 0 件",
+		Route:     "CODE",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "agent.response",
+		From:      "mio",
+		To:        "user",
+		Content:   "実行: 1 件, 成功: 1 件, 失敗: 0 件",
+		Route:     "CODE",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+
+	jobs := store.Jobs(JobFilter{})
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].Status != "done" {
+		t.Fatalf("job status = %q, want done", jobs[0].Status)
+	}
+	if jobs[0].FailureKind != "" || jobs[0].FailureReason != "" {
+		t.Fatalf("expected cleared failure, got kind=%q reason=%q", jobs[0].FailureKind, jobs[0].FailureReason)
+	}
+	if !jobs[0].MioReported {
+		t.Fatalf("expected MioReported true")
+	}
+}
+
 func TestHandleMonitorLogsFiltersByJobID(t *testing.T) {
 	store := NewMonitorStore(nil, nil)
 	store.OnEvent(orchestrator.OrchestratorEvent{

@@ -130,12 +130,23 @@ func TestCoderAgentGenerateProposal_InvalidFormat(t *testing.T) {
 	testTask := task.NewTask(jobID, "テスト", "line", "U123")
 
 	proposal, err := coder.GenerateProposal(context.Background(), testTask)
-	if err != nil {
-		t.Fatalf("GenerateProposal should not error on invalid format: %v", err)
+	if err == nil {
+		t.Fatal("expected invalid format error")
 	}
 
 	if proposal != nil {
 		t.Error("Proposal should be nil for invalid format")
+	}
+
+	kind, _, retryable, ok := ProposalFailureInfo(err)
+	if !ok {
+		t.Fatalf("expected classified proposal error, got %v", err)
+	}
+	if kind != ProposalFailureEmpty {
+		t.Fatalf("expected %s, got %s", ProposalFailureEmpty, kind)
+	}
+	if !retryable {
+		t.Fatal("expected invalid format to be retryable")
 	}
 }
 
@@ -174,6 +185,16 @@ Low`,
 	}
 	if !strings.Contains(err.Error(), "bare pip") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	kind, _, retryable, ok := ProposalFailureInfo(err)
+	if !ok {
+		t.Fatalf("expected classified proposal error, got %v", err)
+	}
+	if kind != ProposalFailureDisallowedCommand {
+		t.Fatalf("expected %s, got %s", ProposalFailureDisallowedCommand, kind)
+	}
+	if retryable {
+		t.Fatal("expected bare pip failure to be non-retryable")
 	}
 }
 
@@ -249,7 +270,10 @@ Low risk
 ## CostHint
 10 minutes`
 
-	proposal := coder.extractProposal(content)
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("extractProposal failed: %v", err)
+	}
 
 	if proposal == nil {
 		t.Fatal("Proposal should not be nil")
@@ -279,7 +303,10 @@ Low
 ## CostHint
 Low`
 
-	proposal := coder.extractProposal(content)
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("extractProposal failed: %v", err)
+	}
 	if proposal == nil {
 		t.Fatal("Proposal should not be nil")
 	}
@@ -303,7 +330,10 @@ Low
 ## CostHint
 Low`
 
-	proposal := coder.extractProposal(content)
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("extractProposal failed: %v", err)
+	}
 	if proposal == nil {
 		t.Fatal("Proposal should not be nil")
 	}
@@ -312,16 +342,24 @@ Low`
 	}
 }
 
-func TestCoderAgentExtractProposal_MissingPlan(t *testing.T) {
+func TestCoderAgentExtractProposal_PatchOnlySynthesizesPlan(t *testing.T) {
 	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 
 	content := `## Patch
 ` + "```go:main.go\npackage main\n```"
 
-	proposal := coder.extractProposal(content)
-
-	if proposal != nil {
-		t.Error("Proposal should be nil when Plan is missing")
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("expected patch-only proposal to be recovered, got %v", err)
+	}
+	if proposal == nil {
+		t.Fatal("Proposal should not be nil")
+	}
+	if proposal.Plan() == "" {
+		t.Fatal("expected synthesized plan")
+	}
+	if !strings.Contains(proposal.Patch(), "```go:main.go") {
+		t.Fatalf("unexpected patch: %q", proposal.Patch())
 	}
 }
 
@@ -383,9 +421,68 @@ func TestCoderAgentExtractProposal_MissingPatch(t *testing.T) {
 	content := `## Plan
 Step 1: Create file`
 
-	proposal := coder.extractProposal(content)
-
+	proposal, err := coder.extractProposal(content)
+	if err == nil {
+		t.Fatal("expected missing patch error")
+	}
 	if proposal != nil {
 		t.Error("Proposal should be nil when Patch is missing")
+	}
+	kind, _, retryable, ok := ProposalFailureInfo(err)
+	if !ok {
+		t.Fatalf("expected classified proposal error, got %v", err)
+	}
+	if kind != ProposalFailureMissingPatch {
+		t.Fatalf("expected %s, got %s", ProposalFailureMissingPatch, kind)
+	}
+	if !retryable {
+		t.Fatal("expected missing patch to be retryable")
+	}
+}
+
+func TestCoderAgentExtractProposal_FlexibleHeadings(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	content := `### Implementation Plan
+- Update the file
+
+### Changes
+` + "```go:main.go\npackage main\n\nfunc main() {}\n```" + `
+
+### Risks
+- Low`
+
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("extractProposal failed: %v", err)
+	}
+	if proposal == nil {
+		t.Fatal("Proposal should not be nil")
+	}
+	if !strings.Contains(proposal.Plan(), "Update the file") {
+		t.Fatalf("unexpected plan: %q", proposal.Plan())
+	}
+	if !strings.Contains(proposal.Patch(), "```go:main.go") {
+		t.Fatalf("unexpected patch: %q", proposal.Patch())
+	}
+}
+
+func TestCoderAgentExtractProposal_WholeContentPatchFallback(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	content := "```go:main.go\npackage main\n\nfunc main() {}\n```\n\n```bash\ngo test ./...\n```"
+
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("extractProposal failed: %v", err)
+	}
+	if proposal == nil {
+		t.Fatal("Proposal should not be nil")
+	}
+	if proposal.Plan() == "" {
+		t.Fatal("expected synthesized plan")
+	}
+	if !strings.Contains(proposal.Patch(), "```go:main.go") {
+		t.Fatalf("unexpected patch: %q", proposal.Patch())
 	}
 }

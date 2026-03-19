@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
@@ -455,6 +456,12 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 
 		coderResult, err := o.executeToAgentViaMailbox(ctx, coderAgent, coderMsg, "mio")
 		if err != nil {
+			failureKind, reason, retryable := classifyDistributedExecutionError(err)
+			if retryable && attempt < distributedCoderRetryMax {
+				o.emit("worker.classified_failure", "shiro", coderAgent, fmt.Sprintf("%s: %s", failureKind, reason), string(route), jid, sessionID, t.Channel(), t.ChatID())
+				requestText = buildCoderRetryInstruction(t.UserMessage(), nil, failureKind, reason, attempt+1)
+				continue
+			}
 			return "", err
 		}
 		o.emit("agent.response", coderAgent, "shiro", coderResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
@@ -535,6 +542,13 @@ func classifyDistributedExecutionError(err error) (string, string, bool) {
 	text := err.Error()
 	lower := strings.ToLower(text)
 	switch {
+	case strings.Contains(lower, agent.ProposalFailureEmpty),
+		strings.Contains(lower, agent.ProposalFailureMissingPlan),
+		strings.Contains(lower, agent.ProposalFailureMissingPatch),
+		strings.Contains(lower, agent.ProposalFailureInvalidPatch):
+		return proposalFailureKindFromText(lower), text, true
+	case strings.Contains(lower, agent.ProposalFailureDisallowedCommand):
+		return agent.ProposalFailureDisallowedCommand, text, false
 	case strings.Contains(lower, "patch parse error"):
 		return "patch_parse_failed", text, true
 	case strings.Contains(lower, "command not found"), strings.Contains(lower, "exit status 127"), strings.Contains(lower, "not found"):
@@ -543,6 +557,19 @@ func classifyDistributedExecutionError(err error) (string, string, bool) {
 		return "unsafe_operation", text, false
 	default:
 		return "unknown", text, false
+	}
+}
+
+func proposalFailureKindFromText(lower string) string {
+	switch {
+	case strings.Contains(lower, agent.ProposalFailureMissingPlan):
+		return agent.ProposalFailureMissingPlan
+	case strings.Contains(lower, agent.ProposalFailureMissingPatch):
+		return agent.ProposalFailureMissingPatch
+	case strings.Contains(lower, agent.ProposalFailureInvalidPatch):
+		return agent.ProposalFailureInvalidPatch
+	default:
+		return agent.ProposalFailureEmpty
 	}
 }
 

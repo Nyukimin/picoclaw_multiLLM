@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -11,6 +13,45 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
+
+const (
+	ProposalFailureEmpty            = "proposal_empty"
+	ProposalFailureMissingPlan      = "proposal_missing_plan"
+	ProposalFailureMissingPatch     = "proposal_missing_patch"
+	ProposalFailureInvalidPatch     = "proposal_invalid_patch"
+	ProposalFailureDisallowedCommand = "proposal_disallowed_command"
+)
+
+// ProposalError represents a classified coder proposal failure.
+type ProposalError struct {
+	Kind      string
+	Reason    string
+	Retryable bool
+}
+
+func (e *ProposalError) Error() string {
+	reason := strings.TrimSpace(e.Reason)
+	if reason == "" {
+		reason = "proposal generation failed"
+	}
+	if strings.TrimSpace(e.Kind) == "" {
+		return reason
+	}
+	return e.Kind + ": " + reason
+}
+
+func newProposalError(kind, reason string, retryable bool) error {
+	return &ProposalError{Kind: kind, Reason: reason, Retryable: retryable}
+}
+
+// ProposalFailureInfo extracts classified proposal failure metadata from err.
+func ProposalFailureInfo(err error) (kind, reason string, retryable bool, ok bool) {
+	var proposalErr *ProposalError
+	if errors.As(err, &proposalErr) {
+		return proposalErr.Kind, proposalErr.Reason, proposalErr.Retryable, true
+	}
+	return "", "", false, false
+}
 
 // CoderAgent は Coder（設計・実装）を担当するエンティティ
 type CoderAgent struct {
@@ -61,16 +102,16 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 	log.Printf("[CoderAgent] proposal generate response provider=%s job=%s content_len=%d finish=%s", c.llmProvider.Name(), t.JobID().String(), len(resp.Content), resp.FinishReason)
 
 	// レスポンスからProposalを抽出
-	p := c.extractProposal(resp.Content)
-	if p == nil {
-		log.Printf("[CoderAgent] proposal extract empty provider=%s job=%s", c.llmProvider.Name(), t.JobID().String())
-	} else {
-		if err := c.selfCheckProposal(p); err != nil {
-			log.Printf("[CoderAgent] proposal self-check failed provider=%s job=%s err=%v", c.llmProvider.Name(), t.JobID().String(), err)
-			return nil, err
-		}
-		log.Printf("[CoderAgent] proposal extract complete provider=%s job=%s plan_len=%d patch_len=%d", c.llmProvider.Name(), t.JobID().String(), len(p.Plan()), len(p.Patch()))
+	p, err := c.extractProposal(resp.Content)
+	if err != nil {
+		log.Printf("[CoderAgent] proposal extract failed provider=%s job=%s err=%v", c.llmProvider.Name(), t.JobID().String(), err)
+		return nil, err
 	}
+	if err := c.selfCheckProposal(p); err != nil {
+		log.Printf("[CoderAgent] proposal self-check failed provider=%s job=%s err=%v", c.llmProvider.Name(), t.JobID().String(), err)
+		return nil, err
+	}
+	log.Printf("[CoderAgent] proposal extract complete provider=%s job=%s plan_len=%d patch_len=%d", c.llmProvider.Name(), t.JobID().String(), len(p.Plan()), len(p.Patch()))
 	return p, nil
 }
 
@@ -94,17 +135,34 @@ func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, system
 }
 
 // extractProposal はLLM応答からProposalを抽出
-func (c *CoderAgent) extractProposal(content string) *proposal.Proposal {
-	plan := c.extractSection(content, "## Plan", "##")
-	patch := normalizeProposalPatch(c.extractSection(content, "## Patch", "##"))
-	risk := c.extractSection(content, "## Risk", "##")
-	costHint := c.extractSection(content, "## CostHint", "##")
+func (c *CoderAgent) extractProposal(content string) (*proposal.Proposal, error) {
+	if strings.TrimSpace(content) == "" {
+		return nil, newProposalError(ProposalFailureEmpty, "empty LLM response", true)
+	}
+	plan := c.extractNamedSection(content, "plan", "implementation plan")
+	patch := normalizeProposalPatch(c.extractNamedSection(content, "patch", "changes", "commands"))
+	risk := c.extractNamedSection(content, "risk", "risks")
+	costHint := c.extractNamedSection(content, "costhint", "cost hint", "cost", "effort")
 
-	if plan == "" || patch == "" {
-		return nil
+	if strings.TrimSpace(patch) == "" {
+		if fallbackPatch := normalizeProposalPatch(c.extractWholeContentPatch(content)); strings.TrimSpace(fallbackPatch) != "" {
+			patch = fallbackPatch
+		}
+	}
+	if strings.TrimSpace(plan) == "" && strings.TrimSpace(patch) != "" {
+		plan = synthesizePlanFromPatch(patch)
 	}
 
-	return proposal.NewProposal(plan, patch, risk, costHint)
+	switch {
+	case strings.TrimSpace(plan) == "" && strings.TrimSpace(patch) == "":
+		return nil, newProposalError(ProposalFailureEmpty, "missing Plan and Patch sections", true)
+	case strings.TrimSpace(plan) == "":
+		return nil, newProposalError(ProposalFailureMissingPlan, "proposal missing Plan section", true)
+	case strings.TrimSpace(patch) == "":
+		return nil, newProposalError(ProposalFailureMissingPatch, "proposal missing Patch section", true)
+	}
+
+	return proposal.NewProposal(plan, patch, risk, costHint), nil
 }
 
 func normalizeProposalPatch(patch string) string {
@@ -168,20 +226,93 @@ func (c *CoderAgent) extractSection(content, startMarker, endMarker string) stri
 	return strings.TrimSpace(remaining[:endIdx])
 }
 
+func (c *CoderAgent) extractNamedSection(content string, names ...string) string {
+	lines := strings.Split(content, "\n")
+	start := -1
+	for i, line := range lines {
+		if !isHeadingLine(line) {
+			continue
+		}
+		name := normalizeHeadingName(line)
+		for _, candidate := range names {
+			if name == normalizeLookupName(candidate) {
+				start = i + 1
+				break
+			}
+		}
+		if start != -1 {
+			break
+		}
+	}
+	if start == -1 {
+		return ""
+	}
+
+	end := len(lines)
+	for i := start; i < len(lines); i++ {
+		if isHeadingLine(lines[i]) {
+			end = i
+			break
+		}
+	}
+	return strings.TrimSpace(strings.Join(lines[start:end], "\n"))
+}
+
+func isHeadingLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "#")
+}
+
+var headingPrefixRE = regexp.MustCompile(`^#+\s*`)
+
+func normalizeHeadingName(line string) string {
+	trimmed := strings.TrimSpace(line)
+	trimmed = headingPrefixRE.ReplaceAllString(trimmed, "")
+	return normalizeLookupName(trimmed)
+}
+
+func normalizeLookupName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	replacer := strings.NewReplacer(" ", "", "-", "", "_", "", ":", "", "：", "")
+	return replacer.Replace(s)
+}
+
+func (c *CoderAgent) extractWholeContentPatch(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return ""
+	}
+	candidate := trimmed
+	if unwrapped, ok := unwrapSingleFence(candidate); ok {
+		candidate = strings.TrimSpace(unwrapped)
+	}
+	if _, err := patch.ParsePatch(candidate); err == nil {
+		return candidate
+	}
+	return ""
+}
+
+func synthesizePlanFromPatch(patchText string) string {
+	if strings.HasPrefix(strings.TrimSpace(patchText), "[") {
+		return "- Apply the structured patch commands.\n- Run the included verification steps."
+	}
+	return "- Apply the requested code changes.\n- Run the included verification commands."
+}
+
 func (c *CoderAgent) selfCheckProposal(p *proposal.Proposal) error {
 	if p == nil {
 		return fmt.Errorf("proposal is nil")
 	}
 	patchText := strings.TrimSpace(p.Patch())
 	if patchText == "" {
-		return fmt.Errorf("proposal patch is empty")
+		return newProposalError(ProposalFailureMissingPatch, "proposal patch is empty", true)
 	}
 	commands, err := patch.ParsePatch(patchText)
 	if err != nil {
-		return fmt.Errorf("proposal self-check failed: patch is not runnable: %w", err)
+		return newProposalError(ProposalFailureInvalidPatch, fmt.Sprintf("proposal patch is not runnable: %v", err), true)
 	}
 	if hasBarePipCommand(patchText, commands) {
-		return fmt.Errorf("proposal self-check failed: bare pip command is not allowed")
+		return newProposalError(ProposalFailureDisallowedCommand, "bare pip command is not allowed", false)
 	}
 	return nil
 }

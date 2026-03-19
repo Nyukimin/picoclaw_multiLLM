@@ -451,14 +451,22 @@ func (s *MonitorStore) reduceJobs(ev orchestrator.OrchestratorEvent) {
 		}
 		job.Status = "error"
 	}
+	if clearsJobFailure(ev) {
+		job.FailureKind = ""
+		job.FailureReason = ""
+		if job.Status == "error" {
+			job.Status = "running"
+		}
+	}
 	if ev.Type == "agent.response" {
 		if strings.EqualFold(ev.From, "mio") && strings.EqualFold(ev.To, "user") {
 			job.FinalUserReport = ev.Content
 			job.MioReported = true
-			lower := strings.ToLower(ev.Content)
-			if strings.Contains(lower, "error") || strings.Contains(lower, "失敗") {
+			if responseLooksLikeFailure(ev.Content) {
 				job.Status = "error"
 			} else {
+				job.FailureKind = ""
+				job.FailureReason = ""
 				job.Status = "done"
 			}
 		} else if job.Status != "error" {
@@ -469,6 +477,33 @@ func (s *MonitorStore) reduceJobs(ev orchestrator.OrchestratorEvent) {
 	if len(job.Events) > monitorMaxJobEvents {
 		job.Events = job.Events[len(job.Events)-monitorMaxJobEvents:]
 	}
+}
+
+func clearsJobFailure(ev orchestrator.OrchestratorEvent) bool {
+	from := strings.ToLower(strings.TrimSpace(ev.From))
+	to := strings.ToLower(strings.TrimSpace(ev.To))
+	switch ev.Type {
+	case "mailbox.received":
+		return strings.Contains(strings.ToLower(ev.Content), "type=result")
+	case "agent.response":
+		if from == "mio" && to == "user" {
+			return !responseLooksLikeFailure(ev.Content)
+		}
+		return (strings.HasPrefix(from, "coder") && to == "shiro") || (from == "shiro" && to == "mio")
+	default:
+		return false
+	}
+}
+
+func responseLooksLikeFailure(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "失敗: 0") || strings.Contains(lower, "failures: 0") || strings.Contains(lower, "failed: 0") {
+		return false
+	}
+	return strings.Contains(lower, "error") || strings.Contains(lower, "失敗")
 }
 
 func (s *MonitorStore) patchAgent(id string, patch AgentSnapshot) {
@@ -539,8 +574,7 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 		}
 	case "agent.response":
 		if from == "mio" && to == "user" {
-			lower := strings.ToLower(content)
-			if strings.Contains(lower, "error") || strings.Contains(lower, "失敗") {
+			if responseLooksLikeFailure(content) {
 				return "error", "mio"
 			}
 			return "done", "mio"
