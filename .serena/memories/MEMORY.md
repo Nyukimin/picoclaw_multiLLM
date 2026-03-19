@@ -15,7 +15,11 @@
   - 実験終了、参考実装として保持のみ
 
 ## Active Work
-現在進行中のタスクなし（実験ブランチ作業完了）
+- [Autonomous Executor 残課題](autonomous_executor_remaining_tasks_20260319.md)
+  - route 別 runtime 検証
+  - Viewer/evidence 整合
+  - TTS Capability Pack の完成
+  - approval / ask フロー
 
 ## Recent Completions (実験ブランチのみ - 2026-03-07)
 - **Phase 4.2 KB自動保存** — ✅ 完了（proposal/clean-architecture）
