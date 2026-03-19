@@ -1,103 +1,177 @@
 # 詳細実装仕様 05: Gateway/Ops CLIの差
 
-**作成日**: 2026-03-09  
-**ステータス**: In Progress  
+**更新日**: 2026-03-19  
+**ステータス**: 現行実装ベース  
 **親仕様**: `docs/実装仕様_OpenClaw移植_v1.md`
 
 ---
 
-## 0. OpenClaw原典の理解
+## 1. 概要
 
-- Gateway: <https://docs.openclaw.ai/gateway>
-- CLI: <https://docs.openclaw.ai/cli>
-
-OpenClawは運用者向けCLIを標準装備し、Gateway運用（状態確認・診断・復旧）をCLI導線で完結させる。
+RenCrow の Ops CLI は、すでに `run` 以外の運用導線を複数持っている。  
+したがって本仕様の焦点は「CLI を追加すること」ではなく、どのコマンドが実装済みで、どこまで JSON 契約が揃っているかを明確にすることである。
 
 ---
 
-## 1. 現状差分
+## 2. 実装済みコマンド
 
-- RenCrow現状: `run`中心で運用CLIが不足。
-- 差分の本質: 運用時の観測と復旧コマンドが体系化されていない。
+**ファイル**: `cmd/picoclaw/main.go`
 
----
+現行コマンド:
 
-## 2. 実装対象コマンド
+- `picoclaw status`
+- `picoclaw health`
+- `picoclaw doctor`
+- `picoclaw gateway status`
+- `picoclaw gateway restart`
+- `picoclaw channels list`
+- `picoclaw channels probe`
+- `picoclaw ollama status`
+- `picoclaw ollama restart`
+- `picoclaw logs`
+- `picoclaw evidence list|show|summary`
 
-1. `picoclaw gateway status`
-2. `picoclaw gateway restart`（systemd連携）
-3. `picoclaw channels list`
-4. `picoclaw channels probe`
-5. `picoclaw status --deep --usage`
-6. `picoclaw health --json`
-7. `picoclaw doctor`
-8. `picoclaw logs --follow`
-
-### 2.1 実装進捗（2026-03-10）
-
-- 実装済み:
-  - `picoclaw gateway status --json`（標準JSON + エラーコード）
-  - `picoclaw gateway restart --json`
-  - `picoclaw channels list --json`
-  - `picoclaw channels probe --json`
-  - `picoclaw status --deep --usage --json`（詳細/利用統計の統合出力）
-  - `picoclaw health --json`（Ops JSON契約形式）
-  - `picoclaw doctor --json`（findingsの構造化出力）
-  - `picoclaw logs --json --follow`（初期メタJSON + 後続ログストリーム）
-- 既存実装維持:
-  - 既存のテキスト出力モード（`--json` なし）
+多くのコマンドが `--json` を持ち、機械向け出力に対応する。
 
 ---
 
-## 3. 契約仕様
+## 3. JSON 出力契約
 
-### 3.1 JSON出力標準
+現行 CLI JSON は完全統一 DTO ではないが、次の共通フィールドを広く持つ。
+
+- `ok`
+- `timestamp`
+- `component`
+- `status`
+- `details`
+
+エラー時は追加で次を返すことが多い。
+
+- `code`
+- `hint`
+
+### 3.1 gateway
+
+`gateway status --json` の代表形:
 
 ```json
 {
   "ok": true,
-  "timestamp": "2026-03-09T12:00:00Z",
+  "timestamp": "...",
   "component": "gateway",
   "status": "running",
-  "details": {}
+  "details": {
+    "url": "http://127.0.0.1:18790/health",
+    "status_code": 200
+  }
 }
 ```
 
-### 3.2 エラー標準
+エラーコード例:
 
-```json
-{
-  "ok": false,
-  "code": "E_GATEWAY_UNREACHABLE",
-  "hint": "picoclaw gateway restart を実行"
-}
-```
+- `E_GATEWAY_UNREACHABLE`
+- `E_GATEWAY_UNHEALTHY`
+- `E_GATEWAY_RESTART_FAILED`
 
----
+### 3.2 ollama
 
-## 4. 配置
+`ollama status --json` は health report を含む。  
+`ollama restart --json` は restart target を `details.target` に含む。
 
-- `cmd/picoclaw/cli/*`
-- `internal/application/ops/*`
-- `internal/adapter/cli/*`
+エラーコード例:
 
----
+- `E_OLLAMA_RESTART_FAILED`
 
-## 5. TDD計画
+### 3.3 logs
 
-1. コマンド引数パース単体テスト
-2. `--json` 出力契約テスト
-3. systemd非環境でのフォールバックテスト
-4. `channels probe` 疎通失敗テスト
-5. `doctor` 設定矛盾検出テスト
+`logs --json` は最初にメタ JSON を 1 件出し、その後に snapshot もしくは follow ストリームを続ける。
 
-受け入れ基準:
-- 全Ops CLIで終了コードが規約通り
-- 障害時に`doctor`で原因候補が提示される
+状態:
+
+- `snapshot`
+- `streaming`
+
+### 3.4 evidence
+
+`evidence list|show|summary` は `ExecutionReport` 系を返す。  
+Viewer の evidence 表示と同系統のデータソースである。
 
 ---
 
-## 6. 未決事項
+## 4. コマンド別の到達点
 
-1. restartをCLI直接実行にするか外部Supervisor委譲にするか
-2. `logs --follow` の実装をローカルファイル限定にするか
+### 4.1 status
+
+- システム概要表示
+- `--json` あり
+- deep/usage 相当の詳細を 1 コマンドに統合済み
+
+### 4.2 health
+
+- health checks を実行
+- HTTP `/health` と同系統の診断面
+- `--json` あり
+
+### 4.3 doctor
+
+- 設定矛盾
+- audit path の書き込み可能性
+- health down
+
+などを findings として返す。
+
+### 4.4 gateway
+
+- `status`: local gateway health endpoint 参照
+- `restart`: systemctl 連携
+
+### 4.5 channels
+
+- `list`: 登録済み adapter 一覧
+- `probe`: 各 adapter の疎通確認
+
+### 4.6 ollama
+
+- `status`: model/base_url/health checks
+- `restart`: local または SSH 経由再起動
+
+### 4.7 logs
+
+- ログ末尾 100 行 snapshot
+- `--follow` で継続表示
+- `--json` で先頭メタ情報を付与
+
+### 4.8 evidence
+
+- `list`: recent execution evidence
+- `show <job_id>`: 単票表示
+- `summary`: status/error_kind 集計
+
+---
+
+## 5. OpenClaw 観点との差分
+
+現行到達点:
+
+- gateway status/restart あり
+- channel list/probe あり
+- health/status/doctor あり
+- logs follow あり
+- evidence CLI あり
+
+未到達:
+
+1. CLI 実装は `cmd/picoclaw/main.go` 集約で、専用 package 分離は薄い
+2. JSON schema の完全固定版はまだ文書化途上
+3. systemd 依存 restart があり、全環境で同じ supervisor とは限らない
+
+---
+
+## 6. 確認観点
+
+- `gateway status --json` が status/code/hint を返す
+- `channels probe` が adapter probe を返す
+- `logs --follow` が snapshot 後に継続出力する
+- `evidence` CLI が `ExecutionReport` を読める
+
+以上をもって、RenCrow の Ops CLI は「不足」ではなく、OpenClaw 的な運用導線をかなり取り込んだ現行実装として扱う。

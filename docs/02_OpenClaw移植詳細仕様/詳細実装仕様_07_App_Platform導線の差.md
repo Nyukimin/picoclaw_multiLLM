@@ -1,114 +1,201 @@
 # 詳細実装仕様 07: App/Platform導線の差
 
-**作成日**: 2026-03-09  
-**ステータス**: In Progress  
+**更新日**: 2026-03-19  
+**ステータス**: 現行実装ベース  
 **親仕様**: `docs/実装仕様_OpenClaw移植_v1.md`
 
 ---
 
-## 0. OpenClaw原典の理解
+## 1. 概要
 
-- Platforms: <https://docs.openclaw.ai/platforms>
-- Channels: <https://docs.openclaw.ai/channels>
-- Gateway: <https://docs.openclaw.ai/gateway>
+RenCrow はすでに、LINE / Viewer / CLI / Chrome bridge など複数の入口を単一メッセージ処理基盤へ寄せる仕組みを持っている。  
+現行の中心は次の 4 つである。
 
-OpenClawは利用者導線（Chat UI/CLI/連携アプリ）から同一実行基盤へ収束させる。
-
----
-
-## 1. 現状差分
-
-- RenCrow現状: LINE + Viewer + CLIが個別導線で、開始/終了/証跡のユーザー体験が分断。
-- 差分の本質: プラットフォーム横断のセッション導線と状態提示不足。
+1. `/entry` の unified entry
+2. `entry.stage` による進行イベント
+3. Chrome bridge の status / SSE
+4. Viewer / evidence による後追い導線
 
 ---
 
-## 2. 実装対象
+## 2. Unified Entry
 
-1. Unified Entry API（platform非依存の入力窓口）
-2. セッション導線統一（開始/進行/完了イベント）
-4. Claude in Chrome / Canvas導線の状態同期
+### 2.1 Request
 
----
-
-## 3. 契約仕様
-
-### 3.1 Unified Entry
+**ファイル**: `internal/adapter/entry/handler.go`
 
 ```json
 {
   "platform": "line|viewer|cli|chrome",
-  "channel": "line|telegram|discord|slack|local",
+  "channel": "line|telegram|discord|slack|viewer|local",
   "user_id": "...",
-  "session_id": "optional",
-  "message": "TTS実装して"
+  "session_id": "...",
+  "message": "..."
 }
 ```
 
-### 3.2 進行イベント
+`HandleWithObserver(process, observer)` は以下を行う。
+
+1. JSON decode
+2. message 必須検証
+3. `NormalizeEntryPlatformChannel(platform, channel)`
+4. `user_id` 未指定時は `anonymous`
+5. `session_id` 未指定時は `BuildSessionID(...)`
+6. `process(...)` を実行
+7. 結果を JSON で返す
+
+### 2.2 Result
+
+```go
+type Result struct {
+    SessionID   string
+    Route       string
+    JobID       string
+    Response    string
+    EvidenceRef string
+}
+```
+
+返却 JSON には `ok`, `session_id`, `route`, `job_id`, `response`, `evidence_ref` が入る。
+
+---
+
+## 3. 進行イベント
+
+### 3.1 Stage 定義
+
+`entry.Stage` として現行で使うのは次である。
+
+- `received`
+- `planning`
+- `applying`
+- `verifying`
+- `completed`
+- `failed`
+
+`/entry` handler は observer があれば、この順に stage を通知する。
+
+### 3.2 EventHub 連携
+
+**ファイル**: `cmd/picoclaw/main.go`
+
+`entryHandler` は observer から `entry.stage` を `EventHub` へ流す。  
+これにより Viewer と Chrome bridge の双方が session 単位の進行を観測できる。
+
+イベントには少なくとも次が乗る。
+
+- `session_id`
+- `job_id`
+- `route`
+- `content` = stage 名
+
+---
+
+## 4. Chrome bridge
+
+### 4.1 エンドポイント
+
+**ファイル**: `internal/adapter/chrome/bridge_handler.go`
+
+- `POST /chrome/bridge`
+- `GET /chrome/bridge/status?session_id=...`
+- `GET /chrome/bridge/events?session_id=...`
+
+### 4.2 POST /chrome/bridge
+
+入力:
 
 ```json
 {
+  "request_id": "...",
+  "user_id": "...",
   "session_id": "...",
-  "stage": "received|planning|applying|verifying|completed|failed",
-  "summary": "...",
-  "evidence_ref": "execution_report:job-123"
+  "message": "..."
 }
 ```
 
+動作:
+
+- `platform="chrome"`
+- `channel="local"`
+- `request_id` 未指定時は `req-{unixnano}`
+- `session_id` 未指定時は `BuildSessionID(..., "local", userID)`
+
+戻り値:
+
+- `ok`
+- `request_id`
+- `accepted_at`
+- `session_id`
+- `route`
+- `job_id`
+- `response`
+- `evidence_ref`
+
+### 4.3 GET /chrome/bridge/status
+
+history から対象 session の最後の `entry.stage` を引き、現在 stage / route / job_id を返す。
+
+### 4.4 GET /chrome/bridge/events
+
+SSE で session 単位の `OrchestratorEvent` を返す。
+
+特徴:
+
+- `Last-Event-ID` を解釈
+- `EventHub.History()` から再送
+- `session_id` でフィルタ
+
 ---
 
-## 4. 配置
+## 5. Viewer / evidence 導線
 
-- `internal/adapter/http/unified_entry_handler.go`
-- `internal/application/session/journey_service.go`
-- `internal/adapter/viewer/progress_publisher.go`
-- `internal/adapter/chrome/bridge_handler.go`
+Viewer は platform 導線の一部として機能している。
 
----
+現行で追えるもの:
 
-## 5. TDD計画
+- `Timeline` / `System` / `Progress` の live event
+- `Jobs` の live jobs
+- `evidence` の完了証跡
+- `persisted JSON logs`
 
-1. platform別入力正規化テスト
-2. session_id引き継ぎテスト
-3. 進行イベント順序テスト
-4. 完了時にevidence参照が必ず付くテスト
-5. UI未接続時のフォールバック通知テスト
+特に `evidence_ref` は `/viewer/evidence/detail?job_id=...` への導線として使える。
 
-受け入れ基準:
-- どの入口でも同一ステージ遷移を観測可能
-- 完了通知から証跡参照まで1ホップで到達可能
+つまり現行の完了導線は、
 
----
+1. `/entry` or bridge で job を起動
+2. `entry.stage` で進行観測
+3. `evidence` で完了証跡参照
 
-## 6. 未決事項
-
-1. Chrome bridgeをWebSocket常時接続にするかSSEにするか
-2. Platformごとの通知粒度（全ステージ通知/要点のみ）をどう統一するか
+という 3 層になっている。
 
 ---
 
-## 7. 実装進捗（2026-03-09）
+## 6. OpenClaw 観点との差分
 
-- 実装済み
-  - `/entry` の統一導線（platform/channel/user/session/message）
-  - `platform/channel` 正規化（`cli/chrome -> local`、不正値フォールバック）
-  - `received/planning/applying/verifying/completed/failed` ステージ通知
-  - `entry.stage` を EventHub へ発火（session単位の進行同期）
-  - Chrome bridge:
-    - `POST /chrome/bridge`（Unified Entry経由で実行、`request_id`/`accepted_at` ACK返却）
-    - `GET /chrome/bridge/status?session_id=...`（最新ステージ参照）
-    - `GET /chrome/bridge/events?session_id=...`（SSEでセッションイベントをpush受信）
-  - SSE再接続境界:
-    - EventHubイベントに `seq` を付与
-    - `Last-Event-ID` を用いた履歴再送フィルタ（viewer/chrome両方）
-  - `TTS` 指示時の Autonomous Executor 適用
-  - `execution_report.jsonl` への証跡保存
-  - `/viewer/evidence/recent` で証跡一覧取得（Viewer UI表示）
-  - `/viewer/evidence/detail?job_id=...` で証跡詳細参照（Viewerから選択表示）
-  - `/viewer/evidence/summary` で status/error_kind 集計を取得（Viewer summaryカード表示）
-  - Viewerで証跡詳細を整形表示（steps/verification/error）
+現行到達点:
 
-- 次段
-  - Platform別の通知粒度設定（全段通知 or 要点通知）
-  - Chrome bridge ACKの一意性保証（重複 request_id の冪等化）
+- platform 非依存の `/entry` がある
+- platform/channel の正規化がある
+- session 導線が統一されている
+- Chrome bridge が status + SSE を持つ
+- 完了証跡へ Viewer から到達できる
+
+未到達:
+
+1. platform ごとの通知粒度切替はない
+2. `request_id` の冪等性保証はない
+3. UI ごとの journey service 分離はなく、observer 連携が中心
+4. evidence_ref は job_id ベースで、完全な外部 URL 契約ではない
+
+---
+
+## 7. 確認観点
+
+- `/entry` が `platform/channel/user/session/message` を受ける
+- `NormalizeEntryPlatformChannel()` が `cli/chrome -> local` を行う
+- `entry.stage` が EventHub に出る
+- Chrome bridge SSE が `Last-Event-ID` 再接続に対応する
+- 完了後に evidence 参照へ到達できる
+
+以上をもって、RenCrow の app/platform 導線は「分断された入口」ではなく、unified entry と進行イベントでかなり統一された現行実装として扱う。

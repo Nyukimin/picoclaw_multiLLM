@@ -1,98 +1,137 @@
 # 詳細実装仕様 06: Security/Sandboxの差
 
-**作成日**: 2026-03-09  
-**ステータス**: In Progress  
+**更新日**: 2026-03-19  
+**ステータス**: 現行実装ベース  
 **親仕様**: `docs/実装仕様_OpenClaw移植_v1.md`  
 **関連**: `詳細実装仕様_01_実行基盤とセキュリティ境界.md`
 
 ---
 
-## 0. OpenClaw原典の理解
+## 1. 概要
 
-- Gateway Security: <https://docs.openclaw.ai/gateway/security>
-- Tools: <https://docs.openclaw.ai/tools>
-
-OpenClawはセキュリティを実行時制御で担保し、ツールの権限境界を明示する。
+本仕様は `01` が扱う実行ポリシーのうち、特に OpenClaw 由来の `SecurityProfile` と sandbox 表現の差分に絞って整理する。  
+現行 RenCrow は、権限スコープを表す profile モデルを持つが、実行基盤としては主に workspace レベルの制御を用いている。
 
 ---
 
-## 1. 現状差分
+## 2. SecurityProfile
 
-- 差分の本質: 「誰が何をどこまでできるか」のポリシー表現不足。
-
----
-
-## 2. 実装対象
-
-1. `SecurityProfile`（strict/balanced/dev）
-2. 実行権限スコープ（filesystem/network/process/git）
-4. サンドボックスレベル（workspace/process/container）
-5. 監査イベント分類（security.decision / security.violation）
-
-### 2.1 実装進捗（2026-03-10）
-
-- 実装済み:
-  - `SecurityProfile` に `sandbox_level` を追加（workspace/process/container）
-  - Profileプリセット: `strict` / `balanced` / `dev`
-  - `policy_mode=dev` を設定で許可
-  - strict想定のネットワーク制御:
-    - `network_scope=allowlist` で host allowlist 判定（`url`/`host` 引数から抽出）
-    - `network_scope=blocked` でネットワーク系ツール拒否
-  - 設定配線:
-    - `security.network_scope` / `security.network_allowlist` を config で指定可能
-    - 実行時に PolicyEngine へ配線
-  - 監査イベント種別:
-    - allow/ask -> `security.decision`
-    - deny -> `security.violation`
-- 次フェーズ:
-  - container sandbox の実行基盤統合（現状はモデル定義のみ）
-
----
-
-## 3. 契約仕様
+**ファイル**: `internal/domain/security/profile.go`
 
 ```go
 type SecurityProfile struct {
     Name            string
-    ApprovalMode    string // never|on_demand|always
-    FilesystemScope string // workspace|readonly|none
-    NetworkScope    string // blocked|allowlist|full
-    ProcessScope    string // none|limited|full
-    GitScope        string // read|safe_write|full
+    FilesystemScope string
+    NetworkScope    string
+    ProcessScope    string
+    GitScope        string
+    SandboxLevel    string
 }
 ```
 
-強制拒否ルール:
-- `rm -rf /`
-- `git reset --hard`
-- workspace外への書き込み
-- allowlist外ホストへの送信（strict時）
+有効値:
+
+- `FilesystemScope`: `workspace | readonly | none`
+- `NetworkScope`: `blocked | allowlist | full`
+- `ProcessScope`: `none | limited | full`
+- `GitScope`: `read | safe_write | full`
+- `SandboxLevel`: `workspace | process | container`
+
+### 2.1 プリセット
+
+- `StrictProfile()`
+  - workspace / allowlist / limited / safe_write / workspace
+- `BalancedProfile()`
+  - workspace / full / limited / safe_write / workspace
+- `DevProfile()`
+  - workspace / full / full / full / process
+
+`PolicyEngine.profileByMode()` は `security.policy_mode` からこれらを選ぶ。
 
 ---
 
-## 4. 配置
+## 3. 現行 enforcement の位置づけ
 
-- `internal/domain/security/profile.go`
-- `internal/application/security/enforcement_service.go`
-- `internal/infrastructure/security/policy_store.go`
-- `internal/infrastructure/security/audit_logger.go`
+profile は domain に存在するが、現行 enforcement は全面的に profile オブジェクトを評価する形ではない。  
+実際に強く効いているのは次の項目である。
 
----
+- `NetworkScope`
+- `DenyCommands`
+- `WorkspaceEnforced`
 
-## 5. TDD計画
+具体的には:
 
-1. Profile別許可行列テスト
-2. 禁止コマンド拒否テスト
-3. allowlist外通信拒否テスト
-4. 監査イベント完全性テスト
+- network tool への deny / allowlist 判定
+- shell コマンドシグネチャ拒否
+- workspace 外 `file_write` の拒否
 
-受け入れ基準:
-- strictプロファイルで危険操作の実行成功が0件
-- すべての拒否が監査ログに残る
+つまり profile は「全権限モデルの正本」ではなく、現状では `PolicyEngine` の既定値供給源に近い。
 
 ---
 
-## 6. 未決事項
+## 4. SandboxLevel の現況
 
-1. container sandbox導入を初期フェーズで必須にするか
-2. 開発環境(dev)の例外許可範囲をどこまで認めるか
+`SandboxLevel` には次の値がある。
+
+- `workspace`
+- `process`
+- `container`
+
+しかし現行コードで実運用されているのは主に `workspace` レベルである。
+
+到達点:
+
+- workspace 外 path の拒否
+- tool 実行前ポリシー
+- WorkerExecutionService の protected file / workspace 制御
+
+未到達:
+
+- container sandbox の実行基盤統合
+- process/container ごとの実際の隔離切替
+- OS レベル namespace や cgroup 相当の管理
+
+---
+
+## 5. 監査イベント分類
+
+実行監査では次の event type を使う。
+
+- `security.decision`
+- `security.violation`
+
+意味:
+
+- allow 系 -> `security.decision`
+- deny 系 -> `security.violation`
+
+この分類は `execution.Service` と JSONL repository によって記録される。
+
+---
+
+## 6. OpenClaw 観点との差分
+
+現行到達点:
+
+- profile プリセットあり
+- network scope あり
+- workspace sandbox 相当あり
+- deny command 監査あり
+
+未到達:
+
+1. approval mode や ask フローはない
+2. sandbox level は主にモデル定義で、container 実装はない
+3. filesystem/network/process/git の全組み合わせを一元強制する統合 engine ではない
+4. tool 実行外の任意外部プロセス全体を包括的に拘束するわけではない
+
+---
+
+## 7. 確認観点
+
+- `SecurityProfile.Validate()` が scope 値を検証する
+- `policy_mode` から strict/balanced/dev が選ばれる
+- `network_scope=allowlist` が host allowlist に効く
+- `sandbox_level=container` があっても現状は実行隔離を切り替えない
+
+以上をもって、RenCrow の security/sandbox は OpenClaw の完全移植ではなく、「workspace 中心の実行統制 + profile モデル導入」まで到達している現行実装として扱う。

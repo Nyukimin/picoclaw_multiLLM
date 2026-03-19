@@ -135,8 +135,8 @@ ConversationEngine（RecallPack + Persona）の実装仕様。
 | ConversationEngine I/F | 実装完了 |
 | RecallPack 生成 | 実装完了 |
 | Persona 注入 | 実装完了 |
-| Thread 自動判定 | 未実装 |
-| UserProfile 自動抽出 | 未実装 |
+| Thread 自動判定 | 実装完了（best-effort） |
+| UserProfile 自動抽出 | 実装完了（in-memory / best-effort） |
 
 ### 2.6 実装仕様_チャネル拡張_v1.md
 
