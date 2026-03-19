@@ -454,6 +454,12 @@ func TestConfig_Validate(t *testing.T) {
 				Session: SessionConfig{
 					StorageDir: "./data/sessions",
 				},
+				ViewerLog: ViewerLogConfig{
+					Enabled:           true,
+					Path:              "./workspace/orchestrator_event_log.jsonl",
+					RetentionDays:     14,
+					GCIntervalMinutes: 60,
+				},
 			},
 			wantErr: false,
 		},
@@ -506,6 +512,21 @@ func TestConfig_Validate(t *testing.T) {
 			config: &Config{
 				Server: ServerConfig{
 					Port: 70000,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Invalid viewer log retention",
+			config: &Config{
+				Server:  ServerConfig{Port: 8080},
+				Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+				Session: SessionConfig{StorageDir: "./data/sessions"},
+				ViewerLog: ViewerLogConfig{
+					Enabled:           true,
+					Path:              "./workspace/orchestrator_event_log.jsonl",
+					RetentionDays:     0,
+					GCIntervalMinutes: 60,
 				},
 			},
 			wantErr: true,

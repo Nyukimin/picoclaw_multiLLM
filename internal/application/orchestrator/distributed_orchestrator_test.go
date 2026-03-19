@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -136,6 +137,15 @@ func proposalForTest(plan, patch string) *domaintransport.ProposalPayload {
 	}
 }
 
+type distMockReportStore struct {
+	reports []domainexecution.ExecutionReport
+}
+
+func (m *distMockReportStore) Save(_ context.Context, report domainexecution.ExecutionReport) error {
+	m.reports = append(m.reports, report)
+	return nil
+}
+
 func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 	mockMio := &distMockMioAgent{chatResponse: "Hello from Mio!"}
 	mockRepo := &distMockSessionRepo{}
@@ -158,6 +168,47 @@ func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 
 	if resp.Response != "Hello from Mio!" {
 		t.Errorf("Expected 'Hello from Mio!', got '%s'", resp.Response)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_SavesEvidenceOnSuccess(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "Hello from Mio!"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	reporter := &distMockReportStore{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetReportStore(reporter)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "test-session",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.JobID == "" {
+		t.Fatal("expected job id")
+	}
+	if len(reporter.reports) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(reporter.reports))
+	}
+	report := reporter.reports[0]
+	if report.JobID != resp.JobID {
+		t.Fatalf("expected report job id %s, got %s", resp.JobID, report.JobID)
+	}
+	if report.Status != "passed" {
+		t.Fatalf("expected passed report, got %s", report.Status)
+	}
+	if report.ErrorKind != "" {
+		t.Fatalf("expected empty error kind, got %s", report.ErrorKind)
+	}
+	if len(report.Steps) == 0 || report.Steps[len(report.Steps)-1] != "done" {
+		t.Fatalf("expected done steps, got %#v", report.Steps)
 	}
 }
 
@@ -726,8 +777,10 @@ func TestDistributedOrchestrator_ProcessMessage_CodeRoute_UnconnectedExplicitCod
 	router := transport.NewMessageRouter()
 	defer router.Stop()
 	memory := session.NewCentralMemory()
+	reporter := &distMockReportStore{}
 
 	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetReportStore(reporter)
 
 	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 		SessionID:   "test-session",
@@ -740,5 +793,14 @@ func TestDistributedOrchestrator_ProcessMessage_CodeRoute_UnconnectedExplicitCod
 	}
 	if !strings.Contains(err.Error(), "no coder mapped for route CODE1") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(reporter.reports) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(reporter.reports))
+	}
+	if reporter.reports[0].Status != "failed" {
+		t.Fatalf("expected failed report, got %s", reporter.reports[0].Status)
+	}
+	if reporter.reports[0].ErrorKind == "" {
+		t.Fatal("expected error kind to be set")
 	}
 }

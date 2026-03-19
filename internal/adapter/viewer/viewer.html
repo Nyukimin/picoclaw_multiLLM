@@ -93,6 +93,11 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
   border-radius:8px;padding:7px 10px;font-size:12px;
 }
 .filters input{min-width:160px}
+.ops-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:14px}
+.ops-card-title{font-size:12px;color:var(--t2);margin-bottom:6px}
+.ops-big{font-size:20px;font-weight:700;line-height:1.3}
+.ops-sub{font-size:12px;color:var(--t2);line-height:1.5;margin-top:6px;white-space:pre-wrap;word-break:break-word}
+.ops-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
 .ctl-btn{
   background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t1);
   border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;
@@ -259,6 +264,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
   <span class="live-topic-text" id="liveTopicText">-</span>
 </div>
 <div class="tabs">
+  <button class="tab-btn" data-tab="ops">Ops</button>
   <button class="tab-btn active" data-tab="overview">Overview</button>
   <button class="tab-btn" data-tab="progress">Progress</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
@@ -268,6 +274,24 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
   <button class="tab-btn" data-tab="jobs">Jobs</button>
 </div>
 <main>
+  <section id="panel-ops" class="panel">
+    <div class="ops-grid" id="opsCards"></div>
+    <div class="ops-stack">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Current Focus</th><th>Value</th></tr></thead>
+          <tbody id="opsFocusBody"></tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Type</th><th>Actor</th><th>Job</th><th>Route</th><th>Content</th></tr></thead>
+          <tbody id="opsFeedBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <section id="panel-overview" class="panel active">
     <div class="grid" id="agentCards"></div>
     <div class="table-wrap">
@@ -344,6 +368,15 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
         <option value="">type: all</option>
         <option>routing.decision</option>
         <option>entry.stage</option>
+        <option>agent.dispatch</option>
+        <option>mailbox.sent</option>
+        <option>mailbox.waiting</option>
+        <option>mailbox.received</option>
+        <option>mailbox.error</option>
+        <option>agent.error</option>
+        <option>agent.start</option>
+        <option>agent.note</option>
+        <option>agent.response</option>
         <option>tts.audio_chunk</option>
       </select>
       <input id="sysText" placeholder="content contains...">
@@ -574,6 +607,13 @@ const state = {
   },
   openTasks: {},
   progressOpenJobs: {},
+  ops: {
+    persistedLogs: [],
+    lastMioReport: null,
+    latestJobID: '',
+    latestRoute: '',
+    latestError: null,
+  },
 };
 AGENTS.forEach((id) => {
   state.agents[id] = {
@@ -614,6 +654,7 @@ let derivedDirty = false;
 
 const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const panels = {
+  ops: document.getElementById('panel-ops'),
   overview: document.getElementById('panel-overview'),
   progress: document.getElementById('panel-progress'),
   timeline: document.getElementById('panel-timeline'),
@@ -667,6 +708,11 @@ function matchesFilters(ev) {
 function isSystemEvent(ev) {
   if (!ev) return false;
   if (ev.type === 'routing.decision' || ev.type === 'entry.stage' || ev.type === 'tts.audio_chunk') return true;
+  if (ev.type === 'agent.dispatch' || ev.type === 'mailbox.sent' || ev.type === 'mailbox.waiting' || ev.type === 'mailbox.received' || ev.type === 'mailbox.error' || ev.type === 'agent.error') return true;
+  if (ev.type === 'agent.start' || ev.type === 'agent.note' || ev.type === 'agent.response') {
+    const to = String(ev.to || '').toLowerCase();
+    if (to !== 'user') return true;
+  }
   if ((ev.from || '').toLowerCase() === 'system' || (ev.to || '').toLowerCase() === 'system') return true;
   if ((ev.from || '').toLowerCase() === 'tts') return true;
   return false;
@@ -1362,6 +1408,104 @@ function renderOverview() {
   });
 }
 
+function latestOpsEventBy(fn) {
+  const list = Array.isArray(state.ops.persistedLogs) ? state.ops.persistedLogs : [];
+  for (let i = 0; i < list.length; i++) {
+    const ev = list[i];
+    if (fn(ev)) return ev;
+  }
+  return null;
+}
+
+function renderOps() {
+  const cards = document.getElementById('opsCards');
+  const focusBody = document.getElementById('opsFocusBody');
+  const feedBody = document.getElementById('opsFeedBody');
+  if (!cards || !focusBody || !feedBody) return;
+  cards.innerHTML = '';
+  focusBody.innerHTML = '';
+  feedBody.innerHTML = '';
+
+  const persisted = Array.isArray(state.ops.persistedLogs) ? state.ops.persistedLogs : [];
+  const runningJobs = Object.values(state.jobs).filter((j) => String(j.status || '') !== 'done');
+  const lastMio = state.ops.lastMioReport || latestOpsEventBy((ev) => String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user');
+  const latestJobID = state.ops.latestJobID || ((persisted[0] && persisted[0].job_id) || '-');
+  const latestRoute = state.ops.latestRoute || ((persisted[0] && persisted[0].route) || '-');
+  const latestError = state.ops.latestError || latestOpsEventBy((ev) => {
+    const t = String(ev.type || '').toLowerCase();
+    return t === 'agent.error' || t === 'mailbox.error' || t === 'worker.classified_failure';
+  });
+  const activeAgents = AGENTS.filter((id) => {
+    const s = state.agents[id];
+    return s && s.state !== 'offline';
+  });
+
+  [
+    {title: 'Latest Job', big: latestJobID || '-', sub: 'route: ' + (latestRoute || '-')},
+    {
+      title: 'Mio Last Report',
+      big: lastMio ? short(lastMio.content || '-', 48) : '-',
+      sub: lastMio ? ('time: ' + fdt(lastMio.timestamp) + '\njob: ' + (lastMio.job_id || '-')) : 'Mio からの最終報告はまだありません',
+    },
+    {
+      title: 'Running Jobs',
+      big: String(runningJobs.length),
+      sub: runningJobs.slice(0, 3).map((j) => (j.id || '-') + ' · ' + (j.route || '-') + ' · ' + (j.status || '-')).join('\n') || '進行中ジョブなし',
+    },
+    {
+      title: 'Last Error',
+      big: latestError ? short(latestError.type || '-', 24) : 'none',
+      sub: latestError ? (short(latestError.content || '-', 120) + '\njob: ' + (latestError.job_id || '-')) : '直近の失敗イベントなし',
+    },
+    {
+      title: 'Active Agents',
+      big: String(activeAgents.length),
+      sub: activeAgents.map((id) => agName(id) + ' · ' + (state.agents[id].state || '-')).join('\n') || '全員 offline',
+    },
+  ].forEach((item) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="ops-card-title">' + esc(item.title) + '</div>' +
+      '<div class="ops-big">' + esc(item.big) + '</div>' +
+      '<div class="ops-sub">' + esc(item.sub) + '</div>';
+    cards.appendChild(card);
+  });
+
+  [
+    {label: '最新 route', value: latestRoute || '-'},
+    {label: '最新 persisted event', value: persisted[0] ? ((persisted[0].type || '-') + ' @ ' + fdt(persisted[0].timestamp)) : '-'},
+    {label: 'Mio job', value: state.agents.mio && state.agents.mio.jobID ? state.agents.mio.jobID : '-'},
+    {label: 'Worker job', value: state.agents.shiro && state.agents.shiro.jobID ? state.agents.shiro.jobID : '-'},
+  ].forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + esc(row.label) + '</td><td>' + esc(row.value) + '</td>';
+    focusBody.appendChild(tr);
+  });
+
+  const feed = persisted.filter((ev) => {
+    const t = String(ev.type || '');
+    return t === 'message.received' || t === 'routing.decision' || t === 'agent.dispatch' || t === 'agent.start' || t === 'agent.note' || t === 'agent.response' || t === 'mailbox.waiting' || t === 'mailbox.received' || t === 'mailbox.error' || t === 'agent.error' || t === 'worker.classified_failure';
+  }).slice(0, 20);
+  if (feed.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">No operator events yet</td>';
+    feedBody.appendChild(tr);
+    return;
+  }
+  feed.forEach((ev) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(ev.timestamp)) + '</td>' +
+      '<td>' + esc(ev.type || '-') + '</td>' +
+      '<td>' + esc(agName(ev.from || '-')) + ' → ' + esc(agName(ev.to || '-')) + '</td>' +
+      '<td class="code">' + esc(ev.job_id || '-') + '</td>' +
+      '<td>' + esc(ev.route || '-') + '</td>' +
+      '<td>' + esc(short(ev.content || '-', 140)) + '</td>';
+    feedBody.appendChild(tr);
+  });
+}
+
 function renderSessions() {
   const body = document.getElementById('sessionsBody');
   body.innerHTML = '';
@@ -1422,9 +1566,13 @@ function progressPhaseLabel(phase) {
   const p = String(phase || 'received');
   if (p === 'received') return 'received';
   if (p === 'routing') return 'routing';
+  if (p === 'delegating') return 'delegating';
   if (p === 'chatting') return 'chatting';
   if (p === 'delegated_to_worker') return 'to worker';
   if (p === 'delegated_to_coder') return 'to coder';
+  if (p === 'queued') return 'queued';
+  if (p === 'waiting') return 'waiting';
+  if (p === 'processing') return 'processing';
   if (p === 'worker_verifying') return 'verifying';
   if (p === 'retrying') return 'retrying';
   if (p === 'reporting') return 'reporting';
@@ -1439,9 +1587,14 @@ function classifyJobPhase(ev, current) {
   const content = String(ev.content || '');
   if (ev.type === 'message.received') return {phase: 'received', owner: 'mio'};
   if (ev.type === 'routing.decision') return {phase: 'routing', owner: current.owner || 'mio'};
+  if (ev.type === 'agent.dispatch') return {phase: 'delegating', owner: to || current.owner};
   if (ev.type === 'agent.thinking') return {phase: 'chatting', owner: from || current.owner};
+  if (ev.type === 'mailbox.sent') return {phase: 'queued', owner: to || current.owner};
+  if (ev.type === 'mailbox.waiting') return {phase: 'waiting', owner: to || current.owner};
+  if (ev.type === 'mailbox.received') return {phase: 'processing', owner: from || current.owner};
   if (ev.type === 'worker.retry_request') return {phase: 'retrying', owner: to || 'coder1'};
   if (ev.type === 'worker.classified_failure') return {phase: 'retrying', owner: from || 'shiro'};
+  if (ev.type === 'agent.error' || ev.type === 'mailbox.error') return {phase: 'error', owner: from || current.owner};
   if (ev.type === 'agent.start') {
     if (to === 'shiro') {
       if (content.indexOf('Worker実行') >= 0 || content.indexOf('Patch') >= 0 || content.indexOf('整形') >= 0) {
@@ -1507,10 +1660,18 @@ function deriveProgressData() {
       current.failureReason = idx > 0 ? raw.slice(idx + 1).trim() : raw.trim();
       current.status = 'error';
     }
+    if (ev.type === 'agent.error' || ev.type === 'mailbox.error') {
+      current.failureKind = ev.type;
+      current.failureReason = String(ev.content || '').trim();
+      current.status = 'error';
+    }
     if (ev.type === 'agent.note') {
       if (String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user') current.latestChatReport = ev.content || current.latestChatReport;
       if (String(ev.from || '').toLowerCase() === 'shiro') current.latestWorkerNote = ev.content || current.latestWorkerNote;
       if (String(ev.from || '').toLowerCase().indexOf('coder') === 0) current.latestCoderNote = ev.content || current.latestCoderNote;
+    }
+    if ((ev.type === 'agent.error' || ev.type === 'mailbox.error') && String(ev.from || '').toLowerCase().indexOf('coder') === 0) {
+      current.latestCoderNote = ev.content || current.latestCoderNote;
     }
     if (ev.type === 'agent.response' && String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user') {
       current.latestChatReport = ev.content || current.latestChatReport;
@@ -1519,7 +1680,7 @@ function deriveProgressData() {
       current.status = (current.phase === 'done') ? 'done' : 'running';
     }
 
-    if (ev.type === 'agent.start' || ev.type === 'agent.note' || ev.type === 'agent.response' || ev.type === 'worker.retry_request' || ev.type === 'worker.classified_failure' || ev.type === 'message.received' || ev.type === 'routing.decision') {
+    if (ev.type === 'agent.start' || ev.type === 'agent.dispatch' || ev.type === 'agent.note' || ev.type === 'agent.response' || ev.type === 'agent.error' || ev.type === 'mailbox.sent' || ev.type === 'mailbox.waiting' || ev.type === 'mailbox.received' || ev.type === 'mailbox.error' || ev.type === 'worker.retry_request' || ev.type === 'worker.classified_failure' || ev.type === 'message.received' || ev.type === 'routing.decision') {
       current.recentEvents.push({
         timestamp: ev.timestamp || '',
         type: ev.type || '',
@@ -1735,12 +1896,34 @@ function renderEvidenceSummary() {
 }
 
 function refreshDerivedViews() {
+  renderOps();
   renderOverview();
   renderProgress();
   renderSystem();
   renderSessions();
   renderJobs();
   renderEvidence();
+}
+
+function refreshOpsData() {
+  fetch('/viewer/logs?scope=persisted&limit=40')
+    .then((r) => {
+      if (!r.ok) throw new Error('ops logs fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      const items = Array.isArray(data.items) ? data.items : [];
+      state.ops.persistedLogs = items;
+      state.ops.lastMioReport = items.find((ev) => String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user') || null;
+      state.ops.latestJobID = items[0] ? (items[0].job_id || '') : '';
+      state.ops.latestRoute = items[0] ? (items[0].route || '') : '';
+      state.ops.latestError = items.find((ev) => {
+        const t = String(ev.type || '').toLowerCase();
+        return t === 'agent.error' || t === 'mailbox.error' || t === 'worker.classified_failure';
+      }) || null;
+      renderOps();
+    })
+    .catch((err) => console.error(err));
 }
 
 function refreshEvidence() {
@@ -2279,6 +2462,7 @@ if (!initLiveMode()) {
   initTabFromQuery();
 }
 initEvidenceFromQuery();
+refreshOpsData();
 refreshEvidence();
 refreshEvidenceSummary();
 setInterval(() => {
@@ -2288,6 +2472,7 @@ setInterval(() => {
 }, 500);
 setInterval(refreshIdleStatus, 3000);
 setInterval(refreshIdleLogs, 5000);
+setInterval(refreshOpsData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
 connect();

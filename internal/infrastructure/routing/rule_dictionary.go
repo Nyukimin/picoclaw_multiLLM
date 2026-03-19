@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -11,6 +13,10 @@ import (
 type RuleDictionary struct {
 	rules []rule
 }
+
+var (
+	fileRefPattern = regexp.MustCompile(`(?i)(?:^|[\s"'` + "`" + `(/])(?:[\w.\-/]+)\.(go|py|js|ts|tsx|jsx|json|yaml|yml|md|html|css|sh|txt)\b`)
+)
 
 // rule は単一のルールを表す
 type rule struct {
@@ -27,7 +33,11 @@ func NewRuleDictionary() *RuleDictionary {
 			{
 				keywords: []string{
 					"実装して",
+					"変更を入れて",
 					"修正して",
+					"追記して",
+					"書き換えて",
+					"編集して",
 					"リファクタリング",
 					"テストを追加",
 					"コードを書",
@@ -35,6 +45,7 @@ func NewRuleDictionary() *RuleDictionary {
 					"関数を作",
 					"更新してください",
 					"ファイルを更新",
+					"ファイルを変更",
 					"ファイルに格納",
 					"text フィールドを",
 					"json ファイル",
@@ -82,6 +93,10 @@ func NewRuleDictionary() *RuleDictionary {
 func (d *RuleDictionary) Match(t task.Task) (routing.Route, float64, bool) {
 	message := strings.ToLower(t.UserMessage())
 
+	if isCodeEditRequest(message) {
+		return routing.RouteCODE, 0.9, true
+	}
+
 	// ルールを順番にチェック
 	for _, rule := range d.rules {
 		for _, keyword := range rule.keywords {
@@ -92,4 +107,30 @@ func (d *RuleDictionary) Match(t task.Task) (routing.Route, float64, bool) {
 	}
 
 	return "", 0.0, false
+}
+
+func isCodeEditRequest(message string) bool {
+	hasFileRef := fileRefPattern.MatchString(message)
+	if !hasFileRef {
+		for _, token := range strings.Fields(message) {
+			ext := strings.ToLower(filepath.Ext(strings.Trim(token, `"'()[]{}<>。、,`)))
+			switch ext {
+			case ".go", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".md", ".html", ".css", ".sh", ".txt":
+				hasFileRef = true
+				break
+			}
+		}
+	}
+	if !hasFileRef {
+		return false
+	}
+	editHints := []string{
+		"変更", "修正", "追記", "編集", "更新", "実装", "追加", "削除", "書き換", "直して",
+	}
+	for _, hint := range editHints {
+		if strings.Contains(message, hint) {
+			return true
+		}
+	}
+	return false
 }

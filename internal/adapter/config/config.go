@@ -61,6 +61,9 @@ type Config struct {
 
 	// === Coder4 AudioRouter ===
 	AudioRouter AudioRouterConfig `yaml:"audio_router"`
+
+	// === Viewer persisted JSON operation log ===
+	ViewerLog ViewerLogConfig `yaml:"viewer_log"`
 }
 
 // ServerConfig はサーバー設定
@@ -171,11 +174,11 @@ type TransportConfig struct {
 
 // IdleChatConfig はAgent間雑談モードの設定
 type IdleChatConfig struct {
-	Enabled      bool     `yaml:"enabled"`      // 雑談モードの有効化（デフォルト: false）
-	Participants []string `yaml:"participants"` // 参加Agent名（デフォルト: ["mio", "shiro"]）
-	IntervalMin  int      `yaml:"interval_min"` // 雑談開始までのアイドル時間・分（デフォルト: 5）
-	MaxTurns     int      `yaml:"max_turns"`    // 1回の雑談の最大ターン数（デフォルト: 10）
-	Temperature  float64  `yaml:"temperature"`  // 雑談時の温度（デフォルト: 0.8）
+	Enabled      bool     `yaml:"enabled"`        // 雑談モードの有効化（デフォルト: false）
+	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["mio", "shiro"]）
+	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
+	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
+	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
 	StoryDataDir string   `yaml:"story_data_dir"` // 物語データJSONディレクトリ（デフォルト: "data/story"）
 }
 
@@ -228,6 +231,13 @@ type SecurityAuditConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Backend string `yaml:"backend"` // jsonl|sqlite
 	Path    string `yaml:"path"`
+}
+
+type ViewerLogConfig struct {
+	Enabled           bool   `yaml:"enabled"`
+	Path              string `yaml:"path"`
+	RetentionDays     int    `yaml:"retention_days"`
+	GCIntervalMinutes int    `yaml:"gc_interval_minutes"`
 }
 
 // TTSConfig configures provider fallback and playback verification.
@@ -478,6 +488,15 @@ func (c *Config) setDefaults() {
 	if c.Security.Audit.Path == "" {
 		c.Security.Audit.Path = "logs/execution_audit.jsonl"
 	}
+	if c.ViewerLog.Path == "" {
+		c.ViewerLog.Path = "./workspace/orchestrator_event_log.jsonl"
+	}
+	if c.ViewerLog.RetentionDays <= 0 {
+		c.ViewerLog.RetentionDays = 14
+	}
+	if c.ViewerLog.GCIntervalMinutes <= 0 {
+		c.ViewerLog.GCIntervalMinutes = 60
+	}
 
 	// v5.1 プロンプト/workspace デフォルト
 	if c.PromptsDir == "" {
@@ -485,6 +504,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.WorkspaceDir == "" {
 		c.WorkspaceDir = "./workspace"
+	}
+	if !c.ViewerLog.Enabled {
+		c.ViewerLog.Enabled = true
 	}
 	if len(c.TTS.ProviderPriority) == 0 {
 		c.TTS.ProviderPriority = []string{"sbv2", "azure", "eleven"}
@@ -682,6 +704,17 @@ func (c *Config) Validate() error {
 		}
 		if c.Security.Audit.Backend != "jsonl" && c.Security.Audit.Backend != "sqlite" {
 			return fmt.Errorf("security.audit.backend must be 'jsonl' or 'sqlite'")
+		}
+	}
+	if c.ViewerLog.Enabled {
+		if c.ViewerLog.RetentionDays < 1 {
+			return fmt.Errorf("viewer_log.retention_days must be >= 1")
+		}
+		if c.ViewerLog.GCIntervalMinutes < 1 {
+			return fmt.Errorf("viewer_log.gc_interval_minutes must be >= 1")
+		}
+		if c.ViewerLog.Path == "" {
+			return fmt.Errorf("viewer_log.path is required when viewer_log.enabled=true")
 		}
 	}
 

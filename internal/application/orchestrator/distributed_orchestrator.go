@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -31,11 +32,16 @@ type DistributedOrchestrator struct {
 	memory        *session.CentralMemory
 	sshTransports map[string]domaintransport.Transport // SSH経由のリモートAgent
 	listener      EventListener
+	reporter      ReportStore
 	idleNotifier  IdleNotifier
 	nodeSelector  *NodeSelector
 	nodeCaps      map[string]domainnode.Capability
 	ttsBridge     TTSBridge
 	vtuberBridge  VTuberBridge
+}
+
+type ReportStore interface {
+	Save(ctx context.Context, report domainexecution.ExecutionReport) error
 }
 
 // NewDistributedOrchestrator は新しいDistributedOrchestratorを作成
@@ -74,6 +80,10 @@ func (o *DistributedOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
 }
 
+func (o *DistributedOrchestrator) SetReportStore(store ReportStore) {
+	o.reporter = store
+}
+
 // SetIdleNotifier sets an optional notifier used to control idle chat.
 func (o *DistributedOrchestrator) SetIdleNotifier(n IdleNotifier) {
 	o.idleNotifier = n
@@ -100,11 +110,17 @@ func (o *DistributedOrchestrator) emitNote(from, to, content, route, jobID, sess
 	o.emit("agent.note", from, to, content, route, jobID, sessionID, channel, chatID)
 }
 
+func (o *DistributedOrchestrator) emitProgress(eventType, from, to, content string, msg domaintransport.Message) {
+	route, channel, chatID := routeAndChannelFromMessage(msg)
+	o.emit(eventType, from, to, content, route, msg.JobID, msg.SessionID, channel, chatID)
+}
+
 // ProcessMessage は既存MessageOrchestratorと同じシグネチャでメッセージを処理
 // 分散環境ではTransport経由でAgent間通信を行う
 func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
 	log.Printf("[DistributedOrch] ProcessMessage START: sessionID=%s channel=%s chatID=%s message=%q",
 		req.SessionID, req.Channel, req.ChatID, req.UserMessage)
+	startedAt := time.Now().UTC()
 
 	if o.idleNotifier != nil {
 		o.idleNotifier.NotifyActivity()
@@ -129,6 +145,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	// 3. mio がルーティング決定
 	decision, err := o.mio.DecideAction(ctx, t)
 	if err != nil {
+		o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, "", startedAt, time.Now().UTC(), err)
 		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
 	}
 	log.Printf("[DistributedOrch] routing decision: route=%s confidence=%.2f reason=%q",
@@ -178,6 +195,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	// 4. ルートに応じてTransport経由で実行
 	response, err := o.executeDistributed(ctx, t, decision.Route, sess.ID(), ttsSessionID)
 	if err != nil {
+		o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, string(decision.Route), startedAt, time.Now().UTC(), err)
 		return ProcessMessageResponse{}, fmt.Errorf("distributed execution failed: %w", err)
 	}
 	if ttsSessionID != "" {
@@ -197,6 +215,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 
 	log.Printf("[DistributedOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
 		jobID.String(), decision.Route, len(response))
+	o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, string(decision.Route), startedAt, time.Now().UTC(), nil)
 
 	return ProcessMessageResponse{
 		Response:   response,
@@ -204,6 +223,98 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		Confidence: decision.Confidence,
 		JobID:      jobID.String(),
 	}, nil
+}
+
+func (o *DistributedOrchestrator) saveExecutionReport(ctx context.Context, jobID, goal, route string, startedAt, finishedAt time.Time, runErr error) {
+	if o.reporter == nil || strings.TrimSpace(jobID) == "" || strings.TrimSpace(goal) == "" {
+		return
+	}
+	report := domainexecution.ExecutionReport{
+		JobID:        jobID,
+		Goal:         goal,
+		Status:       "passed",
+		ErrorKind:    "",
+		Acceptance:   distributedAcceptance(route),
+		Verification: distributedVerification(route, runErr),
+		Steps:        distributedEvidenceSteps(route, runErr),
+		RepairCount:  0,
+		Error:        "",
+		CreatedAt:    startedAt,
+		FinishedAt:   finishedAt,
+	}
+	if runErr != nil {
+		report.Status = "failed"
+		report.ErrorKind = distributedEvidenceErrorKind(runErr)
+		report.Error = runErr.Error()
+	}
+	if err := o.reporter.Save(ctx, report); err != nil {
+		log.Printf("[DistributedOrch] evidence save failed: job=%s err=%v", jobID, err)
+	}
+}
+
+func distributedAcceptance(route string) []string {
+	items := []string{"ルーティング完了", "最終応答生成"}
+	switch strings.ToUpper(strings.TrimSpace(route)) {
+	case "CHAT":
+		items = append(items, "Mio 応答完了")
+	case "OPS":
+		items = append(items, "Worker 応答完了")
+	case "CODE", "CODE1", "CODE2", "CODE3":
+		items = append(items, "Coder 実行完了", "Worker 取りまとめ完了")
+	default:
+		items = append(items, "Agent 応答完了")
+	}
+	return items
+}
+
+func distributedVerification(route string, runErr error) []string {
+	items := []string{"viewer jobs に記録されること"}
+	if strings.TrimSpace(route) != "" {
+		items = append(items, fmt.Sprintf("route=%s", strings.ToUpper(strings.TrimSpace(route))))
+	}
+	if runErr == nil {
+		items = append(items, "final:passed")
+		return items
+	}
+	items = append(items, "final:failed")
+	return items
+}
+
+func distributedEvidenceSteps(route string, runErr error) []string {
+	items := []string{"message.received", "routing.decision"}
+	switch strings.ToUpper(strings.TrimSpace(route)) {
+	case "CHAT":
+		items = append(items, "mio.chat")
+	case "OPS":
+		items = append(items, "shiro.execute")
+	case "CODE", "CODE1", "CODE2", "CODE3":
+		items = append(items, "shiro.delegate", "coder.execute", "shiro.verify")
+	default:
+		items = append(items, "agent.execute")
+	}
+	if runErr != nil {
+		items = append(items, "error")
+	} else {
+		items = append(items, "done")
+	}
+	return items
+}
+
+func distributedEvidenceErrorKind(runErr error) string {
+	if runErr == nil {
+		return ""
+	}
+	lower := strings.ToLower(runErr.Error())
+	switch {
+	case strings.Contains(lower, "verify"):
+		return "verify"
+	case strings.Contains(lower, "repair"), strings.Contains(lower, "retry"):
+		return "repair"
+	case strings.Contains(lower, "patch"), strings.Contains(lower, "command"), strings.Contains(lower, "timeout"), strings.Contains(lower, "error"):
+		return "apply"
+	default:
+		return "other"
+	}
 }
 
 func (o *DistributedOrchestrator) loadOrCreateSession(ctx context.Context, id, channel, chatID string) (*session.Session, error) {
@@ -253,8 +364,14 @@ func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task
 	guardedTask := o.withAttributionGuard(t, targetAgent, sessionID)
 	msg := domaintransport.NewMessage("mio", targetAgent, sessionID, jid, guardedTask.UserMessage())
 	msg.Type = domaintransport.MessageTypeTask
+	msg.Context = map[string]interface{}{
+		"route":   string(route),
+		"channel": t.Channel(),
+		"chat_id": t.ChatID(),
+	}
 
 	o.emit("agent.start", "mio", targetAgent, t.UserMessage(), string(route), jid, sessionID, t.Channel(), t.ChatID())
+	o.emit("agent.dispatch", "mio", targetAgent, "ルーティング先へ依頼を転送", string(route), jid, sessionID, t.Channel(), t.ChatID())
 
 	// メモリに記録
 	o.memory.RecordMessage(msg)
@@ -328,7 +445,12 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 
 		coderMsg := domaintransport.NewMessage("shiro", coderAgent, sessionID, jid, requestText)
 		coderMsg.Type = domaintransport.MessageTypeTask
-		coderMsg.Context = map[string]interface{}{"route": string(route), "retry_attempt": attempt}
+		coderMsg.Context = map[string]interface{}{
+			"route":         string(route),
+			"retry_attempt": attempt,
+			"channel":       t.Channel(),
+			"chat_id":       t.ChatID(),
+		}
 		o.memory.RecordMessage(coderMsg)
 
 		coderResult, err := o.executeToAgentViaMailbox(ctx, coderAgent, coderMsg, "mio")
@@ -343,7 +465,12 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 			o.emit("agent.start", "shiro", "mio", "Coder結果をShiroで整形", string(route), jid, sessionID, t.Channel(), t.ChatID())
 			shiroTask := domaintransport.NewMessage("mio", "shiro", sessionID, jid, coderResult.Content)
 			shiroTask.Type = domaintransport.MessageTypeTask
-			shiroTask.Context = map[string]interface{}{"route": string(route), "coder_agent": coderAgent}
+			shiroTask.Context = map[string]interface{}{
+				"route":       string(route),
+				"coder_agent": coderAgent,
+				"channel":     t.Channel(),
+				"chat_id":     t.ChatID(),
+			}
 			o.memory.RecordMessage(shiroTask)
 			shiroResult, err := o.executeToAgent(ctx, "shiro", shiroTask)
 			if err != nil {
@@ -358,7 +485,13 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 
 		execMsg := domaintransport.NewMessage("mio", "shiro", sessionID, jid, "Execute coder proposal")
 		execMsg.Type = domaintransport.MessageTypeTask
-		execMsg.Context = map[string]interface{}{"route": string(route), "coder_agent": coderAgent, "retry_attempt": attempt}
+		execMsg.Context = map[string]interface{}{
+			"route":         string(route),
+			"coder_agent":   coderAgent,
+			"retry_attempt": attempt,
+			"channel":       t.Channel(),
+			"chat_id":       t.ChatID(),
+		}
 		execMsg.Proposal = coderResult.Proposal
 		o.memory.RecordMessage(execMsg)
 
@@ -486,22 +619,28 @@ func (o *DistributedOrchestrator) executeToAgent(ctx context.Context, targetAgen
 
 func (o *DistributedOrchestrator) executeToAgentViaMailbox(ctx context.Context, targetAgent string, msg domaintransport.Message, receiveOnAgent string) (domaintransport.Message, error) {
 	log.Printf("[DistributedOrch] mailbox send target=%s receive_on=%s via=%s job=%s type=%s has_proposal=%t", targetAgent, receiveOnAgent, transportMode(o.sshTransports, targetAgent), msg.JobID, msg.Type, msg.Proposal != nil)
+	o.emitProgress("mailbox.sent", msg.From, targetAgent, fmt.Sprintf("via=%s receive_on=%s type=%s", transportMode(o.sshTransports, targetAgent), receiveOnAgent, msg.Type), msg)
 	if sshTransport, ok := o.sshTransports[targetAgent]; ok {
 		if err := sshTransport.Send(ctx, msg); err != nil {
+			o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
 			return domaintransport.Message{}, fmt.Errorf("failed to send message to %s via SSH: %w", targetAgent, err)
 		}
 		waitTimeout := distributedWaitTimeout(targetAgent, msg)
 		timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 		defer cancel()
 		log.Printf("[DistributedOrch] mailbox wait target=%s via=ssh timeout=%s job=%s", targetAgent, waitTimeout, msg.JobID)
+		o.emitProgress("mailbox.waiting", receiveOnAgent, targetAgent, fmt.Sprintf("via=ssh timeout=%s", waitTimeout), msg)
 		result, err := sshTransport.Receive(timeoutCtx)
 		if err != nil {
 			log.Printf("[DistributedOrch] mailbox wait error target=%s via=ssh job=%s err=%v", targetAgent, msg.JobID, err)
+			o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
 			return domaintransport.Message{}, fmt.Errorf("waiting for SSH response from %s: %w", targetAgent, err)
 		}
 		o.memory.RecordMessage(result)
 		log.Printf("[DistributedOrch] mailbox recv target=%s via=ssh from=%s type=%s job=%s", targetAgent, result.From, result.Type, result.JobID)
+		o.emitProgress("mailbox.received", result.From, receiveOnAgent, fmt.Sprintf("via=ssh type=%s", result.Type), msg)
 		if result.Type == domaintransport.MessageTypeError {
+			o.emitProgress("agent.error", result.From, receiveOnAgent, result.Content, msg)
 			return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
 		}
 		return result, nil
@@ -518,10 +657,12 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 
 	// メッセージ送信
 	if err := agentTransport.PutInboundMessage(msg); err != nil {
+		o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
 		return domaintransport.Message{}, fmt.Errorf("failed to send message to %s: %w", targetAgent, err)
 	}
 
 	log.Printf("[DistributedOrch] Sent task to %s via Local (job=%s type=%s receive_on=%s)", targetAgent, msg.JobID, msg.Type, receiveOnAgent)
+	o.emitProgress("mailbox.waiting", receiveOnAgent, targetAgent, fmt.Sprintf("via=local timeout=%s", distributedWaitTimeout(targetAgent, msg)), msg)
 
 	// 応答待機（指定agent経由。未登録ならmioにフォールバック）
 	receiveTransport, ok := o.router.GetAgent(receiveOnAgent)
@@ -529,6 +670,7 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 		receiveTransport, ok = o.router.GetAgent("mio")
 	}
 	if !ok {
+		o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, "receive transport not registered", msg)
 		return domaintransport.Message{}, fmt.Errorf("receive transport not registered (agent=%s)", receiveOnAgent)
 	}
 
@@ -540,6 +682,7 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 	result, err := receiveTransport.Receive(timeoutCtx)
 	if err != nil {
 		log.Printf("[DistributedOrch] wait local response error target=%s receive_on=%s job=%s err=%v", targetAgent, receiveOnAgent, msg.JobID, err)
+		o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
 		return domaintransport.Message{}, fmt.Errorf("waiting for response from %s: %w", targetAgent, err)
 	}
 
@@ -547,8 +690,10 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 	o.memory.RecordMessage(result)
 
 	log.Printf("[DistributedOrch] Received response from %s (type=%s job=%s to=%s)", result.From, result.Type, result.JobID, result.To)
+	o.emitProgress("mailbox.received", result.From, receiveOnAgent, fmt.Sprintf("via=local type=%s", result.Type), msg)
 
 	if result.Type == domaintransport.MessageTypeError {
+		o.emitProgress("agent.error", result.From, receiveOnAgent, result.Content, msg)
 		return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
 	}
 
@@ -560,6 +705,28 @@ func transportMode(sshTransports map[string]domaintransport.Transport, targetAge
 		return "ssh"
 	}
 	return "local"
+}
+
+func routeAndChannelFromMessage(msg domaintransport.Message) (route, channel, chatID string) {
+	if msg.Context == nil {
+		return "", "", ""
+	}
+	route = stringContextValue(msg.Context, "route")
+	channel = stringContextValue(msg.Context, "channel")
+	chatID = stringContextValue(msg.Context, "chat_id")
+	return route, channel, chatID
+}
+
+func stringContextValue(ctx map[string]interface{}, key string) string {
+	raw, ok := ctx[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	v, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return v
 }
 
 func distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {

@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -72,6 +73,16 @@ func TestRuleDictionary_Match_CodeKeywords(t *testing.T) {
 			message:     "これは、システム構築依頼です。/tmp/data/story ディレクトリにある JSON ファイルの text フィールドを更新してください",
 			expectRoute: routing.RouteCODE,
 		},
+		{
+			name:        "ファイルパスと変更指示でコード扱い",
+			message:     "README.md に1行だけ変更を入れて。具体的には末尾に確認用コメントを1行追記してください。",
+			expectRoute: routing.RouteCODE,
+		},
+		{
+			name:        "Goファイル修正依頼",
+			message:     "internal/adapter/viewer/viewer.html を修正して",
+			expectRoute: routing.RouteCODE,
+		},
 	}
 
 	dict := NewRuleDictionary()
@@ -93,6 +104,43 @@ func TestRuleDictionary_Match_CodeKeywords(t *testing.T) {
 
 			if confidence <= 0.7 {
 				t.Errorf("Expected high confidence (>0.7), got %f", confidence)
+			}
+		})
+	}
+}
+
+func TestIsCodeEditRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{
+			name:    "markdown file with edit verb",
+			message: "README.md に変更を入れて",
+			want:    true,
+		},
+		{
+			name:    "json file with update verb",
+			message: "/tmp/test.json を更新してください",
+			want:    true,
+		},
+		{
+			name:    "file ref without edit verb",
+			message: "README.md の内容を教えて",
+			want:    false,
+		},
+		{
+			name:    "edit verb without file ref",
+			message: "変更してほしいです",
+			want:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isCodeEditRequest(strings.ToLower(tt.message))
+			if got != tt.want {
+				t.Fatalf("isCodeEditRequest(%q) = %v, want %v", tt.message, got, tt.want)
 			}
 		})
 	}

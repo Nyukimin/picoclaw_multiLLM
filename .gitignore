@@ -23,6 +23,10 @@ sessions/
 workspace/*
 !workspace/README.md
 !workspace/.gitkeep
+!workspace/skills/
+workspace/skills/*
+!workspace/skills/log-ops/
+!workspace/skills/log-ops/SKILL.md
 
 # Secrets & Config (keep templates, ignore actual secrets)
 .env

@@ -169,6 +169,27 @@ func cmdRun() {
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
+	if dependencies.viewerStatus != nil {
+		mux.HandleFunc("/viewer/status", dependencies.viewerStatus)
+	}
+	if dependencies.viewerAgents != nil {
+		mux.HandleFunc("/viewer/agents", dependencies.viewerAgents)
+	}
+	if dependencies.viewerAgentDetail != nil {
+		mux.HandleFunc("/viewer/agent/detail", dependencies.viewerAgentDetail)
+	}
+	if dependencies.viewerJobs != nil {
+		mux.HandleFunc("/viewer/jobs", dependencies.viewerJobs)
+	}
+	if dependencies.viewerLogs != nil {
+		mux.HandleFunc("/viewer/logs", dependencies.viewerLogs)
+	}
+	if dependencies.viewerAuditSummary != nil {
+		mux.HandleFunc("/viewer/audit/summary", dependencies.viewerAuditSummary)
+	}
+	if dependencies.viewerJobDetail != nil {
+		mux.HandleFunc("/viewer/job/detail", dependencies.viewerJobDetail)
+	}
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
 	}
@@ -1435,7 +1456,18 @@ type Dependencies struct {
 	discordHandler     http.Handler
 	slackHandler       http.Handler
 	eventHub           *viewer.EventHub                      // live viewer
+	monitorStore       *viewer.MonitorStore                  // viewer monitor snapshots
+	eventLogStore      *viewer.EventLogStore                 // persisted orchestrator event log
+	eventLogGC         *viewer.EventLogGCService             // persisted event log GC
+	reportStore        *executionpersistence.JSONLReportStore // execution evidence store
 	eventRelay         *idleAwareEventListener               // viewer + idlechat stop relay
+	viewerStatus       http.HandlerFunc                      // viewer status API
+	viewerAgents       http.HandlerFunc                      // viewer agents API
+	viewerAgentDetail  http.HandlerFunc                      // viewer agent detail API
+	viewerJobs         http.HandlerFunc                      // viewer jobs API
+	viewerLogs         http.HandlerFunc                      // viewer logs API
+	viewerAuditSummary http.HandlerFunc                      // viewer audit summary API
+	viewerJobDetail    http.HandlerFunc                      // viewer job detail API
 	viewerSend         http.HandlerFunc                      // viewer message sender
 	evidenceHandler    http.HandlerFunc                      // viewer evidence API
 	evidenceDetail     http.HandlerFunc                      // viewer evidence detail API
@@ -1455,6 +1487,8 @@ type Dependencies struct {
 
 type idleAwareEventListener struct {
 	hub      *viewer.EventHub
+	monitor  *viewer.MonitorStore
+	archive  *viewer.EventLogStore
 	mu       sync.RWMutex
 	idleChat *idlechat.IdleChatOrchestrator
 }
@@ -1466,7 +1500,15 @@ func (l *idleAwareEventListener) SetIdleChat(idle *idlechat.IdleChatOrchestrator
 }
 
 func (l *idleAwareEventListener) OnEvent(ev orchestrator.OrchestratorEvent) {
+	if l.archive != nil {
+		if err := l.archive.Append(ev); err != nil {
+			log.Printf("WARN: failed to append viewer event log: %v", err)
+		}
+	}
 	l.hub.OnEvent(ev)
+	if l.monitor != nil {
+		l.monitor.OnEvent(ev)
+	}
 	if !shouldStopIdleChatByEvent(ev) {
 		return
 	}
@@ -1497,6 +1539,9 @@ func shouldStopIdleChatByEvent(ev orchestrator.OrchestratorEvent) bool {
 
 // Shutdown はリソースを解放
 func (d *Dependencies) Shutdown() {
+	if d.eventLogGC != nil {
+		d.eventLogGC.Stop()
+	}
 	if d.heartbeatSvc != nil {
 		d.heartbeatSvc.Stop()
 	}
@@ -1793,7 +1838,23 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// EventHub (Live Viewer)
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub
-	deps.eventRelay = &idleAwareEventListener{hub: hub}
+	if cfg.ViewerLog.Enabled {
+		eventLogPath := cfg.ViewerLog.Path
+		if eventLogStore, err := viewer.NewEventLogStore(eventLogPath); err != nil {
+			log.Printf("WARN: viewer event log disabled: %v", err)
+		} else {
+			deps.eventLogStore = eventLogStore
+			log.Printf("Viewer event log enabled: %s", eventLogPath)
+			gcPath := filepath.Join(filepath.Dir(eventLogPath), "orchestrator_event_gc.jsonl")
+			if gcSvc, err := viewer.NewEventLogGCService(eventLogStore, gcPath, cfg.ViewerLog.RetentionDays, cfg.ViewerLog.GCIntervalMinutes); err != nil {
+				log.Printf("WARN: viewer event log GC disabled: %v", err)
+			} else {
+				deps.eventLogGC = gcSvc
+				deps.eventLogGC.Start()
+				log.Printf("Viewer event log GC enabled: %s", gcPath)
+			}
+		}
+	}
 	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
 	ttsRuntime := buildTTSEntryRuntime(cfg)
 	ttsBridge := buildTTSClientBridge(cfg, func(ev orchestrator.OrchestratorEvent) {
@@ -1803,8 +1864,27 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	})
 	vtuberBridge := buildVTuberBridge(cfg)
 	if reportStore, err := executionpersistence.NewJSONLReportStore(reportPath); err != nil {
+		deps.monitorStore = viewer.NewMonitorStore(nil, deps.eventLogStore)
+		deps.eventRelay = &idleAwareEventListener{hub: hub, monitor: deps.monitorStore, archive: deps.eventLogStore}
+		deps.viewerStatus = viewer.HandleMonitorStatus(deps.monitorStore)
+		deps.viewerAgents = viewer.HandleMonitorAgents(deps.monitorStore)
+		deps.viewerAgentDetail = viewer.HandleMonitorAgentDetail(deps.monitorStore)
+		deps.viewerJobs = viewer.HandleMonitorJobs(deps.monitorStore)
+		deps.viewerLogs = viewer.HandleMonitorLogs(deps.monitorStore)
+		deps.viewerAuditSummary = viewer.HandleMonitorAuditSummary(deps.monitorStore)
+		deps.viewerJobDetail = viewer.HandleMonitorJobDetail(deps.monitorStore)
 		log.Printf("WARN: evidence API disabled: %v", err)
 	} else {
+		deps.reportStore = reportStore
+		deps.monitorStore = viewer.NewMonitorStore(reportStore, deps.eventLogStore)
+		deps.eventRelay = &idleAwareEventListener{hub: hub, monitor: deps.monitorStore, archive: deps.eventLogStore}
+		deps.viewerStatus = viewer.HandleMonitorStatus(deps.monitorStore)
+		deps.viewerAgents = viewer.HandleMonitorAgents(deps.monitorStore)
+		deps.viewerAgentDetail = viewer.HandleMonitorAgentDetail(deps.monitorStore)
+		deps.viewerJobs = viewer.HandleMonitorJobs(deps.monitorStore)
+		deps.viewerLogs = viewer.HandleMonitorLogs(deps.monitorStore)
+		deps.viewerAuditSummary = viewer.HandleMonitorAuditSummary(deps.monitorStore)
+		deps.viewerJobDetail = viewer.HandleMonitorJobDetail(deps.monitorStore)
 		deps.evidenceHandler = viewer.HandleEvidenceRecent(reportStore)
 		deps.evidenceDetail = viewer.HandleEvidenceDetail(reportStore)
 		deps.evidenceSummary = viewer.HandleEvidenceSummary(reportStore)
@@ -2103,6 +2183,9 @@ func (d *Dependencies) buildDistributedMode(
 	d.distOrch = distOrch
 	distOrch.SetTTSBridge(ttsBridge)
 	distOrch.SetVTuberBridge(vtuberBridge)
+	if d.reportStore != nil {
+		distOrch.SetReportStore(d.reportStore)
+	}
 	if d.eventRelay != nil {
 		distOrch.SetEventListener(d.eventRelay)
 	}
