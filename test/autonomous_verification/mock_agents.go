@@ -78,9 +78,9 @@ func (m *MockCoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*pr
 		return m.GenerateProposalFunc(ctx, t)
 	}
 	return proposal.NewProposal(
-		"mock plan",
-		`{"operations": []}`,
+		"mock plan: create hello.go with HelloWorld function",
+		`[{"type": "file_edit", "action": "create", "target": "/tmp/e2e-mock-hello.go", "content": "package main\n\nimport \"fmt\"\n\nfunc HelloWorld() {\n\tfmt.Println(\"Hello, World!\")\n}"}]`,
 		"low",
-		"",
+		"simple function addition for testing",
 	), nil
 }
