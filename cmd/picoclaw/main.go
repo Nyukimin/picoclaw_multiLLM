@@ -202,6 +202,7 @@ func cmdRun() {
 		mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
 		mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
 		mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())
+		mux.HandleFunc("/viewer/idlechat/story", dependencies.handleIdleChatStory())
 	}
 
 	healthHandler := dependencies.buildHealthHandler(cfg)
@@ -1894,6 +1895,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			cfg.IdleChat.MaxTurns,
 			cfg.IdleChat.Temperature,
 			cfg.Prompts.IdleChatAgents,
+			cfg.IdleChat.StoryDataDir,
 		)
 		idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 			"mio":   chatProvider,
@@ -2196,11 +2198,15 @@ func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shi
 		resp := domaintransport.NewMessage(agentName, msg.From, msg.SessionID, msg.JobID, result.Summary)
 		resp.Type = domaintransport.MessageTypeResult
 		resp.Result = &domaintransport.ResultPayload{
-			Success:      result.FailedCmds == 0,
-			Summary:      result.Summary,
-			ExecutedCmds: result.ExecutedCmds,
-			FailedCmds:   result.FailedCmds,
-			GitCommit:    result.GitCommit,
+			Success:       result.FailedCmds == 0,
+			Summary:       result.Summary,
+			ExecutedCmds:  result.ExecutedCmds,
+			FailedCmds:    result.FailedCmds,
+			GitCommit:     result.GitCommit,
+			FailureKind:   result.FailureKind,
+			FailureReason: result.FailureReason,
+			Retryable:     result.Retryable,
+			FailedIndex:   result.FailedIndex,
 		}
 		log.Printf("[LocalWorker] proposal execute complete agent=%s job=%s success=%t summary_len=%d", agentName, msg.JobID, result.FailedCmds == 0, len(result.Summary))
 		return resp
@@ -2413,6 +2419,35 @@ func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
 			return
 		}
 		go d.idleChatOrch.RunForecastSession()
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"mode":          d.idleChatOrch.CurrentMode(),
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
+	}
+}
+
+func (d *Dependencies) handleIdleChatStory() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		if err := d.idleChatOrch.StartStoryMode(); err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "already active") {
+				status = http.StatusConflict
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		go d.idleChatOrch.RunStorySession()
 		writeJSON(w, map[string]any{
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),

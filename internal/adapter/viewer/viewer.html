@@ -62,6 +62,17 @@ th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertica
 th{color:var(--t2);font-weight:700;background:rgba(255,255,255,.02)}
 td{color:var(--t1)}
 tr.evi-selected td{background:rgba(34,211,238,.08)}
+.progress-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.progress-head h3{font-size:13px;color:var(--t2);font-weight:700}
+.progress-summary{font-size:11px;color:var(--t2)}
+.progress-expand td{background:rgba(255,255,255,.02);padding:0}
+.progress-detail{padding:12px;display:flex;flex-direction:column;gap:10px}
+.progress-section{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px}
+.progress-log{display:flex;flex-direction:column;gap:6px}
+.progress-log-item{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.5}
+.progress-log-meta{font-size:11px;color:var(--t2);margin-bottom:3px}
+.phase-badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(59,130,246,.15);color:#93c5fd}
+.progress-empty{font-size:12px;color:var(--t2)}
 .idle-title-btn{display:inline-flex;align-items:center;gap:6px;text-align:left;max-width:360px}
 .idle-arrow{display:inline-block;transition:transform .15s}
 .idle-arrow.open{transform:rotate(90deg)}
@@ -89,6 +100,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .ctl-btn:disabled{opacity:.5;cursor:default}
 .ctl-btn.is-selected{background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.45);color:#fff}
 .ctl-btn.mode-forecast.is-selected{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.45)}
+.ctl-btn.mode-story.is-selected{background:rgba(16,185,129,.18);border-color:rgba(16,185,129,.45)}
 .idle-on{color:var(--ok);font-size:12px;align-self:center}
 .idle-off{color:var(--t2);font-size:12px;align-self:center}
 
@@ -248,6 +260,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
 </div>
 <div class="tabs">
   <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="progress">Progress</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
   <button class="tab-btn" data-tab="system">System</button>
   <button class="tab-btn" data-tab="idlechat">IdleChat</button>
@@ -261,6 +274,24 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
       <table>
         <thead><tr><th>Agent</th><th>State</th><th>Route</th><th>Last Event</th><th>Peer</th><th>Job</th><th>Updated</th><th>Preview</th></tr></thead>
         <tbody id="overviewBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="panel-progress" class="panel">
+    <div class="progress-head">
+      <h3>Agent Progress</h3>
+      <div class="progress-summary" id="progressAgentSummary">-</div>
+    </div>
+    <div class="grid" id="progressAgentCards"></div>
+    <div class="progress-head" style="margin-top:10px">
+      <h3>Job Progress</h3>
+      <div class="progress-summary" id="progressJobSummary">-</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Job ID</th><th>Route</th><th>Phase</th><th>Owner</th><th>Retry</th><th>Failure</th><th>Status</th><th>Updated</th><th>Summary</th><th>Detail</th></tr></thead>
+        <tbody id="progressBody"></tbody>
       </table>
     </div>
   </section>
@@ -339,7 +370,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Title</th><th>Strategy</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
+        <thead><tr><th>Title</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
         <tbody id="idlechatBody"></tbody>
       </table>
     </div>
@@ -414,6 +445,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     <div class="idle-tools">
       <button id="idleModeNormal" class="ctl-btn" title="通常のIdleChat会話を選択">通常Chat</button>
       <button id="idleModeForecast" class="ctl-btn mode-forecast" title="未来展望セッション（6ドメイン×100ターン）を選択">未来展望</button>
+      <button id="idleModeStory" class="ctl-btn mode-story" title="物語再構成セッションを選択">物語</button>
       <button id="idleStart" class="ctl-btn" title="選択中のモードを開始">IdleChat開始</button>
       <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
       <span id="idleState" class="idle-off">IdleChat: off</span>
@@ -450,6 +482,8 @@ const OFFLINE_MS = 120000;
 const MAX_LOGS = 500;
 const MAX_TIMELINE_NODES = 400;
 const MAX_SEEN_EVENTS = 4000;
+const PROGRESS_RECENT_EVENTS = 8;
+const PROGRESS_DONE_LIMIT = 10;
 const seenEventKeys = new Set();
 const seenEventQueue = [];
 
@@ -539,6 +573,7 @@ const state = {
     openIndex: -1,
   },
   openTasks: {},
+  progressOpenJobs: {},
 };
 AGENTS.forEach((id) => {
   state.agents[id] = {
@@ -580,6 +615,7 @@ let derivedDirty = false;
 const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const panels = {
   overview: document.getElementById('panel-overview'),
+  progress: document.getElementById('panel-progress'),
   timeline: document.getElementById('panel-timeline'),
   system: document.getElementById('panel-system'),
   idlechat: document.getElementById('panel-idlechat'),
@@ -598,6 +634,7 @@ const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
 const idleModeNormalBtn = document.getElementById('idleModeNormal');
 const idleModeForecastBtn = document.getElementById('idleModeForecast');
+const idleModeStoryBtn = document.getElementById('idleModeStory');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
 const audioBtn = document.getElementById('audioBtn');
@@ -703,6 +740,11 @@ function setIdleState(mode, manual, active) {
     idleStateEl.className = active ? 'idle-on' : 'idle-off';
     return;
   }
+  if (currentMode === 'story') {
+    idleStateEl.textContent = 'Story: ' + (active ? 'talking' : 'ready');
+    idleStateEl.className = active ? 'idle-on' : 'idle-off';
+    return;
+  }
   if (active) {
     idleStateEl.textContent = 'IdleChat: talking';
     idleStateEl.className = 'idle-on';
@@ -718,16 +760,27 @@ function setIdleState(mode, manual, active) {
 }
 
 function setIdleSelectedMode(mode) {
-  const next = mode === 'forecast' ? 'forecast' : 'manual';
+  const next = mode === 'forecast'
+    ? 'forecast'
+    : (mode === 'story' ? 'story' : 'manual');
   state.idleChat.selectedMode = next;
   localStorage.setItem('idlechat.selectedMode', next);
   if (idleModeNormalBtn) idleModeNormalBtn.classList.toggle('is-selected', next === 'manual');
   if (idleModeForecastBtn) idleModeForecastBtn.classList.toggle('is-selected', next === 'forecast');
+  if (idleModeStoryBtn) idleModeStoryBtn.classList.toggle('is-selected', next === 'story');
 }
 
 function setBadge(el, enabled) {
   el.textContent = enabled ? 'on' : 'off';
   el.className = 'badge ' + (enabled ? 'state-running' : 'state-offline');
+}
+
+function stripIdleTopicCategory(text) {
+  return String(text || '').replace(/^今日のお題(?:（[^）]+）)*[:：]\s*/, '今日のお題：').trim();
+}
+
+function normalizeViewerDisplayText(text) {
+  return stripIdleTopicCategory(text);
 }
 
 function renderIdleChat() {
@@ -739,13 +792,13 @@ function renderIdleChat() {
 
   setBadge(manualEl, state.idleChat.manualMode);
   setBadge(activeEl, state.idleChat.chatActive);
-  topicEl.textContent = state.idleChat.currentTopic || '-';
+  topicEl.textContent = stripIdleTopicCategory(state.idleChat.currentTopic) || '-';
 
   body.innerHTML = '';
   const rows = state.idleChat.history || [];
   if (rows.length === 0) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="8" class="small">No idleChat summaries yet</td>';
+    tr.innerHTML = '<td colspan="7" class="small">No idleChat summaries yet</td>';
     body.appendChild(tr);
     return;
   }
@@ -759,9 +812,8 @@ function renderIdleChat() {
     const isForecast = strategy === 'forecast';
     if (isForecast) tr.style.borderLeft = '3px solid rgba(59,130,246,.5)';
     tr.innerHTML =
-      '<td><button class="ctl-btn idle-open idle-title-btn" data-idx="' + esc(String(rowIndex)) + '"><span class="idle-arrow ' + (isOpen ? 'open' : '') + '">&#9654;</span><span>' + esc(r.title || '-') + '</span></button></td>' +
-      '<td class="code"' + (isForecast ? ' style="color:rgba(59,130,246,.9)"' : '') + '>' + esc(strategy) + '</td>' +
-      '<td>' + esc(short(r.topic || '-', 80)) + '</td>' +
+      '<td><button class="ctl-btn idle-open idle-title-btn" data-idx="' + esc(String(rowIndex)) + '"><span class="idle-arrow ' + (isOpen ? 'open' : '') + '">&#9654;</span><span>' + esc(stripIdleTopicCategory(r.title || '-') || '-') + '</span></button></td>' +
+      '<td>' + esc(short(stripIdleTopicCategory(r.topic || '-') || '-', 80)) + '</td>' +
       '<td>' + esc(String(r.turns || 0)) + '</td>' +
       '<td>' + esc(r.loop_restarted ? 'yes' : 'no') + '</td>' +
       '<td>' + esc(fdt(r.started_at)) + '</td>' +
@@ -774,7 +826,7 @@ function renderIdleChat() {
       exp.className = 'idle-expand';
       const transcript = Array.isArray(r.transcript) ? r.transcript : [];
       if (transcript.length === 0) {
-        exp.innerHTML = '<td colspan="8"><div class="idle-actions"><button class="ctl-btn idle-copy-chat" data-idx="' + esc(String(rowIndex)) + '">Copy Chat</button></div><div class="idle-empty">Transcript not available</div></td>';
+        exp.innerHTML = '<td colspan="7"><div class="idle-actions"><button class="ctl-btn idle-copy-chat" data-idx="' + esc(String(rowIndex)) + '">Copy Chat</button></div><div class="idle-empty">Transcript not available</div></td>';
       } else {
         const items = transcript.map((line) => {
           const idx = String(line || '').indexOf(':');
@@ -787,7 +839,7 @@ function renderIdleChat() {
           const info = ag(speaker);
           return '<div class="idle-bubble"><div class="idle-meta" style="color:' + info.c + '">' + info.e + ' ' + info.l + '</div><div>' + esc(content || '-') + '</div></div>';
         }).join('');
-        exp.innerHTML = '<td colspan="8"><div class="idle-actions"><button class="ctl-btn idle-copy-chat" data-idx="' + esc(String(rowIndex)) + '">Copy Chat</button></div><div class="idle-transcript">' + items + '</div></td>';
+        exp.innerHTML = '<td colspan="7"><div class="idle-actions"><button class="ctl-btn idle-copy-chat" data-idx="' + esc(String(rowIndex)) + '">Copy Chat</button></div><div class="idle-transcript">' + items + '</div></td>';
       }
       body.appendChild(exp);
     }
@@ -842,6 +894,7 @@ async function refreshIdleStatus() {
       idleStartBtn.disabled = true;
       if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
       if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
+      if (idleModeStoryBtn) idleModeStoryBtn.disabled = true;
       idleStopBtn.disabled = true;
       setIdleState('', false, false);
       state.idleChat.mode = '';
@@ -856,6 +909,7 @@ async function refreshIdleStatus() {
     idleStartBtn.disabled = !!d.manual_mode || !!d.chat_active;
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = !!d.chat_active;
     if (idleModeForecastBtn) idleModeForecastBtn.disabled = !!d.chat_active;
+    if (idleModeStoryBtn) idleModeStoryBtn.disabled = !!d.chat_active;
     idleStopBtn.disabled = !d.manual_mode && !d.chat_active;
     state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
@@ -866,6 +920,7 @@ async function refreshIdleStatus() {
     idleStartBtn.disabled = true;
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
     if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
+    if (idleModeStoryBtn) idleModeStoryBtn.disabled = true;
     idleStopBtn.disabled = true;
     setIdleState('', false, false);
     state.idleChat.mode = '';
@@ -892,7 +947,7 @@ async function refreshIdleLogs() {
 }
 
 async function controlIdle(path) {
-  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleStopBtn].filter(Boolean);
+  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleModeStoryBtn, idleStopBtn].filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
   try {
     const r = await fetch(path, {method: 'POST'});
@@ -907,11 +962,14 @@ async function controlIdle(path) {
 idleStartBtn.addEventListener('click', () => {
   const path = state.idleChat.selectedMode === 'forecast'
     ? '/viewer/idlechat/forecast'
-    : '/viewer/idlechat/start';
+    : (state.idleChat.selectedMode === 'story'
+      ? '/viewer/idlechat/story'
+      : '/viewer/idlechat/start');
   controlIdle(path);
 });
 if (idleModeNormalBtn) idleModeNormalBtn.addEventListener('click', () => setIdleSelectedMode('manual'));
 if (idleModeForecastBtn) idleModeForecastBtn.addEventListener('click', () => setIdleSelectedMode('forecast'));
+if (idleModeStoryBtn) idleModeStoryBtn.addEventListener('click', () => setIdleSelectedMode('story'));
 idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
 
 function stateClass(s) { return 'state-' + normState(s); }
@@ -934,18 +992,23 @@ function trimTimelineNodes() {
 function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
+  if (ev.type !== 'message.received' && (ev.from || '').toLowerCase() !== 'mio') return;
 
   const em = document.getElementById('empty');
   if (em) em.remove();
 
-  if (ev.type === 'routing.decision') { addSys(ev); return; }
+  if (ev.type === 'routing.decision') return;
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.response') { removeThinking(ev.job_id); }
-  if (ev.type === 'agent.start' && ev.content === '考え中...') return;
+  if (ev.type === 'agent.start') return;
+  if (ev.type === 'agent.response' && (ev.to || '').toLowerCase() !== 'user') return;
+  if (ev.type === 'agent.note' && (ev.to || '').toLowerCase() !== 'user') return;
+  if (ev.type === 'message.received' && (ev.from || '').toLowerCase() !== 'user') return;
 
   const f = ag(ev.from);
   const t = ev.to ? ag(ev.to) : null;
   const dir = t && ev.to ? '<span class="dir">→ ' + t.e + ' ' + t.l + '</span>' : '';
+  const displayContent = normalizeViewerDisplayText(ev.content);
   const el = document.createElement('div');
   el.className = 'msg';
   el.innerHTML =
@@ -954,7 +1017,7 @@ function addMsgToTimeline(ev) {
       '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' + dir +
       '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
     '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
-    '<div class="mc">' + fmt(ev.content) + '</div></div>';
+    '<div class="mc">' + fmt(displayContent) + '</div></div>';
   el.querySelector('.mc').dataset.raw = ev.content || '';
   chat.appendChild(el);
   trimTimelineNodes();
@@ -983,7 +1046,7 @@ function addThinking(ev) {
     b = {el: el, textEl: textEl, raw: ''};
     thinkingBubbles[jid] = b;
   }
-  b.raw += ev.content || '';
+  b.raw += normalizeViewerDisplayText(ev.content || '');
   b.textEl.textContent = b.raw;
   scrollToBottom();
 }
@@ -1000,10 +1063,11 @@ function addSys(ev) {
   const el = document.createElement('div');
   el.className = 'sys';
   const rc = RC[ev.route] || '#94a3b8';
+  const displayContent = normalizeViewerDisplayText(ev.content || '');
   el.innerHTML =
     '<div class="sl"></div>' +
     '<div class="sb">⚙️ <span class="rt" style="color:' + rc + '">' +
-      esc(ev.route || '?') + '</span> ' + esc(ev.content || '') + '</div>' +
+      esc(ev.route || '?') + '</span> ' + esc(displayContent) + '</div>' +
     '<div class="sl"></div>';
   chat.appendChild(el);
   trimTimelineNodes();
@@ -1251,6 +1315,17 @@ function updateAgents(ev) {
   if (ev.type === 'agent.response' && AGENTS.includes(from)) {
     doneOpenTask(from, jid);
   }
+  if (ev.type === 'agent.response' && to === 'mio') {
+    touchAgent('mio', {
+      state: 'idle',
+      route,
+      lastEvent: ev.type,
+      peer: from || '-',
+      preview: short(ev.content, 80),
+      updatedAt: ts,
+      jobID: jid,
+    });
+  }
 }
 
 function renderOverview() {
@@ -1343,6 +1418,239 @@ function renderJobs() {
   });
 }
 
+function progressPhaseLabel(phase) {
+  const p = String(phase || 'received');
+  if (p === 'received') return 'received';
+  if (p === 'routing') return 'routing';
+  if (p === 'chatting') return 'chatting';
+  if (p === 'delegated_to_worker') return 'to worker';
+  if (p === 'delegated_to_coder') return 'to coder';
+  if (p === 'worker_verifying') return 'verifying';
+  if (p === 'retrying') return 'retrying';
+  if (p === 'reporting') return 'reporting';
+  if (p === 'done') return 'done';
+  if (p === 'error') return 'error';
+  return p;
+}
+
+function classifyJobPhase(ev, current) {
+  const from = String(ev.from || '').toLowerCase();
+  const to = String(ev.to || '').toLowerCase();
+  const content = String(ev.content || '');
+  if (ev.type === 'message.received') return {phase: 'received', owner: 'mio'};
+  if (ev.type === 'routing.decision') return {phase: 'routing', owner: current.owner || 'mio'};
+  if (ev.type === 'agent.thinking') return {phase: 'chatting', owner: from || current.owner};
+  if (ev.type === 'worker.retry_request') return {phase: 'retrying', owner: to || 'coder1'};
+  if (ev.type === 'worker.classified_failure') return {phase: 'retrying', owner: from || 'shiro'};
+  if (ev.type === 'agent.start') {
+    if (to === 'shiro') {
+      if (content.indexOf('Worker実行') >= 0 || content.indexOf('Patch') >= 0 || content.indexOf('整形') >= 0) {
+        return {phase: 'worker_verifying', owner: 'shiro'};
+      }
+      return {phase: 'delegated_to_worker', owner: 'shiro'};
+    }
+    if (to.indexOf('coder') === 0) return {phase: 'delegated_to_coder', owner: to};
+    if (to === 'mio') return {phase: 'reporting', owner: 'mio'};
+  }
+  if (ev.type === 'agent.response') {
+    if (from === 'mio' && to === 'user') {
+      const lower = content.toLowerCase();
+      return {phase: (lower.indexOf('error') >= 0 || lower.indexOf('失敗') >= 0) ? 'error' : 'done', owner: 'mio'};
+    }
+    if (from === 'shiro' && to === 'mio') return {phase: 'reporting', owner: 'mio'};
+    if (from.indexOf('coder') === 0 && to === 'shiro') return {phase: 'worker_verifying', owner: 'shiro'};
+  }
+  return {phase: current.phase || 'received', owner: current.owner || '-'};
+}
+
+function deriveProgressData() {
+  const jobs = {};
+  state.logs.forEach((ev) => {
+    const jid = String(ev.job_id || '');
+    if (!jid) return;
+    const current = jobs[jid] || {
+      jobID: jid,
+      route: ev.route || '-',
+      phase: 'received',
+      owner: 'mio',
+      retryCount: 0,
+      failureKind: '',
+      failureReason: '',
+      latestSummary: '',
+      latestChatReport: '',
+      latestWorkerNote: '',
+      latestCoderNote: '',
+      status: 'running',
+      updatedAt: ev.timestamp || '',
+      startedAt: ev.timestamp || '',
+      recentEvents: [],
+    };
+
+    current.route = ev.route || current.route;
+    current.updatedAt = ev.timestamp || current.updatedAt;
+    if (!current.startedAt) current.startedAt = ev.timestamp || '';
+    if (ev.content) current.latestSummary = short(ev.content, 120);
+
+    const phased = classifyJobPhase(ev, current);
+    current.phase = phased.phase;
+    current.owner = phased.owner;
+
+    if (ev.type === 'worker.retry_request') {
+      const m = String(ev.content || '').match(/retry=(\d+)/);
+      const retry = m ? Number(m[1]) : (current.retryCount + 1);
+      if (retry > current.retryCount) current.retryCount = retry;
+    }
+    if (ev.type === 'worker.classified_failure') {
+      const raw = String(ev.content || '');
+      const idx = raw.indexOf(':');
+      current.failureKind = idx > 0 ? raw.slice(0, idx).trim() : raw.trim();
+      current.failureReason = idx > 0 ? raw.slice(idx + 1).trim() : raw.trim();
+      current.status = 'error';
+    }
+    if (ev.type === 'agent.note') {
+      if (String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user') current.latestChatReport = ev.content || current.latestChatReport;
+      if (String(ev.from || '').toLowerCase() === 'shiro') current.latestWorkerNote = ev.content || current.latestWorkerNote;
+      if (String(ev.from || '').toLowerCase().indexOf('coder') === 0) current.latestCoderNote = ev.content || current.latestCoderNote;
+    }
+    if (ev.type === 'agent.response' && String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user') {
+      current.latestChatReport = ev.content || current.latestChatReport;
+      current.status = current.phase === 'error' ? 'error' : 'done';
+    } else if (ev.type === 'agent.response' && current.status !== 'error') {
+      current.status = (current.phase === 'done') ? 'done' : 'running';
+    }
+
+    if (ev.type === 'agent.start' || ev.type === 'agent.note' || ev.type === 'agent.response' || ev.type === 'worker.retry_request' || ev.type === 'worker.classified_failure' || ev.type === 'message.received' || ev.type === 'routing.decision') {
+      current.recentEvents.push({
+        timestamp: ev.timestamp || '',
+        type: ev.type || '',
+        from: ev.from || '',
+        to: ev.to || '',
+        content: short(ev.content || '', 200),
+      });
+      if (current.recentEvents.length > PROGRESS_RECENT_EVENTS) current.recentEvents.shift();
+    }
+
+    jobs[jid] = current;
+  });
+
+  const list = Object.values(jobs).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  const running = list.filter((j) => j.status !== 'done');
+  const done = list.filter((j) => j.status === 'done').slice(0, PROGRESS_DONE_LIMIT);
+  const filtered = running.concat(done);
+
+  const agents = {};
+  AGENTS.forEach((id) => {
+    const base = state.agents[id] || {};
+    const related = filtered.filter((j) => j.owner === id || String(base.jobID || '') === String(j.jobID || '')).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const top = related[0] || null;
+    agents[id] = {
+      id: id,
+      state: base.state || 'offline',
+      jobID: top ? top.jobID : (base.jobID || '-'),
+      phase: top ? top.phase : '-',
+      retryCount: top ? top.retryCount : 0,
+      failureKind: top ? top.failureKind : '',
+      latestSummary: top ? top.latestSummary : (base.preview || '-'),
+      updatedAt: top ? top.updatedAt : (base.updatedAt || ''),
+      openCount: Object.keys(state.openTasks[id] || {}).length,
+    };
+  });
+
+  return {jobs: filtered, agents: agents};
+}
+
+function toggleProgressJob(jobID) {
+  state.progressOpenJobs[jobID] = !state.progressOpenJobs[jobID];
+  renderProgress();
+}
+window.toggleProgressJob = toggleProgressJob;
+
+function renderProgressDetail(job) {
+  const items = Array.isArray(job.recentEvents) ? job.recentEvents.slice().reverse() : [];
+  const logs = items.length === 0
+    ? '<div class="progress-empty">No recent events</div>'
+    : items.map((item) => (
+      '<div class="progress-log-item">' +
+        '<div class="progress-log-meta">' + esc(ftime(item.timestamp)) + ' · ' + esc(item.type) + ' · ' + esc(agName(item.from || '-')) + ' → ' + esc(agName(item.to || '-')) + '</div>' +
+        '<div>' + esc(item.content || '-') + '</div>' +
+      '</div>'
+    )).join('');
+  return '' +
+    '<div class="progress-detail">' +
+      '<div class="progress-section"><b>Chat Report</b><div style="margin-top:6px;line-height:1.5">' + esc(job.latestChatReport || '-') + '</div></div>' +
+      '<div class="progress-section"><b>Worker Note</b><div style="margin-top:6px;line-height:1.5">' + esc(job.latestWorkerNote || '-') + '</div></div>' +
+      '<div class="progress-section"><b>Coder Note</b><div style="margin-top:6px;line-height:1.5">' + esc(job.latestCoderNote || '-') + '</div></div>' +
+      '<div class="progress-section"><b>Failure</b><div style="margin-top:6px;line-height:1.5">' + esc(job.failureReason || '-') + '</div></div>' +
+      '<div class="progress-section"><b>Recent Events</b><div class="progress-log" style="margin-top:6px">' + logs + '</div></div>' +
+    '</div>';
+}
+
+function renderProgress() {
+  const data = deriveProgressData();
+  const agentCards = document.getElementById('progressAgentCards');
+  const body = document.getElementById('progressBody');
+  const agentSummary = document.getElementById('progressAgentSummary');
+  const jobSummary = document.getElementById('progressJobSummary');
+  if (!agentCards || !body || !agentSummary || !jobSummary) return;
+
+  agentCards.innerHTML = '';
+  body.innerHTML = '';
+
+  const agentValues = Object.values(data.agents);
+  const activeAgents = agentValues.filter((a) => a.state !== 'offline').length;
+  agentSummary.textContent = 'active: ' + String(activeAgents) + ' / ' + String(agentValues.length);
+  jobSummary.textContent = 'showing: ' + String(data.jobs.length) + ' jobs';
+
+  agentValues.forEach((a) => {
+    const info = ag(a.id);
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<h4>' + info.e + ' ' + info.l + '</h4>' +
+      '<div class="row"><span>State</span><span class="badge ' + stateClass(a.state) + '">' + esc(a.state) + '</span></div>' +
+      '<div class="row"><span>Phase</span><span class="phase-badge">' + esc(progressPhaseLabel(a.phase)) + '</span></div>' +
+      '<div class="row"><span>Job</span><span class="code">' + esc(a.jobID || '-') + '</span></div>' +
+      '<div class="row"><span>Retry</span><span>' + esc(String(a.retryCount || 0)) + '</span></div>' +
+      '<div class="row"><span>Failure</span><span>' + esc(a.failureKind || '-') + '</span></div>' +
+      '<div class="row"><span>Open</span><span>' + esc(String(a.openCount || 0)) + '</span></div>' +
+      '<div class="row"><span>Updated</span><span>' + esc(ftime(a.updatedAt)) + '</span></div>' +
+      '<div class="small" style="margin-top:8px;line-height:1.5">' + esc(short(a.latestSummary || '-', 120)) + '</div>';
+    agentCards.appendChild(card);
+  });
+
+  if (data.jobs.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="10" class="small">No progress data yet</td>';
+    body.appendChild(tr);
+    return;
+  }
+
+  data.jobs.forEach((j) => {
+    const st = j.status === 'error' ? 'error' : (j.status === 'done' ? 'idle' : 'running');
+    const open = !!state.progressOpenJobs[j.jobID];
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="code">' + esc(j.jobID) + '</td>' +
+      '<td>' + esc(j.route || '-') + '</td>' +
+      '<td><span class="phase-badge">' + esc(progressPhaseLabel(j.phase)) + '</span></td>' +
+      '<td>' + esc(agName(j.owner || '-')) + '</td>' +
+      '<td>' + esc(String(j.retryCount || 0)) + '</td>' +
+      '<td><span class="badge ' + errorKindClass(j.failureKind || '') + '">' + esc(j.failureKind || '-') + '</span></td>' +
+      '<td><span class="badge ' + stateClass(st) + '">' + esc(j.status || '-') + '</span></td>' +
+      '<td>' + esc(fdt(j.updatedAt)) + '</td>' +
+      '<td>' + esc(short(j.latestSummary || '-', 120)) + '</td>' +
+      '<td><button class="ctl-btn" onclick="toggleProgressJob(\'' + esc(j.jobID) + '\')">' + (open ? 'Hide' : 'Open') + '</button></td>';
+    body.appendChild(tr);
+
+    if (open) {
+      const exp = document.createElement('tr');
+      exp.className = 'progress-expand';
+      exp.innerHTML = '<td colspan="10">' + renderProgressDetail(j) + '</td>';
+      body.appendChild(exp);
+    }
+  });
+}
+
 function renderEvidence() {
   const body = document.getElementById('evidenceBody');
   body.innerHTML = '';
@@ -1428,6 +1736,7 @@ function renderEvidenceSummary() {
 
 function refreshDerivedViews() {
   renderOverview();
+  renderProgress();
   renderSystem();
   renderSessions();
   renderJobs();
@@ -1776,6 +2085,7 @@ function degradeOfflineStates() {
     if (diff > OFFLINE_MS && s.state !== 'offline') s.state = 'offline';
   });
   renderOverview();
+  renderProgress();
 }
 setInterval(degradeOfflineStates, 5000);
 

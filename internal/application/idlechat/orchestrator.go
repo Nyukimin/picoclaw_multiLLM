@@ -32,19 +32,26 @@ var errIdleInvalidResponse = errors.New("idlechat invalid response")
 var promptLeakLineRe = regexp.MustCompile(`(?i)(^|[。．\n])[^。．\n]{0,30}(発言として受け|要件[:：]|発言帰属ガード)[^。．\n]*`)
 
 type SessionSummary struct {
-	SessionID       string        `json:"session_id"`
-	Title           string        `json:"title"`
-	Topic           string        `json:"topic"`
-	Strategy        TopicStrategy `json:"strategy"` // 生成戦略（旧 Category）
-	Summary         string        `json:"summary"`
-	StartedAt       string        `json:"started_at"`
-	EndedAt         string        `json:"ended_at"`
-	Turns           int           `json:"turns"`
-	LoopRestarted   bool          `json:"loop_restarted"`
-	LoopReason      string        `json:"loop_reason,omitempty"`
-	TopicProvider   string        `json:"topic_provider"`
-	SummaryProvider string        `json:"summary_provider"`
-	Transcript      []string      `json:"transcript,omitempty"`
+	SessionID         string        `json:"session_id"`
+	Title             string        `json:"title"`
+	Topic             string        `json:"topic"`
+	Strategy          TopicStrategy `json:"strategy"` // 生成戦略（旧 Category）
+	Summary           string        `json:"summary"`
+	SourceTitle       string        `json:"source_title,omitempty"`
+	RewriteStyle      string        `json:"rewrite_style,omitempty"`
+	StoryTitle        string        `json:"story_title,omitempty"`
+	StoryText         string        `json:"story_text,omitempty"`
+	StoryDraftText    string        `json:"story_draft_text,omitempty"`
+	StoryRevisionNote string        `json:"story_revision_note,omitempty"`
+	StoryEndingFlavor string        `json:"story_ending_flavor,omitempty"`
+	StartedAt         string        `json:"started_at"`
+	EndedAt           string        `json:"ended_at"`
+	Turns             int           `json:"turns"`
+	LoopRestarted     bool          `json:"loop_restarted"`
+	LoopReason        string        `json:"loop_reason,omitempty"`
+	TopicProvider     string        `json:"topic_provider"`
+	SummaryProvider   string        `json:"summary_provider"`
+	Transcript        []string      `json:"transcript,omitempty"`
 }
 
 type TimelineEvent struct {
@@ -139,10 +146,16 @@ func NewIdleChatOrchestrator(
 	maxTurns int,
 	temperature float64,
 	personalities map[string]string,
+	storyDataDir string,
 ) *IdleChatOrchestrator {
 	randSeedOnce.Do(func() {
 		rand.Seed(time.Now().UnixNano())
 	})
+	if storyDataDir != "" {
+		if err := LoadStoryData(storyDataDir); err != nil {
+			log.Printf("[Story] failed to load story data from %q: %v", storyDataDir, err)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
 		llmProvider:   llmProvider,
@@ -287,6 +300,26 @@ func (o *IdleChatOrchestrator) StartForecastMode() error {
 	o.sessionContext = ""
 	o.lastActivity = time.Now()
 	log.Println("[Forecast] Forecast mode started")
+	return nil
+}
+
+// StartStoryMode switches from manual idlechat into story mode immediately.
+func (o *IdleChatOrchestrator) StartStoryMode() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.participants) < 2 {
+		return fmt.Errorf("idlechat requires at least 2 participants")
+	}
+	if o.chatActive {
+		return fmt.Errorf("chat session already active")
+	}
+	o.manualMode = false
+	o.chatActive = true
+	o.sessionMode = "story"
+	o.currentTopic = ""
+	o.sessionContext = ""
+	o.lastActivity = time.Now()
+	log.Println("[Story] Story mode started")
 	return nil
 }
 
@@ -669,28 +702,31 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 	switch strategy {
 	case StrategySingleGenre:
 		var genres []string
-		prompt, genres = generateSingleGenrePrompt(movieMode)
-		logInfo = fmt.Sprintf("single:%v", genres)
-		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", movieMode)
+		var anchor topicAnchor
+		prompt, genres, anchor = generateSingleGenrePrompt(movieMode)
+		logInfo = fmt.Sprintf("single:%v anchor=%s", genres, anchor.Value)
+		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", anchor, movieMode)
 
 	case StrategyDoubleGenre:
 		var genres []string
-		prompt, genres = generateDoubleGenrePrompt(movieMode)
-		logInfo = fmt.Sprintf("double:%v", genres)
-		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", movieMode)
+		var anchor topicAnchor
+		prompt, genres, anchor = generateDoubleGenrePrompt(movieMode)
+		logInfo = fmt.Sprintf("double:%v anchor=%s", genres, anchor.Value)
+		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", anchor, movieMode)
 
 	case StrategyExternalStimulus:
 		var source string
 		prompt, source = generateExternalPrompt(movieMode)
 		logInfo = fmt.Sprintf("external:%s", source)
-		fallbackTopic = fallbackTopicForStrategy(strategy, nil, source, "", movieMode)
+		fallbackTopic = fallbackTopicForStrategy(strategy, nil, source, "", topicAnchor{}, movieMode)
 
 	default:
 		// Fallback to single genre
 		var genres []string
-		prompt, genres = generateSingleGenrePrompt(movieMode)
-		logInfo = fmt.Sprintf("single:%v (fallback)", genres)
-		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "", movieMode)
+		var anchor topicAnchor
+		prompt, genres, anchor = generateSingleGenrePrompt(movieMode)
+		logInfo = fmt.Sprintf("single:%v anchor=%s (fallback)", genres, anchor.Value)
+		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "", anchor, movieMode)
 	}
 
 	if o.recentTopics != nil {
@@ -740,12 +776,16 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 	return fallback, strategy
 }
 
-func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, movieMode bool) string {
+func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, anchor topicAnchor, movieMode bool) string {
+	anchorValue := strings.TrimSpace(anchor.Value)
 	switch strategy {
 	case StrategySingleGenre:
 		if len(genres) >= 1 && strings.TrimSpace(genres[0]) != "" {
 			if movieMode {
 				return formatMovieTopicPrompt(genres[0] + "の裏側")
+			}
+			if anchorValue != "" {
+				return fmt.Sprintf("%sを%sの視点から考える", genres[0], anchorValue)
 			}
 			return fmt.Sprintf("%sで見落としがちな判断基準", genres[0])
 		}
@@ -753,6 +793,9 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 		if len(genres) >= 2 && strings.TrimSpace(genres[0]) != "" && strings.TrimSpace(genres[1]) != "" {
 			if movieMode {
 				return formatMovieTopicPrompt(genres[0] + "と" + genres[1])
+			}
+			if anchorValue != "" {
+				return fmt.Sprintf("%sと%sを%sでつなぐ", genres[0], genres[1], anchorValue)
 			}
 			return fmt.Sprintf("%sと%sに共通する設計思想", genres[0], genres[1])
 		}

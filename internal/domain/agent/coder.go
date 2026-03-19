@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -63,6 +65,10 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 	if p == nil {
 		log.Printf("[CoderAgent] proposal extract empty provider=%s job=%s", c.llmProvider.Name(), t.JobID().String())
 	} else {
+		if err := c.selfCheckProposal(p); err != nil {
+			log.Printf("[CoderAgent] proposal self-check failed provider=%s job=%s err=%v", c.llmProvider.Name(), t.JobID().String(), err)
+			return nil, err
+		}
 		log.Printf("[CoderAgent] proposal extract complete provider=%s job=%s plan_len=%d patch_len=%d", c.llmProvider.Name(), t.JobID().String(), len(p.Plan()), len(p.Patch()))
 	}
 	return p, nil
@@ -160,4 +166,38 @@ func (c *CoderAgent) extractSection(content, startMarker, endMarker string) stri
 	}
 
 	return strings.TrimSpace(remaining[:endIdx])
+}
+
+func (c *CoderAgent) selfCheckProposal(p *proposal.Proposal) error {
+	if p == nil {
+		return fmt.Errorf("proposal is nil")
+	}
+	patchText := strings.TrimSpace(p.Patch())
+	if patchText == "" {
+		return fmt.Errorf("proposal patch is empty")
+	}
+	commands, err := patch.ParsePatch(patchText)
+	if err != nil {
+		return fmt.Errorf("proposal self-check failed: patch is not runnable: %w", err)
+	}
+	if hasBarePipCommand(patchText, commands) {
+		return fmt.Errorf("proposal self-check failed: bare pip command is not allowed")
+	}
+	return nil
+}
+
+func hasBarePipCommand(patchText string, commands []patch.PatchCommand) bool {
+	for _, line := range strings.Split(patchText, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "pip" || strings.HasPrefix(trimmed, "pip ") {
+			return true
+		}
+	}
+	for _, cmd := range commands {
+		target := strings.TrimSpace(cmd.Target)
+		if target == "pip" || strings.HasPrefix(target, "pip ") {
+			return true
+		}
+	}
+	return false
 }

@@ -22,6 +22,11 @@ const (
 	StrategyForecast         TopicStrategy = "forecast" // 未来展望セッション
 )
 
+type topicAnchor struct {
+	Kind  string
+	Value string
+}
+
 // genrePool はカオストピック生成用の多様なジャンル（260個）
 var genrePool = []string{
 	// === 学問・研究分野 (30) ===
@@ -115,6 +120,31 @@ var genrePool = []string{
 	// === その他・カオス (10) ===
 	"噂", "迷信", "ジンクス", "都市伝説", "怪談",
 	"占い", "予言", "呪文", "おまじない", "験担ぎ",
+}
+
+var topicAnchorPool = []topicAnchor{
+	{Kind: "人物", Value: "駆け出しのアーティスト"},
+	{Kind: "人物", Value: "古書店の店主"},
+	{Kind: "人物", Value: "深夜ラジオのパーソナリティ"},
+	{Kind: "人物", Value: "地方博物館の学芸員"},
+	{Kind: "人物", Value: "老舗工房の職人"},
+	{Kind: "人物", Value: "商店街の修理屋"},
+	{Kind: "人物", Value: "小さな映画館の映写担当"},
+	{Kind: "物", Value: "壊れたオルゴール"},
+	{Kind: "物", Value: "使い込まれた観測ノート"},
+	{Kind: "物", Value: "古いカセットテープ"},
+	{Kind: "物", Value: "標本箱"},
+	{Kind: "物", Value: "雨に濡れたポスター"},
+	{Kind: "場所", Value: "港町の倉庫街"},
+	{Kind: "場所", Value: "地下街の片隅"},
+	{Kind: "場所", Value: "閉館前の温室"},
+	{Kind: "場所", Value: "始発前の駅"},
+	{Kind: "場所", Value: "川沿いの遊歩道"},
+	{Kind: "場面", Value: "閉店後の片付け時間"},
+	{Kind: "場面", Value: "雨上がりの朝"},
+	{Kind: "場面", Value: "文化祭の前夜"},
+	{Kind: "場面", Value: "展示替えの直前"},
+	{Kind: "場面", Value: "録音のリハーサル中"},
 }
 
 // DailySeedCache は1日1回取得する外部シードのキャッシュ
@@ -330,59 +360,72 @@ func topicPromptFooter(movieMode bool) string {
 - 質問文・感想文・呼びかけは禁止
 - 「〜って面白いんじゃない？」のような会話調は禁止
 - 体言止め、または「〜の関係」「〜を考える」のような題名調にする
+- ジャンル名だけで終わらせず、人・物・場所・場面のどれかを1つ必ず入れる
 - 40文字以内を目安に簡潔にする`
 }
 
-// generateSingleGenrePrompt は1ジャンル単体のプロンプトを生成
-func generateSingleGenrePrompt(movieMode bool) (string, []string) {
-	genres := pickRandom(genrePool, 1)
+func pickTopicAnchor() topicAnchor {
+	return topicAnchorPool[rand.Intn(len(topicAnchorPool))]
+}
 
+func buildSingleGenrePrompt(genre string, anchor topicAnchor, movieMode bool) string {
 	bannedKeywords := extractBannedKeywords()
-
-	prompt := fmt.Sprintf(`以下のジャンルを深掘りした、興味深い話題を1つ提案してください。
+	return fmt.Sprintf(`以下のジャンルを深掘りした、興味深い話題を1つ提案してください。
 
 ジャンル: %s
+具体アンカー (%s): %s
 
 要件:
 - 深い洞察と新しい視点
 - 会話が発展する具体性
 - エンターテイメント性
+- ジャンル名だけで終わらせず、具体アンカーを自然に織り込む
 
 禁止事項:
 - %s に関するトピックは避ける
 - 「もし〜だったら」形式は使わない
 - 教科書的な真面目な説明は避ける
 - 直近トピックと類似した内容は避ける
+- 抽象語だけで閉じた題名にしない
 
-%s`, genres[0], strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
-
-	return prompt, genres
+%s`, genre, anchor.Kind, anchor.Value, strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
 }
 
-// generateDoubleGenrePrompt は2ジャンル掛け合わせのプロンプトを生成
-func generateDoubleGenrePrompt(movieMode bool) (string, []string) {
-	genres := pickRandom(genrePool, 2)
-
+func buildDoubleGenrePrompt(genres []string, anchor topicAnchor, movieMode bool) string {
 	bannedKeywords := extractBannedKeywords()
-
-	prompt := fmt.Sprintf(`以下の2つのジャンルを組み合わせた、面白い話題を1つ提案してください。
+	return fmt.Sprintf(`以下の2つのジャンルを組み合わせた、面白い話題を1つ提案してください。
 
 ジャンル: %s × %s
+具体アンカー (%s): %s
 
 要件:
 - 意外な組み合わせだが、深く考えると繋がりが見える
 - 会話が深まる具体性
 - 適度なエンターテイメント性
+- 2ジャンルに具体アンカーを接続し、人・物・場所・場面が見える題名にする
 
 禁止事項:
 - %s に関するトピックは避ける
 - 「もし〜だったら」形式は使わない
 - 教科書的な真面目な組み合わせは避ける
 - 直近トピックと類似した内容は避ける
+- 抽象語だけで閉じた題名にしない
 
-%s`, genres[0], genres[1], strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
+%s`, genres[0], genres[1], anchor.Kind, anchor.Value, strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
+}
 
-	return prompt, genres
+// generateSingleGenrePrompt は1ジャンル単体のプロンプトを生成
+func generateSingleGenrePrompt(movieMode bool) (string, []string, topicAnchor) {
+	genres := pickRandom(genrePool, 1)
+	anchor := pickTopicAnchor()
+	return buildSingleGenrePrompt(genres[0], anchor, movieMode), genres, anchor
+}
+
+// generateDoubleGenrePrompt は2ジャンル掛け合わせのプロンプトを生成
+func generateDoubleGenrePrompt(movieMode bool) (string, []string, topicAnchor) {
+	genres := pickRandom(genrePool, 2)
+	anchor := pickTopicAnchor()
+	return buildDoubleGenrePrompt(genres, anchor, movieMode), genres, anchor
 }
 
 // generateExternalPrompt は外部刺激を使ったプロンプトを生成
@@ -390,7 +433,7 @@ func generateExternalPrompt(movieMode bool) (string, string) {
 	cache := getDailyCache()
 	if cache == nil {
 		// フォールバック: 2ジャンル生成
-		p, _ := generateDoubleGenrePrompt(movieMode)
+		p, _, _ := generateDoubleGenrePrompt(movieMode)
 		return p, "fallback"
 	}
 
@@ -414,7 +457,7 @@ func generateExternalPrompt(movieMode bool) (string, string) {
 		source = "News"
 	} else {
 		// フォールバック: 2ジャンル
-		p, _ := generateDoubleGenrePrompt(movieMode)
+		p, _, _ := generateDoubleGenrePrompt(movieMode)
 		return p, "fallback"
 	}
 

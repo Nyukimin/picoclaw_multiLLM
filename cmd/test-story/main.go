@@ -21,6 +21,10 @@ func main() {
 
 	chatProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, cfg.Ollama.Model, 32768)
 	memory := session.NewCentralMemory()
+	storyDataDir := cfg.IdleChat.StoryDataDir
+	if storyDataDir == "" {
+		storyDataDir = "./data/story"
+	}
 	orch := idlechat.NewIdleChatOrchestrator(
 		chatProvider,
 		memory,
@@ -29,6 +33,7 @@ func main() {
 		cfg.IdleChat.MaxTurns,
 		cfg.IdleChat.Temperature,
 		cfg.Prompts.IdleChatAgents,
+		storyDataDir,
 	)
 	orch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":   chatProvider,

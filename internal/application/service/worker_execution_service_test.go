@@ -144,6 +144,32 @@ func TestExecuteProposal_ParseError(t *testing.T) {
 	}
 }
 
+func TestExecuteProposal_ClassifiesMissingCommandAsRetryable(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.WorkerConfig{
+		Workspace:      tmpDir,
+		StopOnError:    true,
+		CommandTimeout: 10,
+	}
+	service := NewWorkerExecutionService(cfg)
+	jobID := task.NewJobID()
+	p := proposal.NewProposal("retry test", `[{"type":"shell_command","action":"run","target":"pip install foo"}]`, "", "")
+
+	result, err := service.ExecuteProposal(context.Background(), jobID, p)
+	if err != nil {
+		t.Fatalf("ExecuteProposal failed: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected failed execution")
+	}
+	if result.FailureKind != "missing_command" {
+		t.Fatalf("expected missing_command, got %q", result.FailureKind)
+	}
+	if !result.Retryable {
+		t.Fatal("expected retryable failure")
+	}
+}
+
 func TestExecuteFileEdit_Create(t *testing.T) {
 	tmpDir := t.TempDir()
 

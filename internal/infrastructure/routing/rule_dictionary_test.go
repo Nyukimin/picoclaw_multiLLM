@@ -38,28 +38,38 @@ func TestRuleDictionary_Match_NoMatch(t *testing.T) {
 
 func TestRuleDictionary_Match_CodeKeywords(t *testing.T) {
 	tests := []struct {
-		name       string
-		message    string
+		name        string
+		message     string
 		expectRoute routing.Route
 	}{
 		{
-			name:       "実装してのキーワード",
-			message:    "このファイルを実装して",
+			name:        "実装してのキーワード",
+			message:     "このファイルを実装して",
 			expectRoute: routing.RouteCODE,
 		},
 		{
-			name:       "修正してのキーワード",
-			message:    "このバグを修正して",
+			name:        "修正してのキーワード",
+			message:     "このバグを修正して",
 			expectRoute: routing.RouteCODE,
 		},
 		{
-			name:       "リファクタリングのキーワード",
-			message:    "このコードをリファクタリングして",
+			name:        "リファクタリングのキーワード",
+			message:     "このコードをリファクタリングして",
 			expectRoute: routing.RouteCODE,
 		},
 		{
-			name:       "テストを追加",
-			message:    "テストを追加してください",
+			name:        "テストを追加",
+			message:     "テストを追加してください",
+			expectRoute: routing.RouteCODE,
+		},
+		{
+			name:        "ファイル更新依頼",
+			message:     "JSON ファイルの text フィールドを更新してください",
+			expectRoute: routing.RouteCODE,
+		},
+		{
+			name:        "システム構築依頼でもコード扱い",
+			message:     "これは、システム構築依頼です。/tmp/data/story ディレクトリにある JSON ファイルの text フィールドを更新してください",
 			expectRoute: routing.RouteCODE,
 		},
 	}

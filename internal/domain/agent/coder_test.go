@@ -139,6 +139,44 @@ func TestCoderAgentGenerateProposal_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestCoderAgentGenerateProposal_SelfCheckRejectsBarePip(t *testing.T) {
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			return llm.GenerateResponse{
+				Content: `## Plan
+Step 1
+
+## Patch
+[
+  {
+    "type": "shell_command",
+    "action": "run",
+    "target": "pip install foo"
+  }
+]
+
+## Risk
+Low
+
+## CostHint
+Low`,
+			}, nil
+		},
+	}
+
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+	jobID := task.NewJobID()
+	testTask := task.NewTask(jobID, "テスト", "line", "U123")
+
+	_, err := coder.GenerateProposal(context.Background(), testTask)
+	if err == nil {
+		t.Fatal("expected self-check error")
+	}
+	if !strings.Contains(err.Error(), "bare pip") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestCoderAgentExtractSection(t *testing.T) {
 	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
 

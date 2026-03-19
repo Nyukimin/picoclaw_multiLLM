@@ -176,6 +176,7 @@ type IdleChatConfig struct {
 	IntervalMin  int      `yaml:"interval_min"` // 雑談開始までのアイドル時間・分（デフォルト: 5）
 	MaxTurns     int      `yaml:"max_turns"`    // 1回の雑談の最大ターン数（デフォルト: 10）
 	Temperature  float64  `yaml:"temperature"`  // 雑談時の温度（デフォルト: 0.8）
+	StoryDataDir string   `yaml:"story_data_dir"` // 物語データJSONディレクトリ（デフォルト: "data/story"）
 }
 
 // ConversationConfig は会話LLMの設定

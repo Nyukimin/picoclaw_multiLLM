@@ -25,7 +25,21 @@ func NewRuleDictionary() *RuleDictionary {
 		rules: []rule{
 			// CODE関連キーワード
 			{
-				keywords:   []string{"実装して", "修正して", "リファクタリング", "テストを追加", "コードを書", "バグを直", "関数を作"},
+				keywords: []string{
+					"実装して",
+					"修正して",
+					"リファクタリング",
+					"テストを追加",
+					"コードを書",
+					"バグを直",
+					"関数を作",
+					"更新してください",
+					"ファイルを更新",
+					"ファイルに格納",
+					"text フィールドを",
+					"json ファイル",
+					"システム構築依頼",
+				},
 				route:      routing.RouteCODE,
 				confidence: 0.85,
 			},

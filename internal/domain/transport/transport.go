@@ -48,12 +48,16 @@ type ProposalPayload struct {
 
 // ResultPayload は実行結果のTransport用DTO
 type ResultPayload struct {
-	Success      bool                   `json:"success"`
-	Summary      string                 `json:"summary"`
-	ExecutedCmds int                    `json:"executed_cmds"`
-	FailedCmds   int                    `json:"failed_cmds"`
-	GitCommit    string                 `json:"git_commit,omitempty"`
-	Results      []CommandResultPayload `json:"results,omitempty"`
+	Success       bool                   `json:"success"`
+	Summary       string                 `json:"summary"`
+	ExecutedCmds  int                    `json:"executed_cmds"`
+	FailedCmds    int                    `json:"failed_cmds"`
+	GitCommit     string                 `json:"git_commit,omitempty"`
+	Results       []CommandResultPayload `json:"results,omitempty"`
+	FailureKind   string                 `json:"failure_kind,omitempty"`
+	FailureReason string                 `json:"failure_reason,omitempty"`
+	Retryable     bool                   `json:"retryable,omitempty"`
+	FailedIndex   int                    `json:"failed_index,omitempty"`
 }
 
 // CommandResultPayload はコマンド実行結果のTransport用DTO

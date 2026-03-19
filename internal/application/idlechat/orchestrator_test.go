@@ -3,6 +3,7 @@ package idlechat
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,13 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
+
+func TestMain(m *testing.M) {
+	// Load story data so corpus-dependent tests have data available.
+	// Failure is non-fatal: tests that don't need story data still run.
+	_ = LoadStoryData("../../../data/story")
+	os.Exit(m.Run())
+}
 
 // mockLLMProvider はテスト用のモックLLMプロバイダー
 type mockLLMProvider struct {
@@ -59,7 +67,7 @@ func TestNewIdleChatOrchestrator(t *testing.T) {
 	memory := session.NewCentralMemory()
 	participants := []string{"mio", "shiro"}
 
-	o := NewIdleChatOrchestrator(provider, memory, participants, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, participants, 5, 10, 0.8, nil, "")
 
 	if o.intervalMin != 5 {
 		t.Errorf("Expected intervalMin=5, got %d", o.intervalMin)
@@ -79,7 +87,7 @@ func TestIdleChatOrchestrator_UsesSpeakerSpecificProviders(t *testing.T) {
 	chatProvider := &mockLLMProvider{response: "話題"}
 	workerProvider := &mockLLMProvider{response: "要約"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(chatProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(chatProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":   chatProvider,
 		"shiro": workerProvider,
@@ -109,7 +117,7 @@ func TestIdleChatOrchestrator_UsesSpeakerSpecificProviders(t *testing.T) {
 func TestIdleChatOrchestrator_TemperatureForSpeaker_MioAndShiroFixed(t *testing.T) {
 	provider := &mockLLMProvider{response: "新しい観点を出してみよう。"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.2, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.2, nil, "")
 
 	if _, err := o.generateResponse("mio", "shiro", "idle-temp", 0, 0, "話題"); err != nil {
 		t.Fatalf("generateResponse(mio) failed: %v", err)
@@ -129,7 +137,7 @@ func TestIdleChatOrchestrator_TemperatureForSpeaker_MioAndShiroFixed(t *testing.
 func TestIdleChatOrchestrator_TemperatureForSpeaker_OthersUseConfiguredValue(t *testing.T) {
 	provider := &mockLLMProvider{response: "別の案として考えると面白い。"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"gin", "mio"}, 5, 10, 0.35, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"gin", "mio"}, 5, 10, 0.35, nil, "")
 
 	if _, err := o.generateResponse("gin", "mio", "idle-temp", 0, 0, "話題"); err != nil {
 		t.Fatalf("generateResponse(gin) failed: %v", err)
@@ -142,7 +150,7 @@ func TestIdleChatOrchestrator_TemperatureForSpeaker_OthersUseConfiguredValue(t *
 func TestGenerateResponse_ShowsSpeakerStyleConstraintsInPrompt(t *testing.T) {
 	provider := &mockLLMProvider{response: "その見方は面白い。条件を一つずつ確かめたい。"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	_, err := o.generateResponse("shiro", "mio", "idle-shiro-prompt", 1, 1, "古代塔")
 	if err != nil {
@@ -202,7 +210,7 @@ func TestBuildIdleTurnPrompt_ClosingModeAddsEndingGuidance(t *testing.T) {
 func TestGenerateResponse_AddsMovieTopicGuidance(t *testing.T) {
 	provider := &mockLLMProvider{response: "廃墟の余韻が先に立つ作品かもしれない。音の扱いでかなり印象が変わりそうだ。"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	_, err := o.generateResponse("shiro", "mio", "idle-movie-prompt", 0, 0, "「瓦礫のセレナーデ」ってどんな映画？")
 	if err != nil {
@@ -231,7 +239,7 @@ func TestIdleChatOrchestrator_StartStop(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 3, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 3, 0.8, nil, "")
 
 	o.Start()
 
@@ -254,7 +262,7 @@ func TestIdleChatOrchestrator_NotifyActivity(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	// chatActiveを手動で設定してNotifyActivityで中断されることを確認
 	o.mu.Lock()
@@ -271,7 +279,7 @@ func TestIdleChatOrchestrator_NotifyActivity(t *testing.T) {
 func TestIdleChatOrchestrator_ManualMode_StartStop(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	if err := o.StartManualMode(); err != nil {
 		t.Fatalf("StartManualMode failed: %v", err)
@@ -289,7 +297,7 @@ func TestIdleChatOrchestrator_ManualMode_StartStop(t *testing.T) {
 func TestIdleChatOrchestrator_ManualMode_StopsOnActivity(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	if err := o.StartManualMode(); err != nil {
 		t.Fatalf("StartManualMode failed: %v", err)
@@ -303,7 +311,7 @@ func TestIdleChatOrchestrator_ManualMode_StopsOnActivity(t *testing.T) {
 func TestIdleChatOrchestrator_StartForecastMode_SwitchesFromManualMode(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	if err := o.StartManualMode(); err != nil {
 		t.Fatalf("StartManualMode failed: %v", err)
@@ -326,7 +334,7 @@ func TestIdleChatOrchestrator_StartForecastMode_SwitchesFromManualMode(t *testin
 func TestIdleChatOrchestrator_StartForecastMode_RejectsActiveSession(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -341,7 +349,7 @@ func TestIdleChatOrchestrator_StartForecastMode_RejectsActiveSession(t *testing.
 func TestIdleChatOrchestrator_StartStoryMode_SwitchesFromManualMode(t *testing.T) {
 	provider := &mockLLMProvider{response: "story"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	if err := o.StartManualMode(); err != nil {
 		t.Fatalf("StartManualMode failed: %v", err)
@@ -363,7 +371,7 @@ func TestIdleChatOrchestrator_StartStoryMode_SwitchesFromManualMode(t *testing.T
 func TestIdleChatOrchestrator_NextIdleSessionPlan_RotatesNormalAndForecast(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -404,7 +412,7 @@ func TestIdleChatOrchestrator_IsChatActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	if o.IsChatActive() {
 		t.Error("Should not be active initially")
@@ -416,7 +424,7 @@ func TestIdleChatOrchestrator_RunChatSession(t *testing.T) {
 	memory := session.NewCentralMemory()
 	maxTurns := 3
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, maxTurns, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, maxTurns, 0.8, nil, "")
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -459,7 +467,7 @@ func TestSaveStorySummary_StoresStoryMetadata(t *testing.T) {
 
 	provider := &mockLLMProvider{response: "unused"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	source := StorySource{ID: "momotaro", Title: "桃太郎"}
 	plan := StoryRewritePlan{RewriteStyle: "role_shift", StoryTitle: "港の桃太郎", Premise: "桃太郎が港で異変を追う", EndingFlavor: "皮肉", MotifMap: []string{"桃=>桃印", "きびだんご=>夜食の配給券"}}
 	draftText := "夜の港に、桃印の新人が立っていた。"
@@ -489,7 +497,7 @@ func TestRetryStoryDraft_RetriesBeforeSuccess(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{"shiro": shiroProvider})
 	source := StorySource{ID: "momotaro", Title: "桃太郎", SourceLabel: "日本昔話", Text: "昔々、川から流れてきた大きな桃から男の子が生まれました。桃太郎と名づけられたその子は、やがて立派に育ち、村を困らせる鬼を退治するため鬼ヶ島へ向かいます。道中で犬、猿、雉を家来にし、きびだんごを分け与えながら心を一つにしました。鬼ヶ島では力だけでなく知恵も使って鬼の油断を突き、宝を持ち帰って村に平和を戻しました。"}
 	analysis := analyzeStorySource(source)
@@ -531,11 +539,11 @@ func TestRetryStoryDraft_RetriesBeforeSuccess(t *testing.T) {
 func TestRetryStoryDraft_UsesDeterministicFallbackAfterExhaustedRetries(t *testing.T) {
 	shiroProvider := &mockLLMProvider{responses: []string{"", "", ""}}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{"shiro": shiroProvider})
 	source := StorySource{ID: "issun", Title: "一寸法師", SourceLabel: "日本昔話", Text: "一寸ほどの小さな男の子は、針を刀、椀を舟にして都へ向かいました。都では働き者として姫のそばに仕えますが、ある日鬼にさらわれそうになります。小さな体を生かして鬼の口や腹の中で暴れ、打ち出の小槌を手に入れました。その力で元の大きさに育ち、勇気と機転で姫を守った功績が認められます。"}
 	analysis := analyzeStorySource(source)
-	plan := groundStoryRewritePlan(source, analysis, fallbackStoryRewritePlan(source, analysis, "view_shift"))
+	plan := buildStoryRewritePlan(source, analysis, "view_shift")
 	beatPlan := groundedStoryBeatPlan(source, analysis, plan)
 	adaptation := buildStoryAdaptationPlan(analysis.Skeleton, plan, beatPlan)
 
@@ -564,7 +572,7 @@ func TestRunStorySession_UsesDeterministicStoryAfterThreeSourceFailures(t *testi
 	}
 	shiroProvider := &mockLLMProvider{responses: shiroResponses}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(mioProvider, memory, []string{"mio", "shiro"}, 5, 1, 0.8, nil)
+	o := NewIdleChatOrchestrator(mioProvider, memory, []string{"mio", "shiro"}, 5, 1, 0.8, nil, "")
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{"mio": mioProvider, "shiro": shiroProvider})
 
 	o.RunStorySession()
@@ -581,46 +589,6 @@ func TestRunStorySession_UsesDeterministicStoryAfterThreeSourceFailures(t *testi
 	}
 	if !strings.Contains(history[0].StoryRevisionNote, "第1稿") {
 		t.Fatalf("expected draft to be kept after bad revisions, got %+v", history[0])
-	}
-}
-
-func TestStoryCoreMotifs_ShitakiriIncludesCanonicalElements(t *testing.T) {
-	motifs := storyCoreMotifs(StorySource{ID: "shitakiri", Title: "舌切り雀"})
-	for _, want := range []string{"舌を切る", "小さいつづら", "大きいつづら", "欲深さの報い"} {
-		if !containsString(motifs, want) {
-			t.Fatalf("expected motif %q in %v", want, motifs)
-		}
-	}
-}
-
-func TestParseStoryRewritePlan_PrefersCanonicalStyleField(t *testing.T) {
-	raw := "STORY_TITLE: 現代の舌切り雀\nPREMISE: 舌切り雀を配送センターの話にする\nSETTING: 深夜の配送センター\nVIEWPOINT: 雀を見ていた同僚の一人称\nTONE: 乾いた現場劇\nHOOK: もし舌を切る代わりに音声認証を剥奪していたら\nENDING: 欲の差が最後に露呈する\nENDING_FLAVOR: 皮肉\nCORE_MOTIFS: 舌を切る / 小さいつづら / 大きいつづら / 欲深さの報い\nMOTIF_MAP: 舌を切る=>音声認証を剥奪される / 小さいつづら=>小型ケース / 大きいつづら=>大型コンテナ / 欲深さの報い=>過剰請求の発覚\nSTYLE: view_shift"
-	plan := parseStoryRewritePlan("舌切り雀", "role_shift", raw, chooseStoryTwist(StorySource{ID: "shitakiri", Title: "舌切り雀"}, "role_shift"), storyCoreMotifs(StorySource{ID: "shitakiri", Title: "舌切り雀"}))
-	if plan.RewriteStyle != "view_shift" {
-		t.Fatalf("expected canonical rewrite style, got %q", plan.RewriteStyle)
-	}
-	if !containsString(plan.CoreMotifs, "舌を切る") {
-		t.Fatalf("expected core motifs to include tongue-cut motif, got %v", plan.CoreMotifs)
-	}
-	if !containsString(plan.MotifMap, "舌を切る=>音声認証を剥奪される") {
-		t.Fatalf("expected motif map to preserve transformed motif, got %v", plan.MotifMap)
-	}
-}
-
-func TestParseStoryRewritePlan_ParsesSingleLineFields(t *testing.T) {
-	raw := "STORY_TITLE: 光る竹の少女  PREMISE: 研究施設で保護された天才少女が月へ引き戻される。  SETTING: 地方研究所  VIEWPOINT: 所長の近接三人称  TONE: 冷静  HOOK: 竹の中から現れた少女がいた。  ENDING: 見送るしかない別れ  ENDING_FLAVOR: 喪失  CORE_MOTIFS: 竹 / 姫 / 難題 / 月  MOTIF_MAP: 竹=>光る試験管 / 月=>回収契約  STYLE: role_shift"
-	plan := parseStoryRewritePlan("竹取物語", "role_shift", raw, chooseStoryTwist(StorySource{ID: "kaguya", Title: "竹取物語"}, "role_shift"), storyCoreMotifs(StorySource{ID: "kaguya", Title: "竹取物語"}))
-	if plan.StoryTitle != "光る竹の少女" || plan.Premise == "" || plan.Setting != "地方研究所" {
-		t.Fatalf("expected single-line rewrite plan to parse, got %+v", plan)
-	}
-}
-
-func TestParseStoryBeatPlan_ParsesSingleLineFields(t *testing.T) {
-	raw := "OPENING: 雨の夜に招待状が届いた。  DEVIATION: 箱を受け取った瞬間に帰る理由が消えた。  REVERSAL: 開封で時間の代償が一気に押し寄せる。  LANDING: 最後に残るのは喪失だった。"
-	plan := StoryRewritePlan{Hook: "hook", Premise: "premise", EndingShape: "ending", EndingFlavor: "喪失"}
-	beat := parseStoryBeatPlan(raw, plan)
-	if beat.Opening != "雨の夜に招待状が届いた。" || beat.Landing != "最後に残るのは喪失だった。" {
-		t.Fatalf("expected single-line beat plan to parse, got %+v", beat)
 	}
 }
 
@@ -641,11 +609,11 @@ func TestStoryNarrativeLooksLikeProse_RejectsAtmosphericOpeningWithoutAction(t *
 func TestReviseStoryNarrative_RejectsSkeletonRegression(t *testing.T) {
 	shiroProvider := &mockLLMProvider{response: "REVISION_NOTE:\nまとまりだけ整えた。\nSTORY:\n一寸ほどの背丈しかない若者は町へ向かった。彼は店先で昔を思い出し、静かな夜を見上げた。やがて何も起きないまま朝になり、喪失だけが残った。"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(shiroProvider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{"shiro": shiroProvider})
 	source := StorySource{ID: "issun", Title: "一寸法師", SourceLabel: "日本昔話"}
 	analysis := analyzeStorySource(source)
-	plan := groundStoryRewritePlan(source, analysis, fallbackStoryRewritePlan(source, analysis, "view_shift"))
+	plan := buildStoryRewritePlan(source, analysis, "view_shift")
 	beatPlan := groundedStoryBeatPlan(source, analysis, plan)
 	adaptation := buildStoryAdaptationPlan(analysis.Skeleton, plan, beatPlan)
 	draft := deterministicStoryDraft(source, analysis, plan, adaptation, beatPlan)
@@ -670,26 +638,6 @@ func TestNormalizeStoryNarrative_DedupesMetaAndRepeatedSentences(t *testing.T) {
 	}
 	if strings.Count(got, "マッチの火が消えた後") != 1 {
 		t.Fatalf("expected duplicate sentence removed, got %q", got)
-	}
-}
-
-func TestGroundStoryRewritePlan_ReplacesCorporateSetting(t *testing.T) {
-	source := StorySource{ID: "beauty", Title: "美女と野獣"}
-	analysis := analyzeStorySource(source)
-	plan := groundStoryRewritePlan(source, analysis, StoryRewritePlan{
-		SourceTitle:  source.Title,
-		RewriteStyle: "view_shift",
-		StoryTitle:   "獣のSaaS",
-		Premise:      "巨大企業の権限トークンを巡る話にする。",
-		Setting:      "高層ビルと会員制リゾート",
-		Viewpoint:    "AI部門の一人称",
-		Hook:         "SNSで話題になった野獣。",
-	})
-	if strings.Contains(plan.Setting, "高層") || strings.Contains(plan.Premise, "巨大企業") || strings.Contains(plan.Hook, "SNS") {
-		t.Fatalf("expected grounded rewrite plan, got %+v", plan)
-	}
-	if plan.Setting != "町はずれの古い洋館" {
-		t.Fatalf("expected grounded setting, got %q", plan.Setting)
 	}
 }
 
@@ -747,15 +695,9 @@ func TestStorySpecs_CoverEntireCorpus(t *testing.T) {
 		if len(spec.Skeleton.RecognitionCues) == 0 {
 			t.Fatalf("missing recognition cues for %s", source.ID)
 		}
-		for _, style := range []string{"role_shift", "view_shift", "value_shift"} {
-			twists := spec.Twists[style]
-			if len(twists) == 0 {
-				t.Fatalf("missing %s twist for %s", style, source.ID)
-			}
-			for _, twist := range twists {
-				if strings.TrimSpace(twist.StoryTitle) == "" || strings.TrimSpace(twist.Hook) == "" || strings.TrimSpace(twist.VisibleTwist) == "" {
-					t.Fatalf("incomplete %s twist for %s: %+v", style, source.ID, twist)
-				}
+		for style, axis := range spec.Twists {
+			if strings.TrimSpace(axis) == "" {
+				t.Fatalf("empty twist axis for style %q in %s", style, source.ID)
 			}
 		}
 	}
@@ -772,26 +714,6 @@ func TestStorySkeleton_KasajizoHasGiftAndReturnBeats(t *testing.T) {
 		if !containsString(skeleton.RecognitionCues, cue) {
 			t.Fatalf("expected cue %q in %v", cue, skeleton.RecognitionCues)
 		}
-	}
-}
-
-func TestChooseStoryTwist_KasajizoUsesDedicatedReturnStructure(t *testing.T) {
-	twist := chooseStoryTwist(StorySource{ID: "kasajizo", Title: "笠地蔵"}, "role_shift")
-	if !strings.Contains(twist.VisibleTwist, "笠地蔵") {
-		t.Fatalf("expected kasajizo twist to anchor source title, got %+v", twist)
-	}
-	if twist.Setting != "雪の積もる町はずれの道" {
-		t.Fatalf("expected grounded kasajizo setting, got %q", twist.Setting)
-	}
-}
-
-func TestChooseRoleShiftTwist_RedridingUsesDeliveryStructure(t *testing.T) {
-	twist := chooseRoleShiftTwist(StorySource{ID: "redriding", Title: "赤ずきん"})
-	if !strings.Contains(twist.VisibleTwist, "赤ずきん") {
-		t.Fatalf("expected source-anchored twist, got %+v", twist)
-	}
-	if twist.Setting != "町外れの林道と祖母の家" {
-		t.Fatalf("expected grounded redriding setting, got %q", twist.Setting)
 	}
 }
 
@@ -830,16 +752,6 @@ func TestNormalizeStoryRewriteStyle_RejectsEraShiftAndMapsCurrentModes(t *testin
 		if got := normalizeStoryRewriteStyle(in); got != want {
 			t.Fatalf("normalizeStoryRewriteStyle(%q)=%q want %q", in, got, want)
 		}
-	}
-}
-
-func TestChooseViewShiftTwist_AladdinUsesSpecificPerspective(t *testing.T) {
-	twist := chooseViewShiftTwist(StorySource{ID: "aladdin", Title: "アラジンと魔法のランプ"})
-	if !strings.Contains(twist.Hook, "アラジンと魔法のランプ") {
-		t.Fatalf("expected hook to anchor source title, got %q", twist.Hook)
-	}
-	if twist.Setting != "市場通りと古い倉庫" {
-		t.Fatalf("expected grounded aladdin setting, got %q", twist.Setting)
 	}
 }
 
@@ -893,7 +805,7 @@ func TestIdleChatOrchestrator_ChatInterrupted(t *testing.T) {
 	provider := &mockLLMProvider{response: "response", delay: 5 * time.Millisecond}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 100, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 100, 0.8, nil, "")
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -920,7 +832,7 @@ func TestIdleChatOrchestrator_GenerationErrorAppliesCooldown(t *testing.T) {
 	provider := &mockLLMProvider{err: context.DeadlineExceeded}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -940,7 +852,7 @@ func TestCheckAndStartChat_NotIdleLongEnough(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 3, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 3, 0.8, nil, "")
 	// lastActivity は now（アイドル時間が短い）
 
 	o.checkAndStartChat()
@@ -955,7 +867,7 @@ func TestCheckAndStartChat_AlreadyActive(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 3, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 3, 0.8, nil, "")
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -973,7 +885,7 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
 	memory := session.NewCentralMemory()
 
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 2, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 2, 0.8, nil, "")
 
 	// lastActivity を過去に設定
 	o.mu.Lock()
@@ -996,7 +908,7 @@ func TestCheckAndStartChat_StartsSession(t *testing.T) {
 func TestCheckAndStartChat_ManualMode_StartsWithoutIdleThreshold(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 2, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 60, 2, 0.8, nil, "")
 
 	if err := o.StartManualMode(); err != nil {
 		t.Fatalf("StartManualMode failed: %v", err)
@@ -1011,7 +923,7 @@ func TestCheckAndStartChat_ManualMode_StartsWithoutIdleThreshold(t *testing.T) {
 func TestCheckAndStartChat_RespectsMinTopicInterval(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello", delay: 1 * time.Millisecond}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 2, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 0, 2, 0.8, nil, "")
 
 	o.mu.Lock()
 	o.lastActivity = time.Now().Add(-1 * time.Hour)
@@ -1027,7 +939,7 @@ func TestCheckAndStartChat_RespectsMinTopicInterval(t *testing.T) {
 func TestGetSystemPrompt(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio"}, 5, 10, 0.8, nil, "")
 
 	// 既知のAgent
 	prompt := o.getSystemPrompt("mio")
@@ -1136,7 +1048,7 @@ func TestGenerateTopicFromChat_NormalizesChattyOutput(t *testing.T) {
 		response: "ユン食堂の食材調達における薬学的なアプローチ、つまり、それぞれの食材の成分組成と、それらを組み合わせた料理で生み出される生理活性効果を、徹底的に分析していくってのは、めちゃくちゃ面白いんじゃない？",
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	topic, _ := o.generateTopicFromChat("idle-topic-normalize", StrategySingleGenre)
 	if topic != "ユン食堂の食材調達における薬学的なアプローチ" &&
@@ -1168,7 +1080,7 @@ func TestTruncate(t *testing.T) {
 func TestIsLooping_DetectsAlternatingSimilarity(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	transcript := []string{
 		"mio: 世界の法則が変わるRPGって面白いよね",
@@ -1188,7 +1100,7 @@ func TestIsLooping_DetectsAlternatingSimilarity(t *testing.T) {
 func TestIsLooping_DetectsRepeatedSpeakerTemplates(t *testing.T) {
 	provider := &mockLLMProvider{response: "hello"}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	transcript := []string{
 		"mio: まさに！音色を形にするって、まるで自分の心の風景を立体的に表現していくみたいじゃない？",
@@ -1274,7 +1186,7 @@ func TestGenerateResponse_RetriesInvalidLeadingPunctuation(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	got, err := o.generateResponse("mio", "shiro", "idle-invalid", 1, 1, "すごろく")
 	if err != nil {
@@ -1296,7 +1208,7 @@ func TestGenerateResponse_AcceptsSanitizedResponseWhenRetryInvalidIsEmpty(t *tes
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	got, err := o.generateResponse("mio", "shiro", "idle-sanitized-ok", 1, 1, "音の反射")
 	if err != nil {
@@ -1339,7 +1251,7 @@ func TestGenerateResponse_RetriesAwkwardShiroStyle(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	got, err := o.generateResponse("shiro", "mio", "idle-style", 1, 1, "すごろく")
 	if err != nil {
@@ -1361,7 +1273,7 @@ func TestGenerateResponse_RetriesSelfReferentialShiroRewrite(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	got, err := o.generateResponse("shiro", "mio", "idle-style-self-ref", 1, 1, "地下構造")
 	if err != nil {
@@ -1391,7 +1303,7 @@ func TestGenerateResponse_RetriesShiroMirroringLatestOther(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	memory.RecordMessage(domaintransport.Message{
 		From:      "mio",
 		To:        "shiro",
@@ -1419,7 +1331,7 @@ func TestGenerateResponse_RetriesMioMirroringLatestOther(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	memory.RecordMessage(domaintransport.Message{
 		From:      "shiro",
 		To:        "mio",
@@ -1447,7 +1359,7 @@ func TestGenerateResponse_InvalidMovieResponseStopsInsteadOfLooping(t *testing.T
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	_, err := o.generateResponse("mio", "shiro", "idle-movie-fallback", 1, 1, "「ブルーノート・コード」ってどんな映画？")
 	if !errors.Is(err, errIdleInvalidResponse) {
@@ -1463,7 +1375,7 @@ func TestGenerateResponse_ReturnsInvalidResponseErrorAfterRetry(t *testing.T) {
 		},
 	}
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 
 	_, err := o.generateResponse("shiro", "mio", "idle-invalid-stop", 1, 1, "すごろく")
 	if !errors.Is(err, errIdleInvalidResponse) {

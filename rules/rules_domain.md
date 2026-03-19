@@ -1036,6 +1036,37 @@ ollama create chat-v1:latest -f Modelfile
 - 永続化の実装（Phase 4-5 で対応予定）
 - job_id のコピー&ペースト推奨
 
+#### 11.1.4 RenCrow 再起動前の全停止
+
+**症状**: `duckdb error: IO Error: Could not set lock ...` や、停止したはずの `picoclaw` がすぐ再起動する
+
+**原因**:
+- `systemd --user` の `picoclaw.service` が `~/.local/bin/picoclaw` を自動再起動する
+- プロセスだけ停止して service を停止していない
+- `:18790` を握った旧プロセスが残っている
+
+**解決**:
+```bash
+# 1. 自動再起動元を停止
+systemctl --user stop picoclaw.service
+
+# 2. 残存プロセス停止
+pkill -f /home/nyukimi/.local/bin/picoclaw
+
+# 3. ポート解放確認
+ss -ltnp | grep 18790
+
+# 4. health が落ちていることを確認
+curl http://127.0.0.1:18790/health
+
+# 5. ここまで確認してからビルド・再起動
+```
+
+**注意**:
+- `ss -ltnp | grep 18790` が空になるまで再起動してはいけない
+- `curl http://127.0.0.1:18790/health` が `connection refused` になるまで停止完了とみなさない
+- 再起動後は `health` の `200 OK` まで確認する
+
 ---
 
 **最終更新**: 2026-02-24
