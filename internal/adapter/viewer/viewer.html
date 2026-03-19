@@ -442,7 +442,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     <div class="grid" id="evidenceSummaryCards" style="margin-bottom:10px"></div>
     <div class="table-wrap" style="margin-top:10px">
       <table>
-        <thead><tr><th>Evidence Ref</th><th>Job ID</th><th>Status</th><th>Error Kind</th><th>Latest Verify</th><th>Steps</th><th>Verify</th><th>Goal</th><th>Repair</th><th>Finished</th><th>Detail</th></tr></thead>
+        <thead><tr><th>Evidence Ref</th><th>Job ID</th><th>Status</th><th>Error Kind</th><th>Latest Verify</th><th>Steps</th><th>Verify</th><th>Goal</th><th>Attempt</th><th>Repair</th><th>Finished</th><th>Detail</th></tr></thead>
         <tbody id="evidenceBody"></tbody>
       </table>
     </div>
@@ -1860,6 +1860,7 @@ function renderEvidence() {
       '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'steps\', event)">' + esc(String(stepsCount)) + '</button></td>' +
       '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'verification\', event)">' + esc(String(verifyCount)) + '</button></td>' +
       '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'\', event)">' + esc(short(r.goal || '-', 90)) + '</button></td>' +
+      '<td>' + esc(String(r.attempt_count || 0)) + '</td>' +
       '<td>' + esc(String(r.repair_count || 0)) + '</td>' +
       '<td>' + esc(fdt(r.finished_at)) + '</td>' +
       '<td><button class="ctl-btn" onclick="openEvidence(\'' + esc(r.job_id || '') + '\')">View</button></td>';
@@ -2082,6 +2083,7 @@ function renderEvidenceDetail(item) {
     '<div class="row"><span>Status</span><span class="badge ' + statusClass + '">' + esc(item.status || '-') + '</span></div>' +
     '<div class="row"><span>Error Kind</span><span class="badge ' + errorKindClass(item.error_kind || '') + '">' + esc(item.error_kind || '-') + '</span></div>' +
     '<div class="row"><span>Goal</span><span>' + esc(item.goal || '-') + '</span></div>' +
+    '<div class="row"><span>Attempt Count</span><span>' + esc(String(item.attempt_count || 0)) + '</span></div>' +
     '<div class="row"><span>Repair Count</span><span>' + esc(String(item.repair_count || 0)) + '</span></div>' +
     '<div id="evidenceSectionSteps" style="margin-top:8px"><b>Steps</b><div style="margin-top:4px;line-height:1.5">' + stepHTML + '</div></div>' +
     '<div id="evidenceSectionVerification" style="margin-top:8px"><b>Verification</b><div style="margin-top:4px;line-height:1.5">' + verifyHTML + '</div></div>' +
@@ -2136,6 +2138,7 @@ function buildEvidenceSummary(item) {
     'status=' + String(item.status || '-'),
     'error_kind=' + String(item.error_kind || '-'),
     'latest_verify=' + latestVerificationLabel(item.verification),
+    'attempt_count=' + String(item.attempt_count || 0),
     'repair_count=' + String(item.repair_count || 0),
   ];
   if (item.error) parts.push('error=' + String(item.error));
