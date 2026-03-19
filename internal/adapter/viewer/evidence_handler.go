@@ -12,8 +12,10 @@ import (
 // EvidenceLister provides recent execution reports.
 type EvidenceLister interface {
 	ListRecent(ctx context.Context, limit int) ([]domainexecution.ExecutionReport, error)
+	ListRecentUnique(ctx context.Context, limit int) ([]domainexecution.ExecutionReport, error)
 	GetByJobID(ctx context.Context, jobID string) (domainexecution.ExecutionReport, error)
 	Summary(ctx context.Context) (map[string]map[string]int, error)
+	SummaryUnique(ctx context.Context) (map[string]map[string]int, error)
 }
 
 // HandleEvidenceRecent returns recent execution reports as JSON.
@@ -37,7 +39,8 @@ func HandleEvidenceRecent(store EvidenceLister) http.HandlerFunc {
 			limit = n
 		}
 
-		items, err := store.ListRecent(r.Context(), limit)
+		// Use ListRecentUnique by default to avoid showing duplicate jobs (retry/repair)
+		items, err := store.ListRecentUnique(r.Context(), limit)
 		if err != nil {
 			http.Error(w, "failed to load evidence", http.StatusInternalServerError)
 			return
@@ -84,7 +87,8 @@ func HandleEvidenceSummary(store EvidenceLister) http.HandlerFunc {
 			return
 		}
 
-		summary, err := store.Summary(r.Context())
+		// Use SummaryUnique to count unique jobs, not all reports
+		summary, err := store.SummaryUnique(r.Context())
 		if err != nil {
 			http.Error(w, "failed to summarize evidence", http.StatusInternalServerError)
 			return

@@ -34,6 +34,11 @@ func (s *evidenceStoreStub) GetByJobID(_ context.Context, jobID string) (domaine
 	return domainexecution.ExecutionReport{}, context.Canceled
 }
 
+func (s *evidenceStoreStub) ListRecentUnique(_ context.Context, limit int) ([]domainexecution.ExecutionReport, error) {
+	// For test purposes, just delegate to ListRecent (no duplicates in test data)
+	return s.ListRecent(context.Background(), limit)
+}
+
 func (s *evidenceStoreStub) Summary(_ context.Context) (map[string]map[string]int, error) {
 	out := map[string]map[string]int{
 		"status": {
@@ -56,6 +61,11 @@ func (s *evidenceStoreStub) Summary(_ context.Context) (map[string]map[string]in
 		out["error_kind"][k]++
 	}
 	return out, nil
+}
+
+func (s *evidenceStoreStub) SummaryUnique(ctx context.Context) (map[string]map[string]int, error) {
+	// For test purposes, just delegate to Summary (no duplicates in test data)
+	return s.Summary(ctx)
 }
 
 func TestHandleEvidenceRecent_Success(t *testing.T) {

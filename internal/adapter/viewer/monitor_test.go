@@ -31,8 +31,16 @@ func (s stubEvidenceStore) GetByJobID(ctx context.Context, jobID string) (domain
 	return domainexecution.ExecutionReport{}, context.Canceled
 }
 
+func (s stubEvidenceStore) ListRecentUnique(ctx context.Context, limit int) ([]domainexecution.ExecutionReport, error) {
+	return s.ListRecent(ctx, limit)
+}
+
 func (s stubEvidenceStore) Summary(ctx context.Context) (map[string]map[string]int, error) {
 	return map[string]map[string]int{"status": {"passed": 1}}, nil
+}
+
+func (s stubEvidenceStore) SummaryUnique(ctx context.Context) (map[string]map[string]int, error) {
+	return s.Summary(ctx)
 }
 
 func TestMonitorStoreReducesAgentAndJobState(t *testing.T) {

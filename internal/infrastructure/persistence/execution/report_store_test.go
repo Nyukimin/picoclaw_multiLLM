@@ -144,3 +144,142 @@ func TestJSONLReportStore_SaveWithTTSEvidence(t *testing.T) {
 		t.Fatalf("unexpected tts evidence: %+v", got)
 	}
 }
+
+func TestJSONLReportStore_ListRecentUnique(t *testing.T) {
+	store, err := NewJSONLReportStore(filepath.Join(t.TempDir(), "execution_report.jsonl"))
+	if err != nil {
+		t.Fatalf("NewJSONLReportStore failed: %v", err)
+	}
+
+	// Job1: failed -> passed (retry success)
+	r1Failed := domain.ExecutionReport{
+		JobID:      "job-1",
+		Goal:       "ops task",
+		Status:     "failed",
+		ErrorKind:  "apply",
+		CreatedAt:  time.Now().UTC().Add(-3 * time.Minute),
+		FinishedAt: time.Now().UTC().Add(-3 * time.Minute),
+	}
+	r1Passed := domain.ExecutionReport{
+		JobID:        "job-1",
+		Goal:         "ops task",
+		Status:       "passed",
+		AttemptCount: 2,
+		RepairCount:  1,
+		CreatedAt:    time.Now().UTC().Add(-2 * time.Minute),
+		FinishedAt:   time.Now().UTC().Add(-2 * time.Minute),
+	}
+	// Job2: simple success
+	r2 := domain.ExecutionReport{
+		JobID:      "job-2",
+		Goal:       "simple task",
+		Status:     "passed",
+		CreatedAt:  time.Now().UTC().Add(-1 * time.Minute),
+		FinishedAt: time.Now().UTC().Add(-1 * time.Minute),
+	}
+
+	for _, r := range []domain.ExecutionReport{r1Failed, r1Passed, r2} {
+		if err := store.Save(context.Background(), r); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+	}
+
+	// ListRecent returns all 3 reports
+	all, err := store.ListRecent(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListRecent failed: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("ListRecent: expected 3 reports, got %d", len(all))
+	}
+
+	// ListRecentUnique returns only 2 (latest for each job)
+	unique, err := store.ListRecentUnique(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListRecentUnique failed: %v", err)
+	}
+	if len(unique) != 2 {
+		t.Fatalf("ListRecentUnique: expected 2 unique jobs, got %d", len(unique))
+	}
+
+	// Verify job-1 shows the latest (passed) report
+	var job1Report domain.ExecutionReport
+	for _, r := range unique {
+		if r.JobID == "job-1" {
+			job1Report = r
+			break
+		}
+	}
+	if job1Report.Status != "passed" {
+		t.Fatalf("job-1 should show passed status, got %s", job1Report.Status)
+	}
+	if job1Report.AttemptCount != 2 {
+		t.Fatalf("job-1 should show attempt_count=2, got %d", job1Report.AttemptCount)
+	}
+}
+
+func TestJSONLReportStore_SummaryUnique(t *testing.T) {
+	store, err := NewJSONLReportStore(filepath.Join(t.TempDir(), "execution_report.jsonl"))
+	if err != nil {
+		t.Fatalf("NewJSONLReportStore failed: %v", err)
+	}
+
+	// Job1: failed -> passed (should count as passed only)
+	r1Failed := domain.ExecutionReport{
+		JobID:      "job-1",
+		Goal:       "ops",
+		Status:     "failed",
+		ErrorKind:  "apply",
+		CreatedAt:  time.Now().UTC().Add(-2 * time.Minute),
+		FinishedAt: time.Now().UTC().Add(-2 * time.Minute),
+	}
+	r1Passed := domain.ExecutionReport{
+		JobID:      "job-1",
+		Goal:       "ops",
+		Status:     "passed",
+		CreatedAt:  time.Now().UTC().Add(-1 * time.Minute),
+		FinishedAt: time.Now().UTC().Add(-1 * time.Minute),
+	}
+	// Job2: failed (no retry)
+	r2 := domain.ExecutionReport{
+		JobID:      "job-2",
+		Goal:       "code",
+		Status:     "failed",
+		ErrorKind:  "verify",
+		CreatedAt:  time.Now().UTC(),
+		FinishedAt: time.Now().UTC(),
+	}
+
+	for _, r := range []domain.ExecutionReport{r1Failed, r1Passed, r2} {
+		if err := store.Save(context.Background(), r); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+	}
+
+	// Summary counts all 3 reports
+	s, err := store.Summary(context.Background())
+	if err != nil {
+		t.Fatalf("Summary failed: %v", err)
+	}
+	if s["status"]["passed"] != 1 || s["status"]["failed"] != 2 {
+		t.Fatalf("Summary: expected passed=1, failed=2, got %+v", s["status"])
+	}
+
+	// SummaryUnique counts only 2 unique jobs (job-1=passed, job-2=failed)
+	su, err := store.SummaryUnique(context.Background())
+	if err != nil {
+		t.Fatalf("SummaryUnique failed: %v", err)
+	}
+	if su["status"]["passed"] != 1 {
+		t.Fatalf("SummaryUnique: expected passed=1, got %d", su["status"]["passed"])
+	}
+	if su["status"]["failed"] != 1 {
+		t.Fatalf("SummaryUnique: expected failed=1, got %d", su["status"]["failed"])
+	}
+	if su["error_kind"]["verify"] != 1 {
+		t.Fatalf("SummaryUnique: expected verify=1, got %d", su["error_kind"]["verify"])
+	}
+	if su["error_kind"]["apply"] != 0 {
+		t.Fatalf("SummaryUnique: job-1 final status is passed, so apply error should not be counted, got %d", su["error_kind"]["apply"])
+	}
+}
