@@ -150,8 +150,9 @@ Audio Router 向け SSE は `EventHub` のサブセット配信である。
 
 ### 4.1 タブ構成
 
-現行 `viewer.html` は以下の 7 タブを持つ。
+現行 `viewer.html` は以下の 8 タブを持つ。
 
+- `Ops`
 - `Overview`
 - `Progress`
 - `Timeline`
@@ -164,6 +165,7 @@ Audio Router 向け SSE は `EventHub` のサブセット配信である。
 
 | タブ | 責務 |
 |---|---|
+| `Ops` | 運用者向け要約表示 |
 | `Overview` | エージェント状態の俯瞰 |
 | `Progress` | 進行中ジョブの段階表示 |
 | `Timeline` | 会話系イベントの時系列追跡 |
@@ -284,6 +286,8 @@ summary の主対象:
 
 `Jobs` タブでは以下を提供する。
 
+- live jobs 一覧
+- selected live job detail
 - evidence 一覧
 - selected evidence detail
 - `Prev` / `Next`
@@ -295,6 +299,115 @@ summary の主対象:
 
 現行では evidence 表示ロジックが `viewer.html` 側へ密に埋め込まれている。
 目標仕様では `ExecutionReport` のセクション表示を責務分割し、`steps`, `verification`, `repair` などの表示規約をサーバ側または共有 formatter に寄せる余地がある。
+
+### 6.7 live jobs と evidence の責務分離
+
+現行の `Jobs` タブは、見た目上は 1 つのタブだが、実体としては 2 系統のデータを扱う。
+
+- `live jobs`
+  - source: `MonitorStore`
+  - endpoint: `/viewer/jobs`, `/viewer/job/detail`
+  - event から導出した job の現在状態
+- `execution evidence`
+  - source: `workspace/execution_report.jsonl`
+  - endpoint: `/viewer/evidence/recent`, `/viewer/evidence/detail`, `/viewer/evidence/summary`
+  - 完了結果の長期証跡
+
+この 2 つは同一ではない。`live jobs` は進行中でも見えるが、`evidence` は保存後にのみ見える。
+
+### 6.8 live jobs の内容
+
+`/viewer/jobs` は `MonitorStore.Jobs()` を通じて、event から導出した `JobSnapshot` を返す。
+
+少なくとも以下を含む。
+
+- `job_id`
+- `route`
+- `phase`
+- `owner`
+- `status`
+- `session_id`
+- `channel`
+- `chat_id`
+- `started_at`
+- `updated_at`
+- `summary`
+- `failure_kind`
+- `failure_reason`
+- `final_user_report`
+- `mio_reported`
+- `events`
+
+`JobSnapshot` は event reducer の結果であり、workflow engine の正本ではない。現在値の観測用スナップショットとして扱う。
+
+### 6.9 execution evidence の内容
+
+`ExecutionReport` は job 完了時の証跡であり、`workspace/execution_report.jsonl` に保存される。
+
+少なくとも以下を含む。
+
+- `job_id`
+- `goal`
+- `status`
+- `error_kind`
+- `acceptance`
+- `verification`
+- `steps`
+- `repair_count`
+- `error`
+- `created_at`
+- `finished_at`
+
+`evidence` は live job の派生表示ではなく、保存済み実行結果の記録である。
+
+### 6.10 保存タイミング
+
+現行では distributed orchestrator 側でも `ExecutionReport` 保存が入っている。
+
+- `CHAT` 成功時
+- `OPS` 成功時
+- `CODE` 成功時
+- 上記の失敗時
+
+そのため、現在の `execution_report.jsonl` は旧来の `/new tts` 系専用ではなく、distributed `ProcessMessage` の結果も含む。
+
+### 6.11 不一致が起こるケース
+
+運用上、以下の状態は正常に起こりうる。
+
+- `live jobs` にはあるが `evidence` にはまだない
+  - job が進行中
+  - まだ保存前
+- `evidence` はあるが live job と event 数が一致しない
+  - live 側は event からの導出表示であり、保存済み証跡そのものではない
+
+以前は distributed orchestrator 側に evidence 保存がなく、`Jobs` タブの evidence 一覧が `2026-03-11` のまま止まって見える状態があった。現行ではこの点は解消済みである。
+
+### 6.12 `/viewer/job/detail`
+
+`/viewer/job/detail?job_id=...` は live job の詳細を返す。
+
+現行では以下を含む。
+
+- `item`
+  - `JobSnapshot`
+- `evidence`
+  - 対応する `ExecutionReport` があれば添付
+
+実装上は archived events も参照し、必要に応じて `job.Events` を補完する。
+
+### 6.13 運用上の見方
+
+`Jobs` タブを使う際の切り分けは以下。
+
+- 進行中か、どこで止まっているかを見たい
+  - `live jobs`
+- 完了結果や証跡を見たい
+  - `execution evidence`
+- `job は見えるのに evidence がない`
+  - まず進行中かどうかを確認する
+  - 次に `System` または persisted logs を見る
+  - 最後に evidence 保存失敗を疑う
 
 ---
 
@@ -402,4 +515,3 @@ v1 では運用導線を優先して同居させる。
 - 実装者が Viewer の導線を本書だけで追える
 - 運用者が EventHub と Evidence の役割差を誤解しない
 - 追加実装時に「どこへ置くべき機能か」を判断できる
-
