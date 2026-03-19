@@ -186,6 +186,14 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 
 Chat/Worker/Coder の役割・責務・指揮命令系統。分散実行の設計思想を含む。
 
+### 3.2 ログViewer仕様.md
+
+Viewer のタブ構成、SSE、evidence API、IdleChat 制御を含む運用/UI 仕様。
+
+### 3.3 実装仕様_ログViewer_v1.md
+
+ログViewerの実装責務、EventHub、SSE、evidence、IdleChat連携、および目標仕様との差分を整理した実装仕様。
+
 ---
 
 ## 4. 運用仕様
