@@ -10,8 +10,11 @@ import (
 type ExecutionReport struct {
 	JobID        string    `json:"job_id"`
 	Goal         string    `json:"goal"`
+	Route        string    `json:"route,omitempty"`
+	Capability   string    `json:"capability_pack,omitempty"`
 	Status       string    `json:"status"`
 	ErrorKind    string    `json:"error_kind,omitempty"`
+	FailureReason string   `json:"failure_reason,omitempty"`
 	TTSProvider  string    `json:"tts_provider,omitempty"`
 	TTSVoiceID   string    `json:"tts_voice_id,omitempty"`
 	TTSAudioFile string    `json:"tts_audio_file,omitempty"`
@@ -20,8 +23,12 @@ type ExecutionReport struct {
 	PlaybackCode int       `json:"playback_exit_code"`
 	TTSErrorKind string    `json:"tts_error_kind,omitempty"`
 	Acceptance   []string  `json:"acceptance,omitempty"`
+	Constraints  []string  `json:"constraints,omitempty"`
+	Artifacts    []string  `json:"artifacts,omitempty"`
 	Verification []string  `json:"verification,omitempty"`
+	Rollback     []string  `json:"rollback,omitempty"`
 	Steps        []string  `json:"steps,omitempty"`
+	AttemptCount int       `json:"attempt_count"`
 	RepairCount  int       `json:"repair_count"`
 	Error        string    `json:"error,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`

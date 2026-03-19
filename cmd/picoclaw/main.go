@@ -2040,6 +2040,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			workerExecutionService,
 		)
 		orch.SetEventListener(deps.eventRelay)
+		if deps.reportStore != nil {
+			orch.SetReportStore(deps.reportStore)
+		}
 		orch.SetTTSBridge(ttsBridge)
 		orch.SetVTuberBridge(vtuberBridge)
 		// IdleChat統合（有効な場合）

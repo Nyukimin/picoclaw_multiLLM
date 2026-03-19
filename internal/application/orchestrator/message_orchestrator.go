@@ -7,8 +7,11 @@ import (
 	"log"
 	"strings"
 
+	autonomousapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/autonomous"
+	contractapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
@@ -75,6 +78,7 @@ type MessageOrchestrator struct {
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
 	listener        EventListener
+	reporter        ReportStore
 	idleNotifier    IdleNotifier
 	ttsBridge       TTSBridge
 	vtuberBridge    VTuberBridge
@@ -105,6 +109,10 @@ func NewMessageOrchestrator(
 // SetEventListener sets an optional listener for monitoring events.
 func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
+}
+
+func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
+	o.reporter = store
 }
 
 // SetIdleNotifier sets an optional notifier used to control idle chat.
@@ -266,6 +274,9 @@ func (o *MessageOrchestrator) loadOrCreateSession(ctx context.Context, id, chann
 // executeTask はルートに応じてタスクを実行
 func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
+	if route != routing.RouteCHAT {
+		return o.executeAutonomousTask(ctx, t, route, sessionID, channel, chatID, ttsSessionID)
+	}
 
 	switch route {
 	case routing.RouteCHAT:
@@ -333,6 +344,97 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 
 	default:
 		return "", fmt.Errorf("unknown route: %s", route)
+	}
+}
+
+func (o *MessageOrchestrator) executeAutonomousTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	if !isAutonomousRoute(route) {
+		return "", fmt.Errorf("unknown route: %s", route)
+	}
+	contract, err := contractapp.NormalizeRequestWithRoute(t.UserMessage(), route.String())
+	if err != nil {
+		return "", err
+	}
+	result, err := autonomousapp.RunExecutor(ctx, autonomousapp.ExecuteRequest{
+		JobID:      t.JobID().String(),
+		Route:      route.String(),
+		Capability: capabilityForRoute(route),
+		Contract:   contract,
+		MaxRepair:  1,
+		Observe: func(stage autonomousapp.Stage) {
+			o.emit("entry.stage", channel, "system", string(stage), route.String(), t.JobID().String(), sessionID, channel, chatID)
+		},
+		ReportStore: o.reporter,
+		Execute: func(execCtx context.Context, attempt int, failureKind, failureReason string) (autonomousapp.AttemptResult, error) {
+			execTask := t
+			if attempt > 0 {
+				execTask = execTask.WithUserMessage(buildExecutorRetryMessage(t.UserMessage(), route, failureKind, failureReason, attempt))
+			}
+			resp, runErr := o.executeRouteDirect(execCtx, execTask, route, sessionID, channel, chatID, ttsSessionID)
+			return autonomousapp.AttemptResult{
+				Response:      resp,
+				Steps:         routeExecutionSteps(route, runErr == nil),
+				FailureKind:   classifyExecutorFailure(runErr),
+				FailureReason: errorString(runErr),
+			}, runErr
+		},
+		Verify: func(_ context.Context, _ domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
+			ok, kind, reason := verifyAutonomousRouteResponse(route, last.Response)
+			return ok, kind, reason, nil
+		},
+	})
+	if err != nil {
+		return result.Response, err
+	}
+	return result.Response, nil
+}
+
+func (o *MessageOrchestrator) executeRouteDirect(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	jid := t.JobID().String()
+	switch route {
+	case routing.RouteOPS:
+		o.emit("agent.start", "mio", "shiro", "タスクを実行依頼", "OPS", jid, sessionID, channel, chatID)
+		resp, err := o.shiro.Execute(ctx, t)
+		if err == nil {
+			o.emit("agent.response", "shiro", "mio", resp, "OPS", jid, sessionID, channel, chatID)
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+		}
+		return resp, err
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
+		if err == nil {
+			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+		}
+		return resp, err
+	case routing.RoutePLAN:
+		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid, sessionID, channel, chatID)
+		planCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
+		resp, err := o.mio.Chat(planCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "PLAN", jid, sessionID, channel, chatID)
+			ttsStream.Finalize(ctx, resp)
+		}
+		return resp, err
+	case routing.RouteANALYZE:
+		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+		analyzeCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
+		resp, err := o.mio.Chat(analyzeCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+			ttsStream.Finalize(ctx, resp)
+		}
+		return resp, err
+	case routing.RouteRESEARCH:
+		o.emit("agent.start", "mio", "user", "調査中...", "RESEARCH", jid, sessionID, channel, chatID)
+		researchCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
+		resp, err := o.mio.Chat(researchCtx, t)
+		if err == nil {
+			o.emit("agent.response", "mio", "user", resp, "RESEARCH", jid, sessionID, channel, chatID)
+			ttsStream.Finalize(ctx, resp)
+		}
+		return resp, err
+	default:
+		return "", fmt.Errorf("unsupported autonomous route: %s", route)
 	}
 }
 
@@ -561,6 +663,118 @@ func truncate(s string, maxLen int) string {
 		b.WriteString(line)
 	}
 	return b.String()
+}
+
+func capabilityForRoute(route routing.Route) autonomousapp.CapabilityPack {
+	switch route {
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+		return autonomousapp.CapabilityCodeChange
+	default:
+		return autonomousapp.CapabilityGenericExecution
+	}
+}
+
+func isAutonomousRoute(route routing.Route) bool {
+	switch route {
+	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH:
+		return true
+	default:
+		return false
+	}
+}
+
+func routeExecutionSteps(route routing.Route, ok bool) []string {
+	items := []string{"routing.decision"}
+	switch route {
+	case routing.RouteOPS:
+		items = append(items, "shiro.execute")
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+		items = append(items, "shiro.delegate", "coder.execute", "shiro.verify")
+	case routing.RoutePLAN:
+		items = append(items, "mio.plan")
+	case routing.RouteANALYZE:
+		items = append(items, "mio.analyze")
+	case routing.RouteRESEARCH:
+		items = append(items, "mio.research")
+	}
+	if ok {
+		items = append(items, "done")
+	} else {
+		items = append(items, "error")
+	}
+	return items
+}
+
+func classifyExecutorFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "proposal"):
+		return "proposal_invalid"
+	case strings.Contains(lower, "not found"), strings.Contains(lower, "exit status 127"):
+		return "command_missing"
+	case strings.Contains(lower, "provider"), strings.Contains(lower, "model"), strings.Contains(lower, "ollama"):
+		return "provider_unavailable"
+	default:
+		return "apply"
+	}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func responseLooksLikeFailure(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "失敗: 0") || strings.Contains(lower, "failures: 0") || strings.Contains(lower, "failed: 0") {
+		return false
+	}
+	return strings.Contains(lower, "error") || strings.Contains(lower, "失敗")
+}
+
+func shortFailureReason(content string) string {
+	text := strings.TrimSpace(content)
+	if len(text) <= 160 {
+		return text
+	}
+	return text[:157] + "..."
+}
+
+func verifyAutonomousRouteResponse(route routing.Route, response string) (bool, string, string) {
+	if strings.TrimSpace(response) == "" {
+		return false, "verification_failed", "empty response"
+	}
+	if isCodeRoute(route) {
+		return true, "", ""
+	}
+	if responseLooksLikeFailure(response) {
+		return false, "verification_failed", shortFailureReason(response)
+	}
+	return true, "", ""
+}
+
+func buildExecutorRetryMessage(userMessage string, route routing.Route, failureKind, failureReason string, attempt int) string {
+	return fmt.Sprintf(`%s
+
+## Executor Retry Context
+- retry_attempt: %d
+- route: %s
+- failure_kind: %s
+- failure_reason: %s
+
+## Requirements
+- Keep the response executable and directly verifiable
+- Include the missing repair steps in the next result
+- Do not defer required fixes to the user
+`, userMessage, attempt, route, fallbackString(failureKind, "unknown"), fallbackString(failureReason, "execution failed"))
 }
 
 // formatExecutionResult はProposalとPatchExecutionResultを整形

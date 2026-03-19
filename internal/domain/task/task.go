@@ -66,6 +66,12 @@ func (t Task) WithRoute(route routing.Route) Task {
 	return t
 }
 
+// WithUserMessage returns a new task with the updated user message.
+func (t Task) WithUserMessage(message string) Task {
+	t.userMessage = message
+	return t
+}
+
 // HasForcedRoute は強制ルートが設定されているかを判定
 func (t Task) HasForcedRoute() bool {
 	return t.forcedRoute != ""

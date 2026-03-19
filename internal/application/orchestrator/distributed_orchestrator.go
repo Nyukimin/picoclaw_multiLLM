@@ -7,7 +7,10 @@ import (
 	"strings"
 	"time"
 
+	autonomousapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/autonomous"
+	contractapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
@@ -196,7 +199,9 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	// 4. ルートに応じてTransport経由で実行
 	response, err := o.executeDistributed(ctx, t, decision.Route, sess.ID(), ttsSessionID)
 	if err != nil {
-		o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, string(decision.Route), startedAt, time.Now().UTC(), err)
+		if decision.Route == routing.RouteCHAT {
+			o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, string(decision.Route), startedAt, time.Now().UTC(), err)
+		}
 		return ProcessMessageResponse{}, fmt.Errorf("distributed execution failed: %w", err)
 	}
 	if ttsSessionID != "" {
@@ -216,7 +221,9 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 
 	log.Printf("[DistributedOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
 		jobID.String(), decision.Route, len(response))
-	o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, string(decision.Route), startedAt, time.Now().UTC(), nil)
+	if decision.Route == routing.RouteCHAT {
+		o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, string(decision.Route), startedAt, time.Now().UTC(), nil)
+	}
 
 	return ProcessMessageResponse{
 		Response:   response,
@@ -328,6 +335,52 @@ func (o *DistributedOrchestrator) loadOrCreateSession(ctx context.Context, id, c
 
 // executeDistributed はルートに応じてTransport経由でAgent間通信
 func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
+	if route != routing.RouteCHAT {
+		return o.executeAutonomousDistributed(ctx, t, route, sessionID, ttsSessionID)
+	}
+	return o.executeDistributedDirect(ctx, t, route, sessionID, ttsSessionID)
+}
+
+func (o *DistributedOrchestrator) executeAutonomousDistributed(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
+	contract, err := contractapp.NormalizeRequestWithRoute(t.UserMessage(), route.String())
+	if err != nil {
+		return "", err
+	}
+	result, err := autonomousapp.RunExecutor(ctx, autonomousapp.ExecuteRequest{
+		JobID:      t.JobID().String(),
+		Route:      route.String(),
+		Capability: capabilityForRoute(route),
+		Contract:   contract,
+		MaxRepair:  1,
+		Observe: func(stage autonomousapp.Stage) {
+			o.emit("entry.stage", t.Channel(), "system", string(stage), route.String(), t.JobID().String(), sessionID, t.Channel(), t.ChatID())
+		},
+		ReportStore: o.reporter,
+		Execute: func(execCtx context.Context, attempt int, failureKind, failureReason string) (autonomousapp.AttemptResult, error) {
+			execTask := t
+			if attempt > 0 {
+				execTask = execTask.WithUserMessage(buildExecutorRetryMessage(t.UserMessage(), route, failureKind, failureReason, attempt))
+			}
+			resp, runErr := o.executeDistributedDirect(execCtx, execTask, route, sessionID, ttsSessionID)
+			return autonomousapp.AttemptResult{
+				Response:      resp,
+				Steps:         routeExecutionSteps(route, runErr == nil),
+				FailureKind:   classifyExecutorFailure(runErr),
+				FailureReason: errorString(runErr),
+			}, runErr
+		},
+		Verify: func(_ context.Context, _ domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
+			ok, kind, reason := verifyAutonomousRouteResponse(route, last.Response)
+			return ok, kind, reason, nil
+		},
+	})
+	if err != nil {
+		return result.Response, err
+	}
+	return result.Response, nil
+}
+
+func (o *DistributedOrchestrator) executeDistributedDirect(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
 	if isCodeRoute(route) {
 		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, jid)
