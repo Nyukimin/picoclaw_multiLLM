@@ -1038,7 +1038,7 @@ function trimTimelineNodes() {
 function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
-  if (ev.type !== 'message.received' && (ev.from || '').toLowerCase() !== 'mio') return;
+  if (ev.type !== 'message.received' && ev.type !== 'idlechat.message' && (ev.from || '').toLowerCase() !== 'mio') return;
 
   const em = document.getElementById('empty');
   if (em) em.remove();
