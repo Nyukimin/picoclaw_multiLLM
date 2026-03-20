@@ -1,5 +1,8 @@
 # RenCrow Memory Index
 
+## User Decisions
+- **[No Approval/Ask Flow](feedback_no_approval_flow.md)** — approval/ask フローは実装しない（ユーザー意思決定 2026-03-20）
+
 ## Design Principles (MUST FOLLOW)
 - **既存コードの設計が間違っていたら、踏襲せず最初に指摘して正す。** 問題のあるパターンに合わせて追加コードを書くのではなく、根本から直す提案をすること。
 - **一般的・標準的な手法が存在するなら、それを最初に採用する。** 独自実装を書く前に「これは標準ライブラリやフレームワークの一般的なパターンで解決できないか？」を必ず確認する。
@@ -19,7 +22,7 @@
   - route 別 runtime 検証
   - Viewer/evidence 整合
   - TTS Capability Pack の完成
-  - approval / ask フロー
+  - TTS 正本仕様の更新
 
 ## Recent Completions (実験ブランチのみ - 2026-03-07)
 - **Phase 4.2 KB自動保存** — ✅ 完了（proposal/clean-architecture）

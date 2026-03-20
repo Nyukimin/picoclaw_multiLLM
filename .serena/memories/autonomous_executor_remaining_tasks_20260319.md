@@ -70,18 +70,7 @@
 - provider unavailable 時の fallback 明確化
 - TTS 正本仕様書との整合
 
-### 4. approval / ask フロー
-
-現状:
-- executor 完全実装の今回スコープ外
-- 依然として未実装
-
-必要作業:
-- 実行前確認が必要な contract の判定
-- ask/approval 状態保持
-- Viewer / logs / evidence への反映
-
-### 5. TTS 正本仕様の更新
+### 4. TTS 正本仕様の更新
 
 対象:
 - `docs/TTS仕様/TTS感情音声システム仕様.md`
@@ -93,7 +82,7 @@
 方針:
 - archive ではなく、現況仕様へ更新する
 
-### 6. STT は対象外
+### 5. STT は対象外
 
 整理:
 - `STT` はペンディング
@@ -102,13 +91,7 @@
 
 ---
 
-## 推奨順序
-
-1. route 別 runtime 検証
-2. Viewer / evidence 整合
-3. TTS Capability Pack の完成
-4. approval / ask フロー
-5. TTS 正本仕様更新
+## 推奨順序\n\n1. route 別 runtime 検証\n2. Viewer / evidence 整合\n3. TTS Capability Pack の完成\n4. TTS 正本仕様更新
 
 ---
 
