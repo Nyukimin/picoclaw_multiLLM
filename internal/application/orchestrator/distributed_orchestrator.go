@@ -353,24 +353,29 @@ func (o *DistributedOrchestrator) executeAutonomousDistributed(ctx context.Conte
 		Contract:   contract,
 		MaxRepair:  1,
 		Observe: func(stage autonomousapp.Stage) {
+			log.Printf("[AutonomousExecutor] entry.stage=%s route=%s job=%s", stage, route.String(), t.JobID().String())
 			o.emit("entry.stage", t.Channel(), "system", string(stage), route.String(), t.JobID().String(), sessionID, t.Channel(), t.ChatID())
 		},
 		ReportStore: o.reporter,
 		Execute: func(execCtx context.Context, attempt int, failureKind, failureReason string) (autonomousapp.AttemptResult, error) {
+			log.Printf("[AutonomousExecutor] execute start route=%s job=%s attempt=%d failure_kind=%q", route.String(), t.JobID().String(), attempt, failureKind)
 			execTask := t
 			if attempt > 0 {
 				execTask = execTask.WithUserMessage(buildExecutorRetryMessage(t.UserMessage(), route, failureKind, failureReason, attempt))
 			}
 			resp, runErr := o.executeDistributedDirect(execCtx, execTask, route, sessionID, ttsSessionID)
+			resultKind := classifyExecutorFailure(runErr)
+			log.Printf("[AutonomousExecutor] execute complete route=%s job=%s attempt=%d success=%t failure_kind=%q", route.String(), t.JobID().String(), attempt, runErr == nil, resultKind)
 			return autonomousapp.AttemptResult{
 				Response:      resp,
 				Steps:         routeExecutionSteps(route, runErr == nil),
-				FailureKind:   classifyExecutorFailure(runErr),
+				FailureKind:   resultKind,
 				FailureReason: errorString(runErr),
 			}, runErr
 		},
 		Verify: func(_ context.Context, _ domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
 			ok, kind, reason := verifyAutonomousRouteResponse(route, last.Response)
+			log.Printf("[AutonomousExecutor] verify route=%s job=%s passed=%t failure_kind=%q reason=%q", route.String(), t.JobID().String(), ok, kind, reason)
 			return ok, kind, reason, nil
 		},
 	})
