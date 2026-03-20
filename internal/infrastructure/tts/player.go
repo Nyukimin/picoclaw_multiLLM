@@ -35,7 +35,7 @@ func NewCommandPlayer(commands []CommandSpec) *CommandPlayer {
 
 func (p *CommandPlayer) Play(ctx context.Context, audioPath string) (PlaybackResult, error) {
 	if len(p.commands) == 0 {
-		return PlaybackResult{}, fmt.Errorf("no playback command configured")
+		return PlaybackResult{}, ErrCommandNotFound
 	}
 
 	var lastErr error
@@ -66,5 +66,5 @@ func (p *CommandPlayer) Play(ctx context.Context, audioPath string) (PlaybackRes
 		lastErr = err
 	}
 
-	return last, fmt.Errorf("playback failed: %w", lastErr)
+	return last, fmt.Errorf("%w: %w", ErrPlaybackFailed, lastErr)
 }

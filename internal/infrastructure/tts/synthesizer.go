@@ -2,17 +2,11 @@ package tts
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 )
 
-var (
-	ErrProviderUnavailable = errors.New("provider unavailable")
-	ErrSynthesisFailed     = errors.New("synthesis failed")
-)
-
-type EmotionState struct {
+type EmotionState struct{
 	Emotion        string         `json:"emotion"`
 	Intensity      float64        `json:"intensity"`
 	Speed          float64        `json:"speed"`
