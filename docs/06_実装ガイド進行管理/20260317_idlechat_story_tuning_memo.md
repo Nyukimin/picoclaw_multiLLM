@@ -82,6 +82,26 @@ live probe では、recognizable な retelling fallback は出るが、「改作
   - non-LLM fallback は safety rail であり目標ではない
   - 合格条件に「単なる retelling を含めない」
 
+## 2026-03-22 追記: バリデーション閾値整合 + Q8 先読み修正
+
+### 修正済み
+
+| 問題 | 修正内容 |
+|---|---|
+| `full draft: prose check failed`（原因不明） | `storyHasOverblownSetting` の まるで 閾値 `>= 5` → `>= 9`（per-beat 最大 2×4=8 を許可している不整合を解消） |
+| Q8 先読み | `forbiddenBeats` に構造ラベルでなく `spec.content`（"機を織るの場面。〜"）を渡すよう変更。禁止リストを箇条書き形式に整形 |
+| `storyHasDistractingDigression` | per-beat バリデーションに追加して早期検出 |
+| Temperature | draft: 0.3 → 0.6、revision: 0.25 → 0.5（創造的多様性のため引き上げ） |
+
+### ペンディング: Step 8 インフレ（Q4）
+
+**症状**: revision が draft の 2〜3 倍に文章を膨らませる。「まるで」も大量追加される。
+**対処済み**: MaxTokens=1800 に削減、「第1稿より文を増やさない」制約をプロンプトに追加。ただし未解決。
+**次の案**:
+- revision の まるで 上限チェックを追加（Step 8 は現在 prose check を skip している）
+- MaxTokens をさらに削減（1200〜1500）
+- revision prompt のシステムプロンプトを「圧縮・修正のみ」に特化
+
 ## 一言でいうと
 
 今は「壊れた story を止める段階」はある程度できた。次は「面白い draft を最初から出す段階」に戻すこと。

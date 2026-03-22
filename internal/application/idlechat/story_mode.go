@@ -599,7 +599,7 @@ func (o *IdleChatOrchestrator) generateStoryDraftByBeats(source StorySource, ana
 		resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, llm.GenerateRequest{
 			Messages:    messages,
 			MaxTokens:   300,
-			Temperature: 0.3,
+			Temperature: 0.6,
 		})
 		if err != nil {
 			return "", fmt.Errorf("beat draft failed: %w", err)
@@ -705,7 +705,7 @@ func (o *IdleChatOrchestrator) reviseStoryNarrative(source StorySource, analysis
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   1800,
-		Temperature: 0.25,
+		Temperature: 0.5,
 	})
 	if err != nil {
 		return "", "", err
