@@ -102,6 +102,14 @@ live probe では、recognizable な retelling fallback は出るが、「改作
 - MaxTokens をさらに削減（1200〜1500）
 - revision prompt のシステムプロンプトを「圧縮・修正のみ」に特化
 
+### ペンディング: Q9 PLAN が本文に効かない（フォールバック時）
+
+**症状**: Setting / Tone / Twist が生成文に反映されず、元話の再話になる。
+**根本原因**: Step 7 が全 retry 失敗 → `deterministicStoryDraft()` フォールバック発動 → Plan が完全無視される構造。
+**現状**: Step 7 が 5/5 リトライゼロで安定しているため実害なし。
+**未修正の点**: `deterministicStoryDraft()` は今も Plan を無視する実装のまま。Step 7 が将来不安定になれば再発する。
+**次の案**: フォールバック発動時も Plan の Setting / EndingFlavor 最低限を組み込む、またはフォールバックを廃止して Step 7 retry 上限を増やす。
+
 ## 一言でいうと
 
 今は「壊れた story を止める段階」はある程度できた。次は「面白い draft を最初から出す段階」に戻すこと。
