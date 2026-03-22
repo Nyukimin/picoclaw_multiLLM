@@ -736,65 +736,31 @@ func (o *IdleChatOrchestrator) reviseStoryNarrative(source StorySource, analysis
 	return story, revisionNote, nil
 }
 
-func buildRevisionMessages(source StorySource, analysis StorySourceAnalysis, plan StoryRewritePlan, adaptation StoryAdaptationPlan, beatPlan StoryBeatPlan, draftText string) []llm.Message {
+func buildRevisionMessages(source StorySource, _ StorySourceAnalysis, plan StoryRewritePlan, _ StoryAdaptationPlan, _ StoryBeatPlan, draftText string) []llm.Message {
 	openingSeed := storyOpeningSeed(source, plan)
+	axis := storyTransformationAxis(source, plan.RewriteStyle)
 	return []llm.Message{
-		{Role: "system", Content: "あなたは朗読短編の編集者です。第1稿の面白さを残しつつ、因果、余韻、読後感を整えた第2稿に直してください。"},
-		{Role: "user", Content: fmt.Sprintf(`次の第1稿を改稿して、第2稿を作ってください。
+		{Role: "system", Content: "あなたは朗読短編の編集者です。"},
+		{Role: "user", Content: fmt.Sprintf(`次の第1稿を、声に出して聞ける短編として整えてください。
 
-元作品: %s
-元話の要約本文:
-%s
-改題: %s
-改変方式: %s
+改変の核: %s
 余韻: %s
-必須モチーフ: %s
-必須イベント順: %s
-認識手がかり: %s
-禁忌/約束: %s
-報酬と罰: %s
-ビート:
-- 導入: %s
-- 逸脱: %s
-- 反転: %s
-- 着地: %s
+
+方針:
+- 第1稿の内容と流れはそのまま使う
+- 文と文のつながりが切れている箇所だけ補う
+- 最後に「%s」が感じられるようにする
+- 第1文は一字一句変えない: %s
+- 文量は第1稿と同程度にする
 
 第1稿:
 %s
 
-改稿方針:
-- 元話の要約本文の文章をそのままコピーしない。要約本文を理解したうえで、別の言葉で書く
-- 第1文は次の文を一字一句変えずに保つ: %s
-- 第1稿より文を増やさない。欠落した因果の補修のみ行い、説明・描写の追加は最小限にする
-- 第1稿の良い飛躍は消しすぎない
-- 因果が飛ぶ箇所だけを補う
-- 結末で %s が残るようにする
-- ひねりは「%s」という一点に絞り、それ以外は元話の骨格へ戻しすぎるくらいでよい
-- 必須モチーフの位置を聞き取りやすくする
-- 必須イベント順と認識手がかりを落とさない
-- 導入 -> 逸脱 -> 反転 -> 余韻 が感じられるように整える
-- 説明臭くしない
-- 元話の骨格を、事件と場面として再演する
-- 4〜8段落相当の短編として落ち着かせる
-- 各段落で誰かの行動、対話、決断のどれかを必ず進める
-- 必須イベントごとに少なくとも1つ、目に見える場面が残るようにする
-- 「元の『%s』で禁じられていた」などの設計説明文を本文に入れない
-- 「最初の違和感として立ち上がる」「ここで〜が意外な意味に変わる」「最後に残るのは〜だ」を本文に入れない
-- 新しい固有名詞をむやみに増やさない
-- 舞台は現代の地続きの世界に固定する
-- 年号を出すなら現在に近いものだけにし、未来年代や時代跳躍を入れない
-- 巨大企業、AI支配、世界規模の陰謀へ話を膨らませず、生活圏の事件として整える
-- SNS、観光客、スマホ、会員制施設、権限トークンのような手癖の現代化を避ける
-- 会社名、開発計画、ランキング制度、不動産会社、プロジェクト名を新しく作らない
-- 比喩を減らし、冒頭2文のどちらかで必ず人物の行動か対話を始める
-- 「まるで〜のように」「〜ようだった」などの直喩を全体で2回以内に制限する
-- 第1文は必ず人物の行動か対話で始める
-- 幼少期の思い出、象徴的な回想、説明のための脇道を新しく足さない
-- 教訓の言い直し、象徴の説明、抽象的な総括で終わらせない
-- 一人称か三人称の自然な物語文にし、二人称で説教や勧誘をしない
-- 出力は次の形式だけ
+出力形式:
 REVISION_NOTE:
-STORY:`, source.Title, storyReferenceText(source), plan.StoryTitle, plan.RewriteStyle, plan.EndingFlavor, strings.Join(plan.CoreMotifs, " / "), strings.Join(storyBeatLabels(analysis.Skeleton.RequiredBeats), " -> "), strings.Join(analysis.Skeleton.RecognitionCues, " / "), analysis.TabooOrRule, analysis.RewardAndPunish, beatPlan.Opening, beatPlan.Deviation, beatPlan.Reversal, beatPlan.Landing, draftText, openingSeed, plan.EndingFlavor, plan.Premise, source.Title)},
+（一行で: 何を直したか）
+STORY:
+（本文）`, axis, plan.EndingFlavor, plan.EndingFlavor, openingSeed, draftText)},
 	}
 }
 
