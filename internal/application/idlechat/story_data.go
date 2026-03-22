@@ -33,6 +33,9 @@ type StoryEntryJSON struct {
 	Language     string         `json:"language"`
 	PublicDomain bool           `json:"public_domain"`
 	Text         string         `json:"text"`
+	JuvenileText string         `json:"juvenile_text,omitempty"`
+	OpeningSeed  string         `json:"opening_seed,omitempty"`
+	Setting      string         `json:"setting,omitempty"`
 	Spec         *StorySpecJSON `json:"spec,omitempty"`
 }
 
@@ -97,6 +100,9 @@ func loadStoryDataOnce(dir string) error {
 			Language:     entry.Language,
 			PublicDomain: entry.PublicDomain,
 			Text:         entry.Text,
+			JuvenileText: entry.JuvenileText,
+			OpeningSeed:  entry.OpeningSeed,
+			Setting:      entry.Setting,
 		})
 		if entry.Spec != nil {
 			specs[entry.ID] = storySpecFromJSON(entry.ID, entry.Title, entry.Spec)
