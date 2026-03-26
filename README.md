@@ -3,7 +3,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Test Coverage](https://img.shields.io/badge/coverage-83.6%25-brightgreen)](https://github.com/Nyukimin/picoclaw_multiLLM)
-[![Architecture](https://img.shields.io/badge/architecture-Clean%20Architecture-blue)](docs/実装仕様_v3.md)
+[![Architecture](https://img.shields.io/badge/architecture-Clean%20Architecture-blue)](docs/01_正本仕様/実装仕様.md)
 
 > **メモリ使用量 <10MB で動作する、マルチLLMルーティング対応の超軽量AIアシスタント**
 
@@ -140,7 +140,7 @@ distributed:
     key_path: "~/.ssh/picoclaw_agent"
 ```
 
-詳細: [docs/実装仕様_分散実行_v4.md](docs/実装仕様_分散実行_v4.md)
+詳細: [docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md](docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md)
 
 ---
 
@@ -496,10 +496,10 @@ picoclaw/
 
 ### 正本仕様（実装の一次参照）
 
-- **[docs/仕様.md](docs/仕様.md)** - 要件定義（286行）
-- **[docs/実装仕様_v3.md](docs/実装仕様_v3.md)** - v3クリーンアーキテクチャ版（3,067行）
-- **[docs/実装仕様_分散実行_v4.md](docs/実装仕様_分散実行_v4.md)** - v4分散実行対応版（SSH Transport、統合バイナリ）
-- **[docs/実装仕様_OpenClaw移植_v1.md](docs/実装仕様_OpenClaw移植_v1.md)** - OpenClaw移植仕様（実装実行能力）
+- **[docs/03_設計文書/仕様.md](docs/03_設計文書/仕様.md)** - 要件定義
+- **[docs/01_正本仕様/実装仕様.md](docs/01_正本仕様/実装仕様.md)** - 正本仕様（Clean Architecture実装の一次参照）
+- **[docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md](docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md)** - v4分散実行対応版（SSH Transport、統合バイナリ）
+- **[docs/04_実装仕様_機能拡張/実装仕様_OpenClaw移植_v1.md](docs/04_実装仕様_機能拡張/実装仕様_OpenClaw移植_v1.md)** - OpenClaw移植仕様（実装実行能力）
 
 ### LLM運用
 
@@ -525,12 +525,12 @@ picoclaw/
 
 ### 開発フロー
 
-1. **仕様確認**: `docs/実装仕様_v3.md` を読む
+1. **仕様確認**: `docs/01_正本仕様/実装仕様.md` を読む
 2. **ブランチ作成**: `feature/xxx` または `fix/xxx`
 3. **実装**: コーディング規約に従う
 4. **テスト**: ユニットテスト・統合テストを追加
-5. **ドキュメント更新**: 必要に応じて `docs/実装仕様_v3.md` を更新
-6. **プルリクエスト**: `proposal/clean-architecture` ブランチへ
+5. **ドキュメント更新**: 必要に応じて `docs/01_正本仕様/実装仕様.md` を更新
+6. **プルリクエスト**: `main` ブランチへ
 
 ### コーディング規約
 
@@ -662,7 +662,7 @@ grep -A 10 "distributed:" config.yaml
 
 - **Issue**: [GitHub Issues](https://github.com/Nyukimin/picoclaw_multiLLM/issues)
 - **ドキュメント**: [docs/](docs/)
-- **仕様**: [docs/実装仕様_v3.md](docs/実装仕様_v3.md)
+- **仕様**: [docs/01_正本仕様/実装仕様.md](docs/01_正本仕様/実装仕様.md)
 
 ---
 

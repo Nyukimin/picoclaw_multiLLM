@@ -1,0 +1,259 @@
+# IdleChat（§8）
+
+**対応仕様**: 仕様.md §8
+**ソース**: 07_IdleChat仕様/IdleChat仕様.md, 07_IdleChat仕様/未来展望セッション仕様.md
+**最終更新**: 2026-03-26
+
+---
+
+## 1. 概要
+
+IdleChat は、ユーザーが一定時間操作しないアイドル時間に**エージェント同士（Mio/Shiro 等）が自律的に雑談する**仕組み。
+
+### 1.1 目的
+
+- アイドル時間を活用してエージェントの「人格」を表現する
+- ユーザーに楽しめるコンテンツ（雑談・架空映画妄想・未来展望）を自動生成する
+- Viewer / TTS 経由でリアルタイム表示・読み上げする
+
+### 1.2 設計思想
+
+- **本番タスク最優先**: ユーザーアクティビティで即中断
+- **イベントドリブン TTS**: TTS 完了イベントで次アクションへ進む（推定ベースではない）
+- **品質制御**: 4段階のリトライ + 5種類のループ検出で会話品質を維持
+- **多様性確保**: 260ジャンル + 外部シード + 映画モードでトピック枯渇を防止
+- **話者ごとの LLM 分離**: `speakerLLMs` で Mio と Shiro に異なる LLM を割当可能
+
+---
+
+## 2. セッション形式
+
+| 項目 | 通常モード | 未来展望モード |
+|------|----------|--------------|
+| トピック選択 | ランダム（260ジャンル + 外部シード） | 6ドメイン固定順回し |
+| 情報源 | NHK RSS + Wikipedia | トレンド + NHK + Google News（3段階） |
+| ターン数 | 12ターン/トピック、最大50/セッション | 100ターン/ドメイン、最大600/セッション |
+| 起動方法 | 自動（アイドル検知）/ 手動 | 手動のみ（「未来展望」ボタン） |
+| セッション形式 | 単発トピック | 番組形式（ドメインアナウンス → お題 → 議論） |
+| テーマ反復抑制 | ループ検出（5種類） | ループ検出 + 蓄積型テーマ抑制 |
+| 要約 | Worker → Mio 読み上げ | Worker + 継続考察テーマ → Mio 読み上げ |
+
+---
+
+## 3. アーキテクチャ
+
+### 3.1 コンポーネント構成
+
+```
+internal/application/idlechat/
+├── orchestrator.go       # IdleChatOrchestrator 本体（ライフサイクル・発話生成・ループ検出・TTS連携）
+├── forecast_session.go   # 未来展望セッション（ドメイン定義・トレンド収集・テーマ抑制）
+├── topic_generator.go    # トピック生成戦略・外部シード取得
+└── topic_store.go        # TopicStore（セッション要約の永続化）
+```
+
+### 3.2 LLM 役割分担
+
+| 処理 | 担当 | 理由 |
+|------|------|------|
+| 通常トピック生成 | Mio (gemma3:4b) | 軽量・高速 |
+| 未来展望キーワード抽出 | Coder2 (GPT) | 深い文脈理解が必要 |
+| 未来展望トピック生成 | Coder2 (GPT) | 未来展望の質が重要 |
+| ディスカッション発話 | 各話者の LLM | ペルソナ維持 |
+| 既出テーマ抽出 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
+| まとめ生成 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
+
+---
+
+## 4. ブレイク体系
+
+全モード共通。TTS イベントドリブン。
+
+| タイミング | 待ち時間 | 起点 |
+|----------|--------|------|
+| 同一話者内の句間 | 200ms | TTS チャンクの `pause_after` |
+| 話者交代（Mio↔Shiro） | 500ms | TTS 完了イベント後 (`speakerBreak`) |
+| トピック/ドメイン交代 | 1000ms | TTS 完了イベント後 (`topicBreak`) |
+
+---
+
+## 5. 通常モード
+
+### 5.1 ライフサイクル
+
+```
+Start()
+  └─ goroutine: monitorLoop() — 30秒ごとに checkAndStartChat()
+       ├─ chatBusy/workerBusy → スキップ
+       ├─ nextTopicAt 前 → スキップ
+       ├─ アイドル時間 < intervalMin（manualMode でなければ）→ スキップ
+       └─ runChatSession()
+```
+
+### 5.2 トピック生成戦略
+
+| 戦略 | 確率 | 内容 |
+|------|------|------|
+| `StrategySingleGenre` | 40% | 260個のジャンルプールから1個選び深掘り |
+| `StrategyDoubleGenre` | 30% | 2ジャンルの意外な掛け合わせ |
+| `StrategyExternalStimulus` | 30% | Wikipedia Random / NHK News RSS + ジャンル |
+
+- **映画モード**: 20% の確率で「〜ってどんな映画？」形式
+- **外部シード**: 起動時に1日1回取得（Wikipedia 10件、NHK 10件）
+- **重複排除**: 直近12トピックと類似度チェック、最大3回リトライ
+
+### 5.3 セッション実行
+
+```
+runChatSession():
+  1. generateTopicFromChat() → トピック生成
+  2. ターンループ（最大 maxTurnsPerTopic=12）
+     ├─ generateResponse() → 発話生成
+     ├─ ensureTrailingPeriod() → 末尾に「。」追記
+     ├─ emit → waitForTTSDone → waitBreak(speakerBreak)
+     ├─ ループ検出（detectLoopReason）
+     └─ 中断/エラー/ループ → break
+  3. saveSummary() → Worker 要約 → Mio 読み上げ → topicBreak
+```
+
+### 5.4 ループ検出（5種類）
+
+| 種別 | 条件 |
+|------|------|
+| `exact_repeat` | 直近4発話内に完全一致 |
+| `alternating_repeat` | A-B-A-B パターン（類似度 ≥ 0.9） |
+| `template_repeat` | 話者テンプレートの繰り返し |
+| `high_similarity` | 直近10発話の類似度が高い |
+| `what_if_repeat` | 「もし〜だったら/なら」が半数以上 |
+
+### 5.5 発話生成リトライ（4段階）
+
+| 段階 | 条件 | リトライ内容 |
+|------|------|------------|
+| 1. 無効応答 | `invalidIdleResponse` | 「自然な会話文で言い直して」 |
+| 2. スタイル問題 | `needsIdleStyleRetry` | 「別の手で自然に返して」 |
+| 3. プロンプト漏出 | `hasPromptLeak` | 「指示文の断片を消して」 |
+| 4. 発言帰属違反 | `violatesAttribution` | 「相手の案を受ける形に」 |
+
+---
+
+## 6. 要約と読み上げ
+
+全モード共通。トピック/ドメインの議論終了後:
+
+```
+1. saveSummary() → Worker (Shiro) が要約生成
+2. TopicStore に永続化（JSON Lines）
+3. Timeline に idlechat.summary イベント emit
+4. speakSummary() → Mio が要約を読み上げ（TTS完了待ち）
+5. topicBreak (1000ms) → 次のトピックへ
+```
+
+**SessionSummary 型**:
+
+```go
+type SessionSummary struct {
+    SessionID       string        // "idle-{unix}" / "forecast-{unix}"
+    Title           string        // "3月15日の{topic}の話題まとめ"
+    Topic           string
+    Strategy        TopicStrategy // "single: ...", "forecast/AI技術" 等
+    Summary         string        // Worker による要約
+    StartedAt       string        // RFC3339
+    EndedAt         string        // RFC3339
+    Turns           int
+    LoopRestarted   bool
+    LoopReason      string
+    TopicProvider   string        // "mio" or "forecast"
+    SummaryProvider string        // "shiro" or "coder2"
+    Transcript      []string      // "{speaker}: {content}"
+}
+```
+
+---
+
+## 7. Viewer 連携
+
+### 7.1 REST API
+
+| エンドポイント | メソッド | 用途 |
+|-------------|--------|------|
+| `/viewer/idlechat/start` | POST | 通常モード手動開始 |
+| `/viewer/idlechat/forecast` | POST | 未来展望モード開始 |
+| `/viewer/idlechat/stop` | POST | 停止（両モード共通） |
+| `/viewer/idlechat/status` | GET | 状態取得 |
+| `/viewer/idlechat/logs` | GET | 履歴取得（両モード統合） |
+
+### 7.2 Viewer UI
+
+- 「IdleChat開始」「IdleChat停止」ボタン — 通常モード
+- 「未来展望」ボタン（青系、独立配置） — 未来展望モード
+- 状態表示: `IdleChat: off` / `on` / `on (talking)`
+- IdleChat パネル（タブ切替）: Mode・Current Topic・履歴テーブル
+- Timeline: `idlechat.message` / `idlechat.summary` イベント（ルート色: 紫）
+
+### 7.3 双方向制御
+
+```
+IdleChat → Viewer: 発話/要約イベント → EventHub → SSE → ブラウザ表示
+Viewer → IdleChat: message.received → NotifyActivity() → 中断
+```
+
+`shouldStopIdleChatByEvent()`: `IDLECHAT` ルートや TTS イベントは無視、`message.received` のみ中断トリガー。
+
+---
+
+## 8. ストーリーモード
+
+### 8.1 概要
+
+IdleChat の第3のモード。エージェントが登場人物を演じて昔話や民話を読み上げる。
+
+**ステータス**: 実装中（`feature/rencrow` ブランチ、品質チューニング段階）
+
+### 8.2 パイプライン
+
+8ステップのパイプライン。Steps 2〜6 は決定論的、Steps 7〜8 のみ LLM。
+
+| ステップ | 処理 | 担当 |
+|--------|------|------|
+| Step 1 | ストーリー選択 | 決定論的 |
+| Step 2 | キャラクター割当 | 決定論的 |
+| Step 3 | セリフ抽出 | 決定論的 |
+| Step 4 | ナレーター分割 | 決定論的 |
+| Step 5 | テンポ設定 | 決定論的 |
+| Step 6 | 感情ラベル付け | 決定論的 |
+| Step 7 | ドラフト生成 | LLM（Mio） |
+| Step 8 | リビジョン | LLM（Mio） |
+
+---
+
+## 9. 並行安全性
+
+| 機構 | 用途 |
+|------|------|
+| `sync.Mutex` (`o.mu`) | 全フィールドの排他制御 |
+| `context.Context` (`o.ctx`) | goroutine キャンセル伝播 |
+| `sync.WaitGroup` (`o.wg`) | Stop() での終了待機 |
+| `sync.RWMutex` (`cacheMu`) | DailySeedCache のスレッドセーフアクセス |
+| `sync.RWMutex` (`trendMu`) | TrendCache のスレッドセーフアクセス |
+
+---
+
+## 10. 定数一覧
+
+| 定数 | 値 | 用途 |
+|------|-----|------|
+| `idleCheckInterval` | 30s | monitorLoop チェック間隔 |
+| `maxTurnsPerTopic` | 12 | 通常モードの1トピック最大ターン数 |
+| `speakerBreak` | 500ms | 話者交代ブレイク |
+| `topicBreak` | 1000ms | トピック/ドメイン交代ブレイク |
+| `defaultChunkPause` | 200ms | TTS チャンク間ブレイク |
+| `forecastTurnsPerDomain` | 100 | 未来展望の1ドメイン最大ターン数 |
+| `forecastCheckpointInterval` | 15 | 未来展望のテーマ抑制チェック間隔 |
+
+---
+
+**関連文書**:
+- [仕様.md §8](仕様.md#8-idlechat) — 概要
+- [07_IdleChat仕様/IdleChat仕様.md](../07_IdleChat仕様/IdleChat仕様.md) — 通常モードの完全仕様
+- [07_IdleChat仕様/未来展望セッション仕様.md](../07_IdleChat仕様/未来展望セッション仕様.md) — 未来展望モードの完全仕様
