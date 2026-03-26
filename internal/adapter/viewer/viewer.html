@@ -106,6 +106,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .ctl-btn.is-selected{background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.45);color:#fff}
 .ctl-btn.mode-forecast.is-selected{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.45)}
 .ctl-btn.mode-story.is-selected{background:rgba(16,185,129,.18);border-color:rgba(16,185,129,.45)}
+.ctl-btn.mode-story-simple.is-selected{background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.45)}
 .idle-on{color:var(--ok);font-size:12px;align-self:center}
 .idle-off{color:var(--t2);font-size:12px;align-self:center}
 
@@ -478,7 +479,8 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     <div class="idle-tools">
       <button id="idleModeNormal" class="ctl-btn" title="通常のIdleChat会話を選択">通常Chat</button>
       <button id="idleModeForecast" class="ctl-btn mode-forecast" title="未来展望セッション（6ドメイン×100ターン）を選択">未来展望</button>
-      <button id="idleModeStory" class="ctl-btn mode-story" title="物語再構成セッションを選択">物語</button>
+      <button id="idleModeStory" class="ctl-btn mode-story" title="物語再構成セッションを選択">剽窃</button>
+      <button id="idleModeStorySimple" class="ctl-btn mode-story-simple" title="昔話の主人公改変ワンプロンプト物語（Coder2生成）">物語</button>
       <button id="idleStart" class="ctl-btn" title="選択中のモードを開始">IdleChat開始</button>
       <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
       <span id="idleState" class="idle-off">IdleChat: off</span>
@@ -676,6 +678,7 @@ const idleStartBtn = document.getElementById('idleStart');
 const idleModeNormalBtn = document.getElementById('idleModeNormal');
 const idleModeForecastBtn = document.getElementById('idleModeForecast');
 const idleModeStoryBtn = document.getElementById('idleModeStory');
+const idleModeStorySimpleBtn = document.getElementById('idleModeStorySimple');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
 const audioBtn = document.getElementById('audioBtn');
@@ -791,6 +794,11 @@ function setIdleState(mode, manual, active) {
     idleStateEl.className = active ? 'idle-on' : 'idle-off';
     return;
   }
+  if (currentMode === 'story-simple') {
+    idleStateEl.textContent = 'Story(簡易): ' + (active ? 'talking' : 'ready');
+    idleStateEl.className = active ? 'idle-on' : 'idle-off';
+    return;
+  }
   if (active) {
     idleStateEl.textContent = 'IdleChat: talking';
     idleStateEl.className = 'idle-on';
@@ -808,12 +816,14 @@ function setIdleState(mode, manual, active) {
 function setIdleSelectedMode(mode) {
   const next = mode === 'forecast'
     ? 'forecast'
-    : (mode === 'story' ? 'story' : 'manual');
+    : (mode === 'story' ? 'story'
+    : (mode === 'story-simple' ? 'story-simple' : 'manual'));
   state.idleChat.selectedMode = next;
   localStorage.setItem('idlechat.selectedMode', next);
   if (idleModeNormalBtn) idleModeNormalBtn.classList.toggle('is-selected', next === 'manual');
   if (idleModeForecastBtn) idleModeForecastBtn.classList.toggle('is-selected', next === 'forecast');
   if (idleModeStoryBtn) idleModeStoryBtn.classList.toggle('is-selected', next === 'story');
+  if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.classList.toggle('is-selected', next === 'story-simple');
 }
 
 function setBadge(el, enabled) {
@@ -941,6 +951,7 @@ async function refreshIdleStatus() {
       if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
       if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
       if (idleModeStoryBtn) idleModeStoryBtn.disabled = true;
+      if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.disabled = true;
       idleStopBtn.disabled = true;
       setIdleState('', false, false);
       state.idleChat.mode = '';
@@ -956,6 +967,7 @@ async function refreshIdleStatus() {
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = !!d.chat_active;
     if (idleModeForecastBtn) idleModeForecastBtn.disabled = !!d.chat_active;
     if (idleModeStoryBtn) idleModeStoryBtn.disabled = !!d.chat_active;
+    if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.disabled = !!d.chat_active;
     idleStopBtn.disabled = !d.manual_mode && !d.chat_active;
     state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
@@ -967,6 +979,7 @@ async function refreshIdleStatus() {
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
     if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
     if (idleModeStoryBtn) idleModeStoryBtn.disabled = true;
+    if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.disabled = true;
     idleStopBtn.disabled = true;
     setIdleState('', false, false);
     state.idleChat.mode = '';
@@ -993,7 +1006,7 @@ async function refreshIdleLogs() {
 }
 
 async function controlIdle(path) {
-  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleModeStoryBtn, idleStopBtn].filter(Boolean);
+  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleModeStoryBtn, idleModeStorySimpleBtn, idleStopBtn].filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
   try {
     const r = await fetch(path, {method: 'POST'});
@@ -1010,12 +1023,15 @@ idleStartBtn.addEventListener('click', () => {
     ? '/viewer/idlechat/forecast'
     : (state.idleChat.selectedMode === 'story'
       ? '/viewer/idlechat/story'
-      : '/viewer/idlechat/start');
+      : (state.idleChat.selectedMode === 'story-simple'
+        ? '/viewer/idlechat/story-simple'
+        : '/viewer/idlechat/start'));
   controlIdle(path);
 });
 if (idleModeNormalBtn) idleModeNormalBtn.addEventListener('click', () => setIdleSelectedMode('manual'));
 if (idleModeForecastBtn) idleModeForecastBtn.addEventListener('click', () => setIdleSelectedMode('forecast'));
 if (idleModeStoryBtn) idleModeStoryBtn.addEventListener('click', () => setIdleSelectedMode('story'));
+if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.addEventListener('click', () => setIdleSelectedMode('story-simple'));
 idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
 
 function stateClass(s) { return 'state-' + normState(s); }
