@@ -68,7 +68,7 @@ func buildOrchestrator(t *testing.T, cfg *config.Config) *orchestrator.MessageOr
 
 	return orchestrator.NewMessageOrchestrator(
 		sessionRepo, mioAgent, nil,
-		coder1, coder2, nil,
+		coder1, coder2, nil, nil,
 		workerExec,
 	)
 }
@@ -149,7 +149,7 @@ func TestE2E_Routing_FallbackChain_Coder1ToCoder2(t *testing.T) {
 
 	orch := orchestrator.NewMessageOrchestrator(
 		sessionRepo, mioAgent, nil,
-		nil, coder2, nil, // coder1=nil → coder2にフォールバック
+		nil, coder2, nil, nil, // coder1=nil → coder2にフォールバック
 		workerExec,
 	)
 

@@ -72,6 +72,7 @@ func main() {
 		nil, // Coder1（不要）
 		nil, // Coder2（不要）
 		nil, // Coder3（不要）
+		nil, // Coder4（不要）
 		workerService,
 	)
 
