@@ -478,13 +478,6 @@ func speechModeForRoute(route routing.Route) string {
 	}
 }
 
-type codeTarget struct {
-	name         string
-	coder        CoderAgent
-	systemPrompt string
-	release      func()
-}
-
 func (o *MessageOrchestrator) coderByName(name string) CoderAgent {
 	switch name {
 	case "coder1":
@@ -495,19 +488,6 @@ func (o *MessageOrchestrator) coderByName(name string) CoderAgent {
 		return o.coder3
 	default:
 		return nil
-	}
-}
-
-func explicitCodeRouteTarget(route routing.Route) (name, prompt string, ok bool) {
-	switch route {
-	case routing.RouteCODE1:
-		return "coder1", "You are a specification design assistant.", true
-	case routing.RouteCODE2:
-		return "coder2", "You are an implementation assistant.", true
-	case routing.RouteCODE3:
-		return "coder3", "You are a high-quality code review and reasoning assistant.", true
-	default:
-		return "", "", false
 	}
 }
 
@@ -642,27 +622,6 @@ func (o *MessageOrchestrator) executeCoderGeneratePath(
 	o.emit("agent.response", target.name, "shiro", truncate(resp, 500), route.String(), jid, sessionID, channel, chatID)
 	o.emit("agent.response", "shiro", "mio", truncate(resp, 500), route.String(), jid, sessionID, channel, chatID)
 	return resp, nil
-}
-
-// truncate はビュワー表示用に長いテキストを切り詰める
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	// 行単位で切り詰め
-	lines := strings.SplitN(s, "\n", -1)
-	var b strings.Builder
-	for _, line := range lines {
-		if b.Len()+len(line)+1 > maxLen {
-			b.WriteString("\n... (truncated)")
-			break
-		}
-		if b.Len() > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(line)
-	}
-	return b.String()
 }
 
 func capabilityForRoute(route routing.Route) autonomousapp.CapabilityPack {

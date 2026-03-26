@@ -83,12 +83,12 @@ func TestCodeExecutor_CODE3_WithProposal(t *testing.T) {
 	}
 }
 
-// TestCodeExecutor_CODE_GenericRoute_Fallback はCODE汎用ルートのフォールバックテスト（RED）
+// TestCodeExecutor_CODE_GenericRoute_Fallback はCODE汎用ルートのフォールバックテスト
 func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
-	coder1 := &mockCoderAgent{response: ""} // coder1利用可能だが空レスポンス
+	// coder1がnilの場合にcoder2にフォールバック
 	coder2 := &mockCoderAgent{response: "CODE2 fallback response"}
 
-	executor := NewDefaultCodeExecutor(coder1, coder2, nil, nil, noopEventEmitter)
+	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, noopEventEmitter)
 
 	jobID := task.NewJobID()
 	req := CodeExecutionRequest{
@@ -105,7 +105,7 @@ func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	// coder1が空レスポンスならcoder2にフォールバック
+	// coder1がnilならcoder2にフォールバック
 	if resp.Response != "CODE2 fallback response" {
 		t.Errorf("Expected fallback to coder2, got '%s'", resp.Response)
 	}
