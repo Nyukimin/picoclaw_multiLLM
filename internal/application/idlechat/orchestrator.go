@@ -151,11 +151,9 @@ func NewIdleChatOrchestrator(
 	randSeedOnce.Do(func() {
 		rand.Seed(time.Now().UnixNano())
 	})
-	if storyDataDir != "" {
-		if err := LoadStoryData(storyDataDir); err != nil {
-			log.Printf("[Story] failed to load story data from %q: %v", storyDataDir, err)
-		}
-	}
+	// LoadStoryData: Complex Story Mode用、現在はアーカイブ済み
+	// Simple Story Mode はハードコードされた昔話リストを使用
+	_ = storyDataDir // unused
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
 		llmProvider:   llmProvider,
@@ -490,6 +488,8 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 		} else {
 			o.runForecastDomainSession(*plan.domain)
 		}
+	case "story-simple":
+		o.RunSimpleStorySession()
 	default:
 		o.runChatSession(plan.strategy)
 	}

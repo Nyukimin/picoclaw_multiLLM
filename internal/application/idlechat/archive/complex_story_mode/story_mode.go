@@ -207,24 +207,22 @@ func (o *IdleChatOrchestrator) RunStorySession() {
 
 	transcript := make([]string, 0, 12)
 	intro := fmt.Sprintf("今夜の物語です。元になったのは『%s』。%s。", result.source.Title, result.plan.Hook)
-	for _, chunk := range splitStoryNarration(intro, storyChunkMaxRunes) {
-		o.emitStoryChunk(sessionID, chunk)
-		transcript = append(transcript, "mio: "+chunk)
-	}
+	o.emitStoryParagraph(sessionID, intro)
+	transcript = append(transcript, "mio: "+intro)
+
 	titleLine := fmt.Sprintf("改題は『%s』。", result.plan.StoryTitle)
-	for _, chunk := range splitStoryNarration(titleLine, storyChunkMaxRunes) {
-		o.emitStoryChunk(sessionID, chunk)
-		transcript = append(transcript, "mio: "+chunk)
+	o.emitStoryParagraph(sessionID, titleLine)
+	transcript = append(transcript, "mio: "+titleLine)
+
+	// 本文: 文を約150文字でまとめてViewerに1バブルで送る（TTS はチャンク単位）
+	for _, para := range groupStoryIntoViewerParagraphs(result.storyText, 150) {
+		o.emitStoryParagraph(sessionID, para)
+		transcript = append(transcript, "mio: "+para)
 	}
-	for _, chunk := range splitStoryNarration(result.storyText, storyChunkMaxRunes) {
-		o.emitStoryChunk(sessionID, chunk)
-		transcript = append(transcript, "mio: "+chunk)
-	}
+
 	closing := fmt.Sprintf("元の『%s』を下敷きにした、%sの物語でした。", result.source.Title, rewriteStyleLabel(result.plan.RewriteStyle))
-	for _, chunk := range splitStoryNarration(closing, storyChunkMaxRunes) {
-		o.emitStoryChunk(sessionID, chunk)
-		transcript = append(transcript, "mio: "+chunk)
-	}
+	o.emitStoryParagraph(sessionID, closing)
+	transcript = append(transcript, "mio: "+closing)
 
 	endedAt := time.Now().In(jst)
 	o.saveStorySummary(sessionID, result.source, result.plan, result.draftText, result.revisionNote, result.storyText, transcript, startedAt, endedAt)
@@ -307,6 +305,43 @@ func (o *IdleChatOrchestrator) emitStoryChunk(sessionID, content string) {
 	})
 	o.waitForTTSDone(ttsDone)
 	o.waitBreak(speakerBreak)
+}
+
+// emitStoryParagraph は段落テキストを Viewer に1件送り、チャンク単位で TTS 再生する。
+// Viewer は段落全体を1バブルで表示し、TTS はチャンク（90文字）単位で読み上げる。
+func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string) {
+	paragraph = strings.TrimSpace(paragraph)
+	if paragraph == "" {
+		return
+	}
+	// memory に段落単位で記録
+	msg := domaintransport.NewMessage("mio", "user", sessionID, "", paragraph)
+	msg.Type = domaintransport.MessageTypeIdleChat
+	o.memory.RecordMessage(msg)
+	// Viewer に段落全体を1件送る（TTS なし）
+	o.emitTimelineEvent(TimelineEvent{
+		Type:      "idlechat.viewer",
+		From:      "mio",
+		To:        "user",
+		Content:   paragraph,
+		SessionID: sessionID,
+	})
+	// TTS に文節単位で送る（Viewer には表示しない）
+	for _, sentence := range splitStorySentences(paragraph) {
+		sentence = strings.TrimSpace(sentence)
+		if sentence == "" {
+			continue
+		}
+		ttsDone := o.emitTimelineEvent(TimelineEvent{
+			Type:      "idlechat.tts",
+			From:      "mio",
+			To:        "user",
+			Content:   sentence,
+			SessionID: sessionID,
+		})
+		o.waitForTTSDone(ttsDone)
+		o.waitBreak(speakerBreak)
+	}
 }
 
 func (o *IdleChatOrchestrator) saveStorySummary(sessionID string, source StorySource, plan StoryRewritePlan, draftText, revisionNote, storyText string, transcript []string, startedAt, endedAt time.Time) {
@@ -1228,26 +1263,42 @@ func storyHasDistractingDigression(story string) bool {
 
 
 
+// splitStorySentences は物語テキストを文節単位に分割する。
+// 禁則処理: 。！？ の直後に続く行頭禁則文字（」』）等）は前の文節に含める。
 func splitStorySentences(story string) []string {
-	var (
-		sentences []string
-		buf       strings.Builder
-	)
-	for _, r := range story {
-		buf.WriteRune(r)
-		switch r {
+	runes := []rune(story)
+	n := len(runes)
+	var sentences []string
+	start := 0
+	for i := 0; i < n; i++ {
+		switch runes[i] {
 		case '。', '！', '？', '\n':
-			part := strings.TrimSpace(buf.String())
+			end := i + 1
+			// 直後の行頭禁則文字を前の文節に含める（禁則処理）
+			for end < n && isStoryLineHeadForbidden(runes[end]) {
+				end++
+			}
+			part := strings.TrimSpace(string(runes[start:end]))
 			if part != "" {
 				sentences = append(sentences, part)
 			}
-			buf.Reset()
+			start = end
+			i = end - 1
 		}
 	}
-	if tail := strings.TrimSpace(buf.String()); tail != "" {
+	if tail := strings.TrimSpace(string(runes[start:])); tail != "" {
 		sentences = append(sentences, tail)
 	}
 	return sentences
+}
+
+// isStoryLineHeadForbidden は行頭禁則文字かどうかを返す（日本語組版基準）。
+func isStoryLineHeadForbidden(r rune) bool {
+	switch r {
+	case '、', '。', '！', '？', '」', '』', '）', ')', '…', '‥', '・', '：', '；', 'ー', '～', '〜':
+		return true
+	}
+	return false
 }
 
 func storyHasOutlineLanguage(story string) bool {
@@ -1539,7 +1590,12 @@ func splitStoryNarration(text string, maxRunes int) []string {
 			para = strings.TrimSpace(para[idx:])
 		}
 		if para != "" {
-			out = append(out, para)
+			// 閉じ括弧・句点だけの断片は前のチャンクにマージする
+			if len(out) > 0 && utf8.RuneCountInString(para) < storyChunkMinRunes && isStoryClosingFragment(para) {
+				out[len(out)-1] += para
+			} else {
+				out = append(out, para)
+			}
 		}
 	}
 	return out
@@ -1558,7 +1614,12 @@ func bestStorySplitIndex(s string, maxRunes int) int {
 	for i := limit - 1; i >= storyChunkMinRunes-1 && i < len(runes); i-- {
 		switch runes[i] {
 		case '。', '！', '？', '!', '?':
-			return len(string(runes[:i+1]))
+			// 直後に閉じ括弧が続く場合は一緒に含める（「〜！」→「」だけ残らないように）
+			end := i + 1
+			for end < len(runes) && (runes[end] == '」' || runes[end] == '』' || runes[end] == ')' || runes[end] == '）') {
+				end++
+			}
+			return len(string(runes[:end]))
 		case '、', '，', ',', '」':
 			if best < 0 {
 				best = len(string(runes[:i+1]))
@@ -1569,4 +1630,39 @@ func bestStorySplitIndex(s string, maxRunes int) int {
 		return best
 	}
 	return len(string(runes[:maxRunes]))
+}
+
+// groupStoryIntoViewerParagraphs は物語テキストを文に分解し、Viewer 表示用の段落にまとめる。
+// targetRunes 文字程度を1段落とし、文途中で切らない。LLMの改行形式に依存しない。
+func groupStoryIntoViewerParagraphs(text string, targetRunes int) []string {
+	sentences := splitStorySentences(strings.TrimSpace(text))
+	var out []string
+	var buf strings.Builder
+	for _, s := range sentences {
+		sLen := utf8.RuneCountInString(s)
+		bufLen := utf8.RuneCountInString(buf.String())
+		if buf.Len() > 0 && bufLen+sLen > targetRunes {
+			out = append(out, strings.TrimSpace(buf.String()))
+			buf.Reset()
+		}
+		buf.WriteString(s)
+	}
+	if buf.Len() > 0 {
+		out = append(out, strings.TrimSpace(buf.String()))
+	}
+	return out
+}
+
+// isStoryClosingFragment は、閉じ括弧・句点のみで構成された断片かどうかを判定する。
+// 「」だけ、』だけ、。だけ など、前のチャンクへのマージ対象。
+func isStoryClosingFragment(s string) bool {
+	for _, r := range s {
+		switch r {
+		case '」', '』', '）', ')', '。', '！', '？', '!', '?':
+			// ok
+		default:
+			return false
+		}
+	}
+	return true
 }

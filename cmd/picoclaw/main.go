@@ -224,6 +224,7 @@ func cmdRun() {
 		mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
 		mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())
 		mux.HandleFunc("/viewer/idlechat/story", dependencies.handleIdleChatStory())
+		mux.HandleFunc("/viewer/idlechat/story-simple", dependencies.handleIdleChatStorySimple())
 	}
 
 	healthHandler := dependencies.buildHealthHandler(cfg)
@@ -1998,17 +1999,29 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		}
 		if deps.eventHub != nil {
 			idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) <-chan struct{} {
-				deps.eventHub.OnEvent(orchestrator.NewEvent(
-					ev.Type,
-					ev.From,
-					ev.To,
-					ev.Content,
-					"IDLECHAT",
-					"",
-					ev.SessionID,
-					"idlechat",
-					"idlechat",
-				))
+				// "idlechat.tts" は TTS 専用 — Viewer には送らない
+				// "idlechat.viewer" は段落表示専用 — "idlechat.message" としてViewerに送る
+				if ev.Type != "idlechat.tts" {
+					viewerType := ev.Type
+					if viewerType == "idlechat.viewer" {
+						viewerType = "idlechat.message"
+					}
+					deps.eventHub.OnEvent(orchestrator.NewEvent(
+						viewerType,
+						ev.From,
+						ev.To,
+						ev.Content,
+						"IDLECHAT",
+						"",
+						ev.SessionID,
+						"idlechat",
+						"idlechat",
+					))
+				}
+				// "idlechat.viewer" は Viewer 専用 — TTS には送らない
+				if ev.Type == "idlechat.viewer" {
+					return nil
+				}
 				return emitIdleChatTTSAsync(ttsBridge, ev)
 			})
 		}
@@ -2533,13 +2546,40 @@ func (d *Dependencies) handleIdleChatStory() http.HandlerFunc {
 			http.Error(w, err.Error(), status)
 			return
 		}
-		go d.idleChatOrch.RunStorySession()
+		go d.idleChatOrch.RunSimpleStorySession()
 		writeJSON(w, map[string]any{
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
+	}
+}
+
+func (d *Dependencies) handleIdleChatStorySimple() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		if err := d.idleChatOrch.StartSimpleStoryMode(); err != nil {
+			status := http.StatusBadRequest
+			if strings.Contains(err.Error(), "already active") {
+				status = http.StatusConflict
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		go d.idleChatOrch.RunSimpleStorySession()
+		writeJSON(w, map[string]any{
+			"ok":          true,
+			"mode":        d.idleChatOrch.CurrentMode(),
+			"chat_active": d.idleChatOrch.IsChatActive(),
 		})
 	}
 }

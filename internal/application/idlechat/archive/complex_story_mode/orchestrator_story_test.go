@@ -15,9 +15,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Load story data so corpus-dependent tests have data available.
-	// Failure is non-fatal: tests that don't need story data still run.
-	_ = LoadStoryData("../../../data/story")
+	// LoadStoryData: Complex Story Mode用、アーカイブ済み
+	// Simple Story Mode はハードコードされた昔話リストを使用
 	os.Exit(m.Run())
 }
 

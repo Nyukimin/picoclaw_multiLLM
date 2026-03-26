@@ -6,8 +6,10 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
 // simpleStoryTales は簡易版物語生成で使う昔話リスト。
@@ -167,4 +169,97 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	o.emitStoryParagraph(sessionID, closing)
 
 	log.Printf("[SimpleStory] Session complete: %s × %s", tale.title, protagonist)
+}
+
+// emitStoryParagraph は段落をViewer + TTSに配信する（story_mode.goから移植）
+func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string) {
+	paragraph = strings.TrimSpace(paragraph)
+	if paragraph == "" {
+		return
+	}
+	// memory に段落単位で記録
+	msg := domaintransport.NewMessage("mio", "user", sessionID, "", paragraph)
+	msg.Type = domaintransport.MessageTypeIdleChat
+	o.memory.RecordMessage(msg)
+	// Viewer に段落全体を1件送る（TTS なし）
+	o.emitTimelineEvent(TimelineEvent{
+		Type:      "idlechat.viewer",
+		From:      "mio",
+		To:        "user",
+		Content:   paragraph,
+		SessionID: sessionID,
+	})
+	// TTS に文節単位で送る（Viewer には表示しない）
+	for _, sentence := range splitStorySentences(paragraph) {
+		sentence = strings.TrimSpace(sentence)
+		if sentence == "" {
+			continue
+		}
+		ttsDone := o.emitTimelineEvent(TimelineEvent{
+			Type:      "idlechat.tts",
+			From:      "mio",
+			To:        "user",
+			Content:   sentence,
+			SessionID: sessionID,
+		})
+		o.waitForTTSDone(ttsDone)
+		o.waitBreak(speakerBreak)
+	}
+}
+
+// groupStoryIntoViewerParagraphs はストーリーテキストを指定文字数で段落に分割（story_mode.goから移植）
+func groupStoryIntoViewerParagraphs(text string, targetRunes int) []string {
+	sentences := splitStorySentences(strings.TrimSpace(text))
+	var out []string
+	var buf strings.Builder
+	for _, s := range sentences {
+		sLen := utf8.RuneCountInString(s)
+		bufLen := utf8.RuneCountInString(buf.String())
+		if buf.Len() > 0 && bufLen+sLen > targetRunes {
+			out = append(out, strings.TrimSpace(buf.String()))
+			buf.Reset()
+		}
+		buf.WriteString(s)
+	}
+	if buf.Len() > 0 {
+		out = append(out, strings.TrimSpace(buf.String()))
+	}
+	return out
+}
+
+// splitStorySentences は文節区切りで分割（story_mode.goから移植）
+func splitStorySentences(story string) []string {
+	runes := []rune(story)
+	n := len(runes)
+	var sentences []string
+	start := 0
+	for i := 0; i < n; i++ {
+		switch runes[i] {
+		case '。', '！', '？', '\n':
+			end := i + 1
+			// 直後の行頭禁則文字を前の文節に含める（禁則処理）
+			for end < n && isStoryLineHeadForbidden(runes[end]) {
+				end++
+			}
+			part := strings.TrimSpace(string(runes[start:end]))
+			if part != "" {
+				sentences = append(sentences, part)
+			}
+			start = end
+			i = end - 1
+		}
+	}
+	if tail := strings.TrimSpace(string(runes[start:])); tail != "" {
+		sentences = append(sentences, tail)
+	}
+	return sentences
+}
+
+// isStoryLineHeadForbidden は行頭禁則文字かどうかを返す（story_mode.goから移植）
+func isStoryLineHeadForbidden(r rune) bool {
+	switch r {
+	case '、', '。', '！', '？', '」', '』', '）', ')', '…', '‥', '・', '：', '；', 'ー', '～', '〜':
+		return true
+	}
+	return false
 }
