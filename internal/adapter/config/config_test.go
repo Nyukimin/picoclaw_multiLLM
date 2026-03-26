@@ -785,3 +785,126 @@ conversation:
 		t.Errorf("expected SummaryModel 'chat-v1', got %q", cfg.Conversation.SummaryModel)
 	}
 }
+
+// TestGlossaryConfig_DefaultValues はGlossaryConfigのデフォルト値を検証
+func TestGlossaryConfig_DefaultValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Glossaryセクションを含まないミニマルな設定
+	minimalContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+
+session:
+  storage_dir: "./data/sessions"
+`
+
+	err := os.WriteFile(configPath, []byte(minimalContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// デフォルト値の検証（config.go:457-472 の実装と一致）
+	if cfg.Glossary.DBPath != "./workspace/glossary.db" {
+		t.Errorf("Expected Glossary.DBPath './workspace/glossary.db', got '%s'", cfg.Glossary.DBPath)
+	}
+
+	if cfg.Glossary.RefreshIntervalHr != 6 {
+		t.Errorf("Expected Glossary.RefreshIntervalHr 6, got %d", cfg.Glossary.RefreshIntervalHr)
+	}
+
+	if cfg.Glossary.MaxEntries != 8 {
+		t.Errorf("Expected Glossary.MaxEntries 8, got %d", cfg.Glossary.MaxEntries)
+	}
+
+	if len(cfg.Glossary.FeedURLs) != 3 {
+		t.Errorf("Expected 3 default FeedURLs, got %d", len(cfg.Glossary.FeedURLs))
+	}
+
+	expectedFeeds := []string{
+		"https://www3.nhk.or.jp/rss/news/cat0.xml",
+		"https://feeds.bbci.co.uk/news/world/rss.xml",
+		"https://feeds.bbci.co.uk/news/technology/rss.xml",
+	}
+
+	for i, expectedURL := range expectedFeeds {
+		if i >= len(cfg.Glossary.FeedURLs) {
+			t.Errorf("FeedURLs[%d] is missing", i)
+			continue
+		}
+		if cfg.Glossary.FeedURLs[i] != expectedURL {
+			t.Errorf("FeedURLs[%d]: expected '%s', got '%s'", i, expectedURL, cfg.Glossary.FeedURLs[i])
+		}
+	}
+}
+
+// TestGlossaryConfig_CustomValues はカスタム値が正しく読み込まれることを検証
+func TestGlossaryConfig_CustomValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	customContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+
+session:
+  storage_dir: "./data/sessions"
+
+glossary:
+  enabled: true
+  db_path: "/custom/path/glossary.db"
+  refresh_interval_hr: 12
+  max_entries: 20
+  feed_urls:
+    - "https://custom.feed/rss"
+`
+
+	err := os.WriteFile(configPath, []byte(customContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// カスタム値の検証
+	if !cfg.Glossary.Enabled {
+		t.Error("Expected Glossary.Enabled true")
+	}
+
+	if cfg.Glossary.DBPath != "/custom/path/glossary.db" {
+		t.Errorf("Expected custom DBPath, got '%s'", cfg.Glossary.DBPath)
+	}
+
+	if cfg.Glossary.RefreshIntervalHr != 12 {
+		t.Errorf("Expected RefreshIntervalHr 12, got %d", cfg.Glossary.RefreshIntervalHr)
+	}
+
+	if cfg.Glossary.MaxEntries != 20 {
+		t.Errorf("Expected MaxEntries 20, got %d", cfg.Glossary.MaxEntries)
+	}
+
+	if len(cfg.Glossary.FeedURLs) != 1 {
+		t.Errorf("Expected 1 custom FeedURL, got %d", len(cfg.Glossary.FeedURLs))
+	}
+
+	if len(cfg.Glossary.FeedURLs) > 0 && cfg.Glossary.FeedURLs[0] != "https://custom.feed/rss" {
+		t.Errorf("Expected custom feed URL, got '%s'", cfg.Glossary.FeedURLs[0])
+	}
+}
