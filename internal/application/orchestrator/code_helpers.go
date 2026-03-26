@@ -50,34 +50,41 @@ func formatExecutionResult(
 		gitCommitLine = fmt.Sprintf("\n- **Git Commit**: `%s`", shortHash)
 	}
 
-	// エラー詳細
-	errorDetails := ""
-	if !result.Success && len(result.Results) > 0 {
-		errorDetails = "\n\n### Errors\n"
-		for _, r := range result.Results {
-			if !r.Success {
-				errorDetails += fmt.Sprintf("- %s: %s\n", r.Command.Type, r.Error)
-			}
+	// コマンド結果詳細
+	commandDetails := ""
+	for i, cmdResult := range result.Results {
+		status := "✅"
+		if !cmdResult.Success {
+			status = "❌"
+		}
+		commandDetails += fmt.Sprintf("\n%d. %s `%s` %s",
+			i+1, status, cmdResult.Command.Action, cmdResult.Command.Target)
+		if cmdResult.Error != "" {
+			commandDetails += fmt.Sprintf("\n   Error: %s", cmdResult.Error)
 		}
 	}
 
-	successCount := result.ExecutedCmds - result.FailedCmds
-
-	return fmt.Sprintf(`%s **Execution Result**
-
-## Plan
+	return fmt.Sprintf(`## Plan
 %s
 
-## Result
-- **Total Steps**: %d
-- **Success Steps**: %d
-- **Failed Steps**: %d%s%s`,
-		statusEmoji,
+## Execution Result
+- **Status**: %s
+- **Executed**: %d commands
+- **Failed**: %d commands
+- **Success Rate**: %.1f%%%s
+
+### Command Results%s
+
+## Risk
+%s
+`,
 		p.Plan(),
+		statusEmoji,
 		result.ExecutedCmds,
-		successCount,
 		result.FailedCmds,
+		result.SuccessRate()*100,
 		gitCommitLine,
-		errorDetails,
+		commandDetails,
+		p.Risk(),
 	)
 }

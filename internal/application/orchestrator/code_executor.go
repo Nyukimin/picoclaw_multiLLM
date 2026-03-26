@@ -45,6 +45,7 @@ type DefaultCodeExecutor struct {
 	coder2          CoderAgent
 	coder3          CoderAgent
 	workerExecution service.WorkerExecutionService
+	coderStatus     *CoderStatus // optional: coder busy state management
 	eventEmitter    func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
 }
 
@@ -52,6 +53,7 @@ type DefaultCodeExecutor struct {
 func NewDefaultCodeExecutor(
 	coder1, coder2, coder3 CoderAgent,
 	workerExecution service.WorkerExecutionService,
+	coderStatus *CoderStatus,
 	eventEmitter func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string),
 ) *DefaultCodeExecutor {
 	return &DefaultCodeExecutor{
@@ -59,6 +61,7 @@ func NewDefaultCodeExecutor(
 		coder2:          coder2,
 		coder3:          coder3,
 		workerExecution: workerExecution,
+		coderStatus:     coderStatus,
 		eventEmitter:    eventEmitter,
 	}
 }
@@ -68,6 +71,10 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	target, err := e.selectCoderForRoute(req.Route)
 	if err != nil {
 		return CodeExecutionResponse{}, err
+	}
+	// CoderStatusのrelease処理
+	if target.release != nil {
+		defer target.release()
 	}
 
 	log.Printf("[CodeExecutor] code handoff route=%s target=%s job=%s", req.Route, target.name, req.JobID)
@@ -113,12 +120,34 @@ func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarg
 				log.Printf("[CodeExecutor] coder skip route=%s target=%s reason=unavailable", route, c.name)
 				continue
 			}
+			// CoderStatusがあれば、busy checkを行う
+			if e.coderStatus != nil {
+				if !e.coderStatus.Acquire(c.name) {
+					log.Printf("[CodeExecutor] coder skip route=%s target=%s reason=busy", route, c.name)
+					continue
+				}
+				// Acquire成功時はreleaseを設定
+				coderName := c.name
+				log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=auto", route, coderName)
+				return codeTarget{
+					name:         coderName,
+					coder:        c.coder,
+					systemPrompt: "You are a code generation assistant.",
+					release: func() {
+						e.coderStatus.Release(coderName)
+					},
+				}, nil
+			}
+			// CoderStatusがない場合は単純に選択
 			log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=auto", route, c.name)
 			return codeTarget{
 				name:         c.name,
 				coder:        c.coder,
 				systemPrompt: "You are a code generation assistant.",
 			}, nil
+		}
+		if e.coderStatus != nil {
+			return codeTarget{}, fmt.Errorf("CODE route requested but all coders are busy or unavailable")
 		}
 		return codeTarget{}, fmt.Errorf("CODE route requested but all coders are unavailable")
 	default:
@@ -199,6 +228,11 @@ func (e *DefaultCodeExecutor) emit(eventType, from, to, content, route, jobID, s
 	if e.eventEmitter != nil {
 		e.eventEmitter(eventType, from, to, content, route, jobID, sessionID, channel, chatID)
 	}
+}
+
+// SetEventEmitter はイベント発火関数を設定
+func (e *DefaultCodeExecutor) SetEventEmitter(emitter func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)) {
+	e.eventEmitter = emitter
 }
 
 // explicitCodeRouteTarget はCODE1/CODE2/CODE3の明示的ルートを判定

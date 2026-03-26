@@ -77,6 +77,7 @@ type MessageOrchestrator struct {
 	coder3          CoderAgent // Claude
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
+	codeExecutor    CodeExecutor // Phase 1リファクタリング: コード実行を委譲
 	listener        EventListener
 	reporter        ReportStore
 	idleNotifier    IdleNotifier
@@ -94,6 +95,18 @@ func NewMessageOrchestrator(
 	coder3 CoderAgent,
 	workerExecution service.WorkerExecutionService,
 ) *MessageOrchestrator {
+	coderStatus := NewCoderStatus()
+
+	// CodeExecutorを初期化（イベント発火は後でSetEventListenerで設定）
+	codeExecutor := NewDefaultCodeExecutor(
+		coder1,
+		coder2,
+		coder3,
+		workerExecution,
+		coderStatus,
+		nil, // eventEmitterは後でSetEventListenerで設定
+	)
+
 	return &MessageOrchestrator{
 		sessionRepo:     sessionRepo,
 		mio:             mio,
@@ -102,13 +115,18 @@ func NewMessageOrchestrator(
 		coder2:          coder2,
 		coder3:          coder3,
 		workerExecution: workerExecution,
-		coderStatus:     NewCoderStatus(),
+		coderStatus:     coderStatus,
+		codeExecutor:    codeExecutor,
 	}
 }
 
 // SetEventListener sets an optional listener for monitoring events.
 func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
+	// CodeExecutorにもイベント発火関数を設定
+	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
+		executor.SetEventEmitter(o.emit)
+	}
 }
 
 func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
@@ -544,27 +562,17 @@ func (o *MessageOrchestrator) executeCodeViaShiro(
 	route routing.Route,
 	sessionID, channel, chatID string,
 ) (string, error) {
-	jid := t.JobID().String()
-	target, err := o.selectCoderForRoute(route)
-	if err != nil {
-		return "", err
+	// Phase 1リファクタリング: CodeExecutorに委譲
+	req := CodeExecutionRequest{
+		Task:      t,
+		Route:     route,
+		SessionID: sessionID,
+		Channel:   channel,
+		ChatID:    chatID,
+		JobID:     t.JobID().String(),
 	}
-	if target.release != nil {
-		defer target.release()
-	}
-	log.Printf("[MessageOrch] code handoff route=%s target=%s job=%s", route, target.name, jid)
-
-	o.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", route.String(), jid, sessionID, channel, chatID)
-	o.emit("agent.start", "shiro", target.name, t.UserMessage(), route.String(), jid, sessionID, channel, chatID)
-
-	// CODE3 明示ルートは Proposal 生成が可能なら Worker で即時実行する。
-	if route == routing.RouteCODE3 && o.workerExecution != nil {
-		if resp, handled, err := o.tryExecuteProposalPath(ctx, t, route, target, sessionID, channel, chatID, jid); handled {
-			return resp, err
-		}
-	}
-
-	return o.executeCoderGeneratePath(ctx, t, route, target, sessionID, channel, chatID, jid)
+	resp, err := o.codeExecutor.ExecuteCode(ctx, req)
+	return resp.Response, err
 }
 
 func (o *MessageOrchestrator) tryExecuteProposalPath(
