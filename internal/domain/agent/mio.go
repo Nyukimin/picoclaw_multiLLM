@@ -297,13 +297,14 @@ func cleanSearchQuery(query string) string {
 
 // parseExplicitCommand は明示コマンドを解析
 func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
-	// 長いコマンドから順にチェック（/code3 を /code より先に判定）
+	// 長いコマンドから順にチェック（/code4 を /code より先に判定）
 	commands := []struct {
 		cmd   string
 		route routing.Route
 	}{
 		{"/analyze", routing.RouteANALYZE},
 		{"/research", routing.RouteRESEARCH},
+		{"/code4", routing.RouteCODE4},
 		{"/code3", routing.RouteCODE3},
 		{"/code2", routing.RouteCODE2},
 		{"/code1", routing.RouteCODE1},

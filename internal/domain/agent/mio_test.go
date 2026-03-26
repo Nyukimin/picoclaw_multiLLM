@@ -473,6 +473,7 @@ func TestParseExplicitCommand_AllRoutes(t *testing.T) {
 		{"/code1 design spec", routing.RouteCODE1},
 		{"/code2 implement feature", routing.RouteCODE2},
 		{"/code3 review code", routing.RouteCODE3},
+		{"/code4 prototype feature", routing.RouteCODE4},
 	}
 
 	for _, tt := range tests {
@@ -492,6 +493,12 @@ func TestParseExplicitCommand_PrefixOverlap(t *testing.T) {
 	result := mio.parseExplicitCommand("/code3 task")
 	if result != routing.RouteCODE3 {
 		t.Errorf("/code3 should match CODE3, got %s", result)
+	}
+
+	// /code4 should match CODE4, not CODE
+	result = mio.parseExplicitCommand("/code4 task")
+	if result != routing.RouteCODE4 {
+		t.Errorf("/code4 should match CODE4, got %s", result)
 	}
 }
 
