@@ -108,6 +108,8 @@ Coder3（Claude）が生成したProposal（plan + patch）をWorkerが即座に
 
 複数のPC/マシンでエージェントを分散実行できます：
 
+> **⚠️ 前提条件**: 分散実行を使用する場合、Worker マシンから Remote マシンへの **SSH 接続が確立されている必要があります**。詳細は [分散実行セットアップガイド](docs/運用ガイド/分散実行_前提条件とセットアップ.md) を参照してください。
+
 **アーキテクチャ**:
 ```
 メインPC: Chat + Worker + ルーティング
@@ -655,6 +657,8 @@ ssh -i ~/.ssh/picoclaw_agent user@agent-pc "picoclaw agent coder3"
 # config.yaml の distributed.enabled 確認
 grep -A 10 "distributed:" config.yaml
 ```
+
+詳細なトラブルシューティングは [分散実行セットアップガイド](docs/運用ガイド/分散実行_前提条件とセットアップ.md#5-トラブルシューティング) を参照してください。
 
 ---
 
