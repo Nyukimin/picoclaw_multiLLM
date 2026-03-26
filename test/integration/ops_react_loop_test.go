@@ -67,7 +67,7 @@ func TestOPSRoute_WithSubagentManager_CallsReActLoop(t *testing.T) {
 	// Shiro に SubagentManager を渡す
 	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "You are a worker", subagentMgr)
 
-	orch := orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil, nil)
 
 	// Execute - OPS ルートをトリガー
 	req := orchestrator.ProcessMessageRequest{
@@ -133,7 +133,7 @@ func TestOPSRoute_WithoutSubagentManager_UsesFallback(t *testing.T) {
 	// Shiro に SubagentManager を渡さない（nil）
 	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "You are a worker", nil)
 
-	orch := orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil, nil)
 
 	// Execute - OPS ルートをトリガー
 	req := orchestrator.ProcessMessageRequest{
@@ -188,7 +188,7 @@ func TestOPSRoute_SubagentManagerError_PropagatesError(t *testing.T) {
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
 	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "You are a worker", subagentMgr)
 
-	orch := orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil, nil)
 
 	// Execute - OPS ルートをトリガー
 	req := orchestrator.ProcessMessageRequest{

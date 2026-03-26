@@ -40,6 +40,7 @@ type DistributedOrchestrator struct {
 	idleNotifier  IdleNotifier
 	nodeSelector  *NodeSelector
 	nodeCaps      map[string]domainnode.Capability
+	coderConfigs  map[string]interface{} // v4.1: coder1-4 の CoderConfig（SSH送信用）
 	ttsBridge     TTSBridge
 	vtuberBridge  VTuberBridge
 }
@@ -77,6 +78,11 @@ func (o *DistributedOrchestrator) SetNodeCapabilities(caps map[string]domainnode
 		return
 	}
 	o.nodeCaps = caps
+}
+
+// SetCoderConfigs sets CoderConfig map for SSH transport (v4.1)
+func (o *DistributedOrchestrator) SetCoderConfigs(configs map[string]interface{}) {
+	o.coderConfigs = configs
 }
 
 // SetEventListener sets an optional listener for monitoring events.
@@ -267,7 +273,7 @@ func distributedAcceptance(route string) []string {
 		items = append(items, "Mio 応答完了")
 	case "OPS":
 		items = append(items, "Worker 応答完了")
-	case "CODE", "CODE1", "CODE2", "CODE3":
+	case "CODE", "CODE1", "CODE2", "CODE3", "CODE4":
 		items = append(items, "Coder 実行完了", "Worker 取りまとめ完了")
 	default:
 		items = append(items, "Agent 応答完了")
@@ -295,7 +301,7 @@ func distributedEvidenceSteps(route string, runErr error) []string {
 		items = append(items, "mio.chat")
 	case "OPS":
 		items = append(items, "shiro.execute")
-	case "CODE", "CODE1", "CODE2", "CODE3":
+	case "CODE", "CODE1", "CODE2", "CODE3", "CODE4":
 		items = append(items, "shiro.delegate", "coder.execute", "shiro.verify")
 	default:
 		items = append(items, "agent.execute")
@@ -509,6 +515,12 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 			"retry_attempt": attempt,
 			"channel":       t.Channel(),
 			"chat_id":       t.ChatID(),
+		}
+		// v4.1: SSH 経由の場合、CoderConfig を Context に含める
+		if o.coderConfigs != nil {
+			if coderCfg, ok := o.coderConfigs[coderAgent]; ok {
+				coderMsg.Context["coder_config"] = coderCfg
+			}
 		}
 		o.memory.RecordMessage(coderMsg)
 
@@ -830,7 +842,7 @@ func (o *DistributedOrchestrator) routeToAgent(route routing.Route) string {
 	switch route {
 	case routing.RouteOPS:
 		return "shiro"
-	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
 		return "shiro"
 	case routing.RouteCHAT, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH:
 		return "" // mio がローカル処理
@@ -842,7 +854,7 @@ func (o *DistributedOrchestrator) routeToAgent(route routing.Route) string {
 func (o *DistributedOrchestrator) routeToCoder(route routing.Route) string {
 	switch route {
 	case routing.RouteCODE:
-		for _, coder := range []string{"coder1", "coder2", "coder3"} {
+		for _, coder := range []string{"coder1", "coder2", "coder3", "coder4"} {
 			if o.isCoderConnected(coder) {
 				log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=fallback_chain", route, coder)
 				return coder
@@ -871,6 +883,13 @@ func (o *DistributedOrchestrator) routeToCoder(route routing.Route) string {
 		}
 		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder3")
 		return ""
+	case routing.RouteCODE4:
+		if o.isCoderConnected("coder4") {
+			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder4")
+			return "coder4"
+		}
+		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder4")
+		return ""
 	default:
 		return ""
 	}
@@ -880,8 +899,8 @@ func (o *DistributedOrchestrator) routeToCoderForMessage(route routing.Route, us
 	if route != routing.RouteCODE || o.nodeSelector == nil || len(o.nodeCaps) == 0 {
 		return o.routeToCoder(route)
 	}
-	candidates := make([]string, 0, 3)
-	for _, coder := range []string{"coder1", "coder2", "coder3"} {
+	candidates := make([]string, 0, 4)
+	for _, coder := range []string{"coder1", "coder2", "coder3", "coder4"} {
 		if o.isCoderConnected(coder) {
 			candidates = append(candidates, coder)
 		}

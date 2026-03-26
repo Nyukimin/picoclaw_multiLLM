@@ -85,7 +85,7 @@ func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
 
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
-	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	// "教えて" キーワードでweb_search が自動実行される
 	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Rustについて教えて"))
@@ -136,7 +136,7 @@ func TestKBAutosave_NoConversationManager_GracefulDegradation(t *testing.T) {
 
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
-	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	// エラーにならないことを確認
 	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Goについて教えて"))
@@ -190,7 +190,7 @@ func TestKBAutosave_MetadataExtraction(t *testing.T) {
 
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
-	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Pythonについて教えて"))
 	if err != nil {

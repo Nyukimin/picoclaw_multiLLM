@@ -106,7 +106,7 @@ func buildOrchestrator(llmResp string, sessionRepo *mockSessionRepository) *orch
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
 	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "", nil)
 
-	return orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil)
+	return orchestrator.NewMessageOrchestrator(sessionRepo, mio, shiro, nil, nil, nil, nil, nil)
 }
 
 func defaultIntegrationReq(msg string) orchestrator.ProcessMessageRequest {
@@ -160,7 +160,7 @@ func TestIntegration_OPSRoute_RuleDictionary(t *testing.T) {
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
 	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "", nil)
-	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	// "ls -la を実行" should match OPS rule
 	resp, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("/ops ls -la を実行"))
@@ -248,7 +248,7 @@ func TestIntegration_LLMFailure_PropagatesError(t *testing.T) {
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, &mockToolRunner{}, &mockMCPClient{}, nil)
 	shiro := agent.NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "", nil)
-	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("hello"))
 	if err == nil {
@@ -283,7 +283,7 @@ func TestIntegration_WebSearchTriggered(t *testing.T) {
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, toolRunner, &mockMCPClient{}, nil)
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
-	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	resp, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Go言語について教えて"))
 	if err != nil {

@@ -2185,6 +2185,23 @@ func (d *Dependencies) buildDistributedMode(
 		sshTransports,
 	)
 	d.distOrch = distOrch
+
+	// v4.1: SSH 経由で CoderConfig を送信するための設定
+	coderConfigs := make(map[string]interface{})
+	if cfg.Coder1.Enabled {
+		coderConfigs["coder1"] = cfg.Coder1
+	}
+	if cfg.Coder2.Enabled {
+		coderConfigs["coder2"] = cfg.Coder2
+	}
+	if cfg.Coder3.Enabled {
+		coderConfigs["coder3"] = cfg.Coder3
+	}
+	if cfg.Coder4.Enabled {
+		coderConfigs["coder4"] = cfg.Coder4
+	}
+	distOrch.SetCoderConfigs(coderConfigs)
+
 	distOrch.SetTTSBridge(ttsBridge)
 	distOrch.SetVTuberBridge(vtuberBridge)
 	if d.reportStore != nil {

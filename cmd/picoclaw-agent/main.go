@@ -18,6 +18,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
@@ -119,8 +120,10 @@ func (h *workerHandler) executeTask(ctx context.Context, msg domaintransport.Mes
 
 // coderHandler はCoderエージェントのハンドラ
 type coderHandler struct {
-	agentName  string
-	coderAgent *agent.CoderAgent
+	agentName       string
+	coderAgent      *agent.CoderAgent // Fallback agent (local config)
+	proposalPrompt  string
+	globalMemory    *agent.LightMemory // 共有メモリ（SSH経由の場合は再利用）
 }
 
 func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
@@ -131,8 +134,52 @@ func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Me
 
 	t := task.NewTask(jobID, msg.Content, "standalone", "agent")
 
+	// v4.1: Message.Context から CoderConfig を抽出して動的に Provider 作成
+	activeAgent := h.coderAgent // デフォルトはローカル設定の Agent
+	if msg.Context != nil {
+		if coderCfgRaw, ok := msg.Context["coder_config"]; ok {
+			// CoderConfig を復元
+			coderCfg, err := extractCoderConfig(coderCfgRaw)
+			if err != nil {
+				log.Printf("[coderHandler] Failed to extract CoderConfig from Context: %v", err)
+			} else {
+				// CoderConfig から Provider を動的作成
+				provider, err := createProviderFromConfig(coderCfg)
+				if err != nil {
+					log.Printf("[coderHandler] Failed to create provider from CoderConfig: %v", err)
+				} else {
+					// 一時的な CoderAgent を作成
+					tempAgent := agent.NewCoderAgent(provider, nil, nil, h.proposalPrompt)
+
+					// Persona 適用
+					if coderCfg.Personality != "" {
+						persona := agent.AgentPersona{
+							Name:        coderCfg.Name,
+							Personality: coderCfg.Personality,
+							Tone:        coderCfg.Tone,
+						}
+						tempAgent.WithPersona(persona)
+						log.Printf("[coderHandler] Applied Persona: %s", coderCfg.Name)
+					}
+
+					// LightMemory 適用（SSH 経由では共有インスタンス再利用）
+					if coderCfg.LightMemory.Enabled {
+						if h.globalMemory == nil {
+							h.globalMemory = agent.NewLightMemory(coderCfg.LightMemory.MaxTurns)
+						}
+						tempAgent.WithLightMemory(h.globalMemory)
+						log.Printf("[coderHandler] Applied LightMemory: max_turns=%d", coderCfg.LightMemory.MaxTurns)
+					}
+
+					activeAgent = tempAgent
+					log.Printf("[coderHandler] Using remote CoderConfig: provider=%s, model=%s", coderCfg.Provider, coderCfg.Model)
+				}
+			}
+		}
+	}
+
 	// CoderAgentでProposal生成
-	p, err := h.coderAgent.GenerateProposal(ctx, t)
+	p, err := activeAgent.GenerateProposal(ctx, t)
 	if err != nil {
 		errResp := domaintransport.NewMessage(msg.To, msg.From, msg.SessionID, msg.JobID,
 			fmt.Sprintf("proposal generation failed: %v", err))
@@ -158,6 +205,69 @@ func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Me
 	}
 
 	return response, nil
+}
+
+// extractCoderConfig は Message.Context から CoderConfig を抽出
+func extractCoderConfig(raw interface{}) (config.CoderConfig, error) {
+	// JSON 経由で送られてくるため、map[string]interface{} として扱う
+	cfgMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return config.CoderConfig{}, fmt.Errorf("coder_config is not a map")
+	}
+
+	// JSON として再エンコード → デコード
+	jsonBytes, err := json.Marshal(cfgMap)
+	if err != nil {
+		return config.CoderConfig{}, fmt.Errorf("failed to marshal coder_config: %w", err)
+	}
+
+	var coderCfg config.CoderConfig
+	if err := json.Unmarshal(jsonBytes, &coderCfg); err != nil {
+		return config.CoderConfig{}, fmt.Errorf("failed to unmarshal coder_config: %w", err)
+	}
+
+	return coderCfg, nil
+}
+
+// createProviderFromConfig は CoderConfig から LLM Provider を作成
+func createProviderFromConfig(cfg config.CoderConfig) (llm.LLMProvider, error) {
+	// APIKey が環境変数参照形式（${...}）の場合は展開
+	apiKey := os.ExpandEnv(cfg.APIKey)
+
+	switch cfg.Provider {
+	case "deepseek":
+		if apiKey == "" {
+			return nil, fmt.Errorf("DeepSeek provider requires API key")
+		}
+		model := cfg.Model
+		if model == "" {
+			model = "deepseek-chat"
+		}
+		return deepseek.NewDeepSeekProvider(apiKey, model), nil
+
+	case "openai":
+		if apiKey == "" {
+			return nil, fmt.Errorf("OpenAI provider requires API key")
+		}
+		model := cfg.Model
+		if model == "" {
+			model = "gpt-4"
+		}
+		return openai.NewOpenAIProvider(apiKey, model), nil
+
+	case "claude":
+		if apiKey == "" {
+			return nil, fmt.Errorf("Claude provider requires API key")
+		}
+		model := cfg.Model
+		if model == "" {
+			model = "claude-3-5-sonnet-20241022"
+		}
+		return claude.NewClaudeProvider(apiKey, model), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", cfg.Provider)
+	}
 }
 
 // loadDotEnv は指定パスの.envファイルを読み込み、未設定の環境変数をセット
@@ -277,8 +387,10 @@ func initHandler(agentType string, cfg *config.Config) (AgentHandler, error) {
 		return initCoderHandler("coder2", cfg)
 	case "coder3":
 		return initCoderHandler("coder3", cfg)
+	case "coder4":
+		return initCoderHandler("coder4", cfg)
 	default:
-		return nil, fmt.Errorf("unknown agent type: %s (supported: worker, coder1, coder2, coder3, audio_router)", agentType)
+		return nil, fmt.Errorf("unknown agent type: %s (supported: worker, coder1, coder2, coder3, coder4, audio_router)", agentType)
 	}
 }
 
@@ -308,40 +420,58 @@ func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
 
 // initCoderHandler はCoderハンドラを初期化
 func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, error) {
-	var coderAgent *agent.CoderAgent
-
+	// v4.1: Unified CoderConfig を使用
+	var coderCfg config.CoderConfig
 	switch agentName {
 	case "coder1":
-		if cfg.DeepSeek.APIKey == "" {
-			return nil, fmt.Errorf("Coder1 requires DEEPSEEK_API_KEY")
-		}
-		provider := deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)
-		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
-		log.Printf("[picoclaw-agent] Coder1 (DeepSeek) initialized with model: %s", cfg.DeepSeek.Model)
-
+		coderCfg = cfg.Coder1
 	case "coder2":
-		if cfg.OpenAI.APIKey == "" {
-			return nil, fmt.Errorf("Coder2 requires OPENAI_API_KEY")
-		}
-		provider := openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
-		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
-		log.Printf("[picoclaw-agent] Coder2 (OpenAI) initialized with model: %s", cfg.OpenAI.Model)
-
+		coderCfg = cfg.Coder2
 	case "coder3":
-		if cfg.Claude.APIKey == "" {
-			return nil, fmt.Errorf("Coder3 requires ANTHROPIC_API_KEY")
-		}
-		provider := claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)
-		coderAgent = agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
-		log.Printf("[picoclaw-agent] Coder3 (Claude) initialized with model: %s", cfg.Claude.Model)
-
+		coderCfg = cfg.Coder3
+	case "coder4":
+		coderCfg = cfg.Coder4
 	default:
 		return nil, fmt.Errorf("unknown coder: %s", agentName)
 	}
 
+	if !coderCfg.Enabled {
+		return nil, fmt.Errorf("%s is not enabled in config", agentName)
+	}
+
+	// CoderConfig から Provider を作成
+	provider, err := createProviderFromConfig(coderCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create provider for %s: %w", agentName, err)
+	}
+
+	// CoderAgent 作成
+	coderAgent := agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
+
+	// Persona 適用
+	if coderCfg.Personality != "" {
+		persona := agent.AgentPersona{
+			Name:        coderCfg.Name,
+			Personality: coderCfg.Personality,
+			Tone:        coderCfg.Tone,
+		}
+		coderAgent.WithPersona(persona)
+		log.Printf("[picoclaw-agent] %s: Applied Persona '%s'", agentName, coderCfg.Name)
+	}
+
+	// LightMemory 適用
+	if coderCfg.LightMemory.Enabled {
+		memory := agent.NewLightMemory(coderCfg.LightMemory.MaxTurns)
+		coderAgent.WithLightMemory(memory)
+		log.Printf("[picoclaw-agent] %s: Applied LightMemory (max_turns=%d)", agentName, coderCfg.LightMemory.MaxTurns)
+	}
+
+	log.Printf("[picoclaw-agent] %s initialized: provider=%s, model=%s", agentName, coderCfg.Provider, coderCfg.Model)
+
 	return &coderHandler{
-		agentName:  agentName,
-		coderAgent: coderAgent,
+		agentName:      agentName,
+		coderAgent:     coderAgent,
+		proposalPrompt: cfg.Prompts.CoderProposal,
 	}, nil
 }
 
