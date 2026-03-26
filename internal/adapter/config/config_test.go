@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -460,6 +461,10 @@ func TestConfig_Validate(t *testing.T) {
 					RetentionDays:     14,
 					GCIntervalMinutes: 60,
 				},
+				Coder1: CoderConfig{Name: "aka"},
+				Coder2: CoderConfig{Name: "ao"},
+				Coder3: CoderConfig{Name: "gin"},
+				Coder4: CoderConfig{Name: "kin"},
 			},
 			wantErr: false,
 		},
@@ -495,6 +500,10 @@ func TestConfig_Validate(t *testing.T) {
 						Path:    "logs/execution_audit.jsonl",
 					},
 				},
+				Coder1: CoderConfig{Name: "aka"},
+				Coder2: CoderConfig{Name: "ao"},
+				Coder3: CoderConfig{Name: "gin"},
+				Coder4: CoderConfig{Name: "kin"},
 			},
 			wantErr: false,
 		},
@@ -586,11 +595,17 @@ func TestConfig_Validate(t *testing.T) {
 
 func TestConfig_Validate_Distributed(t *testing.T) {
 	base := func() *Config {
-		return &Config{
+		cfg := &Config{
 			Server:  ServerConfig{Port: 8080},
 			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
 			Session: SessionConfig{StorageDir: "./data"},
 		}
+		// Coder1-4 の最小限の設定（バリデーションを通すため）
+		cfg.Coder1.Name = "aka"
+		cfg.Coder2.Name = "ao"
+		cfg.Coder3.Name = "gin"
+		cfg.Coder4.Name = "kin"
+		return cfg
 	}
 
 	t.Run("Distributed enabled without transports", func(t *testing.T) {
@@ -638,11 +653,17 @@ func TestConfig_Validate_Distributed(t *testing.T) {
 
 func TestConfig_Validate_IdleChat(t *testing.T) {
 	base := func() *Config {
-		return &Config{
+		cfg := &Config{
 			Server:  ServerConfig{Port: 8080},
 			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
 			Session: SessionConfig{StorageDir: "./data"},
 		}
+		// Coder1-4 の最小限の設定（バリデーションを通すため）
+		cfg.Coder1.Name = "aka"
+		cfg.Coder2.Name = "ao"
+		cfg.Coder3.Name = "gin"
+		cfg.Coder4.Name = "kin"
+		return cfg
 	}
 
 	t.Run("IdleChat with unknown agent", func(t *testing.T) {
@@ -906,5 +927,337 @@ glossary:
 
 	if len(cfg.Glossary.FeedURLs) > 0 && cfg.Glossary.FeedURLs[0] != "https://custom.feed/rss" {
 		t.Errorf("Expected custom feed URL, got '%s'", cfg.Glossary.FeedURLs[0])
+	}
+}
+
+// TestCoderConfig_DefaultValues は Coder1-4 のデフォルト値を検証
+func TestCoderConfig_DefaultValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Coder セクションを含まないミニマルな設定
+	minimalContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+
+session:
+  storage_dir: "./data/sessions"
+`
+
+	err := os.WriteFile(configPath, []byte(minimalContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Coder1 デフォルト値検証
+	if cfg.Coder1.Provider != "deepseek" {
+		t.Errorf("Coder1.Provider: expected 'deepseek', got '%s'", cfg.Coder1.Provider)
+	}
+	if cfg.Coder1.Model != "deepseek-coder" {
+		t.Errorf("Coder1.Model: expected 'deepseek-coder', got '%s'", cfg.Coder1.Model)
+	}
+	if cfg.Coder1.Name != "aka" {
+		t.Errorf("Coder1.Name: expected 'aka', got '%s'", cfg.Coder1.Name)
+	}
+	if cfg.Coder1.DisplayName != "赤" {
+		t.Errorf("Coder1.DisplayName: expected '赤', got '%s'", cfg.Coder1.DisplayName)
+	}
+	if cfg.Coder1.LightMemory.MaxTurns != 3 {
+		t.Errorf("Coder1.LightMemory.MaxTurns: expected 3, got %d", cfg.Coder1.LightMemory.MaxTurns)
+	}
+
+	// Coder2 デフォルト値検証
+	if cfg.Coder2.Provider != "openai" {
+		t.Errorf("Coder2.Provider: expected 'openai', got '%s'", cfg.Coder2.Provider)
+	}
+	if cfg.Coder2.Model != "gpt-4-turbo" {
+		t.Errorf("Coder2.Model: expected 'gpt-4-turbo', got '%s'", cfg.Coder2.Model)
+	}
+	if cfg.Coder2.Name != "ao" {
+		t.Errorf("Coder2.Name: expected 'ao', got '%s'", cfg.Coder2.Name)
+	}
+	if cfg.Coder2.DisplayName != "青" {
+		t.Errorf("Coder2.DisplayName: expected '青', got '%s'", cfg.Coder2.DisplayName)
+	}
+
+	// Coder3 デフォルト値検証
+	if cfg.Coder3.Provider != "claude" {
+		t.Errorf("Coder3.Provider: expected 'claude', got '%s'", cfg.Coder3.Provider)
+	}
+	if cfg.Coder3.Model != "claude-sonnet-4" {
+		t.Errorf("Coder3.Model: expected 'claude-sonnet-4', got '%s'", cfg.Coder3.Model)
+	}
+	if cfg.Coder3.Name != "gin" {
+		t.Errorf("Coder3.Name: expected 'gin', got '%s'", cfg.Coder3.Name)
+	}
+	if cfg.Coder3.DisplayName != "銀" {
+		t.Errorf("Coder3.DisplayName: expected '銀', got '%s'", cfg.Coder3.DisplayName)
+	}
+
+	// Coder4 デフォルト値検証
+	if cfg.Coder4.Provider != "gemini" {
+		t.Errorf("Coder4.Provider: expected 'gemini', got '%s'", cfg.Coder4.Provider)
+	}
+	if cfg.Coder4.Model != "gemini-2.0-flash-exp" {
+		t.Errorf("Coder4.Model: expected 'gemini-2.0-flash-exp', got '%s'", cfg.Coder4.Model)
+	}
+	if cfg.Coder4.Name != "kin" {
+		t.Errorf("Coder4.Name: expected 'kin', got '%s'", cfg.Coder4.Name)
+	}
+	if cfg.Coder4.DisplayName != "金" {
+		t.Errorf("Coder4.DisplayName: expected '金', got '%s'", cfg.Coder4.DisplayName)
+	}
+}
+
+// TestCoderConfig_CustomValues はカスタム値が正しく読み込まれることを検証
+func TestCoderConfig_CustomValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	customContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+
+session:
+  storage_dir: "./data/sessions"
+
+coder1:
+  name: "custom_aka"
+  display_name: "カスタム赤"
+  provider: "deepseek"
+  model: "deepseek-custom"
+  api_key: "test-key-1"
+  personality: "あなたはカスタム赤。設計思考が得意。"
+  tone: "analytical"
+  light_memory:
+    enabled: true
+    max_turns: 5
+  enabled: true
+
+coder4:
+  name: "custom_kin"
+  display_name: "カスタム金"
+  provider: "gemini"
+  model: "gemini-pro"
+  api_key: "test-key-4"
+  personality: "あなたはカスタム金。"
+  tone: "fast"
+  light_memory:
+    enabled: true
+    max_turns: 10
+  enabled: true
+`
+
+	err := os.WriteFile(configPath, []byte(customContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Coder1 カスタム値検証
+	if cfg.Coder1.Name != "custom_aka" {
+		t.Errorf("Coder1.Name: expected 'custom_aka', got '%s'", cfg.Coder1.Name)
+	}
+	if cfg.Coder1.DisplayName != "カスタム赤" {
+		t.Errorf("Coder1.DisplayName: expected 'カスタム赤', got '%s'", cfg.Coder1.DisplayName)
+	}
+	if cfg.Coder1.Model != "deepseek-custom" {
+		t.Errorf("Coder1.Model: expected 'deepseek-custom', got '%s'", cfg.Coder1.Model)
+	}
+	if cfg.Coder1.APIKey != "test-key-1" {
+		t.Errorf("Coder1.APIKey: expected 'test-key-1', got '%s'", cfg.Coder1.APIKey)
+	}
+	if cfg.Coder1.Personality != "あなたはカスタム赤。設計思考が得意。" {
+		t.Errorf("Coder1.Personality: unexpected value '%s'", cfg.Coder1.Personality)
+	}
+	if cfg.Coder1.Tone != "analytical" {
+		t.Errorf("Coder1.Tone: expected 'analytical', got '%s'", cfg.Coder1.Tone)
+	}
+	if !cfg.Coder1.LightMemory.Enabled {
+		t.Error("Coder1.LightMemory.Enabled: expected true")
+	}
+	if cfg.Coder1.LightMemory.MaxTurns != 5 {
+		t.Errorf("Coder1.LightMemory.MaxTurns: expected 5, got %d", cfg.Coder1.LightMemory.MaxTurns)
+	}
+	if !cfg.Coder1.Enabled {
+		t.Error("Coder1.Enabled: expected true")
+	}
+
+	// Coder4 カスタム値検証
+	if cfg.Coder4.Name != "custom_kin" {
+		t.Errorf("Coder4.Name: expected 'custom_kin', got '%s'", cfg.Coder4.Name)
+	}
+	if cfg.Coder4.DisplayName != "カスタム金" {
+		t.Errorf("Coder4.DisplayName: expected 'カスタム金', got '%s'", cfg.Coder4.DisplayName)
+	}
+	if cfg.Coder4.Provider != "gemini" {
+		t.Errorf("Coder4.Provider: expected 'gemini', got '%s'", cfg.Coder4.Provider)
+	}
+	if cfg.Coder4.Model != "gemini-pro" {
+		t.Errorf("Coder4.Model: expected 'gemini-pro', got '%s'", cfg.Coder4.Model)
+	}
+	if cfg.Coder4.APIKey != "test-key-4" {
+		t.Errorf("Coder4.APIKey: expected 'test-key-4', got '%s'", cfg.Coder4.APIKey)
+	}
+	if cfg.Coder4.LightMemory.MaxTurns != 10 {
+		t.Errorf("Coder4.LightMemory.MaxTurns: expected 10, got %d", cfg.Coder4.LightMemory.MaxTurns)
+	}
+}
+
+// TestValidateCoderConfig は validateCoderConfig() 関数を直接テスト
+func TestValidateCoderConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  CoderConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "有効な設定",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "deepseek",
+				Model:    "test-model",
+				APIKey:   "test-key",
+				Enabled:  true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "無効な provider",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "invalid-provider",
+				Model:    "test-model",
+				Enabled:  true,
+			},
+			wantErr: true,
+			errMsg:  "provider must be one of",
+		},
+		{
+			name: "name が空",
+			config: CoderConfig{
+				Name:     "",
+				Provider: "deepseek",
+				Model:    "test-model",
+				APIKey:   "test-key",
+				Enabled:  true,
+			},
+			wantErr: true,
+			errMsg:  "name is required",
+		},
+		{
+			name: "enabled=true だが model が空",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "deepseek",
+				Model:    "",
+				APIKey:   "test-key",
+				Enabled:  true,
+			},
+			wantErr: true,
+			errMsg:  "model is required",
+		},
+		{
+			name: "enabled=true だが api_key が空（deepseek）",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "deepseek",
+				Model:    "test-model",
+				APIKey:   "",
+				Enabled:  true,
+			},
+			wantErr: true,
+			errMsg:  "api_key is required",
+		},
+		{
+			name: "enabled=true だが base_url が空（ollama）",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "ollama",
+				Model:    "test-model",
+				BaseURL:  "",
+				Enabled:  true,
+			},
+			wantErr: true,
+			errMsg:  "base_url is required",
+		},
+		{
+			name: "light_memory max_turns が範囲外（大きすぎ）",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "deepseek",
+				Model:    "test-model",
+				APIKey:   "test-key",
+				LightMemory: LightMemoryConfig{
+					Enabled:  true,
+					MaxTurns: 100,
+				},
+				Enabled: true,
+			},
+			wantErr: true,
+			errMsg:  "max_turns must be between 1 and 20",
+		},
+		{
+			name: "light_memory max_turns が範囲外（0）",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "deepseek",
+				Model:    "test-model",
+				APIKey:   "test-key",
+				LightMemory: LightMemoryConfig{
+					Enabled:  true,
+					MaxTurns: 0,
+				},
+				Enabled: true,
+			},
+			wantErr: true,
+			errMsg:  "max_turns must be between 1 and 20",
+		},
+		{
+			name: "enabled=false の場合は api_key なしでも OK",
+			config: CoderConfig{
+				Name:     "test",
+				Provider: "deepseek",
+				Model:    "test-model",
+				APIKey:   "",
+				Enabled:  false,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCoderConfig("test_coder", &tt.config)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Expected error containing '%s', got: %v", tt.errMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
 	}
 }

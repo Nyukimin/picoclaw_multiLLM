@@ -64,6 +64,12 @@ type Config struct {
 
 	// === Viewer persisted JSON operation log ===
 	ViewerLog ViewerLogConfig `yaml:"viewer_log"`
+
+	// === Coder スロット（v4.1: 4体化 + Agent Persona） ===
+	Coder1 CoderConfig `yaml:"coder1"`
+	Coder2 CoderConfig `yaml:"coder2"`
+	Coder3 CoderConfig `yaml:"coder3"`
+	Coder4 CoderConfig `yaml:"coder4"` // 新規追加
 }
 
 // ServerConfig はサーバー設定
@@ -325,6 +331,26 @@ type GoogleSearchConfig struct {
 	SearchEngineID string `yaml:"search_engine_id"` // カスタム検索エンジンID
 }
 
+// CoderConfig は Coder 個別設定（v4.1: 4体化 + Agent Persona）
+type CoderConfig struct {
+	Name        string            `yaml:"name"`         // 任意の名前（aka, ao, gin, kin 等）
+	DisplayName string            `yaml:"display_name"` // 表示名（赤, 青, 銀, 金 等）
+	Provider    string            `yaml:"provider"`     // deepseek/openai/claude/gemini
+	Model       string            `yaml:"model"`
+	APIKey      string            `yaml:"api_key"`      // 環境変数参照（${...}）
+	BaseURL     string            `yaml:"base_url"`     // オプション（DeepSeek 等）
+	Personality string            `yaml:"personality"`  // Agent Persona 記述
+	Tone        string            `yaml:"tone"`         // 口調（TTS 連携用）
+	LightMemory LightMemoryConfig `yaml:"light_memory"`
+	Enabled     bool              `yaml:"enabled"`
+}
+
+// LightMemoryConfig は短期記憶設定
+type LightMemoryConfig struct {
+	Enabled  bool `yaml:"enabled"`
+	MaxTurns int  `yaml:"max_turns"` // 保持ターン数（推奨: 3〜5）
+}
+
 // LoadConfig は設定ファイルを読み込む
 func LoadConfig(path string) (*Config, error) {
 	// ファイル読み込み
@@ -556,6 +582,71 @@ func (c *Config) setDefaults() {
 	if c.AudioRouter.BufferMS <= 0 {
 		c.AudioRouter.BufferMS = 120
 	}
+
+	// Coder スロットのデフォルト値（v4.1）
+	if c.Coder1.Provider == "" {
+		c.Coder1.Provider = "deepseek"
+	}
+	if c.Coder1.Model == "" {
+		c.Coder1.Model = "deepseek-coder"
+	}
+	if c.Coder1.Name == "" {
+		c.Coder1.Name = "aka"
+	}
+	if c.Coder1.DisplayName == "" {
+		c.Coder1.DisplayName = "赤"
+	}
+	if c.Coder1.LightMemory.MaxTurns == 0 {
+		c.Coder1.LightMemory.MaxTurns = 3
+	}
+
+	if c.Coder2.Provider == "" {
+		c.Coder2.Provider = "openai"
+	}
+	if c.Coder2.Model == "" {
+		c.Coder2.Model = "gpt-4-turbo"
+	}
+	if c.Coder2.Name == "" {
+		c.Coder2.Name = "ao"
+	}
+	if c.Coder2.DisplayName == "" {
+		c.Coder2.DisplayName = "青"
+	}
+	if c.Coder2.LightMemory.MaxTurns == 0 {
+		c.Coder2.LightMemory.MaxTurns = 3
+	}
+
+	if c.Coder3.Provider == "" {
+		c.Coder3.Provider = "claude"
+	}
+	if c.Coder3.Model == "" {
+		c.Coder3.Model = "claude-sonnet-4"
+	}
+	if c.Coder3.Name == "" {
+		c.Coder3.Name = "gin"
+	}
+	if c.Coder3.DisplayName == "" {
+		c.Coder3.DisplayName = "銀"
+	}
+	if c.Coder3.LightMemory.MaxTurns == 0 {
+		c.Coder3.LightMemory.MaxTurns = 3
+	}
+
+	if c.Coder4.Provider == "" {
+		c.Coder4.Provider = "gemini"
+	}
+	if c.Coder4.Model == "" {
+		c.Coder4.Model = "gemini-2.0-flash-exp"
+	}
+	if c.Coder4.Name == "" {
+		c.Coder4.Name = "kin"
+	}
+	if c.Coder4.DisplayName == "" {
+		c.Coder4.DisplayName = "金"
+	}
+	if c.Coder4.LightMemory.MaxTurns == 0 {
+		c.Coder4.LightMemory.MaxTurns = 3
+	}
 }
 
 // Validate は設定の妥当性を検証
@@ -715,6 +806,74 @@ func (c *Config) Validate() error {
 		}
 		if c.ViewerLog.Path == "" {
 			return fmt.Errorf("viewer_log.path is required when viewer_log.enabled=true")
+		}
+	}
+
+	// v4.1 Coder スロット検証
+	coders := []struct {
+		name   string
+		config *CoderConfig
+	}{
+		{"coder1", &c.Coder1},
+		{"coder2", &c.Coder2},
+		{"coder3", &c.Coder3},
+		{"coder4", &c.Coder4},
+	}
+
+	for _, coder := range coders {
+		if err := validateCoderConfig(coder.name, coder.config); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateCoderConfig は単一 CoderConfig の妥当性を検証
+func validateCoderConfig(name string, cc *CoderConfig) error {
+	// Provider 検証
+	validProviders := map[string]bool{
+		"deepseek": true,
+		"openai":   true,
+		"claude":   true,
+		"gemini":   true,
+		"ollama":   true,
+	}
+	if cc.Provider != "" && !validProviders[cc.Provider] {
+		return fmt.Errorf("%s.provider must be one of [deepseek, openai, claude, gemini, ollama], got '%s'", name, cc.Provider)
+	}
+
+	// Model 検証（Enabled=true の場合のみ必須）
+	if cc.Enabled && cc.Model == "" {
+		return fmt.Errorf("%s.model is required when enabled=true", name)
+	}
+
+	// Name 検証（識別子として使用されるため常に必須）
+	if cc.Name == "" {
+		return fmt.Errorf("%s.name is required", name)
+	}
+
+	// DisplayName 検証（UI表示用、空でも許容するがログで警告）
+	if cc.DisplayName == "" {
+		log.Printf("WARN: %s.display_name is empty, using name '%s' for display", name, cc.Name)
+	}
+
+	// LightMemory.MaxTurns 検証
+	if cc.LightMemory.Enabled && (cc.LightMemory.MaxTurns < 1 || cc.LightMemory.MaxTurns > 20) {
+		return fmt.Errorf("%s.light_memory.max_turns must be between 1 and 20, got %d", name, cc.LightMemory.MaxTurns)
+	}
+
+	// APIKey/BaseURL 検証（provider 別、Enabled=true の場合のみ）
+	if cc.Enabled {
+		switch cc.Provider {
+		case "deepseek", "openai", "claude", "gemini":
+			if cc.APIKey == "" {
+				return fmt.Errorf("%s.api_key is required for provider '%s' when enabled=true", name, cc.Provider)
+			}
+		case "ollama":
+			if cc.BaseURL == "" {
+				return fmt.Errorf("%s.base_url is required for provider 'ollama' when enabled=true", name)
+			}
 		}
 	}
 

@@ -92,3 +92,10 @@ func TestNewProvider(t *testing.T) {
 		t.Error("NewProvider().client is nil")
 	}
 }
+
+func TestName(t *testing.T) {
+	provider := NewProvider("test-key", "test-model")
+	if name := provider.Name(); name != "gemini" {
+		t.Errorf("Name() = %s, want 'gemini'", name)
+	}
+}

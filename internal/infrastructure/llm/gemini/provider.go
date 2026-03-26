@@ -32,7 +32,7 @@ func NewProvider(apiKey, model string) *Provider {
 }
 
 // Generate は Gemini API を使用してテキストを生成
-func (p *Provider) Generate(ctx context.Context, req llm.GenerateRequest) (*llm.GenerateResponse, error) {
+func (p *Provider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
 	// Gemini API リクエスト構築
 	geminiReq := geminiGenerateRequest{
 		Contents: convertMessages(req.Messages),
@@ -45,7 +45,7 @@ func (p *Provider) Generate(ctx context.Context, req llm.GenerateRequest) (*llm.
 	// JSON エンコード
 	body, err := json.Marshal(geminiReq)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return llm.GenerateResponse{}, fmt.Errorf("marshal request: %w", err)
 	}
 
 	// API URL 構築
@@ -54,42 +54,47 @@ func (p *Provider) Generate(ctx context.Context, req llm.GenerateRequest) (*llm.
 	// HTTP リクエスト作成
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return llm.GenerateResponse{}, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	// API 呼び出し
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return llm.GenerateResponse{}, fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// ステータスコード確認
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("gemini API error: %s (status %d)", string(bodyBytes), resp.StatusCode)
+		return llm.GenerateResponse{}, fmt.Errorf("gemini API error: %s (status %d)", string(bodyBytes), resp.StatusCode)
 	}
 
 	// レスポンス解析
 	var geminiResp geminiGenerateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+		return llm.GenerateResponse{}, fmt.Errorf("decode response: %w", err)
 	}
 
 	// コンテンツ抽出
 	if len(geminiResp.Candidates) == 0 {
-		return nil, fmt.Errorf("no candidates in response")
+		return llm.GenerateResponse{}, fmt.Errorf("no candidates in response")
 	}
 	if len(geminiResp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("no parts in candidate content")
+		return llm.GenerateResponse{}, fmt.Errorf("no parts in candidate content")
 	}
 
 	content := geminiResp.Candidates[0].Content.Parts[0].Text
 
-	return &llm.GenerateResponse{
+	return llm.GenerateResponse{
 		Content: content,
 	}, nil
+}
+
+// Name はプロバイダ名を返す
+func (p *Provider) Name() string {
+	return "gemini"
 }
 
 // Gemini API リクエスト型

@@ -59,6 +59,8 @@ type CoderAgent struct {
 	toolRunner     ToolRunner
 	mcpClient      MCPClient
 	proposalPrompt string
+	persona        *AgentPersona // Optional: v4.1 Agent Persona
+	lightMemory    *LightMemory  // Optional: v4.1 Short-term memory
 }
 
 // NewCoderAgent は新しいCoderAgentを作成
@@ -76,14 +78,33 @@ func NewCoderAgent(
 	}
 }
 
+// WithPersona は AgentPersona を設定する（Builder パターン）
+func (c *CoderAgent) WithPersona(persona AgentPersona) *CoderAgent {
+	c.persona = &persona
+	return c
+}
+
+// WithLightMemory は LightMemory を設定する（Builder パターン）
+func (c *CoderAgent) WithLightMemory(memory *LightMemory) *CoderAgent {
+	c.lightMemory = memory
+	return c
+}
+
 // GenerateProposal はplan/patchを生成
 func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
 	log.Printf("[CoderAgent] proposal generate start provider=%s job=%s prompt_len=%d", c.llmProvider.Name(), t.JobID().String(), len(t.UserMessage()))
+
+	// システムプロンプトの構築（v4.1: Agent Persona 対応）
+	systemPrompt := c.proposalPrompt
+	if c.persona != nil {
+		systemPrompt = c.persona.BuildSystemPrompt(c.proposalPrompt)
+	}
+
 	req := llm.GenerateRequest{
 		Messages: []llm.Message{
 			{
 				Role:    "system",
-				Content: c.proposalPrompt,
+				Content: systemPrompt,
 			},
 			{
 				Role:    "user",
@@ -117,9 +138,15 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 
 // GenerateWithPrompt は指定されたシステムプロンプトでLLM応答を生成
 func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
+	// システムプロンプトの構築（v4.1: Agent Persona 対応）
+	finalSystemPrompt := systemPrompt
+	if c.persona != nil {
+		finalSystemPrompt = c.persona.BuildSystemPrompt(systemPrompt)
+	}
+
 	req := llm.GenerateRequest{
 		Messages: []llm.Message{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: finalSystemPrompt},
 			{Role: "user", Content: t.UserMessage()},
 		},
 		MaxTokens:   8192,
