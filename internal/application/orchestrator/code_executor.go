@@ -44,6 +44,7 @@ type DefaultCodeExecutor struct {
 	coder1          CoderAgent
 	coder2          CoderAgent
 	coder3          CoderAgent
+	coder4          CoderAgent // v4.1: 4th coder slot
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus // optional: coder busy state management
 	eventEmitter    func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
@@ -51,7 +52,7 @@ type DefaultCodeExecutor struct {
 
 // NewDefaultCodeExecutor は新しいDefaultCodeExecutorを作成
 func NewDefaultCodeExecutor(
-	coder1, coder2, coder3 CoderAgent,
+	coder1, coder2, coder3, coder4 CoderAgent,
 	workerExecution service.WorkerExecutionService,
 	coderStatus *CoderStatus,
 	eventEmitter func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string),
@@ -60,6 +61,7 @@ func NewDefaultCodeExecutor(
 		coder1:          coder1,
 		coder2:          coder2,
 		coder3:          coder3,
+		coder4:          coder4,
 		workerExecution: workerExecution,
 		coderStatus:     coderStatus,
 		eventEmitter:    eventEmitter,
@@ -105,7 +107,7 @@ func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarg
 
 	switch route {
 	case routing.RouteCODE:
-		// 汎用CODEルート: coder1→coder2→coder3の順でフォールバック
+		// 汎用CODEルート: coder1→coder2→coder3→coder4の順でフォールバック
 		type coderEntry struct {
 			name  string
 			coder CoderAgent
@@ -114,6 +116,7 @@ func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarg
 			{name: "coder1", coder: e.coder1},
 			{name: "coder2", coder: e.coder2},
 			{name: "coder3", coder: e.coder3},
+			{name: "coder4", coder: e.coder4},
 		}
 		for _, c := range chain {
 			if c.coder == nil {
@@ -164,6 +167,8 @@ func (e *DefaultCodeExecutor) coderByName(name string) CoderAgent {
 		return e.coder2
 	case "coder3":
 		return e.coder3
+	case "coder4":
+		return e.coder4
 	default:
 		return nil
 	}
@@ -235,7 +240,7 @@ func (e *DefaultCodeExecutor) SetEventEmitter(emitter func(eventType, from, to, 
 	e.eventEmitter = emitter
 }
 
-// explicitCodeRouteTarget はCODE1/CODE2/CODE3の明示的ルートを判定
+// explicitCodeRouteTarget はCODE1/CODE2/CODE3/CODE4の明示的ルートを判定
 func explicitCodeRouteTarget(route routing.Route) (name, prompt string, ok bool) {
 	switch route {
 	case routing.RouteCODE1:
@@ -244,6 +249,8 @@ func explicitCodeRouteTarget(route routing.Route) (name, prompt string, ok bool)
 		return "coder2", "You are an implementation assistant.", true
 	case routing.RouteCODE3:
 		return "coder3", "You are a high-quality code review and reasoning assistant.", true
+	case routing.RouteCODE4:
+		return "coder4", "You are a fast prototyping and experimental coding assistant.", true
 	default:
 		return "", "", false
 	}

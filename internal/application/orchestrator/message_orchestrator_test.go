@@ -147,7 +147,7 @@ func TestNewMessageOrchestrator(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	if orchestrator == nil {
 		t.Fatal("NewMessageOrchestrator should not return nil")
@@ -162,7 +162,7 @@ func TestMessageOrchestrator_ProcessMessage_NewSession(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -204,7 +204,7 @@ func TestMessageOrchestrator_ProcessMessage_ExistingSession(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -237,7 +237,7 @@ func TestMessageOrchestrator_ProcessMessage_OPSRoute(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "Command executed successfully"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -268,7 +268,7 @@ func TestMessageOrchestrator_ProcessMessage_OPSRoute_StartsMaleTTSVoice(t *testi
 	shiro := &mockShiroAgent{response: "Command executed successfully"}
 	ttsBridge := &mockTTSBridge{}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 	orchestrator.SetTTSBridge(ttsBridge)
 
 	req := ProcessMessageRequest{
@@ -308,7 +308,7 @@ func TestMessageOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	bridge := &mockTTSBridge{}
 
-	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 	o.SetTTSBridge(bridge)
 
 	_, err := o.ProcessMessage(context.Background(), ProcessMessageRequest{
@@ -349,7 +349,7 @@ func TestMessageOrchestrator_TTSBridge_StreamsSentenceChunks(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	bridge := &mockTTSBridge{}
 
-	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 	o.SetTTSBridge(bridge)
 
 	_, err := o.ProcessMessage(context.Background(), ProcessMessageRequest{
@@ -384,7 +384,7 @@ func TestMessageOrchestrator_TTSBridge_DegradedOnStartError(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	bridge := &mockTTSBridge{startErr: fmt.Errorf("down")}
 
-	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	o := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 	o.SetTTSBridge(bridge)
 
 	resp, err := o.ProcessMessage(context.Background(), ProcessMessageRequest{
@@ -410,7 +410,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	coder := &mockCoderAgent{response: "// Generated code\nfunc main() {}\n"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -442,7 +442,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		coder1 := &mockCoderAgent{response: "coder1 response"}
 		coder2 := &mockCoderAgent{response: "coder2 response"}
 
-		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, coder1, coder2, nil, nil)
+		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, coder1, coder2, nil, nil, nil)
 		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 			SessionID: "test-session", Channel: "line", ChatID: "U1", UserMessage: "実装して",
 		})
@@ -461,7 +461,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		}
 		coder2 := &mockCoderAgent{response: "coder2 response"}
 
-		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, coder2, nil, nil)
+		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, coder2, nil, nil, nil)
 		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 			SessionID: "test-session", Channel: "line", ChatID: "U1", UserMessage: "実装して",
 		})
@@ -480,7 +480,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		}
 		coder3 := &mockCoderAgent{response: "coder3 response"}
 
-		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, coder3, nil)
+		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, coder3, nil, nil)
 		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 			SessionID: "test-session", Channel: "line", ChatID: "U1", UserMessage: "実装して",
 		})
@@ -498,7 +498,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 			decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route"),
 		}
 
-		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil)
+		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 		_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 			SessionID: "test-session", Channel: "line", ChatID: "U1", UserMessage: "実装して",
 		})
@@ -517,7 +517,7 @@ func TestMessageOrchestrator_ProcessMessage_ExplicitCommand(t *testing.T) {
 	shiro := &mockShiroAgent{response: "executed"}
 	coder3 := &mockCoderAgent{response: "High quality code review"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -548,7 +548,7 @@ func TestMessageOrchestrator_ProcessMessage_TaskAddedToHistory(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{response: "executed"}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -598,7 +598,7 @@ func TestMessageOrchestrator_ProcessMessage_SessionLoadError(t *testing.T) {
 		response: "hello",
 	}
 
-	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for session load failure")
@@ -615,7 +615,7 @@ func TestMessageOrchestrator_ProcessMessage_RoutingError(t *testing.T) {
 		},
 	}
 
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for routing failure")
@@ -633,7 +633,7 @@ func TestMessageOrchestrator_ProcessMessage_ChatError(t *testing.T) {
 		},
 	}
 
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for chat failure")
@@ -653,7 +653,7 @@ func TestMessageOrchestrator_ProcessMessage_ShiroError(t *testing.T) {
 		},
 	}
 
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, shiro, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, shiro, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for shiro failure")
@@ -678,7 +678,7 @@ func TestMessageOrchestrator_ProcessMessage_NoCoder(t *testing.T) {
 			mio := &mockMioAgent{
 				decision: routing.NewDecision(tc.route, 1.0, tc.name),
 			}
-			orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+			orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 			_, err := orch.ProcessMessage(context.Background(), defaultReq())
 			if err == nil {
 				t.Fatalf("expected error for %s with no coder", tc.name)
@@ -705,7 +705,7 @@ func TestMessageOrchestrator_ProcessMessage_FallbackToChat(t *testing.T) {
 				decision: routing.NewDecision(tc.route, 0.8, tc.name),
 				response: "fallback response",
 			}
-			orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+			orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 			resp, err := orch.ProcessMessage(context.Background(), defaultReq())
 			if err != nil {
 				t.Fatalf("ProcessMessage failed: %v", err)
@@ -722,7 +722,7 @@ func TestMessageOrchestrator_ProcessMessage_UnknownRoute(t *testing.T) {
 		decision: routing.NewDecision(routing.Route("UNKNOWN"), 0.5, "unknown"),
 	}
 
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for unknown route")
@@ -739,7 +739,7 @@ func TestMessageOrchestrator_ProcessMessage_ChatCommand_Handled(t *testing.T) {
 		},
 	}
 
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err != nil {
 		t.Fatalf("ProcessMessage failed: %v", err)
@@ -759,7 +759,7 @@ func TestMessageOrchestrator_ProcessMessage_ChatCommand_Error(t *testing.T) {
 		},
 	}
 
-	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for command failure")
@@ -778,7 +778,7 @@ func TestMessageOrchestrator_ProcessMessage_SessionSaveError(t *testing.T) {
 		response: "hello",
 	}
 
-	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil)
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	_, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err == nil {
 		t.Fatal("expected error for save failure")

@@ -14,7 +14,7 @@ import (
 // TestCodeExecutor_CODE1Route はCODE1明示ルートのテスト（RED）
 func TestCodeExecutor_CODE1Route(t *testing.T) {
 	coder1 := &mockCoderAgent{response: "CODE1 response"}
-	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, noopEventEmitter)
+	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, nil, noopEventEmitter)
 
 	jobID := task.NewJobID()
 	req := CodeExecutionRequest{
@@ -56,7 +56,7 @@ func TestCodeExecutor_CODE3_WithProposal(t *testing.T) {
 	}
 
 	workerService := service.NewWorkerExecutionService(workerConfigForTest(tmpDir))
-	executor := NewDefaultCodeExecutor(nil, nil, coder3, workerService, nil, noopEventEmitter)
+	executor := NewDefaultCodeExecutor(nil, nil, coder3, nil, workerService, nil, noopEventEmitter)
 
 	jobID := task.NewJobID()
 	req := CodeExecutionRequest{
@@ -88,7 +88,7 @@ func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
 	// coder1がnilの場合にcoder2にフォールバック
 	coder2 := &mockCoderAgent{response: "CODE2 fallback response"}
 
-	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, nil, noopEventEmitter)
+	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, nil, nil, noopEventEmitter)
 
 	jobID := task.NewJobID()
 	req := CodeExecutionRequest{

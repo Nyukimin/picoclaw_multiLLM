@@ -71,9 +71,10 @@ type MessageOrchestrator struct {
 	sessionRepo     SessionRepository
 	mio             MioAgent
 	shiro           ShiroAgent
-	coder1          CoderAgent // DeepSeek
-	coder2          CoderAgent // OpenAI
-	coder3          CoderAgent // Claude
+	coder1          CoderAgent // Slot 1
+	coder2          CoderAgent // Slot 2
+	coder3          CoderAgent // Slot 3
+	coder4          CoderAgent // Slot 4 (v4.1)
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
 	codeExecutor    CodeExecutor // Phase 1リファクタリング: コード実行を委譲
@@ -92,6 +93,7 @@ func NewMessageOrchestrator(
 	coder1 CoderAgent,
 	coder2 CoderAgent,
 	coder3 CoderAgent,
+	coder4 CoderAgent,
 	workerExecution service.WorkerExecutionService,
 ) *MessageOrchestrator {
 	coderStatus := NewCoderStatus()
@@ -101,6 +103,7 @@ func NewMessageOrchestrator(
 		coder1,
 		coder2,
 		coder3,
+		coder4,
 		workerExecution,
 		coderStatus,
 		nil, // eventEmitterは後でSetEventListenerで設定
@@ -113,6 +116,7 @@ func NewMessageOrchestrator(
 		coder1:          coder1,
 		coder2:          coder2,
 		coder3:          coder3,
+		coder4:          coder4,
 		workerExecution: workerExecution,
 		coderStatus:     coderStatus,
 		codeExecutor:    codeExecutor,

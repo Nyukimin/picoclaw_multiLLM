@@ -69,7 +69,7 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_JSONPatch(t *test
 		proposal: testProposal,
 	}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, workerService)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, workerService)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -133,7 +133,7 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_MarkdownPatch(t *
 		proposal: testProposal,
 	}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, workerService)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, workerService)
 
 	req := ProcessMessageRequest{
 		SessionID:   "20260302-line-U123",
@@ -179,7 +179,7 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_InvalidProposal(t *testing.T) 
 		proposal: invalidProposal,
 	}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, workerService)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, workerService)
 
 	req := ProcessMessageRequest{
 		SessionID:   "test-session",
@@ -206,7 +206,7 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_NoCoder3Available(t *testing.T
 	shiro := &mockShiroAgent{}
 
 	// coder3 = nil
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
 	req := ProcessMessageRequest{
 		SessionID:   "test-session",
@@ -248,7 +248,7 @@ func TestFormatExecutionResult_SuccessWithGitCommit(t *testing.T) {
 
 	coder3 := &mockCoderAgentWithProposal{proposal: testProposal}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, workerService)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, workerService)
 
 	req := ProcessMessageRequest{
 		SessionID:   "test",
@@ -297,7 +297,7 @@ func TestFormatExecutionResult_PartialFailure(t *testing.T) {
 	shiro := &mockShiroAgent{}
 	coder3 := &mockCoderAgentWithProposal{proposal: testProposal}
 
-	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, workerService)
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, workerService)
 
 	req := ProcessMessageRequest{
 		SessionID:   "test",

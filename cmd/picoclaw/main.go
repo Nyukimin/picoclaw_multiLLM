@@ -2050,6 +2050,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			coder1Adapter,
 			coder2Adapter,
 			coder3Adapter,
+			nil, // coder4: Phase 7 で実装予定
 			workerExecutionService,
 		)
 		orch.SetEventListener(deps.eventRelay)
