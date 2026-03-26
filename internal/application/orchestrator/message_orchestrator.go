@@ -13,7 +13,6 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -496,66 +495,6 @@ func speechModeForRoute(route routing.Route) string {
 	}
 }
 
-func (o *MessageOrchestrator) coderByName(name string) CoderAgent {
-	switch name {
-	case "coder1":
-		return o.coder1
-	case "coder2":
-		return o.coder2
-	case "coder3":
-		return o.coder3
-	default:
-		return nil
-	}
-}
-
-func (o *MessageOrchestrator) selectCoderForRoute(route routing.Route) (codeTarget, error) {
-	if name, prompt, ok := explicitCodeRouteTarget(route); ok {
-		coder := o.coderByName(name)
-		if coder == nil {
-			return codeTarget{}, fmt.Errorf("%s route requested but no %s available", route, name)
-		}
-		log.Printf("[MessageOrch] coder selected route=%s target=%s mode=explicit", route, name)
-		return codeTarget{name: name, coder: coder, systemPrompt: prompt}, nil
-	}
-
-	switch route {
-	case routing.RouteCODE:
-		type coderEntry struct {
-			name  string
-			coder CoderAgent
-		}
-		chain := []coderEntry{
-			{name: "coder1", coder: o.coder1},
-			{name: "coder2", coder: o.coder2},
-			{name: "coder3", coder: o.coder3},
-		}
-		for _, c := range chain {
-			if c.coder == nil {
-				log.Printf("[MessageOrch] coder skip route=%s target=%s reason=unavailable", route, c.name)
-				continue
-			}
-			if !o.coderStatus.Acquire(c.name) {
-				log.Printf("[MessageOrch] coder skip route=%s target=%s reason=busy", route, c.name)
-				continue
-			}
-			coderName := c.name
-			log.Printf("[MessageOrch] coder selected route=%s target=%s mode=auto", route, coderName)
-			return codeTarget{
-				name:         coderName,
-				coder:        c.coder,
-				systemPrompt: "You are a code generation assistant.",
-				release: func() {
-					o.coderStatus.Release(coderName)
-				},
-			}, nil
-		}
-		return codeTarget{}, fmt.Errorf("CODE route requested but all coders are busy or unavailable")
-	default:
-		return codeTarget{}, fmt.Errorf("unknown code route: %s", route)
-	}
-}
-
 func (o *MessageOrchestrator) executeCodeViaShiro(
 	ctx context.Context,
 	t task.Task,
@@ -573,63 +512,6 @@ func (o *MessageOrchestrator) executeCodeViaShiro(
 	}
 	resp, err := o.codeExecutor.ExecuteCode(ctx, req)
 	return resp.Response, err
-}
-
-func (o *MessageOrchestrator) tryExecuteProposalPath(
-	ctx context.Context,
-	t task.Task,
-	route routing.Route,
-	target codeTarget,
-	sessionID, channel, chatID, jid string,
-) (string, bool, error) {
-	coderWithProposal, ok := target.coder.(CoderAgentWithProposal)
-	if !ok {
-		return "", false, nil
-	}
-
-	p, err := coderWithProposal.GenerateProposal(ctx, t)
-	if err != nil {
-		o.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), route.String(), jid, sessionID, channel, chatID)
-		return "", true, fmt.Errorf("%s proposal generation failed: %w", target.name, err)
-	}
-	if p == nil || !p.IsValid() {
-		o.emit("agent.response", target.name, "shiro", "無効な Proposal が返されました", route.String(), jid, sessionID, channel, chatID)
-		return "", true, fmt.Errorf("%s proposal generation failed: %w", target.name, &agent.ProposalError{
-			Kind:      agent.ProposalFailureEmpty,
-			Reason:    "generated invalid proposal",
-			Retryable: true,
-		})
-	}
-
-	o.emit("agent.response", target.name, "shiro", "## Plan\n"+p.Plan(), route.String(), jid, sessionID, channel, chatID)
-	o.emit("agent.start", "shiro", "mio", "Patch を実行中...", route.String(), jid, sessionID, channel, chatID)
-
-	result, err := o.workerExecution.ExecuteProposal(ctx, t.JobID(), p)
-	if err != nil {
-		o.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), route.String(), jid, sessionID, channel, chatID)
-		return "", true, fmt.Errorf("worker execution failed: %w", err)
-	}
-
-	formatted := o.formatExecutionResult(p, result)
-	o.emit("agent.response", "shiro", "mio", formatted, route.String(), jid, sessionID, channel, chatID)
-	return formatted, true, nil
-}
-
-func (o *MessageOrchestrator) executeCoderGeneratePath(
-	ctx context.Context,
-	t task.Task,
-	route routing.Route,
-	target codeTarget,
-	sessionID, channel, chatID, jid string,
-) (string, error) {
-	resp, err := target.coder.Generate(ctx, t, target.systemPrompt)
-	if err != nil {
-		o.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), route.String(), jid, sessionID, channel, chatID)
-		return "", err
-	}
-	o.emit("agent.response", target.name, "shiro", truncate(resp, 500), route.String(), jid, sessionID, channel, chatID)
-	o.emit("agent.response", "shiro", "mio", truncate(resp, 500), route.String(), jid, sessionID, channel, chatID)
-	return resp, nil
 }
 
 func capabilityForRoute(route routing.Route) autonomousapp.CapabilityPack {
@@ -744,62 +626,3 @@ func buildExecutorRetryMessage(userMessage string, route routing.Route, failureK
 `, userMessage, attempt, route, fallbackString(failureKind, "unknown"), fallbackString(failureReason, "execution failed"))
 }
 
-// formatExecutionResult はProposalとPatchExecutionResultを整形
-func (o *MessageOrchestrator) formatExecutionResult(
-	p *proposal.Proposal,
-	result *patch.PatchExecutionResult,
-) string {
-	// 成功/失敗の絵文字
-	statusEmoji := "✅"
-	if !result.Success {
-		statusEmoji = "⚠️"
-	}
-
-	// Gitコミット行
-	gitCommitLine := ""
-	if result.GitCommit != "" && result.GitCommit != "no-changes" {
-		shortHash := result.GitCommit
-		if len(shortHash) > 8 {
-			shortHash = shortHash[:8]
-		}
-		gitCommitLine = fmt.Sprintf("\n- **Git Commit**: `%s`", shortHash)
-	}
-
-	// コマンド結果詳細
-	commandDetails := ""
-	for i, cmdResult := range result.Results {
-		status := "✅"
-		if !cmdResult.Success {
-			status = "❌"
-		}
-		commandDetails += fmt.Sprintf("\n%d. %s `%s` %s",
-			i+1, status, cmdResult.Command.Action, cmdResult.Command.Target)
-		if cmdResult.Error != "" {
-			commandDetails += fmt.Sprintf("\n   Error: %s", cmdResult.Error)
-		}
-	}
-
-	return fmt.Sprintf(`## Plan
-%s
-
-## Execution Result
-- **Status**: %s
-- **Executed**: %d commands
-- **Failed**: %d commands
-- **Success Rate**: %.1f%%%s
-
-### Command Results%s
-
-## Risk
-%s
-`,
-		p.Plan(),
-		statusEmoji,
-		result.ExecutedCmds,
-		result.FailedCmds,
-		result.SuccessRate()*100,
-		gitCommitLine,
-		commandDetails,
-		p.Risk(),
-	)
-}
