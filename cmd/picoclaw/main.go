@@ -1577,32 +1577,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
 	workerProvider := infrallm.NewDateTimeProvider(workerRawProvider)
 
-	var coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter
-
-	// DeepSeek (Coder1) - API キーがある場合のみ
-	if cfg.DeepSeek.APIKey != "" {
-		deepseekProvider := deepseek.NewDeepSeekProvider(cfg.DeepSeek.APIKey, cfg.DeepSeek.Model)
-		domainCoder := agent.NewCoderAgent(deepseekProvider, nil, nil, cfg.Prompts.CoderProposal)
-		coder1Adapter = &coderAdapter{domainCoder: domainCoder}
-		log.Printf("DeepSeek (Coder1) enabled with model: %s", cfg.DeepSeek.Model)
-	}
-
-	// OpenAI (Coder2) - API キーがある場合のみ
-	var openaiProvider llm.LLMProvider
-	if cfg.OpenAI.APIKey != "" {
-		openaiProvider = openai.NewOpenAIProvider(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
-		domainCoder := agent.NewCoderAgent(openaiProvider, nil, nil, cfg.Prompts.CoderProposal)
-		coder2Adapter = &coderAdapter{domainCoder: domainCoder}
-		log.Printf("OpenAI (Coder2) enabled with model: %s", cfg.OpenAI.Model)
-	}
-
-	// Claude (Coder3) - API キーがある場合のみ
-	if cfg.Claude.APIKey != "" {
-		claudeProvider := claude.NewClaudeProvider(cfg.Claude.APIKey, cfg.Claude.Model)
-		domainCoder := agent.NewCoderAgent(claudeProvider, nil, nil, cfg.Prompts.CoderProposal)
-		coder3Adapter = &coderAdapter{domainCoder: domainCoder}
-		log.Printf("Claude (Coder3) enabled with model: %s", cfg.Claude.Model)
-	}
+	// v4.1: Unified Coder setup using LLM Factory and Agent Persona
+	coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter := setupCoders(cfg)
 
 	// 2. Routing Components
 	classifier := routing.NewLLMClassifier(chatProvider, cfg.Prompts.Classifier)
@@ -1982,10 +1958,17 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			"mio":   chatProvider,
 			"shiro": chatProvider,
 		})
-		if openaiProvider != nil {
-			idleChatOrch.SetForecastProvider(openaiProvider)
-			idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
-			log.Printf("IdleChat: Forecast provider set to OpenAI (Coder2: %s), topic stock filling", cfg.OpenAI.Model)
+		// v4.1: OpenAI provider を coder2 から取得（Forecast用）
+		if coder2Adapter != nil && cfg.Coder2.Provider == "openai" {
+			// coder2Adapter.domainCoder から LLMProvider を取得
+			// Note: CoderAgent は内部的に LLMProvider を持つが、直接アクセスできない
+			// 代わりに、Config から再度 OpenAI Provider を作成
+			if cfg.Coder2.APIKey != "" {
+				openaiProvider := openai.NewOpenAIProvider(cfg.Coder2.APIKey, cfg.Coder2.Model)
+				idleChatOrch.SetForecastProvider(openaiProvider)
+				idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
+				log.Printf("IdleChat: Forecast provider set to OpenAI (Coder2: %s), topic stock filling", cfg.Coder2.Model)
+			}
 		}
 		if recentGlossaryTopics != nil {
 			idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
@@ -2036,7 +2019,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge, vtuberBridge)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge, vtuberBridge)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = entryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = chromeBridgeFromOrch(deps.distOrch)
@@ -2050,7 +2033,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			coder1Adapter,
 			coder2Adapter,
 			coder3Adapter,
-			nil, // coder4: Phase 7 で実装予定
+			coder4Adapter,
 			workerExecutionService,
 		)
 		orch.SetEventListener(deps.eventRelay)
@@ -2133,6 +2116,7 @@ func (d *Dependencies) buildDistributedMode(
 	coder1Adapter *coderAdapter,
 	coder2Adapter *coderAdapter,
 	coder3Adapter *coderAdapter,
+	coder4Adapter *coderAdapter,
 	workerExecution service.WorkerExecutionService,
 	ollamaProvider llm.LLMProvider,
 	centralMemory *domainsession.CentralMemory,
@@ -2154,7 +2138,7 @@ func (d *Dependencies) buildDistributedMode(
 	for agentName, t := range transports {
 		switch v := t.(type) {
 		case *transport.LocalTransport:
-			if !localAgentEnabled(agentName, coder1Adapter, coder2Adapter, coder3Adapter) {
+			if !localAgentEnabled(agentName, coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter) {
 				log.Printf("Skipped LocalTransport for agent '%s' (agent not enabled in this process)", agentName)
 				continue
 			}
@@ -2186,6 +2170,9 @@ func (d *Dependencies) buildDistributedMode(
 	}
 	if lt, ok := d.localTransports["coder3"]; ok && coder3Adapter != nil {
 		d.startLocalCoderAgent("coder3", lt, coder3Adapter)
+	}
+	if lt, ok := d.localTransports["coder4"]; ok && coder4Adapter != nil {
+		d.startLocalCoderAgent("coder4", lt, coder4Adapter)
 	}
 	_ = mioTransport
 
@@ -2228,7 +2215,7 @@ func (d *Dependencies) buildDistributedMode(
 	}
 }
 
-func localAgentEnabled(agentName string, coder1Adapter, coder2Adapter, coder3Adapter *coderAdapter) bool {
+func localAgentEnabled(agentName string, coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter *coderAdapter) bool {
 	switch agentName {
 	case "mio", "shiro":
 		return true
@@ -2238,6 +2225,8 @@ func localAgentEnabled(agentName string, coder1Adapter, coder2Adapter, coder3Ada
 		return coder2Adapter != nil
 	case "coder3":
 		return coder3Adapter != nil
+	case "coder4":
+		return coder4Adapter != nil
 	default:
 		return true
 	}
@@ -2672,4 +2661,74 @@ func resolveSubagentProvider(cfg *config.Config, fallback llm.ToolCallingProvide
 func mustGetToolList(runner agent.ToolRunner) []string {
 	list, _ := runner.List(context.Background())
 	return list
+}
+
+// setupCoders は Config から Coder1-4 を初期化（v4.1 Agent Persona 対応）
+func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapter) {
+	// Shared LightMemory instances (セッション単位で共有)
+	var globalLightMemory *agent.LightMemory
+
+	coderConfigs := []struct {
+		name   string
+		config config.CoderConfig
+		out    **coderAdapter
+	}{
+		{"coder1", cfg.Coder1, &coder1},
+		{"coder2", cfg.Coder2, &coder2},
+		{"coder3", cfg.Coder3, &coder3},
+		{"coder4", cfg.Coder4, &coder4},
+	}
+
+	for _, cc := range coderConfigs {
+		if !cc.config.Enabled {
+			log.Printf("[setupCoders] %s (%s) disabled", cc.name, cc.config.Name)
+			continue
+		}
+
+		// LLM Provider 生成
+		provider, err := infrallm.CreateProvider(cc.config)
+		if err != nil {
+			log.Printf("[setupCoders] %s (%s) provider creation failed: %v", cc.name, cc.config.Name, err)
+			continue
+		}
+		if provider == nil {
+			log.Printf("[setupCoders] %s (%s) provider is nil (Enabled=false or error)", cc.name, cc.config.Name)
+			continue
+		}
+
+		// CoderAgent 作成
+		domainCoder := agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
+
+		// Agent Persona 設定
+		if cc.config.Personality != "" {
+			persona := agent.AgentPersona{
+				Name:        cc.config.Name,
+				Personality: cc.config.Personality,
+				Tone:        cc.config.Tone,
+			}
+			domainCoder.WithPersona(persona)
+			log.Printf("[setupCoders] %s (%s) persona enabled: %s", cc.name, cc.config.DisplayName, cc.config.Name)
+		}
+
+		// LightMemory 設定（全 Coder で共有）
+		if cc.config.LightMemory.Enabled {
+			if globalLightMemory == nil {
+				maxTurns := cc.config.LightMemory.MaxTurns
+				if maxTurns <= 0 {
+					maxTurns = 3
+				}
+				globalLightMemory = agent.NewLightMemory(maxTurns)
+				log.Printf("[setupCoders] LightMemory initialized with maxTurns=%d", maxTurns)
+			}
+			domainCoder.WithLightMemory(globalLightMemory)
+			log.Printf("[setupCoders] %s (%s) LightMemory enabled", cc.name, cc.config.DisplayName)
+		}
+
+		// coderAdapter 作成
+		*cc.out = &coderAdapter{domainCoder: domainCoder}
+		log.Printf("[setupCoders] %s (%s) enabled: provider=%s model=%s",
+			cc.name, cc.config.DisplayName, cc.config.Provider, cc.config.Model)
+	}
+
+	return
 }
