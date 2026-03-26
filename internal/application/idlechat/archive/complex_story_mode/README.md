@@ -14,7 +14,8 @@
 | `story_specs.go` | 16 | ストーリー仕様定義 |
 | `story_dump.go` | 477 | デバッグ用ダンプ機能 |
 | `orchestrator_story_test.go` | 1,587 | Complex Story Mode のテスト（92テスト） |
-| **合計** | **3,895行** | |
+| `cmd_test-story/main.go` | 473 | テスト・デバッグ用CLIツール（dump-plan, preview-run, scan等） |
+| **合計** | **4,368行** | |
 
 ---
 
