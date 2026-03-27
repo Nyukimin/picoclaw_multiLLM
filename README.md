@@ -60,6 +60,7 @@ RenCrowは、タスクの種類に応じて最適なLLMを自動選択します�
 | **Coder1** | Aka | DeepSeek | 仕様設計、アーキテクチャ検討 |
 | **Coder2** | Ao | OpenAI | 実装、コード生成 |
 | **Coder3** | Gin | Anthropic Claude | 高品質コーディング、推論 |
+| **Coder4** | Kin | 設定可能 | 高速プロトタイピング、実験 |
 
 **ルーティングカテゴリ**:
 - `CHAT` - 会話・意思決定
@@ -67,7 +68,15 @@ RenCrowは、タスクの種類に応じて最適なLLMを自動選択します�
 - `ANALYZE` - 分析
 - `OPS` - 運用操作
 - `RESEARCH` - 調査
-- `CODE` / `CODE1` / `CODE2` / `CODE3` - コーディング
+- `CODE` / `CODE1` / `CODE2` / `CODE3` / `CODE4` - コーディング（自動振り分け or 明示指定）
+
+**明示コマンド**:
+- `/code` - 汎用コーディング（coder1→2→3→4 の順で自動フォールバック）
+- `/code1` - Coder1 明示指定（仕様設計特化）
+- `/code2` - Coder2 明示指定（実装特化）
+- `/code3` - Coder3 明示指定（レビュー・推論特化）
+- `/code4` - Coder4 明示指定（高速プロトタイピング・実験）
+- `/plan`, `/analyze`, `/ops`, `/research`, `/chat` - 各ルート明示指定
 
 ### 2. Worker即時実行（v3.0新機能）
 
