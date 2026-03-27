@@ -512,7 +512,12 @@ picoclaw/
 - **[docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md](docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md)** - v4分散実行対応版（SSH Transport、統合バイナリ）
 - **[docs/04_実装仕様_機能拡張/実装仕様_OpenClaw移植_v1.md](docs/04_実装仕様_機能拡張/実装仕様_OpenClaw移植_v1.md)** - OpenClaw移植仕様（実装実行能力）
 
-### LLM運用
+### 運用ガイド（ユーザー向け）
+
+- **[docs/運用ガイド/Coder設定ガイド.md](docs/運用ガイド/Coder設定ガイド.md)** - ★Coder1-4 の設定方法（初回セットアップ必読）
+- **[docs/運用ガイド/分散実行_前提条件とセットアップ.md](docs/運用ガイド/分散実行_前提条件とセットアップ.md)** - SSH 分散実行セットアップ
+
+### LLM運用（技術詳細）
 
 - **[docs/LLM運用/Coder3_Claude_API仕様.md](docs/LLM運用/Coder3_Claude_API仕様.md)** - Coder3仕様
 - **[docs/LLM運用/LLM_Worker_Spec_v1_0.md](docs/LLM運用/LLM_Worker_Spec_v1_0.md)** - Worker仕様
