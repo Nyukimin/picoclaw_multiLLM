@@ -2,11 +2,14 @@ package subagent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 )
@@ -154,5 +157,151 @@ func TestRunSync_EmptyInstruction(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error for empty instruction")
+	}
+}
+
+// --- ToolRegistry モック ---
+
+type mockRegistry struct {
+	entries map[string]capability.ToolEntry
+}
+
+func (r *mockRegistry) Register(ctx context.Context, entry capability.ToolEntry) error {
+	r.entries[entry.Name] = entry
+	return nil
+}
+
+func (r *mockRegistry) Approve(ctx context.Context, name string) error {
+	e, ok := r.entries[name]
+	if !ok {
+		return fmt.Errorf("not found: %s", name)
+	}
+	e.Trusted = true
+	r.entries[name] = e
+	return nil
+}
+
+func (r *mockRegistry) ListForPlatform(ctx context.Context, platform string) ([]capability.ToolEntry, error) {
+	var result []capability.ToolEntry
+	for _, e := range r.entries {
+		if e.Trusted {
+			result = append(result, e)
+		}
+	}
+	return result, nil
+}
+
+func (r *mockRegistry) Get(ctx context.Context, name string) (capability.ToolEntry, error) {
+	e, ok := r.entries[name]
+	if !ok {
+		return capability.ToolEntry{}, fmt.Errorf("not found: %s", name)
+	}
+	return e, nil
+}
+
+func (r *mockRegistry) Close() error { return nil }
+
+func makeSchemaJSON(t *testing.T, name, description string) string {
+	t.Helper()
+	toolDef := llm.ToolDefinition{
+		Type: "function",
+		Function: llm.ToolFunctionDef{
+			Name:        name,
+			Description: description,
+			Parameters:  map[string]any{"type": "object"},
+		},
+	}
+	b, err := json.Marshal(toolDef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestMergeToolDefs_NilRegistry_ReturnsBaseDefs(t *testing.T) {
+	baseDefs := []llm.ToolDefinition{
+		{Type: "function", Function: llm.ToolFunctionDef{Name: "shell"}},
+	}
+	mgr := NewManager(&mockProvider{}, &mockRunner{}, baseDefs, toolloop.Config{})
+
+	merged := mgr.mergeToolDefs(context.Background())
+	if len(merged) != 1 || merged[0].Function.Name != "shell" {
+		t.Errorf("expected only base defs, got %v", merged)
+	}
+}
+
+func TestMergeToolDefs_WithRegistry_MergesApprovedTools(t *testing.T) {
+	baseDefs := []llm.ToolDefinition{
+		{Type: "function", Function: llm.ToolFunctionDef{Name: "shell"}},
+	}
+	registry := &mockRegistry{
+		entries: map[string]capability.ToolEntry{
+			"custom_tool": {
+				Name:       "custom_tool",
+				SchemaJSON: makeSchemaJSON(t, "custom_tool", "a custom tool"),
+				Trusted:    true,
+				CreatedAt:  time.Now(),
+			},
+		},
+	}
+	mgr := NewManager(&mockProvider{}, &mockRunner{}, baseDefs, toolloop.Config{}, WithToolRegistry(registry))
+
+	merged := mgr.mergeToolDefs(context.Background())
+	names := make(map[string]bool)
+	for _, d := range merged {
+		names[d.Function.Name] = true
+	}
+	if !names["shell"] {
+		t.Error("expected 'shell' in merged defs")
+	}
+	if !names["custom_tool"] {
+		t.Error("expected 'custom_tool' in merged defs")
+	}
+}
+
+func TestMergeToolDefs_Dedup_BaseToolWins(t *testing.T) {
+	baseDefs := []llm.ToolDefinition{
+		{Type: "function", Function: llm.ToolFunctionDef{Name: "shell", Description: "base shell"}},
+	}
+	registry := &mockRegistry{
+		entries: map[string]capability.ToolEntry{
+			"shell": {
+				Name:       "shell",
+				SchemaJSON: makeSchemaJSON(t, "shell", "registry shell"),
+				Trusted:    true,
+				CreatedAt:  time.Now(),
+			},
+		},
+	}
+	mgr := NewManager(&mockProvider{}, &mockRunner{}, baseDefs, toolloop.Config{}, WithToolRegistry(registry))
+
+	merged := mgr.mergeToolDefs(context.Background())
+	if len(merged) != 1 {
+		t.Errorf("expected 1 tool after dedup, got %d", len(merged))
+	}
+	if merged[0].Function.Description != "base shell" {
+		t.Errorf("expected base tool to win, got description: %q", merged[0].Function.Description)
+	}
+}
+
+func TestMergeToolDefs_InvalidSchemaJSON_Skipped(t *testing.T) {
+	baseDefs := []llm.ToolDefinition{
+		{Type: "function", Function: llm.ToolFunctionDef{Name: "shell"}},
+	}
+	registry := &mockRegistry{
+		entries: map[string]capability.ToolEntry{
+			"broken_tool": {
+				Name:       "broken_tool",
+				SchemaJSON: "not valid json",
+				Trusted:    true,
+				CreatedAt:  time.Now(),
+			},
+		},
+	}
+	mgr := NewManager(&mockProvider{}, &mockRunner{}, baseDefs, toolloop.Config{}, WithToolRegistry(registry))
+
+	merged := mgr.mergeToolDefs(context.Background())
+	if len(merged) != 1 {
+		t.Errorf("expected broken tool to be skipped, got %d tools", len(merged))
 	}
 }

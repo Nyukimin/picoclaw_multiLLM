@@ -16,7 +16,7 @@ type ChatCommandResult struct {
 // HandleChatCommand はチャットコマンドを処理する
 // コマンドでない場合は Handled=false を返す
 func (m *MioAgent) HandleChatCommand(ctx context.Context, sessionID string, message string) (ChatCommandResult, error) {
-	cmd, _ := parseChatCommand(message)
+	cmd, rest := parseChatCommand(message)
 	if cmd == "" {
 		return ChatCommandResult{Handled: false}, nil
 	}
@@ -35,6 +35,8 @@ func (m *MioAgent) HandleChatCommand(ctx context.Context, sessionID string, mess
 		return m.cmdContext(ctx, sessionID, message)
 	case "new":
 		return m.cmdNew(ctx, sessionID)
+	case "approve-tool":
+		return m.cmdApproveTool(ctx, strings.TrimSpace(rest))
 	default:
 		return ChatCommandResult{Handled: false}, nil
 	}
@@ -49,7 +51,7 @@ func parseChatCommand(message string) (string, string) {
 	}
 
 	// チャットコマンド一覧（ルーティングコマンドと区別）
-	chatCommands := []string{"status", "stop", "compact", "context", "new"}
+	chatCommands := []string{"status", "stop", "compact", "context", "new", "approve-tool"}
 
 	parts := strings.SplitN(trimmed, " ", 2)
 	cmd := strings.TrimPrefix(parts[0], "/")
@@ -190,6 +192,48 @@ func (m *MioAgent) cmdNew(ctx context.Context, sessionID string) (ChatCommandRes
 	return ChatCommandResult{
 		Handled:  true,
 		Response: "セッションをリセットしました。新しい会話を始めましょう！",
+	}, nil
+}
+
+// cmdApproveTool は Shiro 生成ツールを承認する（/approve-tool <name>）
+func (m *MioAgent) cmdApproveTool(ctx context.Context, name string) (ChatCommandResult, error) {
+	if m.toolRegistry == nil {
+		return ChatCommandResult{
+			Handled:  true,
+			Response: "ToolRegistry is not enabled.",
+		}, nil
+	}
+	if name == "" {
+		return ChatCommandResult{
+			Handled:  true,
+			Response: "Usage: /approve-tool <tool_name>",
+		}, nil
+	}
+
+	entry, err := m.toolRegistry.Get(ctx, name)
+	if err != nil {
+		return ChatCommandResult{
+			Handled:  true,
+			Response: fmt.Sprintf("ツール %q が見つかりません。", name),
+		}, nil
+	}
+	if entry.Trusted {
+		return ChatCommandResult{
+			Handled:  true,
+			Response: fmt.Sprintf("ツール %q は既に承認済みです。", name),
+		}, nil
+	}
+
+	if err := m.toolRegistry.Approve(ctx, name); err != nil {
+		return ChatCommandResult{
+			Handled:  true,
+			Response: fmt.Sprintf("承認に失敗しました: %v", err),
+		}, nil
+	}
+
+	return ChatCommandResult{
+		Handled:  true,
+		Response: fmt.Sprintf("ツール %q を承認しました。次回の Shiro 実行から使用可能になります。", name),
 	}, nil
 }
 

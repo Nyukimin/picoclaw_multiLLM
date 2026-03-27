@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -42,6 +43,7 @@ type MioAgent struct {
 	conversationMgr    ConversationManager             // Phase 4.2: KB自動保存用（nilを許容）
 	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
 	recentContext      func(context.Context, int) (string, error)
+	toolRegistry       capability.ToolRegistry // Phase 4: /approve-tool 用（nilを許容）
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -67,6 +69,12 @@ func NewMioAgent(
 // WithConversationManager はConversationManagerを設定（Phase 4.2 KB自動保存用）
 func (m *MioAgent) WithConversationManager(mgr ConversationManager) *MioAgent {
 	m.conversationMgr = mgr
+	return m
+}
+
+// WithToolRegistry は ToolRegistry を設定（Phase 4: /approve-tool 用）
+func (m *MioAgent) WithToolRegistry(reg capability.ToolRegistry) *MioAgent {
+	m.toolRegistry = reg
 	return m
 }
 

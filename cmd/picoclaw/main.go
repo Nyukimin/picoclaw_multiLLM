@@ -1487,6 +1487,7 @@ type Dependencies struct {
 	idleChatOrch       *idlechat.IdleChatOrchestrator        // v4 idle chat
 	sshTransports      map[string]domaintransport.Transport  // v4 SSH transports
 	heartbeatSvc       *heartbeat.HeartbeatService           // heartbeat service
+	toolRegistry       capdomain.ToolRegistry                // Phase 4: Shiro ツール共有用 ToolRegistry
 }
 
 type idleAwareEventListener struct {
@@ -1565,6 +1566,11 @@ func (d *Dependencies) Shutdown() {
 	if d.router != nil {
 		d.router.Stop()
 	}
+	if d.toolRegistry != nil {
+		if err := d.toolRegistry.Close(); err != nil {
+			log.Printf("Failed to close ToolRegistry: %v", err)
+		}
+	}
 	log.Println("Shutdown complete")
 }
 
@@ -1572,23 +1578,23 @@ func (d *Dependencies) Shutdown() {
 func buildDependencies(cfg *config.Config) *Dependencies {
 	// 0. ケイパビリティ検出（v4.1）
 	var nodeCaps capdomain.NodeCapabilities
-	if cfg.Capability.ProbeLLMs {
-		// ToolRegistry 初期化（オプション）
-		var toolRegistry capdomain.ToolRegistry
-		if cfg.Capability.ToolRegistryDB != "" {
-			tr, err := toolregistry.NewDuckDBToolRegistryStore(cfg.Capability.ToolRegistryDB)
-			if err != nil {
-				log.Printf("WARN: ToolRegistry init failed (%s): %v", cfg.Capability.ToolRegistryDB, err)
-			} else {
-				toolRegistry = tr
-				defer tr.Close()
-				log.Printf("ToolRegistry initialized: %s", cfg.Capability.ToolRegistryDB)
-			}
-		}
 
+	// ToolRegistry 初期化（ProbeLLMs に関係なくランタイムで使用）
+	var runtimeToolRegistry capdomain.ToolRegistry
+	if cfg.Capability.ToolRegistryDB != "" {
+		tr, err := toolregistry.NewDuckDBToolRegistryStore(cfg.Capability.ToolRegistryDB)
+		if err != nil {
+			log.Printf("WARN: ToolRegistry init failed (%s): %v", cfg.Capability.ToolRegistryDB, err)
+		} else {
+			runtimeToolRegistry = tr
+			log.Printf("ToolRegistry initialized: %s", cfg.Capability.ToolRegistryDB)
+		}
+	}
+
+	if cfg.Capability.ProbeLLMs {
 		detector := capinfra.NewCapabilityDetector(cfg)
-		if toolRegistry != nil {
-			detector = detector.WithToolRegistry(toolRegistry)
+		if runtimeToolRegistry != nil {
+			detector = detector.WithToolRegistry(runtimeToolRegistry)
 		}
 		caps, err := detector.Detect(context.Background())
 		if err != nil {
@@ -1642,6 +1648,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	workerToolRunnerCfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:         cfg.GoogleSearchWorker.APIKey,
 		GoogleSearchEngineID: cfg.GoogleSearchWorker.SearchEngineID,
+		ToolRegistry:         runtimeToolRegistry,
+		WorkspaceDir:         cfg.WorkspaceDir,
+		AutoApproveShiro:     cfg.Capability.AutoApproveShiroTools,
+		OnToolRegistered: func(name, desc string, trusted bool) {
+			log.Printf("[ToolRegistry] tool registered: name=%q trusted=%v", name, trusted)
+		},
 	}
 
 	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)
@@ -1653,11 +1665,16 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		subagentProvider := resolveSubagentProvider(cfg, workerProvider)
 		toolDefs := workerToolRunnerV2.ToolDefinitions()
 
+		subagentOpts := []subagentapp.ManagerOption{}
+		if runtimeToolRegistry != nil {
+			subagentOpts = append(subagentOpts, subagentapp.WithToolRegistry(runtimeToolRegistry))
+		}
 		subagentMgr = subagentapp.NewManager(
 			subagentProvider,
 			workerToolRunnerV2,
 			toolDefs,
 			toolloop.Config{MaxIterations: cfg.Subagent.MaxIterations},
+			subagentOpts...,
 		)
 
 		workerToolRunnerV2.RegisterSubagent("worker", tools.NewSubagentFuncFromManager(subagentMgr))
@@ -1700,6 +1717,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		chatRunnerV2 = securedChatRunner
 		workerRunnerV2 = securedWorkerRunner
 		log.Printf("Security policy runner enabled (mode=%s)", cfg.Security.PolicyMode)
+	}
+
+	// Phase 4: CompositeRunnerV2（ToolRegistry フォールバック）
+	if runtimeToolRegistry != nil {
+		workerRunnerV2 = tools.NewCompositeRunnerV2(workerRunnerV2, runtimeToolRegistry, cfg.WorkspaceDir)
+		log.Printf("CompositeRunnerV2 enabled (ToolRegistry fallback for worker)")
 	}
 
 	// LegacyRunner アダプター（V2 → V1 ブリッジ）で agents に注入
@@ -1843,6 +1866,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	personaEditor := persona.NewFilePersonaEditor(mioPersonaFile)
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
 	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
+	if runtimeToolRegistry != nil {
+		mioAgent = mioAgent.WithToolRegistry(runtimeToolRegistry)
+		log.Printf("Mio: ToolRegistry injected (/approve-tool enabled)")
+	}
 
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 	if cfg.Worker.PersonaFile != "" {
@@ -1873,6 +1900,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	deps := &Dependencies{}
 	deps.glossaryRecent = glossaryRecentHandler
+	deps.toolRegistry = runtimeToolRegistry
 
 	// EventHub (Live Viewer)
 	hub := viewer.NewEventHub(200)
