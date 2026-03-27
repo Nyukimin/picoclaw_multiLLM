@@ -83,7 +83,6 @@ func (d *CapabilityDetector) Detect(ctx context.Context) (capability.NodeCapabil
 				tools = append(tools, capability.ToolCapability{
 					Name:      e.Name,
 					Platforms: e.Platforms,
-					Trusted:   e.Trusted,
 					Source:    string(e.Source),
 				})
 			}

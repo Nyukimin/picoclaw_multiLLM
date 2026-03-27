@@ -35,6 +35,5 @@ type LLMCapability struct {
 type ToolCapability struct {
 	Name      string   // ツール名
 	Platforms []string // 対応 OS: ["linux"], ["windows"], ["linux", "windows"]
-	Trusted   bool     // 承認済みフラグ
 	Source    string   // "builtin" / "shiro-generated"
 }

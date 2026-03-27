@@ -49,11 +49,9 @@ func (s *DuckDBToolRegistryStore) initTables(ctx context.Context) error {
 		schema_json  TEXT NOT NULL,
 		platforms    TEXT NOT NULL,
 		source       TEXT NOT NULL,
-		trusted      BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at   TIMESTAMP NOT NULL,
 		created_by   TEXT NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_tool_registry_trusted ON tool_registry (trusted);
 	`
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
@@ -70,8 +68,8 @@ func (s *DuckDBToolRegistryStore) Register(ctx context.Context, entry capability
 	}
 
 	query := `
-	INSERT INTO tool_registry (name, description, schema_json, platforms, source, trusted, created_at, created_by)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO tool_registry (name, description, schema_json, platforms, source, created_at, created_by)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT (name) DO UPDATE SET
 		description = excluded.description,
 		schema_json = excluded.schema_json,
@@ -85,7 +83,6 @@ func (s *DuckDBToolRegistryStore) Register(ctx context.Context, entry capability
 		entry.SchemaJSON,
 		string(platformsJSON),
 		string(entry.Source),
-		entry.Trusted,
 		entry.CreatedAt,
 		entry.CreatedBy,
 	)
@@ -95,45 +92,12 @@ func (s *DuckDBToolRegistryStore) Register(ctx context.Context, entry capability
 	return nil
 }
 
-// Approve は指定ツールを承認済み（trusted = true）にする。
-// DuckDB の ART index 制限（PRIMARY KEY のある表の UPDATE 非対応）のため
-// DELETE + INSERT で実装する。
-func (s *DuckDBToolRegistryStore) Approve(ctx context.Context, name string) error {
-	existing, err := s.Get(ctx, name)
-	if err != nil {
-		return err // "not found" を含む
-	}
-
-	platformsJSON, err := json.Marshal(existing.Platforms)
-	if err != nil {
-		return fmt.Errorf("marshal platforms: %w", err)
-	}
-
-	// DuckDB の ART index 制限: トランザクション内の DELETE+INSERT も
-	// 同一 PRIMARY KEY を拒否するため、2 ステップを別々に実行する。
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM tool_registry WHERE name = ?`, name); err != nil {
-		return fmt.Errorf("approve (delete) %q: %w", name, err)
-	}
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO tool_registry (name, description, schema_json, platforms, source, trusted, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?, true, ?, ?)`,
-		existing.Name, existing.Description, existing.SchemaJSON,
-		string(platformsJSON), string(existing.Source),
-		existing.CreatedAt, existing.CreatedBy,
-	); err != nil {
-		return fmt.Errorf("approve (insert) %q: %w", name, err)
-	}
-	return nil
-}
-
-// ListForPlatform は指定プラットフォームに対応する承認済みツールを返す
+// ListForPlatform は指定プラットフォームに対応するツールを返す
 func (s *DuckDBToolRegistryStore) ListForPlatform(ctx context.Context, platform string) ([]capability.ToolEntry, error) {
-	// platforms は JSON 配列文字列なので LIKE で platform 名を含むかチェック
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT name, description, schema_json, platforms, source, trusted, created_at, created_by
+		SELECT name, description, schema_json, platforms, source, created_at, created_by
 		FROM tool_registry
-		WHERE trusted = true
-		  AND platforms LIKE ?
+		WHERE platforms LIKE ?
 		ORDER BY name
 	`, "%\""+platform+"\"%")
 	if err != nil {
@@ -146,7 +110,7 @@ func (s *DuckDBToolRegistryStore) ListForPlatform(ctx context.Context, platform 
 // Get は名前でツールを取得する
 func (s *DuckDBToolRegistryStore) Get(ctx context.Context, name string) (capability.ToolEntry, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT name, description, schema_json, platforms, source, trusted, created_at, created_by
+		SELECT name, description, schema_json, platforms, source, created_at, created_by
 		FROM tool_registry WHERE name = ?
 	`, name)
 
@@ -156,7 +120,7 @@ func (s *DuckDBToolRegistryStore) Get(ctx context.Context, name string) (capabil
 
 	if err := row.Scan(
 		&e.Name, &e.Description, &e.SchemaJSON,
-		&platformsJSON, &source, &e.Trusted, &createdAt, &e.CreatedBy,
+		&platformsJSON, &source, &createdAt, &e.CreatedBy,
 	); err == sql.ErrNoRows {
 		return capability.ToolEntry{}, fmt.Errorf("tool %q not found", name)
 	} else if err != nil {
@@ -181,7 +145,7 @@ func scanEntries(rows *sql.Rows) ([]capability.ToolEntry, error) {
 
 		if err := rows.Scan(
 			&e.Name, &e.Description, &e.SchemaJSON,
-			&platformsJSON, &source, &e.Trusted, &createdAt, &e.CreatedBy,
+			&platformsJSON, &source, &createdAt, &e.CreatedBy,
 		); err != nil {
 			return nil, err
 		}

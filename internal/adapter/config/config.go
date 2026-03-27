@@ -240,9 +240,6 @@ type CapabilityConfig struct {
 	// ToolRegistryDB: ToolRegistry の DuckDB ファイルパス（空の場合は ToolRegistry 無効）
 	ToolRegistryDB string `yaml:"tool_registry_db"`
 
-	// AutoApproveShiroTools: true の場合、Shiro 生成ツールを自動承認する（本番では false 推奨）
-	AutoApproveShiroTools bool `yaml:"auto_approve_shiro_tools"`
-
 	// LLMQualityOverrides: モデル名 → 品質ランク（1〜5）の上書き設定
 	LLMQualityOverrides map[string]int `yaml:"llm_quality_overrides"`
 }

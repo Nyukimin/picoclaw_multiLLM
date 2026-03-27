@@ -24,7 +24,7 @@ const registeredToolTimeout = 30 * time.Second
 // 動作:
 //  1. base.ExecuteV2() を試行
 //  2. "unknown tool" エラーの場合、registry.Get() でツール検索
-//  3. trusted=true かつ workspaceDir/tools/<name>.sh が存在 → sh で実行
+//  3. workspaceDir/tools/<name>.sh が存在 → sh で実行
 //  4. それ以外 → 元のエラーを返す
 type CompositeRunnerV2 struct {
 	base         tool.RunnerV2
@@ -99,13 +99,8 @@ func (c *CompositeRunnerV2) executeRegistered(ctx context.Context, toolName stri
 		return nil, origErr
 	}
 
-	entry, err := c.registry.Get(ctx, toolName)
-	if err != nil {
+	if _, err := c.registry.Get(ctx, toolName); err != nil {
 		return nil, origErr // registry にも存在しない
-	}
-
-	if !entry.Trusted {
-		return nil, fmt.Errorf("tool %q is not approved: run /approve-tool %s to approve it", toolName, toolName)
 	}
 
 	scriptPath := filepath.Join(c.workspaceDir, "tools", toolName+".sh")

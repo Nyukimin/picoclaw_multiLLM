@@ -20,7 +20,6 @@ type ToolEntry struct {
 	SchemaJSON  string     // llm.ToolDefinition の JSON 文字列
 	Platforms   []string   // 対応 OS: ["linux"], ["windows"], ["linux", "windows"]
 	Source      ToolSource // builtin / shiro-generated
-	Trusted     bool       // 承認済みフラグ（Shiro 生成ツールは false がデフォルト）
 	CreatedAt   time.Time
 	CreatedBy   string // "shiro" / "builtin"
 }
@@ -30,10 +29,7 @@ type ToolRegistry interface {
 	// Register はツールを登録または更新する（冪等）
 	Register(ctx context.Context, entry ToolEntry) error
 
-	// Approve は Shiro 生成ツールを承認する（trusted = true に変更）
-	Approve(ctx context.Context, name string) error
-
-	// ListForPlatform は指定 OS で使用可能かつ承認済みのツールを返す
+	// ListForPlatform は指定 OS で使用可能なツールを返す
 	ListForPlatform(ctx context.Context, platform string) ([]ToolEntry, error)
 
 	// Get は名前でツールを取得する

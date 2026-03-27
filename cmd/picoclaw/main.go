@@ -1650,10 +1650,6 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		GoogleSearchEngineID: cfg.GoogleSearchWorker.SearchEngineID,
 		ToolRegistry:         runtimeToolRegistry,
 		WorkspaceDir:         cfg.WorkspaceDir,
-		AutoApproveShiro:     cfg.Capability.AutoApproveShiroTools,
-		OnToolRegistered: func(name, desc string, trusted bool) {
-			log.Printf("[ToolRegistry] tool registered: name=%q trusted=%v", name, trusted)
-		},
 	}
 
 	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)
@@ -1866,11 +1862,6 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	personaEditor := persona.NewFilePersonaEditor(mioPersonaFile)
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
 	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
-	if runtimeToolRegistry != nil {
-		mioAgent = mioAgent.WithToolRegistry(runtimeToolRegistry)
-		log.Printf("Mio: ToolRegistry injected (/approve-tool enabled)")
-	}
-
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 	if cfg.Worker.PersonaFile != "" {
 		if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, cfg.Worker.PersonaFile); ok {

@@ -43,10 +43,8 @@ type ToolRunnerConfig struct {
 	DisableWebSearch     bool                    // web_search を登録しない（会話モード安全ポリシー）
 
 	// Phase 4: Shiro ツール共有
-	ToolRegistry     capability.ToolRegistry                    // nil = register_tool 無効
-	WorkspaceDir     string                                     // workspace/tools/<name>.sh のベースディレクトリ
-	AutoApproveShiro bool                                       // true = 登録即座に trusted=true
-	OnToolRegistered func(name, description string, trusted bool) // Viewer 通知コールバック（nil 許容）
+	ToolRegistry capability.ToolRegistry // nil = register_tool 無効
+	WorkspaceDir string                  // workspace/tools/<name>.sh のベースディレクトリ
 }
 
 // ToolFunc はツール実行関数の型
@@ -359,14 +357,12 @@ func (r *ToolRunner) executeRegisterTool(ctx context.Context, args map[string]in
 		return "", fmt.Errorf("failed to marshal tool schema: %w", err)
 	}
 
-	trusted := r.config.AutoApproveShiro
 	entry := capability.ToolEntry{
 		Name:        name,
 		Description: description,
 		SchemaJSON:  string(schemaBytes),
 		Platforms:   []string{"linux"},
 		Source:      capability.ToolSourceShiroGenerated,
-		Trusted:     trusted,
 		CreatedBy:   "shiro",
 	}
 
@@ -374,14 +370,7 @@ func (r *ToolRunner) executeRegisterTool(ctx context.Context, args map[string]in
 		return "", fmt.Errorf("failed to register tool %q: %w", name, err)
 	}
 
-	if r.config.OnToolRegistered != nil {
-		r.config.OnToolRegistered(name, description, trusted)
-	}
-
-	if trusted {
-		return fmt.Sprintf("Tool %q registered and auto-approved. It is now available in the next invocation.", name), nil
-	}
-	return fmt.Sprintf("Tool %q registered (pending approval). Run /approve-tool %s to approve it.", name, name), nil
+	return fmt.Sprintf("Tool %q registered. It is now available in the next invocation.", name), nil
 }
 
 // ToolDefinitions はLLMに渡すツール定義一覧を返す

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
@@ -43,22 +42,10 @@ func (r *mockToolRegistry) Register(ctx context.Context, entry capability.ToolEn
 	return nil
 }
 
-func (r *mockToolRegistry) Approve(ctx context.Context, name string) error {
-	e, ok := r.entries[name]
-	if !ok {
-		return fmt.Errorf("not found: %s", name)
-	}
-	e.Trusted = true
-	r.entries[name] = e
-	return nil
-}
-
 func (r *mockToolRegistry) ListForPlatform(ctx context.Context, platform string) ([]capability.ToolEntry, error) {
 	var result []capability.ToolEntry
 	for _, e := range r.entries {
-		if e.Trusted {
-			result = append(result, e)
-		}
+		result = append(result, e)
 	}
 	return result, nil
 }
@@ -90,7 +77,7 @@ func TestCompositeRunnerV2_KnownTool_DelegatesToBase(t *testing.T) {
 	}
 }
 
-func TestCompositeRunnerV2_UnknownTool_TrustedRegistry_ExecutesScript(t *testing.T) {
+func TestCompositeRunnerV2_UnknownTool_Registry_ExecutesScript(t *testing.T) {
 	// 一時ディレクトリにスクリプト作成
 	dir := t.TempDir()
 	toolsDir := filepath.Join(dir, "tools")
@@ -106,9 +93,7 @@ func TestCompositeRunnerV2_UnknownTool_TrustedRegistry_ExecutesScript(t *testing
 		entries: map[string]capability.ToolEntry{
 			"my_tool": {
 				Name:      "my_tool",
-				Trusted:   true,
 				Platforms: []string{"linux", "darwin"},
-				CreatedAt: time.Now(),
 			},
 		},
 	}
@@ -124,21 +109,6 @@ func TestCompositeRunnerV2_UnknownTool_TrustedRegistry_ExecutesScript(t *testing
 	}
 	if !containsString(resp.String(), "script_output") {
 		t.Errorf("expected 'script_output' in output, got %q", resp.String())
-	}
-}
-
-func TestCompositeRunnerV2_UnknownTool_UntrustedRegistry_ReturnsError(t *testing.T) {
-	registry := &mockToolRegistry{
-		entries: map[string]capability.ToolEntry{
-			"my_tool": {Name: "my_tool", Trusted: false},
-		},
-	}
-	base := &mockBaseRunner{knownTools: map[string]*tool.ToolResponse{}}
-	runner := tools.NewCompositeRunnerV2(base, registry, "/tmp")
-
-	_, err := runner.ExecuteV2(context.Background(), "my_tool", map[string]any{})
-	if err == nil {
-		t.Error("expected error for untrusted tool")
 	}
 }
 
@@ -159,7 +129,7 @@ func TestCompositeRunnerV2_UnknownTool_NotInRegistry_ReturnsOriginalError(t *tes
 func TestCompositeRunnerV2_ListTools_MergesBaseAndRegistry(t *testing.T) {
 	registry := &mockToolRegistry{
 		entries: map[string]capability.ToolEntry{
-			"custom_tool": {Name: "custom_tool", Trusted: true},
+			"custom_tool": {Name: "custom_tool"},
 		},
 	}
 	base := &mockBaseRunner{

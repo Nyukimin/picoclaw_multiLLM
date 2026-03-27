@@ -171,22 +171,10 @@ func (r *mockRegistry) Register(ctx context.Context, entry capability.ToolEntry)
 	return nil
 }
 
-func (r *mockRegistry) Approve(ctx context.Context, name string) error {
-	e, ok := r.entries[name]
-	if !ok {
-		return fmt.Errorf("not found: %s", name)
-	}
-	e.Trusted = true
-	r.entries[name] = e
-	return nil
-}
-
 func (r *mockRegistry) ListForPlatform(ctx context.Context, platform string) ([]capability.ToolEntry, error) {
 	var result []capability.ToolEntry
 	for _, e := range r.entries {
-		if e.Trusted {
-			result = append(result, e)
-		}
+		result = append(result, e)
 	}
 	return result, nil
 }
@@ -239,7 +227,6 @@ func TestMergeToolDefs_WithRegistry_MergesApprovedTools(t *testing.T) {
 			"custom_tool": {
 				Name:       "custom_tool",
 				SchemaJSON: makeSchemaJSON(t, "custom_tool", "a custom tool"),
-				Trusted:    true,
 				CreatedAt:  time.Now(),
 			},
 		},
@@ -268,7 +255,6 @@ func TestMergeToolDefs_Dedup_BaseToolWins(t *testing.T) {
 			"shell": {
 				Name:       "shell",
 				SchemaJSON: makeSchemaJSON(t, "shell", "registry shell"),
-				Trusted:    true,
 				CreatedAt:  time.Now(),
 			},
 		},
@@ -293,7 +279,6 @@ func TestMergeToolDefs_InvalidSchemaJSON_Skipped(t *testing.T) {
 			"broken_tool": {
 				Name:       "broken_tool",
 				SchemaJSON: "not valid json",
-				Trusted:    true,
 				CreatedAt:  time.Now(),
 			},
 		},
