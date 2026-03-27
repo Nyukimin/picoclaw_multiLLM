@@ -53,7 +53,6 @@ func NewRuleDictionary() *RuleDictionary {
 				"text フィールドを",
 				"json ファイル",
 				"システム構築依頼",
-				"スクリプト",
 			},
 				route:      routing.RouteCODE,
 				confidence: 0.85,
@@ -76,28 +75,29 @@ func NewRuleDictionary() *RuleDictionary {
 				route:      routing.RouteOPS,
 				confidence: 0.85,
 			},
-			// RESEARCH関連キーワード（深い調査タスク専用）
-		// 「調べて」「検索して」だけは ChatのWeb検索で即答
-		// しかし「ウェブ検索で取得」「原文を取得」は RESEARCH
-		{
-			keywords: []string{
-				"リサーチ",
-				"情報を集",
-				"ドキュメントを探",
-				"ウェブ検索で",
-				"web検索で",
-				"原文を取得",
-				"データ収集",
-				"情報収集",
-				"調査タスク",
-			},
-			route:      routing.RouteRESEARCH,
-			confidence: 0.85,
-		},
 			// CODE3関連キーワード（Chrome操作・ブラウザ自動化 → 常にCoder3）
+			// RESEARCHより先にチェック（ブラウザ操作はより具体的な意図を示すため優先）
 			{
 				keywords:   []string{"chrome", "ブラウザ", "画面操作", "スクレイピング", "ページを開", "webを操作"},
 				route:      routing.RouteCODE3,
+				confidence: 0.85,
+			},
+			// RESEARCH関連キーワード（深い調査タスク専用）
+			// 「調べて」「検索して」だけは ChatのWeb検索で即答
+			// しかし「ウェブ検索で取得」「原文を取得」は RESEARCH
+			{
+				keywords: []string{
+					"リサーチ",
+					"情報を集",
+					"ドキュメントを探",
+					"ウェブ検索で",
+					"web検索で",
+					"原文を取得",
+					"データ収集",
+					"情報収集",
+					"調査タスク",
+				},
+				route:      routing.RouteRESEARCH,
 				confidence: 0.85,
 			},
 		},
