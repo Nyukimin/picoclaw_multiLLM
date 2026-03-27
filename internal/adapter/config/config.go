@@ -237,6 +237,9 @@ type CapabilityConfig struct {
 	// false の場合は config に記載された情報だけでケイパビリティを決定する
 	ProbeLLMs bool `yaml:"probe_llms"`
 
+	// ToolRegistryDB: ToolRegistry の DuckDB ファイルパス（空の場合は ToolRegistry 無効）
+	ToolRegistryDB string `yaml:"tool_registry_db"`
+
 	// AutoApproveShiroTools: true の場合、Shiro 生成ツールを自動承認する（本番では false 推奨）
 	AutoApproveShiroTools bool `yaml:"auto_approve_shiro_tools"`
 

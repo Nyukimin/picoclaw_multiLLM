@@ -24,6 +24,7 @@ type CapabilityDetector struct {
 	ollamaBaseURL string
 	coders        []coderProbeTarget
 	qualityMap    map[string]int
+	toolRegistry  capability.ToolRegistry // Phase 2: nil の場合は Tools を空にする
 }
 
 // NewCapabilityDetector は設定から CapabilityDetector を構築する
@@ -42,6 +43,12 @@ func NewCapabilityDetector(cfg *config.Config) *CapabilityDetector {
 		coders:        coders,
 		qualityMap:    qualityMap,
 	}
+}
+
+// WithToolRegistry は ToolRegistry を設定する（Builder パターン）
+func (d *CapabilityDetector) WithToolRegistry(registry capability.ToolRegistry) *CapabilityDetector {
+	d.toolRegistry = registry
+	return d
 }
 
 // Detect はこのノードのケイパビリティを検出して返す
@@ -66,6 +73,23 @@ func (d *CapabilityDetector) Detect(ctx context.Context) (capability.NodeCapabil
 		llms = append(llms, ProbeAPIProvider(c.providerName, c.apiKey, c.model, c.quality))
 	}
 
+	// ToolRegistry からこのプラットフォームで使えるツールを取得
+	var tools []capability.ToolCapability
+	if d.toolRegistry != nil {
+		entries, err := d.toolRegistry.ListForPlatform(ctx, runtime.GOOS)
+		if err == nil {
+			tools = make([]capability.ToolCapability, 0, len(entries))
+			for _, e := range entries {
+				tools = append(tools, capability.ToolCapability{
+					Name:      e.Name,
+					Platforms: e.Platforms,
+					Trusted:   e.Trusted,
+					Source:    string(e.Source),
+				})
+			}
+		}
+	}
+
 	return capability.NodeCapabilities{
 		NodeID: nodeID,
 		Platform: capability.PlatformInfo{
@@ -77,6 +101,6 @@ func (d *CapabilityDetector) Detect(ctx context.Context) (capability.NodeCapabil
 			AvailableMB: availMB,
 		},
 		LLMs:  llms,
-		Tools: nil, // Phase 2 で ToolRegistry 統合後に追加
+		Tools: tools,
 	}, nil
 }

@@ -51,6 +51,7 @@ import (
 	glossary "github.com/Nyukimin/picoclaw_multiLLM/internal/glossary"
 	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	capinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/capability"
+	toolregistry "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/toolregistry"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
@@ -1571,14 +1572,31 @@ func (d *Dependencies) Shutdown() {
 func buildDependencies(cfg *config.Config) *Dependencies {
 	// 0. ケイパビリティ検出（v4.1）
 	if cfg.Capability.ProbeLLMs {
+		// ToolRegistry 初期化（オプション）
+		var toolRegistry capdomain.ToolRegistry
+		if cfg.Capability.ToolRegistryDB != "" {
+			tr, err := toolregistry.NewDuckDBToolRegistryStore(cfg.Capability.ToolRegistryDB)
+			if err != nil {
+				log.Printf("WARN: ToolRegistry init failed (%s): %v", cfg.Capability.ToolRegistryDB, err)
+			} else {
+				toolRegistry = tr
+				defer tr.Close()
+				log.Printf("ToolRegistry initialized: %s", cfg.Capability.ToolRegistryDB)
+			}
+		}
+
 		detector := capinfra.NewCapabilityDetector(cfg)
+		if toolRegistry != nil {
+			detector = detector.WithToolRegistry(toolRegistry)
+		}
 		caps, err := detector.Detect(context.Background())
 		if err != nil {
 			log.Printf("WARN: capability detection failed: %v", err)
 		} else {
 			profile := capdomain.DetermineProfile(caps)
-			log.Printf("Node capabilities: profile=%s llms=%d memory=%dMB/%dMB os=%s/%s",
-				profile, len(caps.LLMs), caps.Memory.AvailableMB, caps.Memory.TotalMB,
+			log.Printf("Node capabilities: profile=%s llms=%d tools=%d memory=%dMB/%dMB os=%s/%s",
+				profile, len(caps.LLMs), len(caps.Tools),
+				caps.Memory.AvailableMB, caps.Memory.TotalMB,
 				caps.Platform.OS, caps.Platform.Arch)
 			for _, l := range caps.LLMs {
 				log.Printf("  LLM: provider=%s model=%s available=%v quality=%d",
