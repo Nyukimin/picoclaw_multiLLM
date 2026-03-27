@@ -19,7 +19,7 @@ type BootstrapFile struct {
 // DefaultBootstrapFiles はデフォルトの読み込みファイル群（読み込み順序を保持）
 var DefaultBootstrapFiles = []BootstrapFile{
 	// Chat専用（ペルソナ優先）
-	{Filename: "CHAT_PERSONA.md", Label: "CHAT_PERSONA", ChatOnly: true},
+	{Filename: "persona/mio.md", Label: "CHAT_PERSONA", ChatOnly: true},
 	{Filename: "SOUL.md", Label: "SOUL", ChatOnly: true},
 	{Filename: "PrimerMessage.md", Label: "PrimerMessage", ChatOnly: true},
 	// 共通（全ルート）

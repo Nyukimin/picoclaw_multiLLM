@@ -14,6 +14,7 @@ type ShiroAgent struct {
 	mcpClient       MCPClient
 	systemPrompt    string
 	subagentManager SubagentManager // v1.0: ReActループ統合
+	persona         *AgentPersona   // v4.2: Optional Agent Persona
 }
 
 // NewShiroAgent は新しいShiroAgentを作成
@@ -33,15 +34,26 @@ func NewShiroAgent(
 	}
 }
 
+// WithPersona は AgentPersona を設定する（Builder パターン）
+func (s *ShiroAgent) WithPersona(persona AgentPersona) *ShiroAgent {
+	s.persona = &persona
+	return s
+}
+
 // Execute はWorkerタスクを実行
 // v1.0: SubagentManager が設定されている場合は ReActLoop を使ってツールを自律的に選択・実行する
 func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
+	systemPrompt := s.systemPrompt
+	if s.persona != nil {
+		systemPrompt = s.persona.BuildSystemPrompt(s.systemPrompt)
+	}
+
 	// SubagentManager が設定されている場合は ReActLoop を使用
 	if s.subagentManager != nil {
 		result, err := s.subagentManager.RunSync(ctx, SubagentTask{
 			AgentName:    "shiro",
 			Instruction:  t.UserMessage(),
-			SystemPrompt: s.systemPrompt,
+			SystemPrompt: systemPrompt,
 		})
 		if err != nil {
 			return "", err
@@ -54,7 +66,7 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 		Messages: []llm.Message{
 			{
 				Role:    "system",
-				Content: s.systemPrompt,
+				Content: systemPrompt,
 			},
 			{
 				Role:    "user",

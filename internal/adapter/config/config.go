@@ -65,6 +65,9 @@ type Config struct {
 	// === Viewer persisted JSON operation log ===
 	ViewerLog ViewerLogConfig `yaml:"viewer_log"`
 
+	// === Agent Persona files (v4.2) ===
+	MioPersonaFile string `yaml:"mio_persona_file"` // workspace_dir からの相対パス
+
 	// === Coder スロット（v4.1: 4体化 + Agent Persona） ===
 	Coder1 CoderConfig `yaml:"coder1"`
 	Coder2 CoderConfig `yaml:"coder2"`
@@ -130,6 +133,10 @@ type WorkerConfig struct {
 	// === v4.0 追加フィールド ===
 	ParallelExecution bool `yaml:"parallel_execution"` // true で並列実行（デフォルト: false）
 	MaxParallelism    int  `yaml:"max_parallelism"`    // 並列度上限（デフォルト: 4）
+
+	// === v4.2: Agent Persona ===
+	PersonaFile string `yaml:"persona_file"` // workspace_dir からの相対パス
+	Tone        string `yaml:"tone"`         // 口調ヒント（TTS 連携用）
 }
 
 // LineConfig はLINE Messaging API設定
@@ -339,7 +346,8 @@ type CoderConfig struct {
 	Model       string            `yaml:"model"`
 	APIKey      string            `yaml:"api_key"`      // 環境変数参照（${...}）
 	BaseURL     string            `yaml:"base_url"`     // オプション（DeepSeek 等）
-	Personality string            `yaml:"personality"`  // Agent Persona 記述
+	PersonaFile string            `yaml:"persona_file"` // ペルソナファイル（workspace_dir からの相対パス）
+	Personality string            `yaml:"personality"`  // インラインペルソナ（persona_file がなければ使用）
 	Tone        string            `yaml:"tone"`         // 口調（TTS 連携用）
 	LightMemory LightMemoryConfig `yaml:"light_memory"`
 	Enabled     bool              `yaml:"enabled"`

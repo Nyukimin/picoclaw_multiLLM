@@ -13,7 +13,8 @@ func TestBuildContext_ChatRoute(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "SOUL.md"), []byte("Soul values"), 0644)
 	os.WriteFile(filepath.Join(dir, "IDENTITY.md"), []byte("Identity info"), 0644)
 	os.WriteFile(filepath.Join(dir, "USER.md"), []byte("User prefs"), 0644)
-	os.WriteFile(filepath.Join(dir, "CHAT_PERSONA.md"), []byte("Mio persona"), 0644)
+	os.MkdirAll(filepath.Join(dir, "persona"), 0755)
+	os.WriteFile(filepath.Join(dir, "persona", "mio.md"), []byte("Mio persona"), 0644)
 
 	b := NewBuilder(dir)
 	got := b.BuildContext("CHAT")
@@ -29,7 +30,8 @@ func TestBuildContext_NonChatRoute(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "AGENT.md"), []byte("Agent rules"), 0644)
 	os.WriteFile(filepath.Join(dir, "SOUL.md"), []byte("Soul values"), 0644)
-	os.WriteFile(filepath.Join(dir, "CHAT_PERSONA.md"), []byte("Mio persona"), 0644)
+	os.MkdirAll(filepath.Join(dir, "persona"), 0755)
+	os.WriteFile(filepath.Join(dir, "persona", "mio.md"), []byte("Mio persona"), 0644)
 
 	b := NewBuilder(dir)
 	got := b.BuildContext("CODE")

@@ -1585,12 +1585,19 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	ruleDictionary := routing.NewRuleDictionary()
 
 	// 3. Tool Runner（Chat用とWorker用で分離）
+	// 全エージェントのペルソナファイルを Chat から編集可能にする
+	personaWritePaths := []string{
+		filepath.Join(cfg.WorkspaceDir, "persona", "mio.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "shiro.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "aka.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "ao.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "gin.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "kin.md"),
+	}
 	chatToolRunnerCfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:         cfg.GoogleSearchChat.APIKey,
 		GoogleSearchEngineID: cfg.GoogleSearchChat.SearchEngineID,
-		AllowedWritePaths: []string{
-			filepath.Join(cfg.WorkspaceDir, "CHAT_PERSONA.md"),
-		},
+		AllowedWritePaths:    personaWritePaths,
 	}
 	workerToolRunnerCfg := tools.ToolRunnerConfig{
 		GoogleAPIKey:         cfg.GoogleSearchWorker.APIKey,
@@ -1789,11 +1796,26 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		mioAgent = mioAgent.WithConversationManager(realMgr)
 		log.Printf("Mio: ConversationManager injected (KB autosave enabled)")
 	}
-	personaEditor := persona.NewFilePersonaEditor(cfg.WorkspaceDir)
+	mioPersonaFile := filepath.Join(cfg.WorkspaceDir, "persona", "mio.md")
+	if cfg.MioPersonaFile != "" {
+		mioPersonaFile = filepath.Join(cfg.WorkspaceDir, cfg.MioPersonaFile)
+	}
+	personaEditor := persona.NewFilePersonaEditor(mioPersonaFile)
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
-	log.Printf("Mio: PersonaEditor injected (workspace: %s)", cfg.WorkspaceDir)
+	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
 
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
+	if cfg.Worker.PersonaFile != "" {
+		if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, cfg.Worker.PersonaFile); ok {
+			shiroPersona := agent.AgentPersona{
+				Name:        "Shiro",
+				Personality: content,
+				Tone:        cfg.Worker.Tone,
+			}
+			shiroAgent.WithPersona(shiroPersona)
+			log.Printf("Shiro: persona loaded from %s", cfg.Worker.PersonaFile)
+		}
+	}
 
 	// 7. Session Repository
 	sessionRepo := session.NewJSONSessionRepository(cfg.Session.StorageDir)
@@ -2716,15 +2738,22 @@ func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapt
 		// CoderAgent 作成
 		domainCoder := agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 
-		// Agent Persona 設定
-		if cc.config.Personality != "" {
-			persona := agent.AgentPersona{
+		// Agent Persona 設定（persona_file 優先、なければ personality インライン）
+		personality := cc.config.Personality
+		if cc.config.PersonaFile != "" {
+			if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, cc.config.PersonaFile); ok {
+				personality = content
+				log.Printf("[setupCoders] %s (%s) persona loaded from file: %s", cc.name, cc.config.DisplayName, cc.config.PersonaFile)
+			}
+		}
+		if personality != "" {
+			coderPersona := agent.AgentPersona{
 				Name:        cc.config.Name,
-				Personality: cc.config.Personality,
+				Personality: personality,
 				Tone:        cc.config.Tone,
 			}
-			domainCoder.WithPersona(persona)
-			log.Printf("[setupCoders] %s (%s) persona enabled: %s", cc.name, cc.config.DisplayName, cc.config.Name)
+			domainCoder.WithPersona(coderPersona)
+			log.Printf("[setupCoders] %s (%s) persona enabled", cc.name, cc.config.DisplayName)
 		}
 
 		// LightMemory 設定（全 Coder で共有）

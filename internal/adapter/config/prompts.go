@@ -86,6 +86,12 @@ func loadPromptsFromDir(dir string, p *LoadedPrompts) int {
 	return loaded
 }
 
+// LoadPersonaFile はペルソナファイルを workspaceDir からの相対パスで読み込む。
+// ファイルが存在しない・空の場合は ("", false) を返す。
+func LoadPersonaFile(workspaceDir, relPath string) (string, bool) {
+	return readPromptFile(workspaceDir, relPath)
+}
+
 func readPromptFile(baseDir, relPath string) (string, bool) {
 	path := filepath.Join(baseDir, relPath)
 	data, err := os.ReadFile(path)

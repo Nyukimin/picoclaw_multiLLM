@@ -3,13 +3,11 @@ package persona
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 const (
-	personaFilename = "CHAT_PERSONA.md"
-	maxPersonaSize  = 4096 // 4KB
+	maxPersonaSize = 4096 // 4KB
 )
 
 // FilePersonaEditor はファイルベースのペルソナ読み書き実装
@@ -17,11 +15,10 @@ type FilePersonaEditor struct {
 	filePath string
 }
 
-// NewFilePersonaEditor は新しい FilePersonaEditor を作成する
-func NewFilePersonaEditor(workspaceDir string) *FilePersonaEditor {
-	return &FilePersonaEditor{
-		filePath: filepath.Join(workspaceDir, personaFilename),
-	}
+// NewFilePersonaEditor は新しい FilePersonaEditor を作成する。
+// filePath には編集対象ペルソナファイルの絶対パスを渡す。
+func NewFilePersonaEditor(filePath string) *FilePersonaEditor {
+	return &FilePersonaEditor{filePath: filePath}
 }
 
 // ReadPersona は現在のペルソナ設定を読み込む
