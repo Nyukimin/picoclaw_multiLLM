@@ -50,6 +50,9 @@ type Config struct {
 	// === Subagent ===
 	Subagent SubagentConfig `yaml:"subagent"`
 
+	// === Capability Detection (v4.1) ===
+	Capability CapabilityConfig `yaml:"capability"`
+
 	// === Security / Execution Audit ===
 	Security SecurityConfig `yaml:"security"`
 
@@ -226,6 +229,19 @@ type SubagentConfig struct {
 	MaxIterations int    `yaml:"max_iterations"`     // ReActループ最大反復回数（デフォルト: 10）
 	Provider      string `yaml:"provider,omitempty"` // LLMプロバイダー: "ollama"(default), "claude", "openai", "deepseek"
 	Model         string `yaml:"model,omitempty"`    // 使用モデル（空=各プロバイダーのデフォルトモデルを使用）
+}
+
+// CapabilityConfig はケイパビリティ適応システムの設定（v4.1）
+type CapabilityConfig struct {
+	// ProbeLLMs: true の場合、起動時に各 LLM に疎通確認を実施する
+	// false の場合は config に記載された情報だけでケイパビリティを決定する
+	ProbeLLMs bool `yaml:"probe_llms"`
+
+	// AutoApproveShiroTools: true の場合、Shiro 生成ツールを自動承認する（本番では false 推奨）
+	AutoApproveShiroTools bool `yaml:"auto_approve_shiro_tools"`
+
+	// LLMQualityOverrides: モデル名 → 品質ランク（1〜5）の上書き設定
+	LLMQualityOverrides map[string]int `yaml:"llm_quality_overrides"`
 }
 
 // SecurityConfig は実行ポリシーと監査設定

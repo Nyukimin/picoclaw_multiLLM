@@ -49,6 +49,8 @@ import (
 	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	glossary "github.com/Nyukimin/picoclaw_multiLLM/internal/glossary"
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	capinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/capability"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
@@ -1567,6 +1569,24 @@ func (d *Dependencies) Shutdown() {
 
 // buildDependencies は依存関係を構築
 func buildDependencies(cfg *config.Config) *Dependencies {
+	// 0. ケイパビリティ検出（v4.1）
+	if cfg.Capability.ProbeLLMs {
+		detector := capinfra.NewCapabilityDetector(cfg)
+		caps, err := detector.Detect(context.Background())
+		if err != nil {
+			log.Printf("WARN: capability detection failed: %v", err)
+		} else {
+			profile := capdomain.DetermineProfile(caps)
+			log.Printf("Node capabilities: profile=%s llms=%d memory=%dMB/%dMB os=%s/%s",
+				profile, len(caps.LLMs), caps.Memory.AvailableMB, caps.Memory.TotalMB,
+				caps.Platform.OS, caps.Platform.Arch)
+			for _, l := range caps.LLMs {
+				log.Printf("  LLM: provider=%s model=%s available=%v quality=%d",
+					l.ProviderName, l.ModelName, l.Available, l.Quality)
+			}
+		}
+	}
+
 	// 1. LLM Provider
 	chatRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, cfg.Ollama.Model, 32768)
 	chatProvider := infrallm.NewDateTimeProvider(chatRawProvider)
