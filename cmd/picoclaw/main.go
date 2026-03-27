@@ -1571,6 +1571,7 @@ func (d *Dependencies) Shutdown() {
 // buildDependencies は依存関係を構築
 func buildDependencies(cfg *config.Config) *Dependencies {
 	// 0. ケイパビリティ検出（v4.1）
+	var nodeCaps capdomain.NodeCapabilities
 	if cfg.Capability.ProbeLLMs {
 		// ToolRegistry 初期化（オプション）
 		var toolRegistry capdomain.ToolRegistry
@@ -1593,6 +1594,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if err != nil {
 			log.Printf("WARN: capability detection failed: %v", err)
 		} else {
+			nodeCaps = caps
 			profile := capdomain.DetermineProfile(caps)
 			log.Printf("Node capabilities: profile=%s llms=%d tools=%d memory=%dMB/%dMB os=%s/%s",
 				profile, len(caps.LLMs), len(caps.Tools),
@@ -2096,6 +2098,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			coder4Adapter,
 			workerExecutionService,
 		)
+		// Phase 3: 動的コーダー選択を注入
+		if coderCaps := buildCoderCapabilities(nodeCaps, cfg); coderCaps != nil {
+			orch.SetCoderCapabilities(coderCaps)
+			log.Printf("Dynamic coder selection enabled (%d coders)", len(coderCaps))
+		}
 		orch.SetEventListener(deps.eventRelay)
 		if deps.reportStore != nil {
 			orch.SetReportStore(deps.reportStore)
@@ -2151,6 +2158,63 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	log.Println("Dependency injection complete")
 	return deps
+}
+
+// buildCoderCapabilities は NodeCapabilities と config から []CoderCapability を構築する（Phase 3）
+func buildCoderCapabilities(nodeCaps capdomain.NodeCapabilities, cfg *config.Config) []capdomain.CoderCapability {
+	// 検出結果の LLM を "provider/model" でインデックス
+	detected := make(map[string]capdomain.LLMCapability)
+	for _, l := range nodeCaps.LLMs {
+		detected[l.ProviderName+"/"+l.ModelName] = l
+	}
+
+	// プロバイダー別デフォルト品質（llm_quality_overrides に記載がない場合の fallback）
+	providerDefault := map[string]int{
+		"claude": 5, "openai": 4, "deepseek": 3, "ollama": 2,
+	}
+
+	type coderEntry struct {
+		name string
+		cc   config.CoderConfig
+	}
+	entries := []coderEntry{
+		{"coder1", cfg.Coder1},
+		{"coder2", cfg.Coder2},
+		{"coder3", cfg.Coder3},
+		{"coder4", cfg.Coder4},
+	}
+
+	caps := make([]capdomain.CoderCapability, 0, len(entries))
+	anyUsable := false
+	for _, e := range entries {
+		var quality int
+		var available bool
+
+		if l, ok := detected[e.cc.Provider+"/"+e.cc.Model]; ok {
+			quality = l.Quality
+			available = e.cc.Enabled && l.Available
+		} else {
+			quality = cfg.Capability.LLMQualityOverrides[e.cc.Model]
+			if quality == 0 {
+				quality = providerDefault[e.cc.Provider]
+			}
+			available = e.cc.Enabled && e.cc.APIKey != ""
+		}
+
+		if quality > 0 {
+			anyUsable = true
+		}
+		caps = append(caps, capdomain.CoderCapability{
+			Name:      e.name,
+			Quality:   quality,
+			Available: available,
+		})
+	}
+
+	if !anyUsable {
+		return nil // 品質情報なし → 静的チェーンにフォールバック
+	}
+	return caps
 }
 
 // lineNotificationSender はLINE Push APIを使ったNotificationSender実装

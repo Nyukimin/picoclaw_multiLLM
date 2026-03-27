@@ -12,6 +12,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -129,6 +130,13 @@ func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	// CodeExecutorにもイベント発火関数を設定
 	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
 		executor.SetEventEmitter(o.emit)
+	}
+}
+
+// SetCoderCapabilities は動的コーダー選択に使う能力情報を注入する（Phase 3）
+func (o *MessageOrchestrator) SetCoderCapabilities(caps []capability.CoderCapability) {
+	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
+		executor.WithCapabilities(caps)
 	}
 }
 

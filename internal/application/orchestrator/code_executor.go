@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -33,10 +34,11 @@ type CodeExecutionResponse struct {
 
 // codeTarget はコーダー選択の結果
 type codeTarget struct {
-	name         string
-	coder        CoderAgent
-	systemPrompt string
-	release      func() // CoderStatus解放用（オプション）
+	name          string
+	coder         CoderAgent
+	systemPrompt  string
+	release       func()         // CoderStatus解放用（オプション）
+	degradedRoute routing.Route  // 品質縮退が発生した場合の実際のルート（空 = 縮退なし）
 }
 
 // DefaultCodeExecutor は標準的なCodeExecutor実装
@@ -48,6 +50,7 @@ type DefaultCodeExecutor struct {
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus // optional: coder busy state management
 	eventEmitter    func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
+	coderCaps       []capability.CoderCapability // Phase 3: nil = 静的チェーン（後方互換）
 }
 
 // NewDefaultCodeExecutor は新しいDefaultCodeExecutorを作成
@@ -68,6 +71,12 @@ func NewDefaultCodeExecutor(
 	}
 }
 
+// WithCapabilities は動的コーダー選択に使う能力情報を設定する（Phase 3）
+func (e *DefaultCodeExecutor) WithCapabilities(caps []capability.CoderCapability) *DefaultCodeExecutor {
+	e.coderCaps = caps
+	return e
+}
+
 // ExecuteCode はコード生成タスクを実行
 func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecutionRequest) (CodeExecutionResponse, error) {
 	target, err := e.selectCoderForRoute(req.Route)
@@ -80,6 +89,13 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	}
 
 	log.Printf("[CodeExecutor] code handoff route=%s target=%s job=%s", req.Route, target.name, req.JobID)
+
+	// 明示ルートで品質縮退が発生した場合にユーザー通知
+	if target.degradedRoute != "" && req.Route != routing.RouteCODE {
+		msg := fmt.Sprintf("⚠️ %s は利用不可のため %s 品質で代替実行します", req.Route, target.degradedRoute)
+		e.emit("agent.notice", "shiro", "mio", msg, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+		log.Printf("[CodeExecutor] quality degraded route=%s degraded=%s target=%s", req.Route, target.degradedRoute, target.name)
+	}
 
 	e.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 	e.emit("agent.start", "shiro", target.name, req.Task.UserMessage(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
@@ -96,6 +112,26 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 
 // selectCoderForRoute はルートに応じてCoderを選択
 func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarget, error) {
+	// Phase 3: 動的選択（coderCaps が設定されている場合）
+	if e.coderCaps != nil {
+		chosen, degraded, err := capability.SelectCoder(e.coderCaps, route)
+		if err != nil {
+			return codeTarget{}, fmt.Errorf("%s route: %w", route, err)
+		}
+		coder := e.coderByName(chosen)
+		if coder == nil {
+			return codeTarget{}, fmt.Errorf("%s route: selected coder %s is not initialized", route, chosen)
+		}
+		log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=dynamic degraded=%s", route, chosen, degraded)
+		return codeTarget{
+			name:          chosen,
+			coder:         coder,
+			systemPrompt:  systemPromptForRoute(route),
+			degradedRoute: degraded,
+		}, nil
+	}
+
+	// 後方互換: 静的チェーン（coderCaps が nil の場合）
 	if name, prompt, ok := explicitCodeRouteTarget(route); ok {
 		coder := e.coderByName(name)
 		if coder == nil {
@@ -155,6 +191,22 @@ func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarg
 		return codeTarget{}, fmt.Errorf("CODE route requested but all coders are unavailable")
 	default:
 		return codeTarget{}, fmt.Errorf("unknown code route: %s", route)
+	}
+}
+
+// systemPromptForRoute はルートに対応するシステムプロンプトを返す
+func systemPromptForRoute(route routing.Route) string {
+	switch route {
+	case routing.RouteCODE1:
+		return "You are a specification design assistant."
+	case routing.RouteCODE2:
+		return "You are an implementation assistant."
+	case routing.RouteCODE3:
+		return "You are a high-quality code review and reasoning assistant."
+	case routing.RouteCODE4:
+		return "You are a fast prototyping and experimental coding assistant."
+	default:
+		return "You are a code generation assistant."
 	}
 }
 
