@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
@@ -21,6 +23,13 @@ type DuckDBToolRegistryStore struct {
 func NewDuckDBToolRegistryStore(dbPath string) (*DuckDBToolRegistryStore, error) {
 	if dbPath == "" {
 		dbPath = ":memory:"
+	}
+	if dbPath != ":memory:" {
+		walPath := dbPath + ".wal"
+		if _, err := os.Stat(walPath); err == nil {
+			log.Printf("[DuckDB] removing stale WAL: %s", walPath)
+			os.Remove(walPath)
+		}
 	}
 	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,9 @@ import (
 )
 
 var validToolName = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// ErrUnknownTool はツール名が登録されていない場合に返すセンチネルエラー
+var ErrUnknownTool = errors.New("unknown tool")
 
 // ToolFuncV2 は構造化レスポンスを返すツール実行関数の型
 type ToolFuncV2 func(ctx context.Context, args map[string]interface{}) (*tool.ToolResponse, error)
@@ -252,7 +256,7 @@ func classifyV1Error(err error) *tool.ToolResponse {
 func (r *ToolRunner) Execute(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
 	toolFunc, exists := r.tools[toolName]
 	if !exists {
-		return "", fmt.Errorf("unknown tool: %s", toolName)
+		return "", fmt.Errorf("unknown tool: %s: %w", toolName, ErrUnknownTool)
 	}
 
 	return toolFunc(ctx, args)
@@ -271,7 +275,7 @@ func (r *ToolRunner) List(ctx context.Context) ([]string, error) {
 func (r *ToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
 	v2Func, exists := r.toolsV2[toolName]
 	if !exists {
-		return nil, fmt.Errorf("unknown tool: %s", toolName)
+		return nil, fmt.Errorf("unknown tool: %s: %w", toolName, ErrUnknownTool)
 	}
 	return v2Func(ctx, args)
 }

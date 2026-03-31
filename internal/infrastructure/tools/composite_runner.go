@@ -3,13 +3,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
@@ -49,7 +49,7 @@ func (c *CompositeRunnerV2) ExecuteV2(ctx context.Context, toolName string, args
 	}
 
 	// 基本 Runner で未知のツールのみ ToolRegistry にフォールバック
-	if !strings.Contains(err.Error(), "unknown tool") {
+	if !errors.Is(err, ErrUnknownTool) {
 		return nil, err
 	}
 

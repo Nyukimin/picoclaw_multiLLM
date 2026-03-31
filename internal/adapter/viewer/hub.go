@@ -56,7 +56,7 @@ func (h *EventHub) broadcast(data []byte) {
 		select {
 		case ch <- data:
 		default:
-			// client too slow, drop event
+			log.Printf("[EventHub] drop: client too slow")
 		}
 	}
 }
