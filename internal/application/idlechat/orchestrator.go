@@ -444,7 +444,7 @@ func (o *IdleChatOrchestrator) monitorLoop() {
 		case <-o.ctx.Done():
 			return
 		case <-ticker.C:
-			o.checkAndStartChat()
+			go o.checkAndStartChat()
 		}
 	}
 }

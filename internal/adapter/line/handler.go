@@ -170,7 +170,8 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 // processEvent はイベントをバックグラウンドで処理（HTTPコンテキストから独立）
 func (h *Handler) processEvent(event WebhookEvent) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	// セッションID生成（仕様: ChatID = ユーザーID、SessionID = line:<user_id>）
 	sessionID := h.generateSessionID(event.Source.UserID)

@@ -9,10 +9,13 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 )
+
+const preflightTTL = 30 * time.Second
 
 // OllamaProvider はOllama APIプロバイダーの実装
 type OllamaProvider struct {
@@ -20,6 +23,9 @@ type OllamaProvider struct {
 	model   string
 	numCtx  int
 	client  *http.Client
+
+	readyCacheMu sync.Mutex
+	readyCache   map[string]time.Time // model -> 最後に ready 確認した時刻
 }
 
 // NewOllamaProvider は新しいOllamaProviderを作成
@@ -30,9 +36,10 @@ func NewOllamaProvider(baseURL, model string) *OllamaProvider {
 // NewOllamaProviderWithNumCtx は num_ctx を明示した OllamaProvider を作成
 func NewOllamaProviderWithNumCtx(baseURL, model string, numCtx int) *OllamaProvider {
 	return &OllamaProvider{
-		baseURL: baseURL,
-		model:   model,
-		numCtx:  numCtx,
+		baseURL:    baseURL,
+		model:      model,
+		numCtx:     numCtx,
+		readyCache: make(map[string]time.Time),
 		client: &http.Client{
 			Timeout: 120 * time.Second, // Ollamaは遅い場合があるため長めに設定
 		},
@@ -352,6 +359,14 @@ func (p *OllamaProvider) buildPrompt(req llm.GenerateRequest) string {
 }
 
 func (p *OllamaProvider) ensureModelReady(ctx context.Context, model string) error {
+	// TTL キャッシュ: 30秒以内に ready 確認済みならプリフライトをスキップ
+	p.readyCacheMu.Lock()
+	if t, ok := p.readyCache[model]; ok && time.Since(t) < preflightTTL {
+		p.readyCacheMu.Unlock()
+		return nil
+	}
+	p.readyCacheMu.Unlock()
+
 	log.Printf("[OllamaProvider] preflight start model=%s num_ctx=%d", model, p.numCtx)
 	loaded, err := p.isModelLoaded(ctx, model)
 	if err != nil {
@@ -359,6 +374,9 @@ func (p *OllamaProvider) ensureModelReady(ctx context.Context, model string) err
 	}
 	if loaded {
 		log.Printf("[OllamaProvider] preflight ready model=%s source=resident", model)
+		p.readyCacheMu.Lock()
+		p.readyCache[model] = time.Now()
+		p.readyCacheMu.Unlock()
 		return nil
 	}
 	log.Printf("[OllamaProvider] preflight warmup model=%s", model)
@@ -366,6 +384,9 @@ func (p *OllamaProvider) ensureModelReady(ctx context.Context, model string) err
 		return fmt.Errorf("ollama model warmup failed for %s: %w", model, err)
 	}
 	log.Printf("[OllamaProvider] preflight ready model=%s source=warmup", model)
+	p.readyCacheMu.Lock()
+	p.readyCache[model] = time.Now()
+	p.readyCacheMu.Unlock()
 	return nil
 }
 

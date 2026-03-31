@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
@@ -131,10 +132,11 @@ func HandleSend(handler MessageHandler) http.HandlerFunc {
 		log.Printf("[Viewer] HandleSend: message received: %q", req.Message)
 
 		// Process asynchronously — events flow back via SSE.
-		// Use Background context since the HTTP response is sent immediately.
 		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
 			log.Printf("[Viewer] HandleSend: starting async handler for message: %q", req.Message)
-			response, err := handler(context.Background(), req.Message)
+			response, err := handler(ctx, req.Message)
 			if err != nil {
 				log.Printf("[Viewer] HandleSend: handler error: %v", err)
 			} else {

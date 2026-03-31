@@ -293,11 +293,28 @@ func loadDotEnv(path string) {
 	}
 }
 
+// protectStdout はstdout fd を通信専用fd として早期確保し、fd1 を stderr にリダイレクトする。
+// これにより CGO ライブラリ等の想定外の stdout 書き込みから JSON 通信チャネルを保護する。
+func protectStdout() io.Writer {
+	fd, err := syscall.Dup(syscall.Stdout)
+	if err != nil {
+		return os.Stdout
+	}
+	if err := syscall.Dup2(syscall.Stderr, syscall.Stdout); err != nil {
+		syscall.Close(fd)
+		return os.Stdout
+	}
+	return os.NewFile(uintptr(fd), "json-out")
+}
+
 func main() {
 	standalone := flag.Bool("standalone", false, "Run in standalone mode")
 	agentType := flag.String("agent", "", "Agent type: worker, coder1, coder2, coder3, audio_router")
 	configPath := flag.String("config", "./config.yaml", "Path to config file")
 	flag.Parse()
+
+	// JSON 通信チャネルを汚染から保護（ライブラリ init より前に実行）
+	jsonOut := protectStdout()
 
 	if !*standalone {
 		fmt.Fprintln(os.Stderr, "picoclaw-agent must be run with --standalone flag")
@@ -369,7 +386,7 @@ func main() {
 		cancel()
 	}()
 
-	if err := runMessageLoop(ctx, handler); err != nil {
+	if err := runMessageLoop(ctx, handler, jsonOut); err != nil {
 		log.Printf("[picoclaw-agent] Message loop ended: %v", err)
 	}
 
@@ -476,10 +493,10 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 }
 
 // runMessageLoop はstdin/stdout上のJSON通信ループ
-func runMessageLoop(ctx context.Context, handler AgentHandler) error {
+func runMessageLoop(ctx context.Context, handler AgentHandler, jsonOut io.Writer) error {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(jsonOut)
 
 	for scanner.Scan() {
 		select {
