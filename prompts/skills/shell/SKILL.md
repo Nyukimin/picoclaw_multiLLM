@@ -7,6 +7,7 @@ dry_run: true
 invariants:
   - "command must be non-empty string (max 10000 chars)"
   - "control characters are rejected"
+  - "shell metacharacters for chaining are rejected: ; && || | ` $( newline"
   - "allowed_commands config restricts executable commands"
   - "mode=plan returns preview without executing"
   - "timeout: 30 seconds"
@@ -55,3 +56,4 @@ Returns combined stdout+stderr as a string.
 - **Command restriction**: `AllowedShellCommands` config limits executable commands
 - **Timeout**: 30 seconds
 - **Validation**: Non-empty, max 10000 chars, no control characters
+- **Metacharacter ban**: `;` `&&` `||` `|` `` ` `` `$(` and newline are always rejected — use separate `shell` calls instead of chaining

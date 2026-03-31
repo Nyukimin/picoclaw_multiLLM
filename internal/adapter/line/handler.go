@@ -172,7 +172,7 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) processEvent(event WebhookEvent) {
 	ctx := context.Background()
 
-	// セッションID生成
+	// セッションID生成（仕様: ChatID = ユーザーID、SessionID = line:<user_id>）
 	sessionID := h.generateSessionID(event.Source.UserID)
 
 	// オーケストレータを呼び出し

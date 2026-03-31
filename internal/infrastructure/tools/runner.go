@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -429,9 +430,18 @@ func (r *ToolRunner) executeShell(ctx context.Context, args map[string]interface
 	return string(output), nil
 }
 
-// isShellCommandAllowed は許可コマンドリストに含まれるか判定する
+// shellMetachars はコマンドチェーニングや注入に使われるシェルメタ文字列
+var shellMetachars = []string{";", "&&", "||", "|", "`", "$(", "\n"}
+
+// isShellCommandAllowed は許可コマンドリストに含まれるか判定する。
+// シェルメタ文字によるコマンドチェーニングは拒否する。
 func (r *ToolRunner) isShellCommandAllowed(command string) bool {
 	trimmed := strings.TrimSpace(command)
+	for _, meta := range shellMetachars {
+		if strings.Contains(trimmed, meta) {
+			return false
+		}
+	}
 	for _, prefix := range r.config.AllowedShellCommands {
 		if strings.HasPrefix(trimmed, prefix) {
 			return true
@@ -447,42 +457,68 @@ func (r *ToolRunner) executeFileRead(ctx context.Context, args map[string]interf
 		return "", fmt.Errorf("'path' argument is required and must be a string")
 	}
 
-	content, err := os.ReadFile(path)
+	_, hasLimit := args["limit"]
+	if !hasLimit {
+		// ページング指定なし: ファイル全体を読む
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("failed to read file: %w", err)
+		}
+		return string(content), nil
+	}
+
+	// ページング: 行単位でストリーム読み込みし、対象範囲だけ取得する
+	limit := intArg(args, "limit", 100)
+	offset := intArg(args, "offset", 0)
+	if limit > 10000 {
+		limit = 10000
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
+	defer f.Close()
 
-	// limit/offset が指定されている場合、行単位でスライス
-	if _, hasLimit := args["limit"]; hasLimit {
-		lines := strings.Split(string(content), "\n")
-		total := len(lines)
-		limit := intArg(args, "limit", 100)
-		offset := intArg(args, "offset", 0)
-
-		if limit > 10000 {
-			limit = 10000
+	const maxLineBytes = 16 * 1024 * 1024 // 16 MiB: minified JSON や長いログ行に対応
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, bufio.MaxScanTokenSize), maxLineBytes)
+	var collected []string
+	lineNum := 0
+	for scanner.Scan() {
+		if lineNum >= offset {
+			if len(collected) >= limit {
+				break
+			}
+			collected = append(collected, scanner.Text())
 		}
-		if offset < 0 {
-			offset = 0
+		lineNum++
+	}
+	if err := scanner.Err(); err != nil {
+		if err == bufio.ErrTooLong {
+			return "", fmt.Errorf("failed to read file: line exceeds %d MiB limit", maxLineBytes/(1024*1024))
 		}
-
-		start := offset
-		if start > total {
-			start = total
-		}
-		end := start + limit
-		if end > total {
-			end = total
-		}
-
-		result := strings.Join(lines[start:end], "\n")
-		if end < total {
-			result += fmt.Sprintf("\n--- showing lines %d-%d of %d ---", start+1, end, total)
-		}
-		return result, nil
+		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	return string(content), nil
+	result := strings.Join(collected, "\n")
+	// 次の行が存在する場合のみフッターを出力する
+	if len(collected) >= limit {
+		hasMore := scanner.Scan()
+		if err := scanner.Err(); err != nil {
+			if err == bufio.ErrTooLong {
+				return "", fmt.Errorf("failed to read file: line exceeds %d MiB limit", maxLineBytes/(1024*1024))
+			}
+			return "", fmt.Errorf("failed to read file: %w", err)
+		}
+		if hasMore {
+			result += fmt.Sprintf("\n--- showing lines %d-%d (limit reached) ---", offset+1, offset+limit)
+		}
+	}
+	return result, nil
 }
 
 // executeFileWrite はファイルに書き込む（mode=plan で dry-run 対応）

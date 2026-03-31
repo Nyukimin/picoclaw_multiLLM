@@ -99,7 +99,7 @@ func main() {
 	switch cmd {
 	case "run":
 		cmdRun()
-	case "version":
+	case "version", "-v", "--version":
 		cmdVersion()
 	case "health":
 		cmdHealth()
