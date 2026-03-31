@@ -84,6 +84,21 @@ type MessageOrchestrator struct {
 	idleNotifier    IdleNotifier
 	ttsBridge       TTSBridge
 	vtuberBridge    VTuberBridge
+	maxRepair       int // 0以下は1とみなす
+}
+
+// SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
+func (o *MessageOrchestrator) SetMaxRepair(n int) {
+	if n > 0 {
+		o.maxRepair = n
+	}
+}
+
+func (o *MessageOrchestrator) maxRepairOrDefault() int {
+	if o.maxRepair > 0 {
+		return o.maxRepair
+	}
+	return 1
 }
 
 // NewMessageOrchestrator は新しいMessageOrchestratorを作成
@@ -389,7 +404,7 @@ func (o *MessageOrchestrator) executeAutonomousTask(ctx context.Context, t task.
 		Route:      route.String(),
 		Capability: capabilityForRoute(route),
 		Contract:   contract,
-		MaxRepair:  1,
+		MaxRepair:  o.maxRepairOrDefault(),
 		Observe: func(stage autonomousapp.Stage) {
 			o.emit("entry.stage", channel, "system", string(stage), route.String(), t.JobID().String(), sessionID, channel, chatID)
 		},

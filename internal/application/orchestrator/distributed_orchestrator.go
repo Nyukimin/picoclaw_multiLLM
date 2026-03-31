@@ -41,8 +41,49 @@ type DistributedOrchestrator struct {
 	nodeSelector  *NodeSelector
 	nodeCaps      map[string]domainnode.Capability
 	coderConfigs  map[string]interface{} // v4.1: coder1-4 の CoderConfig（SSH送信用）
-	ttsBridge     TTSBridge
-	vtuberBridge  VTuberBridge
+	ttsBridge      TTSBridge
+	vtuberBridge   VTuberBridge
+	maxRepair      int           // 0以下は1とみなす
+	coderTimeout   time.Duration // 0以下は distributedCoderTimeout とみなす
+	coderRetryMax  int           // 0以下は distributedCoderRetryMax とみなす
+}
+
+// SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
+func (o *DistributedOrchestrator) SetMaxRepair(n int) {
+	if n > 0 {
+		o.maxRepair = n
+	}
+}
+
+func (o *DistributedOrchestrator) maxRepairOrDefault() int {
+	if o.maxRepair > 0 {
+		return o.maxRepair
+	}
+	return 1
+}
+
+// SetDistributedTimeouts は分散実行のタイムアウトとリトライ上限を設定する
+func (o *DistributedOrchestrator) SetDistributedTimeouts(coderTimeoutSec, retryMax int) {
+	if coderTimeoutSec > 0 {
+		o.coderTimeout = time.Duration(coderTimeoutSec) * time.Second
+	}
+	if retryMax >= 0 {
+		o.coderRetryMax = retryMax
+	}
+}
+
+func (o *DistributedOrchestrator) coderTimeoutOrDefault() time.Duration {
+	if o.coderTimeout > 0 {
+		return o.coderTimeout
+	}
+	return distributedCoderTimeout
+}
+
+func (o *DistributedOrchestrator) coderRetryMaxOrDefault() int {
+	if o.coderRetryMax > 0 {
+		return o.coderRetryMax
+	}
+	return distributedCoderRetryMax
 }
 
 type ReportStore interface {
@@ -357,7 +398,7 @@ func (o *DistributedOrchestrator) executeAutonomousDistributed(ctx context.Conte
 		Route:      route.String(),
 		Capability: capabilityForRoute(route),
 		Contract:   contract,
-		MaxRepair:  1,
+		MaxRepair:  o.maxRepairOrDefault(),
 		Observe: func(stage autonomousapp.Stage) {
 			log.Printf("[AutonomousExecutor] entry.stage=%s route=%s job=%s", stage, route.String(), t.JobID().String())
 			o.emit("entry.stage", t.Channel(), "system", string(stage), route.String(), t.JobID().String(), sessionID, t.Channel(), t.ChatID())
@@ -499,7 +540,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	o.emitNote("mio", "user", "しろにコード実装の取りまとめをお願いしたよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
 	requestText := t.UserMessage()
 
-	for attempt := 0; attempt <= distributedCoderRetryMax; attempt++ {
+	for attempt := 0; attempt <= o.coderRetryMaxOrDefault(); attempt++ {
 		o.emit("agent.start", "shiro", coderAgent, requestText, string(route), jid, sessionID, t.Channel(), t.ChatID())
 		if attempt == 0 {
 			o.emitNote("shiro", "mio", fmt.Sprintf("%sにコーディング依頼しました。進捗を監視して、必要なら作業を前に進めます。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
@@ -527,7 +568,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 		coderResult, err := o.executeToAgentViaMailbox(ctx, coderAgent, coderMsg, "mio")
 		if err != nil {
 			failureKind, reason, retryable := classifyDistributedExecutionError(err)
-			if retryable && attempt < distributedCoderRetryMax {
+			if retryable && attempt < o.coderRetryMaxOrDefault() {
 				o.emit("worker.classified_failure", "shiro", coderAgent, fmt.Sprintf("%s: %s", failureKind, reason), string(route), jid, sessionID, t.Channel(), t.ChatID())
 				requestText = buildCoderRetryInstruction(t.UserMessage(), nil, failureKind, reason, attempt+1)
 				continue
@@ -575,7 +616,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 		shiroResult, err := o.executeToAgent(ctx, "shiro", execMsg)
 		if err != nil {
 			failureKind, reason, retryable := classifyDistributedExecutionError(err)
-			if retryable && attempt < distributedCoderRetryMax {
+			if retryable && attempt < o.coderRetryMaxOrDefault() {
 				o.emit("worker.classified_failure", "shiro", coderAgent, fmt.Sprintf("%s: %s", failureKind, reason), string(route), jid, sessionID, t.Channel(), t.ChatID())
 				requestText = buildCoderRetryInstruction(t.UserMessage(), coderResult.Proposal, failureKind, reason, attempt+1)
 				continue
@@ -689,7 +730,7 @@ func (o *DistributedOrchestrator) executeViaSSH(ctx context.Context, sshTranspor
 	log.Printf("[DistributedOrch] Sent task to %s via SSH (job=%s)", targetAgent, msg.JobID)
 
 	// 応答待機（同一transport上で受信）
-	waitTimeout := distributedWaitTimeout(targetAgent, msg)
+	waitTimeout := o.distributedWaitTimeout(targetAgent, msg)
 	timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 
@@ -722,7 +763,7 @@ func (o *DistributedOrchestrator) executeToAgentViaMailbox(ctx context.Context, 
 			o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
 			return domaintransport.Message{}, fmt.Errorf("failed to send message to %s via SSH: %w", targetAgent, err)
 		}
-		waitTimeout := distributedWaitTimeout(targetAgent, msg)
+		waitTimeout := o.distributedWaitTimeout(targetAgent, msg)
 		timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 		defer cancel()
 		log.Printf("[DistributedOrch] mailbox wait target=%s via=ssh timeout=%s job=%s", targetAgent, waitTimeout, msg.JobID)
@@ -759,7 +800,7 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 	}
 
 	log.Printf("[DistributedOrch] Sent task to %s via Local (job=%s type=%s receive_on=%s)", targetAgent, msg.JobID, msg.Type, receiveOnAgent)
-	o.emitProgress("mailbox.waiting", receiveOnAgent, targetAgent, fmt.Sprintf("via=local timeout=%s", distributedWaitTimeout(targetAgent, msg)), msg)
+	o.emitProgress("mailbox.waiting", receiveOnAgent, targetAgent, fmt.Sprintf("via=local timeout=%s", o.distributedWaitTimeout(targetAgent, msg)), msg)
 
 	// 応答待機（指定agent経由。未登録ならmioにフォールバック）
 	receiveTransport, ok := o.router.GetAgent(receiveOnAgent)
@@ -771,7 +812,7 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 		return domaintransport.Message{}, fmt.Errorf("receive transport not registered (agent=%s)", receiveOnAgent)
 	}
 
-	waitTimeout := distributedWaitTimeout(targetAgent, msg)
+	waitTimeout := o.distributedWaitTimeout(targetAgent, msg)
 	timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 	log.Printf("[DistributedOrch] wait local response target=%s receive_on=%s timeout=%s job=%s", targetAgent, receiveOnAgent, waitTimeout, msg.JobID)
@@ -826,10 +867,10 @@ func stringContextValue(ctx map[string]interface{}, key string) string {
 	return v
 }
 
-func distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
+func (o *DistributedOrchestrator) distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
 	switch {
 	case strings.HasPrefix(targetAgent, "coder"):
-		return distributedCoderTimeout
+		return o.coderTimeoutOrDefault()
 	case targetAgent == "shiro" && msg.Proposal != nil:
 		return distributedWorkerTimeout
 	default:

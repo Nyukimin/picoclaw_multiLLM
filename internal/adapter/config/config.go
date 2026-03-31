@@ -140,6 +140,9 @@ type WorkerConfig struct {
 	// === v4.2: Agent Persona ===
 	PersonaFile string `yaml:"persona_file"` // workspace_dir からの相対パス
 	Tone        string `yaml:"tone"`         // 口調ヒント（TTS 連携用）
+
+	// === v4.1: Autonomous ===
+	MaxRepair int `yaml:"max_repair"` // 自律実行のリペア上限（0以下は1とみなす、デフォルト: 1）
 }
 
 // LineConfig はLINE Messaging API設定
@@ -173,8 +176,10 @@ type LogConfig struct {
 // DistributedConfig は分散実行設定
 // YAML に distributed セクションがない場合、ゼロ値（Enabled=false）でv3互換動作
 type DistributedConfig struct {
-	Enabled    bool                       `yaml:"enabled"`
-	Transports map[string]TransportConfig `yaml:"transports"`
+	Enabled         bool                       `yaml:"enabled"`
+	Transports      map[string]TransportConfig `yaml:"transports"`
+	CoderTimeoutSec int                        `yaml:"coder_timeout_sec"` // Coder SSH タイムアウト秒数（0以下は360とみなす）
+	CoderRetryMax   int                        `yaml:"coder_retry_max"`   // Coder リトライ上限（0以下は2とみなす）
 }
 
 // TransportConfig はAgent別のTransport設定

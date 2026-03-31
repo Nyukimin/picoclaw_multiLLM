@@ -12,8 +12,8 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
-// ConversationManager はKB保存用のインターフェース（Phase 4.2）
-type ConversationManager interface {
+// KBManager はKB保存用のインターフェース（Phase 4.2）
+type KBManager interface {
 	SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error)
 	SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error
 }
@@ -39,7 +39,7 @@ type MioAgent struct {
 	toolRunner         ToolRunner
 	mcpClient          MCPClient
 	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
-	conversationMgr    ConversationManager             // Phase 4.2: KB自動保存用（nilを許容）
+	kbManager    KBManager             // Phase 4.2: KB自動保存用（nilを許容）
 	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
 	recentContext      func(context.Context, int) (string, error)
 }
@@ -60,13 +60,13 @@ func NewMioAgent(
 		toolRunner:         toolRunner,
 		mcpClient:          mcpClient,
 		conversationEngine: conversationEngine,
-		conversationMgr:    nil, // WithConversationManager() でセット
+		kbManager:    nil, // WithKBManager() でセット
 	}
 }
 
-// WithConversationManager はConversationManagerを設定（Phase 4.2 KB自動保存用）
-func (m *MioAgent) WithConversationManager(mgr ConversationManager) *MioAgent {
-	m.conversationMgr = mgr
+// WithKBManager はKBManagerを設定（Phase 4.2 KB自動保存用）
+func (m *MioAgent) WithKBManager(mgr KBManager) *MioAgent {
+	m.kbManager = mgr
 	return m
 }
 
@@ -243,8 +243,8 @@ func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, 
 	// 表示用の文字列結果
 	result := toolResp.String()
 
-	// Phase 4.2: KB自動保存（ConversationManager が設定されている場合）
-	if m.conversationMgr != nil && toolResp.Metadata != nil {
+	// Phase 4.2: KB自動保存（KBManager が設定されている場合）
+	if m.kbManager != nil && toolResp.Metadata != nil {
 		if searchItems, ok := toolResp.Metadata["search_items"].([]interface{}); ok {
 			// GoogleSearchItem → WebSearchResult に変換
 			webResults := make([]WebSearchResult, 0, len(searchItems))
@@ -260,7 +260,7 @@ func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, 
 
 			// KB保存（エラーはログのみ、検索結果は返す）
 			domain := inferDomain(query) // クエリから domain を推定
-			if err := m.conversationMgr.SaveWebSearchToKB(ctx, domain, cleanedQuery, webResults); err != nil {
+			if err := m.kbManager.SaveWebSearchToKB(ctx, domain, cleanedQuery, webResults); err != nil {
 				fmt.Printf("WARN: SaveWebSearchToKB failed: %v\n", err)
 			}
 		}

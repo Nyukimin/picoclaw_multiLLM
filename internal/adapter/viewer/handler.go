@@ -103,7 +103,8 @@ func HandlePage(w http.ResponseWriter, r *http.Request) {
 type MessageHandler func(ctx context.Context, message string) (string, error)
 
 // HandleSend creates an HTTP handler that receives messages from the viewer input.
-func HandleSend(handler MessageHandler) http.HandlerFunc {
+// onError is called with the processing error if the async handler fails (may be nil).
+func HandleSend(handler MessageHandler, onError func(error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[Viewer] HandleSend: received request from %s", r.RemoteAddr)
 
@@ -139,6 +140,9 @@ func HandleSend(handler MessageHandler) http.HandlerFunc {
 			response, err := handler(ctx, req.Message)
 			if err != nil {
 				log.Printf("[Viewer] HandleSend: handler error: %v", err)
+				if onError != nil {
+					onError(err)
+				}
 			} else {
 				log.Printf("[Viewer] HandleSend: handler completed successfully, response length: %d", len(response))
 			}

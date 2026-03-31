@@ -1852,8 +1852,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Printf("Mio: Glossary context injected")
 	}
 	if realMgr != nil {
-		mioAgent = mioAgent.WithConversationManager(realMgr)
-		log.Printf("Mio: ConversationManager injected (KB autosave enabled)")
+		mioAgent = mioAgent.WithKBManager(realMgr)
+		log.Printf("Mio: KBManager injected (KB autosave enabled)")
 	}
 	mioPersonaFile := filepath.Join(cfg.WorkspaceDir, "persona", "mio.md")
 	if cfg.MioPersonaFile != "" {
@@ -1965,6 +1965,13 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			}
 			log.Printf("[main] viewerSendFromOrch: ProcessMessage completed, route=%s jobID=%s", resp.Route, resp.JobID)
 			return resp.Response, nil
+		}, func(err error) {
+			if deps.eventRelay != nil {
+				deps.eventRelay.OnEvent(orchestrator.NewEvent(
+					"viewer.error", "system", "viewer", err.Error(),
+					"", "", "viewer", "viewer", "viewer-user",
+				))
+			}
 		})
 	}
 	entryFromOrch := func(proc messageProcessor) http.HandlerFunc {
@@ -2126,6 +2133,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if deps.reportStore != nil {
 			orch.SetReportStore(deps.reportStore)
 		}
+		orch.SetMaxRepair(cfg.Worker.MaxRepair)
 		orch.SetTTSBridge(ttsBridge)
 		orch.SetVTuberBridge(vtuberBridge)
 		// IdleChat統合（有効な場合）
@@ -2345,6 +2353,8 @@ func (d *Dependencies) buildDistributedMode(
 	}
 	distOrch.SetCoderConfigs(coderConfigs)
 
+	distOrch.SetMaxRepair(cfg.Worker.MaxRepair)
+	distOrch.SetDistributedTimeouts(cfg.Distributed.CoderTimeoutSec, cfg.Distributed.CoderRetryMax)
 	distOrch.SetTTSBridge(ttsBridge)
 	distOrch.SetVTuberBridge(vtuberBridge)
 	if d.reportStore != nil {

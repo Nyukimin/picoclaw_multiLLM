@@ -593,7 +593,7 @@ func TestInferDomain(t *testing.T) {
 	}
 }
 
-func TestWithConversationManager(t *testing.T) {
+func TestWithKBManager(t *testing.T) {
 	provider := &mockLLMProvider{}
 	classifier := &mockClassifier{}
 	ruleDict := &mockRuleDictionary{}
@@ -602,30 +602,30 @@ func TestWithConversationManager(t *testing.T) {
 
 	mio := NewMioAgent(provider, classifier, ruleDict, toolRunner, mcpClient, nil)
 
-	// WithConversationManager should return the same agent instance
-	mockConvMgr := &mockConversationManager{}
-	result := mio.WithConversationManager(mockConvMgr)
+	// WithKBManager should return the same agent instance
+	mockConvMgr := &mockKBManager{}
+	result := mio.WithKBManager(mockConvMgr)
 
 	if result != mio {
-		t.Error("WithConversationManager should return the same agent instance")
+		t.Error("WithKBManager should return the same agent instance")
 	}
 
 	// Verify the manager was set by checking if Process can use it
 	// (This is indirectly verified through integration tests)
 }
 
-// mockConversationManager は ConversationManager のモック
-type mockConversationManager struct {
+// mockKBManager は KBManager のモック
+type mockKBManager struct {
 	saveWebSearchCalled bool
 	searchKBCalled      bool
 }
 
-func (m *mockConversationManager) SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error {
+func (m *mockKBManager) SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error {
 	m.saveWebSearchCalled = true
 	return nil
 }
 
-func (m *mockConversationManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error) {
+func (m *mockKBManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error) {
 	m.searchKBCalled = true
 	return []*conversation.Document{}, nil
 }

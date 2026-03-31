@@ -12,9 +12,9 @@ import (
 	infraRouting "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 )
 
-// === Mock ConversationManager ===
+// === Mock KBManager ===
 
-type mockConversationManager struct {
+type mockKBManager struct {
 	saveWebSearchCalled bool
 	savedDomain         string
 	savedQuery          string
@@ -22,7 +22,7 @@ type mockConversationManager struct {
 	searchKBCalled      bool
 }
 
-func (m *mockConversationManager) SaveWebSearchToKB(ctx context.Context, domain string, query string, results []agent.WebSearchResult) error {
+func (m *mockKBManager) SaveWebSearchToKB(ctx context.Context, domain string, query string, results []agent.WebSearchResult) error {
 	m.saveWebSearchCalled = true
 	m.savedDomain = domain
 	m.savedQuery = query
@@ -30,7 +30,7 @@ func (m *mockConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 	return nil
 }
 
-func (m *mockConversationManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error) {
+func (m *mockKBManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error) {
 	m.searchKBCalled = true
 	return []*conversation.Document{}, nil
 }
@@ -39,7 +39,7 @@ func (m *mockConversationManager) SearchKB(ctx context.Context, domain string, q
 
 // TestKBAutosave_WebSearch_SavesCalled は、Web検索実行時にKB保存が呼ばれることを検証
 func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
-	mockConvMgr := &mockConversationManager{}
+	mockConvMgr := &mockKBManager{}
 
 	// ToolRunner: web_search を実行すると ExecuteV2 で構造化データを返す
 	toolRunner := &mockToolRunnerWithV2{
@@ -81,7 +81,7 @@ func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, toolRunner, &mockMCPClient{}, nil)
-	mio = mio.WithConversationManager(mockConvMgr) // KB自動保存を有効化
+	mio = mio.WithKBManager(mockConvMgr) // KB自動保存を有効化
 
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
@@ -112,9 +112,9 @@ func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
 	}
 }
 
-// TestKBAutosave_NoConversationManager_GracefulDegradation は、
-// ConversationManager=nil の場合でもエラーにならないことを検証
-func TestKBAutosave_NoConversationManager_GracefulDegradation(t *testing.T) {
+// TestKBAutosave_NoKBManager_GracefulDegradation は、
+// KBManager=nil の場合でもエラーにならないことを検証
+func TestKBAutosave_NoKBManager_GracefulDegradation(t *testing.T) {
 	toolRunner := &mockToolRunner{
 		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
 			if toolName == "web_search" {
@@ -132,7 +132,7 @@ func TestKBAutosave_NoConversationManager_GracefulDegradation(t *testing.T) {
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, toolRunner, &mockMCPClient{}, nil)
-	// WithConversationManager を呼ばない（nil のまま）
+	// WithKBManager を呼ばない（nil のまま）
 
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()
@@ -148,7 +148,7 @@ func TestKBAutosave_NoConversationManager_GracefulDegradation(t *testing.T) {
 // TestKBAutosave_MetadataExtraction は、
 // Metadata から構造化データが正しく抽出されることを検証
 func TestKBAutosave_MetadataExtraction(t *testing.T) {
-	mockConvMgr := &mockConversationManager{}
+	mockConvMgr := &mockKBManager{}
 
 	// ExecuteV2 で構造化データを返す拡張 ToolRunner
 	toolRunner := &mockToolRunnerWithV2{
@@ -186,7 +186,7 @@ func TestKBAutosave_MetadataExtraction(t *testing.T) {
 
 	ruleDict := infraRouting.NewRuleDictionary()
 	mio := agent.NewMioAgent(provider, &mockClassifier{}, ruleDict, toolRunner, &mockMCPClient{}, nil)
-	mio = mio.WithConversationManager(mockConvMgr)
+	mio = mio.WithKBManager(mockConvMgr)
 
 	shiro := agent.NewShiroAgent(provider, toolRunner, &mockMCPClient{}, "", nil)
 	repo := newMockSessionRepo()

@@ -92,6 +92,27 @@ func (p *Provider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.G
 	}, nil
 }
 
+// Chat は tool calling 対応チャットを実行する。Gemini はツール非対応のため Generate に委譲する。
+func (p *Provider) Chat(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	msgs := make([]llm.Message, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		msgs = append(msgs, llm.Message{Role: m.Role, Content: m.Content})
+	}
+	genReq := llm.GenerateRequest{
+		Messages:    msgs,
+		Temperature: req.Temperature,
+	}
+	resp, err := p.Generate(ctx, genReq)
+	if err != nil {
+		return llm.ChatResponse{}, err
+	}
+	return llm.ChatResponse{
+		Message:      llm.ChatMessage{Role: "assistant", Content: resp.Content},
+		Done:         true,
+		FinishReason: "stop",
+	}, nil
+}
+
 // Name はプロバイダ名を返す
 func (p *Provider) Name() string {
 	return "gemini"
