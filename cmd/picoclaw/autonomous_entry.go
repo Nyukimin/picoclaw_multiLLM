@@ -20,9 +20,7 @@ import (
 )
 
 // messageProcessor is used by viewer/entry adapters.
-type messageProcessor interface {
-	ProcessMessage(ctx context.Context, req orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error)
-}
+type messageProcessor = orchestrator.Orchestrator
 
 type ttsSynthesizer interface {
 	Synthesize(ctx context.Context, in ttsinfra.SynthesisInput) (ttsinfra.SynthesisOutput, error)

@@ -36,6 +36,12 @@ type ProcessMessageResponse struct {
 	JobID      string
 }
 
+// Orchestrator は MessageOrchestrator と DistributedOrchestrator の共通インターフェース。
+// 各アダプター（LINE / Slack / Telegram / Discord）はこのインターフェースに依存する。
+type Orchestrator interface {
+	ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error)
+}
+
 // SessionRepository はセッション永続化のインターフェース
 type SessionRepository interface {
 	Save(ctx context.Context, sess *session.Session) error

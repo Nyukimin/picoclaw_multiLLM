@@ -39,7 +39,7 @@ type DistributedOrchestrator struct {
 	reporter      ReportStore
 	idleNotifier  IdleNotifier
 	nodeSelector  *NodeSelector
-	nodeCaps      map[string]domainnode.Capability
+	nodeCaps      map[string]domainnode.ResourceProfile
 	coderConfigs  map[string]interface{} // v4.1: coder1-4 の CoderConfig（SSH送信用）
 	ttsBridge      TTSBridge
 	vtuberBridge   VTuberBridge
@@ -108,14 +108,14 @@ func NewDistributedOrchestrator(
 		memory:        memory,
 		sshTransports: sshTransports,
 		nodeSelector:  NewNodeSelector(),
-		nodeCaps:      make(map[string]domainnode.Capability),
+		nodeCaps:      make(map[string]domainnode.ResourceProfile),
 	}
 }
 
 // SetNodeCapabilities sets capability map used by RouteCODE coder selection.
-func (o *DistributedOrchestrator) SetNodeCapabilities(caps map[string]domainnode.Capability) {
+func (o *DistributedOrchestrator) SetNodeCapabilities(caps map[string]domainnode.ResourceProfile) {
 	if caps == nil {
-		o.nodeCaps = make(map[string]domainnode.Capability)
+		o.nodeCaps = make(map[string]domainnode.ResourceProfile)
 		return
 	}
 	o.nodeCaps = caps

@@ -8,7 +8,7 @@ import (
 
 func TestNodeSelector_Select(t *testing.T) {
 	s := NewNodeSelector()
-	caps := map[string]domainnode.Capability{
+	caps := map[string]domainnode.ResourceProfile{
 		"coder1": {NodeID: "coder1", HasAudioOut: false},
 		"coder2": {NodeID: "coder2", HasAudioOut: true},
 		"coder3": {NodeID: "coder3", HasAudioOut: true},

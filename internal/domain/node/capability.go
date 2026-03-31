@@ -1,7 +1,8 @@
 package node
 
-// Capability describes runtime capabilities of an execution node.
-type Capability struct {
+// ResourceProfile describes hardware resource constraints of an execution node.
+// This is distinct from capability.NodeCapabilities, which holds self-detected LLM/tool capability.
+type ResourceProfile struct {
 	NodeID       string            `json:"node_id"`
 	CPUCores     int               `json:"cpu_cores"`
 	MemoryMB     int               `json:"memory_mb"`
@@ -20,7 +21,7 @@ type TaskRequirement struct {
 	MaxLatencyMs  int  `json:"max_latency_ms,omitempty"`
 }
 
-func (r TaskRequirement) Matches(cap Capability) bool {
+func (r TaskRequirement) Matches(cap ResourceProfile) bool {
 	if r.NeedsGPU && !cap.HasGPU {
 		return false
 	}

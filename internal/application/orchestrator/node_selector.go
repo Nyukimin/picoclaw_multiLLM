@@ -12,7 +12,7 @@ type NodeSelector struct{}
 
 func NewNodeSelector() *NodeSelector { return &NodeSelector{} }
 
-func (s *NodeSelector) Select(candidates []string, caps map[string]domainnode.Capability, req domainnode.TaskRequirement) string {
+func (s *NodeSelector) Select(candidates []string, caps map[string]domainnode.ResourceProfile, req domainnode.TaskRequirement) string {
 	if len(candidates) == 0 {
 		return ""
 	}

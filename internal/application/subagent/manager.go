@@ -29,11 +29,12 @@ func WithToolRegistry(reg capability.ToolRegistry) ManagerOption {
 
 // Manager はサブエージェントタスクの実行を管理する
 type Manager struct {
-	provider   llm.ToolCallingProvider
-	toolRunner tool.RunnerV2
-	toolDefs   []llm.ToolDefinition
-	loopConfig toolloop.Config
-	registry   capability.ToolRegistry // Phase 4: 動的ツール読込用（nil = 無効）
+	provider        llm.ToolCallingProvider
+	toolRunner      tool.RunnerV2
+	toolDefs        []llm.ToolDefinition
+	loopConfig      toolloop.Config
+	registry        capability.ToolRegistry // Phase 4: 動的ツール読込用（nil = 無効）
+	onRegistryError func(error)             // Phase 4: ToolRegistry エラー通知用（nil を許容）
 }
 
 // NewManager は新しい Manager を作成する
@@ -54,6 +55,12 @@ func NewManager(
 		opt(m)
 	}
 	return m
+}
+
+// SetRegistryErrorHandler は ToolRegistry エラー発生時に呼ばれるコールバックを設定する。
+// 主に Viewer SSE でエラーを通知するために orchestrator から注入する。
+func (m *Manager) SetRegistryErrorHandler(fn func(error)) {
+	m.onRegistryError = fn
 }
 
 // RunSync はサブエージェントタスクを同期実行する
@@ -97,6 +104,9 @@ func (m *Manager) mergeToolDefs(ctx context.Context) []llm.ToolDefinition {
 	entries, err := m.registry.ListForPlatform(ctx, runtime.GOOS)
 	if err != nil {
 		log.Printf("[Subagent] WARN: registry list failed: %v", err)
+		if m.onRegistryError != nil {
+			m.onRegistryError(err)
+		}
 		return m.toolDefs
 	}
 

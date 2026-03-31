@@ -14,14 +14,9 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
 
-// Orchestrator はメッセージ処理のインターフェース
-type Orchestrator interface {
-	ProcessMessage(ctx context.Context, req orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error)
-}
-
 // Handler はLINE webhookハンドラー
 type Handler struct {
-	orchestrator    Orchestrator
+	orchestrator    orchestrator.Orchestrator
 	channelSecret   string
 	sender          *MessageSender
 	mediaDownloader *MediaDownloader
@@ -75,7 +70,7 @@ func (h *Handler) NormalizeEvent(event WebhookEvent, raw []byte) adapterchannels
 }
 
 // NewHandler は新しいHandlerを作成
-func NewHandler(orch Orchestrator, channelSecret, accessToken string) *Handler {
+func NewHandler(orch orchestrator.Orchestrator, channelSecret, accessToken string) *Handler {
 	return &Handler{
 		orchestrator:    orch,
 		channelSecret:   channelSecret,

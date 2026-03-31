@@ -3,7 +3,7 @@ package node
 import "testing"
 
 func TestTaskRequirement_Matches(t *testing.T) {
-	cap := Capability{NodeID: "coder2", HasGPU: true, HasAudioOut: false, HasBrowser: true}
+	cap := ResourceProfile{NodeID: "coder2", HasGPU: true, HasAudioOut: false, HasBrowser: true}
 	if !(TaskRequirement{NeedsGPU: true}).Matches(cap) {
 		t.Fatal("expected GPU requirement to match")
 	}

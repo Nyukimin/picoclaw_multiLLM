@@ -1949,6 +1949,16 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		log.Printf("Viewer evidence API enabled: %s", reportPath)
 	}
 
+	// NI-003: ToolRegistry エラーを SSE でユーザーに通知する
+	if subagentMgr != nil && deps.eventRelay != nil {
+		subagentMgr.SetRegistryErrorHandler(func(err error) {
+			deps.eventRelay.OnEvent(orchestrator.NewEvent(
+				"registry.error", "system", "subagent", err.Error(),
+				"", "", "system", "system", "system",
+			))
+		})
+	}
+
 	// viewerSendFromOrch はオーケストレーター共通のviewer送信ハンドラを生成
 	viewerSendFromOrch := func(proc messageProcessor) http.HandlerFunc {
 		return viewer.HandleSend(func(ctx context.Context, message string) (string, error) {

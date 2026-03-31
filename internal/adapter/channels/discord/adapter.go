@@ -17,22 +17,17 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
 
-// Orchestrator is the minimal processor required by Discord adapter.
-type Orchestrator interface {
-	ProcessMessage(ctx context.Context, req orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error)
-}
-
 // Adapter handles Discord relay webhook and outbound sends.
 type Adapter struct {
 	botToken     string
 	publicKeyHex string
-	orchestrator Orchestrator
+	orchestrator orchestrator.Orchestrator
 	httpClient   *http.Client
 	apiBaseURL   string
 }
 
-func NewAdapter(botToken string, orch ...Orchestrator) *Adapter {
-	var o Orchestrator
+func NewAdapter(botToken string, orch ...orchestrator.Orchestrator) *Adapter {
+	var o orchestrator.Orchestrator
 	if len(orch) > 0 {
 		o = orch[0]
 	}

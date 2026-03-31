@@ -450,7 +450,7 @@ func TestDistributedOrchestrator_RouteToCoderForMessage_UsesCapability(t *testin
 	memory := session.NewCentralMemory()
 
 	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
-	orch.SetNodeCapabilities(map[string]domainnode.Capability{
+	orch.SetNodeCapabilities(map[string]domainnode.ResourceProfile{
 		"coder1": {NodeID: "coder1", HasAudioOut: false},
 		"coder2": {NodeID: "coder2", HasAudioOut: true},
 		"coder3": {NodeID: "coder3", HasAudioOut: true},
