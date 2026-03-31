@@ -525,6 +525,8 @@ func TestDistributedOrchestrator_SSHExecution(t *testing.T) {
 	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, sshTransports)
 
 	// Shiroが最終応答を返す
+	// CODE3 ルート: verifyByContract を通過するためコードブロックを含める
+	const shiroResponse = "shiro finalized code task\n```\napplied\n```"
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -532,7 +534,7 @@ func TestDistributedOrchestrator_SSHExecution(t *testing.T) {
 		if err != nil {
 			return
 		}
-		response := domaintransport.NewMessage("shiro", msg.From, msg.SessionID, msg.JobID, "shiro finalized code task")
+		response := domaintransport.NewMessage("shiro", msg.From, msg.SessionID, msg.JobID, shiroResponse)
 		response.Type = domaintransport.MessageTypeResult
 		_ = mioTransport.PutInboundMessage(response)
 	}()
@@ -548,7 +550,7 @@ func TestDistributedOrchestrator_SSHExecution(t *testing.T) {
 		t.Fatalf("ProcessMessage failed: %v", err)
 	}
 
-	if resp.Response != "shiro finalized code task" {
+	if resp.Response != shiroResponse {
 		t.Errorf("Expected 'shiro finalized code task', got '%s'", resp.Response)
 	}
 
@@ -645,6 +647,8 @@ func TestDistributedOrchestrator_CodeRoute_FinalResponseComesFromMio(t *testing.
 	})
 	orch.SetEventListener(rec)
 
+	// CODE3 ルート: verifyByContract を通過するためコードブロックを含める
+	const shiroResponse2 = "shiro finalized code task\n```\napplied\n```"
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -653,7 +657,7 @@ func TestDistributedOrchestrator_CodeRoute_FinalResponseComesFromMio(t *testing.
 			return
 		}
 
-		response := domaintransport.NewMessage("shiro", msg.From, msg.SessionID, msg.JobID, "shiro finalized code task")
+		response := domaintransport.NewMessage("shiro", msg.From, msg.SessionID, msg.JobID, shiroResponse2)
 		response.Type = domaintransport.MessageTypeResult
 		_ = mioTransport.PutInboundMessage(response)
 	}()
@@ -667,7 +671,7 @@ func TestDistributedOrchestrator_CodeRoute_FinalResponseComesFromMio(t *testing.
 	if err != nil {
 		t.Fatalf("ProcessMessage failed: %v", err)
 	}
-	if resp.Response != "shiro finalized code task" {
+	if resp.Response != shiroResponse2 {
 		t.Fatalf("unexpected response: %q", resp.Response)
 	}
 
@@ -753,7 +757,8 @@ func TestDistributedOrchestrator_CodeRoute_RetriesOnWorkerRetryableFailure(t *te
 					FailedIndex:   0,
 				}
 			} else {
-				response.Content = "worker finalized code task"
+				// CODE3 ルート: verifyByContract を通過するためコードブロックを含める
+				response.Content = "worker finalized code task\n```\napplied\n```"
 				response.Result = &domaintransport.ResultPayload{
 					Success:      true,
 					Summary:      "worker finalized code task",
@@ -774,7 +779,7 @@ func TestDistributedOrchestrator_CodeRoute_RetriesOnWorkerRetryableFailure(t *te
 	if err != nil {
 		t.Fatalf("ProcessMessage failed: %v", err)
 	}
-	if resp.Response != "worker finalized code task" {
+	if resp.Response != "worker finalized code task\n```\napplied\n```" {
 		t.Fatalf("unexpected response: %q", resp.Response)
 	}
 	if len(mockSSH.sentMessages) != 2 {

@@ -428,8 +428,8 @@ func (o *MessageOrchestrator) executeAutonomousTask(ctx context.Context, t task.
 				FailureReason: errorString(runErr),
 			}, runErr
 		},
-		Verify: func(_ context.Context, _ domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
-			ok, kind, reason := verifyAutonomousRouteResponse(route, last.Response)
+		Verify: func(_ context.Context, c domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
+			ok, kind, reason := verifyByContract(route, c, last)
 			return ok, kind, reason, nil
 		},
 	})
@@ -619,7 +619,8 @@ func responseLooksLikeFailure(content string) bool {
 	if strings.Contains(lower, "失敗: 0") || strings.Contains(lower, "failures: 0") || strings.Contains(lower, "failed: 0") {
 		return false
 	}
-	return strings.Contains(lower, "error") || strings.Contains(lower, "失敗")
+	return strings.Contains(lower, "error") || strings.Contains(lower, "失敗") ||
+		strings.Contains(content, "エラー")
 }
 
 func shortFailureReason(content string) string {
@@ -630,17 +631,91 @@ func shortFailureReason(content string) string {
 	return text[:157] + "..."
 }
 
-func verifyAutonomousRouteResponse(route routing.Route, response string) (bool, string, string) {
-	if strings.TrimSpace(response) == "" {
+// verifyByContract はルートと実行契約に基づいて AttemptResult を検証する。
+// verifyAutonomousRouteResponse の後継。
+func verifyByContract(
+	route routing.Route,
+	c domaincontract.Contract,
+	last autonomousapp.AttemptResult,
+) (bool, string, string) {
+	// (1) 全ルート共通: 空レスポンス拒否
+	if strings.TrimSpace(last.Response) == "" {
 		return false, "verification_failed", "empty response"
 	}
+
+	// (2) TTS CapabilityPack 検証
+	if isTTSCapability(c) {
+		return verifyTTSResult(last)
+	}
+
+	// (3) CODE ルート検証
 	if isCodeRoute(route) {
+		if looksLikeNonExecutable(last.Response) {
+			return false, "non_executable_output",
+				"Coder output contains design document only; executable patch is required"
+		}
+		if responseLooksLikeFailure(last.Response) {
+			return false, "verification_failed", shortFailureReason(last.Response)
+		}
 		return true, "", ""
 	}
-	if responseLooksLikeFailure(response) {
-		return false, "verification_failed", shortFailureReason(response)
+
+	// (4) OPS / PLAN / ANALYZE / RESEARCH
+	if responseLooksLikeFailure(last.Response) {
+		return false, "verification_failed", shortFailureReason(last.Response)
 	}
 	return true, "", ""
+}
+
+// isTTSCapability は契約の Acceptance フィールドから TTS CapabilityPack かどうかを判定する。
+func isTTSCapability(c domaincontract.Contract) bool {
+	for _, a := range c.Acceptance {
+		if strings.Contains(a, "実再生") || strings.Contains(a, "音声ファイル生成") {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyTTSResult は TTS CapabilityPack の E2E 検証を行う。
+// PlaybackCode/TTSAudioFile が未設定の場合は暫定フォールバック（レスポンス文字列チェック）。
+func verifyTTSResult(last autonomousapp.AttemptResult) (bool, string, string) {
+	// Phase 2 で TTS ブリッジ結果が注入されるまでの暫定フォールバック
+	if last.TTSAudioFile == "" && last.PlaybackCode == 0 {
+		if responseLooksLikeFailure(last.Response) {
+			return false, "verification_failed", shortFailureReason(last.Response)
+		}
+		return true, "", ""
+	}
+	if last.TTSAudioFile == "" {
+		return false, "tts_no_audio", "音声ファイルが生成されていない (TTSAudioFile が空)"
+	}
+	if last.PlaybackCode != 0 {
+		return false, "playback_failed",
+			fmt.Sprintf("再生コマンドが終了コード %d で終了した", last.PlaybackCode)
+	}
+	return true, "", ""
+}
+
+// looksLikeNonExecutable は Coder の出力が設計文書のみで実行可能形式を含まないかを判定する。
+func looksLikeNonExecutable(response string) bool {
+	lower := strings.ToLower(response)
+	executables := []string{
+		"```",             // コードブロック
+		"patch:",          // Shiro patch セクション
+		"apply:",          // patch 適用指示
+		"execute:",        // 実行指示
+		"$ ",              // シェルコマンド
+		"#!/",             // シェバン
+		"execution result", // formatExecutionResult のセクションヘッダー（実行証跡）
+		"success rate",    // formatExecutionResult の実行結果（実行証跡）
+	}
+	for _, marker := range executables {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	return true
 }
 
 func buildExecutorRetryMessage(userMessage string, route routing.Route, failureKind, failureReason string, attempt int) string {

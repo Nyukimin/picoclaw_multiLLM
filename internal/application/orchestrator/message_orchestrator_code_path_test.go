@@ -30,7 +30,7 @@ func TestMessageOrchestrator_CodeRoute_AlwaysViaShiro_CODE1(t *testing.T) {
 		decision: routing.NewDecision(routing.RouteCODE1, 1.0, "explicit code1"),
 	}
 	shiro := &mockShiroAgent{response: "unused"}
-	coder1 := &mockCoderAgent{response: "spec ready"}
+	coder1 := &mockCoderAgent{response: "spec ready\n```\npatch applied\n```"}
 	orch := NewMessageOrchestrator(repo, mio, shiro, coder1, nil, nil, nil, nil)
 	rec := &recordingEventListener{}
 	orch.SetEventListener(rec)
@@ -64,7 +64,7 @@ func TestMessageOrchestrator_CodeRoute_AlwaysViaShiro_CODE2(t *testing.T) {
 		decision: routing.NewDecision(routing.RouteCODE2, 1.0, "explicit code2"),
 	}
 	shiro := &mockShiroAgent{response: "unused"}
-	coder2 := &mockCoderAgent{response: "impl ready"}
+	coder2 := &mockCoderAgent{response: "impl ready\n```\npatch applied\n```"}
 	orch := NewMessageOrchestrator(repo, mio, shiro, nil, coder2, nil, nil, nil)
 	rec := &recordingEventListener{}
 	orch.SetEventListener(rec)

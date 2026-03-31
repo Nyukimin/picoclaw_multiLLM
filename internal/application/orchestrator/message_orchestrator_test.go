@@ -408,7 +408,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute(t *testing.T) {
 		response: "chat response",
 	}
 	shiro := &mockShiroAgent{response: "executed"}
-	coder := &mockCoderAgent{response: "// Generated code\nfunc main() {}\n"}
+	coder := &mockCoderAgent{response: "```go\n// Generated code\nfunc main() {}\n```"}
 
 	orchestrator := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil, nil, nil)
 
@@ -428,7 +428,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute(t *testing.T) {
 		t.Errorf("Expected route CODE, got '%s'", resp.Route)
 	}
 
-	if resp.Response != "// Generated code\nfunc main() {}\n" {
+	if resp.Response != "```go\n// Generated code\nfunc main() {}\n```" {
 		t.Errorf("Expected Coder response, got '%s'", resp.Response)
 	}
 }
@@ -439,7 +439,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		mio := &mockMioAgent{
 			decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route"),
 		}
-		coder1 := &mockCoderAgent{response: "coder1 response"}
+		coder1 := &mockCoderAgent{response: "coder1 response\n```\ncode\n```"}
 		coder2 := &mockCoderAgent{response: "coder2 response"}
 
 		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, coder1, coder2, nil, nil, nil)
@@ -449,7 +449,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if resp.Response != "coder1 response" {
+		if resp.Response != "coder1 response\n```\ncode\n```" {
 			t.Errorf("expected coder1 response, got '%s'", resp.Response)
 		}
 	})
@@ -459,7 +459,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		mio := &mockMioAgent{
 			decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route"),
 		}
-		coder2 := &mockCoderAgent{response: "coder2 response"}
+		coder2 := &mockCoderAgent{response: "coder2 response\n```\ncode\n```"}
 
 		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, coder2, nil, nil, nil)
 		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
@@ -468,7 +468,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if resp.Response != "coder2 response" {
+		if resp.Response != "coder2 response\n```\ncode\n```" {
 			t.Errorf("expected coder2 response, got '%s'", resp.Response)
 		}
 	})
@@ -478,7 +478,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		mio := &mockMioAgent{
 			decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route"),
 		}
-		coder3 := &mockCoderAgent{response: "coder3 response"}
+		coder3 := &mockCoderAgent{response: "coder3 response\n```\ncode\n```"}
 
 		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, coder3, nil, nil)
 		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
@@ -487,7 +487,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if resp.Response != "coder3 response" {
+		if resp.Response != "coder3 response\n```\ncode\n```" {
 			t.Errorf("expected coder3 response, got '%s'", resp.Response)
 		}
 	})
@@ -515,7 +515,7 @@ func TestMessageOrchestrator_ProcessMessage_ExplicitCommand(t *testing.T) {
 		response: "chat response",
 	}
 	shiro := &mockShiroAgent{response: "executed"}
-	coder3 := &mockCoderAgent{response: "High quality code review"}
+	coder3 := &mockCoderAgent{response: "High quality code review\n```\nsuggestions\n```"}
 
 	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, nil)
 
@@ -535,7 +535,7 @@ func TestMessageOrchestrator_ProcessMessage_ExplicitCommand(t *testing.T) {
 		t.Errorf("Expected route CODE3, got '%s'", resp.Route)
 	}
 
-	if resp.Response != "High quality code review" {
+	if resp.Response != "High quality code review\n```\nsuggestions\n```" {
 		t.Errorf("Expected Coder3 response, got '%s'", resp.Response)
 	}
 }

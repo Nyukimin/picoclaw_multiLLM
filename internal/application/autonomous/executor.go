@@ -241,7 +241,9 @@ func classifyApplyError(err error) string {
 
 func retryableFailureKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case "proposal_invalid", "proposal_empty", "command_missing", "dependency_missing", "path_mismatch", "provider_unavailable", "verification_failed", "playback_failed", "verify", "apply":
+	case "proposal_invalid", "proposal_empty", "command_missing", "dependency_missing", "path_mismatch", "provider_unavailable",
+		"verification_failed", "playback_failed", "verify", "apply",
+		"non_executable_output", "tts_no_audio":
 		return true
 	default:
 		return false

@@ -420,8 +420,8 @@ func (o *DistributedOrchestrator) executeAutonomousDistributed(ctx context.Conte
 				FailureReason: errorString(runErr),
 			}, runErr
 		},
-		Verify: func(_ context.Context, _ domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
-			ok, kind, reason := verifyAutonomousRouteResponse(route, last.Response)
+		Verify: func(_ context.Context, c domaincontract.Contract, last autonomousapp.AttemptResult) (bool, string, string, error) {
+			ok, kind, reason := verifyByContract(route, c, last)
 			log.Printf("[AutonomousExecutor] verify route=%s job=%s passed=%t failure_kind=%q reason=%q", route.String(), t.JobID().String(), ok, kind, reason)
 			return ok, kind, reason, nil
 		},
@@ -867,15 +867,24 @@ func stringContextValue(ctx map[string]interface{}, key string) string {
 	return v
 }
 
-func (o *DistributedOrchestrator) distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
+// distributedWaitTimeout はエージェント種別とメッセージ内容に基づくタイムアウト時間を返す（パッケージレベル関数）。
+// テストから直接呼べるよう、デフォルト定数を使う版。
+func distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
 	switch {
 	case strings.HasPrefix(targetAgent, "coder"):
-		return o.coderTimeoutOrDefault()
+		return distributedCoderTimeout
 	case targetAgent == "shiro" && msg.Proposal != nil:
 		return distributedWorkerTimeout
 	default:
 		return distributedDefaultTimeout
 	}
+}
+
+func (o *DistributedOrchestrator) distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
+	if strings.HasPrefix(targetAgent, "coder") {
+		return o.coderTimeoutOrDefault()
+	}
+	return distributedWaitTimeout(targetAgent, msg)
 }
 
 // routeToAgent はルートをAgent名にマッピング
