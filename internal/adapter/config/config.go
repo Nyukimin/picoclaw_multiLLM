@@ -276,21 +276,28 @@ type ViewerLogConfig struct {
 
 // TTSConfig configures provider fallback and playback verification.
 type TTSConfig struct {
-	Enabled           bool                `yaml:"enabled"`
-	OutputDir         string              `yaml:"output_dir"`
-	AudioPathRoot     string              `yaml:"audio_path_root"`
-	HTTPBaseURL       string              `yaml:"http_base_url"`
-	WSURL             string              `yaml:"ws_url"`
-	ConnectTimeoutMS  int                 `yaml:"connect_timeout_ms"`
-	ReceiveTimeoutMS  int                 `yaml:"receive_timeout_ms"`
-	ChunkGapTimeoutMS int                 `yaml:"chunk_gap_timeout_ms"`
-	VoiceID           string              `yaml:"voice_id"`
-	SpeechMode        string              `yaml:"speech_mode"`
-	ProviderPriority  []string            `yaml:"provider_priority"` // e.g. sbv2,azure,eleven
-	PlaybackCommands  []TTSCommandConfig  `yaml:"playback_commands"`
-	SBV2              TTSSBV2Config       `yaml:"sbv2"`
-	Azure             TTSAzureConfig      `yaml:"azure"`
-	Eleven            TTSElevenLabsConfig `yaml:"eleven"`
+	Enabled           bool                          `yaml:"enabled"`
+	OutputDir         string                        `yaml:"output_dir"`
+	AudioPathRoot     string                        `yaml:"audio_path_root"`
+	HTTPBaseURL       string                        `yaml:"http_base_url"`
+	WSURL             string                        `yaml:"ws_url"`
+	ConnectTimeoutMS  int                           `yaml:"connect_timeout_ms"`
+	ReceiveTimeoutMS  int                           `yaml:"receive_timeout_ms"`
+	ChunkGapTimeoutMS int                           `yaml:"chunk_gap_timeout_ms"`
+	VoiceID           string                        `yaml:"voice_id"`
+	SpeechMode        string                        `yaml:"speech_mode"`
+	ProviderPriority  []string                      `yaml:"provider_priority"` // e.g. sbv2,azure,eleven
+	PlaybackCommands  []TTSCommandConfig             `yaml:"playback_commands"`
+	VoiceServers      map[string]TTSVoiceServerConfig `yaml:"voice_servers"`
+	SBV2              TTSSBV2Config                 `yaml:"sbv2"`
+	Azure             TTSAzureConfig                `yaml:"azure"`
+	Eleven            TTSElevenLabsConfig           `yaml:"eleven"`
+}
+
+// TTSVoiceServerConfig points a specific voice_id to a dedicated TTS server.
+type TTSVoiceServerConfig struct {
+	HTTPBaseURL string `yaml:"http_base_url"`
+	WSURL       string `yaml:"ws_url"`
 }
 
 type TTSCommandConfig struct {

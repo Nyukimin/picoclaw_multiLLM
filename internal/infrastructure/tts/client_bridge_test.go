@@ -51,7 +51,7 @@ func TestClientBridge_PushText_FallbackSynthesize(t *testing.T) {
 			gotChunk = sessionID == "s1" && chunkIndex == 0 && audioURL == "http://tts.local/cache/x.wav"
 		},
 	}, sink)
-	b.client = &http.Client{
+	b.synthClient = &http.Client{
 		Transport: clientBridgeRoundTripper(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Path != "/synthesize" {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -92,7 +92,7 @@ func TestClientBridge_PushText_FallbackSynthesize_UsesVoiceProfileVoice(t *testi
 		HTTPBaseURL: "http://tts.local",
 		VoiceID:     "female_01",
 	}, &sinkStub{})
-	b.client = &http.Client{
+	b.synthClient = &http.Client{
 		Transport: clientBridgeRoundTripper(func(r *http.Request) (*http.Response, error) {
 			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 				t.Fatalf("decode body: %v", err)

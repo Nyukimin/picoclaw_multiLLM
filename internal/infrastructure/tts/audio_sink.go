@@ -14,6 +14,21 @@ type AudioSink interface {
 	CompleteSession(ctx context.Context, sessionID string) error
 }
 
+// NoopAudioSink keeps browser-only playback paths working without local audio output.
+type NoopAudioSink struct{}
+
+func NewNoopAudioSink() *NoopAudioSink {
+	return &NoopAudioSink{}
+}
+
+func (s *NoopAudioSink) SubmitChunk(_ context.Context, _ string, _ audioChunk) error {
+	return nil
+}
+
+func (s *NoopAudioSink) CompleteSession(_ context.Context, _ string) error {
+	return nil
+}
+
 const defaultChunkPause = 200 * time.Millisecond // 同一話者内の句間ブレイク
 
 // PlaybackAudioSink reuses CommandPlayer to play generated audio paths.

@@ -39,6 +39,7 @@ import (
 	subagentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
@@ -49,9 +50,7 @@ import (
 	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	glossary "github.com/Nyukimin/picoclaw_multiLLM/internal/glossary"
-	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	capinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/capability"
-	toolregistry "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/toolregistry"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
@@ -63,6 +62,7 @@ import (
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
 	memorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
+	toolregistry "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/toolregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	securityinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/security"
@@ -170,6 +170,7 @@ func cmdRun() {
 	// Live Viewer
 	mux.HandleFunc("/viewer", viewer.HandlePage)
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
+	mux.HandleFunc("/viewer/tts/audio", handleLocalTTSAudio(cfg.TTS.OutputDir))
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 	if dependencies.viewerStatus != nil {
@@ -1459,35 +1460,35 @@ type Dependencies struct {
 	telegramHandler    http.Handler
 	discordHandler     http.Handler
 	slackHandler       http.Handler
-	eventHub           *viewer.EventHub                      // live viewer
-	monitorStore       *viewer.MonitorStore                  // viewer monitor snapshots
-	eventLogStore      *viewer.EventLogStore                 // persisted orchestrator event log
-	eventLogGC         *viewer.EventLogGCService             // persisted event log GC
+	eventHub           *viewer.EventHub                       // live viewer
+	monitorStore       *viewer.MonitorStore                   // viewer monitor snapshots
+	eventLogStore      *viewer.EventLogStore                  // persisted orchestrator event log
+	eventLogGC         *viewer.EventLogGCService              // persisted event log GC
 	reportStore        *executionpersistence.JSONLReportStore // execution evidence store
-	eventRelay         *idleAwareEventListener               // viewer + idlechat stop relay
-	viewerStatus       http.HandlerFunc                      // viewer status API
-	viewerAgents       http.HandlerFunc                      // viewer agents API
-	viewerAgentDetail  http.HandlerFunc                      // viewer agent detail API
-	viewerJobs         http.HandlerFunc                      // viewer jobs API
-	viewerLogs         http.HandlerFunc                      // viewer logs API
-	viewerAuditSummary http.HandlerFunc                      // viewer audit summary API
-	viewerJobDetail    http.HandlerFunc                      // viewer job detail API
-	viewerSend         http.HandlerFunc                      // viewer message sender
-	evidenceHandler    http.HandlerFunc                      // viewer evidence API
-	evidenceDetail     http.HandlerFunc                      // viewer evidence detail API
-	evidenceSummary    http.HandlerFunc                      // viewer evidence summary API
-	glossaryRecent     http.HandlerFunc                      // viewer glossary API
-	entryHandler       http.HandlerFunc                      // unified entry endpoint
-	chromeBridge       http.HandlerFunc                      // chrome bridge endpoint
-	chromeBridgeStatus http.HandlerFunc                      // chrome bridge status endpoint
-	chromeBridgeEvents http.HandlerFunc                      // chrome bridge SSE endpoint
-	distOrch           *orchestrator.DistributedOrchestrator // v4 distributed orchestrator
-	router             *transport.MessageRouter              // v4 distributed mode
-	localTransports    map[string]*transport.LocalTransport  // v4 local transports
-	idleChatOrch       *idlechat.IdleChatOrchestrator        // v4 idle chat
-	sshTransports      map[string]domaintransport.Transport  // v4 SSH transports
-	heartbeatSvc       *heartbeat.HeartbeatService           // heartbeat service
-	toolRegistry       capdomain.ToolRegistry                // Phase 4: Shiro ツール共有用 ToolRegistry
+	eventRelay         *idleAwareEventListener                // viewer + idlechat stop relay
+	viewerStatus       http.HandlerFunc                       // viewer status API
+	viewerAgents       http.HandlerFunc                       // viewer agents API
+	viewerAgentDetail  http.HandlerFunc                       // viewer agent detail API
+	viewerJobs         http.HandlerFunc                       // viewer jobs API
+	viewerLogs         http.HandlerFunc                       // viewer logs API
+	viewerAuditSummary http.HandlerFunc                       // viewer audit summary API
+	viewerJobDetail    http.HandlerFunc                       // viewer job detail API
+	viewerSend         http.HandlerFunc                       // viewer message sender
+	evidenceHandler    http.HandlerFunc                       // viewer evidence API
+	evidenceDetail     http.HandlerFunc                       // viewer evidence detail API
+	evidenceSummary    http.HandlerFunc                       // viewer evidence summary API
+	glossaryRecent     http.HandlerFunc                       // viewer glossary API
+	entryHandler       http.HandlerFunc                       // unified entry endpoint
+	chromeBridge       http.HandlerFunc                       // chrome bridge endpoint
+	chromeBridgeStatus http.HandlerFunc                       // chrome bridge status endpoint
+	chromeBridgeEvents http.HandlerFunc                       // chrome bridge SSE endpoint
+	distOrch           *orchestrator.DistributedOrchestrator  // v4 distributed orchestrator
+	router             *transport.MessageRouter               // v4 distributed mode
+	localTransports    map[string]*transport.LocalTransport   // v4 local transports
+	idleChatOrch       *idlechat.IdleChatOrchestrator         // v4 idle chat
+	sshTransports      map[string]domaintransport.Transport   // v4 SSH transports
+	heartbeatSvc       *heartbeat.HeartbeatService            // heartbeat service
+	toolRegistry       capdomain.ToolRegistry                 // Phase 4: Shiro ツール共有用 ToolRegistry
 }
 
 type idleAwareEventListener struct {
@@ -2307,12 +2308,24 @@ func (d *Dependencies) buildDistributedMode(
 			localTransports[agentName] = v
 			log.Printf("Registered LocalTransport for agent '%s'", agentName)
 		case *transport.SSHTransport:
-			// SSH接続を確立
-			if err := v.Connect(); err != nil {
-				log.Fatalf("Failed to connect SSH transport for agent '%s': %v", agentName, err)
+			// SSH接続失敗は対象 coder の縮退として扱い、Chat/Worker の起動は継続する。
+			if err := registerSSHTransport(agentName, v, v, sshTransports); err != nil {
+				reason := formatAgentUnavailableReason("ssh connect failed", err)
+				markAgentUnavailable(d.monitorStore, agentName, reason)
+				if d.eventRelay != nil {
+					d.eventRelay.OnEvent(orchestrator.NewEvent(
+						"agent.unavailable",
+						agentName,
+						"system",
+						reason,
+						"",
+						"",
+						"system",
+						"system",
+						"system",
+					))
+				}
 			}
-			sshTransports[agentName] = v
-			log.Printf("Connected SSHTransport for agent '%s'", agentName)
 		}
 	}
 	d.router = router
@@ -2349,16 +2362,16 @@ func (d *Dependencies) buildDistributedMode(
 
 	// v4.1: SSH 経由で CoderConfig を送信するための設定
 	coderConfigs := make(map[string]interface{})
-	if cfg.Coder1.Enabled {
+	if cfg.Coder1.Enabled && distributedAgentAvailable("coder1", localTransports, sshTransports) {
 		coderConfigs["coder1"] = cfg.Coder1
 	}
-	if cfg.Coder2.Enabled {
+	if cfg.Coder2.Enabled && distributedAgentAvailable("coder2", localTransports, sshTransports) {
 		coderConfigs["coder2"] = cfg.Coder2
 	}
-	if cfg.Coder3.Enabled {
+	if cfg.Coder3.Enabled && distributedAgentAvailable("coder3", localTransports, sshTransports) {
 		coderConfigs["coder3"] = cfg.Coder3
 	}
-	if cfg.Coder4.Enabled {
+	if cfg.Coder4.Enabled && distributedAgentAvailable("coder4", localTransports, sshTransports) {
 		coderConfigs["coder4"] = cfg.Coder4
 	}
 	distOrch.SetCoderConfigs(coderConfigs)
@@ -2410,6 +2423,61 @@ func localAgentEnabled(agentName string, coder1Adapter, coder2Adapter, coder3Ada
 	default:
 		return true
 	}
+}
+
+type sshTransportConnector interface {
+	Connect() error
+}
+
+func registerSSHTransport(
+	agentName string,
+	connector sshTransportConnector,
+	tr domaintransport.Transport,
+	sshTransports map[string]domaintransport.Transport,
+) error {
+	if err := connector.Connect(); err != nil {
+		log.Printf("WARN: SSH transport unavailable for agent '%s': %v", agentName, err)
+		return err
+	}
+	sshTransports[agentName] = tr
+	log.Printf("Connected SSHTransport for agent '%s'", agentName)
+	return nil
+}
+
+func markAgentUnavailable(store *viewer.MonitorStore, agentName, reason string) {
+	if store == nil {
+		return
+	}
+	store.SetAgentUnavailable(agentName, reason)
+}
+
+func formatAgentUnavailableReason(prefix string, err error) string {
+	msg := strings.TrimSpace(prefix)
+	if err == nil {
+		return msg
+	}
+	detail := strings.TrimSpace(err.Error())
+	if detail == "" {
+		return msg
+	}
+	if msg == "" {
+		return detail
+	}
+	return msg + ": " + detail
+}
+
+func distributedAgentAvailable(
+	agentName string,
+	localTransports map[string]*transport.LocalTransport,
+	sshTransports map[string]domaintransport.Transport,
+) bool {
+	if _, ok := localTransports[agentName]; ok {
+		return true
+	}
+	if _, ok := sshTransports[agentName]; ok {
+		return true
+	}
+	return false
 }
 
 func (d *Dependencies) ensureLocalTransport(agentName string) *transport.LocalTransport {

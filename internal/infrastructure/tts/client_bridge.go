@@ -40,9 +40,10 @@ type ttsSession struct {
 
 // ClientBridge is a best-effort TTS bridge implementation.
 type ClientBridge struct {
-	cfg    ClientConfig
-	sink   AudioSink
-	client *http.Client
+	cfg         ClientConfig
+	sink        AudioSink
+	client      *http.Client // health check / short requests (ConnectTimeout)
+	synthClient *http.Client // synthesis requests (ReceiveTimeout)
 
 	mu       sync.RWMutex
 	sessions map[string]*ttsSession
@@ -65,10 +66,11 @@ func NewClientBridge(cfg ClientConfig, sink AudioSink) *ClientBridge {
 		cfg.SpeechMode = "conversational"
 	}
 	return &ClientBridge{
-		cfg:      cfg,
-		sink:     sink,
-		client:   &http.Client{Timeout: cfg.ConnectTimeout},
-		sessions: make(map[string]*ttsSession),
+		cfg:         cfg,
+		sink:        sink,
+		client:      &http.Client{Timeout: cfg.ConnectTimeout},
+		synthClient: &http.Client{Timeout: cfg.ReceiveTimeout},
+		sessions:    make(map[string]*ttsSession),
 	}
 }
 
@@ -82,7 +84,14 @@ func (b *ClientBridge) StartSession(ctx context.Context, req orchestrator.TTSSes
 
 	conn, err := b.connectWS(ctx)
 	if err != nil {
-		return err
+		// WebSocket unavailable: fall back to HTTP-only mode for this session.
+		log.Printf("tts_ws_unavailable session=%s err=%v (http-only mode)", req.SessionID, err)
+		b.mu.Lock()
+		b.sessions[req.SessionID] = &ttsSession{
+			characterID: strings.TrimSpace(req.CharacterID),
+		}
+		b.mu.Unlock()
+		return nil
 	}
 	session := &ttsSession{
 		characterID: strings.TrimSpace(req.CharacterID),
@@ -132,6 +141,15 @@ func (b *ClientBridge) PushText(ctx context.Context, sessionID string, text stri
 	if !ok {
 		return b.synthesizeFallback(ctx, sessionID, text, emotion)
 	}
+	if session.conn == nil {
+		// HTTP-only session: synthesize each chunk via POST /synthesize.
+		session.mu.Lock()
+		chunkIndex := session.nextSeq
+		session.nextSeq++
+		characterID := session.characterID
+		session.mu.Unlock()
+		return b.synthesizeHTTPChunk(ctx, sessionID, characterID, text, chunkIndex, emotion)
+	}
 
 	session.mu.Lock()
 	seq := session.nextSeq
@@ -168,6 +186,17 @@ func (b *ClientBridge) PushText(ctx context.Context, sessionID string, text stri
 func (b *ClientBridge) EndSession(ctx context.Context, sessionID string) error {
 	session, ok := b.getSession(sessionID)
 	if !ok {
+		return nil
+	}
+	if session.conn == nil {
+		// HTTP-only session cleanup.
+		b.mu.Lock()
+		delete(b.sessions, sessionID)
+		b.mu.Unlock()
+		if b.sink != nil {
+			_ = b.sink.CompleteSession(ctx, sessionID)
+		}
+		b.notifySessionCompleted(sessionID)
 		return nil
 	}
 	session.mu.Lock()
@@ -436,7 +465,7 @@ func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string,
 		return fmt.Errorf("build synthesize fallback request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := b.client.Do(req)
+	resp, err := b.synthClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("tts fallback request failed: %w", err)
 	}
@@ -466,6 +495,63 @@ func (b *ClientBridge) synthesizeFallback(ctx context.Context, sessionID string,
 		}
 	}
 	b.notifySessionCompleted(sessionID)
+	return nil
+}
+
+// synthesizeHTTPChunk sends a single chunk via POST /synthesize without ending the session.
+// Used in HTTP-only mode (when WebSocket is unavailable). notifySessionCompleted is NOT called here;
+// it is deferred to EndSession so the caller controls session lifetime.
+func (b *ClientBridge) synthesizeHTTPChunk(ctx context.Context, sessionID, characterID, text string, chunkIndex int, emotion *ttsapp.EmotionState) error {
+	base := strings.TrimRight(strings.TrimSpace(b.cfg.HTTPBaseURL), "/")
+	if base == "" {
+		return fmt.Errorf("tts http_base_url is empty")
+	}
+	payload := map[string]any{
+		"text":       text,
+		"voice_id":   fallbackVoiceID(b.cfg.VoiceID, emotion),
+		"session_id": sessionID,
+	}
+	if emotion != nil {
+		payload["emotion_state"] = emotion
+	}
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal http chunk request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/synthesize", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("build http chunk request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.synthClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("tts http chunk request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("tts http chunk bad status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var out struct {
+		Text      string `json:"text"`
+		AudioPath string `json:"audio_path"`
+		AudioURL  string `json:"audio_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return fmt.Errorf("decode http chunk response: %w", err)
+	}
+	ch := audioChunk{
+		ChunkIndex: chunkIndex,
+		Text:       chooseDefault(out.Text, text),
+		AudioPath:  out.AudioPath,
+		AudioURL:   out.AudioURL,
+	}
+	b.notifyChunkReady(sessionID, characterID, ch)
+	if b.sink != nil {
+		if err := b.sink.SubmitChunk(ctx, sessionID, ch); err != nil {
+			log.Printf("tts_http_chunk_play_error session=%s chunk=%d err=%v", sessionID, ch.ChunkIndex, err)
+		}
+	}
 	return nil
 }
 

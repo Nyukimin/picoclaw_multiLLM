@@ -248,6 +248,34 @@ func TestHandleMonitorJobDetailIncludesEvidence(t *testing.T) {
 	}
 }
 
+func TestMonitorStoreSetAgentUnavailableShowsReasonInStatus(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+
+	store.SetAgentUnavailable("coder3", "ssh connect failed: connection reset by peer")
+
+	status := store.Status()
+	if status.Coders.Status != "degraded" {
+		t.Fatalf("coders status = %q, want degraded", status.Coders.Status)
+	}
+	if len(status.Coders.Items) < 3 {
+		t.Fatalf("coders items len = %d, want at least 3", len(status.Coders.Items))
+	}
+
+	var coder3 AgentSnapshot
+	for _, item := range status.Coders.Items {
+		if item.ID == "coder3" {
+			coder3 = item
+			break
+		}
+	}
+	if coder3.State != "unavailable" {
+		t.Fatalf("coder3 state = %q, want unavailable", coder3.State)
+	}
+	if coder3.Reason != "ssh connect failed: connection reset by peer" {
+		t.Fatalf("coder3 reason = %q", coder3.Reason)
+	}
+}
+
 func TestHandleMonitorAgentDetailReturnsAgentHistory(t *testing.T) {
 	store := NewMonitorStore(nil, nil)
 	now := time.Now().Format(time.RFC3339)

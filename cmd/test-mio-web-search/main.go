@@ -36,7 +36,15 @@ func main() {
 	fmt.Printf("Available tools: %v\n\n", availableTools)
 
 	// 2. LLM Provider（Ollama）
-	ollamaProvider := ollama.NewOllamaProvider("http://100.83.207.6:11434", "chat-v1")
+	ollamaBaseURL := os.Getenv("OLLAMA_BASE_URL")
+	if ollamaBaseURL == "" {
+		ollamaBaseURL = "http://localhost:11434"
+	}
+	ollamaModel := os.Getenv("OLLAMA_MODEL")
+	if ollamaModel == "" {
+		ollamaModel = "chat-v1"
+	}
+	ollamaProvider := ollama.NewOllamaProvider(ollamaBaseURL, ollamaModel)
 
 	// 3. MioAgent作成
 	prompts := config.LoadPrompts("", "")

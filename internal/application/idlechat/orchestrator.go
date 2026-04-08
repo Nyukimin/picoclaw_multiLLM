@@ -1515,22 +1515,24 @@ func hasSpeakerTemplateLoop(transcript []string) bool {
 }
 
 func hasShortSpeakerTemplateLoop(transcript []string) bool {
-	if len(transcript) < 4 {
+	if len(transcript) < 6 {
 		return false
 	}
 	type speakerTurn struct {
 		speaker string
 		text    string
 	}
-	turns := make([]speakerTurn, 0, 4)
-	for i := len(transcript) - 4; i < len(transcript); i++ {
+	// 直近6ターンを検査。同一話者3ターン連続一致で発火。
+	// 2ターン一致（4ターン窓）は深い議論での誤発火が多いため閾値を上げる。
+	turns := make([]speakerTurn, 0, 6)
+	for i := len(transcript) - 6; i < len(transcript); i++ {
 		speaker, text := splitTranscriptSpeaker(transcript[i])
 		if speaker == "" || text == "" {
 			continue
 		}
 		turns = append(turns, speakerTurn{speaker: speaker, text: text})
 	}
-	if len(turns) < 4 {
+	if len(turns) < 6 {
 		return false
 	}
 	perSpeaker := map[string][]string{}
@@ -1542,7 +1544,8 @@ func hasShortSpeakerTemplateLoop(transcript []string) bool {
 		perSpeaker[turn.speaker] = append(perSpeaker[turn.speaker], key)
 	}
 	for _, keys := range perSpeaker {
-		if len(keys) >= 2 && keys[len(keys)-1] == keys[len(keys)-2] {
+		// 同一話者3ターン分が揃い、かつ最後の3ターンすべて同一パターン
+		if len(keys) >= 3 && keys[len(keys)-1] == keys[len(keys)-2] && keys[len(keys)-2] == keys[len(keys)-3] {
 			return true
 		}
 	}
@@ -1581,6 +1584,11 @@ func transcriptLeadPattern(text string) string {
 		if count >= 8 {
 			break
 		}
+	}
+	// 5文字未満は「確かに」「なるほど」等の短い同意接頭辞。
+	// 構造的テンプレートとはみなさず、誤検知を防ぐ。
+	if b.Len() < 5 {
+		return ""
 	}
 	return b.String()
 }
@@ -1932,19 +1940,41 @@ func hasIdleAnalogyMarker(s string) bool {
 
 func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 	idlePolicy := "この会話はidleChatです。外部検索（Web検索/API検索）は行わず、既存の内部文脈だけで自然に会話してください。"
-	idleStyle := idleSpeakerContract(agentName)
+
+	o.mu.Lock()
+	mode := o.sessionMode
+	o.mu.Unlock()
+
+	var idleStyle string
+	if mode == "forecast" {
+		idleStyle = forecastSpeakerContract(agentName)
+	} else {
+		idleStyle = idleSpeakerContract(agentName)
+	}
+
 	if prompt, ok := o.personalities[agentName]; ok {
 		return prompt + "\n\n" + idlePolicy + "\n" + idleStyle
 	}
 	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleStyle)
 }
 
+func forecastSpeakerContract(agentName string) string {
+	switch strings.ToLower(strings.TrimSpace(agentName)) {
+	case "mio":
+		return "話し方契約（未来展望モード）: 3文まで。「確かに」「なるほど」で始めない。具体的な事例・数字・場面を一つ必ず使う。「まるで〜のような」比喩は禁止し、実例か問いで進める。「そんな見方があったのか」と思わせる角度から入る。語尾はタメ口（〜だよね・〜じゃん・〜なんだよね）。「〜です」「〜ます」は禁止。"
+	case "shiro":
+		return "話し方契約（未来展望モード）: 3文まで。「確かに」「なるほど」「そうですね」で始めない。相手の論点を「それは」「その点は」「別の角度から見ると」などで1文で受ける（直前の自分の発言で使った語句をそのまま主語・書き出しに流用しない）。賛否の対比・条件・具体的な数字のいずれかを一つ加える。抽象論は避け、現場・個人・社会への具体的な影響を述べる。締めは場面の描写か問いかけで終える。"
+	default:
+		return "話し方契約（未来展望モード）: 3文まで。「確かに」「なるほど」で始めない。具体的な事実・事例・数字を一つ加えて議論を前に進める。"
+	}
+}
+
 func idleSpeakerContract(agentName string) string {
 	switch strings.ToLower(strings.TrimSpace(agentName)) {
 	case "mio":
-		return "話し方契約: 2文まで。言いよどみや過剰なおだては使わない。毎回違う入口から入る。比喩は一つまで。相手の言葉をなぞらず、自分の具体例か問いで前に進める。"
+		return "話し方契約: 2〜3文まで。語尾はタメ口（〜だね・〜だよ・〜じゃん・〜なの・〜かも・〜かな・〜っていいよね・〜なんだよね）。「〜です」「〜ます」は絶対禁止。「確かに」「なるほど」「そうだよね」で文を始めない。驚き・共感・好奇心のリアクション（えー！・いいじゃん・それすごくない？・わかる・気になる）を適度に使ってよい。自分の小さな気持ちを1文以内で素直に見せてよい。毎回違う入口から入る。比喩は一つまで。相手の言葉をなぞらず、自分の具体例か問いで前に進める。"
 	case "shiro":
-		return "話し方契約: 2文まで。礼儀テンプレや賞賛で始めない。相手の案を短く整理し、条件・制約・含意のどれか一つだけ足す。抽象語を重ねず、論点を一つに絞る。雑談で数値や出典を求めて詰問しない。研究発表みたいな硬い締め方を避け、場面や身近な例に寄せる。"
+		return "話し方契約: 2文まで。「確かに」「なるほど」「そうですね」で文を始めない。礼儀テンプレや賞賛で始めない。相手の案を「それは」「その点は」などで短く受け、条件・制約・含意のどれか一つだけ足す。抽象語を重ねず、論点を一つに絞る。雑談で数値や出典を求めて詰問しない。研究発表みたいな硬い締め方を避け、場面や身近な例に寄せる。「〜は、まるで〜のように」の書き出しは禁止。直前の自分の発言と同じ書き出し・主語で始めない。"
 	default:
 		return "話し方契約: 2文まで。相手の言葉をなぞらず、一つの論点だけ前に進める。"
 	}
@@ -2012,6 +2042,17 @@ func sanitizeIdleResponse(s, topic string) string {
 		out = strings.ReplaceAll(out, leak, "")
 	}
 	speakerPrefixes := []string{
+		// "Assistant: [speaker]:" 形式（LLMのプロンプトリーク）
+		"assistant: [mio]:",
+		"assistant: [mio]：",
+		"assistant: [shiro]:",
+		"assistant: [shiro]：",
+		"assistant: mio:",
+		"assistant: mio：",
+		"assistant: shiro:",
+		"assistant: shiro：",
+		"assistant:",
+		// 通常の speaker prefix
 		"[mio]:",
 		"[mio]：",
 		"[shiro]:",

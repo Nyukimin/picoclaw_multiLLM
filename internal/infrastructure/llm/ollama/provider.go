@@ -63,6 +63,7 @@ func (p *OllamaProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 		"prompt":     prompt,
 		"stream":     streaming,
 		"keep_alive": -1,
+		"think":      false, // thinking モデル（gemma4等）の思考タグ出力を抑制
 		"options": map[string]interface{}{
 			"temperature": req.Temperature,
 			"num_predict": req.MaxTokens,
@@ -289,12 +290,13 @@ func (p *OllamaProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 // --- Ollama /api/chat 用の内部型 ---
 
 type ollamaChatRequest struct {
-	Model     string             `json:"model"`
+	Model     string              `json:"model"`
 	Messages  []ollamaChatMessage `json:"messages"`
-	Tools     []ollamaToolDef    `json:"tools,omitempty"`
-	Stream    bool               `json:"stream"`
-	KeepAlive int                `json:"keep_alive"`
-	Options   *ollamaChatOptions `json:"options,omitempty"`
+	Tools     []ollamaToolDef     `json:"tools,omitempty"`
+	Stream    bool                `json:"stream"`
+	Think     bool                `json:"think"`
+	KeepAlive int                 `json:"keep_alive"`
+	Options   *ollamaChatOptions  `json:"options,omitempty"`
 }
 
 type ollamaChatOptions struct {

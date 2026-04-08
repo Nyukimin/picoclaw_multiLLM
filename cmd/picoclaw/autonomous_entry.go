@@ -33,6 +33,8 @@ type ttsPlayer interface {
 type ttsEntryRuntime struct {
 	synthesizer ttsSynthesizer
 	player      ttsPlayer
+	outputDir   string
+	voiceID     string
 }
 
 func (r ttsEntryRuntime) configured() bool {
@@ -194,6 +196,8 @@ func buildTTSEntryRuntime(cfg *config.Config) ttsEntryRuntime {
 	return ttsEntryRuntime{
 		synthesizer: ttsinfra.NewFallbackSynthesizer(providers...),
 		player:      ttsinfra.NewCommandPlayer(cmds),
+		outputDir:   cfg.TTS.OutputDir,
+		voiceID:     cfg.TTS.SBV2.VoiceID,
 	}
 }
 
@@ -222,7 +226,14 @@ func (a *ttsEntryApplier) Apply(ctx context.Context, step autonomousapp.Step) er
 		if text == "" {
 			text = strings.TrimSpace(a.req.Message)
 		}
-		out, err := a.runtime.synthesizer.Synthesize(ctx, ttsinfra.SynthesisInput{Text: text})
+		out, err := a.runtime.synthesizer.Synthesize(ctx, ttsinfra.SynthesisInput{
+			Text:       text,
+			OutputDir:  a.runtime.outputDir,
+			FilePrefix: "entry-tts",
+			VoiceProfile: ttsinfra.VoiceProfile{
+				VoiceID: a.runtime.voiceID,
+			},
+		})
 		if err != nil {
 			a.errKind = "synthesize"
 			return err

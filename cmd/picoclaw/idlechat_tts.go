@@ -135,7 +135,7 @@ func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEve
 			defer close(done)
 			// Non-topic lines wait until the topic TTS closes its gate for this idle session.
 			waitIdleChatTopicGate(ev.SessionID)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			ttsCh, ok := emitIdleChatTTS(ctx, bridge, ev)
 			if ok && ttsCh != nil {

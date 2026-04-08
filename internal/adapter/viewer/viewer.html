@@ -55,6 +55,7 @@ main{flex:1;overflow-y:auto;padding:14px 0 calc(116px + var(--safe-bottom))}
 .state-running{background:rgba(34,211,238,.15);color:var(--shiro)}
 .state-error{background:rgba(248,113,113,.15);color:var(--err)}
 .state-offline{background:rgba(148,163,184,.15);color:var(--t2)}
+.state-unavailable{background:rgba(244,114,182,.14);color:#f472b6}
 
 .table-wrap{overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:10px}
 table{width:100%;border-collapse:collapse;font-size:12px;min-width:780px}
@@ -140,6 +141,11 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 
 .thinking .mc{background:rgba(244,114,182,.04);border-color:rgba(244,114,182,.12);color:var(--t2);font-style:italic}
 .thinking .mc::before{content:'\u{1f4ad} ';font-style:normal}
+@keyframes dotPulse{0%,80%,100%{opacity:.2}40%{opacity:1}}
+.thinking .mc .dots{display:inline-flex;gap:4px;vertical-align:middle;margin-left:2px}
+.thinking .mc .dots span{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;animation:dotPulse 1.4s infinite}
+.thinking .mc .dots span:nth-child(2){animation-delay:.2s}
+.thinking .mc .dots span:nth-child(3){animation-delay:.4s}
 
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;color:var(--t3);text-align:center;gap:6px}
 .empty-icon{margin-bottom:10px}
@@ -297,7 +303,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     <div class="grid" id="agentCards"></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Agent</th><th>State</th><th>Route</th><th>Last Event</th><th>Peer</th><th>Job</th><th>Updated</th><th>Preview</th></tr></thead>
+        <thead><tr><th>Agent</th><th>State</th><th>Reason</th><th>Route</th><th>Last Event</th><th>Peer</th><th>Job</th><th>Updated</th><th>Preview</th></tr></thead>
         <tbody id="overviewBody"></tbody>
       </table>
     </div>
@@ -545,7 +551,7 @@ function short(s, n) {
   return v.length > n ? v.slice(0, n) + '...' : v;
 }
 function normState(s) {
-  if (s === 'idle' || s === 'thinking' || s === 'running' || s === 'error' || s === 'offline') return s;
+  if (s === 'idle' || s === 'thinking' || s === 'running' || s === 'error' || s === 'offline' || s === 'unavailable') return s;
   return 'idle';
 }
 function fmt(s) {
@@ -621,6 +627,7 @@ AGENTS.forEach((id) => {
   state.agents[id] = {
     id,
     state: 'offline',
+    reason: '',
     route: '-',
     lastEvent: '-',
     peer: '-',
@@ -1060,9 +1067,9 @@ function addMsgToTimeline(ev) {
   if (em) em.remove();
 
   if (ev.type === 'routing.decision') return;
+  if (ev.type === 'agent.start') { addThinkingStart(ev); return; }
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.response') { removeThinking(ev.job_id); }
-  if (ev.type === 'agent.start') return;
   if (ev.type === 'agent.response' && (ev.to || '').toLowerCase() !== 'user') return;
   if (ev.type === 'agent.note' && (ev.to || '').toLowerCase() !== 'user') return;
   if (ev.type === 'message.received' && (ev.from || '').toLowerCase() !== 'user') return;
@@ -1086,6 +1093,29 @@ function addMsgToTimeline(ev) {
   bump();
 }
 
+function addThinkingStart(ev) {
+  if (!matchesFilters(ev)) return;
+  const jid = ev.job_id || '_';
+  if (thinkingBubbles[jid]) return;
+  const f = ag(ev.from);
+  const el = document.createElement('div');
+  el.className = 'msg thinking';
+  const textEl = document.createElement('div');
+  textEl.className = 'mc';
+  textEl.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+  el.innerHTML =
+    '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+    '<div class="mb"><div class="mh">' +
+      '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
+      '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
+    '</div></div>';
+  el.querySelector('.mb').appendChild(textEl);
+  chat.appendChild(el);
+  trimTimelineNodes();
+  thinkingBubbles[jid] = {el: el, textEl: textEl, raw: '', waiting: true};
+  scrollToBottom();
+}
+
 function addThinking(ev) {
   if (!matchesFilters(ev)) return;
   const jid = ev.job_id || '_';
@@ -1105,8 +1135,12 @@ function addThinking(ev) {
     el.querySelector('.mb').appendChild(textEl);
     chat.appendChild(el);
     trimTimelineNodes();
-    b = {el: el, textEl: textEl, raw: ''};
+    b = {el: el, textEl: textEl, raw: '', waiting: false};
     thinkingBubbles[jid] = b;
+  }
+  if (b.waiting) {
+    b.waiting = false;
+    b.textEl.innerHTML = '';
   }
   b.raw += normalizeViewerDisplayText(ev.content || '');
   b.textEl.textContent = b.raw;
@@ -1302,6 +1336,32 @@ function touchAgent(agentID, patch) {
   Object.assign(state.agents[agentID], patch);
 }
 
+function applyMonitorStatusSnapshot(payload) {
+  const status = payload && payload.status ? payload.status : payload;
+  if (!status) return;
+  const items = [];
+  if (status.chat) items.push(status.chat);
+  if (status.worker) items.push(status.worker);
+  if (status.coders && Array.isArray(status.coders.items)) {
+    status.coders.items.forEach((item) => items.push(item));
+  }
+  items.forEach((item) => {
+    const id = String(item.id || item.agent_id || '').toLowerCase();
+    if (!AGENTS.includes(id)) return;
+    touchAgent(id, {
+      state: item.state || item.status || state.agents[id].state,
+      reason: item.reason || '',
+      route: item.route || '-',
+      lastEvent: item.last_event || '-',
+      preview: item.preview || '-',
+      updatedAt: item.updated_at || '',
+      jobID: item.job_id || '-',
+    });
+  });
+  renderOverview();
+  renderProgress();
+}
+
 function addOpenTask(owner, ev) {
   if (!AGENTS.includes(owner)) return;
   const jid = ev.job_id || '';
@@ -1337,7 +1397,7 @@ function updateAgents(ev) {
     return;
   }
   if (ev.type === 'routing.decision') {
-    touchAgent('mio', {state: 'running', route, lastEvent: ev.type, peer: '-', preview: short(ev.content, 80), updatedAt: ts, jobID: jid});
+    touchAgent('mio', {state: 'running', reason: '', route, lastEvent: ev.type, peer: '-', preview: short(ev.content, 80), updatedAt: ts, jobID: jid});
     return;
   }
 
@@ -1353,6 +1413,7 @@ function updateAgents(ev) {
     }
     touchAgent(from, {
       state: s,
+      reason: '',
       route,
       lastEvent: ev.type,
       peer: to || '-',
@@ -1366,6 +1427,7 @@ function updateAgents(ev) {
     addOpenTask(to, ev);
     touchAgent(to, {
       state: 'running',
+      reason: '',
       route,
       lastEvent: ev.type,
       peer: from || '-',
@@ -1380,6 +1442,7 @@ function updateAgents(ev) {
   if (ev.type === 'agent.response' && to === 'mio') {
     touchAgent('mio', {
       state: 'idle',
+      reason: '',
       route,
       lastEvent: ev.type,
       peer: from || '-',
@@ -1404,6 +1467,7 @@ function renderOverview() {
     card.innerHTML =
       '<h4>' + info.e + ' ' + info.l + '</h4>' +
       '<div class="row"><span>State</span><span class="badge ' + stateClass(s.state) + '">' + esc(s.state) + '</span></div>' +
+      '<div class="row"><span>Reason</span><span>' + esc(s.reason || '-') + '</span></div>' +
       '<div class="row"><span>Route</span><span>' + esc(s.route || '-') + '</span></div>' +
       '<div class="row"><span>Open</span><span>' + esc(String(Object.keys(state.openTasks[id] || {}).length)) + '</span></div>' +
       '<div class="row"><span>Job</span><span class="code">' + esc(s.jobID || '-') + '</span></div>' +
@@ -1414,6 +1478,7 @@ function renderOverview() {
     tr.innerHTML =
       '<td>' + info.e + ' ' + info.l + '</td>' +
       '<td><span class="badge ' + stateClass(s.state) + '">' + esc(s.state) + '</span></td>' +
+      '<td>' + esc(s.reason || '-') + '</td>' +
       '<td>' + esc(s.route || '-') + '</td>' +
       '<td>' + esc(s.lastEvent || '-') + '</td>' +
       '<td>' + esc(agName(s.peer || '-')) + '</td>' +
@@ -2283,6 +2348,7 @@ function degradeOfflineStates() {
   AGENTS.forEach((id) => {
     const s = state.agents[id];
     if (!s.updatedAt) return;
+    if (s.state === 'unavailable') return;
     const diff = now - Date.parse(s.updatedAt);
     if (diff > OFFLINE_MS && s.state !== 'offline') s.state = 'offline';
   });
@@ -2290,6 +2356,16 @@ function degradeOfflineStates() {
   renderProgress();
 }
 setInterval(degradeOfflineStates, 5000);
+
+function refreshViewerStatus() {
+  fetch('/viewer/status')
+    .then((r) => {
+      if (!r.ok) throw new Error('viewer status fetch failed');
+      return r.json();
+    })
+    .then((payload) => applyMonitorStatusSnapshot(payload))
+    .catch((err) => console.error(err));
+}
 
 function ingestEvent(ev) {
   const key = eventKey(ev);
@@ -2387,6 +2463,7 @@ function enqueueTTSAudio(url, characterId) {
 
 function playNextTTSAudio() {
   if (ttsPlayback.playing) return;
+  if (ttsPlayback.blocked) return;
   if (ttsPlayback.queue.length === 0) return;
   const next = ttsPlayback.queue.shift();
   const audio = ensureTTSAudio();
@@ -2484,11 +2561,13 @@ initEvidenceFromQuery();
 refreshOpsData();
 refreshEvidence();
 refreshEvidenceSummary();
+refreshViewerStatus();
 setInterval(() => {
   if (!derivedDirty) return;
   refreshDerivedViews();
   derivedDirty = false;
 }, 500);
+setInterval(refreshViewerStatus, 5000);
 setInterval(refreshIdleStatus, 3000);
 setInterval(refreshIdleLogs, 5000);
 setInterval(refreshOpsData, 5000);

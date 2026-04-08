@@ -44,6 +44,7 @@ type ComponentSnapshot struct {
 	LastEvent string `json:"last_event,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 	Preview   string `json:"preview,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 type CodersSnapshot struct {
@@ -61,6 +62,7 @@ type AgentSnapshot struct {
 	SessionID  string `json:"session_id,omitempty"`
 	LastEvent  string `json:"last_event,omitempty"`
 	Preview    string `json:"preview,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 	UpdatedAt  string `json:"updated_at,omitempty"`
 	EventCount int    `json:"event_count,omitempty"`
 }
@@ -173,6 +175,20 @@ func (s *MonitorStore) Status() StatusSnapshot {
 			Items:     coders,
 		},
 	}
+}
+
+func (s *MonitorStore) SetAgentUnavailable(id, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.patchAgent(id, AgentSnapshot{
+		State:     "unavailable",
+		LastEvent: "agent.unavailable",
+		Preview:   shortText(reason, 120),
+		Reason:    shortText(reason, 160),
+		UpdatedAt: now,
+	})
 }
 
 func (s *MonitorStore) Agents() []AgentSnapshot {
@@ -327,6 +343,9 @@ func (s *MonitorStore) agentSnapshotLocked(id string, now time.Time) AgentSnapsh
 	if agent.UpdatedAt == "" {
 		return agent
 	}
+	if agent.State == "unavailable" {
+		return agent
+	}
 	ts, err := time.Parse(time.RFC3339, agent.UpdatedAt)
 	if err == nil && now.Sub(ts) > monitorOfflineAfter {
 		agent.State = "offline"
@@ -338,6 +357,17 @@ func (s *MonitorStore) reduceAgents(ev orchestrator.OrchestratorEvent) {
 	ts := ev.Timestamp
 	route := ev.Route
 	jid := ev.JobID
+
+	if ev.Type == "agent.unavailable" {
+		s.patchAgent(strings.ToLower(strings.TrimSpace(ev.From)), AgentSnapshot{
+			State:     "unavailable",
+			LastEvent: ev.Type,
+			Preview:   shortText(ev.Content, 80),
+			Reason:    shortText(ev.Content, 160),
+			UpdatedAt: ts,
+		})
+		return
+	}
 
 	if ev.Type == "message.received" || ev.Type == "routing.decision" {
 		s.patchAgent("mio", AgentSnapshot{
@@ -376,6 +406,7 @@ func (s *MonitorStore) reduceAgents(ev orchestrator.OrchestratorEvent) {
 			SessionID: ev.SessionID,
 			LastEvent: ev.Type,
 			Preview:   shortText(ev.Content, 80),
+			Reason:    "",
 			UpdatedAt: ts,
 		})
 	}
@@ -387,6 +418,7 @@ func (s *MonitorStore) reduceAgents(ev orchestrator.OrchestratorEvent) {
 			SessionID: ev.SessionID,
 			LastEvent: ev.Type,
 			Preview:   shortText(ev.Content, 80),
+			Reason:    "",
 			UpdatedAt: ts,
 		})
 	}
@@ -398,6 +430,7 @@ func (s *MonitorStore) reduceAgents(ev orchestrator.OrchestratorEvent) {
 			SessionID: ev.SessionID,
 			LastEvent: ev.Type,
 			Preview:   shortText(ev.Content, 80),
+			Reason:    "",
 			UpdatedAt: ts,
 		})
 	}
@@ -529,6 +562,9 @@ func (s *MonitorStore) patchAgent(id string, patch AgentSnapshot) {
 	if patch.Preview != "" {
 		cur.Preview = patch.Preview
 	}
+	if patch.Reason != "" || cur.State != patch.State {
+		cur.Reason = patch.Reason
+	}
 	if patch.UpdatedAt != "" {
 		cur.UpdatedAt = patch.UpdatedAt
 	}
@@ -595,6 +631,10 @@ func summarizeCoderState(items []AgentSnapshot) string {
 		switch item.State {
 		case "error":
 			return "error"
+		case "unavailable":
+			if status != "running" {
+				status = "degraded"
+			}
 		case "thinking", "running":
 			status = "running"
 		case "offline":
@@ -615,6 +655,7 @@ func componentFromAgent(agent AgentSnapshot) ComponentSnapshot {
 		LastEvent: agent.LastEvent,
 		UpdatedAt: agent.UpdatedAt,
 		Preview:   agent.Preview,
+		Reason:    agent.Reason,
 	}
 }
 
