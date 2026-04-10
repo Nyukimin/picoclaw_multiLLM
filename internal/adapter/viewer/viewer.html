@@ -479,6 +479,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
   <div class="input-wrap">
     <div class="input-main">
       <button class="audio-btn" id="audioBtn" type="button" title="音声を有効化">🔊</button>
+      <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
       <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
       <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
     </div>
@@ -2390,9 +2391,14 @@ function handleTTSAudioEvent(ev) {
   } catch (_) {
     return;
   }
-  const url = String(payload.audio_url || '').trim();
+  let url = String(payload.audio_url || '').trim();
   const characterId = String(payload.character_id || '').trim().toLowerCase();
   if (!url) return;
+
+  // Rewrite HTTP audio URLs to HTTPS proxy paths
+  url = url.replace('http://192.168.1.36:8765/audio/', '/tts-audio-8765/');
+  url = url.replace('http://192.168.1.36:8766/audio/', '/tts-audio-8766/');
+
   enqueueTTSAudio(url, characterId);
 }
 
@@ -2574,6 +2580,193 @@ setInterval(refreshOpsData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
 connect();
+
+// === STT (Speech-to-Text) via voice-bridge ===
+const sttState = {
+  ws: null,
+  audioContext: null,
+  audioStream: null,
+  scriptNode: null,
+  isRecording: false,
+  draftBuffer: [],        // Recent window for draft (1 second)
+  draftTimer: null,
+  voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt-ws`
+};
+
+const micBtn = document.getElementById('micBtn');
+if (micBtn) {
+  micBtn.addEventListener('click', toggleSTT);
+}
+
+async function toggleSTT() {
+  if (sttState.isRecording) {
+    stopSTT();
+  } else {
+    await startSTT();
+  }
+}
+
+async function startSTT() {
+  try {
+    sttState.audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true
+      }
+    });
+    sttState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const source = sttState.audioContext.createMediaStreamSource(sttState.audioStream);
+
+    // ScriptProcessor for PCM capture
+    sttState.scriptNode = sttState.audioContext.createScriptProcessor(4096, 1, 1);
+    source.connect(sttState.scriptNode);
+    sttState.scriptNode.connect(sttState.audioContext.destination);
+
+    sttState.scriptNode.onaudioprocess = (e) => {
+      if (!sttState.isRecording) return;
+      const pcm = e.inputBuffer.getChannelData(0);
+      const pcm16 = new Int16Array(pcm.length);
+      for (let i = 0; i < pcm.length; i++) {
+        pcm16[i] = Math.max(-32768, Math.min(32767, Math.floor(pcm[i] * 32768)));
+      }
+      sttState.draftBuffer.push(...pcm16);
+      // Keep draft buffer to recent 1 second
+      const maxDraftSamples = 16000;
+      if (sttState.draftBuffer.length > maxDraftSamples) {
+        sttState.draftBuffer = sttState.draftBuffer.slice(-maxDraftSamples);
+      }
+    };
+
+    // Connect to voice-bridge
+    sttState.ws = new WebSocket(sttState.voiceBridgeURL);
+
+    sttState.ws.onopen = () => {
+      console.log('[STT] Connected - server-side VAD mode');
+      sttState.ws.send(JSON.stringify({ type: 'config', mimeType: 'audio/wav' }));
+      sttState.isRecording = true;
+      micBtn.classList.add('ready');
+      micBtn.title = '音声入力中（クリックで停止）';
+
+      // Draft sending loop (500ms) - server handles VAD and final detection
+      const draftInterval = setInterval(() => {
+        if (!sttState.isRecording) {
+          clearInterval(draftInterval);
+          return;
+        }
+        sendDraft();
+      }, 500);
+
+      sttState.draftTimer = () => {
+        clearInterval(draftInterval);
+      };
+    };
+
+    sttState.ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const inp = document.getElementById('inp');
+        if (msg.type === 'draft' && msg.text) {
+          console.log('[STT] Draft:', msg.text);
+        } else if (msg.type === 'final' && msg.text) {
+          console.log('[STT] Final:', msg.text);
+          if (inp) {
+            inp.value = (inp.value + ' ' + msg.text).trim();
+            inp.focus();
+          }
+          // Clear buffer for next utterance (server-side VAD detected end)
+          sttState.draftBuffer = [];
+        } else if (msg.type === 'reply_reset') {
+          console.log('[STT] LLM reply starting...');
+        } else if (msg.type === 'reply_delta' && msg.text) {
+          console.log('[STT] LLM reply:', msg.text);
+        } else if (msg.type === 'error') {
+          console.error('[STT] Error:', msg.error);
+          showToast('認識エラー', 'error');
+        }
+      } catch (err) {
+        console.error('[STT] Parse error:', err);
+      }
+    };
+
+    sttState.ws.onerror = () => stopSTT();
+    sttState.ws.onclose = () => stopSTT();
+
+  } catch (err) {
+    console.error('[STT] Failed:', err);
+    showToast('マイクアクセス拒否', 'error');
+    stopSTT();
+  }
+}
+
+function pcm16ToWav(pcmBuffer, sampleRate = 16000) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = pcmBuffer.length * 2;
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  // RIFF
+  view.setUint32(0, 0x52494646, false); // "RIFF"
+  view.setUint32(4, 36 + dataSize, true);
+  view.setUint32(8, 0x57415645, false); // "WAVE"
+  // fmt
+  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  // data
+  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(40, dataSize, true);
+
+  const wavBuffer = new ArrayBuffer(44 + dataSize);
+  new Uint8Array(wavBuffer).set(new Uint8Array(header), 0);
+  new Int16Array(wavBuffer, 44).set(pcmBuffer, 0);
+  return wavBuffer;
+}
+
+function sendDraft() {
+  if (sttState.draftBuffer.length < 8000 || !sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return;
+  const wav = pcm16ToWav(new Int16Array(sttState.draftBuffer));
+  sttState.ws.send(wav);
+  console.log('[STT] Sent:', sttState.draftBuffer.length, 'samples, WAV size:', wav.byteLength, 'bytes, WS state:', sttState.ws.readyState);
+}
+
+function stopSTT() {
+  console.log('[STT] Stopping');
+  sttState.isRecording = false;
+
+  if (sttState.draftTimer) sttState.draftTimer();
+
+  if (sttState.scriptNode) {
+    sttState.scriptNode.disconnect();
+    sttState.scriptNode = null;
+  }
+  if (sttState.audioContext) {
+    sttState.audioContext.close();
+    sttState.audioContext = null;
+  }
+  if (sttState.audioStream) {
+    sttState.audioStream.getTracks().forEach(t => t.stop());
+    sttState.audioStream = null;
+  }
+  if (sttState.ws) {
+    sttState.ws.close();
+    sttState.ws = null;
+  }
+
+  sttState.draftBuffer = [];
+  if (micBtn) {
+    micBtn.classList.remove('ready');
+    micBtn.title = '音声入力';
+  }
+  console.log('[STT] Stopped');
+}
 </script>
 </body>
 </html>

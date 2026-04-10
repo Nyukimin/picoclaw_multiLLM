@@ -15,6 +15,7 @@ docs/
 ├── 04_実装仕様_機能拡張/            # v4 以降の機能別実装仕様
 ├── 06_実装ガイド進行管理/           # 実装手順・進行記録
 ├── 07_IdleChat仕様/                 # IdleChat サブシステム仕様
+├── STT_TTS/                        # 音声入出力ドキュメント（STT/TTS/共通）
 ├── LLM運用/                        # LLM 別運用仕様
 ├── tooling/                        # ツール開発ガイド
 └── archive/                        # 旧仕様（読み取り専用）
@@ -302,6 +303,18 @@ IdleChat のストーリーモード実装仕様。8ステップパイプライ�
 | 20260309_OpenClaw移植_runbook.md | OpenClaw移植の実機検証手順（E2E実再生完了判定） |
 | 20260317_idlechat_story_tuning_memo.md | IdleChat ストーリーモード調整メモ |
 | 20260321_ストーリーモード_仕様と実装状況.md | ストーリーモード仕様と実装状況の照合 |
+
+### 5.5 STT_TTS/
+
+音声入出力ドキュメントの集約ディレクトリ。`STT` / `TTS` / `COMMON` の3区分で管理する。
+
+| 区分 | 内容 | 代表ファイル |
+|------|------|-------------|
+| STT | Whisper/voice-bridge の仕様・実装状況 | `STT/STT仕様.md`, `STT/STT_実装状況.md` |
+| TTS | SBV2 等の TTS 契約・運用 | `TTS/12_SBV2_TTS_現状仕様.md` |
+| COMMON | STT/TTS 共通方針・移行・CORS | `COMMON/STT_TTS_接続基本事項.md` |
+
+導線: `STT_TTS/README.md`
 
 ---
 
