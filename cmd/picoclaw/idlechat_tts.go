@@ -16,7 +16,7 @@ import (
 
 const (
 	idleChatRoute            = "IDLECHAT"
-	idleChatDefaultVoiceID   = "female_01"
+	idleChatDefaultVoiceID   = "mio"
 	idleChatDefaultVoiceProf = "lumina_female"
 	idleChatMaleVoiceID      = "male_01"
 	idleChatMaleVoiceProf    = "lumina_male"

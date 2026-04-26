@@ -124,7 +124,7 @@ func TestIdleChatVoiceForSpeaker(t *testing.T) {
 		t.Fatalf("unexpected shiro voice mapping: %q %q", voiceID, voiceProfile)
 	}
 	voiceID, voiceProfile = idleChatVoiceForSpeaker("mio")
-	if voiceID != "female_01" || voiceProfile != "lumina_female" {
+	if voiceID != "mio" || voiceProfile != "lumina_female" {
 		t.Fatalf("unexpected mio voice mapping: %q %q", voiceID, voiceProfile)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -111,6 +112,10 @@ type ttsStreamForwarder struct {
 	logPrefix    string
 	pending      strings.Builder
 	emitted      bool
+	queue        chan string
+	wg           sync.WaitGroup
+	mu           sync.Mutex
+	closed       bool
 }
 
 func newTTSStreamForwarder(bridge TTSBridge, sessionID string, route routing.Route, eventType, logPrefix string) *ttsStreamForwarder {
@@ -118,7 +123,7 @@ func newTTSStreamForwarder(bridge TTSBridge, sessionID string, route routing.Rou
 		return nil
 	}
 	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
-	return &ttsStreamForwarder{
+	f := &ttsStreamForwarder{
 		bridge:       bridge,
 		sessionID:    sessionID,
 		route:        route,
@@ -126,7 +131,28 @@ func newTTSStreamForwarder(bridge TTSBridge, sessionID string, route routing.Rou
 		ttsCtx:       buildTTSContext(route, "normal", false),
 		voiceProfile: voiceProfile,
 		logPrefix:    logPrefix,
+		queue:        make(chan string, 32),
 	}
+	f.wg.Add(1)
+	go f.run()
+	return f
+}
+
+func (f *ttsStreamForwarder) run() {
+	defer f.wg.Done()
+	for text := range f.queue {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		f.pushChunk(ctx, text)
+		cancel()
+	}
+}
+
+func (f *ttsStreamForwarder) pushChunk(ctx context.Context, text string) {
+	filtered, emotion := buildTTSPayload(f.eventType, f.route, text, f.ttsCtx, f.voiceProfile)
+	if filtered == "" {
+		return
+	}
+	pushTTS(ctx, f.bridge, f.sessionID, filtered, emotion, f.logPrefix)
 }
 
 func (f *ttsStreamForwarder) OnToken(ctx context.Context, token string) {
@@ -149,6 +175,7 @@ func (f *ttsStreamForwarder) Finalize(ctx context.Context, finalText string) {
 	if f == nil {
 		return
 	}
+	defer f.closeAndDrain()
 	if f.emitted {
 		chunk, _, ok := nextTTSChunk(f.pending.String(), true)
 		if ok {
@@ -161,13 +188,29 @@ func (f *ttsStreamForwarder) Finalize(ctx context.Context, finalText string) {
 	f.emit(ctx, finalText)
 }
 
-func (f *ttsStreamForwarder) emit(ctx context.Context, text string) {
-	filtered, emotion := buildTTSPayload(f.eventType, f.route, text, f.ttsCtx, f.voiceProfile)
-	if filtered == "" {
+func (f *ttsStreamForwarder) emit(_ context.Context, text string) {
+	if strings.TrimSpace(text) == "" {
 		return
 	}
-	pushTTS(ctx, f.bridge, f.sessionID, filtered, emotion, f.logPrefix)
+	f.mu.Lock()
+	closed := f.closed
+	q := f.queue
+	f.mu.Unlock()
+	if closed || q == nil {
+		return
+	}
+	q <- text
 	f.emitted = true
+}
+
+func (f *ttsStreamForwarder) closeAndDrain() {
+	f.mu.Lock()
+	if !f.closed && f.queue != nil {
+		close(f.queue)
+		f.closed = true
+	}
+	f.mu.Unlock()
+	f.wg.Wait()
 }
 
 func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {

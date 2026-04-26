@@ -9,7 +9,7 @@ import (
 
 func TestBuildTTSClientBridge_Disabled(t *testing.T) {
 	cfg := &config.Config{}
-	if got := buildTTSClientBridge(cfg, nil); got != nil {
+	if got := buildTTSClientBridge(cfg, nil, nil, nil); got != nil {
 		t.Fatal("expected nil bridge when tts is disabled")
 	}
 }
@@ -23,7 +23,7 @@ func TestBuildTTSClientBridge_Enabled(t *testing.T) {
 			TimeoutMS:   15000,
 		},
 	}
-	if got := buildTTSClientBridge(cfg, nil); got == nil {
+	if got := buildTTSClientBridge(cfg, nil, nil, nil); got == nil {
 		t.Fatal("expected non-nil bridge when tts is enabled")
 	}
 }
@@ -37,7 +37,7 @@ func TestBuildTTSClientBridge_UsesRenCrowBridge(t *testing.T) {
 			TimeoutMS:   15000,
 		},
 	}
-	got := buildTTSClientBridge(cfg, nil)
+	got := buildTTSClientBridge(cfg, nil, nil, nil)
 	if got == nil {
 		t.Fatal("expected non-nil bridge")
 	}
@@ -56,7 +56,7 @@ func TestBuildTTSClientBridge_WithoutPlaybackCommands(t *testing.T) {
 		},
 	}
 
-	got := buildTTSClientBridge(cfg, nil)
+	got := buildTTSClientBridge(cfg, nil, nil, nil)
 	if got == nil {
 		t.Fatal("expected non-nil bridge")
 	}

@@ -21,11 +21,49 @@ var viewerFS embed.FS
 //go:embed rencrow-logo.png
 var logoData []byte
 
+//go:embed mio-lipsync-closed.svg
+var mioLipSyncClosedData []byte
+
+//go:embed mio-lipsync-open.svg
+var mioLipSyncOpenData []byte
+
+//go:embed shiro-lipsync-closed.svg
+var shiroLipSyncClosedData []byte
+
+//go:embed shiro-lipsync-open.svg
+var shiroLipSyncOpenData []byte
+
 // HandleLogo serves the RenCrow logo image.
 func HandleLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(logoData)
+}
+
+// HandleMioLipSyncClosed serves Mio closed-mouth SVG.
+func HandleMioLipSyncClosed(w http.ResponseWriter, r *http.Request) {
+	serveEmbeddedSVG(w, mioLipSyncClosedData)
+}
+
+// HandleMioLipSyncOpen serves Mio open-mouth SVG.
+func HandleMioLipSyncOpen(w http.ResponseWriter, r *http.Request) {
+	serveEmbeddedSVG(w, mioLipSyncOpenData)
+}
+
+// HandleShiroLipSyncClosed serves Shiro closed-mouth SVG.
+func HandleShiroLipSyncClosed(w http.ResponseWriter, r *http.Request) {
+	serveEmbeddedSVG(w, shiroLipSyncClosedData)
+}
+
+// HandleShiroLipSyncOpen serves Shiro open-mouth SVG.
+func HandleShiroLipSyncOpen(w http.ResponseWriter, r *http.Request) {
+	serveEmbeddedSVG(w, shiroLipSyncOpenData)
+}
+
+func serveEmbeddedSVG(w http.ResponseWriter, data []byte) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(data)
 }
 
 // HandleSSE streams orchestrator events to the client via Server-Sent Events.

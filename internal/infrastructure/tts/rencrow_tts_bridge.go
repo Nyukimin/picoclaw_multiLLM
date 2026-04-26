@@ -43,12 +43,13 @@ type RenCrowTTSBridgeConfig struct {
 	RequestTimeout     time.Duration
 	ProviderParams     map[string]any
 	Sink               AudioSink
-	OnChunkReady       func(sessionID string, chunkIndex int, characterID, text, audioPath, audioURL string)
-	OnSessionCompleted func(sessionID string)
+	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string)
+	OnSessionCompleted func(sessionID, characterID string)
 }
 
 type renCrowTTSSession struct {
 	characterID string
+	responseID  string
 	voiceID     string
 	nextChunk   int
 }
@@ -88,6 +89,7 @@ func (b *RenCrowTTSBridge) StartSession(_ context.Context, req orchestrator.TTSS
 	b.mu.Lock()
 	b.sessions[req.SessionID] = &renCrowTTSSession{
 		characterID: strings.TrimSpace(req.CharacterID),
+		responseID:  strings.TrimSpace(req.ResponseID),
 		voiceID:     chooseNonEmpty(req.VoiceID, b.cfg.VoiceID),
 		nextChunk:   0,
 	}
@@ -107,6 +109,7 @@ func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text 
 
 	session := b.getOrCreateSession(sessionID)
 	characterID := session.characterID
+	responseID := session.responseID
 	voiceID := chooseNonEmpty(session.voiceID, b.cfg.VoiceID)
 
 	payload := map[string]any{
@@ -164,7 +167,7 @@ func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text 
 	session.nextChunk++
 
 	if b.cfg.OnChunkReady != nil {
-		b.cfg.OnChunkReady(sessionID, ch.ChunkIndex, characterID, text, ch.AudioPath, ch.AudioURL)
+		b.cfg.OnChunkReady(sessionID, responseID, ch.ChunkIndex, characterID, text, ch.AudioPath, ch.AudioURL)
 	}
 	if b.cfg.Sink != nil {
 		if err := b.cfg.Sink.SubmitChunk(ctx, sessionID, ch); err != nil {
@@ -178,7 +181,11 @@ func (b *RenCrowTTSBridge) EndSession(ctx context.Context, sessionID string) err
 	if b == nil {
 		return nil
 	}
+	var characterID string
 	b.mu.Lock()
+	if session, ok := b.sessions[sessionID]; ok && session != nil {
+		characterID = strings.TrimSpace(session.characterID)
+	}
 	delete(b.sessions, sessionID)
 	b.mu.Unlock()
 	if b.cfg.Sink != nil {
@@ -187,7 +194,7 @@ func (b *RenCrowTTSBridge) EndSession(ctx context.Context, sessionID string) err
 		}
 	}
 	if b.cfg.OnSessionCompleted != nil {
-		b.cfg.OnSessionCompleted(sessionID)
+		b.cfg.OnSessionCompleted(sessionID, characterID)
 	}
 	return nil
 }
@@ -441,6 +448,12 @@ func (b *RenCrowTTSBridge) postSynthesisWithRetry(ctx context.Context, reqBody [
 
 		resp, err := b.client.Do(req)
 		if err != nil {
+			if shouldRetryTransportError(err, attempt) {
+				if sleepErr := sleepWithContext(ctx, backoffForAttempt(attempt)); sleepErr != nil {
+					return nil, fmt.Errorf("/synthesis retry cancelled: %w", sleepErr)
+				}
+				continue
+			}
 			return nil, fmt.Errorf("/synthesis request failed: %w", err)
 		}
 
@@ -465,6 +478,20 @@ func (b *RenCrowTTSBridge) postSynthesisWithRetry(ctx context.Context, reqBody [
 		}
 		return nil, fmt.Errorf("/synthesis failed status=%d code=%s message=%s", resp.StatusCode, code, message)
 	}
+}
+
+func shouldRetryTransportError(err error, attempt int) bool {
+	if attempt >= 2 || err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "" {
+		return false
+	}
+	return strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "client.timeout exceeded") ||
+		strings.Contains(msg, "timeout")
 }
 
 func parseBoolLike(v string) (bool, bool) {

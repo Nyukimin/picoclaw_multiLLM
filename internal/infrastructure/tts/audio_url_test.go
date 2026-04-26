@@ -25,3 +25,19 @@ func TestResolveAudioURL_AbsolutePreferred(t *testing.T) {
 		t.Fatalf("unexpected url: got=%q want=%q", got, want)
 	}
 }
+
+func TestResolveAudioURL_FromInternalCachePath(t *testing.T) {
+	got := resolveAudioURL("http://192.168.1.33:8765", `cache-a\oneshot-1_000.wav`, "")
+	want := "http://192.168.1.33:8765/audio/oneshot-1_000.wav"
+	if got != want {
+		t.Fatalf("unexpected url: got=%q want=%q", got, want)
+	}
+}
+
+func TestResolveAudioURL_RewriteAbsoluteInternalCachePath(t *testing.T) {
+	got := resolveAudioURL("http://192.168.1.33:8765", "", "http://192.168.1.33:8765/cache-b/oneshot-2_000.wav")
+	want := "http://192.168.1.33:8765/audio/oneshot-2_000.wav"
+	if got != want {
+		t.Fatalf("unexpected url: got=%q want=%q", got, want)
+	}
+}

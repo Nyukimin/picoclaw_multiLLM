@@ -179,6 +179,10 @@ func cmdRun() {
 	sttProviderURL := inferSTTProviderURL(cfg.TTS.HTTPBaseURL, os.Getenv("STT_PROVIDER_URL"))
 	mux.HandleFunc("/viewer", viewer.HandlePage)
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
+	mux.HandleFunc("/viewer/mio-lipsync-closed.svg", viewer.HandleMioLipSyncClosed)
+	mux.HandleFunc("/viewer/mio-lipsync-open.svg", viewer.HandleMioLipSyncOpen)
+	mux.HandleFunc("/viewer/shiro-lipsync-closed.svg", viewer.HandleShiroLipSyncClosed)
+	mux.HandleFunc("/viewer/shiro-lipsync-open.svg", viewer.HandleShiroLipSyncOpen)
 	mux.HandleFunc("/viewer/tts/audio", handleLocalTTSAudio(cfg.TTS.OutputDir))
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
@@ -2317,12 +2321,26 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
 	ttsRuntime := buildTTSEntryRuntime(cfg)
-	ttsBridge := buildTTSClientBridge(cfg, func(ev orchestrator.OrchestratorEvent) {
+	vtuberBridge := buildVTuberBridge(cfg)
+	lipSync := newTTSVTuberLipSync(vtuberBridge)
+	ttsBridge := buildTTSClientBridge(
+		cfg,
+		func(ev orchestrator.OrchestratorEvent) {
 		if deps.eventRelay != nil {
 			deps.eventRelay.OnEvent(ev)
 		}
-	})
-	vtuberBridge := buildVTuberBridge(cfg)
+	},
+		func(sessionID, characterID, text string) {
+			if lipSync != nil {
+				lipSync.OnChunkReady(sessionID, characterID, text)
+			}
+		},
+		func(sessionID, characterID string) {
+			if lipSync != nil {
+				lipSync.OnSessionCompleted(sessionID, characterID)
+			}
+		},
+	)
 	if reportStore, err := executionpersistence.NewJSONLReportStore(reportPath); err != nil {
 		deps.monitorStore = viewer.NewMonitorStore(nil, deps.eventLogStore)
 		deps.eventRelay = &idleAwareEventListener{hub: hub, monitor: deps.monitorStore, archive: deps.eventLogStore}

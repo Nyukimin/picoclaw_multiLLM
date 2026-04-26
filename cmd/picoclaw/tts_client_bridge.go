@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -11,7 +12,12 @@ import (
 	ttsinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tts"
 )
 
-func buildTTSClientBridge(cfg *config.Config, onChunk func(ev orchestrator.OrchestratorEvent)) orchestrator.TTSBridge {
+func buildTTSClientBridge(
+	cfg *config.Config,
+	onChunk func(ev orchestrator.OrchestratorEvent),
+	onChunkReady func(sessionID, characterID, text string),
+	onSessionCompleted func(sessionID, characterID string),
+) orchestrator.TTSBridge {
 	if cfg == nil || !cfg.TTS.Enabled {
 		return nil
 	}
@@ -37,12 +43,17 @@ func buildTTSClientBridge(cfg *config.Config, onChunk func(ev orchestrator.Orche
 		RequestTimeout: time.Duration(cfg.TTS.TimeoutMS) * time.Millisecond,
 		ProviderParams: cfg.TTS.ProviderParams,
 		Sink:           sink,
-		OnChunkReady: func(sessionID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
+		OnChunkReady: func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
+			if onChunkReady != nil {
+				onChunkReady(sessionID, characterID, text)
+			}
 			if onChunk == nil {
 				return
 			}
 			payload, err := json.Marshal(map[string]any{
 				"session_id":   sessionID,
+				"response_id":  responseID,
+				"utterance_id": fmt.Sprintf("%s:%04d", sessionID, chunkIndex),
 				"chunk_index":  chunkIndex,
 				"character_id": characterID,
 				"text":         text,
@@ -65,8 +76,11 @@ func buildTTSClientBridge(cfg *config.Config, onChunk func(ev orchestrator.Orche
 				"viewer-user",
 			))
 		},
-		OnSessionCompleted: func(sessionID string) {
+		OnSessionCompleted: func(sessionID, characterID string) {
 			notifyIdleChatTTSCompleted(sessionID)
+			if onSessionCompleted != nil {
+				onSessionCompleted(sessionID, characterID)
+			}
 		},
 	})
 	log.Printf("TTS RenCrow bridge enabled (/synthesis base=%s)", cfg.TTS.HTTPBaseURL)
