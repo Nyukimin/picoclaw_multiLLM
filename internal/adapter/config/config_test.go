@@ -337,7 +337,8 @@ session:
 tts:
   enabled: true
   output_dir: "./workspace/tts"
-  http_base_url: "http://127.0.0.1:8765"
+  http_base_url: "https://127.0.0.1:8770"
+  tls_skip_verify: true
   timeout_ms: 15000
   voice_id: "female_01"
   provider_params:
@@ -376,8 +377,38 @@ tts:
 	if cfg.TTS.TimeoutMS != 15000 {
 		t.Fatalf("unexpected tts timeout: %d", cfg.TTS.TimeoutMS)
 	}
+	if !cfg.TTS.TLSSkipVerify {
+		t.Fatal("expected tts tls_skip_verify=true")
+	}
 	if cfg.TTS.ProviderParams["style"] != "Neutral" {
 		t.Fatalf("unexpected provider_params: %+v", cfg.TTS.ProviderParams)
+	}
+}
+
+func TestLoadConfig_TTSLocalHTTPSDefaultsToTLSSkipVerify(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "tts_local_https.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+tts:
+  enabled: true
+  http_base_url: "https://127.0.0.1:8770"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.TTS.TLSSkipVerify {
+		t.Fatal("expected tls_skip_verify to auto-enable for local https")
 	}
 }
 

@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -280,6 +282,7 @@ type TTSConfig struct {
 	OutputDir        string              `yaml:"output_dir"`
 	AudioPathRoot    string              `yaml:"audio_path_root"`
 	HTTPBaseURL      string              `yaml:"http_base_url"`
+	TLSSkipVerify    bool                `yaml:"tls_skip_verify"`
 	TimeoutMS        int                 `yaml:"timeout_ms"`
 	VoiceID          string              `yaml:"voice_id"`
 	ProviderParams   map[string]any      `yaml:"provider_params"`
@@ -567,7 +570,11 @@ func (c *Config) setDefaults() {
 		c.TTS.OutputDir = "./workspace/tts"
 	}
 	if c.TTS.HTTPBaseURL == "" {
-		c.TTS.HTTPBaseURL = "http://127.0.0.1:8765"
+		c.TTS.HTTPBaseURL = "https://127.0.0.1:8770"
+		c.TTS.TLSSkipVerify = true
+	}
+	if shouldEnableLocalTLSSkipVerify(c.TTS.HTTPBaseURL) {
+		c.TTS.TLSSkipVerify = true
 	}
 	if c.TTS.TimeoutMS <= 0 {
 		c.TTS.TimeoutMS = 15000
@@ -664,6 +671,18 @@ func (c *Config) setDefaults() {
 	if c.Coder4.LightMemory.MaxTurns == 0 {
 		c.Coder4.LightMemory.MaxTurns = 3
 	}
+}
+
+func shouldEnableLocalTLSSkipVerify(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
 }
 
 // Validate は設定の妥当性を検証

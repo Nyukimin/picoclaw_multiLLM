@@ -33,6 +33,7 @@ func buildTTSClientBridge(cfg *config.Config, onChunk func(ev orchestrator.Orche
 	bridge := ttsinfra.NewRenCrowTTSBridge(ttsinfra.RenCrowTTSBridgeConfig{
 		HTTPBaseURL:    cfg.TTS.HTTPBaseURL,
 		VoiceID:        cfg.TTS.VoiceID,
+		TLSSkipVerify:  cfg.TTS.TLSSkipVerify,
 		RequestTimeout: time.Duration(cfg.TTS.TimeoutMS) * time.Millisecond,
 		ProviderParams: cfg.TTS.ProviderParams,
 		Sink:           sink,

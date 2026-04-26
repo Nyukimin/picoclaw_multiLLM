@@ -3,6 +3,7 @@ package tts
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,10 +34,12 @@ var allowedProviderParamKeys = map[string]struct{}{
 }
 
 const defaultMaxTextLength = 1000
+const defaultSynthesisTimeout = 30 * time.Second
 
 type RenCrowTTSBridgeConfig struct {
 	HTTPBaseURL        string
 	VoiceID            string
+	TLSSkipVerify      bool
 	RequestTimeout     time.Duration
 	ProviderParams     map[string]any
 	Sink               AudioSink
@@ -62,14 +65,18 @@ func NewRenCrowTTSBridge(cfg RenCrowTTSBridgeConfig) *RenCrowTTSBridge {
 		cfg.VoiceID = "female_01"
 	}
 	if cfg.RequestTimeout <= 0 {
-		cfg.RequestTimeout = 15 * time.Second
+		cfg.RequestTimeout = defaultSynthesisTimeout
 	}
 	if cfg.ProviderParams == nil {
 		cfg.ProviderParams = map[string]any{}
 	}
+	transport := &http.Transport{}
+	if cfg.TLSSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
 	return &RenCrowTTSBridge{
 		cfg:      cfg,
-		client:   &http.Client{Timeout: cfg.RequestTimeout},
+		client:   &http.Client{Timeout: cfg.RequestTimeout, Transport: transport},
 		sessions: make(map[string]*renCrowTTSSession),
 	}
 }
@@ -129,30 +136,9 @@ func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text 
 	if err != nil {
 		return fmt.Errorf("marshal /synthesis request: %w", err)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeSynthesisURL(b.cfg.HTTPBaseURL), bytes.NewReader(reqBody))
+	body, err := b.postSynthesisWithRetry(ctx, reqBody, sessionID, session.nextChunk)
 	if err != nil {
-		return fmt.Errorf("build /synthesis request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-RenCrow-TTS-Request-Id", buildRequestIDHeader(sessionID, session.nextChunk))
-
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("/synthesis request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-	if err != nil {
-		return fmt.Errorf("read /synthesis response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		code, message := parseSynthesisError(body)
-		if code == "" {
-			return fmt.Errorf("/synthesis bad status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-		return fmt.Errorf("/synthesis failed status=%d code=%s message=%s", resp.StatusCode, code, message)
+		return err
 	}
 
 	var out struct {
@@ -246,7 +232,7 @@ func parseSynthesisError(body []byte) (string, string) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		return "", ""
 	}
-	return strings.TrimSpace(out.Error.Code), strings.TrimSpace(out.Error.Message)
+	return normalizeErrorCode(out.Error.Code), strings.TrimSpace(out.Error.Message)
 }
 
 func copyStringAnyMap(in map[string]any) map[string]any {
@@ -295,15 +281,17 @@ func filterProviderParams(in map[string]any) (map[string]any, error) {
 		if _, ok := allowedProviderParamKeys[k]; !ok {
 			return nil, fmt.Errorf("unknown provider_params key: %s", k)
 		}
+		normalized, err := normalizeProviderParamValue(k, v)
+		if err != nil {
+			return nil, err
+		}
 		if k == "length" {
-			f, ok := toFloat64(v)
+			f, ok := toFloat64(normalized)
 			if !ok || f <= 0 {
 				return nil, fmt.Errorf("provider_params.length must be > 0")
 			}
 		}
-		if validProviderParamValue(k, v) {
-			out[k] = v
-		}
+		out[k] = normalized
 	}
 	return out, nil
 }
@@ -316,20 +304,40 @@ func buildRequestIDHeader(sessionID string, chunkIndex int) string {
 	return fmt.Sprintf("%s-%04d", prefix, chunkIndex)
 }
 
-func validProviderParamValue(key string, value any) bool {
+func normalizeProviderParamValue(key string, value any) (any, error) {
 	switch key {
 	case "model_name", "model_file", "speaker_name", "style", "language":
-		_, ok := value.(string)
-		return ok
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("provider_params.%s must be string", key)
+		}
+		s = strings.TrimSpace(s)
+		if key == "language" && !isAllowedLanguage(s) {
+			return nil, fmt.Errorf("provider_params.language must be one of JP/EN/ZH")
+		}
+		return s, nil
 	case "line_split":
-		_, ok := value.(bool)
-		return ok
+		if b, ok := value.(bool); ok {
+			return b, nil
+		}
+		if s, ok := value.(string); ok {
+			if b, parsed := parseBoolLike(s); parsed {
+				return b, nil
+			}
+		}
+		return nil, fmt.Errorf("provider_params.line_split must be bool")
 	case "speaker_id":
-		return isNumeric(value) || isString(value)
+		if isNumeric(value) || isString(value) {
+			return value, nil
+		}
+		return nil, fmt.Errorf("provider_params.speaker_id must be string or number")
 	case "style_weight", "sdp_ratio", "noise", "noise_w", "split_interval", "length":
-		return isNumeric(value)
+		if isNumeric(value) {
+			return value, nil
+		}
+		return nil, fmt.Errorf("provider_params.%s must be number", key)
 	default:
-		return false
+		return nil, fmt.Errorf("unknown provider_params key: %s", key)
 	}
 }
 
@@ -384,4 +392,98 @@ func toFloat64(v any) (float64, bool) {
 
 func invalidRequestError(message string) error {
 	return fmt.Errorf("code=invalid_request message=%s", strings.TrimSpace(message))
+}
+
+func normalizeErrorCode(code string) string {
+	code = strings.TrimSpace(strings.ToUpper(code))
+	code = strings.ReplaceAll(code, "-", "_")
+	return code
+}
+
+func shouldRetrySynthesis(code string, attempt int) bool {
+	switch normalizeErrorCode(code) {
+	case "ENGINE_UNAVAILABLE":
+		return attempt < 2
+	case "SYNTHESIS_FAILED":
+		return attempt < 1
+	default:
+		return false
+	}
+}
+
+func backoffForAttempt(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	base := 200 * time.Millisecond
+	return time.Duration(1<<attempt) * base
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (b *RenCrowTTSBridge) postSynthesisWithRetry(ctx context.Context, reqBody []byte, sessionID string, chunkIndex int) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeSynthesisURL(b.cfg.HTTPBaseURL), bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, fmt.Errorf("build /synthesis request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-RenCrow-TTS-Request-Id", buildRequestIDHeader(sessionID, chunkIndex))
+
+		resp, err := b.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("/synthesis request failed: %w", err)
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read /synthesis response: %w", readErr)
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return body, nil
+		}
+
+		code, message := parseSynthesisError(body)
+		if code == "" {
+			return nil, fmt.Errorf("/synthesis bad status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		if shouldRetrySynthesis(code, attempt) {
+			if err := sleepWithContext(ctx, backoffForAttempt(attempt)); err != nil {
+				return nil, fmt.Errorf("/synthesis retry cancelled: %w", err)
+			}
+			continue
+		}
+		return nil, fmt.Errorf("/synthesis failed status=%d code=%s message=%s", resp.StatusCode, code, message)
+	}
+}
+
+func parseBoolLike(v string) (bool, bool) {
+	s := strings.ToLower(strings.TrimSpace(v))
+	switch s {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func isAllowedLanguage(language string) bool {
+	switch strings.ToUpper(strings.TrimSpace(language)) {
+	case "JP", "JA", "EN", "ZH":
+		return true
+	default:
+		return false
+	}
 }

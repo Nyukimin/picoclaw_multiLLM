@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -91,7 +92,7 @@ func TestRenCrowTTSBridge_PushTextReturnsErrorCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "code=invalid_request") {
+	if !containsErrorCode(err, "invalid_request") {
 		t.Fatalf("expected invalid_request code, got %v", err)
 	}
 }
@@ -120,7 +121,7 @@ func TestRenCrowTTSBridge_FiltersProviderParamsByAllowList(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid_request error for unknown provider_params key")
 	}
-	if !strings.Contains(err.Error(), "code=invalid_request") {
+	if !containsErrorCode(err, "invalid_request") {
 		t.Fatalf("expected invalid_request code, got %v", err)
 	}
 	if called {
@@ -173,7 +174,7 @@ func TestCT_SY_004_UnknownProviderParamKeyReturnsInvalidRequest(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid_request error for unknown provider_params key")
 	}
-	if !strings.Contains(err.Error(), "code=invalid_request") {
+	if !containsErrorCode(err, "invalid_request") {
 		t.Fatalf("expected invalid_request code, got %v", err)
 	}
 	if called {
@@ -204,8 +205,8 @@ func TestRenCrowTTSBridge_RequestIDFallbackPrefix(t *testing.T) {
 	}
 }
 
-func TestRenCrowTTSBridge_FiltersProviderParamsByValueType(t *testing.T) {
-	var gotBody map[string]any
+func TestRenCrowTTSBridge_InvalidProviderParamValueTypeReturnsInvalidRequest(t *testing.T) {
+	called := false
 
 	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
 		HTTPBaseURL: "http://tts.local",
@@ -218,9 +219,7 @@ func TestRenCrowTTSBridge_FiltersProviderParamsByValueType(t *testing.T) {
 		},
 	})
 	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
+		called = true
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -228,27 +227,15 @@ func TestRenCrowTTSBridge_FiltersProviderParamsByValueType(t *testing.T) {
 		}, nil
 	})}
 
-	if err := bridge.PushText(context.Background(), "s-type", "test", nil); err != nil {
-		t.Fatalf("push text failed: %v", err)
+	err := bridge.PushText(context.Background(), "s-type", "test", nil)
+	if err == nil {
+		t.Fatal("expected invalid_request error for invalid provider_params type")
 	}
-	pp, ok := gotBody["provider_params"].(map[string]any)
-	if !ok {
-		t.Fatalf("provider_params missing: %+v", gotBody)
+	if !containsErrorCode(err, "invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
 	}
-	if _, exists := pp["style"]; exists {
-		t.Fatalf("style should be removed due to invalid type: %+v", pp)
-	}
-	if _, exists := pp["line_split"]; exists {
-		t.Fatalf("line_split should be removed due to invalid type: %+v", pp)
-	}
-	if _, exists := pp["noise"]; exists {
-		t.Fatalf("noise should be removed due to invalid type: %+v", pp)
-	}
-	if pp["style_weight"] != 2.5 {
-		t.Fatalf("style_weight should remain: %+v", pp)
-	}
-	if pp["split_interval"] != 1.0 {
-		t.Fatalf("split_interval should remain: %+v", pp)
+	if called {
+		t.Fatal("expected request to be rejected before HTTP call")
 	}
 }
 
@@ -274,7 +261,7 @@ func TestCT_SY_002B_TextTooLongReturnsInvalidRequest(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid_request error for too long text")
 	}
-	if !strings.Contains(err.Error(), "code=invalid_request") {
+	if !containsErrorCode(err, "invalid_request") {
 		t.Fatalf("expected invalid_request code, got %v", err)
 	}
 	if called {
@@ -302,7 +289,7 @@ func TestCT_SY_002C_SpeedLessOrEqualZeroReturnsInvalidRequest(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid_request error for speed <= 0")
 	}
-	if !strings.Contains(err.Error(), "code=invalid_request") {
+	if !containsErrorCode(err, "invalid_request") {
 		t.Fatalf("expected invalid_request code, got %v", err)
 	}
 	if called {
@@ -331,7 +318,7 @@ func TestCT_SY_002D_LengthLessOrEqualZeroReturnsInvalidRequest(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid_request error for length <= 0")
 	}
-	if !strings.Contains(err.Error(), "code=invalid_request") {
+	if !containsErrorCode(err, "invalid_request") {
 		t.Fatalf("expected invalid_request code, got %v", err)
 	}
 	if called {
@@ -339,8 +326,97 @@ func TestCT_SY_002D_LengthLessOrEqualZeroReturnsInvalidRequest(t *testing.T) {
 	}
 }
 
+func TestRenCrowTTSBridge_LineSplitStringIsNormalizedToBool(t *testing.T) {
+	var gotBody map[string]any
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		ProviderParams: map[string]any{
+			"line_split": "yes",
+			"style":      "Neutral",
+			"language":   "JP",
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-linesplit","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	if err := bridge.PushText(context.Background(), "s-linesplit", "test", nil); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+	pp, ok := gotBody["provider_params"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider_params missing: %+v", gotBody)
+	}
+	if pp["line_split"] != true {
+		t.Fatalf("expected line_split=true, got %+v", pp["line_split"])
+	}
+}
+
+func TestRenCrowTTSBridge_RetryOnEngineUnavailable(t *testing.T) {
+	attempts := 0
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts < 3 {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"engine_unavailable","message":"warming up"}}`)),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-retry","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	if err := bridge.PushText(context.Background(), "s-retry", "test", nil); err != nil {
+		t.Fatalf("push text failed after retries: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts (1 + 2 retries), got %d", attempts)
+	}
+}
+
+func TestRenCrowTTSBridge_HTTPSWithTLSSkipVerify(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"request_id":"req-https","audio_path":"cache\\x.wav"}`)
+	}))
+	defer srv.Close()
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL:   srv.URL,
+		TLSSkipVerify: true,
+	})
+
+	if err := bridge.PushText(context.Background(), "https-session", "test", nil); err != nil {
+		t.Fatalf("expected https request to succeed with tls_skip_verify, got: %v", err)
+	}
+}
+
 type sinkStub struct {
 	calls int
+}
+
+func containsErrorCode(err error, code string) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToUpper(strings.ReplaceAll(err.Error(), "-", "_"))
+	want := strings.ToUpper(strings.ReplaceAll(code, "-", "_"))
+	return strings.Contains(msg, "CODE="+want)
 }
 
 func (s *sinkStub) SubmitChunk(_ context.Context, _ string, _ audioChunk) error {
