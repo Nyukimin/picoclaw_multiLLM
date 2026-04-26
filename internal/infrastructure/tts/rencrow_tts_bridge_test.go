@@ -1,0 +1,353 @@
+package tts
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+)
+
+func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
+	var gotReqPath string
+	var gotAudioURL string
+	var gotHeader string
+	var gotBody map[string]any
+
+	sink := &sinkStub{}
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		VoiceID:     "female_01",
+		ProviderParams: map[string]any{
+			"style": "Neutral",
+		},
+		Sink: sink,
+		OnChunkReady: func(_ string, _ int, _, _, audioPath, audioURL string) {
+			gotAudioURL = chooseNonEmpty(audioURL, audioPath)
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		gotReqPath = r.URL.Path
+		gotHeader = r.Header.Get("X-RenCrow-TTS-Request-Id")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-1","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	if err := bridge.StartSession(context.Background(), orchestrator.TTSSessionStart{
+		SessionID:   "session-1",
+		CharacterID: "mio",
+		VoiceID:     "female_01",
+	}); err != nil {
+		t.Fatalf("start session failed: %v", err)
+	}
+	if err := bridge.PushText(context.Background(), "session-1", "こんにちは", &ttsapp.EmotionState{}); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+
+	if gotReqPath != "/synthesis" {
+		t.Fatalf("unexpected path: %s", gotReqPath)
+	}
+	if strings.TrimSpace(gotHeader) == "" {
+		t.Fatal("expected X-RenCrow-TTS-Request-Id header")
+	}
+	if gotBody["provider_params"] == nil {
+		t.Fatalf("expected provider_params in request, got %+v", gotBody)
+	}
+	if gotBody["text"] != "こんにちは。" {
+		t.Fatalf("expected punctuated text, got %+v", gotBody["text"])
+	}
+	if gotAudioURL != "http://tts.local/cache/x.wav" {
+		t.Fatalf("unexpected audio url: %s", gotAudioURL)
+	}
+	if sink.calls != 1 {
+		t.Fatalf("expected sink submit once, got %d", sink.calls)
+	}
+}
+
+func TestRenCrowTTSBridge_PushTextReturnsErrorCode(t *testing.T) {
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_request","message":"bad provider_params"}}`)),
+		}, nil
+	})}
+
+	err := bridge.PushText(context.Background(), "s1", "test", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "code=invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
+	}
+}
+
+func TestRenCrowTTSBridge_FiltersProviderParamsByAllowList(t *testing.T) {
+	called := false
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		ProviderParams: map[string]any{
+			"style":         "Neutral",
+			"style_weight":  2.8,
+			"unsupported_x": 1,
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-2","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	err := bridge.PushText(context.Background(), "s-filter", "test", nil)
+	if err == nil {
+		t.Fatal("expected invalid_request error for unknown provider_params key")
+	}
+	if !strings.Contains(err.Error(), "code=invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
+	}
+	if called {
+		t.Fatal("expected request to be rejected before HTTP call")
+	}
+}
+
+func TestCT_SY_003_RequestIDHeaderPropagation(t *testing.T) {
+	var gotHeader string
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		gotHeader = r.Header.Get("X-RenCrow-TTS-Request-Id")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-ct003","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	if err := bridge.PushText(context.Background(), "ct003-session", "test", nil); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+	if strings.TrimSpace(gotHeader) == "" {
+		t.Fatal("expected X-RenCrow-TTS-Request-Id header")
+	}
+}
+
+func TestCT_SY_004_UnknownProviderParamKeyReturnsInvalidRequest(t *testing.T) {
+	called := false
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		ProviderParams: map[string]any{
+			"style":         "Neutral",
+			"unsupported_x": 1,
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-ct004","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	err := bridge.PushText(context.Background(), "ct004-session", "test", nil)
+	if err == nil {
+		t.Fatal("expected invalid_request error for unknown provider_params key")
+	}
+	if !strings.Contains(err.Error(), "code=invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
+	}
+	if called {
+		t.Fatal("expected request to be rejected before HTTP call")
+	}
+}
+
+func TestRenCrowTTSBridge_RequestIDFallbackPrefix(t *testing.T) {
+	var gotHeader string
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		gotHeader = r.Header.Get("X-RenCrow-TTS-Request-Id")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-3","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	if err := bridge.PushText(context.Background(), "***", "test", nil); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+	if !strings.HasPrefix(gotHeader, "ttsreq-") {
+		t.Fatalf("expected fallback prefix in request id header, got %q", gotHeader)
+	}
+}
+
+func TestRenCrowTTSBridge_FiltersProviderParamsByValueType(t *testing.T) {
+	var gotBody map[string]any
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		ProviderParams: map[string]any{
+			"style":          123,
+			"line_split":     "false",
+			"noise":          "high",
+			"style_weight":   2.5,
+			"split_interval": 1,
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-4","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	if err := bridge.PushText(context.Background(), "s-type", "test", nil); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+	pp, ok := gotBody["provider_params"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider_params missing: %+v", gotBody)
+	}
+	if _, exists := pp["style"]; exists {
+		t.Fatalf("style should be removed due to invalid type: %+v", pp)
+	}
+	if _, exists := pp["line_split"]; exists {
+		t.Fatalf("line_split should be removed due to invalid type: %+v", pp)
+	}
+	if _, exists := pp["noise"]; exists {
+		t.Fatalf("noise should be removed due to invalid type: %+v", pp)
+	}
+	if pp["style_weight"] != 2.5 {
+		t.Fatalf("style_weight should remain: %+v", pp)
+	}
+	if pp["split_interval"] != 1.0 {
+		t.Fatalf("split_interval should remain: %+v", pp)
+	}
+}
+
+func TestCT_SY_002B_TextTooLongReturnsInvalidRequest(t *testing.T) {
+	called := false
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-long","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	longText := strings.Repeat("あ", 1001)
+	if got := utf8.RuneCountInString(longText); got <= 1000 {
+		t.Fatalf("setup error: expected >1000 runes, got %d", got)
+	}
+	err := bridge.PushText(context.Background(), "s-long", longText, nil)
+	if err == nil {
+		t.Fatal("expected invalid_request error for too long text")
+	}
+	if !strings.Contains(err.Error(), "code=invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
+	}
+	if called {
+		t.Fatal("expected request to be rejected before HTTP call")
+	}
+}
+
+func TestCT_SY_002C_SpeedLessOrEqualZeroReturnsInvalidRequest(t *testing.T) {
+	called := false
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-speed","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	err := bridge.PushText(context.Background(), "s-speed", "test", &ttsapp.EmotionState{
+		Prosody: ttsapp.Prosody{Speed: -0.1},
+	})
+	if err == nil {
+		t.Fatal("expected invalid_request error for speed <= 0")
+	}
+	if !strings.Contains(err.Error(), "code=invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
+	}
+	if called {
+		t.Fatal("expected request to be rejected before HTTP call")
+	}
+}
+
+func TestCT_SY_002D_LengthLessOrEqualZeroReturnsInvalidRequest(t *testing.T) {
+	called := false
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		ProviderParams: map[string]any{
+			"length": 0,
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-length","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	err := bridge.PushText(context.Background(), "s-length", "test", nil)
+	if err == nil {
+		t.Fatal("expected invalid_request error for length <= 0")
+	}
+	if !strings.Contains(err.Error(), "code=invalid_request") {
+		t.Fatalf("expected invalid_request code, got %v", err)
+	}
+	if called {
+		t.Fatal("expected request to be rejected before HTTP call")
+	}
+}
+
+type sinkStub struct {
+	calls int
+}
+
+func (s *sinkStub) SubmitChunk(_ context.Context, _ string, _ audioChunk) error {
+	s.calls++
+	return nil
+}
+
+func (s *sinkStub) CompleteSession(_ context.Context, _ string) error {
+	return nil
+}

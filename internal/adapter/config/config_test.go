@@ -338,12 +338,11 @@ tts:
   enabled: true
   output_dir: "./workspace/tts"
   http_base_url: "http://127.0.0.1:8765"
-  ws_url: "ws://127.0.0.1:8765/sessions"
-  connect_timeout_ms: 3000
-  receive_timeout_ms: 15000
-  chunk_gap_timeout_ms: 3000
+  timeout_ms: 15000
   voice_id: "female_01"
-  speech_mode: "conversational"
+  provider_params:
+    style: "Neutral"
+    style_weight: 2.8
   provider_priority: ["sbv2", "azure", "eleven"]
   playback_commands:
     - name: "ffplay"
@@ -371,11 +370,14 @@ tts:
 	if len(cfg.TTS.PlaybackCommands) != 1 || cfg.TTS.PlaybackCommands[0].Name != "ffplay" {
 		t.Fatalf("unexpected playback commands: %+v", cfg.TTS.PlaybackCommands)
 	}
-	if cfg.TTS.WSURL == "" || cfg.TTS.HTTPBaseURL == "" {
-		t.Fatalf("expected tts client urls to be set, got http=%q ws=%q", cfg.TTS.HTTPBaseURL, cfg.TTS.WSURL)
+	if cfg.TTS.HTTPBaseURL == "" {
+		t.Fatalf("expected tts http_base_url to be set")
 	}
-	if cfg.TTS.ConnectTimeoutMS != 3000 || cfg.TTS.ReceiveTimeoutMS != 15000 || cfg.TTS.ChunkGapTimeoutMS != 3000 {
-		t.Fatalf("unexpected tts client timeouts: %+v", cfg.TTS)
+	if cfg.TTS.TimeoutMS != 15000 {
+		t.Fatalf("unexpected tts timeout: %d", cfg.TTS.TimeoutMS)
+	}
+	if cfg.TTS.ProviderParams["style"] != "Neutral" {
+		t.Fatalf("unexpected provider_params: %+v", cfg.TTS.ProviderParams)
 	}
 }
 

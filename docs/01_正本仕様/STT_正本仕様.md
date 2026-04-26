@@ -144,7 +144,88 @@
 - Whisper へのリクエスト詳細（multipart仕様、model指定、language指定）。
 - STT 用設定を `config.yaml` に正式追加するか、環境変数運用を継続するか。
 
-## 10. 参照
+## 10. voice-bridge（STT Gateway）実装詳細
+
+### 10.1 概要
+
+voice-bridge は STT Gateway の現行実装であり、Node.js プロセスとして動作する。
+
+- **役割**: Browser からの WebSocket 音声ストリームを受け取り、VAD で発話区間を判定し、Whisper へ HTTP POST で転送する
+- **実行場所**: Win11-HP01（`192.168.1.36`）
+- **ポート**: `:8090`
+- **ソース**: `server.js`（+ `stt-gateway-contract.js`、`server-https.js`）
+
+### 10.2 物理構成
+
+```text
+Browser
+  ↓ wss://fujitsu-ubunts:18790/stt-ws
+RenCrow Chat Server（Go, fujitsu-ubunts）← STT_GATEWAY_URL が設定されている場合は透過プロキシ
+  ↓ ws://192.168.1.36:8090/stt-ws
+voice-bridge（Node.js, Win11-HP01 :8090）← STT Gateway 本体
+  ↓ HTTP POST multipart/form-data
+Whisper（whisper.cpp, Win11-HP01 :8080/inference）
+```
+
+### 10.3 接続設定
+
+| 項目 | 値 |
+|---|---|
+| Chat Server 側設定 | `STT_GATEWAY_URL=ws://192.168.1.36:8090/stt-ws` |
+| voice-bridge 起動コマンド | `npm start`（voice-bridge ディレクトリ内） |
+| voice-bridge WebSocket パス | `/stt-ws`、`/ws`（両方受け付ける） |
+| Whisper 接続先 | `STT_PROVIDER_URL=http://192.168.1.36:8080/inference`（voice-bridge 側の環境変数） |
+
+### 10.4 Go Chat Server のプロキシ動作
+
+`STT_GATEWAY_URL` 環境変数の設定状態により動作が変わる：
+
+| `STT_GATEWAY_URL` | 動作 |
+|---|---|
+| **設定あり** | `/stt-ws` を voice-bridge へ透過 WebSocket プロキシ |
+| **未設定**（フォールバック） | Go が直接 Whisper を呼ぶ（VAD なし・簡易実装） |
+
+**本番運用では `STT_GATEWAY_URL` を設定し voice-bridge 経由を使用すること。**
+
+### 10.5 voice-bridge の主要機能
+
+- **Silero VAD**（`@ricky0123/vad-node`）: ML モデルによる発話開始/終了の高精度判定
+- **RNNoise**（`@jitsi/rnnoise-wasm`）: WASM ベースのノイズ除去
+- **`session_info` 送出**: 接続時に `{"type":"session_info","session_id":"sess-..."}` を送信
+- **draft / final**: VAD 発話終了時に final 確定、発話中は draft を定期送信（`STT_DRAFT_ENABLED=true` 時）
+- **busy policy**: 同時推論の再入制御（`drop` / `queue_latest`）
+
+### 10.6 voice-bridge 主要環境変数
+
+| 環境変数 | デフォルト | 説明 |
+|---|---|---|
+| `STT_PROVIDER_URL` / `WHISPER_URL` | `http://127.0.0.1:8080/inference` | Whisper エンドポイント |
+| `STT_PORT` / `PORT` | `8090` | 待受ポート |
+| `STT_DRAFT_ENABLED` | `false` | draft イベント有効化 |
+| `STT_SILENCE_END_MS` | `850` | 無音判定ウィンドウ（ms） |
+| `STT_MIN_AUDIO_BYTES` | `32044` | 推論対象の最小音声サイズ |
+
+### 10.7 依存パッケージ
+
+voice-bridge の起動には以下が必要：
+
+| パッケージ | 用途 |
+|---|---|
+| `express` | HTTP サーバー |
+| `ws` | WebSocket サーバー |
+| `node-fetch` (v2) | Whisper HTTP クライアント |
+| `form-data` | multipart 組み立て |
+| `@ricky0123/vad-node` | Silero VAD |
+| `@jitsi/rnnoise-wasm` | RNNoise ノイズ除去 |
+
+### 10.8 注意事項
+
+- voice-bridge は Chat Server（Go）とは別プロセスで起動する
+- 起動順序: `Whisper → voice-bridge → Chat Server（Go）`
+- `STT_GATEWAY_URL` 未設定時は Go のフォールバック実装が動作するが、VAD なしのため認識品質が低下する
+- `session_info` による `session_id` はフォールバック実装では送出されない
+
+## 12. 参照
 
 - `docs/10_WHISPER_REMOTE_PC.md`
 - `docs/11_WIN11_HP01_SERVER_MIGRATION.md`

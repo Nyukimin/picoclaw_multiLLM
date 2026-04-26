@@ -1,165 +1,76 @@
-# STT仕様（Whisper / voice-bridge）
+# STT仕様（AUDIO_Client仕様）
 
 ## 1. 目的
+本仕様は、**Chat から見た STT 接続契約・呼び出し手順**をベンダー非依存で定義する。  
+特定実装（例: Whisper）は本仕様に対する適用例として扱う。
 
-RenCrow の STT は、ブラウザ音声を `voice-bridge` で受け、`whisper.cpp` の `whisper-server` に転送して文字起こしする。
+## 2. 基本方針
+- STT は **必ず Chat サーバ経由**で利用する。
+- クライアントから STT Provider へ直接接続しない。
+- Chat は STT Gateway を入口とし、Provider との中継を担当する。
 
-## 基本事項（接続方針）
-
-- STT は **必ず Chat サーバ経由**で STT サーバ（Whisper）に接続する
-- TTS は **必ず Chat サーバ経由**で TTS サーバ（SBV2 等）に接続する
-- クライアントから STT/TTS サーバへの直接接続は、検証用途を除き採用しない
-
+## 3. 接続構成
 ```text
-[Browser] -- WebSocket --> [voice-bridge] -- HTTP POST --> [whisper-server]
+[Client/Browser]
+  -> [Chat Server]
+    -> [STT Gateway]
+      -> [STT Provider]
 ```
 
----
+## 4. 接続前提
+- Chat 側の Provider 接続先は設定で管理する（例: `STT_PROVIDER_URL`）。
+- 既定値はローカル接続を推奨（例: `http://127.0.0.1:8080/inference`）。
+- リモート STT 利用時は FW・到達性・遅延を事前確認する。
+- Chat API は HTTPS 提供を前提とし、`/health` と `/ready` の到達性を事前確認する。
+- Browser マイク入力は Secure Context 必須（`https://` または `http://localhost` / `http://127.0.0.1`）。
+- `http://<LAN IP>:18790` / `http://<Tailnet IP>:18790` はページ表示できてもマイク入力用途では非対応とする。
 
-## 2. コンポーネントとポート
+## 5. Chat 側呼び出し手順
+1. Browser が Chat（`/ws`）へ音声バイナリを送信する。  
+2. Chat（STT Gateway）が音声を受信し、発話区間を判定する。  
+3. Chat が STT Provider へ推論要求を転送する。  
+4. Provider 応答を `draft` / `final` に整形して Browser へ返す。
 
-| コンポーネント | 役割 | ポート |
+## 6. 結果の扱い
+- `draft`: 発話中の暫定文字列
+- `final`: 発話確定文字列（後段入力に利用）
+- `error`: UI継続可能な失敗通知
+
+## 7. エラー契約（Client観点）
+- Provider 応答失敗時は、Chat 側 fail-safe（空文字継続/通知）を実施する。
+- `draft` が欠落しても `final` が取得できれば正常系として扱う。
+- `error` 受信時も入力セッションは継続可能にする。
+
+## 8. 運用要件
+- STT timeout を設定し、無限待ちを避ける。
+- 最小音声サイズしきい値を設定し、断片入力を抑制する。
+- 通常運用系統と拡張系統を分離運用する。
+- RenCrow の規定ポートは `18790` を使用する。
+- 再起動は「動作中プロセスの停止（Kill）→ 起動 → `/health` `/ready` 確認」の順で行う。
+
+## 9. 実装差分注記
+- 現行実装では系統差（通常/拡張）により `final_pending` や MIME 処理が異なる。
+- ただし本仕様の契約（`draft`/`final`/`error`）は Provider 非依存で維持する。
+
+## 10. 実装例（現行採用）
+
+| 役割 | 実装 | 場所 |
 |---|---|---|
-| `voice-bridge` (`server.js`) | WebSocket受付、VAD、Whisper中継 | `8090` |
-| `voice-bridge` (`server-https.js`) | HTTPS/WSS版中継 | `8443` |
-| `whisper-server` | STT推論エンジン | `8080` |
+| STT Gateway | voice-bridge（Node.js） | Win11-HP01 `:8090` |
+| STT Provider | whisper.cpp whisper-server | Win11-HP01 `:8080` |
+| Chat Server プロキシ | Go `handleSTTWebSocketProxy` | fujitsu-ubunts `:18790` |
 
-Whisper 接続先は環境変数 `WHISPER_URL` で指定する（既定: `http://127.0.0.1:8080/inference`）。
+Chat Server（Go）の `/stt-ws` は `STT_GATEWAY_URL=ws://192.168.1.36:8090/stt-ws` を設定することで
+voice-bridge への透過プロキシとして動作する。
 
----
+voice-bridge の詳細仕様は `docs/01_正本仕様/STT_正本仕様.md` §10 を参照。
 
-## 3. Whisper HTTP 契約
+## 11. 現行実測メモ（最新版）
+- Chat（RenCrow）: `https://<chat-host>:18790`
+  - `GET /health` -> `{"status":"ok", ...}`
+  - `GET /ready` -> `{"ready":true}`
+- STT Provider（例）: `http://<stt-host>:8080`
+  - `GET /health` -> `{"status":"ok"}`
+  - `POST /inference` -> `{"text":"..."}`
 
-| 項目 | 仕様 |
-|---|---|
-| メソッド | `POST` |
-| パス | `/inference` |
-| Content-Type | `multipart/form-data` |
-| フィールド | `file`, `response_format=json` |
-| レスポンス | JSON（`text` を利用） |
-
-`voice-bridge` は HTTP エラーや例外時に warn ログを出し、基本的に空文字扱いで継続する。
-
----
-
-## 4. WebSocket 契約（Browser <-> voice-bridge）
-
-## 4.1 Browser -> Server
-
-- バイナリ音声
-- JSON 制御メッセージ（`config`, `vad`, `final_pending`）
-
-実装上、`server.js` では JSON 制御の多くが後方互換 no-op で、バイナリ音声中心に処理する。
-
-## 4.2 Server -> Browser
-
-| `type` | 意味 |
-|---|---|
-| `speech_start` | 発話開始検知 |
-| `draft` | 暫定文字列 |
-| `final` | 確定文字列 |
-| `reply_reset` | 返答領域リセット |
-| `reply_delta` | 返答文字の逐次送信 |
-| `error` | 不正JSON等の制御エラー |
-
----
-
-## 5. `transcribeBuffer` 実装要点（指定資料反映）
-
-| 観点 | `server.js` | `server-https.js` |
-|---|---|---|
-| 最小サイズ | `MIN_AUDIO_BYTES = 32044` | `MIN_AUDIO_BYTES = 256` |
-| MIME 決定 | WAV 前提 (`audio/wav`) | RIFF 検出時 `audio/wav`、それ以外 `config.mimeType` |
-| 暫定キャンセル | なし（タイムアウト制御中心） | `AbortController` で draft を中断 |
-| エラー時挙動 | warn ログ + 空文字 | warn ログ + 空文字（`AbortError` は再スロー） |
-
-`docs/Whisper実装仕様.md` の `MIN_AUDIO_BYTES=256` は、主に `server-https.js` 系の実装仕様と整合する。  
-通常運用（`npm start`）は `server.js` 起動のため、実運用時は `32044` しきい値を前提にする。
-
----
-
-## 6. 処理フロー（主系統: `server.js`）
-
-1. 受信バイナリを WAV/PCM16 として解釈
-2. PCM を `Float32` 化して VAD にフレーム投入
-3. `SpeechStart` で `speech_start` 送信
-4. 発話中は 2 秒ごとに draft 推論（`draft`）
-5. `SpeechEnd` で発話全体を final 推論（`final`）
-6. `busy` フラグで再入防止
-
-### 主要定数（`server.js`）
-
-- `VAD_FRAME_SAMPLES = 1536`
-- `DRAFT_INTERVAL_MS = 2000`
-- `WHISPER_TIMEOUT_MS = 15000`
-- `MIN_AUDIO_BYTES = 32044`（短すぎる音声はSTTスキップ）
-
----
-
-## 7. HTTPS 系統（`server-https.js`）との差分
-
-- `MIN_AUDIO_BYTES = 256`
-- `config.mimeType` / `final_pending` を実処理で利用
-- draft 推論は `AbortController` で中断可能
-- RIFF 検出時は `audio/wav` を優先、非RIFFは `mimeType` を使用
-
-運用上は `npm start` が `server.js` を起動するため、通常の基準仕様は `server.js` 側を優先する。
-
----
-
-## 8. Whisper 起動仕様（`ops/audioio/start-whisper.ps1`）
-
-- 待受: `0.0.0.0:8080`
-- モデル: `models/ggml-base.bin`
-- 既定引数:
-  - `-l ja`
-  - `--convert`
-  - `--split-on-word`
-- 任意高速化:
-  - `REN_WHISPER_FAST=1` -> `-bo 1 -nf`
-  - `REN_WHISPER_FLASH_ATTN=1` -> `-fa`
-- 保護:
-  - グローバルミューテックスで二重起動抑止
-  - ポート `8080` が既に LISTEN 中なら起動スキップ
-- ログ:
-  - `logs/audioio/start-whisper.log`
-  - `logs/audioio/whisper.stdout.log`
-  - `logs/audioio/whisper.stderr.log`
-
----
-
-## 9. クライアント音声フォーマット（指定資料反映）
-
-| 種別 | 送信の目安 | サーバ側での扱い |
-|---|---|---|
-| 暫定 | 16kHz mono WAV（RIFF） | `audio/wav` として処理 |
-| 確定 | `final_pending` 後に Blob（例: `audio/webm`） | `mimeType` + `--convert` で処理（HTTPS系統） |
-
----
-
-## 10. リモート構成（Whisper 別PC）
-
-- `voice-bridge` 側で `WHISPER_URL=http://<Whisper-PC>:8080/inference` を設定
-- Whisper PC の `8080/TCP` を許可
-- ブラウザは Whisper 直アクセスではなく `voice-bridge` 経由を推奨（CORS/Mixed Content 回避）
-
----
-
-## 11. トラブルシューティング（指定資料反映）
-
-| 現象 | 確認ポイント |
-|---|---|
-| `FFmpeg conversion failed` / 500 | 音声断片が短すぎないか、ffmpeg 配置、`--convert` 前提の動作確認 |
-| 暫定が出ない | 暫定音声を WAV 経路で送れているか |
-| 遅い / 詰まる | Whisper が直列化しやすい点、モデルサイズ、`REN_WHISPER_*`、ネットワーク RTT |
-| 接続不可 | `WHISPER_URL`、FW、Whisper 側 `--host 0.0.0.0` |
-
----
-
-## 12. 参照ドキュメント
-
-- `docs/Whisper実装仕様.md`
-- `docs/仕様.md`
-- `docs/sbv2-env/10_WHISPER_REMOTE_PC.md`
-- `docs/STT_WHISPER_SPEC_SUMMARY.md`
-
+本節は運用実測値であり、契約本体は本書の各節（Provider非依存）を正とする。

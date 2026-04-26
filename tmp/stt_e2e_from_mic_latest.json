@@ -1,0 +1,30 @@
+{
+  "provider_url": "http://192.168.1.36:8080/inference",
+  "ws_url": "ws://127.0.0.1:18790/stt-ws",
+  "wav": "tmp/client_stt_input_latest.wav",
+  "inference": [
+    {
+      "i": 1,
+      "ms": 553.4,
+      "ok": true,
+      "text": "AEUAO.O.HAYO.O.ございます。 天使。",
+      "err": ""
+    }
+  ],
+  "inference_success": "1/1",
+  "ws": [
+    {
+      "i": 1,
+      "events": [
+        "speech_start",
+        "draft",
+        "final"
+      ],
+      "final": "AEUAO.O.HAYO.O.ございます。 天使。",
+      "ok": true,
+      "err": ""
+    }
+  ],
+  "ws_success": "1/1",
+  "timestamp": "2026-04-13 13:03:12"
+}

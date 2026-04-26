@@ -19,6 +19,12 @@
         "False",
         "--project-from-cwd"
       ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
     }
   }
 }

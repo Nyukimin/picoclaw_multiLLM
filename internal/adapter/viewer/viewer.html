@@ -99,6 +99,14 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .ops-big{font-size:20px;font-weight:700;line-height:1.3}
 .ops-sub{font-size:12px;color:var(--t2);line-height:1.5;margin-top:6px;white-space:pre-wrap;word-break:break-word}
 .ops-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.debug-panels{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));margin-bottom:12px}
+.debug-box{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px}
+.debug-box h4{font-size:12px;color:var(--t2);margin-bottom:8px}
+.debug-actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.debug-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto}
+.debug-item{font-size:12px;line-height:1.45;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:rgba(255,255,255,.02)}
+.debug-meta{color:var(--t2);font-size:11px;margin-bottom:2px}
+.debug-empty{color:var(--t2);font-size:11px}
 .ctl-btn{
   background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--t1);
   border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;
@@ -196,6 +204,15 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .audio-btn:active{transform:scale(.96)}
 .audio-btn.ready{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
 .audio-btn.blocked{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
+.stt-state{
+  font-size:11px;line-height:1.2;border:1px solid var(--border);border-radius:999px;padding:4px 8px;
+  color:var(--t2);background:rgba(255,255,255,.04);white-space:nowrap;align-self:center
+}
+.stt-state.mic-on{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.10)}
+.stt-state.conn-on{color:#22d3ee;border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.10)}
+.stt-state.conn-reconnect{color:#fbbf24;border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.10)}
+.stt-state.conn-off{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.10)}
+.stt-state.session-id{max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .input-wrap textarea{flex:1;resize:none;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:12px;padding:10px 16px;color:var(--t1);font-size:16px;line-height:1.5;font-family:inherit;outline:none;min-height:42px;max-height:120px;transition:border-color .2s,box-shadow .2s}
 .input-wrap textarea::placeholder{color:var(--t3)}
 .input-wrap textarea:focus{border-color:rgba(244,114,182,.4);box-shadow:0 0 0 3px rgba(244,114,182,.08)}
@@ -283,6 +300,27 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
 <main>
   <section id="panel-ops" class="panel">
     <div class="ops-grid" id="opsCards"></div>
+    <div class="debug-panels">
+      <div class="debug-box">
+        <h4>GPU メモリ占有（LLM/STT/TTS）</h4>
+        <div id="debugGpuSummary" class="small">loading...</div>
+      </div>
+      <div class="debug-box">
+        <h4>STT 認識経緯（途中判断含む）</h4>
+        <div class="debug-actions">
+          <button id="sttCaptureCopyBtn" class="ctl-btn" type="button">STTログコピー</button>
+          <button id="sttCaptureDownloadBtn" class="ctl-btn" type="button">STTログ保存</button>
+          <button id="sttCaptureClearBtn" class="ctl-btn" type="button">STTログクリア</button>
+          <button id="sttSessionCopyBtn" class="ctl-btn" type="button">SessionIDコピー</button>
+        </div>
+        <div id="debugSttSession" class="small">Session: (unknown)</div>
+        <div id="debugSttTrace" class="debug-list"></div>
+      </div>
+      <div class="debug-box">
+        <h4>LLM Think（agent.thinking）</h4>
+        <div id="debugThinkTrace" class="debug-list"></div>
+      </div>
+    </div>
     <div class="ops-stack">
       <div class="table-wrap">
         <table>
@@ -480,6 +518,9 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     <div class="input-main">
       <button class="audio-btn" id="audioBtn" type="button" title="音声を有効化">🔊</button>
       <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
+      <span id="micState" class="stt-state">Mic: off</span>
+      <span id="sttConnState" class="stt-state">STT: off</span>
+      <span id="sttSessionState" class="stt-state session-id" title="Session: (unknown)">Session: (unknown)</span>
       <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
       <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
     </div>
@@ -623,6 +664,12 @@ const state = {
     latestRoute: '',
     latestError: null,
   },
+  debug: {
+    gpu: null,
+    audio: null,
+    sttTrace: [],
+    thinkTrace: [],
+  },
 };
 AGENTS.forEach((id) => {
   state.agents[id] = {
@@ -655,6 +702,7 @@ const ttsPlayback = {
   unlocked: false,
   blocked: false,
   currentCharacterId: '',
+  seq: 0,
 };
 let timelineAutoFollow = true;
 let timelineUserInteracting = false;
@@ -1049,6 +1097,86 @@ function bump() {
   cnt.textContent = msgCount;
   ctr.style.display = 'flex';
   scrollToBottom();
+}
+
+function pushDebugTrace(kind, payload) {
+  const bucket = kind === 'stt' ? state.debug.sttTrace : state.debug.thinkTrace;
+  bucket.push(payload);
+  if (bucket.length > 40) bucket.shift();
+}
+
+function renderDebugPanels() {
+  const gpuEl = document.getElementById('debugGpuSummary');
+  const sttEl = document.getElementById('debugSttTrace');
+  const thinkEl = document.getElementById('debugThinkTrace');
+  if (!gpuEl || !sttEl || !thinkEl) return;
+
+  const g = state.debug.gpu;
+  const a = state.debug.audio;
+  if (!g || !g.available) {
+    const note = g && g.note ? g.note : 'GPU情報を取得できません';
+    gpuEl.innerHTML = '<span class="badge state-offline">unavailable</span> ' + esc(note);
+  } else {
+    gpuEl.innerHTML =
+      '<div class="row"><span>total/used/free</span><span>' + esc(String(g.total_mb || 0)) + ' / ' + esc(String(g.used_mb || 0)) + ' / ' + esc(String(g.free_mb || 0)) + ' MB</span></div>' +
+      '<div class="row"><span>LLM</span><span class="badge state-running">' + esc(String(g.llm_used_mb || 0)) + ' MB</span></div>' +
+      '<div class="row"><span>STT</span><span class="badge state-thinking">' + esc(String(g.stt_used_mb || 0)) + ' MB</span></div>' +
+      '<div class="row"><span>TTS</span><span class="badge state-idle">' + esc(String(g.tts_used_mb || 0)) + ' MB</span></div>' +
+      '<div class="row"><span>other</span><span class="badge state-offline">' + esc(String(g.other_used_mb || 0)) + ' MB</span></div>';
+  }
+  if (a) {
+    gpuEl.innerHTML +=
+      '<div class="row"><span>STT health</span><span class="badge ' + (a.stt_ok ? 'state-idle' : 'state-error') + '">' + (a.stt_ok ? 'ok' : 'ng') + '</span></div>' +
+      '<div class="ops-sub">stt=' + esc(a.stt_base_url || '-') + '\n' + esc(a.stt_health || '-') + '</div>' +
+      '<div class="row"><span>TTS live/ready</span><span class="badge ' + ((a.tts_live_ok && a.tts_ready_ok) ? 'state-idle' : 'state-error') + '">' + ((a.tts_live_ok ? 'live:ok' : 'live:ng') + ' / ' + (a.tts_ready_ok ? 'ready:ok' : 'ready:ng')) + '</span></div>' +
+      '<div class="ops-sub">tts=' + esc(a.tts_base_url || '-') + '\n/live ' + esc(a.tts_live || '-') + '\n/ready ' + esc(a.tts_ready || '-') + '</div>';
+    if (a.last_error) {
+      gpuEl.innerHTML += '<div class="ops-sub">error: ' + esc(a.last_error) + '</div>';
+    }
+  }
+
+  const sttList = state.debug.sttTrace.slice().reverse();
+  if (sttList.length === 0) {
+    sttEl.innerHTML = '<div class="debug-empty">まだSTTイベントがありません</div>';
+  } else {
+    sttEl.innerHTML = sttList.map((item) => (
+      '<div class="debug-item">' +
+        '<div class="debug-meta">' + esc(item.time || '-') + ' · ' + esc(item.step || '-') + '</div>' +
+        '<div>' + esc(item.text || '-') + '</div>' +
+      '</div>'
+    )).join('');
+  }
+
+  const thinkList = state.debug.thinkTrace.slice().reverse();
+  if (thinkList.length === 0) {
+    thinkEl.innerHTML = '<div class="debug-empty">まだthinkingイベントがありません</div>';
+  } else {
+    thinkEl.innerHTML = thinkList.map((item) => (
+      '<div class="debug-item">' +
+        '<div class="debug-meta">' + esc(item.time || '-') + ' · ' + esc(item.agent || '-') + ' · ' + esc(item.job || '-') + '</div>' +
+        '<div>' + esc(item.text || '-') + '</div>' +
+      '</div>'
+    )).join('');
+  }
+}
+
+function refreshDebugSystem() {
+  fetch('/viewer/debug/system')
+    .then((r) => {
+      if (!r.ok) throw new Error('debug system fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.debug.gpu = data && data.gpu ? data.gpu : null;
+      state.debug.audio = data && data.audio ? data.audio : null;
+      renderDebugPanels();
+    })
+    .catch((err) => {
+      console.error(err);
+      state.debug.gpu = {available: false, note: 'fetch failed'};
+      state.debug.audio = null;
+      renderDebugPanels();
+    });
 }
 
 function trimTimelineNodes() {
@@ -1980,6 +2108,7 @@ function renderEvidenceSummary() {
 
 function refreshDerivedViews() {
   renderOps();
+  renderDebugPanels();
   renderOverview();
   renderProgress();
   renderSystem();
@@ -2379,6 +2508,14 @@ function ingestEvent(ev) {
   upsertJob(ev);
   updateAgents(ev);
   addMsgToTimeline(ev);
+  if (ev.type === 'agent.thinking') {
+    pushDebugTrace('think', {
+      time: ftime(ev.timestamp),
+      agent: agName(ev.from || '-'),
+      job: ev.job_id || '-',
+      text: short(ev.content || '', 240),
+    });
+  }
   handleTTSAudioEvent(ev);
   derivedDirty = true;
 }
@@ -2392,14 +2529,30 @@ function handleTTSAudioEvent(ev) {
     return;
   }
   let url = String(payload.audio_url || '').trim();
+  const audioPath = String(payload.audio_path || '').trim();
+  const sessionId = String(payload.session_id || '').trim();
+  const track = String(payload.track || payload.track_id || 'default').trim() || 'default';
+  const chunkIndexRaw = Number(payload.chunk_index);
+  const chunkIndex = Number.isFinite(chunkIndexRaw) ? Math.floor(chunkIndexRaw) : -1;
   const characterId = String(payload.character_id || '').trim().toLowerCase();
+  url = resolveTTSPlaybackURL(url, audioPath);
   if (!url) return;
 
   // Rewrite HTTP audio URLs to HTTPS proxy paths
   url = url.replace('http://192.168.1.36:8765/audio/', '/tts-audio-8765/');
   url = url.replace('http://192.168.1.36:8766/audio/', '/tts-audio-8766/');
 
-  enqueueTTSAudio(url, characterId);
+  enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex);
+}
+
+function resolveTTSPlaybackURL(audioURL, audioPath) {
+  const url = String(audioURL || '').trim();
+  if (window.location.protocol === 'https:' && url.startsWith('http://') && audioPath) {
+    return '/viewer/tts/audio?path=' + encodeURIComponent(audioPath);
+  }
+  if (url) return url;
+  if (audioPath) return '/viewer/tts/audio?path=' + encodeURIComponent(audioPath);
+  return '';
 }
 
 function updateAudioButton() {
@@ -2459,10 +2612,22 @@ function ensureTTSAudio() {
   return ttsPlayback.audio;
 }
 
-function enqueueTTSAudio(url, characterId) {
+function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex) {
   ttsPlayback.queue.push({
     url: url,
     characterId: characterId || '',
+    sessionId: sessionId || '',
+    track: track || 'default',
+    chunkIndex: Number.isFinite(chunkIndex) ? chunkIndex : -1,
+    seq: ++ttsPlayback.seq,
+  });
+  ttsPlayback.queue.sort((a, b) => {
+    const aKey = `${a.sessionId}|${a.track}`;
+    const bKey = `${b.sessionId}|${b.track}`;
+    if (aKey === bKey && a.chunkIndex >= 0 && b.chunkIndex >= 0) {
+      if (a.chunkIndex !== b.chunkIndex) return a.chunkIndex - b.chunkIndex;
+    }
+    return a.seq - b.seq;
   });
   playNextTTSAudio();
 }
@@ -2516,13 +2681,8 @@ function send() {
   sendBtn.disabled = true;
   inp.disabled = true;
 
-  fetch('/viewer/send', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({message: text}),
-  })
-  .then((r) => {
-    if (!r.ok) throw new Error('send failed');
+  sendViewerMessage(text)
+  .then(() => {
     inp.value = '';
     autoResize();
   })
@@ -2533,6 +2693,100 @@ function send() {
     inp.disabled = false;
     inp.focus();
   });
+}
+
+async function sendViewerMessage(message) {
+  const body = {message: String(message || '').trim()};
+  if (!body.message) throw new Error('message is required');
+  const r = await fetch('/viewer/send', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error('send failed');
+  return {ok: true};
+}
+
+function buildViewerStatusSnapshot() {
+  const items = {};
+  AGENTS.forEach((id) => {
+    const current = state.agents[id] || {};
+    items[id] = {
+      state: current.state || 'offline',
+      reason: current.reason || '',
+      route: current.route || '-',
+      updated_at: current.updatedAt || '',
+      preview: current.preview || '',
+    };
+  });
+  const jobs = Object.values(state.jobs || {});
+  return {
+    generated_at: new Date().toISOString(),
+    timeline_event_count: state.logs.length,
+    job_count: jobs.length,
+    running_job_count: jobs.filter((j) => String(j.status || '') !== 'done').length,
+    agents: items,
+  };
+}
+
+function registerWebMCPTools() {
+  const modelContext = navigator && navigator.modelContext;
+  if (!modelContext || typeof modelContext.registerTool !== 'function') {
+    console.info('[WebMCP] navigator.modelContext is unavailable on this browser/page');
+    return;
+  }
+
+  const toolSignalController = new AbortController();
+  window.addEventListener('pagehide', () => toolSignalController.abort(), {once: true});
+
+  try {
+    modelContext.registerTool({
+      name: 'viewer.get_status',
+      title: 'Get Viewer Status',
+      description: 'Return RenCrow viewer status including agent states and running jobs.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+      execute: async function() {
+        return buildViewerStatusSnapshot();
+      },
+    }, {signal: toolSignalController.signal});
+
+    modelContext.registerTool({
+      name: 'viewer.send_message',
+      title: 'Send Viewer Message',
+      description: 'Send a user message to RenCrow via viewer send endpoint.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            description: 'Message body to send to RenCrow.',
+            minLength: 1,
+          },
+        },
+        required: ['message'],
+        additionalProperties: false,
+      },
+      execute: async function(input) {
+        const msg = input && typeof input.message === 'string' ? input.message : '';
+        await sendViewerMessage(msg);
+        return {
+          ok: true,
+          message_preview: short(msg, 120),
+        };
+      },
+    }, {signal: toolSignalController.signal});
+
+    console.info('[WebMCP] tools registered: viewer.get_status, viewer.send_message');
+  } catch (err) {
+    console.error('[WebMCP] tool registration failed', err);
+  }
 }
 
 function connect() {
@@ -2579,6 +2833,9 @@ setInterval(refreshIdleLogs, 5000);
 setInterval(refreshOpsData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
+setInterval(refreshDebugSystem, 5000);
+refreshDebugSystem();
+registerWebMCPTools();
 connect();
 
 // === STT (Speech-to-Text) via voice-bridge ===
@@ -2588,14 +2845,230 @@ const sttState = {
   audioStream: null,
   scriptNode: null,
   isRecording: false,
+  isStopping: false,
+  keepSessionChannel: true,
   draftBuffer: [],        // Recent window for draft (1 second)
   draftTimer: null,
+  reconnectTimer: null,
+  reconnecting: false,
+  captureLog: [],
+  capturePCM: [],
+  captureStartedAt: '',
+  captureEndedAt: '',
+  captureSessionID: '(unknown)',
   voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt-ws`
 };
 
 const micBtn = document.getElementById('micBtn');
+const micStateEl = document.getElementById('micState');
+const sttConnStateEl = document.getElementById('sttConnState');
+const sttSessionStateEl = document.getElementById('sttSessionState');
+const debugSttSessionEl = document.getElementById('debugSttSession');
+const sttCaptureCopyBtn = document.getElementById('sttCaptureCopyBtn');
+const sttCaptureDownloadBtn = document.getElementById('sttCaptureDownloadBtn');
+const sttCaptureClearBtn = document.getElementById('sttCaptureClearBtn');
+const sttSessionCopyBtn = document.getElementById('sttSessionCopyBtn');
 if (micBtn) {
   micBtn.addEventListener('click', toggleSTT);
+}
+if (sttCaptureCopyBtn) {
+  sttCaptureCopyBtn.addEventListener('click', copySTTCaptureLog);
+}
+if (sttCaptureDownloadBtn) {
+  sttCaptureDownloadBtn.addEventListener('click', downloadSTTCaptureLog);
+}
+if (sttCaptureClearBtn) {
+  sttCaptureClearBtn.addEventListener('click', clearSTTCaptureLog);
+}
+if (sttSessionCopyBtn) {
+  sttSessionCopyBtn.addEventListener('click', copySTTSessionID);
+}
+updateSTTInputIndicators();
+connectSTTWebSocket();
+
+function recordSTTCaptureEvent(type, payload) {
+  if (type !== 'speech_start' && type !== 'draft' && type !== 'final') return;
+  const rawPayload = String(payload || '').trim();
+  if (type === 'speech_start') {
+    payload = '-';
+  } else {
+    if (!rawPayload) return;
+    payload = rawPayload;
+  }
+  const nowISO = new Date().toISOString();
+  if (!sttState.captureStartedAt) {
+    sttState.captureStartedAt = nowISO;
+  }
+  sttState.captureEndedAt = nowISO;
+  sttState.captureLog.push({
+    time: ftime(nowISO),
+    type,
+    payload: String(payload || '-'),
+  });
+  if (sttState.captureLog.length > 200) {
+    sttState.captureLog.shift();
+  }
+}
+
+function getSTTCaptureSummaryText() {
+  const finals = sttState.captureLog
+    .filter((item) => item.type === 'final' && item.payload && item.payload !== '-')
+    .map((item) => item.payload.trim())
+    .filter(Boolean);
+  return finals.length > 0 ? finals.join(' / ') : '-';
+}
+
+function buildSTTCaptureLogText() {
+  const startedAt = sttState.captureStartedAt ? fdt(sttState.captureStartedAt) : '-';
+  const endedAt = sttState.captureEndedAt ? fdt(sttState.captureEndedAt) : '-';
+  const meta = [
+    '# Client STT Log',
+    'client_url: ' + window.location.href,
+    'ws_url: ' + sttState.voiceBridgeURL,
+    'test_time: ' + startedAt + ' ~ ' + endedAt,
+    'session_id: ' + (sttState.captureSessionID || '(unknown)'),
+    'spoken_text: ' + getSTTCaptureSummaryText(),
+    '',
+  ];
+  const body = sttState.captureLog.slice().reverse().map((item) => {
+    return `${item.time || '--:--:--'} · ${item.type || '-'}\n${item.payload || '-'}`;
+  });
+  if (body.length === 0) {
+    body.push('NO_STT_EVENTS');
+  }
+  return meta.concat(body).join('\n');
+}
+
+function copySTTCaptureLog() {
+  const text = buildSTTCaptureLogText();
+  writeClipboardText(text).then(() => {
+    showToast('STTログをコピーしました', 'success');
+  }).catch((err) => {
+    console.error('[STT] copy failed:', err);
+    showToast('STTログコピー失敗', 'error');
+  });
+}
+
+function downloadSTTCaptureLog() {
+  const text = buildSTTCaptureLogText();
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'client_stt_log.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('client_stt_log.txt を保存しました', 'success');
+}
+
+function clearSTTCaptureLog() {
+  sttState.captureLog = [];
+  sttState.capturePCM = [];
+  sttState.captureStartedAt = '';
+  sttState.captureEndedAt = '';
+  updateSTTInputIndicators();
+  showToast('STTログをクリアしました', 'success');
+}
+
+function copySTTSessionID() {
+  const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
+  if (sid === '(unknown)') {
+    showToast('SessionID未受信です', 'error');
+    return;
+  }
+  writeClipboardText(sid).then(() => {
+    showToast('SessionIDをコピーしました', 'success');
+  }).catch((err) => {
+    console.error('[STT] session_id copy failed:', err);
+    showToast('SessionIDコピー失敗', 'error');
+  });
+}
+
+async function persistSTTLogToServer(logText) {
+  const res = await fetch('/viewer/stt/log', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: logText}),
+  });
+  if (!res.ok) throw new Error('stt log save failed');
+}
+
+async function persistSTTWavToServer(wavBuffer) {
+  const res = await fetch('/viewer/stt/wav', {
+    method: 'POST',
+    headers: {'Content-Type': 'audio/wav'},
+    body: wavBuffer,
+  });
+  if (!res.ok) throw new Error('stt wav save failed');
+}
+
+async function runSTTAutoTest() {
+  const res = await fetch('/viewer/stt/autotest', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      provider_rounds: 1,
+      ws_rounds: 1,
+      ws_wait: 8,
+    }),
+  });
+  if (!res.ok) throw new Error('stt autotest failed');
+}
+
+async function persistSTTArtifacts() {
+  const logText = buildSTTCaptureLogText();
+  await persistSTTLogToServer(logText);
+  if (sttState.capturePCM.length > 0) {
+    const wav = pcm16ToWav(new Int16Array(sttState.capturePCM));
+    await persistSTTWavToServer(wav);
+    await runSTTAutoTest();
+  }
+}
+
+function updateSTTInputIndicators() {
+  if (micBtn) {
+    micBtn.classList.toggle('ready', !!sttState.isRecording);
+    micBtn.title = sttState.isRecording ? '音声入力中（クリックで停止）' : '音声入力';
+  }
+  if (micStateEl) {
+    micStateEl.textContent = sttState.isRecording ? 'Mic: on' : 'Mic: off';
+    micStateEl.className = 'stt-state' + (sttState.isRecording ? ' mic-on' : '');
+  }
+  if (sttConnStateEl) {
+    let text = 'STT: off';
+    let cls = 'stt-state conn-off';
+    const ws = sttState.ws;
+    if (sttState.isRecording) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        text = 'STT: connected';
+        cls = 'stt-state conn-on';
+      } else if (sttState.reconnecting || (ws && ws.readyState === WebSocket.CONNECTING)) {
+        text = 'STT: reconnecting';
+        cls = 'stt-state conn-reconnect';
+      } else {
+        text = 'STT: waiting';
+        cls = 'stt-state conn-off';
+      }
+    } else if (ws && ws.readyState === WebSocket.OPEN) {
+      text = 'STT: standby';
+      cls = 'stt-state conn-on';
+    } else if (sttState.reconnecting || (ws && ws.readyState === WebSocket.CONNECTING)) {
+      text = 'STT: connecting';
+      cls = 'stt-state conn-reconnect';
+    }
+    sttConnStateEl.textContent = text;
+    sttConnStateEl.className = cls;
+  }
+  if (sttSessionStateEl) {
+    const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
+    sttSessionStateEl.textContent = 'Session: ' + sid;
+    sttSessionStateEl.title = 'Session: ' + sid;
+    if (debugSttSessionEl) {
+      debugSttSessionEl.textContent = 'Session: ' + sid;
+    }
+  }
 }
 
 async function toggleSTT() {
@@ -2608,6 +3081,11 @@ async function toggleSTT() {
 
 async function startSTT() {
   try {
+    sttState.isStopping = false;
+    sttState.captureLog = [];
+    sttState.capturePCM = [];
+    sttState.captureStartedAt = '';
+    sttState.captureEndedAt = '';
     sttState.audioStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         noiseSuppression: true,
@@ -2631,6 +3109,7 @@ async function startSTT() {
         pcm16[i] = Math.max(-32768, Math.min(32767, Math.floor(pcm[i] * 32768)));
       }
       sttState.draftBuffer.push(...pcm16);
+      sttState.capturePCM.push(...pcm16);
       // Keep draft buffer to recent 1 second
       const maxDraftSamples = 16000;
       if (sttState.draftBuffer.length > maxDraftSamples) {
@@ -2638,34 +3117,60 @@ async function startSTT() {
       }
     };
 
-    // Connect to voice-bridge
-    sttState.ws = new WebSocket(sttState.voiceBridgeURL);
+    sttState.isRecording = true;
+    updateSTTInputIndicators();
+    connectSTTWebSocket();
 
-    sttState.ws.onopen = () => {
-      console.log('[STT] Connected - server-side VAD mode');
-      sttState.ws.send(JSON.stringify({ type: 'config', mimeType: 'audio/wav' }));
-      sttState.isRecording = true;
-      micBtn.classList.add('ready');
-      micBtn.title = '音声入力中（クリックで停止）';
-
-      // Draft sending loop (500ms) - server handles VAD and final detection
-      const draftInterval = setInterval(() => {
-        if (!sttState.isRecording) {
-          clearInterval(draftInterval);
-          return;
-        }
-        sendDraft();
-      }, 500);
-
-      sttState.draftTimer = () => {
+    // Draft sending loop (500ms) - server handles VAD and final detection
+    const draftInterval = setInterval(() => {
+      if (!sttState.isRecording) {
         clearInterval(draftInterval);
-      };
-    };
+        return;
+      }
+      sendDraft();
+    }, 500);
 
-    sttState.ws.onmessage = (event) => {
+    sttState.draftTimer = () => {
+      clearInterval(draftInterval);
+    };
+  } catch (err) {
+    console.error('[STT] Failed:', err);
+    showToast('マイクアクセス拒否', 'error');
+    stopSTT();
+  }
+}
+
+function connectSTTWebSocket() {
+  if (sttState.isStopping) return;
+  if (!sttState.keepSessionChannel && !sttState.isRecording) return;
+  if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) return;
+  if (sttState.ws && sttState.ws.readyState === WebSocket.CONNECTING) return;
+  sttState.ws = new WebSocket(sttState.voiceBridgeURL);
+  sttState.ws.onopen = () => {
+    sttState.reconnecting = false;
+    if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+      sttState.ws.send(JSON.stringify({ type: 'config', mimeType: 'audio/wav' }));
+    }
+    console.log('[STT] Connected - server-side VAD mode');
+    updateSTTInputIndicators();
+  };
+  sttState.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         const inp = document.getElementById('inp');
+        if (msg.type) {
+          pushDebugTrace('stt', {
+            time: ftime(new Date().toISOString()),
+            step: msg.type,
+            text: short(String(msg.text || msg.error || ''), 240),
+          });
+          if (msg.type === 'session_info' && msg.session_id) {
+            sttState.captureSessionID = String(msg.session_id).trim() || '(unknown)';
+            updateSTTInputIndicators();
+          }
+          recordSTTCaptureEvent(msg.type, msg.text || '');
+          renderDebugPanels();
+        }
         if (msg.type === 'draft' && msg.text) {
           console.log('[STT] Draft:', msg.text);
         } else if (msg.type === 'final' && msg.text) {
@@ -2687,16 +3192,31 @@ async function startSTT() {
       } catch (err) {
         console.error('[STT] Parse error:', err);
       }
-    };
+  };
+  sttState.ws.onerror = () => {
+    updateSTTInputIndicators();
+    if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
+  };
+  sttState.ws.onclose = () => {
+    updateSTTInputIndicators();
+    if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
+  };
+}
 
-    sttState.ws.onerror = () => stopSTT();
-    sttState.ws.onclose = () => stopSTT();
-
-  } catch (err) {
-    console.error('[STT] Failed:', err);
-    showToast('マイクアクセス拒否', 'error');
-    stopSTT();
-  }
+function scheduleSTTReconnect() {
+  if (sttState.reconnecting) return;
+  sttState.reconnecting = true;
+  updateSTTInputIndicators();
+  if (sttState.reconnectTimer) clearTimeout(sttState.reconnectTimer);
+  sttState.reconnectTimer = setTimeout(() => {
+    sttState.reconnectTimer = null;
+    if (sttState.isStopping || !sttState.keepSessionChannel) {
+      sttState.reconnecting = false;
+      updateSTTInputIndicators();
+      return;
+    }
+    connectSTTWebSocket();
+  }, 700);
 }
 
 function pcm16ToWav(pcmBuffer, sampleRate = 16000) {
@@ -2738,10 +3258,17 @@ function sendDraft() {
 }
 
 function stopSTT() {
+  if (sttState.isStopping) return;
+  sttState.isStopping = true;
   console.log('[STT] Stopping');
   sttState.isRecording = false;
 
   if (sttState.draftTimer) sttState.draftTimer();
+  if (sttState.reconnectTimer) {
+    clearTimeout(sttState.reconnectTimer);
+    sttState.reconnectTimer = null;
+  }
+  sttState.reconnecting = false;
 
   if (sttState.scriptNode) {
     sttState.scriptNode.disconnect();
@@ -2755,16 +3282,21 @@ function stopSTT() {
     sttState.audioStream.getTracks().forEach(t => t.stop());
     sttState.audioStream = null;
   }
-  if (sttState.ws) {
-    sttState.ws.close();
-    sttState.ws = null;
+  if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+    try {
+      sttState.ws.send(JSON.stringify({ type: 'final_pending' }));
+    } catch (_) {}
   }
 
   sttState.draftBuffer = [];
-  if (micBtn) {
-    micBtn.classList.remove('ready');
-    micBtn.title = '音声入力';
-  }
+  updateSTTInputIndicators();
+  sttState.isStopping = false;
+  persistSTTArtifacts().then(() => {
+    showToast('STTログ/WAVを tmp に保存しました', 'success');
+  }).catch((err) => {
+    console.error('[STT] persist failed:', err);
+    showToast('STT保存または自動テストに失敗', 'error');
+  });
   console.log('[STT] Stopped');
 }
 </script>

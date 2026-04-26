@@ -1,54 +1,55 @@
-# STT_TTS ドキュメント分類
+# STT_TTS 実装ガイド
 
-`docs/STT_TTS` は以下の3区分で管理する。
+`docs/STT_TTS` は、音声仕様を **Client仕様**（Chat視点）と **Server仕様**（提供側視点）で管理する。  
+本ページは実装着手の起点とする。
 
-## 1. STT
-STT（Whisper / voice-bridge）に関する仕様・実装状況。
+## 1. 先に決めること（実装前）
+- STT/TTS は Chat サーバ経由を維持する
+- STT/TTS は Provider 非依存契約で記述する
+- 音声は単発だけでなく複数本（複数チャンク/複数トラック）を前提とする
 
-配置先: `docs/STT_TTS/STT`
+## 2. 実装順序（推奨）
+1. `AUDIO_Server仕様` で API/実装仕様を確定
+2. `AUDIO_Client仕様` で Chat 呼び出し契約を同期
+3. 両者のフィールド整合（必須/任意/型）を確認
+4. 受け入れ基準で疎通テスト
 
-主なファイル:
-- `STT仕様.md`
-- `STT_現状実装仕様.md`
-- `STT_Whisper実装仕様.md`
-- `STT_WHISPER_SPEC_SUMMARY.md`
-- `STT_実装状況.md`
-- `10_WHISPER_REMOTE_PC.md`
+## 3. 参照先
 
-## 2. TTS
-TTS（SBV2 等）に関する仕様・API 契約・運用情報。
+### Client仕様（Chat から見た契約）
+- `docs/STT_TTS/AUDIO_Client仕様/README.md`
 
-配置先: `docs/STT_TTS/TTS`
+### Server仕様（提供側契約）
+- `docs/STT_TTS/AUDIO_Server仕様/README.md`
 
-主なファイル:
-- `12_SBV2_TTS_現状仕様.md`
-- `SBV2_SERVER_TEAM_CONTACT_QUESTIONS.md`
+### 旧資料
+- `docs/STT_TTS/archive`
 
-## 3. COMMON（STT/TTS 共通事項）
-STT/TTS 共通で参照する接続方針・移行・CORS などの共通知識。
+## 4. 実装完了条件（DoD）
+- Client/Server で API 名称・必須フィールド・エラー契約が一致
+- Provider 名称が本文契約を汚染しない（実装例セクションのみ）
+- 複数本音声（chunk/track）契約が API と実装仕様に明記されている
+- README から着手順序が一意に辿れる
 
-配置先: `docs/STT_TTS/COMMON`
+## 5. API-DOD運用
+- API文書の `API-DOD-*` を実装/レビューのチェックIDとして使用する
+- 命名規則: `API-DOD-<領域>-<側>-<連番>`
+  - 領域: `STT` または `TTS`
+  - 側: `C`（Client）または `S`（Server）
+- 仕様変更時は関連する `API-DOD-*` も同時更新する
+- 各IDの検証コマンド例と証跡記録欄は、各 `*_API.md` の API-DOD 節を正本とする
+- PR単位の集約判定は `docs/STT_TTS/API_DOD_CHECKLIST.md` へ記録する
 
-主なファイル:
-- `STT_TTS_接続基本事項.md`
-- `11_WIN11_HP01_SERVER_MIGRATION.md`
-- `09_BROWSER_AND_CORS.md`
+## 6. 運用ルール
+- 正規仕様は `AUDIO_Client仕様` / `AUDIO_Server仕様` のみ
+- 旧文書は削除せず `archive` へ移動
+- 仕様更新時は Client/Server を同一PRで同期
+- レビュー記録は `docs/STT_TTS/API_DOD_CHECKLIST.md` を利用する
 
-## 4. AUDIO_Server仕様（現状サーバ仕様）
-
-音声サーバの現状仕様は `docs/STT_TTS/AUDIO_Server仕様` を参照する。
-
-配置構成:
-- `docs/STT_TTS/AUDIO_Server仕様/STT`（STT サーバ側仕様）
-- `docs/STT_TTS/AUDIO_Server仕様/TTS`（TTS サーバ側仕様）
-- `docs/STT_TTS/AUDIO_Server仕様/COMMON`（共通仕様）
-- `docs/STT_TTS/AUDIO_Server仕様/Chat_Server`（Chat サーバ連携メモ）
-
-注意:
-- 基本事項として STT/TTS は Chat サーバ経由接続を優先する
-- 現状仕様と正本仕様に差分がある場合は、差分を明記して段階的に同期する
-
-## 運用ルール
-- 新規ドキュメント作成時は、まず STT / TTS / COMMON のどれに属するかを決める
-- STT/TTS 両方に関わる方針・制約・移行手順は `COMMON` に置く
-- ファイル移動時は、関連ドキュメントの参照パスを同時に更新する
+## 7. 再起動運用定義
+- RenCrow の規定ポートは `18790` に固定する。
+- 「再起動」の操作定義は以下とする。
+  1. 動作中 RenCrow を停止（Kill）する
+  2. RenCrow を起動する
+  3. `GET /health` と `GET /ready` を確認する
+- ポート競合がある場合は、競合プロセスを停止してから再起動する。

@@ -276,28 +276,18 @@ type ViewerLogConfig struct {
 
 // TTSConfig configures provider fallback and playback verification.
 type TTSConfig struct {
-	Enabled           bool                          `yaml:"enabled"`
-	OutputDir         string                        `yaml:"output_dir"`
-	AudioPathRoot     string                        `yaml:"audio_path_root"`
-	HTTPBaseURL       string                        `yaml:"http_base_url"`
-	WSURL             string                        `yaml:"ws_url"`
-	ConnectTimeoutMS  int                           `yaml:"connect_timeout_ms"`
-	ReceiveTimeoutMS  int                           `yaml:"receive_timeout_ms"`
-	ChunkGapTimeoutMS int                           `yaml:"chunk_gap_timeout_ms"`
-	VoiceID           string                        `yaml:"voice_id"`
-	SpeechMode        string                        `yaml:"speech_mode"`
-	ProviderPriority  []string                      `yaml:"provider_priority"` // e.g. sbv2,azure,eleven
-	PlaybackCommands  []TTSCommandConfig             `yaml:"playback_commands"`
-	VoiceServers      map[string]TTSVoiceServerConfig `yaml:"voice_servers"`
-	SBV2              TTSSBV2Config                 `yaml:"sbv2"`
-	Azure             TTSAzureConfig                `yaml:"azure"`
-	Eleven            TTSElevenLabsConfig           `yaml:"eleven"`
-}
-
-// TTSVoiceServerConfig points a specific voice_id to a dedicated TTS server.
-type TTSVoiceServerConfig struct {
-	HTTPBaseURL string `yaml:"http_base_url"`
-	WSURL       string `yaml:"ws_url"`
+	Enabled          bool                `yaml:"enabled"`
+	OutputDir        string              `yaml:"output_dir"`
+	AudioPathRoot    string              `yaml:"audio_path_root"`
+	HTTPBaseURL      string              `yaml:"http_base_url"`
+	TimeoutMS        int                 `yaml:"timeout_ms"`
+	VoiceID          string              `yaml:"voice_id"`
+	ProviderParams   map[string]any      `yaml:"provider_params"`
+	ProviderPriority []string            `yaml:"provider_priority"` // e.g. sbv2,azure,eleven
+	PlaybackCommands []TTSCommandConfig  `yaml:"playback_commands"`
+	SBV2             TTSSBV2Config       `yaml:"sbv2"`
+	Azure            TTSAzureConfig      `yaml:"azure"`
+	Eleven           TTSElevenLabsConfig `yaml:"eleven"`
 }
 
 type TTSCommandConfig struct {
@@ -579,23 +569,14 @@ func (c *Config) setDefaults() {
 	if c.TTS.HTTPBaseURL == "" {
 		c.TTS.HTTPBaseURL = "http://127.0.0.1:8765"
 	}
-	if c.TTS.WSURL == "" {
-		c.TTS.WSURL = "ws://127.0.0.1:8765/sessions"
-	}
-	if c.TTS.ConnectTimeoutMS <= 0 {
-		c.TTS.ConnectTimeoutMS = 3000
-	}
-	if c.TTS.ReceiveTimeoutMS <= 0 {
-		c.TTS.ReceiveTimeoutMS = 15000
-	}
-	if c.TTS.ChunkGapTimeoutMS <= 0 {
-		c.TTS.ChunkGapTimeoutMS = 3000
+	if c.TTS.TimeoutMS <= 0 {
+		c.TTS.TimeoutMS = 15000
 	}
 	if c.TTS.VoiceID == "" {
 		c.TTS.VoiceID = "female_01"
 	}
-	if c.TTS.SpeechMode == "" {
-		c.TTS.SpeechMode = "conversational"
+	if c.TTS.ProviderParams == nil {
+		c.TTS.ProviderParams = map[string]any{}
 	}
 	if c.VTuber.TickIntervalMS <= 0 {
 		c.VTuber.TickIntervalMS = 100
