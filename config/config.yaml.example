@@ -157,6 +157,13 @@ heartbeat:
   chat_id: "${PICOCLAW_HEARTBEAT_CHAT_ID}"
 
 # TTS実行能力（OpenClaw parity）
+# 音声サーバメモ:
+# - RenCrow_TTS と RenCrow_STT は同一ホストを使用する
+# - 共通IP: 192.168.1.36
+# - STT Health: https://192.168.1.36:8090/health
+# - STT Ready:  https://192.168.1.36:8090/ready
+# - STT WebSocket（Chat側接続先）: wss://192.168.1.36:8090/stt
+# - 自己署名証明書のため curl は -k を付ける
 tts:
   enabled: false
   output_dir: "./workspace/tts"

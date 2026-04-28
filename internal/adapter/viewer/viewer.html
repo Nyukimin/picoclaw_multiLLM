@@ -2729,6 +2729,14 @@ function ensureTTSAudio() {
   return ttsPlayback.audio;
 }
 
+function isAutoplayBlockedError(err) {
+  if (!err) return false;
+  const name = String(err.name || '').trim();
+  const msg = String(err.message || '').toLowerCase();
+  if (name === 'NotAllowedError') return true;
+  return msg.includes('user didn\'t interact') || msg.includes('notallowederror');
+}
+
 function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, responseId, utteranceId) {
   ttsPlayback.queue.push({
     url: url,
@@ -2778,11 +2786,18 @@ function playNextTTSAudio() {
     ttsPlayback.playing = false;
     ttsPlayback.currentCharacterId = '';
     ttsPlayback.currentText = '';
-    ttsPlayback.blocked = true;
-    ttsPlayback.unlocked = false;
+    if (isAutoplayBlockedError(err)) {
+      ttsPlayback.blocked = true;
+      ttsPlayback.unlocked = false;
+      // Retry this chunk after user explicitly re-enables audio.
+      ttsPlayback.queue.unshift(next);
+    } else {
+      // Keep manual audio unlock state for media/url errors.
+      ttsPlayback.blocked = false;
+    }
     console.error('tts audio play failed', err);
     updateAudioButton();
-    ttsPlayback.queue.unshift(next);
+    if (!ttsPlayback.blocked) playNextTTSAudio();
   });
 }
 
@@ -2986,7 +3001,7 @@ const sttState = {
   captureStartedAt: '',
   captureEndedAt: '',
   captureSessionID: '(unknown)',
-  voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt-ws`
+  voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`
 };
 
 const micBtn = document.getElementById('micBtn');

@@ -68,10 +68,10 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float):
 
 
 def main():
-    p = argparse.ArgumentParser(description="STT E2E probe for provider and /stt-ws")
+    p = argparse.ArgumentParser(description="STT E2E probe for provider and /stt")
     p.add_argument("--wav", default="tmp/client_stt_input_latest.wav", help="Path to WAV sample")
     p.add_argument("--provider-url", default="http://192.168.1.36:8080/inference")
-    p.add_argument("--ws-url", default="ws://127.0.0.1:18790/stt-ws")
+    p.add_argument("--ws-url", default="ws://127.0.0.1:18790/stt")
     p.add_argument("--provider-timeout", type=float, default=8.0)
     p.add_argument("--provider-rounds", type=int, default=5)
     p.add_argument("--ws-rounds", type=int, default=3)

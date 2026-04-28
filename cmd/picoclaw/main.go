@@ -189,11 +189,9 @@ func cmdRun() {
 	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave("tmp/client_stt_log.txt"))
 	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave("tmp/client_stt_input_latest.wav", "tmp/stt_inputs"))
 	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest("scripts/stt_e2e_probe.py", "tmp/client_stt_input_latest.wav", "tmp/stt_e2e_from_mic_latest.json"))
-	if sttGatewayURL := strings.TrimSpace(os.Getenv("STT_GATEWAY_URL")); sttGatewayURL != "" {
-		mux.Handle("/stt-ws", handleSTTWebSocketProxy(sttGatewayURL))
-	} else {
-		mux.Handle("/stt-ws", handleSTTWebSocket(sttProviderURL))
-	}
+	sttGatewayURL := inferSTTGatewayURL(os.Getenv("STT_GATEWAY_URL"), os.Getenv("RENCROW_STT_URL"))
+	sttWSHandler := resolveSTTWebSocketHandler(sttProviderURL, sttGatewayURL)
+	registerSTTRoutes(mux, sttWSHandler)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 	if dependencies.viewerStatus != nil {
 		mux.HandleFunc("/viewer/status", dependencies.viewerStatus)
@@ -1507,9 +1505,31 @@ func inferSTTProviderURL(ttsBaseURL, sttProviderURL string) string {
 	return strings.TrimRight(base, "/") + "/inference"
 }
 
-// handleSTTWebSocketProxy は /stt-ws を voice-bridge（STT Gateway）へ透過プロキシする。
-// STT_GATEWAY_URL に voice-bridge の WebSocket URL を設定すると有効になる。
-// 例: STT_GATEWAY_URL=ws://192.168.1.36:8090/stt-ws
+func inferSTTGatewayURL(sttGatewayURL, rencrowSTTURL string) string {
+	if v := strings.TrimSpace(sttGatewayURL); v != "" {
+		return v
+	}
+	return strings.TrimSpace(rencrowSTTURL)
+}
+
+func resolveSTTWebSocketHandler(sttProviderURL, sttGatewayURL string) http.Handler {
+	sttWSHandler := handleSTTWebSocket(sttProviderURL)
+	if strings.TrimSpace(sttGatewayURL) != "" {
+		sttWSHandler = handleSTTWebSocketProxy(sttGatewayURL)
+	}
+	return sttWSHandler
+}
+
+func registerSTTRoutes(mux *http.ServeMux, sttWSHandler http.Handler) {
+	// Primary endpoint is /stt. Keep /stt-ws and /ws for backward compatibility.
+	mux.Handle("/stt", sttWSHandler)
+	mux.Handle("/stt-ws", sttWSHandler)
+	mux.Handle("/ws", sttWSHandler)
+}
+
+// handleSTTWebSocketProxy は /stt を voice-bridge（STT Gateway）へ透過プロキシする。
+// STT_GATEWAY_URL または RENCROW_STT_URL に voice-bridge の WebSocket URL を設定すると有効になる。
+// 例: RENCROW_STT_URL=ws://192.168.1.36:8090/stt
 func handleSTTWebSocketProxy(gatewayURL string) http.Handler {
 	return websocket.Handler(func(conn *websocket.Conn) {
 		defer conn.Close()
