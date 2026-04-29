@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -61,23 +62,11 @@ func (p *SBV2Provider) Synthesize(ctx context.Context, in SynthesisInput) (Synth
 		return p.synthesizeEditor(ctx, in)
 	}
 
-	payload := map[string]any{
-		"text":     in.Text,
-		"voice_id": p.voiceID,
-		"emotion":  in.Emotion.Emotion,
-		"speed":    in.Emotion.Speed,
-		"pitch":    in.Emotion.Pitch,
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return SynthesisOutput{}, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL, bytes.NewReader(b))
+	voice := resolveSBV2VoiceParams(chooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.voiceURL(in.Text, voice), nil)
 	if err != nil {
 		return SynthesisOutput{}, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -85,30 +74,51 @@ func (p *SBV2Provider) Synthesize(ctx context.Context, in SynthesisInput) (Synth
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return SynthesisOutput{}, fmt.Errorf("sbv2 bad status: %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return SynthesisOutput{}, fmt.Errorf("sbv2 bad status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var out struct {
-		AudioPath  string `json:"audio_path"`
-		DurationMS int    `json:"duration_ms"`
-		VoiceID    string `json:"voice_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return SynthesisOutput{}, fmt.Errorf("decode response: %w", err)
-	}
-	if strings.TrimSpace(out.AudioPath) == "" {
-		return SynthesisOutput{}, fmt.Errorf("sbv2 response missing audio_path")
-	}
-	voiceID := out.VoiceID
-	if voiceID == "" {
-		voiceID = p.voiceID
+	audioPath, err := saveEditorWAV(resp.Body, in.OutputDir, in.FilePrefix)
+	if err != nil {
+		return SynthesisOutput{}, err
 	}
 	return SynthesisOutput{
 		Provider:      "sbv2",
-		VoiceID:       voiceID,
-		AudioFilePath: resolveAudioPath(out.AudioPath, p.audioPathRoot),
-		DurationMS:    out.DurationMS,
+		VoiceID:       voice.Name,
+		AudioFilePath: audioPath,
 	}, nil
+}
+
+type sbv2VoiceParams struct {
+	Name      string
+	ModelID   int
+	SpeakerID int
+	Style     string
+}
+
+func resolveSBV2VoiceParams(name string) sbv2VoiceParams {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch normalized {
+	case "shi-gozaki", "shigozaki":
+		return sbv2VoiceParams{Name: "shi-gozaki", ModelID: 6, SpeakerID: 0, Style: "Neutral"}
+	case "amitaro", "":
+		return sbv2VoiceParams{Name: "amitaro", ModelID: 0, SpeakerID: 0, Style: "Neutral"}
+	default:
+		return sbv2VoiceParams{Name: strings.TrimSpace(name), ModelID: 0, SpeakerID: 0, Style: "Neutral"}
+	}
+}
+
+func (p *SBV2Provider) voiceURL(text string, voice sbv2VoiceParams) string {
+	base := strings.TrimRight(p.baseURL, "/")
+	if !strings.HasSuffix(strings.ToLower(base), "/voice") {
+		base += "/voice"
+	}
+	q := make(url.Values, 4)
+	q.Set("text", ensureTTSPunctuation(text))
+	q.Set("model_id", strconv.Itoa(voice.ModelID))
+	q.Set("speaker_id", strconv.Itoa(voice.SpeakerID))
+	q.Set("style", voice.Style)
+	return base + "?" + q.Encode()
 }
 
 type sbv2ModelInfo struct {

@@ -12,69 +12,63 @@ import (
 )
 
 func TestSBV2Provider_SynthesizeFromAudioPath(t *testing.T) {
-	p := NewSBV2Provider(SBV2Config{BaseURL: "http://sbv2.local/synthesis", VoiceID: "mio"})
+	tmpDir := t.TempDir()
+	p := NewSBV2Provider(SBV2Config{BaseURL: "http://sbv2.local", VoiceID: "amitaro"})
 	p.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body failed: %v", err)
+		if got := r.URL.Path; got != "/voice" {
+			t.Fatalf("unexpected path: %s", got)
 		}
-		var in map[string]any
-		if err := json.Unmarshal(body, &in); err != nil {
-			t.Fatalf("invalid request json: %v", err)
+		q := r.URL.Query()
+		if q.Get("text") != "hello。" || q.Get("model_id") != "0" || q.Get("speaker_id") != "0" || q.Get("style") != "Neutral" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
 		}
-		if in["text"] != "hello" {
-			t.Fatalf("unexpected request payload: %+v", in)
-		}
-		out, _ := json.Marshal(map[string]any{
-			"audio_path":  "/tmp/sbv2.wav",
-			"duration_ms": 1234,
-			"voice_id":    "mio",
-		})
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(bytes.NewReader(out)),
+			Body:       io.NopCloser(bytes.NewBufferString("RIFFtest")),
 			Header:     make(http.Header),
 		}, nil
 	})}
 
-	out, err := p.Synthesize(context.Background(), SynthesisInput{Text: "hello"})
+	out, err := p.Synthesize(context.Background(), SynthesisInput{Text: "hello", OutputDir: tmpDir})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if out.Provider != "sbv2" || out.AudioFilePath != "/tmp/sbv2.wav" || out.DurationMS != 1234 {
+	if out.Provider != "sbv2" || out.VoiceID != "amitaro" {
 		t.Fatalf("unexpected output: %+v", out)
+	}
+	got, err := os.ReadFile(out.AudioFilePath)
+	if err != nil || string(got) != "RIFFtest" {
+		t.Fatalf("unexpected wav output: err=%v got=%q", err, string(got))
 	}
 }
 
 func TestSBV2Provider_SynthesizeFromAudioPath_WithRootMapping(t *testing.T) {
 	p := NewSBV2Provider(SBV2Config{
-		BaseURL:       "http://sbv2.local/synthesis",
-		VoiceID:       "mio",
-		AudioPathRoot: "/mnt/e/GenerativeAI/Style-Bert-VITS2",
+		BaseURL:       "http://sbv2.local/voice",
+		VoiceID:       "shi-gozaki",
+		AudioPathRoot: "/unused",
 	})
 	p.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-		out, _ := json.Marshal(map[string]any{
-			"audio_path":  `cache\\oneshot-abc_000.wav`,
-			"duration_ms": 100,
-			"voice_id":    "mio",
-		})
+		q := r.URL.Query()
+		if q.Get("model_id") != "6" || q.Get("speaker_id") != "0" || q.Get("style") != "Neutral" {
+			t.Fatalf("unexpected query for shi-gozaki: %s", r.URL.RawQuery)
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(bytes.NewReader(out)),
+			Body:       io.NopCloser(bytes.NewBufferString("RIFFshi")),
 			Header:     make(http.Header),
 		}, nil
 	})}
 
-	out, err := p.Synthesize(context.Background(), SynthesisInput{Text: "hello"})
+	out, err := p.Synthesize(context.Background(), SynthesisInput{Text: "hello", OutputDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	want := "/mnt/e/GenerativeAI/Style-Bert-VITS2/cache/oneshot-abc_000.wav"
-	if out.AudioFilePath != want {
-		t.Fatalf("unexpected mapped audio path: got=%q want=%q", out.AudioFilePath, want)
+	if out.VoiceID != "shi-gozaki" {
+		t.Fatalf("unexpected voice id: %s", out.VoiceID)
 	}
 }
 

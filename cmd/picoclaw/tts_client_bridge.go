@@ -36,52 +36,59 @@ func buildTTSClientBridge(
 		player := ttsinfra.NewCommandPlayer(cmds)
 		sink = ttsinfra.NewPlaybackAudioSink(player, cfg.TTS.AudioPathRoot)
 	}
+	onChunkFn := func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
+		if onChunkReady != nil {
+			onChunkReady(sessionID, characterID, text)
+		}
+		if onChunk == nil {
+			return
+		}
+		payload, err := json.Marshal(map[string]any{
+			"session_id":   sessionID,
+			"response_id":  responseID,
+			"utterance_id": fmt.Sprintf("%s:%04d", sessionID, chunkIndex),
+			"chunk_index":  chunkIndex,
+			"character_id": characterID,
+			"text":         text,
+			"audio_path":   audioPath,
+			"audio_url":    audioURL,
+		})
+		if err != nil {
+			log.Printf("WARN: tts chunk payload marshal failed: %v", err)
+			return
+		}
+		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payload), "TTS", "", sessionID, "viewer", "viewer-user"))
+	}
+	onSessionDoneFn := func(sessionID, characterID string) {
+		notifyIdleChatTTSCompleted(sessionID)
+		if onSessionCompleted != nil {
+			onSessionCompleted(sessionID, characterID)
+		}
+	}
+	if cfg.TTS.SBV2.Enabled && strings.TrimSpace(cfg.TTS.SBV2.BaseURL) != "" {
+		sbv2Provider := ttsinfra.NewSBV2Provider(ttsinfra.SBV2Config{
+			BaseURL: cfg.TTS.SBV2.BaseURL,
+			VoiceID: cfg.TTS.SBV2.VoiceID,
+			Timeout: time.Duration(cfg.TTS.SBV2.TimeoutSec) * time.Second,
+		})
+		log.Printf("TTS SBV2 direct bridge enabled (/voice base=%s)", cfg.TTS.SBV2.BaseURL)
+		return ttsinfra.NewSBV2TTSBridge(ttsinfra.SBV2TTSBridgeConfig{
+			Provider:           sbv2Provider,
+			Sink:               sink,
+			OutputDir:          cfg.TTS.OutputDir,
+			OnChunkReady:       onChunkFn,
+			OnSessionCompleted: onSessionDoneFn,
+		})
+	}
 	bridge := ttsinfra.NewRenCrowTTSBridge(ttsinfra.RenCrowTTSBridgeConfig{
-		HTTPBaseURL:    cfg.TTS.HTTPBaseURL,
-		VoiceID:        cfg.TTS.VoiceID,
-		TLSSkipVerify:  cfg.TTS.TLSSkipVerify,
-		RequestTimeout: time.Duration(cfg.TTS.TimeoutMS) * time.Millisecond,
-		ProviderParams: cfg.TTS.ProviderParams,
-		Sink:           sink,
-		OnChunkReady: func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
-			if onChunkReady != nil {
-				onChunkReady(sessionID, characterID, text)
-			}
-			if onChunk == nil {
-				return
-			}
-			payload, err := json.Marshal(map[string]any{
-				"session_id":   sessionID,
-				"response_id":  responseID,
-				"utterance_id": fmt.Sprintf("%s:%04d", sessionID, chunkIndex),
-				"chunk_index":  chunkIndex,
-				"character_id": characterID,
-				"text":         text,
-				"audio_path":   audioPath,
-				"audio_url":    audioURL,
-			})
-			if err != nil {
-				log.Printf("WARN: tts chunk payload marshal failed: %v", err)
-				return
-			}
-			onChunk(orchestrator.NewEvent(
-				"tts.audio_chunk",
-				"tts",
-				"user",
-				string(payload),
-				"TTS",
-				"",
-				sessionID,
-				"viewer",
-				"viewer-user",
-			))
-		},
-		OnSessionCompleted: func(sessionID, characterID string) {
-			notifyIdleChatTTSCompleted(sessionID)
-			if onSessionCompleted != nil {
-				onSessionCompleted(sessionID, characterID)
-			}
-		},
+		HTTPBaseURL:        cfg.TTS.HTTPBaseURL,
+		VoiceID:            cfg.TTS.VoiceID,
+		TLSSkipVerify:      cfg.TTS.TLSSkipVerify,
+		RequestTimeout:     time.Duration(cfg.TTS.TimeoutMS) * time.Millisecond,
+		ProviderParams:     cfg.TTS.ProviderParams,
+		Sink:               sink,
+		OnChunkReady:       onChunkFn,
+		OnSessionCompleted: onSessionDoneFn,
 	})
 	log.Printf("TTS RenCrow bridge enabled (/synthesis base=%s)", cfg.TTS.HTTPBaseURL)
 	return bridge
