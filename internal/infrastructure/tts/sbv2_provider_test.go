@@ -72,6 +72,50 @@ func TestSBV2Provider_SynthesizeFromAudioPath_WithRootMapping(t *testing.T) {
 	}
 }
 
+func TestSBV2Provider_SynthesizeVoiceAliasesForViewerCharacters(t *testing.T) {
+	tests := []struct {
+		name        string
+		voiceID     string
+		wantVoiceID string
+		wantModelID string
+	}{
+		{name: "mio alias", voiceID: "mio", wantVoiceID: "amitaro", wantModelID: "0"},
+		{name: "female legacy alias", voiceID: "female_01", wantVoiceID: "amitaro", wantModelID: "0"},
+		{name: "shiro alias", voiceID: "shiro", wantVoiceID: "shi-gozaki", wantModelID: "6"},
+		{name: "male legacy alias", voiceID: "male_01", wantVoiceID: "shi-gozaki", wantModelID: "6"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewSBV2Provider(SBV2Config{BaseURL: "http://sbv2.local", VoiceID: "amitaro"})
+			p.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				q := r.URL.Query()
+				if q.Get("model_id") != tt.wantModelID || q.Get("speaker_id") != "0" || q.Get("style") != "Neutral" {
+					t.Fatalf("unexpected query for %s: %s", tt.voiceID, r.URL.RawQuery)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(bytes.NewBufferString("RIFFalias")),
+					Header:     make(http.Header),
+				}, nil
+			})}
+
+			out, err := p.Synthesize(context.Background(), SynthesisInput{
+				Text:      "hello",
+				OutputDir: t.TempDir(),
+				VoiceProfile: VoiceProfile{
+					VoiceID: tt.voiceID,
+				},
+			})
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if out.VoiceID != tt.wantVoiceID {
+				t.Fatalf("unexpected resolved voice id: got %q want %q", out.VoiceID, tt.wantVoiceID)
+			}
+		})
+	}
+}
+
 func TestSBV2Provider_SynthesizeEditorAPI_WritesWAV(t *testing.T) {
 	tmpDir := t.TempDir()
 	p := NewSBV2Provider(SBV2Config{

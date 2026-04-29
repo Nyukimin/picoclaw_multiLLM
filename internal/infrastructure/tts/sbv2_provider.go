@@ -99,9 +99,9 @@ type sbv2VoiceParams struct {
 func resolveSBV2VoiceParams(name string) sbv2VoiceParams {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	switch normalized {
-	case "shi-gozaki", "shigozaki":
+	case "shi-gozaki", "shigozaki", "shin-gozaki", "shingozaki", "shiro", "male_01", "male":
 		return sbv2VoiceParams{Name: "shi-gozaki", ModelID: 6, SpeakerID: 0, Style: "Neutral"}
-	case "amitaro", "":
+	case "amitaro", "mio", "female_01", "female", "":
 		return sbv2VoiceParams{Name: "amitaro", ModelID: 0, SpeakerID: 0, Style: "Neutral"}
 	default:
 		return sbv2VoiceParams{Name: strings.TrimSpace(name), ModelID: 0, SpeakerID: 0, Style: "Neutral"}
