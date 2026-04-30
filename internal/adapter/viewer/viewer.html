@@ -114,7 +114,6 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .ctl-btn:disabled{opacity:.5;cursor:default}
 .ctl-btn.is-selected{background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.45);color:#fff}
 .ctl-btn.mode-forecast.is-selected{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.45)}
-.ctl-btn.mode-story.is-selected{background:rgba(16,185,129,.18);border-color:rgba(16,185,129,.45)}
 .ctl-btn.mode-story-simple.is-selected{background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.45)}
 .idle-on{color:var(--ok);font-size:12px;align-self:center}
 .idle-off{color:var(--t2);font-size:12px;align-self:center}
@@ -206,6 +205,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .audio-btn:hover{transform:translateY(-1px);color:var(--t1);background:rgba(255,255,255,.08)}
 .audio-btn:active{transform:scale(.96)}
 .audio-btn.ready{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
+.audio-btn.off{color:var(--warn);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
 .audio-btn.blocked{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
 .stt-state{
   font-size:11px;line-height:1.2;border:1px solid var(--border);border-radius:999px;padding:4px 8px;
@@ -600,7 +600,6 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
     <div class="idle-tools">
       <button id="idleModeNormal" class="ctl-btn" title="通常のIdleChat会話を選択">通常Chat</button>
       <button id="idleModeForecast" class="ctl-btn mode-forecast" title="未来展望セッション（6ドメイン×100ターン）を選択">未来展望</button>
-      <button id="idleModeStory" class="ctl-btn mode-story" title="物語再構成セッションを選択">剽窃</button>
       <button id="idleModeStorySimple" class="ctl-btn mode-story-simple" title="昔話の主人公改変ワンプロンプト物語（Coder2生成）">物語</button>
       <button id="idleStart" class="ctl-btn" title="選択中のモードを開始">IdleChat開始</button>
       <button id="idleStop" class="ctl-btn" title="IdleChatモードを停止">IdleChat停止</button>
@@ -772,6 +771,7 @@ const ttsPlayback = {
   queue: [],
   audio: null,
   playing: false,
+  audioEnabled: true,
   unlocked: false,
   blocked: false,
   currentCharacterId: '',
@@ -781,6 +781,8 @@ const ttsPlayback = {
   currentChunkIndex: -1,
   currentUtteranceId: '',
   currentShown: false,
+  fallbackActive: false,
+  fallbackTimer: null,
   seq: 0,
 };
 const lipSyncMioEl = document.getElementById('lipSyncMio');
@@ -916,7 +918,6 @@ const sysText = document.getElementById('sysText');
 const idleStartBtn = document.getElementById('idleStart');
 const idleModeNormalBtn = document.getElementById('idleModeNormal');
 const idleModeForecastBtn = document.getElementById('idleModeForecast');
-const idleModeStoryBtn = document.getElementById('idleModeStory');
 const idleModeStorySimpleBtn = document.getElementById('idleModeStorySimple');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
@@ -1055,13 +1056,11 @@ function setIdleState(mode, manual, active) {
 function setIdleSelectedMode(mode) {
   const next = mode === 'forecast'
     ? 'forecast'
-    : (mode === 'story' ? 'story'
-    : (mode === 'story-simple' ? 'story-simple' : 'manual'));
+    : (mode === 'story-simple' ? 'story-simple' : 'manual');
   state.idleChat.selectedMode = next;
   localStorage.setItem('idlechat.selectedMode', next);
   if (idleModeNormalBtn) idleModeNormalBtn.classList.toggle('is-selected', next === 'manual');
   if (idleModeForecastBtn) idleModeForecastBtn.classList.toggle('is-selected', next === 'forecast');
-  if (idleModeStoryBtn) idleModeStoryBtn.classList.toggle('is-selected', next === 'story');
   if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.classList.toggle('is-selected', next === 'story-simple');
 }
 
@@ -1108,7 +1107,7 @@ function renderIdleChat() {
     if (isForecast) tr.style.borderLeft = '3px solid rgba(59,130,246,.5)';
     tr.innerHTML =
       '<td><button class="ctl-btn idle-open idle-title-btn" data-idx="' + esc(String(rowIndex)) + '"><span class="idle-arrow ' + (isOpen ? 'open' : '') + '">&#9654;</span><span>' + esc(stripIdleTopicCategory(r.title || '-') || '-') + '</span></button></td>' +
-      '<td>' + esc(short(stripIdleTopicCategory(r.topic || '-') || '-', 80)) + '</td>' +
+      '<td>' + esc(stripIdleTopicCategory(r.topic || '-') || '-') + '</td>' +
       '<td>' + esc(String(r.turns || 0)) + '</td>' +
       '<td>' + esc(r.loop_restarted ? 'yes' : 'no') + '</td>' +
       '<td>' + esc(fdt(r.started_at)) + '</td>' +
@@ -1189,7 +1188,6 @@ async function refreshIdleStatus() {
       idleStartBtn.disabled = true;
       if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
       if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
-      if (idleModeStoryBtn) idleModeStoryBtn.disabled = true;
       if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.disabled = true;
       idleStopBtn.disabled = true;
       setIdleState('', false, false);
@@ -1205,7 +1203,6 @@ async function refreshIdleStatus() {
     idleStartBtn.disabled = !!d.manual_mode || !!d.chat_active;
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = !!d.chat_active;
     if (idleModeForecastBtn) idleModeForecastBtn.disabled = !!d.chat_active;
-    if (idleModeStoryBtn) idleModeStoryBtn.disabled = !!d.chat_active;
     if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.disabled = !!d.chat_active;
     idleStopBtn.disabled = !d.manual_mode && !d.chat_active;
     state.idleChat.mode = d.mode || '';
@@ -1217,7 +1214,6 @@ async function refreshIdleStatus() {
     idleStartBtn.disabled = true;
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
     if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
-    if (idleModeStoryBtn) idleModeStoryBtn.disabled = true;
     if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.disabled = true;
     idleStopBtn.disabled = true;
     setIdleState('', false, false);
@@ -1245,7 +1241,7 @@ async function refreshIdleLogs() {
 }
 
 async function controlIdle(path) {
-  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleModeStoryBtn, idleModeStorySimpleBtn, idleStopBtn].filter(Boolean);
+  const btns = [idleStartBtn, idleModeNormalBtn, idleModeForecastBtn, idleModeStorySimpleBtn, idleStopBtn].filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
   try {
     const r = await fetch(path, {method: 'POST'});
@@ -1260,16 +1256,13 @@ async function controlIdle(path) {
 idleStartBtn.addEventListener('click', () => {
   const path = state.idleChat.selectedMode === 'forecast'
     ? '/viewer/idlechat/forecast'
-    : (state.idleChat.selectedMode === 'story'
-      ? '/viewer/idlechat/story'
-      : (state.idleChat.selectedMode === 'story-simple'
-        ? '/viewer/idlechat/story-simple'
-        : '/viewer/idlechat/start'));
+    : (state.idleChat.selectedMode === 'story-simple'
+      ? '/viewer/idlechat/story-simple'
+      : '/viewer/idlechat/start');
   controlIdle(path);
 });
 if (idleModeNormalBtn) idleModeNormalBtn.addEventListener('click', () => setIdleSelectedMode('manual'));
 if (idleModeForecastBtn) idleModeForecastBtn.addEventListener('click', () => setIdleSelectedMode('forecast'));
-if (idleModeStoryBtn) idleModeStoryBtn.addEventListener('click', () => setIdleSelectedMode('story'));
 if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.addEventListener('click', () => setIdleSelectedMode('story-simple'));
 idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
 
@@ -2730,7 +2723,12 @@ function handleTTSAudioEvent(ev) {
   const responseId = String(payload.response_id || '').trim();
   const utteranceId = String(payload.utterance_id || '').trim();
   url = resolveTTSPlaybackURL(url, audioPath);
-  if (!url) return;
+  if (!url) {
+    if (displayText) {
+      enqueueTTSDisplayFallback(characterId, sessionId, track, chunkIndex, text, displayText, responseId, utteranceId);
+    }
+    return;
+  }
 
   // Rewrite known remote URL patterns to browser-fetchable paths.
   // Some SBV2 bridges may return internal cache-a/cache-b paths.
@@ -2754,10 +2752,14 @@ function resolveTTSPlaybackURL(audioURL, audioPath) {
 
 function updateAudioButton() {
   if (!audioBtn) return;
-  const status = ttsPlayback.blocked ? 'blocked' : (ttsPlayback.unlocked ? 'ready' : '');
-  audioBtn.classList.remove('ready', 'blocked');
+  const status = !ttsPlayback.audioEnabled ? 'off' : (ttsPlayback.blocked ? 'blocked' : (ttsPlayback.unlocked ? 'ready' : ''));
+  audioBtn.classList.remove('ready', 'blocked', 'off');
   if (status) audioBtn.classList.add(status);
-  if (ttsPlayback.blocked) {
+  audioBtn.textContent = ttsPlayback.audioEnabled ? '🔊' : '🔇';
+  if (!ttsPlayback.audioEnabled) {
+    audioBtn.title = '音声はOFFです。タップしてON';
+    audioBtn.setAttribute('aria-label', '音声はOFFです。タップしてON');
+  } else if (ttsPlayback.blocked) {
     audioBtn.title = '音声がブロックされています。タップして再許可';
     audioBtn.setAttribute('aria-label', '音声がブロックされています。タップして再許可');
   } else if (ttsPlayback.unlocked) {
@@ -2769,7 +2771,45 @@ function updateAudioButton() {
   }
 }
 
+function resetCurrentTTSAudioState() {
+  setLipSyncSpeaking(ttsPlayback.currentCharacterId, false);
+  ttsPlayback.playing = false;
+  ttsPlayback.currentCharacterId = '';
+  ttsPlayback.currentText = '';
+  ttsPlayback.currentDisplayText = '';
+  ttsPlayback.currentSessionId = '';
+  ttsPlayback.currentChunkIndex = -1;
+  ttsPlayback.currentUtteranceId = '';
+  ttsPlayback.currentShown = false;
+  setNowPlayingText('', '');
+  setCentralTTSSpeechText('', '');
+}
+
+function disableTTSAudio() {
+  if (ttsPlayback.playing && !ttsPlayback.currentShown && ttsPlayback.currentDisplayText) {
+    setCentralTTSSpeechText(
+      ttsPlayback.currentCharacterId,
+      ttsPlayback.currentDisplayText,
+      ttsPlayback.currentSessionId,
+      ttsPlayback.currentChunkIndex,
+      ttsPlayback.currentUtteranceId
+    );
+  }
+  if (ttsPlayback.audio) {
+    try { ttsPlayback.audio.pause(); } catch (_) {}
+    try { ttsPlayback.audio.removeAttribute('src'); } catch (_) {}
+    try { ttsPlayback.audio.load(); } catch (_) {}
+  }
+  ttsPlayback.audioEnabled = false;
+  ttsPlayback.unlocked = false;
+  ttsPlayback.blocked = false;
+  resetCurrentTTSAudioState();
+  updateAudioButton();
+  startTTSTextFallback();
+}
+
 async function unlockTTSAudio() {
+  ttsPlayback.audioEnabled = true;
   const audio = ensureTTSAudio();
   try {
     audio.pause();
@@ -2789,8 +2829,17 @@ async function unlockTTSAudio() {
     ttsPlayback.unlocked = false;
     ttsPlayback.blocked = true;
     updateAudioButton();
+    startTTSTextFallback();
     console.error('tts audio unlock failed', err);
   }
+}
+
+async function toggleTTSAudio() {
+  if (ttsPlayback.audioEnabled && ttsPlayback.unlocked && !ttsPlayback.blocked) {
+    disableTTSAudio();
+    return;
+  }
+  await unlockTTSAudio();
 }
 
 function ensureTTSAudio() {
@@ -2800,31 +2849,11 @@ function ensureTTSAudio() {
     ttsPlayback.audio.addEventListener('playing', markTTSAudioStarted);
     ttsPlayback.audio.addEventListener('timeupdate', markTTSAudioStarted);
     ttsPlayback.audio.addEventListener('ended', function() {
-      setLipSyncSpeaking(ttsPlayback.currentCharacterId, false);
-      ttsPlayback.playing = false;
-      ttsPlayback.currentCharacterId = '';
-      ttsPlayback.currentText = '';
-      ttsPlayback.currentDisplayText = '';
-      ttsPlayback.currentSessionId = '';
-      ttsPlayback.currentChunkIndex = -1;
-      ttsPlayback.currentUtteranceId = '';
-      ttsPlayback.currentShown = false;
-      setNowPlayingText('', '');
-      setCentralTTSSpeechText('', '');
+      resetCurrentTTSAudioState();
       playNextTTSAudio();
     });
     ttsPlayback.audio.addEventListener('error', function() {
-      setLipSyncSpeaking(ttsPlayback.currentCharacterId, false);
-      ttsPlayback.playing = false;
-      ttsPlayback.currentCharacterId = '';
-      ttsPlayback.currentText = '';
-      ttsPlayback.currentDisplayText = '';
-      ttsPlayback.currentSessionId = '';
-      ttsPlayback.currentChunkIndex = -1;
-      ttsPlayback.currentUtteranceId = '';
-      ttsPlayback.currentShown = false;
-      setNowPlayingText('', '');
-      setCentralTTSSpeechText('', '');
+      resetCurrentTTSAudioState();
       playNextTTSAudio();
     });
   }
@@ -2856,6 +2885,48 @@ function markTTSAudioStarted() {
   );
 }
 
+function ttsDisplayDelay(item) {
+  const text = String((item && (item.displayText || item.text)) || '');
+  const len = Array.from(text).length;
+  const punctuationPause = /[。！？!?]$/.test(text.trim()) ? 280 : 0;
+  return Math.max(900, Math.min(3400, 520 + (len * 85) + punctuationPause));
+}
+
+function showTTSFallbackChunk(item) {
+  if (!item) return;
+  setCentralTTSSpeechText(
+    String(item.characterId || ''),
+    String(item.displayText || item.text || ''),
+    String(item.sessionId || ''),
+    Number.isFinite(item.chunkIndex) ? item.chunkIndex : -1,
+    String(item.utteranceId || '')
+  );
+}
+
+function startTTSTextFallback() {
+  if (ttsPlayback.playing || ttsPlayback.fallbackActive) return;
+  if (ttsPlayback.queue.length === 0) {
+    setCentralTTSSpeechText('', '');
+    return;
+  }
+  const head = ttsPlayback.queue[0];
+  if (ttsPlayback.audioEnabled && !ttsPlayback.blocked && !(head && head.displayOnly)) return;
+  const next = ttsPlayback.queue.shift();
+  ttsPlayback.fallbackActive = true;
+  showTTSFallbackChunk(next);
+  if (ttsPlayback.fallbackTimer) clearTimeout(ttsPlayback.fallbackTimer);
+  ttsPlayback.fallbackTimer = setTimeout(function() {
+    ttsPlayback.fallbackTimer = null;
+    ttsPlayback.fallbackActive = false;
+    const nextHead = ttsPlayback.queue[0];
+    if (ttsPlayback.blocked || (nextHead && nextHead.displayOnly)) {
+      startTTSTextFallback();
+      return;
+    }
+    playNextTTSAudio();
+  }, ttsDisplayDelay(next));
+}
+
 function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, displayText, responseId, utteranceId) {
   ttsPlayback.queue.push({
     url: url,
@@ -2867,6 +2938,7 @@ function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, d
     displayText: displayText || text || '',
     responseId: responseId || '',
     utteranceId: utteranceId || '',
+    displayOnly: false,
     seq: ++ttsPlayback.seq,
   });
   ttsPlayback.queue.sort((a, b) => {
@@ -2880,9 +2952,46 @@ function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, d
   playNextTTSAudio();
 }
 
+function enqueueTTSDisplayFallback(characterId, sessionId, track, chunkIndex, text, displayText, responseId, utteranceId) {
+  ttsPlayback.queue.push({
+    url: '',
+    characterId: characterId || '',
+    sessionId: sessionId || '',
+    track: track || 'default',
+    chunkIndex: Number.isFinite(chunkIndex) ? chunkIndex : -1,
+    text: text || '',
+    displayText: displayText || text || '',
+    responseId: responseId || '',
+    utteranceId: utteranceId || '',
+    displayOnly: true,
+    seq: ++ttsPlayback.seq,
+  });
+  ttsPlayback.queue.sort((a, b) => {
+    const aKey = `${a.sessionId}|${a.track}`;
+    const bKey = `${b.sessionId}|${b.track}`;
+    if (aKey === bKey && a.chunkIndex >= 0 && b.chunkIndex >= 0) {
+      if (a.chunkIndex !== b.chunkIndex) return a.chunkIndex - b.chunkIndex;
+    }
+    return a.seq - b.seq;
+  });
+  startTTSTextFallback();
+}
+
 function playNextTTSAudio() {
   if (ttsPlayback.playing) return;
-  if (ttsPlayback.blocked) return;
+  if (ttsPlayback.fallbackActive) return;
+  if (!ttsPlayback.audioEnabled) {
+    startTTSTextFallback();
+    return;
+  }
+  if (ttsPlayback.queue.length > 0 && ttsPlayback.queue[0].displayOnly) {
+    startTTSTextFallback();
+    return;
+  }
+  if (ttsPlayback.blocked) {
+    startTTSTextFallback();
+    return;
+  }
   if (ttsPlayback.queue.length === 0) {
     clearLipSyncSpeaking();
     setNowPlayingText('', '');
@@ -2902,23 +3011,16 @@ function playNextTTSAudio() {
   audio.dataset.characterId = ttsPlayback.currentCharacterId;
   audio.src = String((next && next.url) || '');
   audio.play().then(function() {
+    ttsPlayback.audioEnabled = true;
     ttsPlayback.unlocked = true;
     ttsPlayback.blocked = false;
     updateAudioButton();
   }).catch(function(err) {
-    setLipSyncSpeaking(ttsPlayback.currentCharacterId, false);
-    ttsPlayback.playing = false;
-    ttsPlayback.currentCharacterId = '';
-    ttsPlayback.currentText = '';
-    ttsPlayback.currentDisplayText = '';
-    ttsPlayback.currentSessionId = '';
-    ttsPlayback.currentChunkIndex = -1;
-    ttsPlayback.currentUtteranceId = '';
-    ttsPlayback.currentShown = false;
+    resetCurrentTTSAudioState();
     if (isAutoplayBlockedError(err)) {
       ttsPlayback.blocked = true;
       ttsPlayback.unlocked = false;
-      // Retry this chunk after user explicitly re-enables audio.
+      // Audio is unavailable; keep the central chat moving from the same chunk stream.
       ttsPlayback.queue.unshift(next);
     } else {
       // Keep manual audio unlock state for media/url errors.
@@ -2926,13 +3028,14 @@ function playNextTTSAudio() {
     }
     console.error('tts audio play failed', err);
     updateAudioButton();
-    if (!ttsPlayback.blocked) playNextTTSAudio();
+    if (ttsPlayback.blocked) startTTSTextFallback();
+    else playNextTTSAudio();
   });
 }
 
 const inp = document.getElementById('inp');
 const sendBtn = document.getElementById('sendBtn');
-if (audioBtn) audioBtn.addEventListener('click', unlockTTSAudio);
+if (audioBtn) audioBtn.addEventListener('click', toggleTTSAudio);
 updateAudioButton();
 let sending = false;
 function autoResize() {

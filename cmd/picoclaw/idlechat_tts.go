@@ -111,7 +111,7 @@ func formatIdleChatTTSText(ev idlechat.TimelineEvent) string {
 		}
 		return "きょうのおだいです、" + ensureIdleChatSentencePause(topic) + "です！"
 	}
-	return ensureIdleChatSentencePause(content)
+	return ensureIdleChatSentencePause(stripIdleChatSpeechNotes(content))
 }
 
 func formatIdleChatDisplayText(ev idlechat.TimelineEvent) string {
@@ -141,6 +141,25 @@ func ensureIdleChatSentencePause(content string) string {
 	default:
 		return content + "。"
 	}
+}
+
+func stripIdleChatSpeechNotes(content string) string {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if len(kept) > 0 && kept[len(kept)-1] != "" {
+				kept = append(kept, "")
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "注記:") || strings.HasPrefix(line, "注記：") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) <-chan struct{} {

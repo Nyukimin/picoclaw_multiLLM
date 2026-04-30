@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
@@ -100,6 +101,32 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	want := "きょうのおだいです、震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？です！"
 	if bridge.pushTexts[0] != want {
 		t.Fatalf("unexpected topic tts text: got %q want %q", bridge.pushTexts[0], want)
+	}
+}
+
+func TestEmitIdleChatTTS_RemovesLoopNotesFromSpeechOnly(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+	content := "今回のまとめです。\n注記: テンプレ反復で打ち切り\n\n本文を読み上げます。"
+
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "user",
+		Content:   content,
+		SessionID: "idle-note-1",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	if strings.Contains(bridge.pushTexts[0], "注記:") {
+		t.Fatalf("note leaked into speech text: %q", bridge.pushTexts[0])
+	}
+	if !strings.Contains(bridge.pushTexts[0], "今回のまとめです。") || !strings.Contains(bridge.pushTexts[0], "本文を読み上げます。") {
+		t.Fatalf("unexpected speech text: %q", bridge.pushTexts[0])
+	}
+	if got := formatIdleChatDisplayText(idlechat.TimelineEvent{Content: content}); !strings.Contains(got, "注記: テンプレ反復で打ち切り") {
+		t.Fatalf("display text should keep note, got %q", got)
 	}
 }
 

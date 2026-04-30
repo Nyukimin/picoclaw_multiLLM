@@ -112,6 +112,15 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 
 	log.Printf("[SimpleStory] Generating: %s × %s", tale.title, protagonist)
 
+	storyTopic := fmt.Sprintf("物語: %s × %s", tale.title, protagonist)
+	o.mu.Lock()
+	o.currentTopic = storyTopic
+	o.mu.Unlock()
+
+	// LLM生成が長くても、Viewer には開始直後に状態を見せる。
+	intro := fmt.Sprintf("今夜の物語です。『%s』を、主人公を%sに置き換えたら——", tale.title, protagonist)
+	o.emitStoryParagraph(sessionID, intro)
+
 	messages := []llm.Message{
 		{Role: "system", Content: simpleStorySystemPrompt},
 		{Role: "user", Content: simpleStoryUserPrompt(tale, protagonist)},
@@ -150,10 +159,6 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 		}
 	}
 	body := strings.Join(bodyLines, "\n")
-
-	// 導入アナウンス
-	intro := fmt.Sprintf("今夜の物語です。『%s』を、主人公を%sに置き換えたら——", tale.title, protagonist)
-	o.emitStoryParagraph(sessionID, intro)
 
 	if titleLine != "" {
 		o.emitStoryParagraph(sessionID, fmt.Sprintf("改題は『%s』。", titleLine))
