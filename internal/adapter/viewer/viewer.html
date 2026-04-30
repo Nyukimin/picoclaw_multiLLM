@@ -796,6 +796,7 @@ const centralTTSSpeech = {
   textEl: null,
   characterId: '',
   sessionId: '',
+  bubbleKind: '',
   chunkKeys: new Set(),
 };
 
@@ -837,8 +838,9 @@ function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
 
   const id = String(characterId || '').trim().toLowerCase();
   const sid = String(sessionId || '').trim();
+  const bubbleKind = centralTTSBubbleKind(normalizedText);
   const f = ag(id || 'mio');
-  if (!centralTTSSpeech.el || centralTTSSpeech.characterId !== id) {
+  if (!centralTTSSpeech.el || centralTTSSpeech.characterId !== id || centralTTSSpeech.bubbleKind !== bubbleKind) {
     if (centralTTSSpeech.el) centralTTSSpeech.el.classList.remove('tts-current');
     const el = document.createElement('div');
     el.className = 'msg tts-current' + (id === 'shiro' ? ' shiro' : '');
@@ -852,6 +854,7 @@ function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     centralTTSSpeech.textEl = el.querySelector('.mc');
     centralTTSSpeech.characterId = id;
     centralTTSSpeech.sessionId = sid;
+    centralTTSSpeech.bubbleKind = bubbleKind;
     centralTTSSpeech.chunkKeys = new Set();
     const em = document.getElementById('empty');
     if (em) em.remove();
@@ -873,6 +876,12 @@ function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     centralTTSSpeech.textEl.dataset.raw = centralTTSSpeech.textEl.textContent;
   }
   scrollToBottom();
+}
+
+function centralTTSBubbleKind(text) {
+  const s = String(text || '').trim();
+  if (/^今日のお題です[、。！？!?]?/.test(s)) return 'topic';
+  return 'speech';
 }
 
 let timelineAutoFollow = true;
