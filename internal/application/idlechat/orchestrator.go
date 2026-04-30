@@ -37,6 +37,8 @@ type SessionSummary struct {
 	Topic             string        `json:"topic"`
 	Strategy          TopicStrategy `json:"strategy"` // 生成戦略（旧 Category）
 	Summary           string        `json:"summary"`
+	QualityReview     string        `json:"quality_review,omitempty"`
+	PromptGuidance    string        `json:"prompt_guidance,omitempty"`
 	SourceTitle       string        `json:"source_title,omitempty"`
 	RewriteStyle      string        `json:"rewrite_style,omitempty"`
 	StoryTitle        string        `json:"story_title,omitempty"`
@@ -71,6 +73,7 @@ type IdleChatOrchestrator struct {
 	memory           *session.CentralMemory
 	participants     []string
 	intervalMin      int
+	interval         time.Duration
 	maxTurns         int
 	temperature      float64
 	personalities    map[string]string
@@ -82,6 +85,7 @@ type IdleChatOrchestrator struct {
 	manualMode    bool
 	sessionMode   string
 	currentTopic  string
+	promptGuides  []string
 	autoStep      int
 	forecastStep  int
 	nextTopicAt   time.Time
@@ -133,6 +137,7 @@ func (o *IdleChatOrchestrator) SetTopicStore(path string) error {
 	o.mu.Lock()
 	o.topicStore = store
 	o.history = store.GetRecent(200)
+	o.promptGuides = promptGuidesFromHistory(o.history, 5)
 	o.mu.Unlock()
 	return nil
 }
@@ -161,6 +166,7 @@ func NewIdleChatOrchestrator(
 		memory:        memory,
 		participants:  participants,
 		intervalMin:   intervalMin,
+		interval:      time.Duration(intervalMin) * time.Minute,
 		maxTurns:      maxTurns,
 		temperature:   temperature,
 		personalities: personalities,
@@ -203,8 +209,18 @@ func (o *IdleChatOrchestrator) Start() {
 
 	o.wg.Add(1)
 	go o.monitorLoop()
-	log.Printf("[IdleChat] Started (participants=%v, interval=%dmin, maxTurns=%d)",
-		o.participants, o.intervalMin, o.maxTurns)
+	log.Printf("[IdleChat] Started (participants=%v, interval=%s, maxTurns=%d)",
+		o.participants, o.interval, o.maxTurns)
+}
+
+func (o *IdleChatOrchestrator) SetIntervalSeconds(seconds int) {
+	if seconds < 1 {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.interval = time.Duration(seconds) * time.Second
+	o.intervalMin = (seconds + 59) / 60
 }
 
 // Stop はIdleChatを停止
@@ -452,7 +468,7 @@ func (o *IdleChatOrchestrator) monitorLoop() {
 func (o *IdleChatOrchestrator) checkAndStartChat() {
 	o.mu.Lock()
 	idleDuration := time.Since(o.lastActivity)
-	threshold := time.Duration(o.intervalMin) * time.Minute
+	threshold := o.interval
 	now := time.Now()
 	nextTopicAt := o.nextTopicAt
 	alreadyActive := o.chatActive
@@ -628,7 +644,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 		}
 		cooldown := topicBreak
 		if sessionInterrupted || generationFailed {
-			idleCooldown := time.Duration(o.intervalMin) * time.Minute
+			idleCooldown := o.interval
 			if idleCooldown > cooldown {
 				cooldown = idleCooldown
 			}
@@ -1040,6 +1056,7 @@ func isWhatIfRepetition(transcript []string) bool {
 func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy TopicStrategy, transcript []string, startedAt, endedAt time.Time, turns int, loopRestarted bool, loopReason string) string {
 	summary := o.summarizeByWorker(topic, transcript)
 	summary = annotateLoopSummary(summary, loopRestarted, loopReason)
+	qualityReview, promptGuidance := o.reviewSessionEnd(topic, string(strategy), transcript, summary, loopReason)
 	title := fmt.Sprintf("%d月%d日の%sの話題まとめ", endedAt.Month(), endedAt.Day(), truncate(topic, 24))
 	record := SessionSummary{
 		SessionID:       sessionID,
@@ -1047,6 +1064,8 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 		Topic:           topic,
 		Strategy:        strategy,
 		Summary:         summary,
+		QualityReview:   qualityReview,
+		PromptGuidance:  promptGuidance,
 		StartedAt:       startedAt.Format(time.RFC3339),
 		EndedAt:         endedAt.Format(time.RFC3339),
 		Turns:           turns,
@@ -1061,6 +1080,7 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 	if len(o.history) > 200 {
 		o.history = o.history[len(o.history)-200:]
 	}
+	o.addPromptGuideLocked(promptGuidance)
 	store := o.topicStore
 	o.mu.Unlock()
 	if store != nil {
@@ -1943,6 +1963,7 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 
 	o.mu.Lock()
 	mode := o.sessionMode
+	promptGuidance := formatPromptGuidance(o.promptGuides)
 	o.mu.Unlock()
 
 	var idleStyle string
@@ -1953,9 +1974,9 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 	}
 
 	if prompt, ok := o.personalities[agentName]; ok {
-		return prompt + "\n\n" + idlePolicy + "\n" + idleStyle
+		return prompt + "\n\n" + idlePolicy + "\n" + idleStyle + promptGuidance
 	}
-	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleStyle)
+	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s%s", agentName, idlePolicy, idleStyle, promptGuidance)
 }
 
 func forecastSpeakerContract(agentName string) string {

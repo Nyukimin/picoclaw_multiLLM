@@ -769,6 +769,9 @@ idle_chat:
 	if cfg.IdleChat.IntervalMin != 5 {
 		t.Errorf("Expected IntervalMin 5, got %d", cfg.IdleChat.IntervalMin)
 	}
+	if cfg.IdleChat.IntervalSec != 300 {
+		t.Errorf("Expected IntervalSec 300, got %d", cfg.IdleChat.IntervalSec)
+	}
 
 	if cfg.IdleChat.MaxTurns != 10 {
 		t.Errorf("Expected MaxTurns 10, got %d", cfg.IdleChat.MaxTurns)

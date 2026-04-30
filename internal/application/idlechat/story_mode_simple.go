@@ -91,6 +91,7 @@ func (o *IdleChatOrchestrator) StartSimpleStoryMode() error {
 // ワンプロンプトで昔話の主人公改変物語を生成し、Viewer に段落単位で配信する。
 func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	sessionID := fmt.Sprintf("story-simple-%d", time.Now().Unix())
+	startedAt := time.Now().In(jst)
 
 	o.mu.Lock()
 	o.chatActive = true
@@ -119,6 +120,7 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 
 	// LLM生成が長くても、Viewer には開始直後に状態を見せる。
 	intro := fmt.Sprintf("今夜の物語です。『%s』を、主人公を%sに置き換えたら——", tale.title, protagonist)
+	transcript := []string{"mio: " + intro}
 	o.emitStoryParagraph(sessionID, intro)
 
 	messages := []llm.Message{
@@ -134,12 +136,14 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	})
 	if err != nil {
 		log.Printf("[SimpleStory] generation failed: %v", err)
+		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, "", "", transcript, startedAt, "generation_error")
 		return
 	}
 
 	raw := strings.TrimSpace(resp.Content)
 	if raw == "" {
 		log.Printf("[SimpleStory] empty response")
+		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, "", "", transcript, startedAt, "invalid_response")
 		return
 	}
 
@@ -161,19 +165,63 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	body := strings.Join(bodyLines, "\n")
 
 	if titleLine != "" {
-		o.emitStoryParagraph(sessionID, fmt.Sprintf("改題は『%s』。", titleLine))
+		titleSpeech := fmt.Sprintf("改題は『%s』。", titleLine)
+		transcript = append(transcript, "mio: "+titleSpeech)
+		o.emitStoryParagraph(sessionID, titleSpeech)
 	}
 
 	// 本文を段落単位でViewerに配信
 	for _, para := range groupStoryIntoViewerParagraphs(body, 150) {
+		transcript = append(transcript, "mio: "+para)
 		o.emitStoryParagraph(sessionID, para)
 	}
 
 	// 締め
 	closing := fmt.Sprintf("『%s』を下敷きにした、主人公%sのお話でした。", tale.title, protagonist)
+	transcript = append(transcript, "mio: "+closing)
 	o.emitStoryParagraph(sessionID, closing)
+	o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, titleLine, body, transcript, startedAt, "")
 
 	log.Printf("[SimpleStory] Session complete: %s × %s", tale.title, protagonist)
+}
+
+func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTitle, protagonist, storyTitle, storyText string, transcript []string, startedAt time.Time, loopReason string) {
+	endedAt := time.Now().In(jst)
+	summary := fmt.Sprintf("物語モード: %sを主人公%sでリメイク。", sourceTitle, protagonist)
+	qualityReview, promptGuidance := o.reviewSessionEnd(topic, "story-simple", transcript, summary, loopReason)
+	record := SessionSummary{
+		SessionID:       sessionID,
+		Title:           fmt.Sprintf("%d月%d日の%s", endedAt.Month(), endedAt.Day(), topic),
+		Topic:           topic,
+		Strategy:        TopicStrategy("story-simple"),
+		Summary:         summary,
+		QualityReview:   qualityReview,
+		PromptGuidance:  promptGuidance,
+		SourceTitle:     sourceTitle,
+		StoryTitle:      storyTitle,
+		StoryText:       storyText,
+		StartedAt:       startedAt.Format(time.RFC3339),
+		EndedAt:         endedAt.Format(time.RFC3339),
+		Turns:           len(transcript),
+		LoopRestarted:   loopReason != "",
+		LoopReason:      loopReason,
+		TopicProvider:   "story-simple",
+		SummaryProvider: "quality-review",
+		Transcript:      append([]string(nil), transcript...),
+	}
+	o.mu.Lock()
+	o.history = append(o.history, record)
+	if len(o.history) > 200 {
+		o.history = o.history[len(o.history)-200:]
+	}
+	o.addPromptGuideLocked(promptGuidance)
+	store := o.topicStore
+	o.mu.Unlock()
+	if store != nil {
+		if err := store.Append(record); err != nil {
+			log.Printf("[SimpleStory] topic store append failed: %v", err)
+		}
+	}
 }
 
 // emitStoryParagraph は段落をViewer + TTSに配信する（story_mode.goから移植）

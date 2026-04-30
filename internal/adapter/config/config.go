@@ -200,6 +200,7 @@ type IdleChatConfig struct {
 	Enabled      bool     `yaml:"enabled"`        // 雑談モードの有効化（デフォルト: false）
 	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["mio", "shiro"]）
 	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
+	IntervalSec  int      `yaml:"interval_sec"`   // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
 	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
 	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
 	StoryDataDir string   `yaml:"story_data_dir"` // 物語データJSONディレクトリ（デフォルト: "data/story"）
@@ -483,6 +484,9 @@ func (c *Config) setDefaults() {
 		}
 		if c.IdleChat.IntervalMin == 0 {
 			c.IdleChat.IntervalMin = 5
+		}
+		if c.IdleChat.IntervalSec == 0 {
+			c.IdleChat.IntervalSec = c.IdleChat.IntervalMin * 60
 		}
 		if c.IdleChat.MaxTurns == 0 {
 			c.IdleChat.MaxTurns = 10
@@ -795,8 +799,12 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("idle_chat.participants: unknown agent '%s'", p)
 			}
 		}
-		if c.IdleChat.IntervalMin < 1 {
-			return fmt.Errorf("idle_chat.interval_min must be >= 1")
+		effectiveIntervalSec := c.IdleChat.IntervalSec
+		if effectiveIntervalSec == 0 {
+			effectiveIntervalSec = c.IdleChat.IntervalMin * 60
+		}
+		if effectiveIntervalSec < 1 {
+			return fmt.Errorf("idle_chat.interval_sec must be >= 1")
 		}
 		if c.IdleChat.MaxTurns < 1 || c.IdleChat.MaxTurns > 100 {
 			return fmt.Errorf("idle_chat.max_turns must be between 1 and 100")

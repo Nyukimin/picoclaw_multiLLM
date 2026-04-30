@@ -113,6 +113,7 @@ globalThis.__viewerAudioHarness = {
   ttsPlayback,
   updateAudioButton,
   enqueueTTSAudio,
+  toggleTTSAudio,
 };
 `;
 
@@ -182,4 +183,32 @@ test('speaker button can turn ready audio off without stopping central chat fall
 
   timers.shift()();
   assert.equal(harness.ttsPlayback.fallbackActive, false);
+});
+
+test('live mode audio button mirrors state and unlocks audio', async () => {
+  const {harness, elements} = loadAudioHarness();
+  const audioBtn = elements.get('audioBtn');
+  const liveAudioBtn = elements.get('liveAudioBtn');
+
+  harness.updateAudioButton();
+  assert.equal(audioBtn.getAttribute('aria-label'), '音声を有効化');
+  assert.equal(liveAudioBtn.getAttribute('aria-label'), '音声を有効化');
+
+  await liveAudioBtn.click();
+
+  assert.equal(harness.ttsPlayback.audioEnabled, true);
+  assert.equal(harness.ttsPlayback.unlocked, true);
+  assert.equal(audioBtn.getAttribute('aria-label'), '音声は有効です');
+  assert.equal(liveAudioBtn.getAttribute('aria-label'), '音声は有効です');
+  assert.ok(liveAudioBtn.classList.contains('ready'));
+});
+
+test('tts chunk is shown when audio play resolves even if media events are missed', async () => {
+  const {harness, elements} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/tail.wav', 'mio', 'session-tail', 'default', 7, '末尾の音声です。', '末尾の表示です。', '', 'tail-7');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '末尾の表示です。');
 });

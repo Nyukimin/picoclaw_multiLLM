@@ -589,6 +589,7 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 	summary := o.summarizeByForecastLLM(domain, topic, transcript)
 	summary = annotateLoopSummary(summary, loopRestarted, loopReason)
 	fullTopic := fmt.Sprintf("[%s] %s", domain.Name, topic)
+	qualityReview, promptGuidance := o.reviewSessionEnd(fullTopic, fmt.Sprintf("forecast/%s", domain.Name), transcript, summary, loopReason)
 	title := fmt.Sprintf("%d月%d日の%sの話題まとめ", endedAt.Month(), endedAt.Day(), truncate(fullTopic, 24))
 	record := SessionSummary{
 		SessionID:       sessionID,
@@ -596,6 +597,8 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 		Topic:           fullTopic,
 		Strategy:        TopicStrategy(fmt.Sprintf("forecast/%s", domain.Name)),
 		Summary:         summary,
+		QualityReview:   qualityReview,
+		PromptGuidance:  promptGuidance,
 		StartedAt:       startedAt.Format(time.RFC3339),
 		EndedAt:         endedAt.Format(time.RFC3339),
 		Turns:           turns,
@@ -610,6 +613,7 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 	if len(o.history) > 200 {
 		o.history = o.history[len(o.history)-200:]
 	}
+	o.addPromptGuideLocked(promptGuidance)
 	store := o.topicStore
 	o.mu.Unlock()
 	if store != nil {

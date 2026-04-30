@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,10 +13,18 @@ import (
 type blockingStoryProvider struct {
 	started chan struct{}
 	release chan struct{}
+	once    sync.Once
 }
 
 func (p *blockingStoryProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
-	close(p.started)
+	started := false
+	p.once.Do(func() {
+		close(p.started)
+		started = true
+	})
+	if !started {
+		return llm.GenerateResponse{Content: "QUALITY: pass\nISSUES:\n- 大きな損耗は検出されませんでした。\nPROMPT_FIX: ", FinishReason: "stop"}, nil
+	}
 	select {
 	case <-p.release:
 	case <-ctx.Done():

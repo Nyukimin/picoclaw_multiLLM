@@ -2346,10 +2346,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	ttsBridge := buildTTSClientBridge(
 		cfg,
 		func(ev orchestrator.OrchestratorEvent) {
-		if deps.eventRelay != nil {
-			deps.eventRelay.OnEvent(ev)
-		}
-	},
+			if deps.eventRelay != nil {
+				deps.eventRelay.OnEvent(ev)
+			}
+		},
 		func(sessionID, characterID, text string) {
 			if lipSync != nil {
 				lipSync.OnChunkReady(sessionID, characterID, text)
@@ -2492,6 +2492,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			cfg.Prompts.IdleChatAgents,
 			cfg.IdleChat.StoryDataDir,
 		)
+		idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
 		idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 			"mio":   chatProvider,
 			"shiro": chatProvider,

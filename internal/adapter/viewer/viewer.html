@@ -22,7 +22,7 @@ header{
   background:rgba(11,11,20,.85);backdrop-filter:blur(24px);
   border-bottom:1px solid var(--border);
   padding:calc(8px + var(--safe-top)) 28px 14px;display:flex;align-items:center;justify-content:space-between;
-  flex-shrink:0;
+  flex-shrink:0;position:relative;
 }
 .logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:700;letter-spacing:-.5px}
 .logo span:first-child{font-size:22px}
@@ -30,6 +30,7 @@ header{
 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 2s infinite}
 .dot.off{background:var(--err);animation:none}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.live-theater-banner{display:none}
 
 .tabs{
   display:flex;gap:8px;padding:10px 24px;border-bottom:1px solid var(--border);
@@ -207,6 +208,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .audio-btn.ready{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
 .audio-btn.off{color:var(--warn);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
 .audio-btn.blocked{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
+.live-audio-btn{display:none}
 .stt-state{
   font-size:11px;line-height:1.2;border:1px solid var(--border);border-radius:999px;padding:4px 8px;
   color:var(--t2);background:rgba(255,255,255,.04);white-space:nowrap;align-self:center
@@ -283,6 +285,16 @@ body.live-mode .logo{font-size:26px;gap:14px}
 body.live-mode .logo img{height:96px !important}
 body.live-mode .stat{font-size:16px}
 body.live-mode .dot{width:12px;height:12px}
+body.live-mode .live-theater-banner{
+  display:flex;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  align-items:center;justify-content:center;
+  padding:0;min-width:0;
+  color:#baff9b;background:transparent;border:0;border-radius:0;
+  font-family:'Courier New','Noto Sans Mono','Noto Sans JP',monospace;font-size:42px;font-weight:800;
+  letter-spacing:10px;line-height:1;white-space:nowrap;
+  text-shadow:0 0 5px #7cff6b,0 0 18px rgba(124,255,107,.65);
+  box-shadow:none;overflow:visible;
+}
 body.live-mode .tabs,
 body.live-mode .input-bar,
 body.live-mode .ctr,
@@ -326,6 +338,12 @@ body.live-mode .live-topic-bar{
 }
 body.live-mode .live-topic-bar .live-topic-label{color:var(--mio);font-weight:700;font-size:16px;white-space:nowrap}
 body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
+body.live-mode .live-audio-btn{
+  display:flex;position:fixed;right:32px;bottom:32px;z-index:42;
+  width:54px;height:54px;border-radius:999px;
+  background:rgba(11,11,20,.82);backdrop-filter:blur(16px);
+  box-shadow:0 14px 34px rgba(0,0,0,.36);
+}
 @media (max-width: 1100px){
   body.live-mode #chat{max-width:100%;padding:0 24px}
   body.live-mode .lipsync-stage{display:none}
@@ -336,6 +354,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
 <body>
 <header>
   <div class="logo"><img src="/viewer/logo.png" alt="RenCrow" style="height:64px;width:auto"><span>RenCrow Live</span></div>
+  <div class="live-theater-banner" aria-label="妄想劇場">妄想劇場</div>
   <div class="stat">
     <div class="dot" id="dot"></div>
     <span id="stxt">Connecting...</span>
@@ -585,6 +604,7 @@ body.live-mode .live-topic-bar .live-topic-text{flex:1;font-size:20px}
   <span class="label">Now Playing</span>
   <span id="ttsNowPlayingText" class="text"></span>
 </div>
+<button class="audio-btn live-audio-btn" id="liveAudioBtn" type="button" title="音声を有効化">🔊</button>
 
 <div class="input-bar">
   <div class="input-wrap">
@@ -922,6 +942,7 @@ const idleModeStorySimpleBtn = document.getElementById('idleModeStorySimple');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
 const audioBtn = document.getElementById('audioBtn');
+const liveAudioBtn = document.getElementById('liveAudioBtn');
 const eviStatus = document.getElementById('eviStatus');
 const eviErrorKind = document.getElementById('eviErrorKind');
 const eviPrev = document.getElementById('eviPrev');
@@ -2751,23 +2772,31 @@ function resolveTTSPlaybackURL(audioURL, audioPath) {
 }
 
 function updateAudioButton() {
-  if (!audioBtn) return;
   const status = !ttsPlayback.audioEnabled ? 'off' : (ttsPlayback.blocked ? 'blocked' : (ttsPlayback.unlocked ? 'ready' : ''));
-  audioBtn.classList.remove('ready', 'blocked', 'off');
-  if (status) audioBtn.classList.add(status);
-  audioBtn.textContent = ttsPlayback.audioEnabled ? '🔊' : '🔇';
-  if (!ttsPlayback.audioEnabled) {
-    audioBtn.title = '音声はOFFです。タップしてON';
-    audioBtn.setAttribute('aria-label', '音声はOFFです。タップしてON');
-  } else if (ttsPlayback.blocked) {
-    audioBtn.title = '音声がブロックされています。タップして再許可';
-    audioBtn.setAttribute('aria-label', '音声がブロックされています。タップして再許可');
-  } else if (ttsPlayback.unlocked) {
-    audioBtn.title = '音声は有効です';
-    audioBtn.setAttribute('aria-label', '音声は有効です');
-  } else {
-    audioBtn.title = '音声を有効化';
-    audioBtn.setAttribute('aria-label', '音声を有効化');
+  [audioBtn, liveAudioBtn].forEach(function(btn) {
+    if (!btn) return;
+    btn.classList.remove('ready', 'blocked', 'off');
+    if (status) btn.classList.add(status);
+    btn.textContent = ttsPlayback.audioEnabled ? '🔊' : '🔇';
+    if (!ttsPlayback.audioEnabled) {
+      btn.title = '音声はOFFです。タップしてON';
+      btn.setAttribute('aria-label', '音声はOFFです。タップしてON');
+    } else if (ttsPlayback.blocked) {
+      btn.title = '音声がブロックされています。タップして再許可';
+      btn.setAttribute('aria-label', '音声がブロックされています。タップして再許可');
+    } else if (ttsPlayback.unlocked) {
+      btn.title = '音声は有効です';
+      btn.setAttribute('aria-label', '音声は有効です');
+    } else {
+      btn.title = '音声を有効化';
+      btn.setAttribute('aria-label', '音声を有効化');
+    }
+  });
+}
+
+function bindTTSAudioButton(btn) {
+  if (btn) {
+    btn.addEventListener('click', toggleTTSAudio);
   }
 }
 
@@ -3011,6 +3040,7 @@ function playNextTTSAudio() {
   audio.dataset.characterId = ttsPlayback.currentCharacterId;
   audio.src = String((next && next.url) || '');
   audio.play().then(function() {
+    markTTSAudioStarted();
     ttsPlayback.audioEnabled = true;
     ttsPlayback.unlocked = true;
     ttsPlayback.blocked = false;
@@ -3035,7 +3065,8 @@ function playNextTTSAudio() {
 
 const inp = document.getElementById('inp');
 const sendBtn = document.getElementById('sendBtn');
-if (audioBtn) audioBtn.addEventListener('click', toggleTTSAudio);
+bindTTSAudioButton(audioBtn);
+bindTTSAudioButton(liveAudioBtn);
 updateAudioButton();
 let sending = false;
 function autoResize() {
