@@ -106,6 +106,60 @@ func TestMonitorStoreReducesAgentAndJobState(t *testing.T) {
 	}
 }
 
+func TestMonitorStoreIncludesCoder4InStatusAndAgents(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+
+	status := store.Status()
+	if len(status.Coders.Items) != 4 {
+		t.Fatalf("coders items len = %d, want 4", len(status.Coders.Items))
+	}
+	if status.Coders.Items[3].ID != "coder4" {
+		t.Fatalf("last coder id = %q, want coder4", status.Coders.Items[3].ID)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/agents", nil)
+	rr := httptest.NewRecorder()
+	HandleMonitorAgents(store).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp struct {
+		Agents []AgentSnapshot `json:"agents"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Agents) != 6 {
+		t.Fatalf("agents len = %d, want 6", len(resp.Agents))
+	}
+	if resp.Agents[5].ID != "coder4" {
+		t.Fatalf("last agent id = %q, want coder4", resp.Agents[5].ID)
+	}
+}
+
+func TestHandleMonitorStatusIncludesCoder4(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/status", nil)
+	rr := httptest.NewRecorder()
+	HandleMonitorStatus(store).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var resp struct {
+		Status StatusSnapshot `json:"status"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Status.Coders.Items) != 4 {
+		t.Fatalf("coders items len = %d, want 4", len(resp.Status.Coders.Items))
+	}
+	if resp.Status.Coders.Items[3].ID != "coder4" {
+		t.Fatalf("last coder id = %q, want coder4", resp.Status.Coders.Items[3].ID)
+	}
+}
+
 func TestMonitorStoreClearsRecoveredFailureOnFinalSuccess(t *testing.T) {
 	store := NewMonitorStore(nil, nil)
 	jobID := "job-retry"

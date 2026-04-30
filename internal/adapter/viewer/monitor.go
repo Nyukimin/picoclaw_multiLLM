@@ -18,7 +18,7 @@ const (
 	monitorMaxJobEvents = 200
 )
 
-var monitorAgents = []string{"mio", "shiro", "coder1", "coder2", "coder3"}
+var monitorAgents = []string{"mio", "shiro", "coder1", "coder2", "coder3", "coder4"}
 
 type MonitorStore struct {
 	mu       sync.RWMutex
@@ -160,18 +160,18 @@ func (s *MonitorStore) Status() StatusSnapshot {
 	now := time.Now()
 	chat := s.agentSnapshotLocked("mio", now)
 	worker := s.agentSnapshotLocked("shiro", now)
-	coders := []AgentSnapshot{
-		s.agentSnapshotLocked("coder1", now),
-		s.agentSnapshotLocked("coder2", now),
-		s.agentSnapshotLocked("coder3", now),
+	coders := s.coderSnapshotsLocked(now)
+	updatedAtValues := []string{chat.UpdatedAt, worker.UpdatedAt}
+	for _, coder := range coders {
+		updatedAtValues = append(updatedAtValues, coder.UpdatedAt)
 	}
 	return StatusSnapshot{
-		UpdatedAt: latestUpdatedAt(chat.UpdatedAt, worker.UpdatedAt, coders[0].UpdatedAt, coders[1].UpdatedAt, coders[2].UpdatedAt),
+		UpdatedAt: latestUpdatedAt(updatedAtValues...),
 		Chat:      componentFromAgent(chat),
 		Worker:    componentFromAgent(worker),
 		Coders: CodersSnapshot{
 			Status:    summarizeCoderState(coders),
-			UpdatedAt: latestUpdatedAt(coders[0].UpdatedAt, coders[1].UpdatedAt, coders[2].UpdatedAt),
+			UpdatedAt: latestUpdatedAt(agentUpdatedAtValues(coders)...),
 			Items:     coders,
 		},
 	}
@@ -199,6 +199,16 @@ func (s *MonitorStore) Agents() []AgentSnapshot {
 	items := make([]AgentSnapshot, 0, len(monitorAgents))
 	for _, id := range monitorAgents {
 		items = append(items, s.agentSnapshotLocked(id, now))
+	}
+	return items
+}
+
+func (s *MonitorStore) coderSnapshotsLocked(now time.Time) []AgentSnapshot {
+	items := make([]AgentSnapshot, 0, len(monitorAgents))
+	for _, id := range monitorAgents {
+		if strings.HasPrefix(id, "coder") {
+			items = append(items, s.agentSnapshotLocked(id, now))
+		}
 	}
 	return items
 }
@@ -667,6 +677,14 @@ func latestUpdatedAt(values ...string) string {
 		}
 	}
 	return best
+}
+
+func agentUpdatedAtValues(items []AgentSnapshot) []string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, item.UpdatedAt)
+	}
+	return values
 }
 
 func shortText(s string, limit int) string {

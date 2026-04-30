@@ -458,11 +458,11 @@ body.live-mode .live-audio-btn{
       </select>
       <select id="fltAgent">
         <option value="">agent: all</option>
-        <option value="user">れん</option><option value="mio">みお</option><option value="shiro">しろ</option><option value="coder1">あか</option><option value="coder2">あお</option><option value="coder3">ぎん</option>
+        <option value="user">れん</option><option value="mio">みお</option><option value="shiro">しろ</option><option value="coder1">あか</option><option value="coder2">あお</option><option value="coder3">ぎん</option><option value="coder4">きん</option>
       </select>
       <select id="fltRoute">
         <option value="">route: all</option>
-        <option>CHAT</option><option>OPS</option><option>PLAN</option><option>ANALYZE</option><option>RESEARCH</option><option>CODE</option><option>CODE1</option><option>CODE2</option><option>CODE3</option>
+        <option>CHAT</option><option>OPS</option><option>PLAN</option><option>ANALYZE</option><option>RESEARCH</option><option>CODE</option><option>CODE1</option><option>CODE2</option><option>CODE3</option><option>CODE4</option>
       </select>
       <input id="fltJob" placeholder="job id contains...">
       <input id="fltText" placeholder="content contains...">
@@ -644,15 +644,16 @@ const A = {
   coder1: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
   coder2: {c:'#818cf8', l:'あお',  en:'Ao',    e:'\u{1f535}'},
   coder3: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
+  coder4: {c:'#facc15', l:'きん',  en:'Kin',   e:'\u{1f7e1}'},
   system: {c:'#475569', l:'System', en:'System', e:'\u2699\ufe0f'},
 };
 const RC = {
   CHAT:'#f472b6', OPS:'#22d3ee', CODE:'#fb923c',
-  CODE1:'#fb923c', CODE2:'#818cf8', CODE3:'#a78bfa',
+  CODE1:'#fb923c', CODE2:'#818cf8', CODE3:'#a78bfa', CODE4:'#facc15',
   PLAN:'#4ade80', ANALYZE:'#fbbf24', RESEARCH:'#34d399',
   IDLECHAT:'#a78bfa',
 };
-const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3'];
+const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3', 'coder4'];
 const OFFLINE_MS = 120000;
 const MAX_LOGS = 500;
 const MAX_TIMELINE_NODES = 400;
