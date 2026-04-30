@@ -15,7 +15,7 @@ type SBV2TTSBridgeConfig struct {
 	Provider           Provider
 	Sink               AudioSink
 	OutputDir          string
-	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string)
+	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string)
 	OnSessionCompleted func(sessionID, characterID string)
 }
 
@@ -54,6 +54,10 @@ func (b *SBV2TTSBridge) StartSession(_ context.Context, req orchestrator.TTSSess
 }
 
 func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text string, _ *ttsapp.EmotionState) error {
+	return b.PushTextWithDisplay(ctx, sessionID, text, text, nil)
+}
+
+func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, _ *ttsapp.EmotionState) error {
 	if b.cfg.Provider == nil {
 		return fmt.Errorf("sbv2 provider is not configured")
 	}
@@ -62,30 +66,40 @@ func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text str
 		return nil
 	}
 	s := b.getOrCreateSession(sessionID)
-	out, err := b.cfg.Provider.Synthesize(ctx, SynthesisInput{
-		Text:       rawText,
-		OutputDir:  b.cfg.OutputDir,
-		FilePrefix: "viewer-tts",
-		VoiceProfile: VoiceProfile{
-			VoiceID: s.voiceID,
-		},
-	})
-	if err != nil {
-		return err
-	}
-	ch := audioChunk{
-		ChunkIndex: s.nextChunk,
-		Text:       rawText,
-		AudioPath:  localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
-		AudioURL:   "",
-		PauseAfter: chunkPauseForText(rawText),
-	}
-	s.nextChunk++
-	if b.cfg.OnChunkReady != nil {
-		b.cfg.OnChunkReady(sessionID, s.responseID, ch.ChunkIndex, s.characterID, ch.Text, ch.AudioPath, ch.AudioURL)
-	}
-	if b.cfg.Sink != nil {
-		return b.cfg.Sink.SubmitChunk(ctx, sessionID, ch)
+	displayChunks := orchestrator.SplitTTSChunks(displayText)
+	speechChunks := orchestrator.SplitTTSChunks(rawText)
+	for i, chunkText := range speechChunks {
+		displayChunk := chunkText
+		if i < len(displayChunks) && strings.TrimSpace(displayChunks[i]) != "" {
+			displayChunk = displayChunks[i]
+		}
+		out, err := b.cfg.Provider.Synthesize(ctx, SynthesisInput{
+			Text:       chunkText,
+			OutputDir:  b.cfg.OutputDir,
+			FilePrefix: "viewer-tts",
+			VoiceProfile: VoiceProfile{
+				VoiceID: s.voiceID,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		ch := audioChunk{
+			ChunkIndex: s.nextChunk,
+			Text:       chunkText,
+			AudioPath:  localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
+			AudioURL:   "",
+			PauseAfter: chunkPauseForText(chunkText),
+		}
+		s.nextChunk++
+		if b.cfg.OnChunkReady != nil {
+			b.cfg.OnChunkReady(sessionID, s.responseID, ch.ChunkIndex, s.characterID, ch.Text, displayChunk, ch.AudioPath, ch.AudioURL)
+		}
+		if b.cfg.Sink != nil {
+			if err := b.cfg.Sink.SubmitChunk(ctx, sessionID, ch); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

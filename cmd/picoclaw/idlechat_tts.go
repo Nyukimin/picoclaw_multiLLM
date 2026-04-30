@@ -44,6 +44,7 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		return nil, false
 	}
 
+	displayText := formatIdleChatDisplayText(ev)
 	filtered := ttsapp.FilterSpeakableText("agent.response", idleChatRoute, formatIdleChatTTSText(ev))
 	if filtered == "" {
 		return nil, false
@@ -85,7 +86,12 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		log.Printf("[IdleChat] TTS start failed: %v", err)
 		return nil, false
 	}
-	if err := bridge.PushText(ctx, sessionID, filtered, &emotion); err != nil {
+	if displayBridge, ok := bridge.(orchestrator.TTSDisplayBridge); ok {
+		err := displayBridge.PushTextWithDisplay(ctx, sessionID, filtered, displayText, &emotion)
+		if err != nil {
+			log.Printf("[IdleChat] TTS push failed: %v", err)
+		}
+	} else if err := bridge.PushText(ctx, sessionID, filtered, &emotion); err != nil {
 		log.Printf("[IdleChat] TTS push failed: %v", err)
 	}
 	if err := bridge.EndSession(ctx, sessionID); err != nil {
@@ -104,6 +110,18 @@ func formatIdleChatTTSText(ev idlechat.TimelineEvent) string {
 			return "きょうのおだいです！"
 		}
 		return "きょうのおだいです、" + ensureIdleChatSentencePause(topic) + "です！"
+	}
+	return ensureIdleChatSentencePause(content)
+}
+
+func formatIdleChatDisplayText(ev idlechat.TimelineEvent) string {
+	content := strings.TrimSpace(ev.Content)
+	if strings.EqualFold(ev.From, "user") && strings.EqualFold(ev.To, "mio") && idleChatTopicPrefixRe.MatchString(content) {
+		topic := strings.TrimSpace(idleChatTopicPrefixRe.ReplaceAllString(content, ""))
+		if topic == "" {
+			return "今日のお題です！"
+		}
+		return "今日のお題です、" + ensureIdleChatSentencePause(topic) + "です！"
 	}
 	return ensureIdleChatSentencePause(content)
 }

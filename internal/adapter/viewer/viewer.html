@@ -148,6 +148,9 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .rt{font-weight:700;padding:1px 6px;border-radius:3px;font-size:11px;background:rgba(255,255,255,.06)}
 
 .thinking .mc{background:rgba(244,114,182,.04);border-color:rgba(244,114,182,.12);color:var(--t2);font-style:italic}
+.tts-current .mc{border-color:rgba(244,114,182,.4);box-shadow:0 8px 24px rgba(244,114,182,.08)}
+.tts-current.shiro .mc{border-color:rgba(34,211,238,.42);box-shadow:0 8px 24px rgba(34,211,238,.08)}
+.tts-current .mh::after{content:'speaking';font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);border:1px solid var(--border);border-radius:999px;padding:1px 7px}
 .thinking .mc::before{content:'\u{1f4ad} ';font-style:normal}
 @keyframes dotPulse{0%,80%,100%{opacity:.2}40%{opacity:1}}
 .thinking .mc .dots{display:inline-flex;gap:4px;vertical-align:middle;margin-left:2px}
@@ -773,6 +776,11 @@ const ttsPlayback = {
   blocked: false,
   currentCharacterId: '',
   currentText: '',
+  currentDisplayText: '',
+  currentSessionId: '',
+  currentChunkIndex: -1,
+  currentUtteranceId: '',
+  currentShown: false,
   seq: 0,
 };
 const lipSyncMioEl = document.getElementById('lipSyncMio');
@@ -783,6 +791,13 @@ const lipSyncActors = {
 };
 const ttsNowPlayingEl = document.getElementById('ttsNowPlaying');
 const ttsNowPlayingTextEl = document.getElementById('ttsNowPlayingText');
+const centralTTSSpeech = {
+  el: null,
+  textEl: null,
+  characterId: '',
+  sessionId: '',
+  chunkKeys: new Set(),
+};
 
 function setLipSyncSpeaking(characterId, speaking) {
   const id = String(characterId || '').trim().toLowerCase();
@@ -811,6 +826,53 @@ function setNowPlayingText(characterId, text) {
   if (id === 'mio' || id === 'shiro') ttsNowPlayingEl.classList.add(id);
   ttsNowPlayingTextEl.textContent = normalizedText;
   ttsNowPlayingEl.classList.remove('hidden');
+}
+
+function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId) {
+  const normalizedText = String(text || '').trim();
+  if (!normalizedText) {
+    if (centralTTSSpeech.el) centralTTSSpeech.el.classList.remove('tts-current');
+    return;
+  }
+
+  const id = String(characterId || '').trim().toLowerCase();
+  const sid = String(sessionId || '').trim();
+  const f = ag(id || 'mio');
+  if (!centralTTSSpeech.el || centralTTSSpeech.characterId !== id) {
+    if (centralTTSSpeech.el) centralTTSSpeech.el.classList.remove('tts-current');
+    const el = document.createElement('div');
+    el.className = 'msg tts-current' + (id === 'shiro' ? ' shiro' : '');
+    el.innerHTML =
+      '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+      '<div class="mb"><div class="mh">' +
+        '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
+        '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
+      '</div><div class="mc"></div></div>';
+    centralTTSSpeech.el = el;
+    centralTTSSpeech.textEl = el.querySelector('.mc');
+    centralTTSSpeech.characterId = id;
+    centralTTSSpeech.sessionId = sid;
+    centralTTSSpeech.chunkKeys = new Set();
+    const em = document.getElementById('empty');
+    if (em) em.remove();
+    chat.appendChild(el);
+    trimTimelineNodes();
+  } else {
+    centralTTSSpeech.el.classList.add('tts-current');
+    centralTTSSpeech.el.classList.toggle('shiro', id === 'shiro');
+    centralTTSSpeech.sessionId = sid;
+  }
+  const key = String(utteranceId || '') || (sid + ':' + String(Number.isFinite(chunkIndex) ? chunkIndex : centralTTSSpeech.chunkKeys.size));
+  if (centralTTSSpeech.chunkKeys.has(key)) {
+    return;
+  }
+  centralTTSSpeech.chunkKeys.add(key);
+  if (centralTTSSpeech.textEl) {
+    const current = String(centralTTSSpeech.textEl.textContent || '');
+    centralTTSSpeech.textEl.textContent = current ? current + normalizedText : normalizedText;
+    centralTTSSpeech.textEl.dataset.raw = centralTTSSpeech.textEl.textContent;
+  }
+  scrollToBottom();
 }
 
 let timelineAutoFollow = true;
@@ -1309,6 +1371,8 @@ function addMsgToTimeline(ev) {
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.response') { removeThinking(ev.job_id); }
   if (ev.type === 'agent.response' && (ev.to || '').toLowerCase() !== 'user') return;
+  if (ev.type === 'agent.response' && isTTSSyncedSpeaker(ev.from)) return;
+  if (ev.type === 'idlechat.message' && isTTSSyncedSpeaker(ev.from)) return;
   if (ev.type === 'agent.note' && (ev.to || '').toLowerCase() !== 'user') return;
   if (ev.type === 'message.received' && (ev.from || '').toLowerCase() !== 'user') return;
 
@@ -1329,6 +1393,11 @@ function addMsgToTimeline(ev) {
   chat.appendChild(el);
   trimTimelineNodes();
   bump();
+}
+
+function isTTSSyncedSpeaker(agentID) {
+  const id = String(agentID || '').trim().toLowerCase();
+  return id === 'mio' || id === 'shiro';
 }
 
 function addThinkingStart(ev) {
@@ -2645,6 +2714,7 @@ function handleTTSAudioEvent(ev) {
   const chunkIndex = Number.isFinite(chunkIndexRaw) ? Math.floor(chunkIndexRaw) : -1;
   const characterId = String(payload.character_id || '').trim().toLowerCase();
   const text = String(payload.text || '').trim();
+  const displayText = String(payload.display_text || payload.viewer_text || payload.text || '').trim();
   const responseId = String(payload.response_id || '').trim();
   const utteranceId = String(payload.utterance_id || '').trim();
   url = resolveTTSPlaybackURL(url, audioPath);
@@ -2657,7 +2727,7 @@ function handleTTSAudioEvent(ev) {
     url = `http://192.168.1.36:${cacheMatch[1]}/audio/${cacheMatch[2]}`;
   }
 
-  enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, responseId, utteranceId);
+  enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, displayText, responseId, utteranceId);
 }
 
 function resolveTTSPlaybackURL(audioURL, audioPath) {
@@ -2715,12 +2785,20 @@ function ensureTTSAudio() {
   if (!ttsPlayback.audio) {
     ttsPlayback.audio = new Audio();
     ttsPlayback.audio.preload = 'auto';
+    ttsPlayback.audio.addEventListener('playing', markTTSAudioStarted);
+    ttsPlayback.audio.addEventListener('timeupdate', markTTSAudioStarted);
     ttsPlayback.audio.addEventListener('ended', function() {
       setLipSyncSpeaking(ttsPlayback.currentCharacterId, false);
       ttsPlayback.playing = false;
       ttsPlayback.currentCharacterId = '';
       ttsPlayback.currentText = '';
+      ttsPlayback.currentDisplayText = '';
+      ttsPlayback.currentSessionId = '';
+      ttsPlayback.currentChunkIndex = -1;
+      ttsPlayback.currentUtteranceId = '';
+      ttsPlayback.currentShown = false;
       setNowPlayingText('', '');
+      setCentralTTSSpeechText('', '');
       playNextTTSAudio();
     });
     ttsPlayback.audio.addEventListener('error', function() {
@@ -2728,7 +2806,13 @@ function ensureTTSAudio() {
       ttsPlayback.playing = false;
       ttsPlayback.currentCharacterId = '';
       ttsPlayback.currentText = '';
+      ttsPlayback.currentDisplayText = '';
+      ttsPlayback.currentSessionId = '';
+      ttsPlayback.currentChunkIndex = -1;
+      ttsPlayback.currentUtteranceId = '';
+      ttsPlayback.currentShown = false;
       setNowPlayingText('', '');
+      setCentralTTSSpeechText('', '');
       playNextTTSAudio();
     });
   }
@@ -2743,7 +2827,24 @@ function isAutoplayBlockedError(err) {
   return msg.includes('user didn\'t interact') || msg.includes('notallowederror');
 }
 
-function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, responseId, utteranceId) {
+function markTTSAudioStarted() {
+  if (!ttsPlayback.playing) return;
+  if (ttsPlayback.currentShown) return;
+  const audio = ttsPlayback.audio;
+  if (audio && audio.currentTime <= 0 && audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+  ttsPlayback.currentShown = true;
+  setLipSyncSpeaking(ttsPlayback.currentCharacterId, true);
+  setNowPlayingText(ttsPlayback.currentCharacterId, ttsPlayback.currentText);
+  setCentralTTSSpeechText(
+    ttsPlayback.currentCharacterId,
+    ttsPlayback.currentDisplayText,
+    ttsPlayback.currentSessionId,
+    ttsPlayback.currentChunkIndex,
+    ttsPlayback.currentUtteranceId
+  );
+}
+
+function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, displayText, responseId, utteranceId) {
   ttsPlayback.queue.push({
     url: url,
     characterId: characterId || '',
@@ -2751,6 +2852,7 @@ function enqueueTTSAudio(url, characterId, sessionId, track, chunkIndex, text, r
     track: track || 'default',
     chunkIndex: Number.isFinite(chunkIndex) ? chunkIndex : -1,
     text: text || '',
+    displayText: displayText || text || '',
     responseId: responseId || '',
     utteranceId: utteranceId || '',
     seq: ++ttsPlayback.seq,
@@ -2772,6 +2874,7 @@ function playNextTTSAudio() {
   if (ttsPlayback.queue.length === 0) {
     clearLipSyncSpeaking();
     setNowPlayingText('', '');
+    setCentralTTSSpeechText('', '');
     return;
   }
   const next = ttsPlayback.queue.shift();
@@ -2779,8 +2882,11 @@ function playNextTTSAudio() {
   ttsPlayback.playing = true;
   ttsPlayback.currentCharacterId = String((next && next.characterId) || '');
   ttsPlayback.currentText = String((next && next.text) || '');
-  setLipSyncSpeaking(ttsPlayback.currentCharacterId, true);
-  setNowPlayingText(ttsPlayback.currentCharacterId, ttsPlayback.currentText);
+  ttsPlayback.currentDisplayText = String((next && next.displayText) || ttsPlayback.currentText || '');
+  ttsPlayback.currentSessionId = String((next && next.sessionId) || '');
+  ttsPlayback.currentChunkIndex = Number.isFinite(next && next.chunkIndex) ? next.chunkIndex : -1;
+  ttsPlayback.currentUtteranceId = String((next && next.utteranceId) || '');
+  ttsPlayback.currentShown = false;
   audio.dataset.characterId = ttsPlayback.currentCharacterId;
   audio.src = String((next && next.url) || '');
   audio.play().then(function() {
@@ -2792,6 +2898,11 @@ function playNextTTSAudio() {
     ttsPlayback.playing = false;
     ttsPlayback.currentCharacterId = '';
     ttsPlayback.currentText = '';
+    ttsPlayback.currentDisplayText = '';
+    ttsPlayback.currentSessionId = '';
+    ttsPlayback.currentChunkIndex = -1;
+    ttsPlayback.currentUtteranceId = '';
+    ttsPlayback.currentShown = false;
     if (isAutoplayBlockedError(err)) {
       ttsPlayback.blocked = true;
       ttsPlayback.unlocked = false;

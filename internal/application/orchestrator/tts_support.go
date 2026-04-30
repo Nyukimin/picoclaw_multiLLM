@@ -19,7 +19,7 @@ const (
 	maleTTSVoiceID         = "male_01"
 	maleTTSVoiceProfile    = "lumina_male"
 	ttsChunkMinRunes       = 6
-	ttsChunkMaxRunes       = 72
+	ttsChunkMaxRunes       = 42
 )
 
 func buildTTSContext(route routing.Route, urgency string, attention bool) ttsapp.EmotionContext {
@@ -94,10 +94,20 @@ func chooseNonEmpty(v, def string) string {
 }
 
 func pushTTS(ctx context.Context, bridge TTSBridge, sessionID, text string, emotion *ttsapp.EmotionState, prefix string) {
-	if bridge == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(text) == "" {
+	pushTTSWithDisplay(ctx, bridge, sessionID, text, text, emotion, prefix)
+}
+
+func pushTTSWithDisplay(ctx context.Context, bridge TTSBridge, sessionID, speechText, displayText string, emotion *ttsapp.EmotionState, prefix string) {
+	if bridge == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(speechText) == "" {
 		return
 	}
-	if err := bridge.PushText(ctx, sessionID, text, emotion); err != nil {
+	var err error
+	if displayBridge, ok := bridge.(TTSDisplayBridge); ok {
+		err = displayBridge.PushTextWithDisplay(ctx, sessionID, speechText, displayText, emotion)
+	} else {
+		err = bridge.PushText(ctx, sessionID, speechText, emotion)
+	}
+	if err != nil {
 		log.Printf("%s %v", prefix, err)
 	}
 }
@@ -152,7 +162,7 @@ func (f *ttsStreamForwarder) pushChunk(ctx context.Context, text string) {
 	if filtered == "" {
 		return
 	}
-	pushTTS(ctx, f.bridge, f.sessionID, filtered, emotion, f.logPrefix)
+	pushTTSWithDisplay(ctx, f.bridge, f.sessionID, filtered, text, emotion, f.logPrefix)
 }
 
 func (f *ttsStreamForwarder) OnToken(ctx context.Context, token string) {
@@ -177,15 +187,28 @@ func (f *ttsStreamForwarder) Finalize(ctx context.Context, finalText string) {
 	}
 	defer f.closeAndDrain()
 	if f.emitted {
-		chunk, _, ok := nextTTSChunk(f.pending.String(), true)
-		if ok {
-			f.pending.Reset()
-			f.emit(ctx, chunk)
-		}
+		f.emitChunks(ctx, f.pending.String())
+		f.pending.Reset()
 		return
 	}
 	f.pending.Reset()
-	f.emit(ctx, finalText)
+	f.emitChunks(ctx, finalText)
+}
+
+func (f *ttsStreamForwarder) emitChunks(ctx context.Context, text string) {
+	for _, chunk := range SplitTTSChunks(text) {
+		f.emit(ctx, chunk)
+	}
+}
+
+func pushTTSTextChunks(ctx context.Context, bridge TTSBridge, sessionID string, route routing.Route, eventType, text string, ttsCtx ttsapp.EmotionContext, voiceProfile string, prefix string) {
+	for _, displayChunk := range SplitTTSChunks(text) {
+		filtered, emotion := buildTTSPayload(eventType, route, displayChunk, ttsCtx, voiceProfile)
+		if filtered == "" {
+			continue
+		}
+		pushTTSWithDisplay(ctx, bridge, sessionID, filtered, displayChunk, emotion, prefix)
+	}
 }
 
 func (f *ttsStreamForwarder) emit(_ context.Context, text string) {
@@ -229,6 +252,9 @@ func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 		switch {
 		case isTTSHardBoundary(r):
 			lastHard = end
+			if runeCount >= ttsChunkMinRunes {
+				return splitTTSChunk(trimmed, end)
+			}
 		case isTTSSoftBoundary(r):
 			lastSoft = end
 		case unicode.IsSpace(r):
@@ -239,10 +265,7 @@ func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 			if cut > 0 {
 				return splitTTSChunk(trimmed, cut)
 			}
-			if final {
-				return splitTTSChunk(trimmed, len(trimmed))
-			}
-			return "", trimmed, false
+			return splitTTSChunk(trimmed, end)
 		}
 	}
 
@@ -253,6 +276,23 @@ func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 		return splitTTSChunk(trimmed, len(trimmed))
 	}
 	return "", trimmed, false
+}
+
+func SplitTTSChunks(text string) []string {
+	remaining := text
+	chunks := make([]string, 0, 4)
+	for {
+		chunk, rest, ok := nextTTSChunk(remaining, true)
+		if !ok {
+			break
+		}
+		chunks = append(chunks, chunk)
+		if strings.TrimSpace(rest) == "" || rest == remaining {
+			break
+		}
+		remaining = rest
+	}
+	return chunks
 }
 
 func chooseTTSChunkCut(lastHard, lastSoft, lastSpace int) int {

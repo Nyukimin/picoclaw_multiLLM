@@ -2,96 +2,126 @@
 
 ## 1. 目的
 
-RenCrow_TTS は、Chat が生成した文字列と TTS Provider の間に入る制御モジュールである。
+RenCrow_TTS は、LLM が生成した応答文字列と TTS Provider / Viewer の間に入る制御層である。
 
-目的は、Chat の長い応答をそのまま 1 本の音声にせず、短い発話単位へ分割し、音声生成と Viewer 表示を同じ単位で同期させることである。
+目的は、長い応答を短い発話単位へ分割し、音声出力開始を起点に Viewer の表示を同期させることである。
 
 基本フロー:
 
 ```text
-Chat文字列
+LLM出力
   -> RenCrow_TTS Controller
+      -> 表示用 chunk（LLM原文寄り）
+      -> TTS用 chunk（読み上げ用フィルタ後）
   -> SBV2 Provider
   -> tts.audio_chunk
   -> Viewer
 ```
 
-本仕様では TTS Provider として現在 SBV2 を使うが、RenCrow_TTS Controller は Provider 非依存の制御層として扱う。
+現在の Provider は SBV2 だが、RenCrow_TTS Controller は Provider 非依存の制御層として扱う。
 
 ## 2. 責務分離
 
-### 2.1 Chat
+### 2.1 LLM / Chat
 
-Chat は発話元の応答文字列を生成する。
+LLM / Chat は発話元の応答文字列を生成する。
 
-Chat は原則として音声ファイル生成、TTS API 詳細、Viewer 再生順序を直接制御しない。
+LLM / Chat は、音声ファイル生成、TTS API 詳細、Viewer 再生順序を直接制御しない。
 
-Chat から RenCrow_TTS Controller へ渡す情報:
+Controller へ渡す主な情報:
 
-- `session_id`
-- `response_id`
-- `character_id`
-- `voice_id`
-- `text`
-- `emotion` または発話文脈
+```text
+session_id
+response_id
+character_id
+voice_id
+text
+emotion または発話文脈
+```
 
 ### 2.2 RenCrow_TTS Controller
 
-RenCrow_TTS Controller は、Chat文字列を音声・字幕同期用の発話単位に変換する中間制御層である。
+RenCrow_TTS Controller は、LLM出力を音声・表示同期用の発話単位へ変換する。
 
 主な責務:
 
-- Chat文字列を短い発話単位へ分割する
-- 発話単位ごとに TTS Provider へ合成依頼する
+- LLM出力を短い chunk へ分割する
+- 表示用 `display_text` と TTS用 `text` を分離する
+- chunk ごとに TTS Provider へ合成依頼する
 - `chunk_index` を単調増加で採番する
 - Provider 応答を `tts.audio_chunk` に変換する
 - Viewer が再生順序を判断できる情報を付与する
-- 音声と表示文字列が同じ chunk 由来になり、再生タイミングと表示タイミングが同期するよう保証する
+- 音声出力開始を起点に Viewer 表示が更新されるよう保証する
 
-### 2.3 SBV2 Provider
+### 2.3 表示用 text と TTS用 text
 
-SBV2 Provider は、1つの発話単位を1つの音声ファイルへ変換する。
+中央チャット領域に表示する文字列は、LLM出力を表示用に chunk 分割した `display_text` である。
+
+TTS Provider に渡す文字列は、読み上げ用にフィルタした `text` である。
+
+例:
+
+```text
+display_text: 今日のお題です、猫について話しましょう。
+text:         きょうのおだいです、猫について話しましょう。
+```
+
+`text` は読み上げ都合で表記が変わってよい。`display_text` は Viewer 表示用なので、原文寄りの表記を保持する。
+
+句読点は TTS用 `text` でも保持する。句読点はポーズ、抑揚、chunk 境界の手掛かりになるため、原則として削除しない。
+
+### 2.4 SBV2 Provider
+
+SBV2 Provider は、1つの TTS用 chunk を1つの音声ファイルへ変換する。
 
 Provider は以下を受け取る。
 
-- `text`
-- `voice_id` または解決済み voice 情報
-- `output_dir`
-- 必要に応じた Provider 固有パラメータ
+```text
+text
+voice_id または解決済み voice 情報
+output_dir
+必要に応じた Provider 固有パラメータ
+```
 
 現在の SBV2 サーバ仕様では `/voice` を使う。
 
 代表 voice 解決:
 
 ```text
-mio / female_01   -> amitaro    -> model_id=0 / speaker_id=0 / style=Neutral
-shiro / male_01   -> shi-gozaki -> model_id=6 / speaker_id=0 / style=Neutral
+mio / female_01 -> amitaro    -> model_id=0 / speaker_id=0 / style=Neutral
+shiro / male_01 -> shi-gozaki -> model_id=6 / speaker_id=0 / style=Neutral
 ```
 
-### 2.4 Viewer
+### 2.5 Viewer
 
 Viewer は `tts.audio_chunk` を受け取り、音声再生キューへ積む。
 
-Viewer は再生開始時に、その chunk の `text` を現在発話中の文字列として表示する。  
-再生終了または再生エラー時に、次の chunk へ進む。
+Viewer は chunk 受信時や再生予約時には中央チャットを更新しない。更新の起点は音声出力開始である。
 
-Viewer は、TTS対象の長文全体を先に一括表示しない。  
-発話表示は音声再生中の chunk を単位とし、音声が次 chunk へ進むタイミングで表示文字列も次 chunk へ切り替える。
+現在のブラウザ再生では、以下を音声出力開始の起点として扱う。
 
-Live Mode では配信用レイアウトを優先し、Now Playing 表示を出さない場合がある。ただし内部的な再生順序と音声同期は維持する。
+```text
+HTMLAudio の playing イベント
+または最初の timeupdate
+```
 
-## 3. 発話単位分割
+Viewer は音声出力開始時に、その chunk の `display_text` を中央チャット領域へ反映する。`Now Playing` は TTS用 `text` を表示してよいが、中央チャット領域は `display_text` を使う。
 
-RenCrow_TTS Controller は、Chat文字列を短い文またはワンフレーズ単位に分割する。
+Live Mode では配信用レイアウトを優先し、`Now Playing` を非表示にしてよい。ただし中央チャット領域と音声再生の同期は維持する。
+
+## 3. chunk 分割
+
+RenCrow_TTS Controller は、LLM出力を短い文またはワンフレーズ単位に分割する。
 
 分割の基本方針:
 
-- 1 chunk は1つの音声ファイルとして生成する
-- 1 chunk は Viewer の1つの現在発話表示単位になる
+- 1 TTS chunk は1つの音声ファイルとして生成する
+- 表示用 chunk と TTS用 chunk は同じ順序で扱う
 - 長文を丸ごと1本の音声にしない
-- 長文を Viewer に丸ごと一括表示しない
+- 長文を音声開始前に中央チャットへ一括表示しない
 - 句点までの短い文を優先する
 - 長すぎる文は自然な境界で追加分割する
+- 自然境界がない場合は最大長で強制分割する
 
 境界の優先順位:
 
@@ -100,18 +130,18 @@ RenCrow_TTS Controller は、Chat文字列を短い文またはワンフレー�
 3. 空白
 4. 最大長到達時の強制分割
 
-目安:
+現在の目安:
 
 ```text
 最小長: 6文字
-最大長: 72文字
+最大長: 42文字
 ```
 
 短い相づちや感嘆など、6文字未満でも自然な独立発話として扱うべき場合は、最終 flush 時に chunk 化してよい。
 
 ## 4. セッションと chunk
 
-RenCrow_TTS Controller は、Chat応答ごとに TTS セッションを開始する。
+RenCrow_TTS Controller は、応答ごとに TTS セッションを開始する。
 
 セッション開始時の情報:
 
@@ -133,6 +163,7 @@ utterance_id
 chunk_index
 character_id
 text
+display_text
 audio_path または audio_url
 track
 ```
@@ -155,8 +186,7 @@ idle-123-tts-456:0002
 
 RenCrow_TTS Controller は、音声生成が完了した chunk ごとに `tts.audio_chunk` を発行する。
 
-`tts.audio_chunk` は、文字列 chunk と音声 chunk を結びつける同期単位である。  
-共通IDの名称そのものより、同じ payload 内の `text` と `audio_path` / `audio_url` が同じ発話単位を指し、Viewer で同時に扱われることを必須条件とする。
+`tts.audio_chunk` は、TTS用 text、表示用 display_text、音声ファイルを結びつける同期単位である。
 
 Payload 例:
 
@@ -167,7 +197,8 @@ Payload 例:
   "utterance_id": "idle-123-tts-456:0000",
   "chunk_index": 0,
   "character_id": "mio",
-  "text": "今日はいい天気ですね。",
+  "text": "きょうのおだいです、猫について話しましょう。",
+  "display_text": "今日のお題です、猫について話しましょう。",
   "audio_path": "viewer-tts-abc.wav",
   "audio_url": "",
   "track": "default"
@@ -181,6 +212,7 @@ Payload 例:
 - `chunk_index`
 - `character_id`
 - `text`
+- `display_text`
 - `audio_path` または `audio_url`
 
 推奨:
@@ -188,10 +220,11 @@ Payload 例:
 - `response_id`
 - `track`
 
-Viewer は `text` をその chunk の字幕・現在発話表示として扱う。  
-つまり、表示される文字列と再生される音声は同じ chunk から来なければならない。
+`text` は音声合成対象であり、再生される音声と対応する。
 
-`utterance_id` は追跡・デバッグ用の共通IDとして推奨するが、Viewer の同期保証は `tts.audio_chunk` payload 単位で成立する。
+`display_text` は中央チャット領域の表示対象であり、LLM出力の表記を保つ。
+
+`utterance_id` は追跡・デバッグ用の共通IDとして推奨する。Viewer の同期保証は `tts.audio_chunk` payload 単位で成立する。
 
 ## 6. 再生順序
 
@@ -202,44 +235,52 @@ Viewer は `(session_id, track, chunk_index)` を優先して昇順再生する�
 基本順序:
 
 ```text
-chunk 0 の音声再生開始
-  -> chunk 0 の text を表示
+chunk 0 の音声出力開始
+  -> chunk 0 の display_text を中央チャットへ反映
+  -> chunk 0 の text を Now Playing へ反映してよい
 chunk 0 の音声終了
-  -> chunk 1 の音声再生開始
-  -> chunk 1 の text を表示
+  -> chunk 1 の音声出力開始
+  -> chunk 1 の display_text を中央チャットへ反映
 ...
 全chunk終了
-  -> 表示をクリア、または最後の表示を保持する
+  -> Now Playing はクリア
+  -> 中央チャット領域の履歴は保持
 ```
-
-表示をクリアするか保持するかは Viewer 表示モードごとの方針とする。
 
 ## 7. Viewer 表示契約
 
-Viewer の発話表示は、TTS 再生キューと同期する。
+Viewer の中央チャット表示は、音声出力開始と同期する。
 
 禁止:
 
-- TTS対象の長文全文を、音声再生前に一括で発話表示する
-- chunk 0 の音声再生中に、chunk 1 以降の文字列を現在発話として表示する
-- 音声chunkと異なる `text` を現在発話として表示する
+- TTS対象の長文全文を、音声出力開始前に中央チャットへ一括表示する
+- chunk 受信時、再生予約時、`audio.play()` 呼び出し時だけを根拠に中央チャットを更新する
+- 中央チャットに TTS用読み変換済み `text` をそのまま表示する
+- `mio` / `shiro` の `agent.response` や `idlechat.message` を中央チャットへ全文描画する
 
 必須:
 
-- 音声再生開始時に、その音声chunkと同じ `tts.audio_chunk` payload の `text` を表示する
-- 次の音声chunkへ進む時、表示文字列も次chunkの `text` に切り替える
-- 音声再生が停止・失敗した場合、表示も停止状態へ戻す、または次chunkへ進む
+- 音声出力開始時に、該当 chunk の `display_text` を中央チャットへ反映する
+- `Now Playing` は必要に応じて該当 chunk の `text` を表示する
+- 音声再生が停止・失敗した場合、`Now Playing` と口パク状態は停止状態へ戻す
+- 中央チャット領域の会話履歴は保持する
+
+中央チャット領域:
+
+- 同一話者の発言が連続する場合は、前のバルーン末尾へ追記する
+- 話者が切り替わる場合は、新しいバルーンを作る
+- 発話終了後もバルーンは消さない
+- スクロールアップにより過去の会話データを保持する
 
 通常 Viewer:
 
-- `Now Playing` などの現在発話表示を使い、chunk単位の文字列を表示してよい。
-- Timeline に全文メッセージを残す場合でも、現在発話表示とは分離する。
+- 中央チャット領域は `display_text` を累積表示する
+- `Now Playing` は現在再生中の TTS用 `text` を表示してよい
 
 Live Mode:
 
-- 配信用レイアウトでは `Now Playing` を非表示にしてよい。
-- ただし、発話表示を行う場合は必ずchunk単位で表示する。
-- 長文全文を中央Chatに一括表示して、音声だけ後追いで再生する表示は禁止する。
+- 配信用レイアウトでは `Now Playing` を非表示にしてよい
+- 中央チャット領域を表示する場合は、音声出力開始を起点に `display_text` を反映する
 
 ## 8. SBV2 Provider 契約
 
@@ -251,10 +292,11 @@ Live Mode:
 POST /voice?text=<urlencoded>&model_id=<id>&speaker_id=0&style=Neutral
 ```
 
-Provider は1回の呼び出しにつき、1つの chunk 音声を返す。
+Provider は1回の呼び出しにつき、1つの TTS用 chunk 音声を返す。
 
-RenCrow_TTS Controller 側は、Provider の `/voice` 仕様を Viewer に漏らさない。  
-Viewer が知るのは `tts.audio_chunk` の `audio_path` または `audio_url` だけである。
+RenCrow_TTS Controller 側は、Provider の `/voice` 仕様を Viewer に漏らさない。
+
+Viewer が知るのは `tts.audio_chunk` の `audio_path` または `audio_url` と、表示同期に必要な metadata だけである。
 
 ## 9. エラー時の扱い
 
@@ -269,7 +311,7 @@ Viewer が知るのは `tts.audio_chunk` の `audio_path` または `audio_url` 
 - transport error は最大2回まで再試行
 - Provider の不正入力エラーは再試行しない
 - `engine_unavailable` 系は短いバックオフ後に再試行
-- 失敗時もログに `session_id`, `chunk_index`, `character_id`, `text` を残す
+- 失敗時もログに `session_id`, `chunk_index`, `character_id`, `text`, `display_text` を残す
 
 Viewer には、音声が存在しない `tts.audio_chunk` を送らない。
 
@@ -279,42 +321,66 @@ Viewer には、音声が存在しない `tts.audio_chunk` を送らない。
 
 ```text
 internal/application/orchestrator/tts_support.go
-  - Chat文字列の句点優先 chunk 分割
+  - SplitTTSChunks
+  - 表示用 chunk と TTS用 chunk の分割
+  - TTS用 FilterSpeakableText 適用
 
 internal/application/orchestrator/tts_bridge.go
-  - TTSBridge インターフェース
+  - TTSBridge
+  - TTSDisplayBridge
 
 internal/infrastructure/tts/sbv2_tts_bridge.go
   - SBV2直結TTS Bridge
+  - PushTextWithDisplay
+
+internal/infrastructure/tts/rencrow_tts_bridge.go
+  - RenCrow /synthesis Bridge
+  - PushTextWithDisplay
 
 internal/infrastructure/tts/sbv2_provider.go
   - SBV2 /voice Provider
+  - ensureTTSPunctuation
 
 cmd/picoclaw/tts_client_bridge.go
-  - TTS Bridge 構築と tts.audio_chunk 発行
+  - TTS Bridge 構築
+  - tts.audio_chunk 発行
+  - display_text 付与
+
+cmd/picoclaw/idlechat_tts.go
+  - IdleChat の TTS用 text と display_text 分離
+  - 「きょうのおだいです」と「今日のお題です」の分離
 
 internal/adapter/viewer/viewer.html
-  - tts.audio_chunk 受信、再生キュー、現在発話表示
+  - tts.audio_chunk 受信
+  - 再生キュー
+  - HTMLAudio playing / timeupdate 起点の表示更新
+  - 中央チャット領域への display_text 累積表示
 ```
 
-注意:
+現行方針:
 
-- 通常 Chat ストリーミング経路では、句点優先分割の仕組みが存在する。
-- IdleChat や SBV2 直結経路では、入力文がそのまま1 chunk になる箇所が残りうる。
-- 今後は RenCrow_TTS Controller として分割・採番・発行責務を集約する。
+- 通常 Chat ストリーミング経路では、`SplitTTSChunks` により句点優先で分割する
+- final text も丸ごと1 chunkにせず、同じ分割器を通す
+- SBV2直結経路も Provider 呼び出し前に分割する
+- TTS用 `text` でも句読点を保持する
+- Viewer の中央チャット領域は `agent.response` / `idlechat.message` の全文描画ではなく、`tts.audio_chunk.display_text` を音声出力開始時に反映する
 
 ## 11. 完了条件
 
 RenCrow_TTS Controller の実装完了条件:
 
-- Chat の長文応答が短い chunk に分割される
+- LLM の長文応答が短い chunk に分割される
 - chunk ごとに SBV2 Provider が呼ばれる
-- `tts.audio_chunk.text` と再生音声が一致する
-- Viewer が音声再生開始時に、その音声 chunk と同じ payload の `text` を表示する
-- Viewer がTTS対象の長文を一括表示せず、chunk単位で現在発話表示を更新する
+- TTS用 `text` と再生音声が一致する
+- 中央チャット領域は `display_text` を表示する
+- `text` と `display_text` が分離されている
+- TTS用 `text` に句読点が保持される
+- Viewer が音声出力開始時に、該当 chunk の `display_text` を中央チャットへ反映する
+- 同一話者の連続発言は同じバルーン末尾へ追記される
+- 話者切替時は新しいバルーンになる
 - `chunk_index` が同一 session 内で単調増加する
-- Viewer は音声再生タイミングに合わせて該当 chunk の文字列を表示する
-- Live Mode では不要な Now Playing 表示を出さず、再生同期だけを維持する
+- `Now Playing` は表示・非表示に関係なく中央チャット同期の必須要件ではない
+- Live Mode では不要な `Now Playing` を出さず、再生同期だけを維持できる
 
 ## 12. 参照
 

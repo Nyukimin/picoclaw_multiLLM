@@ -27,3 +27,10 @@ type TTSBridge interface {
 	PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error
 	EndSession(ctx context.Context, sessionID string) error
 }
+
+// TTSDisplayBridge accepts separate speech text and viewer display text.
+// Speech text may be normalized for pronunciation; display text must stay close
+// to the LLM/user-facing wording.
+type TTSDisplayBridge interface {
+	PushTextWithDisplay(ctx context.Context, sessionID string, speechText string, displayText string, emotion *ttsapp.EmotionState) error
+}

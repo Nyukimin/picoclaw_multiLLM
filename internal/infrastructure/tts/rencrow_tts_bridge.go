@@ -43,7 +43,7 @@ type RenCrowTTSBridgeConfig struct {
 	RequestTimeout     time.Duration
 	ProviderParams     map[string]any
 	Sink               AudioSink
-	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string)
+	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string)
 	OnSessionCompleted func(sessionID, characterID string)
 }
 
@@ -98,6 +98,10 @@ func (b *RenCrowTTSBridge) StartSession(_ context.Context, req orchestrator.TTSS
 }
 
 func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+	return b.PushTextWithDisplay(ctx, sessionID, text, text, emotion)
+}
+
+func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
 	rawText := strings.TrimSpace(text)
 	if rawText == "" {
 		return nil
@@ -167,7 +171,7 @@ func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text 
 	session.nextChunk++
 
 	if b.cfg.OnChunkReady != nil {
-		b.cfg.OnChunkReady(sessionID, responseID, ch.ChunkIndex, characterID, text, ch.AudioPath, ch.AudioURL)
+		b.cfg.OnChunkReady(sessionID, responseID, ch.ChunkIndex, characterID, text, strings.TrimSpace(displayText), ch.AudioPath, ch.AudioURL)
 	}
 	if b.cfg.Sink != nil {
 		if err := b.cfg.Sink.SubmitChunk(ctx, sessionID, ch); err != nil {

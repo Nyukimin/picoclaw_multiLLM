@@ -11,8 +11,8 @@ import (
 	contractapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
-	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -509,8 +509,7 @@ func (o *MessageOrchestrator) withStreamHooks(
 func (o *MessageOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
 	ttsCtx := buildTTSContext(route, "normal", false)
 	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
-	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, voiceProfile)
-	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[MessageOrch] TTS push degraded:")
+	pushTTSTextChunks(ctx, o.ttsBridge, sessionID, route, eventType, text, ttsCtx, voiceProfile, "[MessageOrch] TTS push degraded:")
 	req, ok := buildVTuberRequest(eventType, route, sessionID, text, ttsCtx, voiceProfile)
 	if ok {
 		pushVTuber(ctx, o.vtuberBridge, req, "[MessageOrch] VTuber push degraded:")
@@ -701,14 +700,14 @@ func verifyTTSResult(last autonomousapp.AttemptResult) (bool, string, string) {
 func looksLikeNonExecutable(response string) bool {
 	lower := strings.ToLower(response)
 	executables := []string{
-		"```",             // コードブロック
-		"patch:",          // Shiro patch セクション
-		"apply:",          // patch 適用指示
-		"execute:",        // 実行指示
-		"$ ",              // シェルコマンド
-		"#!/",             // シェバン
+		"```",              // コードブロック
+		"patch:",           // Shiro patch セクション
+		"apply:",           // patch 適用指示
+		"execute:",         // 実行指示
+		"$ ",               // シェルコマンド
+		"#!/",              // シェバン
 		"execution result", // formatExecutionResult のセクションヘッダー（実行証跡）
-		"success rate",    // formatExecutionResult の実行結果（実行証跡）
+		"success rate",     // formatExecutionResult の実行結果（実行証跡）
 	}
 	for _, marker := range executables {
 		if strings.Contains(lower, marker) {
@@ -733,4 +732,3 @@ func buildExecutorRetryMessage(userMessage string, route routing.Route, failureK
 - Do not defer required fixes to the user
 `, userMessage, attempt, route, fallbackString(failureKind, "unknown"), fallbackString(failureReason, "execution failed"))
 }
-

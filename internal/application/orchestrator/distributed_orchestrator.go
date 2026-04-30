@@ -41,11 +41,11 @@ type DistributedOrchestrator struct {
 	nodeSelector  *NodeSelector
 	nodeCaps      map[string]domainnode.ResourceProfile
 	coderConfigs  map[string]interface{} // v4.1: coder1-4 の CoderConfig（SSH送信用）
-	ttsBridge      TTSBridge
-	vtuberBridge   VTuberBridge
-	maxRepair      int           // 0以下は1とみなす
-	coderTimeout   time.Duration // 0以下は distributedCoderTimeout とみなす
-	coderRetryMax  int           // 0以下は distributedCoderRetryMax とみなす
+	ttsBridge     TTSBridge
+	vtuberBridge  VTuberBridge
+	maxRepair     int           // 0以下は1とみなす
+	coderTimeout  time.Duration // 0以下は distributedCoderTimeout とみなす
+	coderRetryMax int           // 0以下は distributedCoderRetryMax とみなす
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -516,8 +516,7 @@ func (o *DistributedOrchestrator) withStreamHooks(
 func (o *DistributedOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
 	ttsCtx := buildTTSContext(route, "normal", false)
 	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
-	filtered, emotion := buildTTSPayload(eventType, route, text, ttsCtx, voiceProfile)
-	pushTTS(ctx, o.ttsBridge, sessionID, filtered, emotion, "[DistributedOrch] TTS push degraded:")
+	pushTTSTextChunks(ctx, o.ttsBridge, sessionID, route, eventType, text, ttsCtx, voiceProfile, "[DistributedOrch] TTS push degraded:")
 	req, ok := buildVTuberRequest(eventType, route, sessionID, text, ttsCtx, voiceProfile)
 	if ok {
 		pushVTuber(ctx, o.vtuberBridge, req, "[DistributedOrch] VTuber push degraded:")

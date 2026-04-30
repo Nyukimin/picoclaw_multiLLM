@@ -36,9 +36,13 @@ func buildTTSClientBridge(
 		player := ttsinfra.NewCommandPlayer(cmds)
 		sink = ttsinfra.NewPlaybackAudioSink(player, cfg.TTS.AudioPathRoot)
 	}
-	onChunkFn := func(sessionID, responseID string, chunkIndex int, characterID, text, audioPath, audioURL string) {
+	onChunkFn := func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string) {
+		displayText = strings.TrimSpace(displayText)
+		if displayText == "" {
+			displayText = text
+		}
 		if onChunkReady != nil {
-			onChunkReady(sessionID, characterID, text)
+			onChunkReady(sessionID, characterID, displayText)
 		}
 		if onChunk == nil {
 			return
@@ -50,6 +54,7 @@ func buildTTSClientBridge(
 			"chunk_index":  chunkIndex,
 			"character_id": characterID,
 			"text":         text,
+			"display_text": displayText,
 			"audio_path":   audioPath,
 			"audio_url":    audioURL,
 		})

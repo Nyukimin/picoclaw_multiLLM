@@ -28,7 +28,7 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 			"style": "Neutral",
 		},
 		Sink: sink,
-		OnChunkReady: func(_, _ string, _ int, _, _, audioPath, audioURL string) {
+		OnChunkReady: func(_, _ string, _ int, _, _, _, audioPath, audioURL string) {
 			gotAudioURL = chooseNonEmpty(audioURL, audioPath)
 		},
 	})
