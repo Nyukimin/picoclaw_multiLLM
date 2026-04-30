@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
@@ -49,11 +50,15 @@ func (c *CompositeRunnerV2) ExecuteV2(ctx context.Context, toolName string, args
 	}
 
 	// 基本 Runner で未知のツールのみ ToolRegistry にフォールバック
-	if !errors.Is(err, ErrUnknownTool) {
+	if !isUnknownToolError(err) {
 		return nil, err
 	}
 
 	return c.executeRegistered(ctx, toolName, args, err)
+}
+
+func isUnknownToolError(err error) bool {
+	return errors.Is(err, ErrUnknownTool) || strings.Contains(err.Error(), "unknown tool")
 }
 
 // ListTools は基本 Runner と ToolRegistry のツール一覧をマージして返す
