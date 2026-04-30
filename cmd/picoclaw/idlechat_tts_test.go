@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
@@ -11,10 +12,11 @@ import (
 )
 
 type idleChatMockTTSBridge struct {
-	startReqs []orchestrator.TTSSessionStart
-	pushTexts []string
-	pushEmo   []*ttsapp.EmotionState
-	endIDs    []string
+	startReqs   []orchestrator.TTSSessionStart
+	pushTexts   []string
+	pushEmo     []*ttsapp.EmotionState
+	endIDs      []string
+	notifyOnEnd bool
 }
 
 func (m *idleChatMockTTSBridge) StartSession(_ context.Context, req orchestrator.TTSSessionStart) error {
@@ -31,6 +33,9 @@ func (m *idleChatMockTTSBridge) PushText(_ context.Context, sessionID string, te
 
 func (m *idleChatMockTTSBridge) EndSession(_ context.Context, sessionID string) error {
 	m.endIDs = append(m.endIDs, sessionID)
+	if m.notifyOnEnd {
+		notifyIdleChatTTSCompleted(sessionID)
+	}
 	return nil
 }
 
@@ -101,6 +106,30 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	want := "きょうのおだいです、震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？です！"
 	if bridge.pushTexts[0] != want {
 		t.Fatalf("unexpected topic tts text: got %q want %q", bridge.pushTexts[0], want)
+	}
+}
+
+func TestEmitIdleChatTTSAsyncTopicAnnouncementReturnsCompletion(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{notifyOnEnd: true}
+
+	done := emitIdleChatTTSAsync(bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "user",
+		To:        "mio",
+		Content:   "今日のお題（external）: 記憶と風景の関係",
+		SessionID: "idle-topic-async",
+	})
+	if done == nil {
+		t.Fatal("expected topic announcement to return a completion channel")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("topic TTS completion was not signaled")
+	}
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected topic TTS to be pushed, got %d", len(bridge.pushTexts))
 	}
 }
 

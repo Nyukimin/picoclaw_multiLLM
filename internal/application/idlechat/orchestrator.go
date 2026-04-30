@@ -2307,11 +2307,12 @@ func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, stra
 	msg := domaintransport.NewMessage("user", "mio", sessionID, "", content)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
-	o.emitTimelineEvent(TimelineEvent{
+	ttsDone := o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "user",
 		To:        "mio",
 		Content:   content,
 		SessionID: sessionID,
 	})
+	o.waitForTTSDone(ttsDone)
 }

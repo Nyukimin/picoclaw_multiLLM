@@ -27,6 +27,7 @@ var idleChatTopicPrefixRe = regexp.MustCompile(`^今日のお題（[^）]+）:\s
 type idleChatTTSItem struct {
 	bridge orchestrator.TTSBridge
 	ev     idlechat.TimelineEvent
+	done   chan struct{}
 }
 
 var (
@@ -185,32 +186,47 @@ func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEve
 		}()
 		return done
 	}
-	// Topic announcements: serial queue, orchestrator doesn't wait.
+	// Topic announcements must also be awaited. Otherwise the next topic can
+	// start while the previous topic is still being synthesized or played.
+	done := make(chan struct{})
 	idleChatTTSOnce.Do(func() {
 		idleChatTTSQueue = make(chan idleChatTTSItem, 128)
 		go func() {
 			for item := range idleChatTTSQueue {
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
-				if ok && waitCh != nil {
-					select {
-					case <-waitCh:
-					case <-ctx.Done():
-						clearIdleChatTTSPendingByChan(waitCh)
+				func() {
+					defer close(item.done)
+					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+					defer cancel()
+					waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
+					if ok && waitCh != nil {
+						select {
+						case <-waitCh:
+						case <-ctx.Done():
+							clearIdleChatTTSPendingByChan(waitCh)
+						}
 					}
-				}
-				cancel()
+				}()
 			}
 		}()
 	})
 	select {
-	case idleChatTTSQueue <- idleChatTTSItem{bridge: bridge, ev: ev}:
+	case idleChatTTSQueue <- idleChatTTSItem{bridge: bridge, ev: ev, done: done}:
 	default:
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		_, _ = emitIdleChatTTS(ctx, bridge, ev)
+		go func() {
+			defer close(done)
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+			waitCh, ok := emitIdleChatTTS(ctx, bridge, ev)
+			if ok && waitCh != nil {
+				select {
+				case <-waitCh:
+				case <-ctx.Done():
+					clearIdleChatTTSPendingByChan(waitCh)
+				}
+			}
+		}()
 	}
-	return nil
+	return done
 }
 
 func isIdleChatTopicAnnouncement(ev idlechat.TimelineEvent) bool {
@@ -277,12 +293,21 @@ func clearIdleChatTTSPending(sessionID string) {
 
 func clearIdleChatTTSPendingByChan(target <-chan struct{}) {
 	idleChatTTSPendingMu.Lock()
-	defer idleChatTTSPendingMu.Unlock()
+	var topicCh chan struct{}
 	for sessionID, ch := range idleChatTTSPending {
 		if (<-chan struct{})(ch) == target {
 			delete(idleChatTTSPending, sessionID)
-			return
+			if idleSessionID, ok := idleChatTopicByTTS[sessionID]; ok {
+				delete(idleChatTopicByTTS, sessionID)
+				topicCh = idleChatTopicGate[idleSessionID]
+				delete(idleChatTopicGate, idleSessionID)
+			}
+			break
 		}
+	}
+	idleChatTTSPendingMu.Unlock()
+	if topicCh != nil {
+		close(topicCh)
 	}
 }
 
