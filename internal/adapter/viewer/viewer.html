@@ -838,7 +838,7 @@ function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
 
   const id = String(characterId || '').trim().toLowerCase();
   const sid = String(sessionId || '').trim();
-  const bubbleKind = centralTTSBubbleKind(normalizedText);
+  const bubbleKind = centralTTSBubbleKind(normalizedText, sid);
   const f = ag(id || 'mio');
   if (!centralTTSSpeech.el || centralTTSSpeech.characterId !== id || centralTTSSpeech.bubbleKind !== bubbleKind) {
     if (centralTTSSpeech.el) centralTTSSpeech.el.classList.remove('tts-current');
@@ -878,9 +878,12 @@ function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   scrollToBottom();
 }
 
-function centralTTSBubbleKind(text) {
+function centralTTSBubbleKind(text, sessionId) {
   const s = String(text || '').trim();
   if (/^今日のお題です[、。！？!?]?/.test(s)) return 'topic';
+  if (centralTTSSpeech.bubbleKind === 'topic' && centralTTSSpeech.sessionId === String(sessionId || '').trim()) {
+    return 'topic';
+  }
   return 'speech';
 }
 
