@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/sourcefetcher"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	"gopkg.in/yaml.v3"
 )
@@ -45,11 +46,44 @@ func HandleSourceRegistry(store SourceRegistryStore) http.HandlerFunc {
 		case http.MethodGet:
 			handleSourceRegistryList(w, r, store)
 		case http.MethodPost:
+			if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("action")), "run") {
+				handleSourceRegistryRun(w, r, store)
+				return
+			}
 			handleSourceRegistrySave(w, r, store)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
+}
+
+func handleSourceRegistryRun(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {
+	runner, ok := store.(interface {
+		sourcefetcher.RegistryStore
+		sourcefetcher.RegistrySourceLister
+	})
+	if !ok {
+		http.Error(w, "source registry runner unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	sourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
+	if sourceID == "" {
+		var payload struct {
+			SourceID string `json:"source_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		sourceID = strings.TrimSpace(payload.SourceID)
+	}
+	result, err := sourcefetcher.RunSource(r.Context(), runner, sourceID, time.Now().UTC(), sourcefetcher.SweepOptions{
+		LimitPerSource:    10,
+		MinimumTrustScore: 0.5,
+	})
+	if err != nil {
+		http.Error(w, "failed to run source registry source", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"result": result})
 }
 
 func handleSourceRegistryList(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {

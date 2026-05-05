@@ -32,6 +32,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /function refreshMemoryEvents/);
   assert.match(html, /function renderMemoryEvents/);
   assert.match(html, /function refreshSourceRegistry/);
+  assert.match(html, /function runSourceRegistryEntry/);
   assert.match(html, /function refreshRecallTraces/);
   assert.match(html, /data-tab="roles"/);
   assert.match(html, /id="panel-roles"/);

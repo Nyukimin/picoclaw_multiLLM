@@ -19,6 +19,10 @@ type RegistryStore interface {
 	MarkSourceRegistryFetched(ctx context.Context, sourceID string, fetchedAt time.Time, status string, lastError string) error
 }
 
+type RegistrySourceLister interface {
+	ListSourceRegistryEntries(ctx context.Context, enabledOnly bool) ([]conversationpersistence.L1SourceRegistryEntry, error)
+}
+
 type SweepOptions struct {
 	LimitPerSource    int
 	MinimumTrustScore float64
@@ -64,6 +68,59 @@ func SweepDueSources(ctx context.Context, store RegistryStore, now time.Time, op
 		if err := store.MarkSourceRegistryFetched(ctx, source.SourceID, now, "ok", ""); err != nil {
 			return result, err
 		}
+	}
+	return result, nil
+}
+
+func RunSource(ctx context.Context, store interface {
+	RegistryStore
+	RegistrySourceLister
+}, sourceID string, now time.Time, opts SweepOptions) (SweepResult, error) {
+	if store == nil {
+		return SweepResult{}, fmt.Errorf("source registry store is nil")
+	}
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return SweepResult{}, fmt.Errorf("source_id is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if opts.LimitPerSource <= 0 {
+		opts.LimitPerSource = 10
+	}
+	entries, err := store.ListSourceRegistryEntries(ctx, false)
+	if err != nil {
+		return SweepResult{}, err
+	}
+	var selected *conversationpersistence.L1SourceRegistryEntry
+	for _, entry := range entries {
+		if entry.SourceID == sourceID {
+			cp := entry
+			selected = &cp
+			break
+		}
+	}
+	if selected == nil {
+		return SweepResult{}, fmt.Errorf("source registry entry not found: %s", sourceID)
+	}
+	result := SweepResult{Sources: 1}
+	if selected.Kind != conversationpersistence.L1SourceKindRSS && selected.Kind != conversationpersistence.L1SourceKindAtom {
+		result.Failed = 1
+		return result, fmt.Errorf("source kind is not fetchable by feed runner: %s", selected.Kind)
+	}
+	trustScores, err := store.SourceTrustScores(ctx)
+	if err != nil {
+		return result, err
+	}
+	parser := gofeed.NewParser()
+	if err := sweepFeedSource(ctx, store, parser, *selected, trustScores, now, opts, &result); err != nil {
+		result.Failed = 1
+		_ = store.MarkSourceRegistryFetched(ctx, selected.SourceID, now, "error", err.Error())
+		return result, err
+	}
+	if err := store.MarkSourceRegistryFetched(ctx, selected.SourceID, now, "ok", ""); err != nil {
+		return result, err
 	}
 	return result, nil
 }

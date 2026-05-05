@@ -3,8 +3,10 @@ package viewer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,49 @@ import (
 type sourceRegistryStoreStub struct {
 	entries []conversationpersistence.L1SourceRegistryEntry
 	saved   []conversationpersistence.L1SourceRegistryEntry
+}
+
+func TestHandleSourceRegistry_RunSelectedSource(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Test</title>
+<item><title>Viewer Run</title><link>https://example.com/viewer-run</link><description>Viewer body</description><pubDate>Tue, 05 May 2026 10:00:00 GMT</pubDate></item>
+</channel></rss>`))
+	}))
+	defer srv.Close()
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "rss:viewer-run",
+		URL:           srv.URL,
+		Kind:          conversationpersistence.L1SourceKindRSS,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "rss",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"category": "ai", "namespace": "kb:ai"},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	h := HandleSourceRegistry(store)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/source-registry?action=run&source_id=rss:viewer-run", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	news, err := store.RecentNewsItems(ctx, "ai", 10)
+	if err != nil {
+		t.Fatalf("RecentNewsItems failed: %v", err)
+	}
+	if len(news) != 1 || news[0].SummaryDraft != "Viewer Run" {
+		t.Fatalf("unexpected promoted news: %+v", news)
+	}
 }
 
 func (s *sourceRegistryStoreStub) SaveSourceRegistryEntry(_ context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error) {
@@ -33,6 +78,25 @@ func (s *sourceRegistryStoreStub) ListSourceRegistryEntries(_ context.Context, e
 		}
 	}
 	return out, nil
+}
+
+func (s *sourceRegistryStoreStub) DueSourceRegistryEntries(_ context.Context, _ time.Time) ([]conversationpersistence.L1SourceRegistryEntry, error) {
+	return nil, nil
+}
+func (s *sourceRegistryStoreStub) SourceTrustScores(_ context.Context) (map[string]float64, error) {
+	return map[string]float64{}, nil
+}
+func (s *sourceRegistryStoreStub) StageSourceRegistryFetch(_ context.Context, _ string, _ conversationpersistence.L1SourceFetchPayload) (*conversationpersistence.L1StagingItem, error) {
+	return nil, fmt.Errorf("not used")
+}
+func (s *sourceRegistryStoreStub) ValidateStagingItem(_ context.Context, _ string, _ conversationpersistence.L1StagingValidationPolicy) (*conversationpersistence.L1StagingValidationResult, error) {
+	return nil, fmt.Errorf("not used")
+}
+func (s *sourceRegistryStoreStub) PromoteValidatedStagingItemToNews(_ context.Context, _ string, _ string) (*conversationpersistence.L1NewsItem, error) {
+	return nil, fmt.Errorf("not used")
+}
+func (s *sourceRegistryStoreStub) MarkSourceRegistryFetched(_ context.Context, _ string, _ time.Time, _ string, _ string) error {
+	return nil
 }
 
 func TestHandleSourceRegistry_JSONSaveAndList(t *testing.T) {
