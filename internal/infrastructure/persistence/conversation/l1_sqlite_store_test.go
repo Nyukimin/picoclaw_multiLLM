@@ -908,6 +908,35 @@ func TestL1SQLiteStore_DueSourceRegistryEntriesAndFetchStatus(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SaveAndRecentRecallTraces(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	trace := domconv.RecallTrace{
+		ResponseID: "job-1",
+		SessionID:  "sess-1",
+		Role:       "worker",
+		Items: []domconv.RecallTraceItem{{
+			Layer:   "L2",
+			Kind:    "thread_summary",
+			Summary: "summary",
+		}},
+	}
+	if err := store.SaveRecallTrace(ctx, trace); err != nil {
+		t.Fatalf("SaveRecallTrace: %v", err)
+	}
+	got, err := store.RecentRecallTraces(ctx, "sess-1", 5)
+	if err != nil {
+		t.Fatalf("RecentRecallTraces: %v", err)
+	}
+	if len(got) != 1 || got[0].ResponseID != "job-1" || got[0].Items[0].Summary != "summary" {
+		t.Fatalf("unexpected traces: %+v", got)
+	}
+}
+
 func TestL1SQLiteStore_StageSourceRegistryFetchToStaging(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

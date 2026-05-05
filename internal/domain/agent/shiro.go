@@ -77,6 +77,9 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 			log.Printf("[Shiro] BeginTurn failed: %v", err)
 		} else if recallPack != nil {
 			filtered := recallPack.FilterForRole("worker")
+			if err := recordRecallTrace(ctx, s.conversation, t.ChatID(), t.JobID().String(), "worker", filtered); err != nil {
+				log.Printf("[Shiro] RecordRecallTrace failed: %v", err)
+			}
 			messages = append(messages, filtered.ToPromptMessages()...)
 		}
 	}

@@ -132,6 +132,9 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		if recallPack != nil {
 			filtered := recallPack.FilterForRole("chat")
 			recallPack = &filtered
+			if err := recordRecallTrace(ctx, m.conversationEngine, t.ChatID(), t.JobID().String(), "chat", filtered); err != nil {
+				log.Printf("[Mio] RecordRecallTrace failed: %v", err)
+			}
 			// RecallPack からプロンプトメッセージを生成（system prompt + 過去文脈 + 会話履歴）
 			messages = recallPack.ToPromptMessages()
 		}

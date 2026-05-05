@@ -131,6 +131,7 @@ type mockL1Store struct {
 	saved  []L1MemoryEvent
 	cache  *L1SearchCacheEntry
 	events []L1EventLogEntry
+	traces []domconv.RecallTrace
 }
 
 func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
@@ -235,6 +236,19 @@ func (m *mockL1Store) RecentBySession(_ context.Context, sessionID string, _ int
 	for _, ev := range m.saved {
 		if ev.SessionID == sessionID {
 			out = append(out, ev)
+		}
+	}
+	return out, nil
+}
+func (m *mockL1Store) SaveRecallTrace(_ context.Context, trace domconv.RecallTrace) error {
+	m.traces = append(m.traces, trace)
+	return nil
+}
+func (m *mockL1Store) RecentRecallTraces(_ context.Context, sessionID string, _ int) ([]domconv.RecallTrace, error) {
+	var out []domconv.RecallTrace
+	for _, trace := range m.traces {
+		if sessionID == "" || trace.SessionID == sessionID {
+			out = append(out, trace)
 		}
 	}
 	return out, nil

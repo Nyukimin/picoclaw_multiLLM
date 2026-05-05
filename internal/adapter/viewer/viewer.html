@@ -531,6 +531,12 @@ body.live-mode .live-audio-btn{
     </div>
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
+        <thead><tr><th>Response</th><th>Role</th><th>Layer</th><th>Kind</th><th>Summary</th><th>Source</th><th>Created</th></tr></thead>
+        <tbody id="recallTraceBody"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
         <thead><tr><th>Layer</th><th>State</th><th>Namespace</th><th>Speaker</th><th>Message</th><th>Updated</th></tr></thead>
         <tbody id="memoryBody"></tbody>
       </table>
@@ -778,6 +784,7 @@ const state = {
   pendingEvidenceJobID: '',
   memory: {
     snapshot: {memory: [], news: [], digests: [], knowledge: []},
+    traces: [],
   },
   agents: {},
   idleChat: {
@@ -2450,6 +2457,58 @@ function refreshMemorySnapshot() {
     .catch((err) => console.error(err));
 }
 
+function renderRecallTraces() {
+  const body = document.getElementById('recallTraceBody');
+  if (!body) return;
+  const traces = Array.isArray(state.memory.traces) ? state.memory.traces : [];
+  body.innerHTML = '';
+  if (traces.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="small">No recall traces yet</td></tr>';
+    return;
+  }
+  traces.forEach((trace) => {
+    const items = Array.isArray(trace.Items || trace.items) ? (trace.Items || trace.items) : [];
+    if (items.length === 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="code">' + esc(trace.ResponseID || trace.response_id || '-') + '</td>' +
+        '<td>' + esc(trace.Role || trace.role || '-') + '</td>' +
+        '<td colspan="4" class="small">No referenced recall items</td>' +
+        '<td>' + esc(fdt(trace.CreatedAt || trace.created_at)) + '</td>';
+      body.appendChild(tr);
+      return;
+    }
+    items.forEach((item) => {
+      const urls = item.SourceURLs || item.source_urls || [];
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="code">' + esc(trace.ResponseID || trace.response_id || '-') + '</td>' +
+        '<td>' + esc(trace.Role || trace.role || '-') + '</td>' +
+        '<td>' + esc(item.Layer || item.layer || '-') + '</td>' +
+        '<td>' + esc(item.Kind || item.kind || '-') + '</td>' +
+        '<td>' + esc(short(item.Summary || item.summary || item.Query || item.query || '-', 180)) + '</td>' +
+        '<td class="code">' + esc(short(Array.isArray(urls) ? urls.join(', ') : String(urls || '-'), 100)) + '</td>' +
+        '<td>' + esc(fdt(trace.CreatedAt || trace.created_at)) + '</td>';
+      body.appendChild(tr);
+    });
+  });
+}
+
+function refreshRecallTraces() {
+  const params = new URLSearchParams();
+  params.set('limit', '20');
+  fetch('/viewer/recall/traces?' + params.toString())
+    .then((r) => {
+      if (!r.ok) throw new Error('recall trace fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.traces = Array.isArray(data.items) ? data.items : [];
+      renderRecallTraces();
+    })
+    .catch((err) => console.error(err));
+}
+
 function refreshDerivedViews() {
   renderOps();
   renderDebugPanels();
@@ -2460,6 +2519,7 @@ function refreshDerivedViews() {
   renderJobs();
   renderEvidence();
   renderMemorySnapshot();
+  renderRecallTraces();
 }
 
 function refreshOpsData() {
@@ -3371,6 +3431,7 @@ refreshOpsData();
 refreshEvidence();
 refreshEvidenceSummary();
 refreshMemorySnapshot();
+refreshRecallTraces();
 refreshViewerStatus();
 setInterval(() => {
   if (!derivedDirty) return;
@@ -3384,6 +3445,7 @@ setInterval(refreshOpsData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
 setInterval(refreshMemorySnapshot, 15000);
+setInterval(refreshRecallTraces, 15000);
 setInterval(refreshDebugSystem, 5000);
 refreshDebugSystem();
 registerWebMCPTools();

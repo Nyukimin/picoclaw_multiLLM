@@ -56,6 +56,8 @@ type l1StoreIface interface {
 	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error)
 	RecentByState(ctx context.Context, memoryState string, limit int) ([]L1MemoryEvent, error)
 	RecentBySession(ctx context.Context, sessionID string, limit int) ([]L1MemoryEvent, error)
+	SaveRecallTrace(ctx context.Context, trace conversation.RecallTrace) error
+	RecentRecallTraces(ctx context.Context, sessionID string, limit int) ([]conversation.RecallTrace, error)
 	Close() error
 }
 

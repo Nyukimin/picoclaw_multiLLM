@@ -195,6 +195,24 @@ func (e *RealConversationEngine) EndTurnAs(ctx context.Context, sessionID string
 	return nil
 }
 
+func (e *RealConversationEngine) RecordRecallTrace(ctx context.Context, sessionID string, responseID string, role string, pack domconv.RecallPack) error {
+	items := pack.ToTraceItems()
+	if len(items) == 0 {
+		return nil
+	}
+	realMgr, ok := e.manager.(*RealConversationManager)
+	if !ok || realMgr.l1Store == nil {
+		return nil
+	}
+	return realMgr.l1Store.SaveRecallTrace(ctx, domconv.RecallTrace{
+		ResponseID: responseID,
+		SessionID:  sessionID,
+		Role:       role,
+		Items:      items,
+		CreatedAt:  timeNowUTC(),
+	})
+}
+
 // GetPersona は現在のペルソナ設定を返す
 func (e *RealConversationEngine) GetPersona() domconv.PersonaState {
 	return e.persona

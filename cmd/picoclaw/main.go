@@ -363,6 +363,9 @@ func cmdRun() {
 	if dependencies.viewerMemorySnapshot != nil {
 		mux.HandleFunc("/viewer/memory/snapshot", dependencies.viewerMemorySnapshot)
 	}
+	if dependencies.viewerRecallTraces != nil {
+		mux.HandleFunc("/viewer/recall/traces", dependencies.viewerRecallTraces)
+	}
 	if dependencies.entryHandler != nil {
 		mux.HandleFunc("/entry", dependencies.entryHandler)
 	}
@@ -2038,6 +2041,7 @@ type Dependencies struct {
 	evidenceSummary      http.HandlerFunc                       // viewer evidence summary API
 	glossaryRecent       http.HandlerFunc                       // viewer glossary API
 	viewerMemorySnapshot http.HandlerFunc                       // viewer memory/news/recall API
+	viewerRecallTraces   http.HandlerFunc                       // viewer recall trace API
 	entryHandler         http.HandlerFunc                       // unified entry endpoint
 	chromeBridge         http.HandlerFunc                       // chrome bridge endpoint
 	chromeBridgeStatus   http.HandlerFunc                       // chrome bridge status endpoint
@@ -2473,6 +2477,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	deps.glossaryRecent = glossaryRecentHandler
 	if l1Store != nil {
 		deps.viewerMemorySnapshot = viewer.HandleMemorySnapshot(l1Store)
+		deps.viewerRecallTraces = viewer.HandleRecallTraces(l1Store)
 	}
 	deps.toolRegistry = runtimeToolRegistry
 

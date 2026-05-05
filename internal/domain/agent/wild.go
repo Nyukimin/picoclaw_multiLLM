@@ -42,6 +42,9 @@ func (w *WildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
 			log.Printf("[Wild] BeginTurn failed: %v", err)
 		} else if recallPack != nil {
 			filtered := recallPack.FilterForRole("wild")
+			if err := recordRecallTrace(ctx, w.conversationEngine, t.ChatID(), t.JobID().String(), "wild", filtered); err != nil {
+				log.Printf("[Wild] RecordRecallTrace failed: %v", err)
+			}
 			messages = append(messages, filtered.ToPromptMessages()...)
 		}
 	}
