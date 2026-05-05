@@ -1186,6 +1186,9 @@ ON CONFLICT(namespace, event_id) DO UPDATE SET
 	}, "staging"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 staging event log: %w", err)
 	}
+	if err := s.archiveStagingItem(ctx, item); err != nil {
+		return nil, err
+	}
 	return &item, nil
 }
 
@@ -1812,6 +1815,16 @@ func (s *L1SQLiteStore) syncPromotedKnowledgeVector(ctx context.Context, item L1
 	}
 	if err := s.knowledgeVectorSink.SaveL1KnowledgeItem(ctx, item); err != nil {
 		return fmt.Errorf("failed to sync promoted l1 knowledge to vector sink: %w", err)
+	}
+	return nil
+}
+
+func (s *L1SQLiteStore) archiveStagingItem(ctx context.Context, item L1StagingItem) error {
+	if s.archiveStore == nil {
+		return nil
+	}
+	if err := s.archiveStore.ArchiveL1StagingItems(ctx, []L1StagingItem{item}); err != nil {
+		return fmt.Errorf("failed to archive l1 staging item: %w", err)
 	}
 	return nil
 }

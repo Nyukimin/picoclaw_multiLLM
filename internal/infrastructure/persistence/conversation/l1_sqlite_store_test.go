@@ -582,6 +582,44 @@ func TestL1SQLiteStore_SaveStagingItemAndRecentByStatus(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SaveStagingItemArchivesToDuckDB(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
+	if err != nil {
+		t.Fatalf("NewDuckDBStore failed: %v", err)
+	}
+	defer archive.Close()
+	store.WithArchiveStore(archive)
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:news",
+		EventID:      "stage-archive-1",
+		SourceID:     "rss:archive",
+		SourceURL:    "https://example.com/archive",
+		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		RawText:      "staging raw",
+		SummaryDraft: "staging summary",
+		Keywords:     []string{"archive"},
+		LicenseNote:  "official rss excerpt",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	var count int
+	if err := archive.db.QueryRowContext(ctx, `SELECT count(*) FROM l1_staging_item_archive WHERE id = ?`, item.ID).Scan(&count); err != nil {
+		t.Fatalf("archive staging count failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected staging archive row, got %d", count)
+	}
+}
+
 func TestL1SQLiteStore_SaveStagingItemRejectsInvalidInput(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
