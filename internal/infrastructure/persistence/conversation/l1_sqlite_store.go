@@ -215,8 +215,16 @@ type L1KnowledgeItem struct {
 	UpdatedAt    time.Time
 }
 
+type L1ArchiveStore interface {
+	ArchiveL1MemoryEvents(ctx context.Context, items []L1MemoryEvent) error
+	ArchiveL1NewsItems(ctx context.Context, items []L1NewsItem) error
+	ArchiveL1KnowledgeItems(ctx context.Context, items []L1KnowledgeItem) error
+	ArchiveL1StagingItems(ctx context.Context, items []L1StagingItem) error
+}
+
 type L1SQLiteStore struct {
-	db *sql.DB
+	db           *sql.DB
+	archiveStore L1ArchiveStore
 }
 
 func NewL1SQLiteStore(dbPath string) (*L1SQLiteStore, error) {
@@ -234,6 +242,11 @@ func NewL1SQLiteStore(dbPath string) (*L1SQLiteStore, error) {
 
 func (s *L1SQLiteStore) Close() error {
 	return s.db.Close()
+}
+
+func (s *L1SQLiteStore) WithArchiveStore(archiveStore L1ArchiveStore) *L1SQLiteStore {
+	s.archiveStore = archiveStore
+	return s
 }
 
 func (s *L1SQLiteStore) initTables(ctx context.Context) error {
@@ -834,6 +847,9 @@ INSERT INTO l1_memory_event (
 	}, "promoter"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 memory promoted event log: %w", err)
 	}
+	if err := s.archivePromotedMemory(ctx, *promoted); err != nil {
+		return nil, err
+	}
 	return promoted, nil
 }
 
@@ -1365,6 +1381,9 @@ INSERT INTO l1_memory_event (
 	}, "promoter"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 staging promoted event log: %w", err)
 	}
+	if err := s.archivePromotedMemory(ctx, *promoted); err != nil {
+		return nil, err
+	}
 	return promoted, nil
 }
 
@@ -1462,6 +1481,9 @@ ON CONFLICT(staging_id) DO UPDATE SET
 		"raw_hash":   news.RawHash,
 	}, "promoter"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 news promoted event log: %w", err)
+	}
+	if err := s.archivePromotedNews(ctx, *news); err != nil {
+		return nil, err
 	}
 	return news, nil
 }
@@ -1719,7 +1741,40 @@ ON CONFLICT(staging_id) DO UPDATE SET
 	}, "promoter"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 knowledge promoted event log: %w", err)
 	}
+	if err := s.archivePromotedKnowledge(ctx, *kb); err != nil {
+		return nil, err
+	}
 	return kb, nil
+}
+
+func (s *L1SQLiteStore) archivePromotedMemory(ctx context.Context, item L1MemoryEvent) error {
+	if s.archiveStore == nil {
+		return nil
+	}
+	if err := s.archiveStore.ArchiveL1MemoryEvents(ctx, []L1MemoryEvent{item}); err != nil {
+		return fmt.Errorf("failed to archive promoted l1 memory: %w", err)
+	}
+	return nil
+}
+
+func (s *L1SQLiteStore) archivePromotedNews(ctx context.Context, item L1NewsItem) error {
+	if s.archiveStore == nil {
+		return nil
+	}
+	if err := s.archiveStore.ArchiveL1NewsItems(ctx, []L1NewsItem{item}); err != nil {
+		return fmt.Errorf("failed to archive promoted l1 news: %w", err)
+	}
+	return nil
+}
+
+func (s *L1SQLiteStore) archivePromotedKnowledge(ctx context.Context, item L1KnowledgeItem) error {
+	if s.archiveStore == nil {
+		return nil
+	}
+	if err := s.archiveStore.ArchiveL1KnowledgeItems(ctx, []L1KnowledgeItem{item}); err != nil {
+		return fmt.Errorf("failed to archive promoted l1 knowledge: %w", err)
+	}
+	return nil
 }
 
 func (s *L1SQLiteStore) RecentKnowledgeItems(ctx context.Context, domain string, limit int) ([]L1KnowledgeItem, error) {

@@ -63,6 +63,11 @@ func (r *RealConversationManager) WithSummarizer(s domconv.ConversationSummarize
 }
 
 func (r *RealConversationManager) WithL1Store(store l1StoreIface) *RealConversationManager {
+	if l1, ok := store.(*L1SQLiteStore); ok {
+		if archiveStore, ok := r.duckdbStore.(L1ArchiveStore); ok {
+			l1.WithArchiveStore(archiveStore)
+		}
+	}
 	r.l1Store = store
 	return r
 }
