@@ -361,6 +361,15 @@ CREATE TABLE IF NOT EXISTS l1_knowledge_item (
 );
 CREATE INDEX IF NOT EXISTS idx_l1_knowledge_domain_title ON l1_knowledge_item(domain, title);
 CREATE INDEX IF NOT EXISTS idx_l1_knowledge_raw_hash ON l1_knowledge_item(raw_hash);
+CREATE TABLE IF NOT EXISTS l1_knowledge_item_fts (
+	id TEXT PRIMARY KEY,
+	domain TEXT NOT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	raw_text TEXT NOT NULL DEFAULT '',
+	summary_draft TEXT NOT NULL DEFAULT '',
+	keywords_text TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_l1_knowledge_fts_domain ON l1_knowledge_item_fts(domain);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -1488,6 +1497,9 @@ ON CONFLICT(staging_id) DO UPDATE SET
 	if err != nil {
 		return nil, fmt.Errorf("failed to promote l1 staging item to knowledge: %w", err)
 	}
+	if err := s.upsertKnowledgeFTS(ctx, kb); err != nil {
+		return nil, err
+	}
 	namespace, err := BuildL1Namespace(NamespaceKindKnowledge, domain)
 	if err != nil {
 		return nil, err
@@ -1528,6 +1540,56 @@ LIMIT ?
 	}
 	defer rows.Close()
 	return scanL1KnowledgeItems(rows)
+}
+
+func (s *L1SQLiteStore) SearchKnowledgeItemsFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error) {
+	if err := validateKnowledgeDomain(domain); err != nil {
+		return nil, err
+	}
+	domain = normalizeNewsCategory(domain)
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, errors.New("l1 knowledge fts query is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT k.id, k.staging_id, k.domain, k.title, k.source_id, k.source_url, k.raw_text, k.raw_hash,
+       k.summary_draft, k.keywords_json, k.license_note, k.meta_json, k.created_at, k.updated_at
+FROM l1_knowledge_item_fts f
+JOIN l1_knowledge_item k ON k.id = f.id
+WHERE (
+	f.title LIKE ?
+	OR f.raw_text LIKE ?
+	OR f.summary_draft LIKE ?
+	OR f.keywords_text LIKE ?
+)
+  AND f.domain = ?
+ORDER BY k.updated_at DESC
+LIMIT ?
+`, likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), domain, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search l1 knowledge fts: %w", err)
+	}
+	defer rows.Close()
+	return scanL1KnowledgeItems(rows)
+}
+
+func (s *L1SQLiteStore) upsertKnowledgeFTS(ctx context.Context, item *L1KnowledgeItem) error {
+	if item == nil {
+		return errors.New("l1 knowledge fts item is required")
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM l1_knowledge_item_fts WHERE id = ?`, item.ID); err != nil {
+		return fmt.Errorf("failed to delete l1 knowledge fts row: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO l1_knowledge_item_fts (id, domain, title, raw_text, summary_draft, keywords_text)
+VALUES (?, ?, ?, ?, ?, ?)
+`, item.ID, item.Domain, item.Title, item.RawText, item.SummaryDraft, strings.Join(item.Keywords, " ")); err != nil {
+		return fmt.Errorf("failed to upsert l1 knowledge fts row: %w", err)
+	}
+	return nil
 }
 
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
@@ -1943,6 +2005,13 @@ func mergeStringAnyMaps(base, overlay map[string]interface{}) map[string]interfa
 		merged[k] = v
 	}
 	return merged
+}
+
+func likeQuery(query string) string {
+	query = strings.TrimSpace(query)
+	query = strings.ReplaceAll(query, `%`, `\%`)
+	query = strings.ReplaceAll(query, `_`, `\_`)
+	return "%" + query + "%"
 }
 
 func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {

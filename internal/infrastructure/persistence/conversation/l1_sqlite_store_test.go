@@ -1277,6 +1277,61 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToKnowledge(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SearchKnowledgeItemsFTS(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	items := []struct {
+		eventID string
+		title   string
+		raw     string
+		summary string
+	}{
+		{"movie-space", "Space Film", "宇宙船と重力の映画", "父と娘のSF"},
+		{"movie-cooking", "Cooking Film", "料理人の映画", "厨房の物語"},
+	}
+	for _, it := range items {
+		item, err := store.SaveStagingItem(ctx, L1StagingItem{
+			Kind:         L1StagingKindExternalFetch,
+			Namespace:    "kb:movie",
+			EventID:      it.eventID,
+			SourceID:     "api:movie",
+			SourceURL:    "https://example.com/movie/" + it.eventID,
+			FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+			RawText:      it.raw,
+			SummaryDraft: it.summary,
+			Keywords:     []string{"映画"},
+			LicenseNote:  "official api",
+			Meta:         map[string]interface{}{"title": it.title},
+		})
+		if err != nil {
+			t.Fatalf("SaveStagingItem failed: %v", err)
+		}
+		if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+			SourceTrustScores: map[string]float64{"api:movie": 0.9},
+			MinimumTrustScore: 0.5,
+			Now:               time.Date(2026, 5, 5, 11, 0, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatalf("ValidateStagingItem failed: %v", err)
+		}
+		if _, err := store.PromoteValidatedStagingItemToKnowledge(ctx, item.ID, "movie"); err != nil {
+			t.Fatalf("PromoteValidatedStagingItemToKnowledge failed: %v", err)
+		}
+	}
+
+	results, err := store.SearchKnowledgeItemsFTS(ctx, "movie", "重力", 10)
+	if err != nil {
+		t.Fatalf("SearchKnowledgeItemsFTS failed: %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "Space Film" {
+		t.Fatalf("unexpected FTS results: %+v", results)
+	}
+}
+
 func TestL1SQLiteStore_PromoteKnowledgeRequiresValidatedItem(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
