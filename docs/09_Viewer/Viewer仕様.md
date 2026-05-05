@@ -327,6 +327,13 @@ staging archive:
 - `ExportL1ArchivesParquet()` は `l1_staging_item.parquet` を出力する
 - raw_text / summary_draft / validation_status / keywords / metaをParquetへ保持する
 
+Source Registry CLI:
+
+- `picoclaw source-registry save --source-id <id> --url <url> --kind <kind> --license-note <text>` で登録できる
+- `--trust-score`, `--interval-sec`, `--namespace`, `--disabled`, `--json` を指定できる
+- `picoclaw source-registry list --json` で登録済みsourceを確認できる
+- CLIは `conversation.l1_sqlite_path` のL1 SQLite storeを使う
+
 ## 16. 参照
 
 - `docs/03_設計文書/ログViewer仕様.md`

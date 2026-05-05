@@ -252,6 +252,8 @@ func main() {
 		cmdLogs()
 	case "evidence":
 		cmdEvidence()
+	case "source-registry":
+		cmdSourceRegistry()
 	case "help", "-h", "--help":
 		cmdHelp()
 	default:
@@ -1267,6 +1269,75 @@ type evidenceStore interface {
 	Summary(ctx context.Context) (map[string]map[string]int, error)
 }
 
+func cmdSourceRegistry() {
+	configPath := getConfigPath()
+	store, err := loadSourceRegistryStore(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize source registry store: %v\n", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+	code := runSourceRegistryCommand(os.Args[2:], store, os.Stdout, os.Stderr)
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+type sourceRegistryCLIStore interface {
+	SaveSourceRegistryEntry(ctx context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error)
+	ListSourceRegistryEntries(ctx context.Context, enabledOnly bool) ([]conversationpersistence.L1SourceRegistryEntry, error)
+}
+
+func runSourceRegistryCommand(args []string, store sourceRegistryCLIStore, out io.Writer, errOut io.Writer) int {
+	subcmd := "list"
+	if len(args) > 0 {
+		subcmd = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	switch subcmd {
+	case "list":
+		jsonOut := hasFlag(args[1:], "--json")
+		enabledOnly := hasFlag(args[1:], "--enabled-only")
+		entries, err := store.ListSourceRegistryEntries(context.Background(), enabledOnly)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to list source registry: %v\n", err)
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{"entries": sourceRegistryCLIEntries(entries)}, false)
+			return 0
+		}
+		if len(entries) == 0 {
+			fmt.Fprintln(out, "No source registry entries")
+			return 0
+		}
+		for _, entry := range entries {
+			fmt.Fprintf(out, "%s | %s | %.2f | %s | enabled=%v\n", entry.SourceID, entry.Kind, entry.TrustScore, entry.URL, entry.Enabled)
+		}
+		return 0
+	case "save":
+		entry, jsonOut, err := parseSourceRegistrySaveArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 1
+		}
+		saved, err := store.SaveSourceRegistryEntry(context.Background(), entry)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to save source registry: %v\n", err)
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{"entry": sourceRegistryCLIEntry(*saved)}, false)
+			return 0
+		}
+		fmt.Fprintf(out, "saved source registry entry: %s\n", saved.SourceID)
+		return 0
+	default:
+		fmt.Fprintf(errOut, "unknown source-registry subcommand: %s\n", subcmd)
+		fmt.Fprintln(errOut, "usage: picoclaw source-registry [list|save]")
+		return 1
+	}
+}
+
 func runEvidenceCommand(args []string, store evidenceStore, out io.Writer, errOut io.Writer) int {
 	subcmd := "list"
 	if len(args) > 0 {
@@ -1400,6 +1471,87 @@ func parseEvidenceListArgs(args []string) (limit int, jsonOut bool, statusFilter
 	return
 }
 
+func parseSourceRegistrySaveArgs(args []string) (conversationpersistence.L1SourceRegistryEntry, bool, error) {
+	values := map[string]string{}
+	jsonOut := false
+	enabled := true
+	for i := 0; i < len(args); i++ {
+		key := strings.TrimSpace(args[i])
+		switch key {
+		case "--json":
+			jsonOut = true
+		case "--disabled":
+			enabled = false
+		case "--source-id", "--url", "--kind", "--trust-score", "--interval-sec", "--license-note", "--namespace":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return conversationpersistence.L1SourceRegistryEntry{}, jsonOut, fmt.Errorf("%s requires a value", key)
+			}
+			values[key] = strings.TrimSpace(args[i+1])
+			i++
+		default:
+			return conversationpersistence.L1SourceRegistryEntry{}, jsonOut, fmt.Errorf("unknown source-registry save option: %s", key)
+		}
+	}
+	sourceID := values["--source-id"]
+	sourceURL := values["--url"]
+	kind := values["--kind"]
+	licenseNote := values["--license-note"]
+	if sourceID == "" || sourceURL == "" || kind == "" || licenseNote == "" {
+		return conversationpersistence.L1SourceRegistryEntry{}, jsonOut, errors.New("source-id, url, kind, license-note are required")
+	}
+	trustScore := 0.5
+	if raw := values["--trust-score"]; raw != "" {
+		parsed, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return conversationpersistence.L1SourceRegistryEntry{}, jsonOut, fmt.Errorf("invalid --trust-score: %s", raw)
+		}
+		trustScore = parsed
+	}
+	interval := time.Hour
+	if raw := values["--interval-sec"]; raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			return conversationpersistence.L1SourceRegistryEntry{}, jsonOut, fmt.Errorf("invalid --interval-sec: %s", raw)
+		}
+		interval = time.Duration(parsed) * time.Second
+	}
+	meta := map[string]interface{}{}
+	if namespace := values["--namespace"]; namespace != "" {
+		meta["namespace"] = namespace
+	}
+	return conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      sourceID,
+		URL:           sourceURL,
+		Kind:          kind,
+		TrustScore:    trustScore,
+		FetchInterval: interval,
+		LicenseNote:   licenseNote,
+		Enabled:       enabled,
+		Meta:          meta,
+	}, jsonOut, nil
+}
+
+func sourceRegistryCLIEntries(entries []conversationpersistence.L1SourceRegistryEntry) []map[string]any {
+	out := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, sourceRegistryCLIEntry(entry))
+	}
+	return out
+}
+
+func sourceRegistryCLIEntry(entry conversationpersistence.L1SourceRegistryEntry) map[string]any {
+	return map[string]any{
+		"source_id":          entry.SourceID,
+		"url":                entry.URL,
+		"kind":               entry.Kind,
+		"trust_score":        entry.TrustScore,
+		"fetch_interval_sec": int64(entry.FetchInterval.Seconds()),
+		"license_note":       entry.LicenseNote,
+		"enabled":            entry.Enabled,
+		"meta":               entry.Meta,
+	}
+}
+
 func filterEvidence(items []domainexecution.ExecutionReport, statusFilter, errorKindFilter string, sinceHours int) []domainexecution.ExecutionReport {
 	if statusFilter == "" && errorKindFilter == "" && sinceHours <= 0 {
 		return items
@@ -1500,6 +1652,21 @@ func loadEvidenceStore(configPath string) (*executionpersistence.JSONLReportStor
 	return executionpersistence.NewJSONLReportStore(p)
 }
 
+func loadSourceRegistryStore(configPath string) (*conversationpersistence.L1SQLiteStore, error) {
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+	p := strings.TrimSpace(cfg.Conversation.L1SQLitePath)
+	if p == "" {
+		return nil, errors.New("conversation.l1_sqlite_path is required for source-registry CLI")
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return nil, err
+	}
+	return conversationpersistence.NewL1SQLiteStore(p)
+}
+
 func printLastLines(path string, n int) error {
 	return printLastLinesTo(path, n, os.Stdout)
 }
@@ -1575,6 +1742,7 @@ Commands:
   ollama    Ollama status/restart operations
   logs      Show logs (use --follow to stream)
   evidence  List/show/summarize execution evidence
+  source-registry  List/register L1 source registry entries
   help      Show this help message
 
 Agent Mode:
