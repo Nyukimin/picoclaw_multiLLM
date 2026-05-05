@@ -19,6 +19,7 @@ type MemoryLayerHotStore interface {
 type MemoryLayerColdStore interface {
 	GetSessionHistory(ctx context.Context, sessionID string, limit int) ([]*domconv.ThreadSummary, error)
 	SearchByDomain(ctx context.Context, domain string, limit int) ([]*domconv.ThreadSummary, error)
+	ListKBDocuments(ctx context.Context, domain string, limit int) ([]*domconv.Document, error)
 }
 
 func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http.HandlerFunc {
@@ -48,6 +49,7 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 			"l1":         []conversationpersistence.L1MemoryEvent{},
 			"l2":         []*domconv.ThreadSummary{},
 			"l3":         []conversationpersistence.L1MemoryEvent{},
+			"l3_qdrant":  []*domconv.Document{},
 		}
 		if sessionID != "" {
 			l0, err := hot.RecentBySession(r.Context(), sessionID, limit)
@@ -82,6 +84,12 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 					return
 				}
 				l2 = append(l2, byDomain...)
+				kbDocs, err := cold.ListKBDocuments(r.Context(), domain, limit)
+				if err != nil {
+					http.Error(w, "failed to load l3 qdrant memory", http.StatusInternalServerError)
+					return
+				}
+				out["l3_qdrant"] = kbDocs
 			}
 			out["l2"] = l2
 		}

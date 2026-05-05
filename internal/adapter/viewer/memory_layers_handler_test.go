@@ -40,7 +40,9 @@ func (s *memoryLayerHotStoreStub) RecentByState(_ context.Context, memoryState s
 type memoryLayerColdStoreStub struct {
 	sessionID string
 	domain    string
+	kbDomain  string
 	limit     int
+	kbLimit   int
 }
 
 func (s *memoryLayerColdStoreStub) GetSessionHistory(_ context.Context, sessionID string, limit int) ([]*domconv.ThreadSummary, error) {
@@ -53,6 +55,12 @@ func (s *memoryLayerColdStoreStub) SearchByDomain(_ context.Context, domain stri
 	s.domain = domain
 	s.limit = limit
 	return []*domconv.ThreadSummary{{ThreadID: 11, Domain: domain, Summary: "domain summary"}}, nil
+}
+
+func (s *memoryLayerColdStoreStub) ListKBDocuments(_ context.Context, domain string, limit int) ([]*domconv.Document, error) {
+	s.kbDomain = domain
+	s.kbLimit = limit
+	return []*domconv.Document{{ID: "kb-1", Domain: domain, Content: "qdrant long-term knowledge"}}, nil
 }
 
 func TestHandleMemoryLayers(t *testing.T) {
@@ -70,20 +78,21 @@ func TestHandleMemoryLayers(t *testing.T) {
 	if hot.sessionID != "session-1" || hot.namespace != "user:ren" || hot.state != conversationpersistence.MemoryStateConfirmed || hot.limit != 4 {
 		t.Fatalf("unexpected hot calls: %+v", hot)
 	}
-	if cold.sessionID != "session-1" || cold.domain != "movie" || cold.limit != 4 {
+	if cold.sessionID != "session-1" || cold.domain != "movie" || cold.limit != 4 || cold.kbDomain != "movie" || cold.kbLimit != 4 {
 		t.Fatalf("unexpected cold calls: %+v", cold)
 	}
 
 	var out struct {
-		L0 []conversationpersistence.L1MemoryEvent `json:"l0"`
-		L1 []conversationpersistence.L1MemoryEvent `json:"l1"`
-		L2 []*domconv.ThreadSummary                `json:"l2"`
-		L3 []conversationpersistence.L1MemoryEvent `json:"l3"`
+		L0       []conversationpersistence.L1MemoryEvent `json:"l0"`
+		L1       []conversationpersistence.L1MemoryEvent `json:"l1"`
+		L2       []*domconv.ThreadSummary                `json:"l2"`
+		L3       []conversationpersistence.L1MemoryEvent `json:"l3"`
+		L3Qdrant []*domconv.Document                     `json:"l3_qdrant"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(out.L0) != 1 || len(out.L1) != 1 || len(out.L2) != 2 || len(out.L3) != 1 {
+	if len(out.L0) != 1 || len(out.L1) != 1 || len(out.L2) != 2 || len(out.L3) != 1 || len(out.L3Qdrant) != 1 {
 		t.Fatalf("unexpected layer snapshot: %+v", out)
 	}
 }
