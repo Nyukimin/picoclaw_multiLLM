@@ -25,6 +25,16 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /function refreshMemoryLayers/);
   assert.match(html, /function refreshSourceRegistry/);
   assert.match(html, /function refreshRecallTraces/);
+  assert.match(html, /data-tab="roles"/);
+  assert.match(html, /id="panel-roles"/);
+  assert.match(html, /id="roleSelectorBody"/);
+  assert.match(html, /id="roleFilter"/);
+  assert.match(html, /const ROLE_TARGETS/);
+  assert.match(html, /function renderRoleSelector/);
+  assert.match(html, /function selectRoleTarget/);
+  assert.match(html, /Chat/);
+  assert.match(html, /Worker/);
+  assert.match(html, /Wild/);
   assert.ok(html.includes('/viewer/memory/snapshot'));
   assert.ok(html.includes('/viewer/memory/layers'));
   assert.ok(html.includes('/viewer/source-registry'));

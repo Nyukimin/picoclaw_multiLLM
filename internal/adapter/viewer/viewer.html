@@ -367,6 +367,7 @@ body.live-mode .live-audio-btn{
 <div class="tabs">
   <button class="tab-btn" data-tab="ops">Ops</button>
   <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="roles">Roles</button>
   <button class="tab-btn" data-tab="progress">Progress</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
   <button class="tab-btn" data-tab="system">System</button>
@@ -423,6 +424,33 @@ body.live-mode .live-audio-btn{
         <thead><tr><th>Agent</th><th>State</th><th>Reason</th><th>Route</th><th>Last Event</th><th>Peer</th><th>Job</th><th>Updated</th><th>Preview</th></tr></thead>
         <tbody id="overviewBody"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section id="panel-roles" class="panel">
+    <div class="panel-head">
+      <h3>Role Selector</h3>
+      <div class="sub">Chat / Worker / Wild / Coder</div>
+    </div>
+    <div class="filters">
+      <select id="roleFilter">
+        <option value="">role: all</option>
+        <option value="Chat">Chat</option>
+        <option value="Worker">Worker</option>
+        <option value="Wild">Wild</option>
+        <option value="Coder">Coder</option>
+      </select>
+    </div>
+    <div class="grid" id="roleSelectorCards"></div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Agent</th><th>Role</th><th>Model Alias</th><th>Use Case</th><th>State</th><th>Route</th><th>Action</th></tr></thead>
+        <tbody id="roleSelectorBody"></tbody>
+      </table>
+    </div>
+    <div id="roleSelectorDetail" class="card">
+      <h4>Selected Target</h4>
+      <div class="small">No role selected</div>
     </div>
   </section>
 
@@ -779,6 +807,14 @@ const RC = {
   IDLECHAT:'#a78bfa',
 };
 const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3', 'coder4'];
+const ROLE_TARGETS = [
+  {id:'mio', role:'Chat', alias:'Chat', use:'会話テンポ / ルミナ人格 / 音声UI'},
+  {id:'shiro', role:'Worker', alias:'Worker', use:'実務処理 / 要約 / RAG / 画像解析'},
+  {id:'coder1', role:'Wild', alias:'Wild', use:'物語生成 / 画像プロンプト / 雰囲気抽出'},
+  {id:'coder2', role:'Coder', alias:'Worker', use:'実装 / 検証 / 差分整理'},
+  {id:'coder3', role:'Coder', alias:'Worker', use:'実装 / 調査 / テスト補助'},
+  {id:'coder4', role:'Coder', alias:'Worker', use:'実装 / レビュー / 仕上げ'},
+];
 const OFFLINE_MS = 120000;
 const MAX_LOGS = 500;
 const MAX_TIMELINE_NODES = 400;
@@ -1052,6 +1088,7 @@ const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const panels = {
   ops: document.getElementById('panel-ops'),
   overview: document.getElementById('panel-overview'),
+  roles: document.getElementById('panel-roles'),
   progress: document.getElementById('panel-progress'),
   timeline: document.getElementById('panel-timeline'),
   system: document.getElementById('panel-system'),
@@ -1076,6 +1113,7 @@ const memoryCategory = document.getElementById('memoryCategory');
 const memoryDomain = document.getElementById('memoryDomain');
 const memoryPromoteNamespace = document.getElementById('memoryPromoteNamespace');
 const memoryRefreshBtn = document.getElementById('memoryRefreshBtn');
+const roleFilter = document.getElementById('roleFilter');
 const sourceRegistrySaveBtn = document.getElementById('sourceRegistrySaveBtn');
 const sourceRegistryExportBtn = document.getElementById('sourceRegistryExportBtn');
 const sourceRegistryImportBtn = document.getElementById('sourceRegistryImportBtn');
@@ -1189,6 +1227,7 @@ function renderSystem() {
 if (sysPreset) sysPreset.addEventListener('change', renderSystem);
 if (sysType) sysType.addEventListener('change', renderSystem);
 if (sysText) sysText.addEventListener('input', renderSystem);
+if (roleFilter) roleFilter.addEventListener('change', renderRoleSelector);
 if (memoryRefreshBtn) memoryRefreshBtn.addEventListener('click', refreshMemorySnapshot);
 if (memorySession) memorySession.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 if (memoryNamespace) memoryNamespace.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
@@ -1849,6 +1888,7 @@ function applyMonitorStatusSnapshot(payload) {
     });
   });
   renderOverview();
+  renderRoleSelector();
   renderProgress();
 }
 
@@ -1977,6 +2017,85 @@ function renderOverview() {
       '<td>' + esc((s.preview || '-') + ' | open: ' + openTaskSummary(id)) + '</td>';
     body.appendChild(tr);
   });
+}
+
+function selectedRoleTargetID() {
+  return localStorage.getItem('roleSelector.selectedTarget') || '';
+}
+
+function selectRoleTarget(id) {
+  localStorage.setItem('roleSelector.selectedTarget', String(id || ''));
+  renderRoleSelector();
+}
+
+function roleTargetSummary(target) {
+  const info = ag(target.id);
+  const agent = state.agents[target.id] || {};
+  return info.e + ' ' + info.l + ' / ' + target.role + ' / ' + (agent.state || 'offline');
+}
+
+function renderRoleSelector() {
+  const cards = document.getElementById('roleSelectorCards');
+  const body = document.getElementById('roleSelectorBody');
+  const detail = document.getElementById('roleSelectorDetail');
+  if (!cards || !body || !detail) return;
+  const filter = roleFilter ? String(roleFilter.value || '') : '';
+  const selectedID = selectedRoleTargetID();
+  const targets = ROLE_TARGETS.filter((target) => !filter || target.role === filter);
+  cards.innerHTML = '';
+  body.innerHTML = '';
+
+  ROLE_TARGETS.forEach((target) => {
+    const info = ag(target.id);
+    const agent = state.agents[target.id] || {};
+    const card = document.createElement('div');
+    card.className = 'card' + (selectedID === target.id ? ' evi-selected' : '');
+    card.innerHTML =
+      '<h4>' + info.e + ' ' + info.l + '</h4>' +
+      '<div class="row"><span>Role</span><span>' + esc(target.role) + '</span></div>' +
+      '<div class="row"><span>Alias</span><span>' + esc(target.alias) + '</span></div>' +
+      '<div class="row"><span>State</span><span class="badge ' + stateClass(agent.state || 'offline') + '">' + esc(agent.state || 'offline') + '</span></div>' +
+      '<div class="ops-sub">' + esc(target.use) + '</div>';
+    card.addEventListener('click', () => selectRoleTarget(target.id));
+    cards.appendChild(card);
+  });
+
+  if (targets.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="small">No role targets</td></tr>';
+  } else {
+    targets.forEach((target) => {
+      const info = ag(target.id);
+      const agent = state.agents[target.id] || {};
+      const tr = document.createElement('tr');
+      if (selectedID === target.id) tr.classList.add('evi-selected');
+      tr.innerHTML =
+        '<td>' + info.e + ' ' + esc(info.l) + '</td>' +
+        '<td>' + esc(target.role) + '</td>' +
+        '<td>' + esc(target.alias) + '</td>' +
+        '<td>' + esc(target.use) + '</td>' +
+        '<td><span class="badge ' + stateClass(agent.state || 'offline') + '">' + esc(agent.state || 'offline') + '</span></td>' +
+        '<td>' + esc(agent.route || '-') + '</td>' +
+        '<td><button class="ctl-btn" onclick="selectRoleTarget(&quot;' + esc(target.id) + '&quot;)">Select</button></td>';
+      tr.addEventListener('click', (evt) => {
+        if (evt.target && evt.target.tagName === 'BUTTON') return;
+        selectRoleTarget(target.id);
+      });
+      body.appendChild(tr);
+    });
+  }
+
+  const selected = ROLE_TARGETS.find((target) => target.id === selectedID);
+  if (!selected) {
+    detail.innerHTML = '<h4>Selected Target</h4><div class="small">No role selected</div>';
+    return;
+  }
+  const agent = state.agents[selected.id] || {};
+  detail.innerHTML =
+    '<h4>' + esc(roleTargetSummary(selected)) + '</h4>' +
+    '<div class="row"><span>Model Alias</span><span>' + esc(selected.alias) + '</span></div>' +
+    '<div class="row"><span>Route</span><span>' + esc(agent.route || '-') + '</span></div>' +
+    '<div class="row"><span>Job</span><span class="code">' + esc(agent.jobID || '-') + '</span></div>' +
+    '<div class="ops-sub">' + esc(selected.use) + '</div>';
 }
 
 function latestOpsEventBy(fn) {
@@ -2979,6 +3098,7 @@ function refreshDerivedViews() {
   renderOps();
   renderDebugPanels();
   renderOverview();
+  renderRoleSelector();
   renderProgress();
   renderSystem();
   renderSessions();
@@ -3354,6 +3474,7 @@ function degradeOfflineStates() {
     if (diff > OFFLINE_MS && s.state !== 'offline') s.state = 'offline';
   });
   renderOverview();
+  renderRoleSelector();
   renderProgress();
 }
 setInterval(degradeOfflineStates, 5000);
