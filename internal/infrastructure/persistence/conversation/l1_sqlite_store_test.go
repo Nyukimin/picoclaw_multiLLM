@@ -596,3 +596,124 @@ func TestL1SQLiteStore_SaveStagingItemRejectsInvalidInput(t *testing.T) {
 		t.Fatal("expected invalid RecentStagingItems status to be rejected")
 	}
 }
+
+func TestL1SQLiteStore_ValidateStagingItemMarksValidated(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindExternalFetch,
+		Namespace:   "kb:news",
+		EventID:     "evt-valid",
+		SourceID:    "rss:example",
+		SourceURL:   "https://example.com/news/valid",
+		FetchedAt:   time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		PublishedAt: time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+		RawText:     "検証を通過する外部取得本文",
+		Keywords:    []string{"RenCrow"},
+		LicenseNote: "official rss excerpt",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+
+	result, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"rss:example": 0.9},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 11, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	if !result.Passed || result.Status != L1StagingStatusValidated || len(result.Issues) != 0 {
+		t.Fatalf("expected validation pass, got %+v", result)
+	}
+	validated, err := store.RecentStagingItems(ctx, L1StagingStatusValidated, 10)
+	if err != nil {
+		t.Fatalf("RecentStagingItems validated failed: %v", err)
+	}
+	if len(validated) != 1 || validated[0].ID != item.ID {
+		t.Fatalf("unexpected validated staging items: %+v", validated)
+	}
+	events, err := store.RecentEvents(ctx, "kb:news", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 2 || events[0].EventType != "staging.item_validated" {
+		t.Fatalf("expected staging.item_validated event, got %+v", events)
+	}
+	if events[0].Payload["passed"] != true || events[0].Payload["validation_status"] != L1StagingStatusValidated {
+		t.Fatalf("unexpected validation event payload: %+v", events[0].Payload)
+	}
+}
+
+func TestL1SQLiteStore_ValidateStagingItemRejectsUnsafeCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	first, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindMemoryCandidate,
+		Namespace:   "user:U123",
+		EventID:     "evt-dup-1",
+		SourceID:    "conversation",
+		SourceURL:   "https://example.com/source",
+		FetchedAt:   time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		PublishedAt: time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC),
+		RawText:     "api_key: secret は保存しない",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem first failed: %v", err)
+	}
+	if _, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindExternalFetch,
+		Namespace:   "kb:news",
+		EventID:     "evt-dup-2",
+		SourceID:    "rss:example",
+		SourceURL:   "https://example.com/news/dup",
+		FetchedAt:   time.Date(2026, 5, 5, 10, 30, 0, 0, time.UTC),
+		PublishedAt: time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		RawText:     first.RawText,
+		LicenseNote: "rss",
+	}); err != nil {
+		t.Fatalf("SaveStagingItem duplicate failed: %v", err)
+	}
+
+	result, err := store.ValidateStagingItem(ctx, first.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"conversation": 0.2},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 11, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	if result.Passed || result.Status != L1StagingStatusRejected {
+		t.Fatalf("expected validation rejection, got %+v", result)
+	}
+	for _, code := range []string{
+		"duplicate_raw_hash",
+		"future_published_at",
+		"low_source_trust",
+		"missing_license_note",
+		"missing_memory_type",
+		"sensitive_raw_text",
+	} {
+		if !result.HasIssue(code) {
+			t.Fatalf("expected issue %q in %+v", code, result.Issues)
+		}
+	}
+	rejected, err := store.RecentStagingItems(ctx, L1StagingStatusRejected, 10)
+	if err != nil {
+		t.Fatalf("RecentStagingItems rejected failed: %v", err)
+	}
+	if len(rejected) != 1 || rejected[0].ID != first.ID {
+		t.Fatalf("unexpected rejected items: %+v", rejected)
+	}
+}
