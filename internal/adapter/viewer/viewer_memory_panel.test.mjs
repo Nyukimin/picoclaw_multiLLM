@@ -9,6 +9,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="memoryNamespace"/);
   assert.match(html, /id="memorySession"/);
   assert.match(html, /id="memoryLayerBody"/);
+  assert.match(html, /id="memoryEventBody"/);
+  assert.match(html, /id="searchCacheBody"/);
   assert.match(html, /id="sourceRegistryBody"/);
   assert.match(html, /id="sourceRegistryYAML"/);
   assert.match(html, /id="memoryBody"/);
@@ -23,6 +25,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /function renderNewsPackPanel/);
   assert.match(html, /function newsUsageCount/);
   assert.match(html, /function refreshMemoryLayers/);
+  assert.match(html, /function refreshMemoryEvents/);
+  assert.match(html, /function renderMemoryEvents/);
   assert.match(html, /function refreshSourceRegistry/);
   assert.match(html, /function refreshRecallTraces/);
   assert.match(html, /data-tab="roles"/);
@@ -37,6 +41,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /Wild/);
   assert.ok(html.includes('/viewer/memory/snapshot'));
   assert.ok(html.includes('/viewer/memory/layers'));
+  assert.ok(html.includes('/viewer/memory/events'));
   assert.ok(html.includes('/viewer/source-registry'));
   assert.ok(html.includes('/viewer/recall/traces'));
   assert.ok(html.includes('/viewer/memory/state'));

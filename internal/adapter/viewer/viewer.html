@@ -587,6 +587,7 @@ body.live-mode .live-audio-btn{
       <input id="memoryNamespace" placeholder="namespace: conv:... / user:... / char:... / kb:...">
       <input id="memoryCategory" placeholder="news category">
       <input id="memoryDomain" placeholder="kb domain">
+      <input id="memoryEventNamespace" placeholder="event namespace: kb:web">
       <input id="memoryPromoteNamespace" placeholder="promote target: user:ren / char:mio / kb:domain">
       <button id="memoryRefreshBtn" class="ctl-btn" type="button">Refresh</button>
     </div>
@@ -598,11 +599,25 @@ body.live-mode .live-audio-btn{
       <div class="card"><h4>L0</h4><div id="memoryL0Count" class="ops-big">0</div><div class="ops-sub">current session</div></div>
       <div class="card"><h4>L2</h4><div id="memoryL2Count" class="ops-big">0</div><div class="ops-sub">thread summaries</div></div>
       <div class="card"><h4>L3</h4><div id="memoryL3Count" class="ops-big">0</div><div class="ops-sub">confirmed memory</div></div>
+      <div class="card"><h4>Events</h4><div id="memoryEventCount" class="ops-big">0</div><div class="ops-sub">L1 event log</div></div>
+      <div class="card"><h4>Search Cache</h4><div id="searchCacheCount" class="ops-big">0</div><div class="ops-sub">fresh/recent cache</div></div>
     </div>
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
         <thead><tr><th>Layer</th><th>Scope</th><th>Kind</th><th>Summary</th><th>Updated</th></tr></thead>
         <tbody id="memoryLayerBody"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Created</th><th>Namespace</th><th>Type</th><th>Source</th><th>Payload</th></tr></thead>
+        <tbody id="memoryEventBody"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Retrieved</th><th>Provider</th><th>Query</th><th>Expires</th><th>Sources</th></tr></thead>
+        <tbody id="searchCacheBody"></tbody>
       </table>
     </div>
     <div class="filters">
@@ -972,6 +987,8 @@ const state = {
   memory: {
     snapshot: {memory: [], news: [], digests: [], knowledge: []},
     layers: {l0: [], l1: [], l2: [], l3: []},
+    events: [],
+    searchCache: [],
     sourceRegistry: [],
     traces: [],
     selectedNewsIndex: 0,
@@ -1247,6 +1264,7 @@ const memorySession = document.getElementById('memorySession');
 const memoryNamespace = document.getElementById('memoryNamespace');
 const memoryCategory = document.getElementById('memoryCategory');
 const memoryDomain = document.getElementById('memoryDomain');
+const memoryEventNamespace = document.getElementById('memoryEventNamespace');
 const memoryPromoteNamespace = document.getElementById('memoryPromoteNamespace');
 const memoryRefreshBtn = document.getElementById('memoryRefreshBtn');
 const roleFilter = document.getElementById('roleFilter');
@@ -1371,6 +1389,7 @@ if (memorySession) memorySession.addEventListener('keydown', (e) => { if (e.key 
 if (memoryNamespace) memoryNamespace.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 if (memoryCategory) memoryCategory.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 if (memoryDomain) memoryDomain.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
+if (memoryEventNamespace) memoryEventNamespace.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemoryEvents(); });
 if (sourceRegistrySaveBtn) sourceRegistrySaveBtn.addEventListener('click', saveSourceRegistryEntry);
 if (sourceRegistryExportBtn) sourceRegistryExportBtn.addEventListener('click', exportSourceRegistryYAML);
 if (sourceRegistryImportBtn) sourceRegistryImportBtn.addEventListener('click', importSourceRegistryYAML);
@@ -3217,6 +3236,84 @@ function refreshMemoryLayers() {
     .catch((err) => console.error(err));
 }
 
+function memoryEventNamespaceValue() {
+  if (memoryEventNamespace && memoryEventNamespace.value.trim()) return memoryEventNamespace.value.trim();
+  if (memoryNamespace && memoryNamespace.value.trim()) return memoryNamespace.value.trim();
+  return 'kb:web';
+}
+
+function eventPayloadSummary(ev) {
+  const payload = ev.Payload || ev.payload || {};
+  try {
+    return JSON.stringify(payload);
+  } catch (_) {
+    return String(payload || '-');
+  }
+}
+
+function renderMemoryEvents() {
+  const eventBody = document.getElementById('memoryEventBody');
+  const cacheBody = document.getElementById('searchCacheBody');
+  const eventCount = document.getElementById('memoryEventCount');
+  const cacheCount = document.getElementById('searchCacheCount');
+  const events = Array.isArray(state.memory.events) ? state.memory.events : [];
+  const searchCache = Array.isArray(state.memory.searchCache) ? state.memory.searchCache : [];
+  if (eventCount) eventCount.textContent = String(events.length);
+  if (cacheCount) cacheCount.textContent = String(searchCache.length);
+  if (eventBody) {
+    eventBody.innerHTML = '';
+    if (events.length === 0) {
+      eventBody.innerHTML = '<tr><td colspan="5" class="small">No L1 event log entries</td></tr>';
+    } else {
+      events.forEach((ev) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(fdt(ev.CreatedAt || ev.created_at)) + '</td>' +
+          '<td class="code">' + esc(ev.Namespace || ev.namespace || '-') + '</td>' +
+          '<td>' + esc(ev.EventType || ev.event_type || '-') + '</td>' +
+          '<td>' + esc(ev.Source || ev.source || '-') + '</td>' +
+          '<td class="code">' + esc(short(eventPayloadSummary(ev), 220)) + '</td>';
+        eventBody.appendChild(tr);
+      });
+    }
+  }
+  if (cacheBody) {
+    cacheBody.innerHTML = '';
+    if (searchCache.length === 0) {
+      cacheBody.innerHTML = '<tr><td colspan="5" class="small">No search cache entries</td></tr>';
+    } else {
+      searchCache.forEach((entry) => {
+        const urls = entry.SourceURLs || entry.source_urls || [];
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(fdt(entry.RetrievedAt || entry.retrieved_at)) + '</td>' +
+          '<td>' + esc(entry.Provider || entry.provider || '-') + '</td>' +
+          '<td>' + esc(short(entry.RawQuery || entry.raw_query || entry.NormalizedQuery || entry.normalized_query || '-', 140)) + '</td>' +
+          '<td>' + esc(fdt(entry.ExpiresAt || entry.expires_at)) + '</td>' +
+          '<td class="code">' + esc(short(Array.isArray(urls) ? urls.join(', ') : String(urls || '-'), 160)) + '</td>';
+        cacheBody.appendChild(tr);
+      });
+    }
+  }
+}
+
+function refreshMemoryEvents() {
+  const params = new URLSearchParams();
+  params.set('limit', '20');
+  params.set('namespace', memoryEventNamespaceValue());
+  fetch('/viewer/memory/events?' + params.toString())
+    .then((r) => {
+      if (!r.ok) throw new Error('memory events fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.events = Array.isArray(data.events) ? data.events : [];
+      state.memory.searchCache = Array.isArray(data.search_cache) ? data.search_cache : [];
+      renderMemoryEvents();
+    })
+    .catch((err) => console.error(err));
+}
+
 function renderSourceRegistry() {
   const body = document.getElementById('sourceRegistryBody');
   if (!body) return;
@@ -3316,6 +3413,7 @@ function refreshMemorySnapshot() {
       state.memory.snapshot = data || {};
       renderMemorySnapshot();
       refreshMemoryLayers();
+      refreshMemoryEvents();
       refreshSourceRegistry();
     })
     .catch((err) => console.error(err));
@@ -3411,6 +3509,7 @@ function refreshDerivedViews() {
   renderJobs();
   renderEvidence();
   renderMemorySnapshot();
+  renderMemoryEvents();
   renderRecallTraces();
 }
 

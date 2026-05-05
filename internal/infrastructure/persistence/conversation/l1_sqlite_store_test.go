@@ -211,6 +211,36 @@ func TestL1SQLiteStore_SearchCacheFreshHit(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_RecentSearchCache(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.SaveSearchCache(ctx, "web", "first query", `[{"title":"first"}]`, nil, time.Hour); err != nil {
+		t.Fatalf("SaveSearchCache first failed: %v", err)
+	}
+	if _, err := store.SaveSearchCache(ctx, "web", "second query", `[{"title":"second"}]`, []string{"https://example.com/second"}, time.Hour); err != nil {
+		t.Fatalf("SaveSearchCache second failed: %v", err)
+	}
+
+	items, err := store.RecentSearchCache(ctx, 1)
+	if err != nil {
+		t.Fatalf("RecentSearchCache failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].NormalizedQuery != "second query" {
+		t.Fatalf("expected newest cache first, got %+v", items[0])
+	}
+	if len(items[0].SourceURLs) != 1 || items[0].SourceURLs[0] != "https://example.com/second" {
+		t.Fatalf("unexpected source urls: %+v", items[0].SourceURLs)
+	}
+}
+
 func TestL1SQLiteStore_SearchCacheMissesAfterExpiry(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

@@ -556,6 +556,36 @@ WHERE query_hash = ? AND expires_at > ?
 	return entry, nil
 }
 
+func (s *L1SQLiteStore) RecentSearchCache(ctx context.Context, limit int) ([]L1SearchCacheEntry, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT query_hash, normalized_query, provider, raw_query, results_json, source_urls_json,
+       retrieved_at, expires_at, created_at, updated_at
+FROM l1_search_cache
+ORDER BY retrieved_at DESC, updated_at DESC
+LIMIT ?
+`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 search cache: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []L1SearchCacheEntry
+	for rows.Next() {
+		entry, err := scanL1SearchCacheEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, *entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 search cache rows error: %w", err)
+	}
+	return entries, nil
+}
+
 func (s *L1SQLiteStore) AppendEvent(ctx context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error) {
 	eventType = strings.TrimSpace(eventType)
 	namespace = strings.TrimSpace(namespace)

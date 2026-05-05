@@ -367,6 +367,9 @@ func cmdRun() {
 	if dependencies.viewerMemoryLayers != nil {
 		mux.HandleFunc("/viewer/memory/layers", dependencies.viewerMemoryLayers)
 	}
+	if dependencies.viewerMemoryEvents != nil {
+		mux.HandleFunc("/viewer/memory/events", dependencies.viewerMemoryEvents)
+	}
 	if dependencies.viewerMemoryState != nil {
 		mux.HandleFunc("/viewer/memory/state", dependencies.viewerMemoryState)
 	}
@@ -2055,6 +2058,7 @@ type Dependencies struct {
 	glossaryRecent       http.HandlerFunc                       // viewer glossary API
 	viewerMemorySnapshot http.HandlerFunc                       // viewer memory/news/recall API
 	viewerMemoryLayers   http.HandlerFunc                       // viewer memory layer API
+	viewerMemoryEvents   http.HandlerFunc                       // viewer L1 event/search cache API
 	viewerMemoryState    http.HandlerFunc                       // viewer memory state API
 	viewerMemoryPromote  http.HandlerFunc                       // viewer memory promote API
 	viewerRecallTraces   http.HandlerFunc                       // viewer recall trace API
@@ -2495,6 +2499,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	if l1Store != nil {
 		deps.viewerMemorySnapshot = viewer.HandleMemorySnapshot(l1Store)
 		deps.viewerMemoryLayers = viewer.HandleMemoryLayers(l1Store, realMgr)
+		deps.viewerMemoryEvents = viewer.HandleMemoryEvents(l1Store)
 		deps.viewerMemoryState = viewer.HandleMemoryState(l1Store)
 		deps.viewerMemoryPromote = viewer.HandleMemoryPromote(l1Store)
 		deps.viewerRecallTraces = viewer.HandleRecallTraces(l1Store)
