@@ -134,6 +134,20 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 	}
 }
 
+func buildConversationTextProvider(cfg *config.Config, providers primaryLLMProviders) (llm.LLMProvider, string) {
+	if cfg.LocalLLM.Enabled && providers.Worker != nil {
+		return providers.Worker, "local_llm Worker"
+	}
+	summaryModel := strings.TrimSpace(cfg.Conversation.SummaryModel)
+	if summaryModel == "" {
+		summaryModel = cfg.Ollama.Model
+	}
+	if summaryModel == "" {
+		return nil, ""
+	}
+	return ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768), fmt.Sprintf("%s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+}
+
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
 	var raw llm.LLMProvider
 	switch cfg.LocalLLM.Provider {
@@ -2273,16 +2287,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			log.Printf("  Embedder: %s (model: %s)", cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
 		}
 
-		// Summarizer注入（summary_model が設定されている場合、なければ chat model）
-		summaryModel := cfg.Conversation.SummaryModel
-		if summaryModel == "" {
-			summaryModel = cfg.Ollama.Model
-		}
-		if summaryModel != "" {
-			summaryProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768)
+		// Summarizer注入（local_llm有効時はWorker provider、従来構成ではOllama summary_model）
+		summaryProvider, summaryProviderLabel := buildConversationTextProvider(cfg, primaryProviders)
+		if summaryProvider != nil {
 			summarizer := conversationpersistence.NewLLMSummarizer(summaryProvider)
 			realMgr.WithSummarizer(summarizer)
-			log.Printf("  Summarizer: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+			log.Printf("  Summarizer: %s", summaryProviderLabel)
 		}
 
 		// スレッド境界検出器（Embedder があれば類似度チェックも有効化）
@@ -2294,10 +2304,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 		// ProfileExtractor（summary_model を再利用）
 		var profileExtractor conversation.ProfileExtractor
-		if summaryModel != "" {
-			profileProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768)
-			profileExtractor = conversationpersistence.NewLLMProfileExtractor(profileProvider)
-			log.Printf("  ProfileExtractor: %s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+		if summaryProvider != nil {
+			profileExtractor = conversationpersistence.NewLLMProfileExtractor(summaryProvider)
+			log.Printf("  ProfileExtractor: %s", summaryProviderLabel)
 		}
 
 		// ConversationEngine（RecallPack生成 + ペルソナ + スレッド自動検出 + プロファイル抽出）
