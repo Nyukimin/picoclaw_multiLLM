@@ -1365,9 +1365,32 @@ func runSourceRegistryCommand(args []string, store sourceRegistryCLIStore, out i
 		}
 		fmt.Fprintf(out, "disabled source registry entry: %s\n", saved.SourceID)
 		return 0
+	case "sweep":
+		registryStore, ok := store.(sourcefetcher.RegistryStore)
+		if !ok {
+			fmt.Fprintln(errOut, "source registry store does not support sweep")
+			return 1
+		}
+		opts, jsonOut, err := parseSourceRegistrySweepArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 1
+		}
+		result, err := sourcefetcher.SweepDueSources(context.Background(), registryStore, time.Now().UTC(), opts)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to sweep source registry: %v\n", err)
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{"result": sourceRegistrySweepResultCLI(result)}, false)
+			return 0
+		}
+		fmt.Fprintf(out, "sweep complete: sources=%d staged=%d validated=%d promoted_news=%d failed=%d\n",
+			result.Sources, result.Staged, result.Validated, result.PromotedNews, result.Failed)
+		return 0
 	default:
 		fmt.Fprintf(errOut, "unknown source-registry subcommand: %s\n", subcmd)
-		fmt.Fprintln(errOut, "usage: picoclaw source-registry [list|save|disable]")
+		fmt.Fprintln(errOut, "usage: picoclaw source-registry [list|save|disable|sweep]")
 		return 1
 	}
 }
@@ -1592,6 +1615,51 @@ func parseSourceRegistryDisableArgs(args []string) (string, bool, error) {
 		return "", jsonOut, errors.New("source-id is required")
 	}
 	return sourceID, jsonOut, nil
+}
+
+func parseSourceRegistrySweepArgs(args []string) (sourcefetcher.SweepOptions, bool, error) {
+	opts := sourcefetcher.SweepOptions{LimitPerSource: 10, MinimumTrustScore: 0.5}
+	jsonOut := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "--limit":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return opts, jsonOut, errors.New("--limit requires a value")
+			}
+			n, err := strconv.Atoi(strings.TrimSpace(args[i+1]))
+			if err != nil || n <= 0 {
+				return opts, jsonOut, fmt.Errorf("invalid --limit: %s", args[i+1])
+			}
+			opts.LimitPerSource = n
+			i++
+		case "--min-trust":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return opts, jsonOut, errors.New("--min-trust requires a value")
+			}
+			n, err := strconv.ParseFloat(strings.TrimSpace(args[i+1]), 64)
+			if err != nil || n < 0 || n > 1 {
+				return opts, jsonOut, fmt.Errorf("invalid --min-trust: %s", args[i+1])
+			}
+			opts.MinimumTrustScore = n
+			i++
+		default:
+			return opts, jsonOut, fmt.Errorf("unknown source-registry sweep option: %s", arg)
+		}
+	}
+	return opts, jsonOut, nil
+}
+
+func sourceRegistrySweepResultCLI(result sourcefetcher.SweepResult) map[string]any {
+	return map[string]any{
+		"sources":       result.Sources,
+		"staged":        result.Staged,
+		"validated":     result.Validated,
+		"promoted_news": result.PromotedNews,
+		"failed":        result.Failed,
+	}
 }
 
 func sourceRegistryCLIEntries(entries []conversationpersistence.L1SourceRegistryEntry) []map[string]any {

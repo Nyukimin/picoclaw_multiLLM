@@ -333,6 +333,7 @@ Source Registry CLI:
 - `--trust-score`, `--interval-sec`, `--namespace`, `--disabled`, `--json` を指定できる
 - `picoclaw source-registry list --json` で登録済みsourceを確認できる
 - `picoclaw source-registry disable <source_id>` で登録済みsourceを無効化できる
+- `picoclaw source-registry sweep --limit <n> --min-trust <score> --json` でdue sourceのfetch / staging / validate / News昇格を手動実行できる
 - CLIは `conversation.l1_sqlite_path` のL1 SQLite storeを使う
 
 ## 16. 参照

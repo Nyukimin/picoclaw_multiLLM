@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,51 @@ import (
 
 type sourceRegistryCLIStoreStub struct {
 	entries []conversationpersistence.L1SourceRegistryEntry
+}
+
+func TestRunSourceRegistryCommand_Sweep(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Test</title>
+<item><title>AI Update</title><link>https://example.com/ai</link><description>Local LLM news</description><pubDate>Tue, 05 May 2026 10:00:00 GMT</pubDate></item>
+</channel></rss>`))
+	}))
+	defer srv.Close()
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "rss:test",
+		URL:           srv.URL,
+		Kind:          conversationpersistence.L1SourceKindRSS,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "rss",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"category": "ai", "namespace": "kb:ai"},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	var out, errOut bytes.Buffer
+
+	code := runSourceRegistryCommand([]string{"sweep", "--limit", "1", "--min-trust", "0.5", "--json"}, store, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("sweep should pass, code=%d err=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"promoted_news":1`) {
+		t.Fatalf("expected sweep result json, got %s", out.String())
+	}
+	news, err := store.RecentNewsItems(ctx, "ai", 10)
+	if err != nil {
+		t.Fatalf("RecentNewsItems failed: %v", err)
+	}
+	if len(news) != 1 || news[0].SummaryDraft != "AI Update" {
+		t.Fatalf("unexpected news items: %+v", news)
+	}
 }
 
 func (s *sourceRegistryCLIStoreStub) SaveSourceRegistryEntry(_ context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error) {
