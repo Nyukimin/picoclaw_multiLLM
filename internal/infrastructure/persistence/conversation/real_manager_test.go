@@ -166,6 +166,19 @@ func (m *mockL1Store) GetFreshSearchCache(_ context.Context, provider string, ra
 	}
 	return m.cache, nil
 }
+func (m *mockL1Store) GetSimilarFreshSearchCache(_ context.Context, provider string, _ string, now time.Time, _ float64) (*L1SearchCacheEntry, error) {
+	if m.cache == nil || m.cache.Provider != provider || !m.cache.ExpiresAt.After(now) {
+		return nil, nil
+	}
+	return m.cache, nil
+}
+func (m *mockL1Store) InvalidateSearchCache(_ context.Context, provider string, rawQuery string) (int64, error) {
+	if m.cache == nil || m.cache.Provider != provider || m.cache.RawQuery != rawQuery {
+		return 0, nil
+	}
+	m.cache = nil
+	return 1, nil
+}
 func (m *mockL1Store) AppendEvent(_ context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error) {
 	entry := L1EventLogEntry{
 		ID:        fmt.Sprintf("%s:%s:%d", namespace, eventType, len(m.events)+1),

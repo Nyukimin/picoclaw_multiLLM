@@ -262,6 +262,41 @@ func TestL1SQLiteStore_SearchCacheMissesAfterExpiry(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SearchCacheSimilarHitAndInvalidate(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	entry, err := store.SaveSearchCache(ctx, "web", "RenCrow local LLM architecture", `[{"title":"arch"}]`, nil, time.Hour)
+	if err != nil {
+		t.Fatalf("SaveSearchCache failed: %v", err)
+	}
+	hit, err := store.GetSimilarFreshSearchCache(ctx, "web", "local llm architecture rencrow", entry.RetrievedAt.Add(time.Minute), 0.75)
+	if err != nil {
+		t.Fatalf("GetSimilarFreshSearchCache failed: %v", err)
+	}
+	if hit == nil || hit.QueryHash != entry.QueryHash {
+		t.Fatalf("expected similar cache hit, got %+v", hit)
+	}
+	invalidated, err := store.InvalidateSearchCache(ctx, "web", "RenCrow local LLM architecture")
+	if err != nil {
+		t.Fatalf("InvalidateSearchCache failed: %v", err)
+	}
+	if invalidated != 1 {
+		t.Fatalf("expected one invalidated row, got %d", invalidated)
+	}
+	hit, err = store.GetSimilarFreshSearchCache(ctx, "web", "local llm architecture rencrow", entry.RetrievedAt.Add(time.Minute), 0.75)
+	if err != nil {
+		t.Fatalf("GetSimilarFreshSearchCache after invalidate failed: %v", err)
+	}
+	if hit != nil {
+		t.Fatalf("expected invalidated similar cache miss, got %+v", hit)
+	}
+}
+
 func TestL1SQLiteStore_SearchCacheRejectsInvalidInput(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

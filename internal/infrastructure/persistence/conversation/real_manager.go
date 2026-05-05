@@ -515,6 +515,12 @@ func (m *RealConversationManager) GetFreshWebSearchCache(ctx context.Context, qu
 		return nil, false, err
 	}
 	if entry == nil {
+		entry, err = m.l1Store.GetSimilarFreshSearchCache(ctx, "web", query, time.Now().UTC(), 0.75)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	if entry == nil {
 		return nil, false, nil
 	}
 	var results []WebSearchResult
