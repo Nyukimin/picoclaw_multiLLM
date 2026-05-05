@@ -521,6 +521,7 @@ body.live-mode .live-audio-btn{
       <input id="memoryNamespace" placeholder="namespace: conv:... / user:... / char:... / kb:...">
       <input id="memoryCategory" placeholder="news category">
       <input id="memoryDomain" placeholder="kb domain">
+      <input id="memoryPromoteNamespace" placeholder="promote target: user:ren / char:mio / kb:domain">
       <button id="memoryRefreshBtn" class="ctl-btn" type="button">Refresh</button>
     </div>
     <div class="grid">
@@ -537,7 +538,7 @@ body.live-mode .live-audio-btn{
     </div>
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
-        <thead><tr><th>Layer</th><th>State</th><th>Namespace</th><th>Speaker</th><th>Message</th><th>Updated</th></tr></thead>
+        <thead><tr><th>Layer</th><th>State</th><th>Namespace</th><th>Speaker</th><th>Message</th><th>Updated</th><th>Action</th></tr></thead>
         <tbody id="memoryBody"></tbody>
       </table>
     </div>
@@ -988,6 +989,7 @@ const sysText = document.getElementById('sysText');
 const memoryNamespace = document.getElementById('memoryNamespace');
 const memoryCategory = document.getElementById('memoryCategory');
 const memoryDomain = document.getElementById('memoryDomain');
+const memoryPromoteNamespace = document.getElementById('memoryPromoteNamespace');
 const memoryRefreshBtn = document.getElementById('memoryRefreshBtn');
 const idleStartBtn = document.getElementById('idleStart');
 const idleModeNormalBtn = document.getElementById('idleModeNormal');
@@ -2388,17 +2390,23 @@ function renderMemorySnapshot() {
   if (memoryBody) {
     memoryBody.innerHTML = '';
     if (memory.length === 0) {
-      memoryBody.innerHTML = '<tr><td colspan="6" class="small">No memory for selected namespace</td></tr>';
+      memoryBody.innerHTML = '<tr><td colspan="7" class="small">No memory for selected namespace</td></tr>';
     } else {
       memory.forEach((m) => {
         const tr = document.createElement('tr');
+        const id = esc(m.ID || m.id || '');
         tr.innerHTML =
           '<td>' + esc(m.Layer || m.layer || '-') + '</td>' +
           '<td><span class="badge state-idle">' + esc(m.MemoryState || m.memory_state || '-') + '</span></td>' +
           '<td class="code">' + esc(m.Namespace || m.namespace || '-') + '</td>' +
           '<td>' + esc(m.Speaker || m.speaker || '-') + '</td>' +
           '<td>' + esc(short(m.Message || m.message || '-', 180)) + '</td>' +
-          '<td>' + esc(fdt(m.UpdatedAt || m.updated_at || m.CreatedAt || m.created_at)) + '</td>';
+          '<td>' + esc(fdt(m.UpdatedAt || m.updated_at || m.CreatedAt || m.created_at)) + '</td>' +
+          '<td>' +
+            '<button class="ctl-btn" onclick="setMemoryState(&quot;' + id + '&quot;, &quot;candidate&quot;)">Candidate</button> ' +
+            '<button class="ctl-btn" onclick="setMemoryState(&quot;' + id + '&quot;, &quot;confirmed&quot;)">Confirm</button> ' +
+            '<button class="ctl-btn" onclick="promoteMemory(&quot;' + id + '&quot;)">Promote</button>' +
+          '</td>';
         memoryBody.appendChild(tr);
       });
     }
@@ -2455,6 +2463,32 @@ function refreshMemorySnapshot() {
       renderMemorySnapshot();
     })
     .catch((err) => console.error(err));
+}
+
+function postMemoryAction(url, payload) {
+  return fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then((r) => {
+    if (!r.ok) throw new Error('memory action failed');
+    return r.json();
+  }).then(() => refreshMemorySnapshot())
+    .catch((err) => console.error(err));
+}
+
+function setMemoryState(id, memoryState) {
+  if (!id) return;
+  postMemoryAction('/viewer/memory/state', {id, memory_state: memoryState});
+}
+
+function promoteMemory(id) {
+  if (!id || !memoryPromoteNamespace || !memoryPromoteNamespace.value.trim()) return;
+  postMemoryAction('/viewer/memory/promote', {
+    id,
+    target_namespace: memoryPromoteNamespace.value.trim(),
+    promoted_by: 'viewer',
+  });
 }
 
 function renderRecallTraces() {

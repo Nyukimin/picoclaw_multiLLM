@@ -14,4 +14,6 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /function refreshRecallTraces/);
   assert.ok(html.includes('/viewer/memory/snapshot'));
   assert.ok(html.includes('/viewer/recall/traces'));
+  assert.ok(html.includes('/viewer/memory/state'));
+  assert.ok(html.includes('/viewer/memory/promote'));
 });
