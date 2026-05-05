@@ -862,6 +862,58 @@ func TestL1SQLiteStore_SourceRegistrySaveListAndTrustScores(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_StageSourceRegistryFetchToStaging(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.SaveSourceRegistryEntry(ctx, L1SourceRegistryEntry{
+		SourceID:      "rss:ai-official",
+		URL:           "https://example.com/feed.xml",
+		Kind:          L1SourceKindRSS,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "official rss feed",
+		Enabled:       true,
+		Meta: map[string]interface{}{
+			"namespace": "kb:ai",
+			"category":  "ai",
+		},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+
+	fetchedAt := time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC)
+	item, err := store.StageSourceRegistryFetch(ctx, "rss:ai-official", L1SourceFetchPayload{
+		EventID:      "rss:ai-official:20260505:1",
+		SourceURL:    "https://example.com/posts/1",
+		FetchedAt:    fetchedAt,
+		PublishedAt:  fetchedAt.Add(-time.Hour),
+		RawText:      "AI official update body",
+		SummaryDraft: "AI official update",
+		Keywords:     []string{"AI", "official"},
+		Meta:         map[string]interface{}{"fetcher": "rss"},
+	})
+	if err != nil {
+		t.Fatalf("StageSourceRegistryFetch failed: %v", err)
+	}
+	if item.Kind != L1StagingKindExternalFetch || item.Namespace != "kb:ai" {
+		t.Fatalf("unexpected staging identity: %+v", item)
+	}
+	if item.SourceID != "rss:ai-official" || item.SourceURL != "https://example.com/posts/1" {
+		t.Fatalf("source fields should come from registry/payload: %+v", item)
+	}
+	if item.LicenseNote != "official rss feed" || item.ValidationStatus != L1StagingStatusPending {
+		t.Fatalf("unexpected staging policy fields: %+v", item)
+	}
+	if item.Meta["source_kind"] != L1SourceKindRSS || item.Meta["source_registry_url"] != "https://example.com/feed.xml" || item.Meta["fetcher"] != "rss" {
+		t.Fatalf("expected merged source/fetcher meta, got %+v", item.Meta)
+	}
+}
+
 func TestL1SQLiteStore_SourceRegistryRejectsInvalidInput(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

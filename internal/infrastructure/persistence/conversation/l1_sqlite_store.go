@@ -145,6 +145,17 @@ type L1SourceRegistryEntry struct {
 	UpdatedAt     time.Time
 }
 
+type L1SourceFetchPayload struct {
+	EventID      string
+	SourceURL    string
+	FetchedAt    time.Time
+	PublishedAt  time.Time
+	RawText      string
+	SummaryDraft string
+	Keywords     []string
+	Meta         map[string]interface{}
+}
+
 type L1NewsItem struct {
 	ID           string
 	StagingID    string
@@ -774,6 +785,52 @@ func (s *L1SQLiteStore) SourceTrustScores(ctx context.Context) (map[string]float
 		scores[entry.SourceID] = entry.TrustScore
 	}
 	return scores, nil
+}
+
+func (s *L1SQLiteStore) StageSourceRegistryFetch(ctx context.Context, sourceID string, payload L1SourceFetchPayload) (*L1StagingItem, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return nil, errors.New("l1 source registry source_id is required")
+	}
+	entry, err := s.sourceRegistryEntryByID(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	if !entry.Enabled {
+		return nil, fmt.Errorf("l1 source registry entry is disabled: %s", sourceID)
+	}
+	namespace := stringMeta(payload.Meta, "namespace")
+	if namespace == "" {
+		namespace = stringMeta(entry.Meta, "namespace")
+	}
+	if namespace == "" {
+		namespace = "kb:news"
+	}
+	sourceURL := strings.TrimSpace(payload.SourceURL)
+	if sourceURL == "" {
+		sourceURL = entry.URL
+	}
+	eventID := strings.TrimSpace(payload.EventID)
+	if eventID == "" {
+		eventID = defaultSourceFetchEventID(entry.SourceID, sourceURL, payload.PublishedAt, payload.FetchedAt, payload.RawText)
+	}
+	meta := mergeStringAnyMaps(entry.Meta, payload.Meta)
+	meta["source_kind"] = entry.Kind
+	meta["source_registry_url"] = entry.URL
+	return s.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    namespace,
+		EventID:      eventID,
+		SourceID:     entry.SourceID,
+		SourceURL:    sourceURL,
+		FetchedAt:    payload.FetchedAt,
+		PublishedAt:  payload.PublishedAt,
+		RawText:      payload.RawText,
+		SummaryDraft: payload.SummaryDraft,
+		Keywords:     payload.Keywords,
+		LicenseNote:  entry.LicenseNote,
+		Meta:         meta,
+	})
 }
 
 func (s *L1SQLiteStore) SaveStagingItem(ctx context.Context, item L1StagingItem) (*L1StagingItem, error) {
@@ -1781,6 +1838,45 @@ func searchQueryHash(provider string, normalizedQuery string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func defaultSourceFetchEventID(sourceID, sourceURL string, publishedAt, fetchedAt time.Time, rawText string) string {
+	t := publishedAt
+	if t.IsZero() {
+		t = fetchedAt
+	}
+	stamp := "undated"
+	if !t.IsZero() {
+		stamp = t.UTC().Format("20060102T150405Z")
+	}
+	sum := sha256.Sum256([]byte(sourceID + "\x00" + sourceURL + "\x00" + stamp + "\x00" + rawText))
+	return fmt.Sprintf("%s:%s:%s", sourceID, stamp, hex.EncodeToString(sum[:])[:12])
+}
+
+func stringMeta(meta map[string]interface{}, key string) string {
+	if meta == nil {
+		return ""
+	}
+	value, ok := meta[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func mergeStringAnyMaps(base, overlay map[string]interface{}) map[string]interface{} {
+	merged := map[string]interface{}{}
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range overlay {
+		merged[k] = v
+	}
+	return merged
+}
+
 func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {
 	var events []L1EventLogEntry
 	for rows.Next() {
@@ -1898,6 +1994,45 @@ func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error
 		return nil, fmt.Errorf("l1 source registry rows error: %w", err)
 	}
 	return entries, nil
+}
+
+func (s *L1SQLiteStore) sourceRegistryEntryByID(ctx context.Context, sourceID string) (*L1SourceRegistryEntry, error) {
+	var entry L1SourceRegistryEntry
+	var fetchIntervalSec int64
+	var enabled int
+	var metaJSON string
+	err := s.db.QueryRowContext(ctx, `
+SELECT source_id, url, kind, trust_score, fetch_interval_sec, license_note,
+       enabled, meta_json, created_at, updated_at
+FROM l1_source_registry
+WHERE source_id = ?
+`, sourceID).Scan(
+		&entry.SourceID,
+		&entry.URL,
+		&entry.Kind,
+		&entry.TrustScore,
+		&fetchIntervalSec,
+		&entry.LicenseNote,
+		&enabled,
+		&metaJSON,
+		&entry.CreatedAt,
+		&entry.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("l1 source registry entry not found: %s", sourceID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan l1 source registry entry: %w", err)
+	}
+	entry.FetchInterval = time.Duration(fetchIntervalSec) * time.Second
+	entry.Enabled = enabled != 0
+	if metaJSON == "" {
+		metaJSON = "{}"
+	}
+	if err := json.Unmarshal([]byte(metaJSON), &entry.Meta); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal l1 source registry meta: %w", err)
+	}
+	return &entry, nil
 }
 
 func scanL1NewsItems(rows *sql.Rows) ([]L1NewsItem, error) {
