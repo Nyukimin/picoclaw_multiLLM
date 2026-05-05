@@ -317,6 +317,7 @@ func cmdRun() {
 	mux.HandleFunc("/viewer/tts/audio", handleLocalTTSAudio(cfg.TTS.OutputDir))
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
+	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
 	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave("tmp/client_stt_log.txt"))
 	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave("tmp/client_stt_input_latest.wav", "tmp/stt_inputs"))
 	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest("scripts/stt_e2e_probe.py", "tmp/client_stt_input_latest.wav", "tmp/stt_e2e_from_mic_latest.json"))
@@ -2711,6 +2712,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 					if viewerType == "idlechat.viewer" {
 						viewerType = "idlechat.message"
 					}
+					chatID := strings.TrimSpace(ev.SessionID)
+					if chatID == "" {
+						chatID = "idlechat"
+					}
 					deps.eventHub.OnEvent(orchestrator.NewEvent(
 						viewerType,
 						ev.From,
@@ -2720,7 +2725,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 						"",
 						ev.SessionID,
 						"idlechat",
-						"idlechat",
+						chatID,
 					))
 				}
 				// "idlechat.viewer" は Viewer 専用 — TTS には送らない
@@ -3489,6 +3494,14 @@ func getConfigPath() string {
 		return path
 	}
 	return "./config.yaml"
+}
+
+func defaultAssetsGitRepoPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return filepath.Join(".picoclaw", "assets-repo")
+	}
+	return filepath.Join(homeDir, ".picoclaw", "assets-repo")
 }
 
 // resolveSubagentProvider はサブエージェント用のToolCallingProviderを設定に基づいて選択する

@@ -84,6 +84,36 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .idle-bubble{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 10px;line-height:1.5}
 .idle-meta{font-size:11px;color:var(--t2);margin-bottom:3px}
 .idle-empty{color:var(--t2);font-size:12px;padding:10px 12px}
+.idle-live{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding:12px;margin:10px 0 14px}
+.idle-live .msg{margin-bottom:0}
+.idle-live-empty{color:var(--t2);font-size:12px}
+.idle-subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.idle-subtab{
+  border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--t2);
+  border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12px;font-weight:700;
+}
+.idle-subtab.active{color:var(--t1);border-color:rgba(34,211,238,.42);background:rgba(34,211,238,.10)}
+.idle-subview{display:none}
+.idle-subview.active{display:block}
+.idle-review{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:12px;margin:10px 0 14px}
+.idle-review-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow:auto;padding:10px}
+.idle-review-item{width:100%;text-align:left;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.03);color:var(--t1);padding:8px 10px;cursor:pointer}
+.idle-review-item.active{border-color:rgba(244,114,182,.45);background:rgba(244,114,182,.09)}
+.idle-review-title{font-size:12px;font-weight:700;line-height:1.4}
+.idle-review-meta{font-size:10px;color:var(--t2);line-height:1.4;margin-top:3px}
+.idle-review-detail{min-height:260px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.idle-review-detail h4{font-size:15px;line-height:1.4}
+.idle-review-kv{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--t2)}
+.idle-review-section{border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025);padding:10px}
+.idle-review-section h5{font-size:11px;color:var(--t2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
+.idle-review-text{font-size:13px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.panel-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 10px}
+.panel-head h3{font-size:14px;color:var(--t1);font-weight:700}
+.panel-head .sub{font-size:11px;color:var(--t2);line-height:1.4;text-align:right}
+.idle-kind{font-size:10px;letter-spacing:.4px;text-transform:uppercase;border:1px solid var(--border);border-radius:999px;padding:1px 7px;color:var(--t3);background:rgba(255,255,255,.04)}
+.idle-live-item.idle-kind-topic .mc{border-color:rgba(244,114,182,.35);background:rgba(244,114,182,.06)}
+.idle-live-item.idle-kind-summary .mc{border-color:rgba(74,222,128,.32);background:rgba(74,222,128,.05)}
+.idle-live-item.idle-kind-tts .mc{border-color:rgba(255,255,255,.18)}
 .small{color:var(--t2);font-size:11px}
 .code{font-family:'JetBrains Mono',monospace}
 .sys-content{white-space:pre-wrap;word-break:break-word;line-height:1.5;min-width:320px}
@@ -227,21 +257,21 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .send-btn:disabled{opacity:.35;cursor:default;transform:none}
 
 .lipsync-stage{
-  position:fixed;left:0;right:0;top:calc(92px + var(--safe-top));z-index:30;
-  display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
-  padding:0 14px;
+  position:fixed;left:50%;right:auto;top:calc(10px + var(--safe-top));z-index:32;
+  display:flex;justify-content:center;align-items:flex-start;gap:14px;
+  width:auto;padding:0;transform:translateX(-50%);
   pointer-events:none;
 }
 .lipsync-actor{
-  width:clamp(68px,8vw,118px);
-  display:flex;flex-direction:column;align-items:center;gap:8px;
-  opacity:.82;filter:drop-shadow(0 8px 18px rgba(0,0,0,.35));
+  width:46px;
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  opacity:.9;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35));
 }
 .lipsync-actor img{
-  width:100%;height:auto;border:1px solid var(--border);border-radius:12px;background:rgba(11,11,20,.55);
+  width:100%;height:auto;border:1px solid var(--border);border-radius:8px;background:rgba(11,11,20,.55);
 }
 .lipsync-actor-name{
-  font-size:11px;font-weight:700;letter-spacing:.3px;padding:2px 9px;border-radius:999px;
+  font-size:9px;font-weight:700;letter-spacing:.2px;padding:1px 6px;border-radius:999px;
   background:rgba(11,11,20,.75);border:1px solid var(--border);color:var(--t1);
 }
 .lipsync-actor.mio .lipsync-actor-name{color:var(--mio)}
@@ -271,12 +301,16 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
   .input-wrap{gap:8px}
   .input-main{gap:8px}
   .idle-tools{gap:6px}
+  .idle-review{grid-template-columns:1fr}
   .ctr{right:12px}
   .latest-btn{right:12px}
-  .lipsync-stage{top:calc(88px + var(--safe-top));padding:0 8px;gap:8px}
-  .lipsync-actor{width:clamp(54px,15vw,76px);gap:5px;opacity:.76}
-  .lipsync-actor-name{font-size:10px;padding:1px 7px}
+  .lipsync-stage{top:calc(8px + var(--safe-top));gap:8px}
+  .lipsync-actor{width:40px;gap:1px;opacity:.85}
+  .lipsync-actor-name{font-size:8px;padding:0 5px}
   .tts-now-playing{max-width:min(76vw,760px);font-size:13px;bottom:calc(102px + var(--safe-bottom))}
+}
+@media (max-width: 640px){
+  .lipsync-stage{display:none}
 }
 
 /* === Live Mode (配信用 1920x1080) === */
@@ -369,7 +403,7 @@ body.live-mode .live-audio-btn{
   <button class="tab-btn active" data-tab="overview">Overview</button>
   <button class="tab-btn" data-tab="roles">Roles</button>
   <button class="tab-btn" data-tab="progress">Progress</button>
-  <button class="tab-btn" data-tab="timeline">Timeline</button>
+  <button class="tab-btn" data-tab="timeline">Chat Timeline</button>
   <button class="tab-btn" data-tab="system">System</button>
   <button class="tab-btn" data-tab="memory">Memory</button>
   <button class="tab-btn" data-tab="news-pack">News Pack</button>
@@ -473,6 +507,10 @@ body.live-mode .live-audio-btn{
   </section>
 
   <section id="panel-timeline" class="panel">
+    <div class="panel-head">
+      <h3>通常 Chat Timeline</h3>
+      <div class="sub">user / Mio / Shiro の対話のみ</div>
+    </div>
     <div class="filters">
       <select id="fltType">
         <option value="">type: all</option>
@@ -483,8 +521,6 @@ body.live-mode .live-audio-btn{
         <option>agent.thinking</option>
         <option>agent.response</option>
         <option>tts.audio_chunk</option>
-        <option>idlechat.message</option>
-        <option>idlechat.summary</option>
       </select>
       <select id="fltAgent">
         <option value="">agent: all</option>
@@ -676,11 +712,45 @@ body.live-mode .live-audio-btn{
         <div id="idleTopicNow" style="font-size:13px;line-height:1.6;color:var(--t1)">-</div>
       </div>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Title</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
-        <tbody id="idlechatBody"></tbody>
-      </table>
+    <div class="idle-subtabs" role="tablist" aria-label="IdleChat views">
+      <button class="idle-subtab active" data-idle-view="live" type="button" role="tab" aria-controls="idleViewLive">Live Timeline</button>
+      <button class="idle-subtab" data-idle-view="summary" type="button" role="tab" aria-controls="idleViewSummary">Summary Review</button>
+      <button class="idle-subtab" data-idle-view="history" type="button" role="tab" aria-controls="idleViewHistory">History</button>
+    </div>
+    <div id="idleViewLive" class="idle-subview active" role="tabpanel">
+      <div class="panel-head">
+        <h3>IdleChat Live Timeline</h3>
+        <div class="sub">今日のお題 / Mio・Shiro発話 / 要約</div>
+      </div>
+      <div id="idleLiveLog" class="table-wrap idle-live">
+        <div class="idle-live-empty">No live idleChat messages yet</div>
+      </div>
+    </div>
+    <div id="idleViewSummary" class="idle-subview" role="tabpanel">
+      <div class="panel-head">
+        <h3>Summary Review</h3>
+        <div class="sub">後から読み返して内容チェック</div>
+      </div>
+      <div id="idleSummaryReview" class="idle-review">
+        <div class="table-wrap idle-review-list" id="idleSummaryList">
+          <div class="idle-empty">No summaries yet</div>
+        </div>
+        <div class="table-wrap idle-review-detail" id="idleSummaryDetail">
+          <div class="idle-empty">Select a summary</div>
+        </div>
+      </div>
+    </div>
+    <div id="idleViewHistory" class="idle-subview" role="tabpanel">
+      <div class="panel-head">
+        <h3>History</h3>
+        <div class="sub">過去セッション一覧</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Title</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
+          <tbody id="idlechatBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -909,12 +979,14 @@ const state = {
   agents: {},
   idleChat: {
     selectedMode: localStorage.getItem('idlechat.selectedMode') || 'manual',
+    selectedView: localStorage.getItem('idlechat.selectedView') || 'live',
     mode: '',
     manualMode: false,
     chatActive: false,
     currentTopic: '',
     history: [],
     openIndex: -1,
+    selectedSummaryIndex: 0,
   },
   openTasks: {},
   progressOpenJobs: {},
@@ -951,6 +1023,7 @@ AGENTS.forEach((id) => {
 let msgCount = 0;
 const mainEl = document.querySelector('main');
 const chat = document.getElementById('chat');
+const idleLiveLog = document.getElementById('idleLiveLog');
 const ctr = document.getElementById('ctr');
 const cnt = document.getElementById('cnt');
 const latestBtn = document.getElementById('latestBtn');
@@ -988,6 +1061,16 @@ const centralTTSSpeech = {
   characterId: '',
   sessionId: '',
   bubbleKind: '',
+  active: false,
+  chunkKeys: new Set(),
+};
+const idleTTSSpeech = {
+  el: null,
+  textEl: null,
+  characterId: '',
+  sessionId: '',
+  bubbleKind: '',
+  active: false,
   chunkKeys: new Set(),
 };
 
@@ -1020,59 +1103,112 @@ function setNowPlayingText(characterId, text) {
   ttsNowPlayingEl.classList.remove('hidden');
 }
 
+function isIdleChatSessionId(sessionId) {
+  return String(sessionId || '').trim().indexOf('idle-') === 0;
+}
+
 function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId) {
+  const target = isIdleChatSessionId(sessionId) ? 'idle' : 'central';
+  setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utteranceId);
+}
+
+function setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utteranceId) {
   const normalizedText = String(text || '').trim();
+  const speech = target === 'idle' ? idleTTSSpeech : centralTTSSpeech;
+  const container = target === 'idle' ? idleLiveLog : chat;
   if (!normalizedText) {
-    if (centralTTSSpeech.el) centralTTSSpeech.el.classList.remove('tts-current');
+    resetTTSSpeechBubble(speech);
     return;
   }
+  if (!container) return;
 
   const id = String(characterId || '').trim().toLowerCase();
   const sid = String(sessionId || '').trim();
-  const bubbleKind = centralTTSBubbleKind(normalizedText, sid);
+  const normalizedChunkIndex = Number.isFinite(chunkIndex) ? chunkIndex : -1;
+  const bubbleKind = ttsBubbleKind(speech, normalizedText, sid, normalizedChunkIndex);
   const f = ag(id || 'mio');
-  if (!centralTTSSpeech.el || centralTTSSpeech.characterId !== id || centralTTSSpeech.bubbleKind !== bubbleKind) {
-    if (centralTTSSpeech.el) centralTTSSpeech.el.classList.remove('tts-current');
+  const key = String(utteranceId || '') || (sid + ':' + String(normalizedChunkIndex >= 0 ? normalizedChunkIndex : speech.chunkKeys.size));
+  if (!speech.el || speech.characterId !== id || speech.bubbleKind !== bubbleKind || shouldStartNewTTSBubble(speech, normalizedChunkIndex, key)) {
+    if (speech.el) speech.el.classList.remove('tts-current');
     const el = document.createElement('div');
-    el.className = 'msg tts-current' + (id === 'shiro' ? ' shiro' : '');
+    const idleClass = target === 'idle' ? ' idle-live-item idle-kind-tts idle-kind-' + bubbleKind : '';
+    const kindLabel = target === 'idle' ? '<span class="idle-kind">' + (bubbleKind === 'topic' ? 'Topic' : 'Speech') + '</span>' : '';
+    el.className = 'msg tts-current' + (id === 'shiro' ? ' shiro' : '') + idleClass;
     el.innerHTML =
       '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
       '<div class="mb"><div class="mh">' +
+        kindLabel +
         '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
         '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
       '</div><div class="mc"></div></div>';
-    centralTTSSpeech.el = el;
-    centralTTSSpeech.textEl = el.querySelector('.mc');
-    centralTTSSpeech.characterId = id;
-    centralTTSSpeech.sessionId = sid;
-    centralTTSSpeech.bubbleKind = bubbleKind;
-    centralTTSSpeech.chunkKeys = new Set();
-    const em = document.getElementById('empty');
-    if (em) em.remove();
-    chat.appendChild(el);
-    trimTimelineNodes();
+    speech.el = el;
+    speech.textEl = el.querySelector('.mc');
+    speech.characterId = id;
+    speech.sessionId = sid;
+    speech.bubbleKind = bubbleKind;
+    speech.active = true;
+    speech.chunkKeys = new Set();
+    if (target === 'central') {
+      const em = document.getElementById('empty');
+      if (em) em.remove();
+    } else {
+      removeIdleLiveEmpty();
+    }
+    container.appendChild(el);
+    trimTimelineNodesFor(container, MAX_TIMELINE_NODES);
   } else {
-    centralTTSSpeech.el.classList.add('tts-current');
-    centralTTSSpeech.el.classList.toggle('shiro', id === 'shiro');
-    centralTTSSpeech.sessionId = sid;
+    speech.el.classList.add('tts-current');
+    speech.el.classList.toggle('shiro', id === 'shiro');
+    speech.sessionId = sid;
+    speech.active = true;
   }
-  const key = String(utteranceId || '') || (sid + ':' + String(Number.isFinite(chunkIndex) ? chunkIndex : centralTTSSpeech.chunkKeys.size));
-  if (centralTTSSpeech.chunkKeys.has(key)) {
+  if (speech.chunkKeys.has(key)) {
     return;
   }
-  centralTTSSpeech.chunkKeys.add(key);
-  if (centralTTSSpeech.textEl) {
-    const current = String(centralTTSSpeech.textEl.textContent || '');
-    centralTTSSpeech.textEl.textContent = current ? current + normalizedText : normalizedText;
-    centralTTSSpeech.textEl.dataset.raw = centralTTSSpeech.textEl.textContent;
+  speech.chunkKeys.add(key);
+  if (speech.textEl) {
+    const current = String(speech.textEl.textContent || '');
+    speech.textEl.textContent = appendCentralTTSText(current, normalizedText);
+    speech.textEl.dataset.raw = speech.textEl.textContent;
   }
-  scrollToBottom();
+  if (target === 'central') scrollToBottom();
+  else idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
 }
 
-function centralTTSBubbleKind(text, sessionId) {
+function resetCentralTTSSpeechBubble() {
+  resetTTSSpeechBubble(centralTTSSpeech);
+  resetTTSSpeechBubble(idleTTSSpeech);
+}
+
+function resetTTSSpeechBubble(speech) {
+  if (speech.el) speech.el.classList.remove('tts-current');
+  speech.active = false;
+}
+
+function shouldStartNewTTSBubble(speech, chunkIndex, key) {
+  if (!speech.el) return true;
+  if (!speech.textEl || !String(speech.textEl.textContent || '').trim()) return false;
+  if (speech.chunkKeys.has(key)) return false;
+  if (chunkIndex === 0) return true;
+  if (!speech.active && chunkIndex < 1) return true;
+  return false;
+}
+
+function appendCentralTTSText(current, next) {
+  const left = String(current || '');
+  const right = String(next || '').trim();
+  if (!left) return right;
+  if (!right) return left;
+  if (/\s$/.test(left) || /^\s/.test(next)) return left + right;
+  if (/[、]$/.test(left)) return left + right;
+  if (/[「『（(［\[]$/.test(left) || /^[、。！？!?）」』）)\]］]/.test(right)) return left + right;
+  return left + ' ' + right;
+}
+
+function ttsBubbleKind(speech, text, sessionId, chunkIndex) {
   const s = String(text || '').trim();
   if (/^今日のお題です[、。！？!?]?/.test(s)) return 'topic';
-  if (centralTTSSpeech.bubbleKind === 'topic' && centralTTSSpeech.sessionId === String(sessionId || '').trim()) {
+  if (chunkIndex > 0 && speech.bubbleKind === 'topic' && speech.sessionId === String(sessionId || '').trim()) {
     return 'topic';
   }
   return 'speech';
@@ -1126,6 +1262,8 @@ const idleModeForecastBtn = document.getElementById('idleModeForecast');
 const idleModeStorySimpleBtn = document.getElementById('idleModeStorySimple');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
+const idleSubtabs = Array.from(document.querySelectorAll('.idle-subtab'));
+const idleSubviews = Array.from(document.querySelectorAll('.idle-subview'));
 const audioBtn = document.getElementById('audioBtn');
 const liveAudioBtn = document.getElementById('liveAudioBtn');
 const eviStatus = document.getElementById('eviStatus');
@@ -1294,6 +1432,22 @@ function normalizeViewerDisplayText(text) {
   return stripIdleTopicCategory(text);
 }
 
+function setIdleSelectedView(view) {
+  const next = (view === 'summary' || view === 'history') ? view : 'live';
+  state.idleChat.selectedView = next;
+  localStorage.setItem('idlechat.selectedView', next);
+  idleSubtabs.forEach((btn) => {
+    const active = btn.dataset.idleView === next;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    btn.tabIndex = active ? 0 : -1;
+  });
+  idleSubviews.forEach((viewEl) => {
+    const expectedID = 'idleView' + next.charAt(0).toUpperCase() + next.slice(1);
+    viewEl.classList.toggle('active', viewEl.id === expectedID);
+  });
+}
+
 function renderIdleChat() {
   const manualEl = document.getElementById('idleManual');
   const activeEl = document.getElementById('idleActive');
@@ -1307,6 +1461,7 @@ function renderIdleChat() {
 
   body.innerHTML = '';
   const rows = state.idleChat.history || [];
+  renderIdleSummaryReview(rows);
   if (rows.length === 0) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="7" class="small">No idleChat summaries yet</td>';
@@ -1376,6 +1531,77 @@ function renderIdleChat() {
   });
 }
 
+function renderIdleSummaryReview(rows) {
+  const listEl = document.getElementById('idleSummaryList');
+  const detailEl = document.getElementById('idleSummaryDetail');
+  if (!listEl || !detailEl) return;
+
+  listEl.innerHTML = '';
+  detailEl.innerHTML = '';
+  if (!Array.isArray(rows) || rows.length === 0) {
+    state.idleChat.selectedSummaryIndex = 0;
+    listEl.innerHTML = '<div class="idle-empty">No summaries yet</div>';
+    detailEl.innerHTML = '<div class="idle-empty">Select a summary</div>';
+    return;
+  }
+
+  if (state.idleChat.selectedSummaryIndex < 0 || state.idleChat.selectedSummaryIndex >= rows.length) {
+    state.idleChat.selectedSummaryIndex = 0;
+  }
+  const selectedIndex = state.idleChat.selectedSummaryIndex;
+  rows.forEach((r, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'idle-review-item' + (idx === selectedIndex ? ' active' : '');
+    btn.dataset.idx = String(idx);
+    btn.innerHTML =
+      '<div class="idle-review-title">' + esc(stripIdleTopicCategory(r.title || r.topic || '-') || '-') + '</div>' +
+      '<div class="idle-review-meta">' + esc(fdt(r.ended_at || r.started_at)) + ' · turns ' + esc(String(r.turns || 0)) + '</div>';
+    btn.addEventListener('click', () => {
+      state.idleChat.selectedSummaryIndex = idx;
+      renderIdleSummaryReview(rows);
+    });
+    listEl.appendChild(btn);
+  });
+
+  const row = rows[selectedIndex] || {};
+  const sections = [
+    {title: 'Summary', text: row.summary || '-'},
+    {title: 'Quality Review', text: row.quality_review || '-'},
+    {title: 'Prompt Guidance', text: row.prompt_guidance || '-'},
+    {title: 'Transcript', text: formatIdleTranscriptOnly(row)},
+  ];
+  detailEl.innerHTML =
+    '<div class="idle-actions" style="padding:0;justify-content:flex-start">' +
+      '<button class="ctl-btn" id="idleSummaryCopy">Copy Review</button>' +
+    '</div>' +
+    '<h4>' + esc(stripIdleTopicCategory(row.title || '-') || '-') + '</h4>' +
+    '<div class="idle-review-kv">' +
+      '<span>Topic: ' + esc(stripIdleTopicCategory(row.topic || '-') || '-') + '</span>' +
+      '<span>Strategy: ' + esc(String(row.strategy || row.category || '-')) + '</span>' +
+      '<span>Turns: ' + esc(String(row.turns || 0)) + '</span>' +
+      '<span>Ended: ' + esc(fdt(row.ended_at)) + '</span>' +
+      (row.loop_restarted ? '<span>Loop Restart: yes' + (row.loop_reason ? ' / ' + esc(row.loop_reason) : '') + '</span>' : '') +
+    '</div>' +
+    sections.map((s) => (
+      '<div class="idle-review-section">' +
+        '<h5>' + esc(s.title) + '</h5>' +
+        '<div class="idle-review-text">' + fmt(s.text || '-') + '</div>' +
+      '</div>'
+    )).join('');
+
+  const copyBtn = document.getElementById('idleSummaryCopy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => copyTextPayload(copyBtn, formatIdleChatTranscript(row)));
+  }
+}
+
+function formatIdleTranscriptOnly(row) {
+  const transcript = Array.isArray(row && row.transcript) ? row.transcript : [];
+  if (transcript.length === 0) return '(not available)';
+  return transcript.map((line) => String(line || '')).join('\n');
+}
+
 function formatIdleChatTranscript(row) {
   const lines = [];
   lines.push('Title: ' + String(row && row.title || '-'));
@@ -1387,6 +1613,16 @@ function formatIdleChatTranscript(row) {
   lines.push('');
   lines.push('Summary:');
   lines.push(String(row && row.summary || '-'));
+  if (row && row.quality_review) {
+    lines.push('');
+    lines.push('Quality Review:');
+    lines.push(String(row.quality_review || '-'));
+  }
+  if (row && row.prompt_guidance) {
+    lines.push('');
+    lines.push('Prompt Guidance:');
+    lines.push(String(row.prompt_guidance || '-'));
+  }
   lines.push('');
   lines.push('Transcript:');
   const transcript = Array.isArray(row && row.transcript) ? row.transcript : [];
@@ -1482,6 +1718,9 @@ if (idleModeNormalBtn) idleModeNormalBtn.addEventListener('click', () => setIdle
 if (idleModeForecastBtn) idleModeForecastBtn.addEventListener('click', () => setIdleSelectedMode('forecast'));
 if (idleModeStorySimpleBtn) idleModeStorySimpleBtn.addEventListener('click', () => setIdleSelectedMode('story-simple'));
 idleStopBtn.addEventListener('click', () => controlIdle('/viewer/idlechat/stop'));
+idleSubtabs.forEach((btn) => {
+  btn.addEventListener('click', () => setIdleSelectedView(btn.dataset.idleView || 'live'));
+});
 
 function stateClass(s) { return 'state-' + normState(s); }
 
@@ -1573,16 +1812,28 @@ function refreshDebugSystem() {
 }
 
 function trimTimelineNodes() {
-  while (chat.childElementCount > MAX_TIMELINE_NODES) {
-    const first = chat.firstElementChild;
+  trimTimelineNodesFor(chat, MAX_TIMELINE_NODES);
+}
+
+function trimTimelineNodesFor(container, maxNodes) {
+  if (!container) return;
+  while (container.childElementCount > maxNodes) {
+    const first = container.firstElementChild;
     if (!first) break;
     first.remove();
   }
 }
 
+function removeIdleLiveEmpty() {
+  if (!idleLiveLog) return;
+  const empty = idleLiveLog.querySelector('.idle-live-empty');
+  if (empty) empty.remove();
+}
+
 function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
+  if (ev.type === 'idlechat.message') return;
   if (ev.type !== 'message.received' && ev.type !== 'idlechat.message' && (ev.from || '').toLowerCase() !== 'mio') return;
 
   const em = document.getElementById('empty');
@@ -1615,6 +1866,61 @@ function addMsgToTimeline(ev) {
   chat.appendChild(el);
   trimTimelineNodes();
   bump();
+}
+
+function addIdleMsgToTimeline(ev) {
+  if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return;
+  if (isTTSSyncedSpeaker(ev.from)) return;
+  removeIdleLiveEmpty();
+
+  const f = ag(ev.from);
+  const t = ev.to ? ag(ev.to) : null;
+  const dir = t && ev.to ? '<span class="dir">→ ' + t.e + ' ' + t.l + '</span>' : '';
+  const displayContent = normalizeViewerDisplayText(ev.content);
+  const kind = isIdleTopicEvent(ev) ? 'topic' : 'speech';
+  const el = document.createElement('div');
+  el.className = 'msg idle-live-item idle-kind-' + kind;
+  el.innerHTML =
+    '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+    '<div class="mb"><div class="mh">' +
+      '<span class="idle-kind">' + (kind === 'topic' ? 'Topic' : 'Speech') + '</span>' +
+      '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' + dir +
+      '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
+    '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
+    '<div class="mc">' + fmt(displayContent) + '</div></div>';
+  el.querySelector('.mc').dataset.raw = ev.content || '';
+  idleLiveLog.appendChild(el);
+  trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
+  idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
+}
+
+function addIdleSummaryToTimeline(ev) {
+  if (!idleLiveLog || !ev || ev.type !== 'idlechat.summary') return;
+  removeIdleLiveEmpty();
+
+  const f = ag(ev.from || 'shiro');
+  const displayContent = normalizeViewerDisplayText(ev.content);
+  const el = document.createElement('div');
+  el.className = 'msg idle-live-item idle-kind-summary';
+  el.innerHTML =
+    '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+    '<div class="mb"><div class="mh">' +
+      '<span class="idle-kind">Summary</span>' +
+      '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
+      '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
+    '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
+    '<div class="mc">' + fmt(displayContent) + '</div></div>';
+  el.querySelector('.mc').dataset.raw = ev.content || '';
+  idleLiveLog.appendChild(el);
+  trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
+  idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
+}
+
+function isIdleTopicEvent(ev) {
+  const content = String((ev && ev.content) || '').trim();
+  return String((ev && ev.from) || '').toLowerCase() === 'user' &&
+    String((ev && ev.to) || '').toLowerCase() === 'mio' &&
+    /^今日のお題/.test(content);
 }
 
 function isTTSSyncedSpeaker(agentID) {
@@ -3500,6 +3806,8 @@ function ingestEvent(ev) {
   upsertJob(ev);
   updateAgents(ev);
   addMsgToTimeline(ev);
+  addIdleMsgToTimeline(ev);
+  addIdleSummaryToTimeline(ev);
   if (ev.type === 'agent.thinking') {
     pushDebugTrace('think', {
       time: ftime(ev.timestamp),
@@ -4008,6 +4316,7 @@ function connect() {
 refreshDerivedViews();
 renderIdleChat();
 setIdleSelectedMode(state.idleChat.selectedMode);
+setIdleSelectedView(state.idleChat.selectedView);
 refreshIdleStatus();
 refreshIdleLogs();
 if (!initLiveMode()) {

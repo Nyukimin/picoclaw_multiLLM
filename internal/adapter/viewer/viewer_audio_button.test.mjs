@@ -114,6 +114,7 @@ globalThis.__viewerAudioHarness = {
   updateAudioButton,
   enqueueTTSAudio,
   toggleTTSAudio,
+  setCentralTTSSpeechText,
 };
 `;
 
@@ -138,6 +139,7 @@ globalThis.__viewerAudioHarness = {
     MAX_TIMELINE_NODES: 400,
     mainEl: document.querySelector('main'),
     chat: document.getElementById('chat'),
+    idleLiveLog: document.getElementById('idleLiveLog'),
     ctr: document.getElementById('ctr'),
     cnt: document.getElementById('cnt'),
     latestBtn: document.getElementById('latestBtn'),
@@ -211,4 +213,79 @@ test('tts chunk is shown when audio play resolves even if media events are misse
 
   assert.equal(harness.ttsPlayback.playing, true);
   assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '末尾の表示です。');
+});
+
+test('central chat starts a new bubble after current tts speech is cleared', () => {
+  const {harness, elements} = loadAudioHarness();
+  const chat = elements.get('chat');
+
+  harness.setCentralTTSSpeechText('mio', '最初の発話です。', 'session-1', 0, 'u1');
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('mio', '次の発話です。', 'session-1', 0, 'u2');
+
+  assert.equal(chat.children.length, 2);
+  assert.equal(chat.children[0]._mc.textContent, '最初の発話です。');
+  assert.equal(chat.children[1]._mc.textContent, '次の発話です。');
+});
+
+test('central chat separates adjacent tts chunks inside one bubble', () => {
+  const {harness, elements} = loadAudioHarness();
+
+  harness.setCentralTTSSpeechText('shiro', '前半です。', 'session-1', 0, 'u1');
+  harness.setCentralTTSSpeechText('shiro', '後半です。', 'session-1', 1, 'u2');
+
+  assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '前半です。 後半です。');
+});
+
+test('central chat keeps same speaker speech chunks in one bubble after audio clears', () => {
+  const {harness, elements} = loadAudioHarness();
+  const chat = elements.get('chat');
+
+  harness.setCentralTTSSpeechText('shiro', '前半です。', 'session-1', 0, 'speech-0');
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('shiro', '後半です。', 'session-1', 1, 'speech-1');
+
+  assert.equal(chat.children.length, 1);
+  assert.equal(chat.children[0]._mc.textContent, '前半です。 後半です。');
+});
+
+test('central chat splits when speaker changes even inside chunk sequence', () => {
+  const {harness, elements} = loadAudioHarness();
+  const chat = elements.get('chat');
+
+  harness.setCentralTTSSpeechText('mio', 'みおの発話です。', 'session-1', 0, 'mio-0');
+  harness.setCentralTTSSpeechText('shiro', 'しろの発話です。', 'session-1', 1, 'shiro-1');
+
+  assert.equal(chat.children.length, 2);
+  assert.equal(chat.children[0]._mc.textContent, 'みおの発話です。');
+  assert.equal(chat.children[1]._mc.textContent, 'しろの発話です。');
+});
+
+test('central chat keeps topic announcement chunks in one bubble after audio clears', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.setCentralTTSSpeechText('mio', '今日のお題です、', 'idle-topic-1', 0, 'topic-0');
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('mio', '記憶と風景の関係です！', 'idle-topic-1', 1, 'topic-1');
+
+  assert.equal(elements.get('chat').children.length, 0);
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '今日のお題です、記憶と風景の関係です！');
+});
+
+test('central chat starts speech bubble after topic announcement completes', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.setCentralTTSSpeechText('mio', '今日のお題です、', 'idle-topic-1', 0, 'topic-0');
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('mio', '記憶と風景の関係です！', 'idle-topic-1', 1, 'topic-1');
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('mio', 'それ、少し切ない入口だね。', 'idle-topic-1', 0, 'speech-0');
+
+  assert.equal(elements.get('chat').children.length, 0);
+  assert.equal(idleLiveLog.children.length, 2);
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '今日のお題です、記憶と風景の関係です！');
+  assert.equal(idleLiveLog.children[1]._mc.textContent, 'それ、少し切ない入口だね。');
 });

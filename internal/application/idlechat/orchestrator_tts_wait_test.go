@@ -7,7 +7,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 )
 
-func TestEmitTopicToTimelineWaitsForTTSCompletion(t *testing.T) {
+func TestEmitTopicToTimelineDoesNotWaitForTTSCompletion(t *testing.T) {
 	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
 	ttsDone := make(chan struct{})
 	eventSeen := make(chan struct{}, 1)
@@ -32,14 +32,23 @@ func TestEmitTopicToTimelineWaitsForTTSCompletion(t *testing.T) {
 	}
 	select {
 	case <-returned:
-		t.Fatal("emitTopicToTimeline returned before TTS completion")
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("emitTopicToTimeline waited for TTS completion")
 	}
-
 	close(ttsDone)
-	select {
-	case <-returned:
-	case <-time.After(time.Second):
-		t.Fatal("emitTopicToTimeline did not return after TTS completion")
+}
+
+func TestWaitForTTSDoneTimesOut(t *testing.T) {
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	old := idleChatTTSWaitTimeout
+	idleChatTTSWaitTimeout = 10 * time.Millisecond
+	defer func() { idleChatTTSWaitTimeout = old }()
+
+	blocked := make(chan struct{})
+	start := time.Now()
+	o.waitForTTSDone(blocked)
+
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Fatalf("waitForTTSDone did not time out promptly: %s", elapsed)
 	}
 }

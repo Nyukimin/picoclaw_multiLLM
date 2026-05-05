@@ -26,6 +26,9 @@ const (
 	topicBreak        = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
 
+var idleChatTTSWaitTimeout = 35 * time.Second
+var idleChatLLMGenerateTimeout = 45 * time.Second
+
 var jst = time.FixedZone("JST", 9*60*60)
 var randSeedOnce sync.Once
 var errIdleInvalidResponse = errors.New("idlechat invalid response")
@@ -545,14 +548,18 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 	sessionID := fmt.Sprintf("idle-%d", time.Now().Unix())
 	startedAt := time.Now().In(jst)
 	remainingTurns := o.maxTurns
+	totalTurns := 0
+	topicIndex := 0
 
 	for remainingTurns > 0 {
-		topic, strategy := o.generateTopicFromChat(sessionID, strategy)
+		segmentID := fmt.Sprintf("%s-topic-%02d", sessionID, topicIndex)
+		topicIndex++
+		topic, strategy := o.generateTopicFromChat(segmentID, strategy)
 		o.mu.Lock()
 		o.currentTopic = topic
 		o.mu.Unlock()
-		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
-		o.emitTopicToTimeline(sessionID, topic, strategy)
+		log.Printf("[IdleChat] Topic: %s (%s, session=%s)", topic, strategy, segmentID)
+		o.emitTopicToTimeline(segmentID, topic, strategy)
 
 		segmentTurns := 0
 		loopDetected := false
@@ -582,7 +589,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 			speaker := o.participants[currentSpeaker]
 			nextSpeaker := o.participants[(currentSpeaker+1)%len(o.participants)]
 
-			response, err := o.generateResponse(speaker, nextSpeaker, sessionID, turn, segmentTurns, topic)
+			response, err := o.generateResponse(speaker, nextSpeaker, segmentID, turn, segmentTurns, topic)
 			if err != nil {
 				log.Printf("[IdleChat] Generation error: %v", err)
 				generationFailed = true
@@ -602,21 +609,20 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 
 			response = ensureTrailingPeriod(response)
 
-			msg := domaintransport.NewMessage(speaker, nextSpeaker, sessionID, "", response)
+			msg := domaintransport.NewMessage(speaker, nextSpeaker, segmentID, "", response)
 			msg.Type = domaintransport.MessageTypeIdleChat
 			o.memory.RecordMessage(msg)
-			ttsDone := o.emitTimelineEvent(TimelineEvent{
+			o.emitTimelineEvent(TimelineEvent{
 				Type:      "idlechat.message",
 				From:      speaker,
 				To:        nextSpeaker,
 				Content:   response,
-				SessionID: sessionID,
+				SessionID: segmentID,
 			})
 			transcript = append(transcript, fmt.Sprintf("%s: %s", speaker, response))
 			segmentTurns++
 
 			log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
-			o.waitForTTSDone(ttsDone)
 			o.waitBreak(speakerBreak)
 
 			if segmentTurns >= maxTurnsPerTopic {
@@ -636,11 +642,12 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 		}
 
 		remainingTurns -= segmentTurns
+		totalTurns += segmentTurns
 		endedAt := time.Now().In(jst)
 		if segmentTurns > 0 {
 			displayStrategy := TopicStrategy(fmt.Sprintf("%s: %s", strategy, truncate(topic, 30)))
-			summary := o.saveSummary(sessionID, topic, displayStrategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
-			o.speakSummary(sessionID, summary)
+			summary := o.saveSummary(segmentID, topic, displayStrategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
+			o.speakSummary(segmentID, summary)
 		}
 		cooldown := topicBreak
 		if sessionInterrupted || generationFailed {
@@ -652,10 +659,15 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 		o.mu.Lock()
 		o.nextTopicAt = endedAt.Add(cooldown)
 		o.mu.Unlock()
-		break
+
+		if segmentTurns == 0 || sessionInterrupted || generationFailed || remainingTurns <= 0 {
+			break
+		}
+		log.Printf("[IdleChat] Switching topic after %d turns (%d remaining)", segmentTurns, remainingTurns)
+		o.waitBreak(cooldown)
 	}
 
-	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, o.maxTurns)
+	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, totalTurns)
 }
 
 // waitForTTSDone はTTS完了チャネルを待つ。nilなら即座に返る。
@@ -663,10 +675,22 @@ func (o *IdleChatOrchestrator) waitForTTSDone(ch <-chan struct{}) {
 	if ch == nil {
 		return
 	}
+	timeout := idleChatTTSWaitTimeout
+	if timeout <= 0 {
+		select {
+		case <-o.ctx.Done():
+		case <-ch:
+		}
+		return
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case <-o.ctx.Done():
 		return
 	case <-ch:
+	case <-timer.C:
+		log.Printf("[IdleChat] TTS completion wait timed out after %s; continuing conversation", timeout)
 	}
 }
 
@@ -758,7 +782,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 	// トピック生成（最大3回リトライ）
 	for attempt := 0; attempt < 3; attempt++ {
 		messages := []llm.Message{
-			{Role: "system", Content: o.getSystemPrompt("mio")},
+			{Role: "system", Content: idleTopicGeneratorSystemPrompt()},
 			{Role: "user", Content: prompt},
 		}
 		req := llm.GenerateRequest{
@@ -861,6 +885,7 @@ func normalizeIdleTopic(raw string, movieMode bool) string {
 	}
 	s = strings.NewReplacer(replacers...).Replace(s)
 	s = strings.TrimSpace(s)
+	s = extractTopicTitleFromConversationalText(s)
 
 	for _, marker := range []string{"、つまり、", "。つまり、", " つまり、", "っていうのは", "ってのは", "というのは"} {
 		if idx := strings.Index(s, marker); idx > 0 {
@@ -884,10 +909,56 @@ func normalizeIdleTopic(raw string, movieMode bool) string {
 	if movieMode {
 		return formatMovieTopicPrompt(s)
 	}
-	if utf8.RuneCountInString(s) > 48 {
-		s = truncate(s, 48)
-	}
 	return strings.TrimSpace(s)
+}
+
+func idleTopicGeneratorSystemPrompt() string {
+	return `あなたはRenCrowのidleChat用お題生成器です。
+キャラクターとして会話せず、感想・相づち・呼びかけ・絵文字を出さないでください。
+出力はユーザーが指定した条件に合う「お題」本文だけを1行で返してください。`
+}
+
+func extractTopicTitleFromConversationalText(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.Trim(s, "「」『』\"' ")
+	s = trimLeadingTopicReaction(s)
+	for _, marker := range []string{"って組み合わせ", "という組み合わせ"} {
+		if idx := strings.Index(s, marker); idx > 0 {
+			return strings.TrimSpace(strings.Trim(s[:idx], "「」『』\"' "))
+		}
+	}
+	for _, marker := range []string{"めっちゃ", "すごく", "なんか物語", "物語になりそう", "エモい"} {
+		if idx := strings.Index(s, marker); idx > 0 {
+			s = strings.TrimSpace(strings.TrimRight(s[:idx], "、。！？!? "))
+			break
+		}
+	}
+	return strings.TrimSpace(strings.Trim(s, "「」『』\"' "))
+}
+
+func trimLeadingTopicReaction(s string) string {
+	for {
+		trimmed := strings.TrimSpace(s)
+		cut := -1
+		for _, mark := range []string{"！", "!", "？", "?"} {
+			if idx := strings.Index(trimmed, mark); idx >= 0 && utf8.RuneCountInString(trimmed[:idx]) < 40 {
+				if cut == -1 || idx < cut {
+					cut = idx
+				}
+			}
+		}
+		if cut < 0 {
+			return trimmed
+		}
+		prefix := trimmed[:cut]
+		if !containsAny(prefix, "えー", "うーん", "わあ", "おお", "なるほど", "たしかに") {
+			return trimmed
+		}
+		s = strings.TrimSpace(trimmed[cut+len(string([]rune(trimmed[cut:])[0])):])
+	}
 }
 
 func formatMovieTopicPrompt(raw string) string {
@@ -1102,7 +1173,7 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 	return summary
 }
 
-// speakSummary は Mio にまとめを読み上げさせ、TTS 完了を待つ。
+// speakSummary は Mio にまとめを読み上げさせる。会話進行は TTS 完了を待たない。
 func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 	if strings.TrimSpace(summary) == "" {
 		return
@@ -1112,7 +1183,7 @@ func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 	msg := domaintransport.NewMessage("mio", "user", sessionID, "", spokenSummary)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
-	ttsDone := o.emitTimelineEvent(TimelineEvent{
+	o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "mio",
 		To:        "user",
@@ -1120,7 +1191,6 @@ func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 		SessionID: sessionID,
 	})
 	log.Printf("[IdleChat] Mio reading summary: %s", truncate(spokenSummary, 80))
-	o.waitForTTSDone(ttsDone)
 	o.waitBreak(topicBreak)
 }
 
@@ -1250,7 +1320,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	if turn == 0 {
 		messages = append(messages, llm.Message{
 			Role:    "user",
-			Content: buildIdleTurnPrompt(topic, target, "", "", turn, segmentTurns, true),
+			Content: buildIdleTurnPrompt(topic, speaker, "", "", turn, segmentTurns, true),
 		})
 	} else {
 		messages = append(messages, llm.Message{
@@ -1266,9 +1336,10 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	}
 
 	provider := o.providerForSpeaker(speaker)
-	resp, err := provider.Generate(o.ctx, req)
+	resp, err := o.generateIdleLLM(provider, req)
 	if err != nil {
-		return "", fmt.Errorf("LLM generate primary: %w", err)
+		log.Printf("[IdleChat] LLM generate primary failed (%s turn=%d): %v", speaker, turn, err)
+		return fallbackIdleResponse(speaker, topic, latestOther, turn), nil
 	}
 	firstRaw := strings.TrimSpace(resp.Content)
 	first := sanitizeIdleResponse(resp.Content, topic)
@@ -1278,7 +1349,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "今の返答は無効です。記号だけや空文をやめて、自然な会話文を1-2文で言い直してください。",
 		})
-		respInvalid, errInvalid := provider.Generate(o.ctx, llm.GenerateRequest{
+		respInvalid, errInvalid := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retryInvalid,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -1297,7 +1368,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "評価や言い直し宣言は書かず、別の手で自然に返してください。直前の言い回しをなぞらず、1文目で反応し、2文目で新しい具体例か問いを一つだけ足してください。",
 		})
-		respStyle, errStyle := provider.Generate(o.ctx, llm.GenerateRequest{
+		respStyle, errStyle := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retryStyle,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -1316,7 +1387,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "指示文の断片を消して、自然な会話文だけを1-2文で言い直してください。メタ表現は禁止です。",
 		})
-		respLeak, errLeak := provider.Generate(o.ctx, llm.GenerateRequest{
+		respLeak, errLeak := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retryLeak,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -1334,7 +1405,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			Role:    "user",
 			Content: "発言帰属が曖昧です。相手の案を受ける形にして、1-2文で言い直してください。",
 		})
-		resp2, err2 := provider.Generate(o.ctx, llm.GenerateRequest{
+		resp2, err2 := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retry,
 			MaxTokens:   160,
 			Temperature: temp,
@@ -1353,6 +1424,37 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	}
 
 	return first, nil
+}
+
+func (o *IdleChatOrchestrator) generateIdleLLM(provider llm.LLMProvider, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+	if provider == nil {
+		return llm.GenerateResponse{}, fmt.Errorf("idlechat LLM provider is nil")
+	}
+	timeout := idleChatLLMGenerateTimeout
+	if timeout <= 0 {
+		return provider.Generate(o.ctx, req)
+	}
+	ctx, cancel := context.WithTimeout(o.ctx, timeout)
+	defer cancel()
+	return provider.Generate(ctx, req)
+}
+
+func fallbackIdleResponse(speaker, topic, latestOther string, turn int) string {
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		topic = "この話題"
+	}
+	other := strings.TrimSpace(latestOther)
+	if other != "" {
+		if strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
+			return fmt.Sprintf("そこは整理すると、直前の話は「%s」の見え方を一段具体にする入口ですね。%sでは、見る人が何を手がかりに解釈を変えるのかを考えると会話が進みそうです。", truncate(other, 36), topic)
+		}
+		return fmt.Sprintf("それ、%sの中でもかなり大事なひっかかりだね。直前の話を受けるなら、次は見る人がどこで気づくかを決めたいな。", topic)
+	}
+	if turn == 0 {
+		return fmt.Sprintf("%sは、最初に一つ具体的な場面を置くと話しやすそうです。まず誰が何を見つけるのかから考えませんか。", topic)
+	}
+	return fmt.Sprintf("%sについて、いま出た観点を一つ具体例に寄せてみたいです。どの場面でそれが見えるかを決めると進みそうです。", topic)
 }
 
 func (o *IdleChatOrchestrator) temperatureForSpeaker(speaker string) float64 {
@@ -1814,30 +1916,133 @@ func buildIdleResponseGuardPrompt(speaker string, selfCtx, otherCtx []string) st
 
 func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string, turn int, segmentTurns int, firstTurn bool) string {
 	movieMode := isMovieTopicPrompt(topic)
+	interest := idleInterestProfileForTopic(topic)
 	closingMode := !firstTurn && turnsLeftInTopic(segmentTurns) <= 2
 	move := idleTurnMove(speakerOrTarget, turn, firstTurn, movieMode, closingMode)
-	audience := idleAudienceAngle(turn, movieMode, closingMode)
+	audience := idleAudienceAngleForProfile(turn, movieMode, closingMode, interest)
 	shiftHint := idleShiftHint(latestOther, latestSelf)
 	if firstTurn {
 		return fmt.Sprintf(
-			"話題: %s\n%sとして1-2文で始めてください。\n今回の役割: %s\n読者の楽しみ: %s\nルール:\n- 自然に入る\n- 相手が返しやすい観点か問いを1つ入れる\n- 映画お題なら主人公・事件・場面のどれかを出す",
+			"話題: %s\n話題タイプ: %s\n面白さの狙い: %s\n%sとして1-2文で始めてください。\n今回の役割: %s\n読者の楽しみ: %s\n面白さの出し方: %s\nルール:\n- これは独白ではなく二人の対話です。相手が次に返したくなる未完の観点か問いを1つ残す\n- 自然に入る\n- 相手が返しやすい観点か問いを1つ入れる\n- 面白さの狙いから外れる要素を混ぜすぎない\n- 映画お題なら主人公・事件・場面のどれかを出す",
 			topic,
+			interest.TopicType,
+			interest.Name,
 			speakerOrTarget,
 			move,
 			audience,
+			interest.Instruction,
 		)
 	}
 	return fmt.Sprintf(
-		"話題: %s\n%sとして1-2文で返答してください。\n直前の相手発言: %s\n自分の直前発言: %s\n今回の役割: %s\n読者の楽しみ: %s\nルール:\n- 1文目は反応、2文目で前に進める\n- 直前と同じ比喩の型を繰り返さず、因果・場面・手順のどれかにずらす\n%s\n- 抽象語だけで逃げず、少し具体化する\n- 映画お題なら主人公・事件・対立・反転のどれかを進める\n%s",
+		"話題: %s\n話題タイプ: %s\n面白さの狙い: %s\n%sとして1-2文で返答してください。\n直前の相手発言: %s\n自分の直前発言: %s\n今回の役割: %s\n読者の楽しみ: %s\n面白さの出し方: %s\nルール:\n- これは独白ではなく二人の対話です。直前の相手発言の論点・疑問・具体語のどれかを必ず受けてから返す\n- 1文目は相手の発言への反応、2文目で新しい具体例・理由・問いのどれかを一つだけ足す\n- 直前と同じ比喩の型を繰り返さず、因果・場面・手順のどれかにずらす\n%s\n- 抽象語だけで逃げず、少し具体化する\n- 面白さの狙いから外れる要素を混ぜすぎない\n- 映画お題なら主人公・事件・対立・反転のどれかを進める\n%s",
 		topic,
+		interest.TopicType,
+		interest.Name,
 		speakerOrTarget,
 		quoteOrDash(latestOther),
 		quoteOrDash(latestSelf),
 		move,
 		audience,
+		interest.Instruction,
 		shiftHint,
 		idleClosingHint(closingMode, movieMode),
 	)
+}
+
+type idleInterestProfile struct {
+	TopicType   string
+	Name        string
+	Instruction string
+	Angles      []string
+}
+
+func idleInterestProfileForTopic(topic string) idleInterestProfile {
+	normalized := strings.ToLower(strings.TrimSpace(topic))
+	if isMovieTopicPrompt(topic) || containsAny(normalized, "映画", "物語", "ストーリー", "脚本", "主人公", "事件", "ラスト", "伏線") {
+		return idleInterestProfile{
+			TopicType:   "物語・映画",
+			Name:        "展開と感情",
+			Instruction: "次に何が起きるか気になる要素を一つ置き、人物の感情か場面を少し動かす。",
+			Angles: []string{
+				"最初の一場面が目に浮かぶこと",
+				"次に何が起きるか少し気になること",
+				"主人公の感情が一段動くこと",
+				"前の要素が後で効きそうに見えること",
+			},
+		}
+	}
+	if containsAny(normalized, "技術", "実装", "設計", "運用", "障害", "cli", "api", "repo", "git", "コード", "テスト", "ビルド", "デプロイ", "プロンプト") {
+		return idleInterestProfile{
+			TopicType:   "技術・運用",
+			Name:        "構造と対比",
+			Instruction: "原因・分岐点・別案との差のどれか一つを整理し、判断しやすい形にする。",
+			Angles: []string{
+				"構造が見えて判断しやすくなること",
+				"似た案との差が一つはっきりすること",
+				"どこが分岐点か見えること",
+				"実際に動かす時の落とし穴が一つ見えること",
+			},
+		}
+	}
+	if containsAny(normalized, "ニュース", "未来", "予測", "市場", "社会", "政治", "経済", "ai", "生成ai", "トレンド", "来年", "今後") {
+		return idleInterestProfile{
+			TopicType:   "ニュース・未来予測",
+			Name:        "因果と生活への影響",
+			Instruction: "大きな話をそのまま語らず、何が変わるかを個人・現場・社会のどれかに落とす。",
+			Angles: []string{
+				"大きな変化が身近な場面に落ちること",
+				"原因と結果のつながりが一段見えること",
+				"賛否や勝ち負けの条件が一つ見えること",
+				"数か月後の生活や現場が少し想像できること",
+			},
+		}
+	}
+	if containsAny(normalized, "日常", "生活", "ごはん", "料理", "睡眠", "散歩", "部屋", "仕事帰り", "休日", "疲れ", "飲み", "雑談") {
+		return idleInterestProfile{
+			TopicType:   "日常・雑談",
+			Name:        "具体と小さな意外性",
+			Instruction: "身近な場面や手触りを一つ出し、少しだけ意外な見方か感情を添える。",
+			Angles: []string{
+				"その場面がすぐ浮かぶこと",
+				"小さな違和感や発見で少し笑えること",
+				"自分にもありそうだと感じられること",
+				"何気ないものの見え方が少し変わること",
+			},
+		}
+	}
+	if containsAny(normalized, "架空", "妄想", "もし", "魔法", "異世界", "宇宙", "妖怪", "都市伝説", "存在しない") {
+		return idleInterestProfile{
+			TopicType:   "架空設定・妄想",
+			Name:        "破綻寸前の納得感",
+			Instruction: "変な設定を出してよいが、条件や絵面を一つ置いて筋が通るようにする。",
+			Angles: []string{
+				"変だけど筋は通っていると感じること",
+				"一枚絵として強い場面が浮かぶこと",
+				"制約があるせいで逆に面白くなること",
+				"次の展開を見たくなる不穏さが残ること",
+			},
+		}
+	}
+	return idleInterestProfile{
+		TopicType:   "探索・一般",
+		Name:        "発見と具体化",
+		Instruction: "知らなかった見方か意外な接続を一つ出し、抽象論で終わらせず具体例に落とす。",
+		Angles: []string{
+			"意外な結びつきに軽く驚けること",
+			"身近な例で急に腑に落ちること",
+			"見方が少し反転して先を読みたくなること",
+			"話題の輪郭が一段くっきりすること",
+		},
+	}
+}
+
+func containsAny(s string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(s, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
 }
 
 func turnsLeftInTopic(segmentTurns int) int {
@@ -1931,6 +2136,19 @@ func idleAudienceAngle(turn int, movieMode, closingMode bool) string {
 		"話題の輪郭が一段くっきりすること",
 	}
 	return angles[turn%len(angles)]
+}
+
+func idleAudienceAngleForProfile(turn int, movieMode, closingMode bool, profile idleInterestProfile) string {
+	if closingMode {
+		if movieMode {
+			return "締めに向かって、見終わったあとの余韻が少し残ること"
+		}
+		return "最後に話の芯がまとまり、少し余韻が残ること"
+	}
+	if len(profile.Angles) == 0 {
+		return idleAudienceAngle(turn, movieMode, closingMode)
+	}
+	return profile.Angles[turn%len(profile.Angles)]
 }
 
 func idleClosingHint(closingMode, movieMode bool) string {
@@ -2307,12 +2525,11 @@ func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, stra
 	msg := domaintransport.NewMessage("user", "mio", sessionID, "", content)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
-	ttsDone := o.emitTimelineEvent(TimelineEvent{
+	o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "user",
 		To:        "mio",
 		Content:   content,
 		SessionID: sessionID,
 	})
-	o.waitForTTSDone(ttsDone)
 }

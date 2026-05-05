@@ -6,6 +6,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -80,6 +81,47 @@ func TestCodeExecutor_CODE3_WithProposal(t *testing.T) {
 	// レスポンスにPlanが含まれることを確認
 	if resp.Response == "" {
 		t.Error("Expected non-empty response")
+	}
+}
+
+func TestCodeExecutor_CODEDynamicSelectsCODE3_UsesProposalPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	testProposal := proposal.NewProposal(
+		"Test plan",
+		`[{"type": "file_edit", "action": "create", "target": "`+tmpDir+`/dynamic-code3.txt", "content": "ok"}]`,
+		"Low risk",
+		"Low cost",
+	)
+
+	coder3 := &mockCoderAgentWithProposal{
+		response: "plain response should not be used",
+		proposal: testProposal,
+	}
+
+	workerService := service.NewWorkerExecutionService(workerConfigForTest(tmpDir))
+	executor := NewDefaultCodeExecutor(nil, nil, coder3, nil, workerService, nil, noopEventEmitter).WithCapabilities([]capability.CoderCapability{
+		{Name: "coder3", Quality: 5, Available: true},
+	})
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if !resp.Handled {
+		t.Fatal("CODE dynamically selected as CODE3 quality should use Proposal path")
+	}
+	if resp.Response == "" {
+		t.Fatal("Expected non-empty response")
 	}
 }
 

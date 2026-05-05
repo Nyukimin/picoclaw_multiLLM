@@ -37,8 +37,8 @@ type codeTarget struct {
 	name          string
 	coder         CoderAgent
 	systemPrompt  string
-	release       func()         // CoderStatus解放用（オプション）
-	degradedRoute routing.Route  // 品質縮退が発生した場合の実際のルート（空 = 縮退なし）
+	release       func()        // CoderStatus解放用（オプション）
+	degradedRoute routing.Route // 品質縮退が発生した場合の実際のルート（空 = 縮退なし）
 }
 
 // DefaultCodeExecutor は標準的なCodeExecutor実装
@@ -100,14 +100,19 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	e.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 	e.emit("agent.start", "shiro", target.name, req.Task.UserMessage(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 
-	// CODE3明示ルートはProposal生成が可能ならWorkerで即時実行
-	if req.Route == routing.RouteCODE3 && e.workerExecution != nil {
+	// CODE3明示ルート、または動的選択でCODE3品質へ縮退したルートは、
+	// Proposal生成が可能ならWorkerで即時実行する。
+	if shouldUseProposalPath(req.Route, target) && e.workerExecution != nil {
 		if resp, handled, err := e.tryExecuteProposalPath(ctx, req, target); handled {
 			return resp, err
 		}
 	}
 
 	return e.executeCoderGeneratePath(ctx, req, target)
+}
+
+func shouldUseProposalPath(route routing.Route, target codeTarget) bool {
+	return route == routing.RouteCODE3 || target.degradedRoute == routing.RouteCODE3
 }
 
 // selectCoderForRoute はルートに応じてCoderを選択

@@ -12,11 +12,12 @@ import (
 )
 
 type idleChatMockTTSBridge struct {
-	startReqs   []orchestrator.TTSSessionStart
-	pushTexts   []string
-	pushEmo     []*ttsapp.EmotionState
-	endIDs      []string
-	notifyOnEnd bool
+	startReqs    []orchestrator.TTSSessionStart
+	pushTexts    []string
+	displayTexts []string
+	pushEmo      []*ttsapp.EmotionState
+	endIDs       []string
+	notifyOnEnd  bool
 }
 
 func (m *idleChatMockTTSBridge) StartSession(_ context.Context, req orchestrator.TTSSessionStart) error {
@@ -27,6 +28,14 @@ func (m *idleChatMockTTSBridge) StartSession(_ context.Context, req orchestrator
 func (m *idleChatMockTTSBridge) PushText(_ context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
 	_ = sessionID
 	m.pushTexts = append(m.pushTexts, text)
+	m.pushEmo = append(m.pushEmo, emotion)
+	return nil
+}
+
+func (m *idleChatMockTTSBridge) PushTextWithDisplay(_ context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
+	_ = sessionID
+	m.pushTexts = append(m.pushTexts, text)
+	m.displayTexts = append(m.displayTexts, displayText)
 	m.pushEmo = append(m.pushEmo, emotion)
 	return nil
 }
@@ -103,9 +112,15 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	if len(bridge.pushTexts) != 1 {
 		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
 	}
-	want := "きょうのおだいです、震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？です！"
+	want := "きょうのおだい、震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？"
 	if bridge.pushTexts[0] != want {
 		t.Fatalf("unexpected topic tts text: got %q want %q", bridge.pushTexts[0], want)
+	}
+	if got := bridge.displayTexts[0]; got != "今日のお題：震災の追悼の杜で、記憶と風景の関係をどう捉えたらどうだろう？" {
+		t.Fatalf("unexpected topic display text: %q", got)
+	}
+	if got := bridge.startReqs[0].CharacterID; got != "user" {
+		t.Fatalf("topic announcement should be attributed to Ren/user, got %q", got)
 	}
 }
 
@@ -130,6 +145,39 @@ func TestEmitIdleChatTTSAsyncTopicAnnouncementReturnsCompletion(t *testing.T) {
 	}
 	if len(bridge.pushTexts) != 1 {
 		t.Fatalf("expected topic TTS to be pushed, got %d", len(bridge.pushTexts))
+	}
+}
+
+func TestEmitIdleChatTTSAsyncSerializesIdleSpeech(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{notifyOnEnd: true}
+
+	first := emitIdleChatTTSAsync(bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "shiro",
+		Content:   "先の発話です。",
+		SessionID: "idle-serial-1",
+	})
+	second := emitIdleChatTTSAsync(bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "shiro",
+		To:        "mio",
+		Content:   "後の発話です。",
+		SessionID: "idle-serial-1",
+	})
+
+	for name, done := range map[string]<-chan struct{}{"first": first, "second": second} {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s TTS completion was not signaled", name)
+		}
+	}
+	if len(bridge.pushTexts) < 2 {
+		t.Fatalf("expected two serialized pushes, got %d", len(bridge.pushTexts))
+	}
+	if bridge.pushTexts[len(bridge.pushTexts)-2] != "先の発話です。" || bridge.pushTexts[len(bridge.pushTexts)-1] != "後の発話です。" {
+		t.Fatalf("speech was not serialized in enqueue order: %#v", bridge.pushTexts)
 	}
 }
 

@@ -31,13 +31,19 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.listeners = {};
     this.style = {};
+    this.dataset = {};
+    this.attributes = {};
     this.disabled = false;
     this.textContent = '';
     this.className = '';
     this.innerHTML = '';
+    this.tabIndex = 0;
   }
   addEventListener(type, fn) {
     this.listeners[type] = fn;
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
   }
   appendChild(child) {
     this.children.push(child);
@@ -75,16 +81,34 @@ const idleModeForecastBtn = document.getElementById('idleModeForecast');
 const idleModeStorySimpleBtn = document.getElementById('idleModeStorySimple');
 const idleStopBtn = document.getElementById('idleStop');
 const idleStateEl = document.getElementById('idleState');
+const idleLiveTab = document.getElementById('idleSubtabLive');
+const idleSummaryTab = document.getElementById('idleSubtabSummary');
+const idleHistoryTab = document.getElementById('idleSubtabHistory');
+idleLiveTab.dataset.idleView = 'live';
+idleSummaryTab.dataset.idleView = 'summary';
+idleHistoryTab.dataset.idleView = 'history';
+const idleViewLive = document.getElementById('idleViewLive');
+const idleViewSummary = document.getElementById('idleViewSummary');
+const idleViewHistory = document.getElementById('idleViewHistory');
+const idleSubtabs = [idleLiveTab, idleSummaryTab, idleHistoryTab];
+const idleSubviews = [idleViewLive, idleViewSummary, idleViewHistory];
 ` + sourceBetween(html, 'function setIdleState', 'function stateClass') + `
 globalThis.__idleHarness = {
   state,
   setIdleSelectedMode,
+  setIdleSelectedView,
   renderIdleChat,
   idleStartBtn,
   idleModeNormalBtn,
   idleModeForecastBtn,
   idleModeStorySimpleBtn,
   idleStopBtn,
+  idleLiveTab,
+  idleSummaryTab,
+  idleHistoryTab,
+  idleViewLive,
+  idleViewSummary,
+  idleViewHistory,
 };
 `;
 
@@ -120,6 +144,7 @@ globalThis.__idleHarness = {
       return value.length > n ? value.slice(0, n) + '...' : value;
     },
     fdt: (s) => String(s || ''),
+    fmt: (s) => String(s || ''),
     copyTextPayload() {},
     showToast() {},
   };
@@ -174,4 +199,22 @@ test('idle chat history renders full topic without ellipsis truncation', () => {
   const row = harness.elements.get('idlechatBody').children[0];
   assert.ok(row.innerHTML.includes('長いお題です。'.repeat(20)));
   assert.equal(row.innerHTML.includes('...'), false);
+});
+
+test('idle subview buttons switch summary review into a distinct view', () => {
+  const {harness, localStore} = loadIdleModeHarness();
+
+  harness.setIdleSelectedView('summary');
+
+  assert.equal(harness.state.idleChat.selectedView, 'summary');
+  assert.equal(localStore.get('idlechat.selectedView'), 'summary');
+  assert.equal(harness.idleSummaryTab.classList.contains('active'), true);
+  assert.equal(harness.idleLiveTab.classList.contains('active'), false);
+  assert.equal(harness.idleViewSummary.classList.contains('active'), true);
+  assert.equal(harness.idleViewLive.classList.contains('active'), false);
+
+  harness.idleHistoryTab.click();
+  assert.equal(harness.state.idleChat.selectedView, 'history');
+  assert.equal(harness.idleViewHistory.classList.contains('active'), true);
+  assert.equal(harness.idleViewSummary.classList.contains('active'), false);
 });

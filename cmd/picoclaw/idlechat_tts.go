@@ -108,9 +108,9 @@ func formatIdleChatTTSText(ev idlechat.TimelineEvent) string {
 	if strings.EqualFold(ev.From, "user") && strings.EqualFold(ev.To, "mio") && idleChatTopicPrefixRe.MatchString(content) {
 		topic := strings.TrimSpace(idleChatTopicPrefixRe.ReplaceAllString(content, ""))
 		if topic == "" {
-			return "きょうのおだいです！"
+			return "きょうのおだい。"
 		}
-		return "きょうのおだいです、" + ensureIdleChatSentencePause(topic) + "です！"
+		return "きょうのおだい、" + ensureIdleChatSentencePause(topic)
 	}
 	return ensureIdleChatSentencePause(stripIdleChatSpeechNotes(content))
 }
@@ -120,9 +120,9 @@ func formatIdleChatDisplayText(ev idlechat.TimelineEvent) string {
 	if strings.EqualFold(ev.From, "user") && strings.EqualFold(ev.To, "mio") && idleChatTopicPrefixRe.MatchString(content) {
 		topic := strings.TrimSpace(idleChatTopicPrefixRe.ReplaceAllString(content, ""))
 		if topic == "" {
-			return "今日のお題です！"
+			return "今日のお題："
 		}
-		return "今日のお題です、" + ensureIdleChatSentencePause(topic) + "です！"
+		return "今日のお題：" + topic
 	}
 	return ensureIdleChatSentencePause(content)
 }
@@ -167,30 +167,20 @@ func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEve
 	if bridge == nil {
 		return nil
 	}
-	if !isIdleChatTopicAnnouncement(ev) {
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			// Non-topic lines wait until the topic TTS closes its gate for this idle session.
-			waitIdleChatTopicGate(ev.SessionID)
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			ttsCh, ok := emitIdleChatTTS(ctx, bridge, ev)
-			if ok && ttsCh != nil {
-				select {
-				case <-ttsCh:
-				case <-ctx.Done():
-					clearIdleChatTTSPendingByChan(ttsCh)
-				}
-			}
-		}()
-		return done
-	}
-	// Topic announcements must also be awaited. Otherwise the next topic can
-	// start while the previous topic is still being synthesized or played.
 	done := make(chan struct{})
+	ensureIdleChatTTSQueue()
+	select {
+	case idleChatTTSQueue <- idleChatTTSItem{bridge: bridge, ev: ev, done: done}:
+	default:
+		log.Printf("[IdleChat] TTS queue full; dropping speech: from=%s session=%s", ev.From, ev.SessionID)
+		close(done)
+	}
+	return done
+}
+
+func ensureIdleChatTTSQueue() {
 	idleChatTTSOnce.Do(func() {
-		idleChatTTSQueue = make(chan idleChatTTSItem, 128)
+		idleChatTTSQueue = make(chan idleChatTTSItem, 512)
 		go func() {
 			for item := range idleChatTTSQueue {
 				func() {
@@ -198,35 +188,18 @@ func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEve
 					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 					defer cancel()
 					waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
-					if ok && waitCh != nil {
-						select {
-						case <-waitCh:
-						case <-ctx.Done():
-							clearIdleChatTTSPendingByChan(waitCh)
-						}
+					if !ok || waitCh == nil {
+						return
+					}
+					select {
+					case <-waitCh:
+					case <-ctx.Done():
+						clearIdleChatTTSPendingByChan(waitCh)
 					}
 				}()
 			}
 		}()
 	})
-	select {
-	case idleChatTTSQueue <- idleChatTTSItem{bridge: bridge, ev: ev, done: done}:
-	default:
-		go func() {
-			defer close(done)
-			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-			defer cancel()
-			waitCh, ok := emitIdleChatTTS(ctx, bridge, ev)
-			if ok && waitCh != nil {
-				select {
-				case <-waitCh:
-				case <-ctx.Done():
-					clearIdleChatTTSPendingByChan(waitCh)
-				}
-			}
-		}()
-	}
-	return done
 }
 
 func isIdleChatTopicAnnouncement(ev idlechat.TimelineEvent) bool {
@@ -334,8 +307,10 @@ func normalizeIdleChatCharacterID(speaker string) string {
 	switch strings.ToLower(strings.TrimSpace(speaker)) {
 	case "shiro", "しろ":
 		return "shiro"
-	case "mio", "みお", "れん", "ren", "user":
+	case "mio", "みお":
 		return "mio"
+	case "れん", "ren", "user":
+		return "user"
 	default:
 		return strings.ToLower(strings.TrimSpace(speaker))
 	}
