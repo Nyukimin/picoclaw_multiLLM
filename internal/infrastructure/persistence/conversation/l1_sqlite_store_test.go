@@ -862,6 +862,52 @@ func TestL1SQLiteStore_SourceRegistrySaveListAndTrustScores(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_DueSourceRegistryEntriesAndFetchStatus(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	if _, err := store.SaveSourceRegistryEntry(ctx, L1SourceRegistryEntry{
+		SourceID:      "rss:due",
+		URL:           "https://example.com/feed.xml",
+		Kind:          L1SourceKindRSS,
+		TrustScore:    0.8,
+		FetchInterval: time.Hour,
+		LicenseNote:   "rss",
+		Enabled:       true,
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	due, err := store.DueSourceRegistryEntries(ctx, now)
+	if err != nil {
+		t.Fatalf("DueSourceRegistryEntries failed: %v", err)
+	}
+	if len(due) != 1 || due[0].SourceID != "rss:due" {
+		t.Fatalf("expected source to be due before first fetch, got %+v", due)
+	}
+	if err := store.MarkSourceRegistryFetched(ctx, "rss:due", now, "ok", ""); err != nil {
+		t.Fatalf("MarkSourceRegistryFetched failed: %v", err)
+	}
+	due, err = store.DueSourceRegistryEntries(ctx, now.Add(30*time.Minute))
+	if err != nil {
+		t.Fatalf("DueSourceRegistryEntries failed: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("source should not be due inside interval: %+v", due)
+	}
+	due, err = store.DueSourceRegistryEntries(ctx, now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("DueSourceRegistryEntries failed: %v", err)
+	}
+	if len(due) != 1 || !due[0].LastFetchedAt.Equal(now) || due[0].LastStatus != "ok" {
+		t.Fatalf("source should be due after interval with status fields, got %+v", due)
+	}
+}
+
 func TestL1SQLiteStore_StageSourceRegistryFetchToStaging(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

@@ -39,6 +39,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/sourcefetcher"
 	subagentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -166,6 +167,31 @@ func buildConversationEmbedder(cfg *config.Config) (conversation.EmbeddingProvid
 		baseURL = cfg.LocalLLM.BaseURL
 	}
 	return ollama.NewOllamaEmbedder(baseURL, model), fmt.Sprintf("%s (model: %s)", baseURL, model)
+}
+
+func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
+	sweep := func() {
+		result, err := sourcefetcher.SweepDueSources(context.Background(), store, time.Now().UTC(), sourcefetcher.SweepOptions{
+			LimitPerSource:    10,
+			MinimumTrustScore: 0.5,
+		})
+		if err != nil {
+			log.Printf("WARN: source registry sweep failed: %v", err)
+			return
+		}
+		if result.Sources > 0 || result.Staged > 0 || result.Failed > 0 {
+			log.Printf("Source registry sweep complete: sources=%d staged=%d validated=%d promoted_news=%d failed=%d",
+				result.Sources, result.Staged, result.Validated, result.PromotedNews, result.Failed)
+		}
+	}
+	go func() {
+		sweep()
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			sweep()
+		}
+	}()
 }
 
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
@@ -2350,6 +2376,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		chatToolRunnerV2.WithWebSearchCache(webSearchCache)
 		workerToolRunnerV2.WithWebSearchCache(webSearchCache)
 		log.Printf("ToolRunner web_search cache enabled via Conversation L1")
+	}
+	if l1Store != nil {
+		startSourceRegistrySweeper(l1Store)
 	}
 
 	// 5. Memory Store（HeartbeatService用。Mio会話メモリはConversationEngine v5.1が担当）

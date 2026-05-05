@@ -148,6 +148,9 @@ type L1SourceRegistryEntry struct {
 	LicenseNote   string
 	Enabled       bool
 	Meta          map[string]interface{}
+	LastFetchedAt time.Time
+	LastStatus    string
+	LastError     string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -309,6 +312,9 @@ CREATE TABLE IF NOT EXISTS l1_source_registry (
 	license_note TEXT NOT NULL,
 	enabled INTEGER NOT NULL,
 	meta_json TEXT NOT NULL DEFAULT '{}',
+	last_fetched_at TIMESTAMP,
+	last_status TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMP NOT NULL,
 	updated_at TIMESTAMP NOT NULL
 );
@@ -376,6 +382,15 @@ CREATE INDEX IF NOT EXISTS idx_l1_knowledge_fts_domain ON l1_knowledge_item_fts(
 	}
 	if _, err := s.db.ExecContext(ctx, `ALTER TABLE l1_daily_digest ADD COLUMN digest_slot TEXT NOT NULL DEFAULT 'day'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("failed to migrate l1 daily digest slot: %w", err)
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE l1_source_registry ADD COLUMN last_fetched_at TIMESTAMP`,
+		`ALTER TABLE l1_source_registry ADD COLUMN last_status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE l1_source_registry ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to migrate l1 source registry fetch status: %w", err)
+		}
 	}
 	if _, err := s.db.ExecContext(ctx, `
 DROP INDEX IF EXISTS idx_l1_daily_digest_date_category;
@@ -784,7 +799,7 @@ ON CONFLICT(source_id) DO UPDATE SET
 func (s *L1SQLiteStore) ListSourceRegistryEntries(ctx context.Context, enabledOnly bool) ([]L1SourceRegistryEntry, error) {
 	query := `
 SELECT source_id, url, kind, trust_score, fetch_interval_sec, license_note,
-       enabled, meta_json, created_at, updated_at
+       enabled, meta_json, last_fetched_at, last_status, last_error, created_at, updated_at
 FROM l1_source_registry
 `
 	var args []interface{}
@@ -799,6 +814,67 @@ FROM l1_source_registry
 	}
 	defer rows.Close()
 	return scanL1SourceRegistryEntries(rows)
+}
+
+func (s *L1SQLiteStore) DueSourceRegistryEntries(ctx context.Context, now time.Time) ([]L1SourceRegistryEntry, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT source_id, url, kind, trust_score, fetch_interval_sec, license_note,
+       enabled, meta_json, last_fetched_at, last_status, last_error, created_at, updated_at
+FROM l1_source_registry
+WHERE enabled = 1
+  AND (last_fetched_at IS NULL OR datetime(last_fetched_at, '+' || fetch_interval_sec || ' seconds') <= datetime(?))
+ORDER BY source_id ASC
+`, now.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query due l1 source registry: %w", err)
+	}
+	defer rows.Close()
+	return scanL1SourceRegistryEntries(rows)
+}
+
+func (s *L1SQLiteStore) MarkSourceRegistryFetched(ctx context.Context, sourceID string, fetchedAt time.Time, status string, lastError string) error {
+	sourceID = strings.TrimSpace(sourceID)
+	status = strings.TrimSpace(status)
+	lastError = strings.TrimSpace(lastError)
+	if sourceID == "" {
+		return errors.New("l1 source registry source_id is required")
+	}
+	if fetchedAt.IsZero() {
+		fetchedAt = time.Now().UTC()
+	}
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `
+UPDATE l1_source_registry
+SET last_fetched_at = ?, last_status = ?, last_error = ?, updated_at = ?
+WHERE source_id = ?
+`, fetchedAt.UTC(), status, lastError, now, sourceID)
+	if err != nil {
+		return fmt.Errorf("failed to update l1 source registry fetch status: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to inspect l1 source registry fetch status update: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("l1 source registry entry not found: %s", sourceID)
+	}
+	registryNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, "source_registry")
+	if err != nil {
+		return err
+	}
+	_, err = s.AppendEvent(ctx, "source_registry.fetched", registryNamespace, "", 0, map[string]interface{}{
+		"source_id":  sourceID,
+		"status":     status,
+		"last_error": lastError,
+		"fetched_at": fetchedAt.UTC().Format(time.RFC3339),
+	}, "source_registry")
+	if err != nil {
+		return fmt.Errorf("failed to append l1 source registry fetch event: %w", err)
+	}
+	return nil
 }
 
 func (s *L1SQLiteStore) SourceTrustScores(ctx context.Context) (map[string]float64, error) {
@@ -2103,6 +2179,7 @@ func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error
 		var fetchIntervalSec int64
 		var enabled int
 		var metaJSON string
+		var lastFetchedAt sql.NullTime
 		if err := rows.Scan(
 			&entry.SourceID,
 			&entry.URL,
@@ -2112,6 +2189,9 @@ func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error
 			&entry.LicenseNote,
 			&enabled,
 			&metaJSON,
+			&lastFetchedAt,
+			&entry.LastStatus,
+			&entry.LastError,
 			&entry.CreatedAt,
 			&entry.UpdatedAt,
 		); err != nil {
@@ -2119,6 +2199,9 @@ func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error
 		}
 		entry.FetchInterval = time.Duration(fetchIntervalSec) * time.Second
 		entry.Enabled = enabled != 0
+		if lastFetchedAt.Valid {
+			entry.LastFetchedAt = lastFetchedAt.Time
+		}
 		if metaJSON == "" {
 			metaJSON = "{}"
 		}
@@ -2138,9 +2221,10 @@ func (s *L1SQLiteStore) sourceRegistryEntryByID(ctx context.Context, sourceID st
 	var fetchIntervalSec int64
 	var enabled int
 	var metaJSON string
+	var lastFetchedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
 SELECT source_id, url, kind, trust_score, fetch_interval_sec, license_note,
-       enabled, meta_json, created_at, updated_at
+       enabled, meta_json, last_fetched_at, last_status, last_error, created_at, updated_at
 FROM l1_source_registry
 WHERE source_id = ?
 `, sourceID).Scan(
@@ -2152,6 +2236,9 @@ WHERE source_id = ?
 		&entry.LicenseNote,
 		&enabled,
 		&metaJSON,
+		&lastFetchedAt,
+		&entry.LastStatus,
+		&entry.LastError,
 		&entry.CreatedAt,
 		&entry.UpdatedAt,
 	)
@@ -2163,6 +2250,9 @@ WHERE source_id = ?
 	}
 	entry.FetchInterval = time.Duration(fetchIntervalSec) * time.Second
 	entry.Enabled = enabled != 0
+	if lastFetchedAt.Valid {
+		entry.LastFetchedAt = lastFetchedAt.Time
+	}
 	if metaJSON == "" {
 		metaJSON = "{}"
 	}
