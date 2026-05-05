@@ -1331,9 +1331,43 @@ func runSourceRegistryCommand(args []string, store sourceRegistryCLIStore, out i
 		}
 		fmt.Fprintf(out, "saved source registry entry: %s\n", saved.SourceID)
 		return 0
+	case "disable":
+		sourceID, jsonOut, err := parseSourceRegistryDisableArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 1
+		}
+		entries, err := store.ListSourceRegistryEntries(context.Background(), false)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to list source registry: %v\n", err)
+			return 1
+		}
+		var target *conversationpersistence.L1SourceRegistryEntry
+		for i := range entries {
+			if entries[i].SourceID == sourceID {
+				target = &entries[i]
+				break
+			}
+		}
+		if target == nil {
+			fmt.Fprintf(errOut, "source registry entry not found: %s\n", sourceID)
+			return 1
+		}
+		target.Enabled = false
+		saved, err := store.SaveSourceRegistryEntry(context.Background(), *target)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to disable source registry: %v\n", err)
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{"entry": sourceRegistryCLIEntry(*saved)}, false)
+			return 0
+		}
+		fmt.Fprintf(out, "disabled source registry entry: %s\n", saved.SourceID)
+		return 0
 	default:
 		fmt.Fprintf(errOut, "unknown source-registry subcommand: %s\n", subcmd)
-		fmt.Fprintln(errOut, "usage: picoclaw source-registry [list|save]")
+		fmt.Fprintln(errOut, "usage: picoclaw source-registry [list|save|disable]")
 		return 1
 	}
 }
@@ -1529,6 +1563,35 @@ func parseSourceRegistrySaveArgs(args []string) (conversationpersistence.L1Sourc
 		Enabled:       enabled,
 		Meta:          meta,
 	}, jsonOut, nil
+}
+
+func parseSourceRegistryDisableArgs(args []string) (string, bool, error) {
+	sourceID := ""
+	jsonOut := false
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "--source-id":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return "", jsonOut, errors.New("--source-id requires a value")
+			}
+			sourceID = strings.TrimSpace(args[i+1])
+			i++
+		default:
+			if strings.HasPrefix(arg, "--") {
+				return "", jsonOut, fmt.Errorf("unknown source-registry disable option: %s", arg)
+			}
+			if sourceID == "" {
+				sourceID = arg
+			}
+		}
+	}
+	if sourceID == "" {
+		return "", jsonOut, errors.New("source-id is required")
+	}
+	return sourceID, jsonOut, nil
 }
 
 func sourceRegistryCLIEntries(entries []conversationpersistence.L1SourceRegistryEntry) []map[string]any {

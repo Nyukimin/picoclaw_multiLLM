@@ -15,6 +15,12 @@ type sourceRegistryCLIStoreStub struct {
 }
 
 func (s *sourceRegistryCLIStoreStub) SaveSourceRegistryEntry(_ context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error) {
+	for i := range s.entries {
+		if s.entries[i].SourceID == entry.SourceID {
+			s.entries[i] = entry
+			return &entry, nil
+		}
+	}
 	s.entries = append(s.entries, entry)
 	return &entry, nil
 }
@@ -82,5 +88,30 @@ func TestRunSourceRegistryCommand_SaveRequiresFields(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "source-id, url, kind, license-note are required") {
 		t.Fatalf("unexpected error: %s", errOut.String())
+	}
+}
+
+func TestRunSourceRegistryCommand_Disable(t *testing.T) {
+	store := &sourceRegistryCLIStoreStub{entries: []conversationpersistence.L1SourceRegistryEntry{{
+		SourceID:      "rss:ai",
+		URL:           "https://example.com/feed.xml",
+		Kind:          conversationpersistence.L1SourceKindRSS,
+		TrustScore:    0.8,
+		FetchInterval: time.Hour,
+		LicenseNote:   "public feed",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"namespace": "kb:news"},
+	}}}
+	var out, errOut bytes.Buffer
+
+	code := runSourceRegistryCommand([]string{"disable", "rss:ai", "--json"}, store, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("disable should pass, code=%d err=%s", code, errOut.String())
+	}
+	if len(store.entries) != 1 || store.entries[0].Enabled {
+		t.Fatalf("entry should be disabled: %+v", store.entries)
+	}
+	if !strings.Contains(out.String(), `"enabled":false`) {
+		t.Fatalf("expected disabled json output, got %s", out.String())
 	}
 }
