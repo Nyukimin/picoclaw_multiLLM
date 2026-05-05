@@ -52,6 +52,35 @@ func TestDuckDBStore_ExportThreadSummariesParquet(t *testing.T) {
 	}
 }
 
+func TestDuckDBStore_SaveThreadSummaryArchivesSessionID(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewDuckDBStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewDuckDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.SaveThreadSummary(ctx, &domconv.ThreadSummary{
+		ThreadID:  201,
+		SessionID: "sess-l2",
+		StartTime: time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 5, 1, 11, 10, 0, 0, time.UTC),
+		Domain:    "memory",
+		Summary:   "L2 summary archived by session",
+		Keywords:  []string{"l2"},
+	}); err != nil {
+		t.Fatalf("SaveThreadSummary failed: %v", err)
+	}
+
+	got, err := store.GetSessionHistory(ctx, "sess-l2", 10)
+	if err != nil {
+		t.Fatalf("GetSessionHistory failed: %v", err)
+	}
+	if len(got) != 1 || got[0].ThreadID != 201 || got[0].SessionID != "sess-l2" {
+		t.Fatalf("unexpected session history: %+v", got)
+	}
+}
+
 func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewDuckDBStore(":memory:")

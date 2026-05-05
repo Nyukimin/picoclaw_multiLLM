@@ -325,13 +325,24 @@ func marshalArchiveJSON(keywords []string, meta map[string]interface{}) (string,
 
 // SaveThreadSummary はThread要約をDuckDBに保存
 func (d *DuckDBStore) SaveThreadSummary(ctx context.Context, summary *conversation.ThreadSummary) error {
+	if summary == nil {
+		return fmt.Errorf("thread summary is required")
+	}
+	keywords := summary.Keywords
+	if keywords == nil {
+		keywords = []string{}
+	}
+	embedding := summary.Embedding
+	if embedding == nil {
+		embedding = []float32{}
+	}
 	// keywords と embedding を JSON 化（DuckDB の配列型として保存）
-	keywordsJSON, err := json.Marshal(summary.Keywords)
+	keywordsJSON, err := json.Marshal(keywords)
 	if err != nil {
 		return fmt.Errorf("failed to marshal keywords: %w", err)
 	}
 
-	embeddingJSON, err := json.Marshal(summary.Embedding)
+	embeddingJSON, err := json.Marshal(embedding)
 	if err != nil {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
@@ -348,7 +359,7 @@ func (d *DuckDBStore) SaveThreadSummary(ctx context.Context, summary *conversati
 
 	_, err = d.db.ExecContext(ctx, query,
 		summary.ThreadID,
-		"", // session_id は Thread から取得する必要がある（Phase 2.5で修正）
+		summary.SessionID,
 		summary.StartTime,
 		summary.EndTime,
 		summary.Domain,
@@ -367,7 +378,8 @@ func (d *DuckDBStore) SaveThreadSummary(ctx context.Context, summary *conversati
 // GetSessionHistory はセッションの履歴を取得（最新limit件）
 func (d *DuckDBStore) GetSessionHistory(ctx context.Context, sessionID string, limit int) ([]*conversation.ThreadSummary, error) {
 	query := `
-	SELECT thread_id, ts_start, ts_end, domain, summary, keywords, embedding, is_novel
+	SELECT thread_id, session_id, ts_start, ts_end, domain, summary,
+	       CAST(to_json(keywords) AS VARCHAR), CAST(to_json(embedding) AS VARCHAR), is_novel
 	FROM session_thread
 	WHERE session_id = ?
 	ORDER BY ts_start DESC
@@ -387,6 +399,7 @@ func (d *DuckDBStore) GetSessionHistory(ctx context.Context, sessionID string, l
 
 		if err := rows.Scan(
 			&summary.ThreadID,
+			&summary.SessionID,
 			&summary.StartTime,
 			&summary.EndTime,
 			&summary.Domain,
@@ -419,7 +432,8 @@ func (d *DuckDBStore) GetSessionHistory(ctx context.Context, sessionID string, l
 // SearchByDomain はドメインで Thread要約を検索
 func (d *DuckDBStore) SearchByDomain(ctx context.Context, domain string, limit int) ([]*conversation.ThreadSummary, error) {
 	query := `
-	SELECT thread_id, ts_start, ts_end, domain, summary, keywords, embedding, is_novel
+	SELECT thread_id, session_id, ts_start, ts_end, domain, summary,
+	       CAST(to_json(keywords) AS VARCHAR), CAST(to_json(embedding) AS VARCHAR), is_novel
 	FROM session_thread
 	WHERE domain = ?
 	ORDER BY ts_start DESC
@@ -439,6 +453,7 @@ func (d *DuckDBStore) SearchByDomain(ctx context.Context, domain string, limit i
 
 		if err := rows.Scan(
 			&summary.ThreadID,
+			&summary.SessionID,
 			&summary.StartTime,
 			&summary.EndTime,
 			&summary.Domain,
