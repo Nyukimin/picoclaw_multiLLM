@@ -59,6 +59,7 @@ type SearchCacheSnippet struct {
 	ResultsJSON string
 	SourceURLs  []string
 	RetrievedAt time.Time
+	Roles       []string
 }
 
 // HasContext は RecallPack に何らかの文脈があるかを返す
@@ -191,6 +192,47 @@ func (rp *RecallPack) ApplyRecallBudget(maxContextTokens int, ratio float64) Rec
 		}
 	}
 	return trimmed
+}
+
+func (rp *RecallPack) FilterForRole(role string) RecallPack {
+	if rp == nil {
+		return RecallPack{}
+	}
+	role = normalizeRecallRole(role)
+	if role == "" {
+		return *rp
+	}
+	filtered := *rp
+	filtered.MidSummaries = nil
+	filtered.SearchCacheSnippets = nil
+	for _, summary := range rp.MidSummaries {
+		if recallRolesMatch(summary.Roles, role) {
+			filtered.MidSummaries = append(filtered.MidSummaries, summary)
+		}
+	}
+	for _, snippet := range rp.SearchCacheSnippets {
+		if recallRolesMatch(snippet.Roles, role) {
+			filtered.SearchCacheSnippets = append(filtered.SearchCacheSnippets, snippet)
+		}
+	}
+	return filtered
+}
+
+func recallRolesMatch(roles []string, role string) bool {
+	if len(roles) == 0 {
+		return true
+	}
+	for _, candidate := range roles {
+		normalized := normalizeRecallRole(candidate)
+		if normalized == role || normalized == "all" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRecallRole(role string) string {
+	return strings.ToLower(strings.TrimSpace(role))
 }
 
 func estimateRecallTokens(text string) int {

@@ -351,6 +351,31 @@ func TestRecallPack_ApplyRecallBudgetNoopsWithoutBudget(t *testing.T) {
 	}
 }
 
+func TestRecallPack_FilterForRole(t *testing.T) {
+	rp := &RecallPack{
+		MidSummaries: []ThreadSummary{
+			{Summary: "chat only", Roles: []string{"chat"}},
+			{Summary: "worker only", Roles: []string{"worker"}},
+			{Summary: "shared"},
+		},
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{Query: "wild search", Roles: []string{"wild"}},
+			{Query: "worker search", Roles: []string{"worker"}},
+		},
+	}
+
+	filtered := rp.FilterForRole("Worker")
+	if len(filtered.MidSummaries) != 2 {
+		t.Fatalf("expected worker and shared summaries, got %+v", filtered.MidSummaries)
+	}
+	if filtered.MidSummaries[0].Summary != "worker only" || filtered.MidSummaries[1].Summary != "shared" {
+		t.Fatalf("unexpected filtered summaries: %+v", filtered.MidSummaries)
+	}
+	if len(filtered.SearchCacheSnippets) != 1 || filtered.SearchCacheSnippets[0].Query != "worker search" {
+		t.Fatalf("unexpected filtered search snippets: %+v", filtered.SearchCacheSnippets)
+	}
+}
+
 // contains is a test helper
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)

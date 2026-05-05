@@ -9,6 +9,7 @@ type ThreadSummary struct {
 	Domain    string    `json:"domain"`
 	Summary   string    `json:"summary"`
 	Keywords  []string  `json:"keywords"`
+	Roles     []string  `json:"roles,omitempty"`
 	Embedding []float32 `json:"embedding,omitempty"`
 	StartTime time.Time `json:"ts_start"`
 	EndTime   time.Time `json:"ts_end"`
