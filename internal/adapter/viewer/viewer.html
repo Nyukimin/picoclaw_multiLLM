@@ -370,6 +370,7 @@ body.live-mode .live-audio-btn{
   <button class="tab-btn" data-tab="progress">Progress</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
   <button class="tab-btn" data-tab="system">System</button>
+  <button class="tab-btn" data-tab="memory">Memory</button>
   <button class="tab-btn" data-tab="idlechat">IdleChat</button>
   <button class="tab-btn" data-tab="sessions">Sessions</button>
   <button class="tab-btn" data-tab="jobs">Jobs</button>
@@ -507,6 +508,43 @@ body.live-mode .live-audio-btn{
       <table>
         <thead><tr><th>Time</th><th>Type</th><th>From</th><th>To</th><th>Route</th><th>Job</th><th>Content</th><th>Copy</th></tr></thead>
         <tbody id="systemBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="panel-memory" class="panel">
+    <div class="panel-head">
+      <h3>Memory Inspector</h3>
+      <div class="sub">L1 memory / News Pack / Knowledge</div>
+    </div>
+    <div class="filters">
+      <input id="memoryNamespace" placeholder="namespace: conv:... / user:... / char:... / kb:...">
+      <input id="memoryCategory" placeholder="news category">
+      <input id="memoryDomain" placeholder="kb domain">
+      <button id="memoryRefreshBtn" class="ctl-btn" type="button">Refresh</button>
+    </div>
+    <div class="grid">
+      <div class="card"><h4>Memory</h4><div id="memoryCount" class="ops-big">0</div><div class="ops-sub">namespace filtered</div></div>
+      <div class="card"><h4>News</h4><div id="newsPackCount" class="ops-big">0</div><div class="ops-sub">recent items</div></div>
+      <div class="card"><h4>Digest</h4><div id="digestCount" class="ops-big">0</div><div class="ops-sub">daily slots</div></div>
+      <div class="card"><h4>Knowledge</h4><div id="knowledgeCount" class="ops-big">0</div><div class="ops-sub">domain filtered</div></div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Layer</th><th>State</th><th>Namespace</th><th>Speaker</th><th>Message</th><th>Updated</th></tr></thead>
+        <tbody id="memoryBody"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Published</th><th>Category</th><th>Source</th><th>Summary</th><th>Keywords</th></tr></thead>
+        <tbody id="newsPackBody"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Slot</th><th>Category</th><th>Digest</th><th>Created</th></tr></thead>
+        <tbody id="digestBody"></tbody>
       </table>
     </div>
   </section>
@@ -738,6 +776,9 @@ const state = {
   selectedEvidenceFocus: '',
   evidenceSortDesc: true,
   pendingEvidenceJobID: '',
+  memory: {
+    snapshot: {memory: [], news: [], digests: [], knowledge: []},
+  },
   agents: {},
   idleChat: {
     selectedMode: localStorage.getItem('idlechat.selectedMode') || 'manual',
@@ -923,6 +964,7 @@ const panels = {
   progress: document.getElementById('panel-progress'),
   timeline: document.getElementById('panel-timeline'),
   system: document.getElementById('panel-system'),
+  memory: document.getElementById('panel-memory'),
   idlechat: document.getElementById('panel-idlechat'),
   sessions: document.getElementById('panel-sessions'),
   jobs: document.getElementById('panel-jobs'),
@@ -936,6 +978,10 @@ const fltText = document.getElementById('fltText');
 const sysPreset = document.getElementById('sysPreset');
 const sysType = document.getElementById('sysType');
 const sysText = document.getElementById('sysText');
+const memoryNamespace = document.getElementById('memoryNamespace');
+const memoryCategory = document.getElementById('memoryCategory');
+const memoryDomain = document.getElementById('memoryDomain');
+const memoryRefreshBtn = document.getElementById('memoryRefreshBtn');
 const idleStartBtn = document.getElementById('idleStart');
 const idleModeNormalBtn = document.getElementById('idleModeNormal');
 const idleModeForecastBtn = document.getElementById('idleModeForecast');
@@ -1043,6 +1089,10 @@ function renderSystem() {
 if (sysPreset) sysPreset.addEventListener('change', renderSystem);
 if (sysType) sysType.addEventListener('change', renderSystem);
 if (sysText) sysText.addEventListener('input', renderSystem);
+if (memoryRefreshBtn) memoryRefreshBtn.addEventListener('click', refreshMemorySnapshot);
+if (memoryNamespace) memoryNamespace.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
+if (memoryCategory) memoryCategory.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
+if (memoryDomain) memoryDomain.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 
 function setIdleState(mode, manual, active) {
   const currentMode = String(mode || '');
@@ -2311,6 +2361,95 @@ function renderEvidenceSummary() {
     '</div>';
 }
 
+function renderMemorySnapshot() {
+  const snap = state.memory.snapshot || {};
+  const memory = Array.isArray(snap.memory) ? snap.memory : [];
+  const news = Array.isArray(snap.news) ? snap.news : [];
+  const digests = Array.isArray(snap.digests) ? snap.digests : [];
+  const knowledge = Array.isArray(snap.knowledge) ? snap.knowledge : [];
+  const memoryBody = document.getElementById('memoryBody');
+  const newsBody = document.getElementById('newsPackBody');
+  const digestBody = document.getElementById('digestBody');
+  const memoryCount = document.getElementById('memoryCount');
+  const newsPackCount = document.getElementById('newsPackCount');
+  const digestCount = document.getElementById('digestCount');
+  const knowledgeCount = document.getElementById('knowledgeCount');
+  if (memoryCount) memoryCount.textContent = String(memory.length);
+  if (newsPackCount) newsPackCount.textContent = String(news.length);
+  if (digestCount) digestCount.textContent = String(digests.length);
+  if (knowledgeCount) knowledgeCount.textContent = String(knowledge.length);
+  if (memoryBody) {
+    memoryBody.innerHTML = '';
+    if (memory.length === 0) {
+      memoryBody.innerHTML = '<tr><td colspan="6" class="small">No memory for selected namespace</td></tr>';
+    } else {
+      memory.forEach((m) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(m.Layer || m.layer || '-') + '</td>' +
+          '<td><span class="badge state-idle">' + esc(m.MemoryState || m.memory_state || '-') + '</span></td>' +
+          '<td class="code">' + esc(m.Namespace || m.namespace || '-') + '</td>' +
+          '<td>' + esc(m.Speaker || m.speaker || '-') + '</td>' +
+          '<td>' + esc(short(m.Message || m.message || '-', 180)) + '</td>' +
+          '<td>' + esc(fdt(m.UpdatedAt || m.updated_at || m.CreatedAt || m.created_at)) + '</td>';
+        memoryBody.appendChild(tr);
+      });
+    }
+  }
+  if (newsBody) {
+    newsBody.innerHTML = '';
+    if (news.length === 0) {
+      newsBody.innerHTML = '<tr><td colspan="5" class="small">No news pack items</td></tr>';
+    } else {
+      news.forEach((n) => {
+        const tr = document.createElement('tr');
+        const urls = n.SourceURL || n.source_url || '';
+        tr.innerHTML =
+          '<td>' + esc(fdt(n.PublishedAt || n.published_at || n.FetchedAt || n.fetched_at)) + '</td>' +
+          '<td>' + esc(n.Category || n.category || '-') + '</td>' +
+          '<td class="code">' + esc(short(urls || n.SourceID || n.source_id || '-', 80)) + '</td>' +
+          '<td>' + esc(short(n.SummaryDraft || n.summary_draft || n.RawText || n.raw_text || '-', 180)) + '</td>' +
+          '<td>' + esc((n.Keywords || n.keywords || []).join ? (n.Keywords || n.keywords || []).join(', ') : '-').replace(/,/g, ', ') + '</td>';
+        newsBody.appendChild(tr);
+      });
+    }
+  }
+  if (digestBody) {
+    digestBody.innerHTML = '';
+    if (digests.length === 0) {
+      digestBody.innerHTML = '<tr><td colspan="4" class="small">No daily digests</td></tr>';
+    } else {
+      digests.forEach((d) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(d.DigestSlot || d.digest_slot || '-') + '</td>' +
+          '<td>' + esc(d.Category || d.category || '-') + '</td>' +
+          '<td>' + esc(short(d.DigestText || d.digest_text || '-', 220)) + '</td>' +
+          '<td>' + esc(fdt(d.CreatedAt || d.created_at)) + '</td>';
+        digestBody.appendChild(tr);
+      });
+    }
+  }
+}
+
+function refreshMemorySnapshot() {
+  const params = new URLSearchParams();
+  params.set('limit', '20');
+  if (memoryNamespace && memoryNamespace.value.trim()) params.set('namespace', memoryNamespace.value.trim());
+  if (memoryCategory && memoryCategory.value.trim()) params.set('category', memoryCategory.value.trim());
+  if (memoryDomain && memoryDomain.value.trim()) params.set('domain', memoryDomain.value.trim());
+  fetch('/viewer/memory/snapshot?' + params.toString())
+    .then((r) => {
+      if (!r.ok) throw new Error('memory snapshot fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.snapshot = data || {};
+      renderMemorySnapshot();
+    })
+    .catch((err) => console.error(err));
+}
+
 function refreshDerivedViews() {
   renderOps();
   renderDebugPanels();
@@ -2320,6 +2459,7 @@ function refreshDerivedViews() {
   renderSessions();
   renderJobs();
   renderEvidence();
+  renderMemorySnapshot();
 }
 
 function refreshOpsData() {
@@ -3230,6 +3370,7 @@ initEvidenceFromQuery();
 refreshOpsData();
 refreshEvidence();
 refreshEvidenceSummary();
+refreshMemorySnapshot();
 refreshViewerStatus();
 setInterval(() => {
   if (!derivedDirty) return;
@@ -3242,6 +3383,7 @@ setInterval(refreshIdleLogs, 5000);
 setInterval(refreshOpsData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
+setInterval(refreshMemorySnapshot, 15000);
 setInterval(refreshDebugSystem, 5000);
 refreshDebugSystem();
 registerWebMCPTools();
