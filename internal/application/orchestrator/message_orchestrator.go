@@ -460,7 +460,7 @@ func (o *MessageOrchestrator) executeRouteDirect(ctx context.Context, t task.Tas
 			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
-	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
 		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, channel, chatID)
 		if err == nil {
 			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
@@ -570,7 +570,7 @@ func (o *MessageOrchestrator) executeCodeViaShiro(
 
 func capabilityForRoute(route routing.Route) autonomousapp.CapabilityPack {
 	switch route {
-	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
 		return autonomousapp.CapabilityCodeChange
 	default:
 		return autonomousapp.CapabilityGenericExecution
@@ -579,7 +579,7 @@ func capabilityForRoute(route routing.Route) autonomousapp.CapabilityPack {
 
 func isAutonomousRoute(route routing.Route) bool {
 	switch route {
-	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH, routing.RouteWILD:
+	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH, routing.RouteWILD:
 		return true
 	default:
 		return false
@@ -591,7 +591,7 @@ func routeExecutionSteps(route routing.Route, ok bool) []string {
 	switch route {
 	case routing.RouteOPS:
 		items = append(items, "shiro.execute")
-	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
+	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
 		items = append(items, "shiro.delegate", "coder.execute", "shiro.verify")
 	case routing.RoutePLAN:
 		items = append(items, "mio.plan")

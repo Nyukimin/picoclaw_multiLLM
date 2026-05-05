@@ -46,42 +46,42 @@ func TestRuleDictionary_Match_CodeKeywords(t *testing.T) {
 		{
 			name:        "実装してのキーワード",
 			message:     "このファイルを実装して",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "修正してのキーワード",
 			message:     "このバグを修正して",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "リファクタリングのキーワード",
 			message:     "このコードをリファクタリングして",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "テストを追加",
 			message:     "テストを追加してください",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "ファイル更新依頼",
 			message:     "JSON ファイルの text フィールドを更新してください",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "システム構築依頼でもコード扱い",
 			message:     "これは、システム構築依頼です。/tmp/data/story ディレクトリにある JSON ファイルの text フィールドを更新してください",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "ファイルパスと変更指示でコード扱い",
 			message:     "README.md に1行だけ変更を入れて。具体的には末尾に確認用コメントを1行追記してください。",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 		{
 			name:        "Goファイル修正依頼",
 			message:     "internal/adapter/viewer/viewer.html を修正して",
-			expectRoute: routing.RouteCODE,
+			expectRoute: routing.RouteCODE2,
 		},
 	}
 
@@ -424,8 +424,8 @@ func TestRuleDictionary_Match_MultipleKeywords(t *testing.T) {
 	}
 
 	// どちらかにマッチすればOK（最初にマッチしたものが返される）
-	if route != routing.RouteANALYZE && route != routing.RouteCODE {
-		t.Errorf("Expected route ANALYZE or CODE, got '%s'", route)
+	if route != routing.RouteANALYZE && route != routing.RouteCODE2 {
+		t.Errorf("Expected route ANALYZE or CODE2, got '%s'", route)
 	}
 
 	if confidence <= 0.7 {

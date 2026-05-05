@@ -112,7 +112,11 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 }
 
 func shouldUseProposalPath(route routing.Route, target codeTarget) bool {
-	return route == routing.RouteCODE3 || target.degradedRoute == routing.RouteCODE3
+	switch route {
+	case routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
+		return true
+	}
+	return target.degradedRoute == routing.RouteCODE3
 }
 
 // selectCoderForRoute はルートに応じてCoderを選択

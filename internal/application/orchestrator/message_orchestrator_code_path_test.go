@@ -92,3 +92,36 @@ func TestMessageOrchestrator_CodeRoute_AlwaysViaShiro_CODE2(t *testing.T) {
 	}
 }
 
+func TestMessageOrchestrator_CodeRoute_AlwaysViaShiro_CODE4(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE4, 1.0, "explicit code4"),
+	}
+	shiro := &mockShiroAgent{response: "unused"}
+	coder4 := &mockCoderAgent{response: "prototype ready\n```\npatch applied\n```"}
+	orch := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, coder4, nil)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "s4",
+		Channel:     "line",
+		ChatID:      "u4",
+		UserMessage: "prototype this",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+
+	i1 := indexOfEvent(rec.events, "agent.start", "mio", "shiro", "CODE4")
+	i2 := indexOfEvent(rec.events, "agent.start", "shiro", "coder4", "CODE4")
+	i3 := indexOfEvent(rec.events, "agent.response", "coder4", "shiro", "CODE4")
+	i4 := indexOfEvent(rec.events, "agent.response", "shiro", "mio", "CODE4")
+
+	if i1 < 0 || i2 < 0 || i3 < 0 || i4 < 0 {
+		t.Fatalf("missing expected shiro relay events for CODE4: %#v", rec.events)
+	}
+	if !(i1 < i2 && i2 < i3 && i3 < i4) {
+		t.Fatalf("unexpected CODE4 event order: i1=%d i2=%d i3=%d i4=%d", i1, i2, i3, i4)
+	}
+}

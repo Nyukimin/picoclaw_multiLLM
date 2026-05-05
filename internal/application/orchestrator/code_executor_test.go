@@ -84,6 +84,45 @@ func TestCodeExecutor_CODE3_WithProposal(t *testing.T) {
 	}
 }
 
+func TestCodeExecutor_CODE2_WithProposal_ExecutesPatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	testProposal := proposal.NewProposal(
+		"Implement requested change",
+		`[{"type": "file_edit", "action": "create", "target": "`+tmpDir+`/implemented.txt", "content": "done"}]`,
+		"Low risk",
+		"Low cost",
+	)
+
+	coder2 := &mockCoderAgentWithProposal{
+		response: "plain response should not be used",
+		proposal: testProposal,
+	}
+
+	workerService := service.NewWorkerExecutionService(workerConfigForTest(tmpDir))
+	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, workerService, nil, noopEventEmitter)
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "README.md を更新して", "test", "chat-1"),
+		Route:     routing.RouteCODE2,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if !resp.Handled {
+		t.Fatal("CODE2 with Proposal should be handled via Proposal path")
+	}
+	if resp.Response == "" {
+		t.Fatal("Expected non-empty response")
+	}
+}
+
 func TestCodeExecutor_CODEDynamicSelectsCODE3_UsesProposalPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	testProposal := proposal.NewProposal(

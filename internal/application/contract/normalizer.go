@@ -69,7 +69,7 @@ func NormalizeRequestWithRoute(raw string, route string) (domaincontract.Contrac
 		},
 	}
 	switch upperRoute {
-	case "CODE", "CODE1", "CODE2", "CODE3":
+	case "CODE", "CODE1", "CODE2", "CODE3", "CODE4":
 		c.Acceptance = []string{
 			"実装変更または実行可能な patch が生成・適用される",
 			"Worker/Coder の実行が最後まで完了する",

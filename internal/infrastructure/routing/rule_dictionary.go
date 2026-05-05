@@ -75,7 +75,7 @@ func NewRuleDictionary() *RuleDictionary {
 					"json ファイル",
 					"システム構築依頼",
 				},
-				route:      routing.RouteCODE,
+				route:      routing.RouteCODE2,
 				confidence: 0.85,
 			},
 			// PLAN関連キーワード
@@ -130,7 +130,7 @@ func (d *RuleDictionary) Match(t task.Task) (routing.Route, float64, bool) {
 	message := strings.ToLower(t.UserMessage())
 
 	if isCodeEditRequest(message) {
-		return routing.RouteCODE, 0.9, true
+		return routing.RouteCODE2, 0.9, true
 	}
 
 	// ルールを順番にチェック
