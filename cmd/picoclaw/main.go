@@ -148,6 +148,26 @@ func buildConversationTextProvider(cfg *config.Config, providers primaryLLMProvi
 	return ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768), fmt.Sprintf("%s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
 }
 
+func buildConversationEmbedder(cfg *config.Config) (conversation.EmbeddingProvider, string) {
+	model := strings.TrimSpace(cfg.Conversation.EmbedModel)
+	if model == "" {
+		return nil, ""
+	}
+	timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	if cfg.LocalLLM.Enabled && cfg.LocalLLM.Provider != "ollama" {
+		return openai.NewOpenAIEmbedderWithOptions(cfg.LocalLLM.APIKey, model, cfg.LocalLLM.BaseURL, timeout),
+			fmt.Sprintf("local_llm embedding: %s (model: %s)", cfg.LocalLLM.BaseURL, model)
+	}
+	baseURL := cfg.Ollama.BaseURL
+	if cfg.LocalLLM.Enabled && cfg.LocalLLM.Provider == "ollama" {
+		baseURL = cfg.LocalLLM.BaseURL
+	}
+	return ollama.NewOllamaEmbedder(baseURL, model), fmt.Sprintf("%s (model: %s)", baseURL, model)
+}
+
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
 	var raw llm.LLMProvider
 	switch cfg.LocalLLM.Provider {
@@ -2281,10 +2301,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		}
 
 		// Embedder注入（embed_model が設定されている場合）
-		if cfg.Conversation.EmbedModel != "" {
-			embedder := ollama.NewOllamaEmbedder(cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
+		embedder, embedderLabel := buildConversationEmbedder(cfg)
+		if embedder != nil {
 			realMgr.WithEmbedder(embedder)
-			log.Printf("  Embedder: %s (model: %s)", cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
+			log.Printf("  Embedder: %s", embedderLabel)
 		}
 
 		// Summarizer注入（local_llm有効時はWorker provider、従来構成ではOllama summary_model）
@@ -2297,9 +2317,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 		// スレッド境界検出器（Embedder があれば類似度チェックも有効化）
 		var embedderForDetector conversation.EmbeddingProvider
-		if cfg.Conversation.EmbedModel != "" {
-			embedderForDetector = ollama.NewOllamaEmbedder(cfg.Ollama.BaseURL, cfg.Conversation.EmbedModel)
-		}
+		embedderForDetector = embedder
 		detector := conversationpersistence.NewThreadBoundaryDetector(embedderForDetector)
 
 		// ProfileExtractor（summary_model を再利用）

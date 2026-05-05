@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
@@ -10,6 +14,48 @@ import (
 
 type fakeConversationProvider struct {
 	name string
+}
+
+func TestBuildConversationEmbedderUsesLocalOpenAIWhenLocalLLMEnabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["model"] != "Embed" {
+			t.Fatalf("unexpected model: %v", req["model"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"embedding": []float64{0.1, 0.2}}},
+		})
+	}))
+	defer srv.Close()
+
+	embedder, label := buildConversationEmbedder(&config.Config{
+		LocalLLM: config.LocalLLMConfig{
+			Enabled:    true,
+			Provider:   "local_openai",
+			BaseURL:    srv.URL,
+			TimeoutSec: 1,
+		},
+		Conversation: config.ConversationConfig{EmbedModel: "Embed"},
+	})
+	if embedder == nil {
+		t.Fatal("expected embedder")
+	}
+	if !strings.Contains(label, "local_llm embedding") {
+		t.Fatalf("unexpected label: %s", label)
+	}
+	got, err := embedder.Embed(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Embed failed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 dims, got %d", len(got))
+	}
 }
 
 func (f fakeConversationProvider) Generate(context.Context, llm.GenerateRequest) (llm.GenerateResponse, error) {
