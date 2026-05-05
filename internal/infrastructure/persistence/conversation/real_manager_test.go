@@ -588,6 +588,23 @@ func TestIsNovelInformation_NoEmbedder_ReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestRealConversationManager_UpdateAgentStatusPersistsKPI(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	ctx := context.Background()
+	status := domconv.NewAgentStatus("mio")
+	status.ApplyKPI("user_thumbs_up", 10)
+	if err := mgr.UpdateAgentStatus(ctx, status); err != nil {
+		t.Fatalf("UpdateAgentStatus failed: %v", err)
+	}
+	got, err := mgr.GetAgentStatus(ctx, "mio")
+	if err != nil {
+		t.Fatalf("GetAgentStatus failed: %v", err)
+	}
+	if got.KPI["user_thumbs_up"] != 10 || got.Level != 1 {
+		t.Fatalf("agent KPI status was not persisted: %+v", got)
+	}
+}
+
 // --- KB管理APIのテスト ---
 
 func TestListKBDocuments_Success(t *testing.T) {

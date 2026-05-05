@@ -98,3 +98,23 @@ func TestCanJoinConversation_OtherAgents(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentStatusApplyKPIUpdatesLevel(t *testing.T) {
+	status := NewAgentStatus("mio")
+	status.ApplyKPI("user_thumbs_up", 6)
+	status.ApplyKPI("recall_success", 4)
+
+	if status.KPI["user_thumbs_up"] != 6 || status.KPI["recall_success"] != 4 {
+		t.Fatalf("unexpected KPI map: %+v", status.KPI)
+	}
+	if status.TotalKPI() != 10 {
+		t.Fatalf("expected total KPI 10, got %d", status.TotalKPI())
+	}
+	if status.Level != 1 {
+		t.Fatalf("expected level 1 at total KPI 10, got %d", status.Level)
+	}
+	status.ApplyKPI("search_success", -100)
+	if status.KPI["search_success"] != 0 {
+		t.Fatalf("negative KPI should clamp at 0, got %+v", status.KPI)
+	}
+}
