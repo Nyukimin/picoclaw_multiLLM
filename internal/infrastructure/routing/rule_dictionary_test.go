@@ -146,6 +146,46 @@ func TestIsCodeEditRequest(t *testing.T) {
 	}
 }
 
+func TestRuleDictionary_Match_WildKeywords(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{
+			name:    "物語生成",
+			message: "星を拾った少女の短い物語を生成して",
+		},
+		{
+			name:    "画像プロンプト生成",
+			message: "森の魔女の画像プロンプトを作って",
+		},
+		{
+			name:    "創作用の画像解析",
+			message: "このスクショから雰囲気・構図・衣装・質感を抽出して",
+		},
+	}
+
+	dict := NewRuleDictionary()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testTask := task.NewTask(task.NewJobID(), tt.message, "line", "U123")
+
+			route, confidence, matched := dict.Match(testTask)
+
+			if !matched {
+				t.Fatal("Should match wild creative keywords")
+			}
+			if route != routing.RouteWILD {
+				t.Fatalf("Expected route WILD, got %s", route)
+			}
+			if confidence <= 0.7 {
+				t.Fatalf("Expected high confidence (>0.7), got %f", confidence)
+			}
+		})
+	}
+}
+
 func TestRuleDictionary_Match_PlanKeywords(t *testing.T) {
 	tests := []struct {
 		name    string
