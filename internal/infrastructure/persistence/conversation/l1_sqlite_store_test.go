@@ -910,3 +910,115 @@ func TestL1SQLiteStore_SourceRegistryRejectsInvalidInput(t *testing.T) {
 		t.Fatal("expected missing license note to be rejected")
 	}
 }
+
+func TestL1SQLiteStore_PromoteValidatedStagingItemToNews(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:news",
+		EventID:      "news-evt-1",
+		SourceID:     "rss:example",
+		SourceURL:    "https://example.com/news/1",
+		FetchedAt:    time.Date(2026, 5, 5, 8, 0, 0, 0, time.UTC),
+		PublishedAt:  time.Date(2026, 5, 5, 7, 0, 0, 0, time.UTC),
+		RawText:      "ニュース本文そのもの",
+		SummaryDraft: "ニュース要約案",
+		Keywords:     []string{"AI", "RenCrow"},
+		LicenseNote:  "official rss excerpt",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"rss:example": 0.9},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+
+	news, err := store.PromoteValidatedStagingItemToNews(ctx, item.ID, "ai")
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToNews failed: %v", err)
+	}
+	if news.ID == "" || news.StagingID != item.ID || news.Category != "ai" {
+		t.Fatalf("unexpected news identity: %+v", news)
+	}
+	if news.RawText != "ニュース本文そのもの" || news.SummaryDraft != "ニュース要約案" {
+		t.Fatalf("raw/summary fields were not preserved: %+v", news)
+	}
+	if news.RawHash != item.RawHash || news.SourceID != "rss:example" || news.SourceURL != "https://example.com/news/1" {
+		t.Fatalf("source metadata not preserved: %+v", news)
+	}
+	recent, err := store.RecentNewsItems(ctx, "ai", 10)
+	if err != nil {
+		t.Fatalf("RecentNewsItems failed: %v", err)
+	}
+	if len(recent) != 1 || recent[0].ID != news.ID {
+		t.Fatalf("unexpected recent news: %+v", recent)
+	}
+	events, err := store.RecentEvents(ctx, "kb:news", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 3 || events[0].EventType != "news.promoted_from_staging" {
+		t.Fatalf("expected news.promoted_from_staging event, got %+v", events)
+	}
+}
+
+func TestL1SQLiteStore_PromoteNewsRequiresValidatedExternalItem(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	pending, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindExternalFetch,
+		Namespace:   "kb:news",
+		EventID:     "news-pending",
+		SourceID:    "rss:example",
+		SourceURL:   "https://example.com/news/pending",
+		FetchedAt:   time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+		RawText:     "未検証ニュース",
+		LicenseNote: "rss",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem pending failed: %v", err)
+	}
+	if _, err := store.PromoteValidatedStagingItemToNews(ctx, pending.ID, "general"); err == nil {
+		t.Fatal("expected pending news promotion to be rejected")
+	}
+
+	memory, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindMemoryCandidate,
+		Namespace:   "conv:1",
+		EventID:     "memory-not-news",
+		SourceID:    "conversation",
+		SourceURL:   "https://example.com/conversation/1",
+		FetchedAt:   time.Date(2026, 5, 5, 9, 10, 0, 0, time.UTC),
+		RawText:     "記憶候補",
+		LicenseNote: "user provided",
+		Meta:        map[string]interface{}{"type": "preference"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem memory failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, memory.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"conversation": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem memory failed: %v", err)
+	}
+	if _, err := store.PromoteValidatedStagingItemToNews(ctx, memory.ID, "general"); err == nil {
+		t.Fatal("expected memory candidate news promotion to be rejected")
+	}
+}

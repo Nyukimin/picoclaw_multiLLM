@@ -143,6 +143,24 @@ type L1SourceRegistryEntry struct {
 	UpdatedAt     time.Time
 }
 
+type L1NewsItem struct {
+	ID           string
+	StagingID    string
+	Category     string
+	SourceID     string
+	SourceURL    string
+	PublishedAt  time.Time
+	FetchedAt    time.Time
+	RawText      string
+	RawHash      string
+	SummaryDraft string
+	Keywords     []string
+	LicenseNote  string
+	Meta         map[string]interface{}
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type L1SQLiteStore struct {
 	db *sql.DB
 }
@@ -247,6 +265,26 @@ CREATE TABLE IF NOT EXISTS l1_source_registry (
 	updated_at TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_l1_source_registry_enabled_kind ON l1_source_registry(enabled, kind);
+CREATE TABLE IF NOT EXISTS l1_news_item (
+	id TEXT PRIMARY KEY,
+	staging_id TEXT NOT NULL UNIQUE,
+	category TEXT NOT NULL,
+	source_id TEXT NOT NULL,
+	source_url TEXT NOT NULL DEFAULT '',
+	published_at TIMESTAMP,
+	fetched_at TIMESTAMP NOT NULL,
+	raw_text TEXT NOT NULL,
+	raw_hash TEXT NOT NULL,
+	summary_draft TEXT NOT NULL DEFAULT '',
+	keywords_json TEXT NOT NULL DEFAULT '[]',
+	license_note TEXT NOT NULL DEFAULT '',
+	meta_json TEXT NOT NULL DEFAULT '{}',
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_news_category_published ON l1_news_item(category, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_l1_news_source_published ON l1_news_item(source_id, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_l1_news_raw_hash ON l1_news_item(raw_hash);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -940,6 +978,130 @@ INSERT INTO l1_memory_event (
 	return promoted, nil
 }
 
+func (s *L1SQLiteStore) PromoteValidatedStagingItemToNews(ctx context.Context, id string, category string) (*L1NewsItem, error) {
+	id = strings.TrimSpace(id)
+	category = normalizeNewsCategory(category)
+	if id == "" {
+		return nil, errors.New("l1 staging item id is required")
+	}
+	if category == "" {
+		return nil, errors.New("l1 news category is required")
+	}
+	item, err := s.stagingItemByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if item.ValidationStatus != L1StagingStatusValidated {
+		return nil, fmt.Errorf("l1 staging item must be validated before news promotion: %s", item.ValidationStatus)
+	}
+	if item.Kind != L1StagingKindExternalFetch && item.Kind != L1StagingKindSearchResult {
+		return nil, fmt.Errorf("l1 staging item kind cannot be promoted to news: %s", item.Kind)
+	}
+	now := time.Now().UTC()
+	meta := map[string]interface{}{}
+	for k, v := range item.Meta {
+		meta[k] = v
+	}
+	meta["staging_id"] = item.ID
+	meta["staging_namespace"] = item.Namespace
+	meta["event_id"] = item.EventID
+	meta["validation_status"] = item.ValidationStatus
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 news meta: %w", err)
+	}
+	keywordsJSON, err := json.Marshal(item.Keywords)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 news keywords: %w", err)
+	}
+	news := &L1NewsItem{
+		ID:           fmt.Sprintf("news:%s:%s", item.EventID, item.RawHash[:12]),
+		StagingID:    item.ID,
+		Category:     category,
+		SourceID:     item.SourceID,
+		SourceURL:    item.SourceURL,
+		PublishedAt:  item.PublishedAt,
+		FetchedAt:    item.FetchedAt,
+		RawText:      item.RawText,
+		RawHash:      item.RawHash,
+		SummaryDraft: item.SummaryDraft,
+		Keywords:     item.Keywords,
+		LicenseNote:  item.LicenseNote,
+		Meta:         meta,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	var publishedAt interface{}
+	if !news.PublishedAt.IsZero() {
+		publishedAt = news.PublishedAt
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_news_item (
+	id, staging_id, category, source_id, source_url, published_at, fetched_at,
+	raw_text, raw_hash, summary_draft, keywords_json, license_note, meta_json,
+	created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(staging_id) DO UPDATE SET
+	category = excluded.category,
+	source_id = excluded.source_id,
+	source_url = excluded.source_url,
+	published_at = excluded.published_at,
+	fetched_at = excluded.fetched_at,
+	raw_text = excluded.raw_text,
+	raw_hash = excluded.raw_hash,
+	summary_draft = excluded.summary_draft,
+	keywords_json = excluded.keywords_json,
+	license_note = excluded.license_note,
+	meta_json = excluded.meta_json,
+	updated_at = excluded.updated_at
+`, news.ID, news.StagingID, news.Category, news.SourceID, news.SourceURL, publishedAt, news.FetchedAt,
+		news.RawText, news.RawHash, news.SummaryDraft, string(keywordsJSON), news.LicenseNote, string(metaJSON),
+		news.CreatedAt, news.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to promote l1 staging item to news: %w", err)
+	}
+	newsNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, "news")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.AppendEvent(ctx, "news.promoted_from_staging", newsNamespace, "", 0, map[string]interface{}{
+		"news_id":    news.ID,
+		"staging_id": item.ID,
+		"category":   news.Category,
+		"source_id":  news.SourceID,
+		"raw_hash":   news.RawHash,
+	}, "promoter"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 news promoted event log: %w", err)
+	}
+	return news, nil
+}
+
+func (s *L1SQLiteStore) RecentNewsItems(ctx context.Context, category string, limit int) ([]L1NewsItem, error) {
+	category = normalizeNewsCategory(category)
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+SELECT id, staging_id, category, source_id, source_url, published_at, fetched_at,
+       raw_text, raw_hash, summary_draft, keywords_json, license_note, meta_json,
+       created_at, updated_at
+FROM l1_news_item
+`
+	var args []interface{}
+	if category != "" {
+		query += "WHERE category = ?\n"
+		args = append(args, category)
+	}
+	query += "ORDER BY COALESCE(published_at, fetched_at) DESC, created_at DESC\nLIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 news items: %w", err)
+	}
+	defer rows.Close()
+	return scanL1NewsItems(rows)
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
@@ -1214,6 +1376,10 @@ func metaInt64(meta map[string]interface{}, key string) int64 {
 	}
 }
 
+func normalizeNewsCategory(category string) string {
+	return strings.Join(strings.Fields(strings.ToLower(category)), "-")
+}
+
 func validateOptionalSourceURL(sourceURL string) error {
 	if sourceURL == "" {
 		return nil
@@ -1392,6 +1558,55 @@ func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error
 		return nil, fmt.Errorf("l1 source registry rows error: %w", err)
 	}
 	return entries, nil
+}
+
+func scanL1NewsItems(rows *sql.Rows) ([]L1NewsItem, error) {
+	var items []L1NewsItem
+	for rows.Next() {
+		var item L1NewsItem
+		var publishedAt sql.NullTime
+		var keywordsJSON string
+		var metaJSON string
+		if err := rows.Scan(
+			&item.ID,
+			&item.StagingID,
+			&item.Category,
+			&item.SourceID,
+			&item.SourceURL,
+			&publishedAt,
+			&item.FetchedAt,
+			&item.RawText,
+			&item.RawHash,
+			&item.SummaryDraft,
+			&keywordsJSON,
+			&item.LicenseNote,
+			&metaJSON,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan l1 news item: %w", err)
+		}
+		if publishedAt.Valid {
+			item.PublishedAt = publishedAt.Time
+		}
+		if keywordsJSON == "" {
+			keywordsJSON = "[]"
+		}
+		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 news keywords: %w", err)
+		}
+		if metaJSON == "" {
+			metaJSON = "{}"
+		}
+		if err := json.Unmarshal([]byte(metaJSON), &item.Meta); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 news meta: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 news rows error: %w", err)
+	}
+	return items, nil
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {
