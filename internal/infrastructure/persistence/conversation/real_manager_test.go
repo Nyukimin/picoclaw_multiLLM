@@ -128,8 +128,9 @@ func (m *mockVectorDBStore) DeleteOldKBDocuments(_ context.Context, _ string, _ 
 func (m *mockVectorDBStore) Close() error { return nil }
 
 type mockL1Store struct {
-	saved []L1MemoryEvent
-	cache *L1SearchCacheEntry
+	saved  []L1MemoryEvent
+	cache  *L1SearchCacheEntry
+	events []L1EventLogEntry
 }
 
 func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
@@ -161,6 +162,29 @@ func (m *mockL1Store) GetFreshSearchCache(_ context.Context, provider string, ra
 		return nil, nil
 	}
 	return m.cache, nil
+}
+func (m *mockL1Store) AppendEvent(_ context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error) {
+	entry := L1EventLogEntry{
+		ID:        fmt.Sprintf("%s:%s:%d", namespace, eventType, len(m.events)+1),
+		EventType: eventType,
+		Namespace: namespace,
+		SessionID: sessionID,
+		ThreadID:  threadID,
+		Payload:   payload,
+		Source:    source,
+		CreatedAt: time.Now(),
+	}
+	m.events = append(m.events, entry)
+	return &entry, nil
+}
+func (m *mockL1Store) RecentEvents(_ context.Context, namespace string, _ int) ([]L1EventLogEntry, error) {
+	var out []L1EventLogEntry
+	for i := len(m.events) - 1; i >= 0; i-- {
+		if m.events[i].Namespace == namespace {
+			out = append(out, m.events[i])
+		}
+	}
+	return out, nil
 }
 func (m *mockL1Store) UpdateMemoryState(_ context.Context, id string, memoryState string) error {
 	for i := range m.saved {

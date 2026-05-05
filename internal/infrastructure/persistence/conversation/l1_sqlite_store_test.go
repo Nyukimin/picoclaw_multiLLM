@@ -227,3 +227,61 @@ func TestL1SQLiteStore_SearchCacheRejectsInvalidInput(t *testing.T) {
 		t.Fatal("expected blank query lookup to be rejected")
 	}
 }
+
+func TestL1SQLiteStore_EventLogAppendAndRecent(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	first, err := store.AppendEvent(ctx, "search.cache_hit", "conv:123", "session-1", 123, map[string]interface{}{
+		"query": "RenCrow 最新仕様",
+	}, "search_cache")
+	if err != nil {
+		t.Fatalf("AppendEvent first failed: %v", err)
+	}
+	second, err := store.AppendEvent(ctx, "memory.promoted", "conv:123", "session-1", 123, map[string]interface{}{
+		"memory_state": MemoryStateConfirmed,
+	}, "memory")
+	if err != nil {
+		t.Fatalf("AppendEvent second failed: %v", err)
+	}
+	if first.ID == "" || second.ID == "" || first.ID == second.ID {
+		t.Fatalf("unexpected event ids: first=%q second=%q", first.ID, second.ID)
+	}
+
+	events, err := store.RecentEvents(ctx, "conv:123", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].EventType != "memory.promoted" || events[1].EventType != "search.cache_hit" {
+		t.Fatalf("unexpected event order: %+v", events)
+	}
+	if events[0].Payload["memory_state"] != MemoryStateConfirmed {
+		t.Fatalf("unexpected payload: %+v", events[0].Payload)
+	}
+	if events[1].Source != "search_cache" || events[1].SessionID != "session-1" || events[1].ThreadID != 123 {
+		t.Fatalf("unexpected event fields: %+v", events[1])
+	}
+}
+
+func TestL1SQLiteStore_EventLogRejectsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.AppendEvent(ctx, "", "conv:123", "session-1", 123, nil, "test"); err == nil {
+		t.Fatal("expected blank event type to be rejected")
+	}
+	if _, err := store.AppendEvent(ctx, "test.event", "", "session-1", 123, nil, "test"); err == nil {
+		t.Fatal("expected blank namespace to be rejected")
+	}
+}

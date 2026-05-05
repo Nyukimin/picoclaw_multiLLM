@@ -49,6 +49,8 @@ type l1StoreIface interface {
 	SaveMessage(ctx context.Context, sessionID string, threadID int64, namespace string, msg conversation.Message, memoryState string) error
 	SaveSearchCache(ctx context.Context, provider string, rawQuery string, resultsJSON string, sourceURLs []string, ttl time.Duration) (*L1SearchCacheEntry, error)
 	GetFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time) (*L1SearchCacheEntry, error)
+	AppendEvent(ctx context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error)
+	RecentEvents(ctx context.Context, namespace string, limit int) ([]L1EventLogEntry, error)
 	UpdateMemoryState(ctx context.Context, id string, memoryState string) error
 	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error)
 	RecentByState(ctx context.Context, memoryState string, limit int) ([]L1MemoryEvent, error)

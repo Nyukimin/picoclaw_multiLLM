@@ -50,6 +50,17 @@ type L1SearchCacheEntry struct {
 	UpdatedAt       time.Time
 }
 
+type L1EventLogEntry struct {
+	ID        string
+	EventType string
+	Namespace string
+	SessionID string
+	ThreadID  int64
+	Payload   map[string]interface{}
+	Source    string
+	CreatedAt time.Time
+}
+
 type L1SQLiteStore struct {
 	db *sql.DB
 }
@@ -106,6 +117,19 @@ CREATE TABLE IF NOT EXISTS l1_search_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_l1_search_cache_expires ON l1_search_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_l1_search_cache_retrieved ON l1_search_cache(retrieved_at DESC);
+CREATE TABLE IF NOT EXISTS l1_event_log (
+	id TEXT PRIMARY KEY,
+	event_type TEXT NOT NULL,
+	namespace TEXT NOT NULL,
+	session_id TEXT NOT NULL DEFAULT '',
+	thread_id INTEGER NOT NULL DEFAULT 0,
+	payload_json TEXT NOT NULL DEFAULT '{}',
+	source TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_event_log_namespace_created ON l1_event_log(namespace, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_l1_event_log_type_created ON l1_event_log(event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_l1_event_log_session_created ON l1_event_log(session_id, created_at DESC);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -236,6 +260,66 @@ WHERE query_hash = ? AND expires_at > ?
 		return nil, err
 	}
 	return entry, nil
+}
+
+func (s *L1SQLiteStore) AppendEvent(ctx context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error) {
+	eventType = strings.TrimSpace(eventType)
+	namespace = strings.TrimSpace(namespace)
+	if eventType == "" {
+		return nil, errors.New("l1 event type is required")
+	}
+	if namespace == "" {
+		return nil, errors.New("l1 event namespace is required")
+	}
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 event payload: %w", err)
+	}
+	now := time.Now().UTC()
+	entry := &L1EventLogEntry{
+		ID:        fmt.Sprintf("%s:%s:%d", namespace, eventType, now.UnixNano()),
+		EventType: eventType,
+		Namespace: namespace,
+		SessionID: sessionID,
+		ThreadID:  threadID,
+		Payload:   payload,
+		Source:    source,
+		CreatedAt: now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_event_log (
+	id, event_type, namespace, session_id, thread_id, payload_json, source, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, entry.ID, entry.EventType, entry.Namespace, entry.SessionID, entry.ThreadID, string(payloadJSON), entry.Source, entry.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to append l1 event log: %w", err)
+	}
+	return entry, nil
+}
+
+func (s *L1SQLiteStore) RecentEvents(ctx context.Context, namespace string, limit int) ([]L1EventLogEntry, error) {
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return nil, errors.New("l1 event namespace is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, event_type, namespace, session_id, thread_id, payload_json, source, created_at
+FROM l1_event_log
+WHERE namespace = ?
+ORDER BY created_at DESC
+LIMIT ?
+`, namespace, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 event log: %w", err)
+	}
+	defer rows.Close()
+	return scanL1EventLogEntries(rows)
 }
 
 func (s *L1SQLiteStore) UpdateMemoryState(ctx context.Context, id string, memoryState string) error {
@@ -369,6 +453,37 @@ func normalizeSearchQuery(query string) string {
 func searchQueryHash(provider string, normalizedQuery string) string {
 	sum := sha256.Sum256([]byte(provider + "\x00" + normalizedQuery))
 	return hex.EncodeToString(sum[:])
+}
+
+func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {
+	var events []L1EventLogEntry
+	for rows.Next() {
+		var ev L1EventLogEntry
+		var payloadJSON string
+		if err := rows.Scan(
+			&ev.ID,
+			&ev.EventType,
+			&ev.Namespace,
+			&ev.SessionID,
+			&ev.ThreadID,
+			&payloadJSON,
+			&ev.Source,
+			&ev.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan l1 event log: %w", err)
+		}
+		if payloadJSON == "" {
+			payloadJSON = "{}"
+		}
+		if err := json.Unmarshal([]byte(payloadJSON), &ev.Payload); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 event payload: %w", err)
+		}
+		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 event log rows error: %w", err)
+	}
+	return events, nil
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {
