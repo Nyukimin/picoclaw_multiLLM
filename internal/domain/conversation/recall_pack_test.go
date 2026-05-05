@@ -412,6 +412,30 @@ func TestRecallPack_FilterForRole(t *testing.T) {
 	}
 }
 
+func TestRecallPack_FilterForRoleAppliesDefaultUseCasePolicy(t *testing.T) {
+	rp := &RecallPack{
+		MidSummaries: []ThreadSummary{{Summary: "mid shared"}},
+		LongFacts:    []string{"long memory"},
+		KBSnippets:   []string{"kb knowledge"},
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{Query: "worker search"},
+		},
+	}
+
+	chat := rp.FilterForRole("chat")
+	if len(chat.LongFacts) != 1 || len(chat.KBSnippets) != 0 || len(chat.SearchCacheSnippets) != 0 {
+		t.Fatalf("chat should keep memory and drop KB/search by default: %+v", chat)
+	}
+	worker := rp.FilterForRole("worker")
+	if len(worker.LongFacts) != 1 || len(worker.KBSnippets) != 1 || len(worker.SearchCacheSnippets) != 1 {
+		t.Fatalf("worker should keep practical recall sources: %+v", worker)
+	}
+	wild := rp.FilterForRole("wild")
+	if len(wild.LongFacts) != 1 || len(wild.KBSnippets) != 1 || len(wild.SearchCacheSnippets) != 0 {
+		t.Fatalf("wild should keep memory and KB but drop search cache by default: %+v", wild)
+	}
+}
+
 // contains is a test helper
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)

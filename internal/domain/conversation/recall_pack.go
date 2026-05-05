@@ -238,18 +238,40 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 	}
 	filtered := *rp
 	filtered.MidSummaries = nil
+	filtered.KBSnippets = nil
 	filtered.SearchCacheSnippets = nil
 	for _, summary := range rp.MidSummaries {
 		if recallRolesMatch(summary.Roles, role) {
 			filtered.MidSummaries = append(filtered.MidSummaries, summary)
 		}
 	}
+	if recallRoleAllowsKB(role) {
+		filtered.KBSnippets = append([]string(nil), rp.KBSnippets...)
+	}
 	for _, snippet := range rp.SearchCacheSnippets {
-		if recallRolesMatch(snippet.Roles, role) {
+		if recallRoleAllowsSearchCache(role) && recallRolesMatch(snippet.Roles, role) {
 			filtered.SearchCacheSnippets = append(filtered.SearchCacheSnippets, snippet)
 		}
 	}
 	return filtered
+}
+
+func recallRoleAllowsKB(role string) bool {
+	switch role {
+	case "worker", "wild":
+		return true
+	default:
+		return false
+	}
+}
+
+func recallRoleAllowsSearchCache(role string) bool {
+	switch role {
+	case "worker":
+		return true
+	default:
+		return false
+	}
 }
 
 func recallRolesMatch(roles []string, role string) bool {
