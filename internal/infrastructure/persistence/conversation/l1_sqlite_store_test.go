@@ -409,3 +409,74 @@ func TestL1SQLiteStore_UpdateMemoryStateAppendsEventLog(t *testing.T) {
 		t.Fatalf("unexpected event payload: %+v", ev.Payload)
 	}
 }
+
+func TestL1SQLiteStore_PromoteMemoryToNamespace(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	msg := domconv.Message{
+		Speaker:   domconv.SpeakerUser,
+		Msg:       "ユーザーは短く要点を好む",
+		Timestamp: time.Date(2026, 5, 5, 16, 0, 0, 0, time.UTC),
+		Meta:      map[string]interface{}{"type": "preference"},
+	}
+	if err := store.SaveMessage(ctx, "session-1", 100, "conv:100", msg, MemoryStateCandidate); err != nil {
+		t.Fatalf("SaveMessage failed: %v", err)
+	}
+	memories, err := store.RecentByNamespace(ctx, "conv:100", 10)
+	if err != nil {
+		t.Fatalf("RecentByNamespace source failed: %v", err)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("expected 1 source memory, got %d", len(memories))
+	}
+
+	promoted, err := store.PromoteMemoryToNamespace(ctx, memories[0].ID, "user:U123", "explicit")
+	if err != nil {
+		t.Fatalf("PromoteMemoryToNamespace failed: %v", err)
+	}
+	if promoted.Namespace != "user:U123" || promoted.MemoryState != MemoryStateConfirmed {
+		t.Fatalf("unexpected promoted memory: %+v", promoted)
+	}
+	if promoted.Message != msg.Msg || promoted.Meta["type"] != "preference" {
+		t.Fatalf("promoted memory did not preserve content/meta: %+v", promoted)
+	}
+	if promoted.Meta["promoted_from"] != memories[0].ID || promoted.Meta["promoted_by"] != "explicit" {
+		t.Fatalf("promoted meta missing source: %+v", promoted.Meta)
+	}
+
+	userMemories, err := store.RecentByNamespace(ctx, "user:U123", 10)
+	if err != nil {
+		t.Fatalf("RecentByNamespace target failed: %v", err)
+	}
+	if len(userMemories) != 1 || userMemories[0].ID != promoted.ID {
+		t.Fatalf("unexpected user memories: %+v", userMemories)
+	}
+	events, err := store.RecentEvents(ctx, "user:U123", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "memory.promoted" {
+		t.Fatalf("expected memory.promoted event, got %+v", events)
+	}
+	if events[0].Payload["source_memory_id"] != memories[0].ID {
+		t.Fatalf("unexpected promote event payload: %+v", events[0].Payload)
+	}
+}
+
+func TestL1SQLiteStore_PromoteMemoryRejectsInvalidTargetNamespace(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.PromoteMemoryToNamespace(ctx, "missing", "misc:1", "explicit"); err == nil {
+		t.Fatal("expected invalid target namespace to be rejected")
+	}
+}

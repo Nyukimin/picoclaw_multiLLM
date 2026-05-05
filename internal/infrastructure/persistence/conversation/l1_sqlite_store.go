@@ -397,6 +397,63 @@ WHERE id = ?
 	return nil
 }
 
+func (s *L1SQLiteStore) PromoteMemoryToNamespace(ctx context.Context, id string, targetNamespace string, promotedBy string) (*L1MemoryEvent, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("l1 memory event id is required")
+	}
+	if err := ValidateL1Namespace(targetNamespace); err != nil {
+		return nil, err
+	}
+	source, err := s.memoryByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	meta := map[string]interface{}{}
+	for k, v := range source.Meta {
+		meta[k] = v
+	}
+	meta["promoted_from"] = source.ID
+	meta["promoted_by"] = promotedBy
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal promoted l1 memory meta: %w", err)
+	}
+	promoted := &L1MemoryEvent{
+		ID:          fmt.Sprintf("%s:%s:%d", targetNamespace, source.ID, now.UnixNano()),
+		Namespace:   targetNamespace,
+		SessionID:   source.SessionID,
+		ThreadID:    source.ThreadID,
+		Speaker:     source.Speaker,
+		Message:     source.Message,
+		Meta:        meta,
+		MemoryState: MemoryStateConfirmed,
+		Layer:       source.Layer,
+		Source:      "promoter",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_memory_event (
+	id, namespace, session_id, thread_id, speaker, message, meta_json,
+	memory_state, layer, source, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, promoted.ID, promoted.Namespace, promoted.SessionID, promoted.ThreadID, string(promoted.Speaker), promoted.Message, string(metaJSON),
+		promoted.MemoryState, promoted.Layer, promoted.Source, promoted.CreatedAt, promoted.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to promote l1 memory: %w", err)
+	}
+	if _, err := s.AppendEvent(ctx, "memory.promoted", targetNamespace, source.SessionID, source.ThreadID, map[string]interface{}{
+		"source_memory_id":   source.ID,
+		"promoted_memory_id": promoted.ID,
+		"promoted_by":        promotedBy,
+		"memory_state":       promoted.MemoryState,
+	}, "promoter"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 memory promoted event log: %w", err)
+	}
+	return promoted, nil
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
@@ -417,6 +474,20 @@ LIMIT ?
 	}
 	defer rows.Close()
 	return scanL1Events(rows)
+}
+
+func (s *L1SQLiteStore) memoryByID(ctx context.Context, id string) (*L1MemoryEvent, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, namespace, session_id, thread_id, speaker, message, meta_json,
+       memory_state, layer, source, created_at, updated_at
+FROM l1_memory_event
+WHERE id = ?
+`, id)
+	events, err := scanL1EventRows(row)
+	if err != nil {
+		return nil, err
+	}
+	return &events[0], nil
 }
 
 func (s *L1SQLiteStore) RecentByState(ctx context.Context, memoryState string, limit int) ([]L1MemoryEvent, error) {
@@ -542,36 +613,51 @@ func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {
 	var events []L1MemoryEvent
 	for rows.Next() {
-		var ev L1MemoryEvent
-		var metaJSON string
-		var speaker string
-		if err := rows.Scan(
-			&ev.ID,
-			&ev.Namespace,
-			&ev.SessionID,
-			&ev.ThreadID,
-			&speaker,
-			&ev.Message,
-			&metaJSON,
-			&ev.MemoryState,
-			&ev.Layer,
-			&ev.Source,
-			&ev.CreatedAt,
-			&ev.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan l1 memory event: %w", err)
+		ev, err := scanL1EventRows(rows)
+		if err != nil {
+			return nil, err
 		}
-		ev.Speaker = domconv.Speaker(speaker)
-		if metaJSON == "" {
-			metaJSON = "{}"
-		}
-		if err := json.Unmarshal([]byte(metaJSON), &ev.Meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 memory meta: %w", err)
-		}
-		events = append(events, ev)
+		events = append(events, ev...)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("l1 memory rows error: %w", err)
 	}
 	return events, nil
+}
+
+type l1MemoryRow interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanL1EventRows(row l1MemoryRow) ([]L1MemoryEvent, error) {
+	var ev L1MemoryEvent
+	var metaJSON string
+	var speaker string
+	if err := row.Scan(
+		&ev.ID,
+		&ev.Namespace,
+		&ev.SessionID,
+		&ev.ThreadID,
+		&speaker,
+		&ev.Message,
+		&metaJSON,
+		&ev.MemoryState,
+		&ev.Layer,
+		&ev.Source,
+		&ev.CreatedAt,
+		&ev.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("failed to scan l1 memory event: %w", err)
+	}
+	ev.Speaker = domconv.Speaker(speaker)
+	if metaJSON == "" {
+		metaJSON = "{}"
+	}
+	if err := json.Unmarshal([]byte(metaJSON), &ev.Meta); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal l1 memory meta: %w", err)
+	}
+	return []L1MemoryEvent{ev}, nil
 }

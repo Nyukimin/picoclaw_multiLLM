@@ -52,6 +52,7 @@ type l1StoreIface interface {
 	AppendEvent(ctx context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error)
 	RecentEvents(ctx context.Context, namespace string, limit int) ([]L1EventLogEntry, error)
 	UpdateMemoryState(ctx context.Context, id string, memoryState string) error
+	PromoteMemoryToNamespace(ctx context.Context, id string, targetNamespace string, promotedBy string) (*L1MemoryEvent, error)
 	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error)
 	RecentByState(ctx context.Context, memoryState string, limit int) ([]L1MemoryEvent, error)
 	RecentBySession(ctx context.Context, sessionID string, limit int) ([]L1MemoryEvent, error)

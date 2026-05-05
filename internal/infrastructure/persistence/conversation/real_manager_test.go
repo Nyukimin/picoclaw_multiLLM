@@ -195,6 +195,23 @@ func (m *mockL1Store) UpdateMemoryState(_ context.Context, id string, memoryStat
 	}
 	return nil
 }
+func (m *mockL1Store) PromoteMemoryToNamespace(_ context.Context, id string, targetNamespace string, promotedBy string) (*L1MemoryEvent, error) {
+	for _, ev := range m.saved {
+		if ev.ID == id {
+			promoted := ev
+			promoted.ID = fmt.Sprintf("%s:%s", targetNamespace, id)
+			promoted.Namespace = targetNamespace
+			promoted.MemoryState = MemoryStateConfirmed
+			if promoted.Meta == nil {
+				promoted.Meta = map[string]interface{}{}
+			}
+			promoted.Meta["promoted_by"] = promotedBy
+			m.saved = append(m.saved, promoted)
+			return &promoted, nil
+		}
+	}
+	return nil, nil
+}
 func (m *mockL1Store) RecentByNamespace(_ context.Context, namespace string, _ int) ([]L1MemoryEvent, error) {
 	var out []L1MemoryEvent
 	for _, ev := range m.saved {
