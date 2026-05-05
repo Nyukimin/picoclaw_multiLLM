@@ -38,3 +38,40 @@ func TestRecallPackToTraceItems(t *testing.T) {
 		t.Fatalf("unexpected search trace: %+v", items[4])
 	}
 }
+
+func TestRecallPackFilterForRoleKeepsRejectedTraceItems(t *testing.T) {
+	rp := &RecallPack{
+		MidSummaries: []ThreadSummary{
+			{Summary: "chat memory", Roles: []string{"chat"}, Score: 0.8},
+			{Summary: "worker memory", Roles: []string{"worker"}, Score: 0.7},
+		},
+		KBSnippets: []string{"kb blocked for chat"},
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{Query: "fresh search", Provider: "web", ResultsJSON: `{"hit":true}`},
+		},
+	}
+
+	filtered := rp.FilterForRole("chat")
+	items := filtered.ToTraceItems()
+
+	var rejected []RecallTraceItem
+	for _, item := range items {
+		if item.Decision == "rejected" {
+			rejected = append(rejected, item)
+		}
+	}
+	if len(rejected) != 3 {
+		t.Fatalf("expected rejected worker/KB/search trace items, got %+v", items)
+	}
+	if rejected[0].Kind != "thread_summary" || rejected[0].Summary != "worker memory" || rejected[0].PromptIndex != -1 {
+		t.Fatalf("unexpected rejected summary trace: %+v", rejected[0])
+	}
+	if rejected[1].Kind != "knowledge" || rejected[2].Kind != "search_cache" {
+		t.Fatalf("unexpected rejected trace kinds: %+v", rejected)
+	}
+	for _, item := range rejected {
+		if item.Reason == "" {
+			t.Fatalf("rejected trace should include reason: %+v", item)
+		}
+	}
+}

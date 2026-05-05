@@ -46,6 +46,9 @@ type RecallPack struct {
 	// SearchCacheSnippets: 外部検索のfresh cache hitから得た参照情報
 	SearchCacheSnippets []SearchCacheSnippet
 
+	// RejectedTraceItems: role filterやbudget制御でプロンプト採用されなかった候補のtrace
+	RejectedTraceItems []RecallTraceItem
+
 	// Persona: キャラクター設定
 	Persona PersonaState
 
@@ -240,20 +243,71 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 	filtered.MidSummaries = nil
 	filtered.KBSnippets = nil
 	filtered.SearchCacheSnippets = nil
+	filtered.RejectedTraceItems = append([]RecallTraceItem(nil), rp.RejectedTraceItems...)
 	for _, summary := range rp.MidSummaries {
 		if recallRolesMatch(summary.Roles, role) {
 			filtered.MidSummaries = append(filtered.MidSummaries, summary)
+		} else {
+			filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedThreadSummaryTrace(summary, "role "+role+" does not match candidate roles"))
 		}
 	}
 	if recallRoleAllowsKB(role) {
 		filtered.KBSnippets = append([]string(nil), rp.KBSnippets...)
+	} else {
+		for _, snippet := range rp.KBSnippets {
+			filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedKnowledgeTrace(snippet, "role "+role+" does not use Knowledge DB snippets by default"))
+		}
 	}
 	for _, snippet := range rp.SearchCacheSnippets {
 		if recallRoleAllowsSearchCache(role) && recallRolesMatch(snippet.Roles, role) {
 			filtered.SearchCacheSnippets = append(filtered.SearchCacheSnippets, snippet)
+			continue
 		}
+		reason := "role " + role + " does not use L1 search cache by default"
+		if recallRoleAllowsSearchCache(role) && !recallRolesMatch(snippet.Roles, role) {
+			reason = "role " + role + " does not match search cache roles"
+		}
+		filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedSearchCacheTrace(snippet, reason))
 	}
 	return filtered
+}
+
+func rejectedThreadSummaryTrace(summary ThreadSummary, reason string) RecallTraceItem {
+	return RecallTraceItem{
+		Layer:       "L2",
+		Kind:        "thread_summary",
+		Summary:     summary.Summary,
+		Score:       summary.Score,
+		Decision:    "rejected",
+		Reason:      reason,
+		PromptIndex: -1,
+	}
+}
+
+func rejectedKnowledgeTrace(snippet string, reason string) RecallTraceItem {
+	return RecallTraceItem{
+		Layer:       "L3",
+		Kind:        "knowledge",
+		Summary:     snippet,
+		Decision:    "rejected",
+		Reason:      reason,
+		PromptIndex: -1,
+	}
+}
+
+func rejectedSearchCacheTrace(snippet SearchCacheSnippet, reason string) RecallTraceItem {
+	return RecallTraceItem{
+		Layer:       "L1",
+		Kind:        "search_cache",
+		Summary:     snippet.ResultsJSON,
+		Query:       snippet.Query,
+		Provider:    snippet.Provider,
+		SourceURLs:  append([]string(nil), snippet.SourceURLs...),
+		RetrievedAt: snippet.RetrievedAt,
+		Decision:    "rejected",
+		Reason:      reason,
+		PromptIndex: -1,
+	}
 }
 
 func recallRoleAllowsKB(role string) bool {

@@ -22,6 +22,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="newsPackDetail"/);
   assert.match(html, /id="newsUsageBody"/);
   assert.match(html, /id="recallTraceBody"/);
+  assert.match(html, /<th>Decision<\/th>/);
+  assert.match(html, /<th>Reason<\/th>/);
+  assert.match(html, /item\.Decision/);
+  assert.match(html, /item\.Reason/);
   assert.match(html, /function refreshMemorySnapshot/);
   assert.match(html, /function refreshNewsPack/);
   assert.match(html, /function renderNewsPackPanel/);

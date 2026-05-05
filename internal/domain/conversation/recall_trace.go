@@ -27,7 +27,7 @@ func (rp *RecallPack) ToTraceItems() []RecallTraceItem {
 	if rp == nil {
 		return nil
 	}
-	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets)+1)
+	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets)+len(rp.RejectedTraceItems)+1)
 	if rp.RollingSummary != "" {
 		items = append(items, RecallTraceItem{
 			Layer:       "L0",
@@ -93,5 +93,6 @@ func (rp *RecallPack) ToTraceItems() []RecallTraceItem {
 			PromptIndex: len(items),
 		})
 	}
+	items = append(items, rp.RejectedTraceItems...)
 	return items
 }
