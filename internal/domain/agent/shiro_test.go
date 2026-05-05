@@ -12,8 +12,9 @@ import (
 
 // Mock ToolRunner
 type mockToolRunner struct {
-	executeFunc func(ctx context.Context, toolName string, args map[string]interface{}) (string, error)
-	listFunc    func(ctx context.Context) ([]string, error)
+	executeFunc   func(ctx context.Context, toolName string, args map[string]interface{}) (string, error)
+	executeV2Func func(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error)
+	listFunc      func(ctx context.Context) ([]string, error)
 }
 
 func (m *mockToolRunner) Execute(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
@@ -214,6 +215,9 @@ func TestShiroAgentExecuteTool_Error(t *testing.T) {
 }
 
 func (m *mockToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
+	if m.executeV2Func != nil {
+		return m.executeV2Func(ctx, toolName, args)
+	}
 	result, err := m.Execute(ctx, toolName, args)
 	if err != nil {
 		return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil

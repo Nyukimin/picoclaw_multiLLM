@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -15,7 +16,7 @@ type RealConversationEngine struct {
 	persona          domconv.PersonaState
 	detector         domconv.ThreadBoundaryDetector // nil の場合はスレッド自動検出無効
 	profileExtractor domconv.ProfileExtractor       // nil の場合はプロファイル抽出無効
-	profiles         map[string]domconv.UserProfile  // インメモリキャッシュ
+	profiles         map[string]domconv.UserProfile // インメモリキャッシュ
 }
 
 // NewRealConversationEngine は新しい ConversationEngine を作成
@@ -90,6 +91,21 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 
 	// Knowledge Base (KB) 検索（RAG統合）
 	if realMgr, ok := e.manager.(*RealConversationManager); ok {
+		if realMgr.l1Store != nil {
+			cacheEntry, err := realMgr.l1Store.GetFreshSearchCache(ctx, "web", userMessage, timeNowUTC())
+			if err != nil {
+				log.Printf("[ConversationEngine] WARN: SearchCache lookup failed: %v", err)
+			} else if cacheEntry != nil {
+				pack.SearchCacheSnippets = append(pack.SearchCacheSnippets, domconv.SearchCacheSnippet{
+					Query:       cacheEntry.RawQuery,
+					Provider:    cacheEntry.Provider,
+					ResultsJSON: cacheEntry.ResultsJSON,
+					SourceURLs:  cacheEntry.SourceURLs,
+					RetrievedAt: cacheEntry.RetrievedAt,
+				})
+			}
+		}
+
 		// 現在のドメインを取得
 		domain := "general"
 		if thread, err := e.manager.GetActiveThread(ctx, sessionID); err == nil && thread != nil {
@@ -110,6 +126,10 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 	}
 
 	return pack, nil
+}
+
+var timeNowUTC = func() time.Time {
+	return time.Now().UTC()
 }
 
 // EndTurn はターン終了時にメッセージ保存を実行

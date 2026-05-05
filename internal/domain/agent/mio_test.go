@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 )
 
 // Mock LLMProvider
@@ -434,6 +436,96 @@ func TestMioAgent_Chat_WebSearchError(t *testing.T) {
 	}
 }
 
+func TestMioAgent_Chat_WebSearchUsesFreshCache(t *testing.T) {
+	searchCalled := false
+	toolRunner := &mockToolRunner{
+		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+			if toolName == "web_search" {
+				searchCalled = true
+			}
+			return "live search results", nil
+		},
+	}
+	cache := &mockSearchCacheManager{
+		hit: true,
+		results: []WebSearchResult{
+			{Title: "Cached RenCrow", Link: "https://example.com/cache", Snippet: "cached snippet"},
+		},
+	}
+
+	var capturedReq llm.GenerateRequest
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			capturedReq = req
+			return llm.GenerateResponse{Content: "answer"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil).
+		WithSearchCacheManager(cache)
+	testTask := task.NewTask(task.NewJobID(), "RenCrow 最新仕様を検索して", "line", "U123")
+
+	_, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if searchCalled {
+		t.Error("web_search should not be called on fresh cache hit")
+	}
+	if cache.lastGetQuery != "RenCrow 最新仕様" {
+		t.Fatalf("unexpected cache lookup query: %q", cache.lastGetQuery)
+	}
+	foundCached := false
+	for _, msg := range capturedReq.Messages {
+		if strings.Contains(msg.Content, "Cached RenCrow") && strings.Contains(msg.Content, "https://example.com/cache") {
+			foundCached = true
+			break
+		}
+	}
+	if !foundCached {
+		t.Fatalf("cached web search result was not injected: %+v", capturedReq.Messages)
+	}
+}
+
+func TestMioAgent_Chat_WebSearchSavesCacheOnMiss(t *testing.T) {
+	cache := &mockSearchCacheManager{}
+	toolRunner := &mockToolRunner{
+		executeV2Func: func(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
+			if toolName != "web_search" {
+				t.Fatalf("unexpected tool: %s", toolName)
+			}
+			resp := tool.NewSuccess("live search results")
+			resp.Metadata = map[string]any{
+				"search_items": []map[string]any{
+					{"title": "Live RenCrow", "link": "https://example.com/live", "snippet": "live snippet"},
+				},
+			}
+			return resp, nil
+		},
+	}
+
+	provider := &mockLLMProvider{}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil).
+		WithSearchCacheManager(cache)
+	testTask := task.NewTask(task.NewJobID(), "RenCrow 最新仕様を検索して", "line", "U123")
+
+	if _, err := mio.Chat(context.Background(), testTask); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if !cache.saveCalled {
+		t.Fatal("expected search cache save on live search miss")
+	}
+	if cache.lastSaveQuery != "RenCrow 最新仕様" {
+		t.Fatalf("unexpected saved query: %q", cache.lastSaveQuery)
+	}
+	if len(cache.savedResults) != 1 || cache.savedResults[0].Title != "Live RenCrow" {
+		t.Fatalf("unexpected saved results: %+v", cache.savedResults)
+	}
+	if cache.lastTTL <= 0 {
+		t.Fatalf("expected positive cache ttl, got %s", cache.lastTTL)
+	}
+}
+
 // === LLM error test ===
 
 func TestMioAgent_Chat_LLMError(t *testing.T) {
@@ -534,7 +626,7 @@ func TestCleanSearchQuery(t *testing.T) {
 		want  string
 	}{
 		{"Go言語について教えて", "Go言語"},
-		{"最新のニュースを検索して", "最新のニュースして"}, // "を検索" removed first, "して" remains
+		{"最新のニュースを検索して", "最新のニュース"},
 		{"Rustとは", "Rust"},
 		{"hello", "hello"},
 		{"", ""},
@@ -628,6 +720,32 @@ func (m *mockKBManager) SaveWebSearchToKB(ctx context.Context, domain string, qu
 func (m *mockKBManager) SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error) {
 	m.searchKBCalled = true
 	return []*conversation.Document{}, nil
+}
+
+type mockSearchCacheManager struct {
+	hit           bool
+	results       []WebSearchResult
+	lastGetQuery  string
+	saveCalled    bool
+	lastSaveQuery string
+	savedResults  []WebSearchResult
+	lastTTL       time.Duration
+}
+
+func (m *mockSearchCacheManager) GetFreshWebSearchCache(_ context.Context, query string) ([]WebSearchResult, bool, error) {
+	m.lastGetQuery = query
+	if !m.hit {
+		return nil, false, nil
+	}
+	return m.results, true, nil
+}
+
+func (m *mockSearchCacheManager) SaveWebSearchCache(_ context.Context, query string, results []WebSearchResult, ttl time.Duration) error {
+	m.saveCalled = true
+	m.lastSaveQuery = query
+	m.savedResults = append([]WebSearchResult{}, results...)
+	m.lastTTL = ttl
+	return nil
 }
 
 // === Persona self-edit tests ===

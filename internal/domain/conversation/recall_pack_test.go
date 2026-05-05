@@ -48,6 +48,15 @@ func TestRecallPack_HasContext_WithKBSnippets(t *testing.T) {
 	}
 }
 
+func TestRecallPack_HasContext_WithSearchCacheSnippets(t *testing.T) {
+	rp := &RecallPack{
+		SearchCacheSnippets: []SearchCacheSnippet{{Query: "RenCrow"}},
+	}
+	if !rp.HasContext() {
+		t.Error("RecallPack with SearchCacheSnippets should have context")
+	}
+}
+
 func TestRecallPack_ToPromptMessages_Empty(t *testing.T) {
 	rp := &RecallPack{}
 	msgs := rp.ToPromptMessages()
@@ -150,6 +159,32 @@ func TestRecallPack_ToPromptMessages_WithKBSnippets(t *testing.T) {
 	}
 }
 
+func TestRecallPack_ToPromptMessages_WithSearchCacheSnippets(t *testing.T) {
+	rp := &RecallPack{
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{
+				Query:       "RenCrow 最新仕様",
+				Provider:    "web",
+				ResultsJSON: `[{"title":"RenCrow memo"}]`,
+				SourceURLs:  []string{"https://example.com/rencrow"},
+			},
+		},
+	}
+	msgs := rp.ToPromptMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 context message, got %d", len(msgs))
+	}
+	if !contains(msgs[0].Content, "検索キャッシュ") {
+		t.Error("context should contain search cache header")
+	}
+	if !contains(msgs[0].Content, "RenCrow 最新仕様") {
+		t.Error("context should contain cached query")
+	}
+	if !contains(msgs[0].Content, "https://example.com/rencrow") {
+		t.Error("context should contain cached source URL")
+	}
+}
+
 func TestRecallPack_ToPromptMessages_ShortContextRoles(t *testing.T) {
 	rp := &RecallPack{
 		ShortContext: []Message{
@@ -187,6 +222,9 @@ func TestRecallPack_ToPromptMessages_FullPack(t *testing.T) {
 		MidSummaries: []ThreadSummary{{Summary: "Past topic"}},
 		LongFacts:    []string{"Long fact"},
 		KBSnippets:   []string{"KB info"},
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{Query: "cached topic", ResultsJSON: `[]`},
+		},
 		ShortContext: []Message{
 			{Speaker: SpeakerUser, Msg: "recent msg"},
 		},
@@ -218,6 +256,9 @@ func TestRecallPack_ToPromptMessages_FullPack(t *testing.T) {
 	}
 	if !contains(msgs[1].Content, "KB info") {
 		t.Error("msg[1] should contain KB snippet")
+	}
+	if !contains(msgs[1].Content, "cached topic") {
+		t.Error("msg[1] should contain search cache snippet")
 	}
 	// Third: short context
 	if msgs[2].Role != "user" {

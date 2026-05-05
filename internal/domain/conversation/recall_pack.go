@@ -1,6 +1,10 @@
 package conversation
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 )
 
@@ -34,6 +38,9 @@ type RecallPack struct {
 	// KBSnippets: ドメイン知識ベースからの関連情報（最大2件）
 	KBSnippets []string
 
+	// SearchCacheSnippets: 外部検索のfresh cache hitから得た参照情報
+	SearchCacheSnippets []SearchCacheSnippet
+
 	// Persona: キャラクター設定
 	Persona PersonaState
 
@@ -44,12 +51,21 @@ type RecallPack struct {
 	Constraints PromptConstraints
 }
 
+type SearchCacheSnippet struct {
+	Query       string
+	Provider    string
+	ResultsJSON string
+	SourceURLs  []string
+	RetrievedAt time.Time
+}
+
 // HasContext は RecallPack に何らかの文脈があるかを返す
 func (rp *RecallPack) HasContext() bool {
 	return len(rp.ShortContext) > 0 ||
 		len(rp.MidSummaries) > 0 ||
 		len(rp.LongFacts) > 0 ||
-		len(rp.KBSnippets) > 0
+		len(rp.KBSnippets) > 0 ||
+		len(rp.SearchCacheSnippets) > 0
 }
 
 // ToPromptMessages は RecallPack を llm.Message のスライスに変換
@@ -91,6 +107,12 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 			contextText += kb + "\n"
 		}
 	}
+	if len(rp.SearchCacheSnippets) > 0 {
+		contextText += "【検索キャッシュ】\n"
+		for _, cache := range rp.SearchCacheSnippets {
+			contextText += "- " + cache.ToPromptText() + "\n"
+		}
+	}
 	if contextText != "" {
 		messages = append(messages, llm.Message{
 			Role:    "system",
@@ -116,4 +138,24 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 	}
 
 	return messages
+}
+
+func (s SearchCacheSnippet) ToPromptText() string {
+	var parts []string
+	if s.Query != "" {
+		parts = append(parts, fmt.Sprintf("query=%s", s.Query))
+	}
+	if s.Provider != "" {
+		parts = append(parts, fmt.Sprintf("provider=%s", s.Provider))
+	}
+	if !s.RetrievedAt.IsZero() {
+		parts = append(parts, fmt.Sprintf("retrieved_at=%s", s.RetrievedAt.UTC().Format(time.RFC3339)))
+	}
+	if len(s.SourceURLs) > 0 {
+		parts = append(parts, "sources="+strings.Join(s.SourceURLs, ", "))
+	}
+	if s.ResultsJSON != "" {
+		parts = append(parts, "results_json="+s.ResultsJSON)
+	}
+	return strings.Join(parts, "; ")
 }

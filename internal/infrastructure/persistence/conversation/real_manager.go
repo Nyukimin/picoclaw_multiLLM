@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -442,6 +443,42 @@ func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 	}
 
 	return nil
+}
+
+func (m *RealConversationManager) GetFreshWebSearchCache(ctx context.Context, query string) ([]WebSearchResult, bool, error) {
+	if m.l1Store == nil {
+		return nil, false, nil
+	}
+	entry, err := m.l1Store.GetFreshSearchCache(ctx, "web", query, time.Now().UTC())
+	if err != nil {
+		return nil, false, err
+	}
+	if entry == nil {
+		return nil, false, nil
+	}
+	var results []WebSearchResult
+	if err := json.Unmarshal([]byte(entry.ResultsJSON), &results); err != nil {
+		return nil, false, fmt.Errorf("failed to unmarshal cached web search results: %w", err)
+	}
+	return results, true, nil
+}
+
+func (m *RealConversationManager) SaveWebSearchCache(ctx context.Context, query string, results []WebSearchResult, ttl time.Duration) error {
+	if m.l1Store == nil || len(results) == 0 {
+		return nil
+	}
+	resultsJSON, err := json.Marshal(results)
+	if err != nil {
+		return fmt.Errorf("failed to marshal web search cache results: %w", err)
+	}
+	sourceURLs := make([]string, 0, len(results))
+	for _, result := range results {
+		if result.Link != "" {
+			sourceURLs = append(sourceURLs, result.Link)
+		}
+	}
+	_, err = m.l1Store.SaveSearchCache(ctx, "web", query, string(resultsJSON), sourceURLs, ttl)
+	return err
 }
 
 // WebSearchResult は agent.WebSearchResult のエイリアス（Phase 4.2）

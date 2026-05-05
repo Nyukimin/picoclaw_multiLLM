@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -16,6 +18,11 @@ import (
 type KBManager interface {
 	SearchKB(ctx context.Context, domain string, query string, topK int) ([]*conversation.Document, error)
 	SaveWebSearchToKB(ctx context.Context, domain string, query string, results []WebSearchResult) error
+}
+
+type SearchCacheManager interface {
+	GetFreshWebSearchCache(ctx context.Context, query string) ([]WebSearchResult, bool, error)
+	SaveWebSearchCache(ctx context.Context, query string, results []WebSearchResult, ttl time.Duration) error
 }
 
 // PersonaEditor はペルソナファイルの読み書きを抽象化する
@@ -39,7 +46,8 @@ type MioAgent struct {
 	toolRunner         ToolRunner
 	mcpClient          MCPClient
 	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
-	kbManager    KBManager             // Phase 4.2: KB自動保存用（nilを許容）
+	kbManager          KBManager                       // Phase 4.2: KB自動保存用（nilを許容）
+	searchCacheManager SearchCacheManager              // L1 Search Cache連携（nilを許容）
 	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
 	recentContext      func(context.Context, int) (string, error)
 }
@@ -60,13 +68,22 @@ func NewMioAgent(
 		toolRunner:         toolRunner,
 		mcpClient:          mcpClient,
 		conversationEngine: conversationEngine,
-		kbManager:    nil, // WithKBManager() でセット
+		kbManager:          nil, // WithKBManager() でセット
+		searchCacheManager: nil, // WithSearchCacheManager() でセット
 	}
 }
 
 // WithKBManager はKBManagerを設定（Phase 4.2 KB自動保存用）
 func (m *MioAgent) WithKBManager(mgr KBManager) *MioAgent {
 	m.kbManager = mgr
+	if cacheMgr, ok := mgr.(SearchCacheManager); ok {
+		m.searchCacheManager = cacheMgr
+	}
+	return m
+}
+
+func (m *MioAgent) WithSearchCacheManager(mgr SearchCacheManager) *MioAgent {
+	m.searchCacheManager = mgr
 	return m
 }
 
@@ -226,6 +243,15 @@ func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, 
 	// クエリから検索キーワードを抽出（不要な部分を除去）
 	cleanedQuery := cleanSearchQuery(query)
 
+	if m.searchCacheManager != nil {
+		cachedResults, hit, err := m.searchCacheManager.GetFreshWebSearchCache(ctx, cleanedQuery)
+		if err != nil {
+			log.Printf("[Mio] Search cache lookup failed: %v", err)
+		} else if hit {
+			return formatWebSearchResults(cachedResults), nil
+		}
+	}
+
 	args := map[string]interface{}{
 		"query": cleanedQuery,
 	}
@@ -242,31 +268,58 @@ func (m *MioAgent) executeWebSearch(ctx context.Context, query string) (string, 
 
 	// 表示用の文字列結果
 	result := toolResp.String()
+	webResults := webSearchResultsFromMetadata(toolResp.Metadata)
+
+	if m.searchCacheManager != nil && len(webResults) > 0 {
+		if err := m.searchCacheManager.SaveWebSearchCache(ctx, cleanedQuery, webResults, 30*time.Minute); err != nil {
+			log.Printf("[Mio] SaveWebSearchCache failed: %v", err)
+		}
+	}
 
 	// Phase 4.2: KB自動保存（KBManager が設定されている場合）
-	if m.kbManager != nil && toolResp.Metadata != nil {
-		if searchItems, ok := toolResp.Metadata["search_items"].([]interface{}); ok {
-			// GoogleSearchItem → WebSearchResult に変換
-			webResults := make([]WebSearchResult, 0, len(searchItems))
-			for _, item := range searchItems {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					webResults = append(webResults, WebSearchResult{
-						Title:   getStringField(itemMap, "title"),
-						Link:    getStringField(itemMap, "link"),
-						Snippet: getStringField(itemMap, "snippet"),
-					})
-				}
-			}
-
-			// KB保存（エラーはログのみ、検索結果は返す）
-			domain := inferDomain(query) // クエリから domain を推定
-			if err := m.kbManager.SaveWebSearchToKB(ctx, domain, cleanedQuery, webResults); err != nil {
-				fmt.Printf("WARN: SaveWebSearchToKB failed: %v\n", err)
-			}
+	if m.kbManager != nil && len(webResults) > 0 {
+		// KB保存（エラーはログのみ、検索結果は返す）
+		domain := inferDomain(query) // クエリから domain を推定
+		if err := m.kbManager.SaveWebSearchToKB(ctx, domain, cleanedQuery, webResults); err != nil {
+			fmt.Printf("WARN: SaveWebSearchToKB failed: %v\n", err)
 		}
 	}
 
 	return result, nil
+}
+
+func webSearchResultsFromMetadata(metadata map[string]any) []WebSearchResult {
+	if metadata == nil || metadata["search_items"] == nil {
+		return nil
+	}
+	b, err := json.Marshal(metadata["search_items"])
+	if err != nil {
+		return nil
+	}
+	var results []WebSearchResult
+	if err := json.Unmarshal(b, &results); err != nil {
+		return nil
+	}
+	return results
+}
+
+func formatWebSearchResults(results []WebSearchResult) string {
+	if len(results) == 0 {
+		return "検索結果が見つかりませんでした。"
+	}
+	var output strings.Builder
+	output.WriteString("🔍 検索結果:\n\n")
+	maxResults := 5
+	if len(results) < maxResults {
+		maxResults = len(results)
+	}
+	for i := 0; i < maxResults; i++ {
+		item := results[i]
+		output.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Title))
+		output.WriteString(fmt.Sprintf("   %s\n", item.Snippet))
+		output.WriteString(fmt.Sprintf("   %s\n\n", item.Link))
+	}
+	return output.String()
 }
 
 // getStringField は map から文字列フィールドを安全に取得
@@ -283,7 +336,7 @@ func cleanSearchQuery(query string) string {
 	removePatterns := []string{
 		"について教えて", "を教えて", "教えて",
 		"について調べて", "を調べて", "調べて",
-		"について検索", "を検索", "検索して",
+		"について検索して", "を検索して", "について検索", "を検索", "検索して",
 		"とは", "って何", "ってなに",
 	}
 

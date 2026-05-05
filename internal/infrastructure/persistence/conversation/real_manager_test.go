@@ -129,6 +129,7 @@ func (m *mockVectorDBStore) Close() error { return nil }
 
 type mockL1Store struct {
 	saved []L1MemoryEvent
+	cache *L1SearchCacheEntry
 }
 
 func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
@@ -145,16 +146,21 @@ func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID 
 	return nil
 }
 func (m *mockL1Store) SaveSearchCache(_ context.Context, provider string, rawQuery string, resultsJSON string, sourceURLs []string, ttl time.Duration) (*L1SearchCacheEntry, error) {
-	return &L1SearchCacheEntry{
+	m.cache = &L1SearchCacheEntry{
 		Provider:    provider,
 		RawQuery:    rawQuery,
 		ResultsJSON: resultsJSON,
 		SourceURLs:  sourceURLs,
+		RetrievedAt: time.Now(),
 		ExpiresAt:   time.Now().Add(ttl),
-	}, nil
+	}
+	return m.cache, nil
 }
-func (m *mockL1Store) GetFreshSearchCache(_ context.Context, _ string, _ string, _ time.Time) (*L1SearchCacheEntry, error) {
-	return nil, nil
+func (m *mockL1Store) GetFreshSearchCache(_ context.Context, provider string, rawQuery string, now time.Time) (*L1SearchCacheEntry, error) {
+	if m.cache == nil || m.cache.Provider != provider || m.cache.RawQuery != rawQuery || !m.cache.ExpiresAt.After(now) {
+		return nil, nil
+	}
+	return m.cache, nil
 }
 func (m *mockL1Store) UpdateMemoryState(_ context.Context, id string, memoryState string) error {
 	for i := range m.saved {
@@ -345,6 +351,34 @@ func TestRecall_UsesL1WhenRedisThreadMissing(t *testing.T) {
 	}
 	if messages[0].Meta["kind"] != "original" {
 		t.Fatalf("expected original meta to be preserved, got %+v", messages[0].Meta)
+	}
+}
+
+func TestRealConversationManager_WebSearchCacheRoundTrip(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	l1 := &mockL1Store{}
+	mgr.WithL1Store(l1)
+	ctx := context.Background()
+
+	results := []WebSearchResult{
+		{Title: "RenCrow memo", Link: "https://example.com/rencrow", Snippet: "cacheable result"},
+	}
+	if err := mgr.SaveWebSearchCache(ctx, "RenCrow 最新仕様", results, time.Hour); err != nil {
+		t.Fatalf("SaveWebSearchCache failed: %v", err)
+	}
+
+	cached, hit, err := mgr.GetFreshWebSearchCache(ctx, "RenCrow 最新仕様")
+	if err != nil {
+		t.Fatalf("GetFreshWebSearchCache failed: %v", err)
+	}
+	if !hit {
+		t.Fatal("expected web search cache hit")
+	}
+	if len(cached) != 1 || cached[0].Title != "RenCrow memo" || cached[0].Link != "https://example.com/rencrow" {
+		t.Fatalf("unexpected cached results: %+v", cached)
+	}
+	if len(l1.cache.SourceURLs) != 1 || l1.cache.SourceURLs[0] != "https://example.com/rencrow" {
+		t.Fatalf("unexpected cached source urls: %+v", l1.cache.SourceURLs)
 	}
 }
 

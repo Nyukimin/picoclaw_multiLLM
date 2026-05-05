@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -203,6 +204,35 @@ func TestBeginTurn_WithUserProfile(t *testing.T) {
 	}
 	if pack.UserProfile.Preferences["lang"] != "Go" {
 		t.Error("UserProfile should be loaded from cache")
+	}
+}
+
+func TestBeginTurn_WithFreshSearchCache(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(nil, nil)
+	l1 := &mockL1Store{}
+	mgr.WithL1Store(l1)
+	if _, err := l1.SaveSearchCache(ctx, "web", "RenCrow 最新仕様", `[{"title":"RenCrow memo"}]`, []string{"https://example.com/rencrow"}, time.Hour); err != nil {
+		t.Fatalf("SaveSearchCache failed: %v", err)
+	}
+	engine := NewRealConversationEngine(mgr, domconv.PersonaState{})
+
+	pack, err := engine.BeginTurn(ctx, "s1", "RenCrow 最新仕様")
+	if err != nil {
+		t.Fatalf("BeginTurn failed: %v", err)
+	}
+	if len(pack.SearchCacheSnippets) != 1 {
+		t.Fatalf("SearchCacheSnippets: want 1, got %d", len(pack.SearchCacheSnippets))
+	}
+	snippet := pack.SearchCacheSnippets[0]
+	if snippet.Query != "RenCrow 最新仕様" || snippet.Provider != "web" {
+		t.Fatalf("unexpected search cache snippet identity: %+v", snippet)
+	}
+	if snippet.ResultsJSON != `[{"title":"RenCrow memo"}]` {
+		t.Fatalf("unexpected search cache results: %s", snippet.ResultsJSON)
+	}
+	if len(snippet.SourceURLs) != 1 || snippet.SourceURLs[0] != "https://example.com/rencrow" {
+		t.Fatalf("unexpected search cache sources: %+v", snippet.SourceURLs)
 	}
 }
 
