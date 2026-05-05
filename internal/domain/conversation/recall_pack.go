@@ -65,6 +65,19 @@ type SearchCacheSnippet struct {
 	Roles       []string
 }
 
+type TokenEstimator interface {
+	EstimateTokens(text string) int
+}
+
+type TokenEstimatorFunc func(text string) int
+
+func (f TokenEstimatorFunc) EstimateTokens(text string) int {
+	if f == nil {
+		return estimateRecallTokens(text)
+	}
+	return f(text)
+}
+
 // HasContext は RecallPack に何らかの文脈があるかを返す
 func (rp *RecallPack) HasContext() bool {
 	return len(rp.ShortContext) > 0 ||
@@ -150,6 +163,10 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 }
 
 func (rp *RecallPack) ApplyRecallBudget(maxContextTokens int, ratio float64) RecallPack {
+	return rp.ApplyRecallBudgetWithEstimator(maxContextTokens, ratio, nil)
+}
+
+func (rp *RecallPack) ApplyRecallBudgetWithEstimator(maxContextTokens int, ratio float64, estimator TokenEstimator) RecallPack {
 	if rp == nil {
 		return RecallPack{}
 	}
@@ -167,7 +184,7 @@ func (rp *RecallPack) ApplyRecallBudget(maxContextTokens int, ratio float64) Rec
 	trimmed.SearchCacheSnippets = nil
 	used := 0
 	canAdd := func(text string) bool {
-		cost := estimateRecallTokens(text)
+		cost := estimateWithFallback(estimator, text)
 		if cost > budget {
 			return false
 		}
@@ -198,6 +215,17 @@ func (rp *RecallPack) ApplyRecallBudget(maxContextTokens int, ratio float64) Rec
 		}
 	}
 	return trimmed
+}
+
+func estimateWithFallback(estimator TokenEstimator, text string) int {
+	if estimator == nil {
+		return estimateRecallTokens(text)
+	}
+	cost := estimator.EstimateTokens(text)
+	if cost <= 0 {
+		return estimateRecallTokens(text)
+	}
+	return cost
 }
 
 func (rp *RecallPack) FilterForRole(role string) RecallPack {

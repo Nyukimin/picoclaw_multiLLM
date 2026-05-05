@@ -357,6 +357,36 @@ func TestRecallPack_ApplyRecallBudgetNoopsWithoutBudget(t *testing.T) {
 	}
 }
 
+func TestRecallPack_ApplyRecallBudgetWithTokenEstimator(t *testing.T) {
+	rp := &RecallPack{
+		MidSummaries: []ThreadSummary{
+			{Summary: "one"},
+			{Summary: "two"},
+			{Summary: "three"},
+		},
+	}
+	estimator := TokenEstimatorFunc(func(text string) int {
+		switch text {
+		case "one":
+			return 4
+		case "two":
+			return 4
+		case "three":
+			return 20
+		default:
+			return 1
+		}
+	})
+
+	trimmed := rp.ApplyRecallBudgetWithEstimator(100, 0.10, estimator)
+	if len(trimmed.MidSummaries) != 2 {
+		t.Fatalf("expected precise estimator to keep first two summaries, got %+v", trimmed.MidSummaries)
+	}
+	if trimmed.MidSummaries[0].Summary != "one" || trimmed.MidSummaries[1].Summary != "two" {
+		t.Fatalf("unexpected budget order: %+v", trimmed.MidSummaries)
+	}
+}
+
 func TestRecallPack_FilterForRole(t *testing.T) {
 	rp := &RecallPack{
 		MidSummaries: []ThreadSummary{
