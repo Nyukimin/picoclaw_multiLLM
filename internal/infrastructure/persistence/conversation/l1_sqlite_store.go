@@ -2,10 +2,13 @@ package conversation
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -32,6 +35,19 @@ type L1MemoryEvent struct {
 	Source      string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type L1SearchCacheEntry struct {
+	QueryHash       string
+	NormalizedQuery string
+	Provider        string
+	RawQuery        string
+	ResultsJSON     string
+	SourceURLs      []string
+	RetrievedAt     time.Time
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type L1SQLiteStore struct {
@@ -76,6 +92,20 @@ CREATE INDEX IF NOT EXISTS idx_l1_memory_namespace_created ON l1_memory_event(na
 CREATE INDEX IF NOT EXISTS idx_l1_memory_session_created ON l1_memory_event(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_memory_state_created ON l1_memory_event(memory_state, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_memory_thread_created ON l1_memory_event(thread_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS l1_search_cache (
+	query_hash TEXT PRIMARY KEY,
+	normalized_query TEXT NOT NULL,
+	provider TEXT NOT NULL,
+	raw_query TEXT NOT NULL,
+	results_json TEXT NOT NULL,
+	source_urls_json TEXT NOT NULL DEFAULT '[]',
+	retrieved_at TIMESTAMP NOT NULL,
+	expires_at TIMESTAMP NOT NULL,
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_search_cache_expires ON l1_search_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_l1_search_cache_retrieved ON l1_search_cache(retrieved_at DESC);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -125,6 +155,87 @@ ON CONFLICT(id) DO UPDATE SET
 		return fmt.Errorf("failed to save l1 memory event: %w", err)
 	}
 	return nil
+}
+
+func (s *L1SQLiteStore) SaveSearchCache(ctx context.Context, provider string, rawQuery string, resultsJSON string, sourceURLs []string, ttl time.Duration) (*L1SearchCacheEntry, error) {
+	normalizedQuery := normalizeSearchQuery(rawQuery)
+	if normalizedQuery == "" {
+		return nil, errors.New("search cache query is required")
+	}
+	if provider == "" {
+		provider = "default"
+	}
+	if resultsJSON == "" {
+		resultsJSON = "[]"
+	}
+	if !json.Valid([]byte(resultsJSON)) {
+		return nil, errors.New("search cache results_json must be valid JSON")
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	now := time.Now().UTC()
+	entry := &L1SearchCacheEntry{
+		QueryHash:       searchQueryHash(provider, normalizedQuery),
+		NormalizedQuery: normalizedQuery,
+		Provider:        provider,
+		RawQuery:        rawQuery,
+		ResultsJSON:     resultsJSON,
+		SourceURLs:      sourceURLs,
+		RetrievedAt:     now,
+		ExpiresAt:       now.Add(ttl),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	sourceURLsJSON, err := json.Marshal(sourceURLs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal search cache source urls: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_search_cache (
+	query_hash, normalized_query, provider, raw_query, results_json, source_urls_json,
+	retrieved_at, expires_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(query_hash) DO UPDATE SET
+	raw_query = excluded.raw_query,
+	results_json = excluded.results_json,
+	source_urls_json = excluded.source_urls_json,
+	retrieved_at = excluded.retrieved_at,
+	expires_at = excluded.expires_at,
+	updated_at = excluded.updated_at
+`, entry.QueryHash, entry.NormalizedQuery, entry.Provider, entry.RawQuery, entry.ResultsJSON, string(sourceURLsJSON),
+		entry.RetrievedAt, entry.ExpiresAt, entry.CreatedAt, entry.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save l1 search cache: %w", err)
+	}
+	return entry, nil
+}
+
+func (s *L1SQLiteStore) GetFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time) (*L1SearchCacheEntry, error) {
+	normalizedQuery := normalizeSearchQuery(rawQuery)
+	if normalizedQuery == "" {
+		return nil, errors.New("search cache query is required")
+	}
+	if provider == "" {
+		provider = "default"
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	row := s.db.QueryRowContext(ctx, `
+SELECT query_hash, normalized_query, provider, raw_query, results_json, source_urls_json,
+       retrieved_at, expires_at, created_at, updated_at
+FROM l1_search_cache
+WHERE query_hash = ? AND expires_at > ?
+`, searchQueryHash(provider, normalizedQuery), now.UTC())
+	entry, err := scanL1SearchCacheEntry(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return entry, nil
 }
 
 func (s *L1SQLiteStore) UpdateMemoryState(ctx context.Context, id string, memoryState string) error {
@@ -219,6 +330,45 @@ func validateMemoryState(memoryState string) error {
 	default:
 		return fmt.Errorf("invalid l1 memory state: %s", memoryState)
 	}
+}
+
+type l1SearchCacheRow interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanL1SearchCacheEntry(row l1SearchCacheRow) (*L1SearchCacheEntry, error) {
+	var entry L1SearchCacheEntry
+	var sourceURLsJSON string
+	if err := row.Scan(
+		&entry.QueryHash,
+		&entry.NormalizedQuery,
+		&entry.Provider,
+		&entry.RawQuery,
+		&entry.ResultsJSON,
+		&sourceURLsJSON,
+		&entry.RetrievedAt,
+		&entry.ExpiresAt,
+		&entry.CreatedAt,
+		&entry.UpdatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("failed to scan l1 search cache: %w", err)
+	}
+	if sourceURLsJSON == "" {
+		sourceURLsJSON = "[]"
+	}
+	if err := json.Unmarshal([]byte(sourceURLsJSON), &entry.SourceURLs); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal search cache source urls: %w", err)
+	}
+	return &entry, nil
+}
+
+func normalizeSearchQuery(query string) string {
+	return strings.Join(strings.Fields(strings.ToLower(query)), " ")
+}
+
+func searchQueryHash(provider string, normalizedQuery string) string {
+	sum := sha256.Sum256([]byte(provider + "\x00" + normalizedQuery))
+	return hex.EncodeToString(sum[:])
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {

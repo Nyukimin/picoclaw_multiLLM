@@ -149,3 +149,81 @@ func TestL1SQLiteStore_RejectsInvalidMemoryState(t *testing.T) {
 		t.Fatal("expected UpdateMemoryState to reject invalid memory state")
 	}
 }
+
+func TestL1SQLiteStore_SearchCacheFreshHit(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	entry, err := store.SaveSearchCache(
+		ctx,
+		"web",
+		"  RenCrow   最新 仕様 ",
+		`[{"title":"RenCrow memo"}]`,
+		[]string{"https://example.com/rencrow"},
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("SaveSearchCache failed: %v", err)
+	}
+	if entry.NormalizedQuery != "rencrow 最新 仕様" {
+		t.Fatalf("unexpected normalized query: %s", entry.NormalizedQuery)
+	}
+
+	hit, err := store.GetFreshSearchCache(ctx, "web", "rencrow 最新 仕様", entry.RetrievedAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("GetFreshSearchCache failed: %v", err)
+	}
+	if hit == nil {
+		t.Fatal("expected fresh cache hit")
+	}
+	if hit.QueryHash != entry.QueryHash || hit.ResultsJSON != `[{"title":"RenCrow memo"}]` {
+		t.Fatalf("unexpected cache hit: %+v", hit)
+	}
+	if len(hit.SourceURLs) != 1 || hit.SourceURLs[0] != "https://example.com/rencrow" {
+		t.Fatalf("unexpected source urls: %+v", hit.SourceURLs)
+	}
+}
+
+func TestL1SQLiteStore_SearchCacheMissesAfterExpiry(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	entry, err := store.SaveSearchCache(ctx, "web", "short lived", `[]`, nil, time.Second)
+	if err != nil {
+		t.Fatalf("SaveSearchCache failed: %v", err)
+	}
+	hit, err := store.GetFreshSearchCache(ctx, "web", "short lived", entry.ExpiresAt.Add(time.Nanosecond))
+	if err != nil {
+		t.Fatalf("GetFreshSearchCache failed: %v", err)
+	}
+	if hit != nil {
+		t.Fatalf("expected expired cache miss, got %+v", hit)
+	}
+}
+
+func TestL1SQLiteStore_SearchCacheRejectsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.SaveSearchCache(ctx, "web", "query", `{bad`, nil, time.Hour); err == nil {
+		t.Fatal("expected invalid JSON to be rejected")
+	}
+	if _, err := store.SaveSearchCache(ctx, "web", "   ", `[]`, nil, time.Hour); err == nil {
+		t.Fatal("expected blank query to be rejected")
+	}
+	if _, err := store.GetFreshSearchCache(ctx, "web", "   ", time.Now()); err == nil {
+		t.Fatal("expected blank query lookup to be rejected")
+	}
+}

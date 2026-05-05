@@ -144,6 +144,18 @@ func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID 
 	})
 	return nil
 }
+func (m *mockL1Store) SaveSearchCache(_ context.Context, provider string, rawQuery string, resultsJSON string, sourceURLs []string, ttl time.Duration) (*L1SearchCacheEntry, error) {
+	return &L1SearchCacheEntry{
+		Provider:    provider,
+		RawQuery:    rawQuery,
+		ResultsJSON: resultsJSON,
+		SourceURLs:  sourceURLs,
+		ExpiresAt:   time.Now().Add(ttl),
+	}, nil
+}
+func (m *mockL1Store) GetFreshSearchCache(_ context.Context, _ string, _ string, _ time.Time) (*L1SearchCacheEntry, error) {
+	return nil, nil
+}
 func (m *mockL1Store) UpdateMemoryState(_ context.Context, id string, memoryState string) error {
 	for i := range m.saved {
 		if m.saved[i].ID == id {
