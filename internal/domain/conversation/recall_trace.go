@@ -23,7 +23,14 @@ func (rp *RecallPack) ToTraceItems() []RecallTraceItem {
 	if rp == nil {
 		return nil
 	}
-	items := make([]RecallTraceItem, 0, len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets))
+	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets))
+	for _, msg := range rp.ShortContext {
+		items = append(items, RecallTraceItem{
+			Layer:   "L0",
+			Kind:    "short_context",
+			Summary: msg.Msg,
+		})
+	}
 	for _, summary := range rp.MidSummaries {
 		items = append(items, RecallTraceItem{
 			Layer:   "L2",

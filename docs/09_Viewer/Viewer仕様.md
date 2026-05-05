@@ -336,6 +336,11 @@ Source Registry CLI:
 - `picoclaw source-registry sweep --limit <n> --min-trust <score> --json` でdue sourceのfetch / staging / validate / News昇格を手動実行できる
 - CLIは `conversation.l1_sqlite_path` のL1 SQLite storeを使う
 
+Recall trace:
+
+- 応答単位の `recall.trace` はL0 short_contextも保存する
+- L1 Search Cache、L2 thread summary、L3 long_fact / knowledge と同じtrace tableで確認できる
+
 ## 16. 参照
 
 - `docs/03_設計文書/ログViewer仕様.md`
