@@ -282,6 +282,12 @@ func TestRecallPack_ToPromptMessages_MidAndLongMergedInSameBlock(t *testing.T) {
 	if !contains(msgs[0].Content, "過去の会話から思い出したこと") {
 		t.Error("should contain recall header")
 	}
+	if !contains(msgs[0].Content, "L2 中期記憶") {
+		t.Error("should contain L2 layer label")
+	}
+	if !contains(msgs[0].Content, "L3 長期記憶") {
+		t.Error("should contain L3 layer label")
+	}
 	if !contains(msgs[0].Content, "mid1") {
 		t.Error("should contain mid summary")
 	}

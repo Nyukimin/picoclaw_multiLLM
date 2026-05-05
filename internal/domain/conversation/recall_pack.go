@@ -88,30 +88,28 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 		})
 	}
 
-	// 2. 過去文脈（中期要約 + 長期事実 + KB）
+	// 2. 過去文脈（L2中期記憶 + L3長期記憶 + KB）
 	contextText := ""
 	if len(rp.MidSummaries) > 0 {
-		contextText += "【過去の会話から思い出したこと】\n"
+		contextText += "【L2 中期記憶 / 過去の会話から思い出したこと】\n"
 		for _, s := range rp.MidSummaries {
 			contextText += "- " + s.Summary + "\n"
 		}
 	}
 	if len(rp.LongFacts) > 0 {
-		if contextText == "" {
-			contextText += "【過去の会話から思い出したこと】\n"
-		}
+		contextText += "【L3 長期記憶 / 過去の会話から思い出したこと】\n"
 		for _, f := range rp.LongFacts {
 			contextText += "- " + f + "\n"
 		}
 	}
 	if len(rp.KBSnippets) > 0 {
-		contextText += "【参考知識】\n"
+		contextText += "【Knowledge DB / 参考知識】\n"
 		for _, kb := range rp.KBSnippets {
 			contextText += kb + "\n"
 		}
 	}
 	if len(rp.SearchCacheSnippets) > 0 {
-		contextText += "【検索キャッシュ】\n"
+		contextText += "【L1 Search Cache / 検索キャッシュ】\n"
 		for _, cache := range rp.SearchCacheSnippets {
 			contextText += "- " + cache.ToPromptText() + "\n"
 		}
