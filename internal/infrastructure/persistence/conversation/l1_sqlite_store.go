@@ -222,9 +222,14 @@ type L1ArchiveStore interface {
 	ArchiveL1StagingItems(ctx context.Context, items []L1StagingItem) error
 }
 
+type DailyDigestSummarizer interface {
+	SummarizeDailyDigest(ctx context.Context, digestDate time.Time, category string, slot string, news []L1NewsItem) (string, error)
+}
+
 type L1SQLiteStore struct {
-	db           *sql.DB
-	archiveStore L1ArchiveStore
+	db                    *sql.DB
+	archiveStore          L1ArchiveStore
+	dailyDigestSummarizer DailyDigestSummarizer
 }
 
 func NewL1SQLiteStore(dbPath string) (*L1SQLiteStore, error) {
@@ -246,6 +251,11 @@ func (s *L1SQLiteStore) Close() error {
 
 func (s *L1SQLiteStore) WithArchiveStore(archiveStore L1ArchiveStore) *L1SQLiteStore {
 	s.archiveStore = archiveStore
+	return s
+}
+
+func (s *L1SQLiteStore) WithDailyDigestSummarizer(summarizer DailyDigestSummarizer) *L1SQLiteStore {
+	s.dailyDigestSummarizer = summarizer
 	return s
 }
 
@@ -1577,6 +1587,12 @@ LIMIT ?
 		}
 		lines = append(lines, "- "+text)
 	}
+	digestText := strings.Join(lines, "\n")
+	if s.dailyDigestSummarizer != nil {
+		if summarized, err := s.dailyDigestSummarizer.SummarizeDailyDigest(ctx, digestDate, category, digestSlot, news); err == nil && strings.TrimSpace(summarized) != "" {
+			digestText = strings.TrimSpace(summarized)
+		}
+	}
 	newsIDsJSON, err := json.Marshal(newsIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal l1 daily digest news ids: %w", err)
@@ -1588,7 +1604,7 @@ LIMIT ?
 		Category:   category,
 		DigestSlot: digestSlot,
 		NewsIDs:    newsIDs,
-		DigestText: strings.Join(lines, "\n"),
+		DigestText: digestText,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -120,5 +121,24 @@ func TestLLMSummarizer_ExtractKeywords_LLMError(t *testing.T) {
 	_, err := s.ExtractKeywords(context.Background(), thread)
 	if err == nil {
 		t.Fatal("expected error on LLM failure, got nil")
+	}
+}
+
+func TestLLMDailyDigestSummarizer_SummarizeDailyDigest(t *testing.T) {
+	provider := &mockLLMProvider{response: "LLM版Daily Digest"}
+	s := NewLLMDailyDigestSummarizer(provider)
+
+	got, err := s.SummarizeDailyDigest(context.Background(), time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC), "ai", L1DailyDigestSlotMorning, []L1NewsItem{{
+		SourceID:     "rss:test",
+		SourceURL:    "https://example.com/news",
+		PublishedAt:  time.Date(2026, 5, 5, 8, 0, 0, 0, time.UTC),
+		RawText:      "ニュース本文",
+		SummaryDraft: "ニュース要約案",
+	}})
+	if err != nil {
+		t.Fatalf("SummarizeDailyDigest failed: %v", err)
+	}
+	if got != "LLM版Daily Digest" {
+		t.Fatalf("unexpected digest summary: %q", got)
 	}
 }

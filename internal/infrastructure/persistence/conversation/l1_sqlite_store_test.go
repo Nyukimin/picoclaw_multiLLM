@@ -1407,6 +1407,70 @@ func TestL1SQLiteStore_BuildDailyDigestFromNews(t *testing.T) {
 	}
 }
 
+type stubDailyDigestSummarizer struct {
+	gotCategory string
+	gotSlot     string
+	gotNews     []L1NewsItem
+	text        string
+	err         error
+}
+
+func (s *stubDailyDigestSummarizer) SummarizeDailyDigest(_ context.Context, _ time.Time, category string, slot string, news []L1NewsItem) (string, error) {
+	s.gotCategory = category
+	s.gotSlot = slot
+	s.gotNews = append([]L1NewsItem(nil), news...)
+	return s.text, s.err
+}
+
+func TestL1SQLiteStore_BuildDailyDigestUsesSummarizer(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	summarizer := &stubDailyDigestSummarizer{text: "LLMが整理した朝の要約"}
+	store.WithDailyDigestSummarizer(summarizer)
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:news",
+		EventID:      "digest-llm-news",
+		SourceID:     "rss:llm",
+		SourceURL:    "https://example.com/news/llm",
+		FetchedAt:    time.Date(2026, 5, 5, 8, 0, 0, 0, time.UTC),
+		PublishedAt:  time.Date(2026, 5, 5, 7, 30, 0, 0, time.UTC),
+		RawText:      "ニュース本文",
+		SummaryDraft: "決定論的な要約",
+		Keywords:     []string{"AI"},
+		LicenseNote:  "official rss excerpt",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"rss:llm": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 8, 10, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	if _, err := store.PromoteValidatedStagingItemToNews(ctx, item.ID, "ai"); err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToNews failed: %v", err)
+	}
+
+	digest, err := store.BuildDailyDigestForSlot(ctx, time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC), "ai", L1DailyDigestSlotMorning, 10)
+	if err != nil {
+		t.Fatalf("BuildDailyDigestForSlot failed: %v", err)
+	}
+	if digest.DigestText != "LLMが整理した朝の要約" {
+		t.Fatalf("digest should use summarizer output, got %q", digest.DigestText)
+	}
+	if summarizer.gotCategory != "ai" || summarizer.gotSlot != L1DailyDigestSlotMorning || len(summarizer.gotNews) != 1 {
+		t.Fatalf("summarizer received unexpected inputs: %+v", summarizer)
+	}
+}
+
 func TestL1SQLiteStore_BuildDailyDigestForSlots(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

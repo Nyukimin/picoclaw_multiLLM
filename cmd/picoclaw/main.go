@@ -2662,6 +2662,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if summaryProvider != nil {
 			summarizer := conversationpersistence.NewLLMSummarizer(summaryProvider)
 			realMgr.WithSummarizer(summarizer)
+			if l1Store != nil {
+				l1Store.WithDailyDigestSummarizer(conversationpersistence.NewLLMDailyDigestSummarizer(summaryProvider))
+			}
 			log.Printf("  Summarizer: %s", summaryProviderLabel)
 		}
 
