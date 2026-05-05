@@ -47,7 +47,9 @@ type vectordbStoreIface interface {
 
 type l1StoreIface interface {
 	SaveMessage(ctx context.Context, sessionID string, threadID int64, namespace string, msg conversation.Message, memoryState string) error
+	UpdateMemoryState(ctx context.Context, id string, memoryState string) error
 	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error)
+	RecentByState(ctx context.Context, memoryState string, limit int) ([]L1MemoryEvent, error)
 	RecentBySession(ctx context.Context, sessionID string, limit int) ([]L1MemoryEvent, error)
 	Close() error
 }

@@ -144,10 +144,28 @@ func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID 
 	})
 	return nil
 }
+func (m *mockL1Store) UpdateMemoryState(_ context.Context, id string, memoryState string) error {
+	for i := range m.saved {
+		if m.saved[i].ID == id {
+			m.saved[i].MemoryState = memoryState
+			return nil
+		}
+	}
+	return nil
+}
 func (m *mockL1Store) RecentByNamespace(_ context.Context, namespace string, _ int) ([]L1MemoryEvent, error) {
 	var out []L1MemoryEvent
 	for _, ev := range m.saved {
 		if ev.Namespace == namespace {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
+}
+func (m *mockL1Store) RecentByState(_ context.Context, memoryState string, _ int) ([]L1MemoryEvent, error) {
+	var out []L1MemoryEvent
+	for _, ev := range m.saved {
+		if ev.MemoryState == memoryState {
 			out = append(out, ev)
 		}
 	}

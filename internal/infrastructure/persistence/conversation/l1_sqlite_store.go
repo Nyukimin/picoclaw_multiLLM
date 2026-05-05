@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -89,6 +90,9 @@ func (s *L1SQLiteStore) SaveMessage(ctx context.Context, sessionID string, threa
 	if memoryState == "" {
 		memoryState = MemoryStateObserved
 	}
+	if err := validateMemoryState(memoryState); err != nil {
+		return err
+	}
 	layer := MemoryLayerL1
 	now := time.Now().UTC()
 	createdAt := msg.Timestamp
@@ -123,6 +127,31 @@ ON CONFLICT(id) DO UPDATE SET
 	return nil
 }
 
+func (s *L1SQLiteStore) UpdateMemoryState(ctx context.Context, id string, memoryState string) error {
+	if id == "" {
+		return errors.New("l1 memory event id is required")
+	}
+	if err := validateMemoryState(memoryState); err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE l1_memory_event
+SET memory_state = ?, updated_at = ?
+WHERE id = ?
+`, memoryState, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update l1 memory state: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to inspect l1 memory state update: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if limit <= 0 {
 		limit = 20
@@ -137,6 +166,28 @@ LIMIT ?
 `, namespace, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query l1 memory events: %w", err)
+	}
+	defer rows.Close()
+	return scanL1Events(rows)
+}
+
+func (s *L1SQLiteStore) RecentByState(ctx context.Context, memoryState string, limit int) ([]L1MemoryEvent, error) {
+	if err := validateMemoryState(memoryState); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, namespace, session_id, thread_id, speaker, message, meta_json,
+       memory_state, layer, source, created_at, updated_at
+FROM l1_memory_event
+WHERE memory_state = ?
+ORDER BY created_at DESC
+LIMIT ?
+`, memoryState, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 memory events by state: %w", err)
 	}
 	defer rows.Close()
 	return scanL1Events(rows)
@@ -159,6 +210,15 @@ LIMIT ?
 	}
 	defer rows.Close()
 	return scanL1Events(rows)
+}
+
+func validateMemoryState(memoryState string) error {
+	switch memoryState {
+	case MemoryStateObserved, MemoryStateCandidate, MemoryStateConfirmed:
+		return nil
+	default:
+		return fmt.Errorf("invalid l1 memory state: %s", memoryState)
+	}
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {
