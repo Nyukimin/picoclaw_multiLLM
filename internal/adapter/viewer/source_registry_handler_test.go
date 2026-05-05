@@ -95,6 +95,9 @@ func (s *sourceRegistryStoreStub) ValidateStagingItem(_ context.Context, _ strin
 func (s *sourceRegistryStoreStub) PromoteValidatedStagingItemToNews(_ context.Context, _ string, _ string) (*conversationpersistence.L1NewsItem, error) {
 	return nil, fmt.Errorf("not used")
 }
+func (s *sourceRegistryStoreStub) PromoteValidatedStagingItemToKnowledge(_ context.Context, _ string, _ string) (*conversationpersistence.L1KnowledgeItem, error) {
+	return nil, fmt.Errorf("not used")
+}
 func (s *sourceRegistryStoreStub) MarkSourceRegistryFetched(_ context.Context, _ string, _ time.Time, _ string, _ string) error {
 	return nil
 }

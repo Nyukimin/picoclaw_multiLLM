@@ -112,3 +112,46 @@ func TestRunSourceStagesValidatesAndPromotesSelectedRSS(t *testing.T) {
 		t.Fatalf("unexpected promoted news: %+v", news)
 	}
 }
+
+func TestRunSourceStagesValidatesAndPromotesPyPIHTTPSource(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"info":{"name":"sample","summary":"sample package"},"releases":{"1.0.0":[]}}`))
+	}))
+	defer srv.Close()
+
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "pypi:sample",
+		URL:           srv.URL,
+		Kind:          conversationpersistence.L1SourceKindPyPI,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "pypi json api",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"namespace": "kb:pypi", "domain": "pypi", "title": "sample"},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+
+	result, err := RunSource(ctx, store, "pypi:sample", now, SweepOptions{LimitPerSource: 5, MinimumTrustScore: 0.5})
+	if err != nil {
+		t.Fatalf("RunSource failed: %v", err)
+	}
+	if result.Sources != 1 || result.Staged != 1 || result.Validated != 1 || result.PromotedKnowledge != 1 {
+		t.Fatalf("unexpected run result: %+v", result)
+	}
+	items, err := store.RecentKnowledgeItems(ctx, "pypi", 10)
+	if err != nil {
+		t.Fatalf("RecentKnowledgeItems failed: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "sample" || items[0].SourceID != "pypi:sample" {
+		t.Fatalf("unexpected promoted knowledge: %+v", items)
+	}
+}

@@ -3,6 +3,8 @@ package sourcefetcher
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ type RegistryStore interface {
 	StageSourceRegistryFetch(ctx context.Context, sourceID string, payload conversationpersistence.L1SourceFetchPayload) (*conversationpersistence.L1StagingItem, error)
 	ValidateStagingItem(ctx context.Context, id string, policy conversationpersistence.L1StagingValidationPolicy) (*conversationpersistence.L1StagingValidationResult, error)
 	PromoteValidatedStagingItemToNews(ctx context.Context, id string, category string) (*conversationpersistence.L1NewsItem, error)
+	PromoteValidatedStagingItemToKnowledge(ctx context.Context, id string, domain string) (*conversationpersistence.L1KnowledgeItem, error)
 	MarkSourceRegistryFetched(ctx context.Context, sourceID string, fetchedAt time.Time, status string, lastError string) error
 }
 
@@ -29,11 +32,12 @@ type SweepOptions struct {
 }
 
 type SweepResult struct {
-	Sources      int
-	Staged       int
-	Validated    int
-	PromotedNews int
-	Failed       int
+	Sources           int
+	Staged            int
+	Validated         int
+	PromotedNews      int
+	PromotedKnowledge int
+	Failed            int
 }
 
 func SweepDueSources(ctx context.Context, store RegistryStore, now time.Time, opts SweepOptions) (SweepResult, error) {
@@ -58,9 +62,11 @@ func SweepDueSources(ctx context.Context, store RegistryStore, now time.Time, op
 	parser := gofeed.NewParser()
 	for _, source := range sources {
 		if source.Kind != conversationpersistence.L1SourceKindRSS && source.Kind != conversationpersistence.L1SourceKindAtom {
-			continue
+			err = sweepHTTPSource(ctx, store, source, trustScores, now, &result)
+		} else {
+			err = sweepFeedSource(ctx, store, parser, source, trustScores, now, opts, &result)
 		}
-		if err := sweepFeedSource(ctx, store, parser, source, trustScores, now, opts, &result); err != nil {
+		if err != nil {
 			result.Failed++
 			_ = store.MarkSourceRegistryFetched(ctx, source.SourceID, now, "error", err.Error())
 			continue
@@ -105,16 +111,17 @@ func RunSource(ctx context.Context, store interface {
 		return SweepResult{}, fmt.Errorf("source registry entry not found: %s", sourceID)
 	}
 	result := SweepResult{Sources: 1}
-	if selected.Kind != conversationpersistence.L1SourceKindRSS && selected.Kind != conversationpersistence.L1SourceKindAtom {
-		result.Failed = 1
-		return result, fmt.Errorf("source kind is not fetchable by feed runner: %s", selected.Kind)
-	}
 	trustScores, err := store.SourceTrustScores(ctx)
 	if err != nil {
 		return result, err
 	}
 	parser := gofeed.NewParser()
-	if err := sweepFeedSource(ctx, store, parser, *selected, trustScores, now, opts, &result); err != nil {
+	if selected.Kind != conversationpersistence.L1SourceKindRSS && selected.Kind != conversationpersistence.L1SourceKindAtom {
+		err = sweepHTTPSource(ctx, store, *selected, trustScores, now, &result)
+	} else {
+		err = sweepFeedSource(ctx, store, parser, *selected, trustScores, now, opts, &result)
+	}
+	if err != nil {
 		result.Failed = 1
 		_ = store.MarkSourceRegistryFetched(ctx, selected.SourceID, now, "error", err.Error())
 		return result, err
@@ -123,6 +130,76 @@ func RunSource(ctx context.Context, store interface {
 		return result, err
 	}
 	return result, nil
+}
+
+func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversationpersistence.L1SourceRegistryEntry, trustScores map[string]float64, now time.Time, result *SweepResult) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("source fetch failed with status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil {
+		return err
+	}
+	raw := strings.TrimSpace(string(body))
+	if raw == "" {
+		return fmt.Errorf("source response is empty")
+	}
+	namespace := stringFromMeta(source.Meta, "namespace", "kb:"+source.Kind)
+	category := stringFromMeta(source.Meta, "category", source.Kind)
+	domain := stringFromMeta(source.Meta, "domain", category)
+	title := stringFromMeta(source.Meta, "title", source.SourceID)
+	staged, err := store.StageSourceRegistryFetch(ctx, source.SourceID, conversationpersistence.L1SourceFetchPayload{
+		SourceURL:    source.URL,
+		FetchedAt:    now,
+		PublishedAt:  now,
+		RawText:      raw,
+		SummaryDraft: title,
+		Keywords:     []string{category},
+		Meta: map[string]interface{}{
+			"fetcher":   "source_registry_http",
+			"category":  category,
+			"domain":    domain,
+			"namespace": namespace,
+			"title":     title,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	result.Staged++
+	validation, err := store.ValidateStagingItem(ctx, staged.ID, conversationpersistence.L1StagingValidationPolicy{
+		SourceTrustScores: trustScores,
+		MinimumTrustScore: 0.5,
+		Now:               now,
+	})
+	if err != nil {
+		return err
+	}
+	if !validation.Passed {
+		return nil
+	}
+	result.Validated++
+	if namespace == "kb:news" {
+		if _, err := store.PromoteValidatedStagingItemToNews(ctx, staged.ID, category); err != nil {
+			return err
+		}
+		result.PromotedNews++
+		return nil
+	}
+	if _, err := store.PromoteValidatedStagingItemToKnowledge(ctx, staged.ID, domain); err != nil {
+		return err
+	}
+	result.PromotedKnowledge++
+	return nil
 }
 
 func sweepFeedSource(ctx context.Context, store RegistryStore, parser *gofeed.Parser, source conversationpersistence.L1SourceRegistryEntry, trustScores map[string]float64, now time.Time, opts SweepOptions, result *SweepResult) error {

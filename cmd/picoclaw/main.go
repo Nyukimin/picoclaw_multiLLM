@@ -1654,11 +1654,12 @@ func parseSourceRegistrySweepArgs(args []string) (sourcefetcher.SweepOptions, bo
 
 func sourceRegistrySweepResultCLI(result sourcefetcher.SweepResult) map[string]any {
 	return map[string]any{
-		"sources":       result.Sources,
-		"staged":        result.Staged,
-		"validated":     result.Validated,
-		"promoted_news": result.PromotedNews,
-		"failed":        result.Failed,
+		"sources":            result.Sources,
+		"staged":             result.Staged,
+		"validated":          result.Validated,
+		"promoted_news":      result.PromotedNews,
+		"promoted_knowledge": result.PromotedKnowledge,
+		"failed":             result.Failed,
 	}
 }
 
