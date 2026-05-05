@@ -344,6 +344,20 @@ func (r *RealConversationManager) UpdateAgentStatus(_ context.Context, _ *domcon
 	return nil
 }
 
+func (r *RealConversationManager) GetSessionHistory(ctx context.Context, sessionID string, limit int) ([]*domconv.ThreadSummary, error) {
+	if r == nil || r.duckdbStore == nil {
+		return []*domconv.ThreadSummary{}, nil
+	}
+	return r.duckdbStore.GetSessionHistory(ctx, sessionID, limit)
+}
+
+func (r *RealConversationManager) SearchByDomain(ctx context.Context, domain string, limit int) ([]*domconv.ThreadSummary, error) {
+	if r == nil || r.duckdbStore == nil {
+		return []*domconv.ThreadSummary{}, nil
+	}
+	return r.duckdbStore.SearchByDomain(ctx, domain, limit)
+}
+
 // --- 内部ヘルパー ---
 
 func (r *RealConversationManager) generateSummaryAndKeywords(ctx context.Context, thread *domconv.Thread) (string, []string) {

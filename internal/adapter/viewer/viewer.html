@@ -518,6 +518,7 @@ body.live-mode .live-audio-btn{
       <div class="sub">L1 memory / News Pack / Knowledge</div>
     </div>
     <div class="filters">
+      <input id="memorySession" placeholder="session id for L0/L2">
       <input id="memoryNamespace" placeholder="namespace: conv:... / user:... / char:... / kb:...">
       <input id="memoryCategory" placeholder="news category">
       <input id="memoryDomain" placeholder="kb domain">
@@ -529,6 +530,15 @@ body.live-mode .live-audio-btn{
       <div class="card"><h4>News</h4><div id="newsPackCount" class="ops-big">0</div><div class="ops-sub">recent items</div></div>
       <div class="card"><h4>Digest</h4><div id="digestCount" class="ops-big">0</div><div class="ops-sub">daily slots</div></div>
       <div class="card"><h4>Knowledge</h4><div id="knowledgeCount" class="ops-big">0</div><div class="ops-sub">domain filtered</div></div>
+      <div class="card"><h4>L0</h4><div id="memoryL0Count" class="ops-big">0</div><div class="ops-sub">current session</div></div>
+      <div class="card"><h4>L2</h4><div id="memoryL2Count" class="ops-big">0</div><div class="ops-sub">thread summaries</div></div>
+      <div class="card"><h4>L3</h4><div id="memoryL3Count" class="ops-big">0</div><div class="ops-sub">confirmed memory</div></div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Layer</th><th>Scope</th><th>Kind</th><th>Summary</th><th>Updated</th></tr></thead>
+        <tbody id="memoryLayerBody"></tbody>
+      </table>
     </div>
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
@@ -785,6 +795,7 @@ const state = {
   pendingEvidenceJobID: '',
   memory: {
     snapshot: {memory: [], news: [], digests: [], knowledge: []},
+    layers: {l0: [], l1: [], l2: [], l3: []},
     traces: [],
   },
   agents: {},
@@ -986,6 +997,7 @@ const fltText = document.getElementById('fltText');
 const sysPreset = document.getElementById('sysPreset');
 const sysType = document.getElementById('sysType');
 const sysText = document.getElementById('sysText');
+const memorySession = document.getElementById('memorySession');
 const memoryNamespace = document.getElementById('memoryNamespace');
 const memoryCategory = document.getElementById('memoryCategory');
 const memoryDomain = document.getElementById('memoryDomain');
@@ -1099,6 +1111,7 @@ if (sysPreset) sysPreset.addEventListener('change', renderSystem);
 if (sysType) sysType.addEventListener('change', renderSystem);
 if (sysText) sysText.addEventListener('input', renderSystem);
 if (memoryRefreshBtn) memoryRefreshBtn.addEventListener('click', refreshMemorySnapshot);
+if (memorySession) memorySession.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 if (memoryNamespace) memoryNamespace.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 if (memoryCategory) memoryCategory.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
 if (memoryDomain) memoryDomain.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshMemorySnapshot(); });
@@ -2447,6 +2460,75 @@ function renderMemorySnapshot() {
   }
 }
 
+function renderMemoryLayers() {
+  const layers = state.memory.layers || {};
+  const l0 = Array.isArray(layers.l0) ? layers.l0 : [];
+  const l1 = Array.isArray(layers.l1) ? layers.l1 : [];
+  const l2 = Array.isArray(layers.l2) ? layers.l2 : [];
+  const l3 = Array.isArray(layers.l3) ? layers.l3 : [];
+  const body = document.getElementById('memoryLayerBody');
+  const l0Count = document.getElementById('memoryL0Count');
+  const l2Count = document.getElementById('memoryL2Count');
+  const l3Count = document.getElementById('memoryL3Count');
+  if (l0Count) l0Count.textContent = String(l0.length);
+  if (l2Count) l2Count.textContent = String(l2.length);
+  if (l3Count) l3Count.textContent = String(l3.length);
+  if (!body) return;
+  body.innerHTML = '';
+  const rows = [];
+  const pushMemory = (layer, item) => {
+    rows.push({
+      layer,
+      scope: item.Namespace || item.namespace || item.SessionID || item.session_id || '-',
+      kind: item.MemoryState || item.memory_state || item.Speaker || item.speaker || '-',
+      summary: item.Message || item.message || '-',
+      updated: item.UpdatedAt || item.updated_at || item.CreatedAt || item.created_at || '',
+    });
+  };
+  l0.forEach((item) => pushMemory('L0', item));
+  l1.forEach((item) => pushMemory('L1', item));
+  l2.forEach((item) => rows.push({
+    layer: 'L2',
+    scope: item.Domain || item.domain || '-',
+    kind: 'thread_summary',
+    summary: item.Summary || item.summary || '-',
+    updated: item.EndTime || item.end_time || item.StartTime || item.start_time || '',
+  }));
+  l3.forEach((item) => pushMemory('L3', item));
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="small">No L0/L2/L3 memory layers</td></tr>';
+    return;
+  }
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(row.layer) + '</td>' +
+      '<td class="code">' + esc(row.scope) + '</td>' +
+      '<td>' + esc(row.kind) + '</td>' +
+      '<td>' + esc(short(row.summary, 220)) + '</td>' +
+      '<td>' + esc(fdt(row.updated)) + '</td>';
+    body.appendChild(tr);
+  });
+}
+
+function refreshMemoryLayers() {
+  const params = new URLSearchParams();
+  params.set('limit', '20');
+  if (memorySession && memorySession.value.trim()) params.set('session_id', memorySession.value.trim());
+  if (memoryNamespace && memoryNamespace.value.trim()) params.set('namespace', memoryNamespace.value.trim());
+  if (memoryDomain && memoryDomain.value.trim()) params.set('domain', memoryDomain.value.trim());
+  fetch('/viewer/memory/layers?' + params.toString())
+    .then((r) => {
+      if (!r.ok) throw new Error('memory layers fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.layers = data || {l0: [], l1: [], l2: [], l3: []};
+      renderMemoryLayers();
+    })
+    .catch((err) => console.error(err));
+}
+
 function refreshMemorySnapshot() {
   const params = new URLSearchParams();
   params.set('limit', '20');
@@ -2461,6 +2543,7 @@ function refreshMemorySnapshot() {
     .then((data) => {
       state.memory.snapshot = data || {};
       renderMemorySnapshot();
+      refreshMemoryLayers();
     })
     .catch((err) => console.error(err));
 }
