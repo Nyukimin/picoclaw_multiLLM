@@ -300,6 +300,9 @@ func cmdRun() {
 	if dependencies.glossaryRecent != nil {
 		mux.HandleFunc("/viewer/glossary/recent", dependencies.glossaryRecent)
 	}
+	if dependencies.viewerMemorySnapshot != nil {
+		mux.HandleFunc("/viewer/memory/snapshot", dependencies.viewerMemorySnapshot)
+	}
 	if dependencies.entryHandler != nil {
 		mux.HandleFunc("/entry", dependencies.entryHandler)
 	}
@@ -1952,39 +1955,40 @@ func isSTTTimeoutErr(err error) bool {
 
 // Dependencies はアプリケーション依存関係
 type Dependencies struct {
-	lineHandler        http.Handler
-	telegramHandler    http.Handler
-	discordHandler     http.Handler
-	slackHandler       http.Handler
-	eventHub           *viewer.EventHub                       // live viewer
-	monitorStore       *viewer.MonitorStore                   // viewer monitor snapshots
-	eventLogStore      *viewer.EventLogStore                  // persisted orchestrator event log
-	eventLogGC         *viewer.EventLogGCService              // persisted event log GC
-	reportStore        *executionpersistence.JSONLReportStore // execution evidence store
-	eventRelay         *idleAwareEventListener                // viewer + idlechat stop relay
-	viewerStatus       http.HandlerFunc                       // viewer status API
-	viewerAgents       http.HandlerFunc                       // viewer agents API
-	viewerAgentDetail  http.HandlerFunc                       // viewer agent detail API
-	viewerJobs         http.HandlerFunc                       // viewer jobs API
-	viewerLogs         http.HandlerFunc                       // viewer logs API
-	viewerAuditSummary http.HandlerFunc                       // viewer audit summary API
-	viewerJobDetail    http.HandlerFunc                       // viewer job detail API
-	viewerSend         http.HandlerFunc                       // viewer message sender
-	evidenceHandler    http.HandlerFunc                       // viewer evidence API
-	evidenceDetail     http.HandlerFunc                       // viewer evidence detail API
-	evidenceSummary    http.HandlerFunc                       // viewer evidence summary API
-	glossaryRecent     http.HandlerFunc                       // viewer glossary API
-	entryHandler       http.HandlerFunc                       // unified entry endpoint
-	chromeBridge       http.HandlerFunc                       // chrome bridge endpoint
-	chromeBridgeStatus http.HandlerFunc                       // chrome bridge status endpoint
-	chromeBridgeEvents http.HandlerFunc                       // chrome bridge SSE endpoint
-	distOrch           *orchestrator.DistributedOrchestrator  // v4 distributed orchestrator
-	router             *transport.MessageRouter               // v4 distributed mode
-	localTransports    map[string]*transport.LocalTransport   // v4 local transports
-	idleChatOrch       *idlechat.IdleChatOrchestrator         // v4 idle chat
-	sshTransports      map[string]domaintransport.Transport   // v4 SSH transports
-	heartbeatSvc       *heartbeat.HeartbeatService            // heartbeat service
-	toolRegistry       capdomain.ToolRegistry                 // Phase 4: Shiro ツール共有用 ToolRegistry
+	lineHandler          http.Handler
+	telegramHandler      http.Handler
+	discordHandler       http.Handler
+	slackHandler         http.Handler
+	eventHub             *viewer.EventHub                       // live viewer
+	monitorStore         *viewer.MonitorStore                   // viewer monitor snapshots
+	eventLogStore        *viewer.EventLogStore                  // persisted orchestrator event log
+	eventLogGC           *viewer.EventLogGCService              // persisted event log GC
+	reportStore          *executionpersistence.JSONLReportStore // execution evidence store
+	eventRelay           *idleAwareEventListener                // viewer + idlechat stop relay
+	viewerStatus         http.HandlerFunc                       // viewer status API
+	viewerAgents         http.HandlerFunc                       // viewer agents API
+	viewerAgentDetail    http.HandlerFunc                       // viewer agent detail API
+	viewerJobs           http.HandlerFunc                       // viewer jobs API
+	viewerLogs           http.HandlerFunc                       // viewer logs API
+	viewerAuditSummary   http.HandlerFunc                       // viewer audit summary API
+	viewerJobDetail      http.HandlerFunc                       // viewer job detail API
+	viewerSend           http.HandlerFunc                       // viewer message sender
+	evidenceHandler      http.HandlerFunc                       // viewer evidence API
+	evidenceDetail       http.HandlerFunc                       // viewer evidence detail API
+	evidenceSummary      http.HandlerFunc                       // viewer evidence summary API
+	glossaryRecent       http.HandlerFunc                       // viewer glossary API
+	viewerMemorySnapshot http.HandlerFunc                       // viewer memory/news/recall API
+	entryHandler         http.HandlerFunc                       // unified entry endpoint
+	chromeBridge         http.HandlerFunc                       // chrome bridge endpoint
+	chromeBridgeStatus   http.HandlerFunc                       // chrome bridge status endpoint
+	chromeBridgeEvents   http.HandlerFunc                       // chrome bridge SSE endpoint
+	distOrch             *orchestrator.DistributedOrchestrator  // v4 distributed orchestrator
+	router               *transport.MessageRouter               // v4 distributed mode
+	localTransports      map[string]*transport.LocalTransport   // v4 local transports
+	idleChatOrch         *idlechat.IdleChatOrchestrator         // v4 idle chat
+	sshTransports        map[string]domaintransport.Transport   // v4 SSH transports
+	heartbeatSvc         *heartbeat.HeartbeatService            // heartbeat service
+	toolRegistry         capdomain.ToolRegistry                 // Phase 4: Shiro ツール共有用 ToolRegistry
 }
 
 type idleAwareEventListener struct {
@@ -2238,6 +2242,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 4.5. v5.1 ConversationEngine初期化
 	var convEngine conversation.ConversationEngine
 	var realMgr *conversationpersistence.RealConversationManager // Phase 4.2: KB自動保存用
+	var l1Store *conversationpersistence.L1SQLiteStore
 	if cfg.Conversation.Enabled {
 		// ConversationManager（3層記憶）
 		var err error
@@ -2253,7 +2258,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			if err := os.MkdirAll(filepath.Dir(cfg.Conversation.L1SQLitePath), 0755); err != nil {
 				log.Fatalf("Failed to create L1 SQLite directory: %v", err)
 			}
-			l1Store, err := conversationpersistence.NewL1SQLiteStore(cfg.Conversation.L1SQLitePath)
+			l1Store, err = conversationpersistence.NewL1SQLiteStore(cfg.Conversation.L1SQLitePath)
 			if err != nil {
 				log.Fatalf("Failed to initialize L1 SQLite store: %v", err)
 			}
@@ -2406,6 +2411,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	deps := &Dependencies{}
 	deps.glossaryRecent = glossaryRecentHandler
+	if l1Store != nil {
+		deps.viewerMemorySnapshot = viewer.HandleMemorySnapshot(l1Store)
+	}
 	deps.toolRegistry = runtimeToolRegistry
 
 	// EventHub (Live Viewer)
