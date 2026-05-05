@@ -33,6 +33,17 @@ const (
 	L1StagingStatusRejected  = "rejected"
 )
 
+const (
+	L1SourceKindRSS            = "rss"
+	L1SourceKindAtom           = "atom"
+	L1SourceKindOfficialAPI    = "official_api"
+	L1SourceKindGitHub         = "github"
+	L1SourceKindHuggingFace    = "huggingface"
+	L1SourceKindPyPI           = "pypi"
+	L1SourceKindMediaWiki      = "mediawiki"
+	L1SourceKindSearchFallback = "search_fallback"
+)
+
 type L1MemoryEvent struct {
 	ID          string
 	Namespace   string
@@ -117,6 +128,19 @@ func (r L1StagingValidationResult) HasIssue(code string) bool {
 		}
 	}
 	return false
+}
+
+type L1SourceRegistryEntry struct {
+	SourceID      string
+	URL           string
+	Kind          string
+	TrustScore    float64
+	FetchInterval time.Duration
+	LicenseNote   string
+	Enabled       bool
+	Meta          map[string]interface{}
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type L1SQLiteStore struct {
@@ -210,6 +234,19 @@ CREATE TABLE IF NOT EXISTS l1_staging_item (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_staging_namespace_event ON l1_staging_item(namespace, event_id);
 CREATE INDEX IF NOT EXISTS idx_l1_staging_status_created ON l1_staging_item(validation_status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_staging_raw_hash ON l1_staging_item(raw_hash);
+CREATE TABLE IF NOT EXISTS l1_source_registry (
+	source_id TEXT PRIMARY KEY,
+	url TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	trust_score REAL NOT NULL,
+	fetch_interval_sec INTEGER NOT NULL,
+	license_note TEXT NOT NULL,
+	enabled INTEGER NOT NULL,
+	meta_json TEXT NOT NULL DEFAULT '{}',
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_source_registry_enabled_kind ON l1_source_registry(enabled, kind);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -532,6 +569,115 @@ INSERT INTO l1_memory_event (
 		return nil, fmt.Errorf("failed to append l1 memory promoted event log: %w", err)
 	}
 	return promoted, nil
+}
+
+func (s *L1SQLiteStore) SaveSourceRegistryEntry(ctx context.Context, entry L1SourceRegistryEntry) (*L1SourceRegistryEntry, error) {
+	entry.SourceID = strings.TrimSpace(entry.SourceID)
+	entry.URL = strings.TrimSpace(entry.URL)
+	entry.Kind = strings.TrimSpace(entry.Kind)
+	entry.LicenseNote = strings.TrimSpace(entry.LicenseNote)
+	if entry.SourceID == "" {
+		return nil, errors.New("l1 source registry source_id is required")
+	}
+	if err := validateL1SourceKind(entry.Kind); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalSourceURL(entry.URL); err != nil {
+		return nil, err
+	}
+	if entry.URL == "" {
+		return nil, errors.New("l1 source registry url is required")
+	}
+	if entry.TrustScore < 0 || entry.TrustScore > 1 {
+		return nil, fmt.Errorf("l1 source registry trust_score must be between 0 and 1: %f", entry.TrustScore)
+	}
+	if entry.FetchInterval <= 0 {
+		return nil, errors.New("l1 source registry fetch_interval must be positive")
+	}
+	if entry.LicenseNote == "" {
+		return nil, errors.New("l1 source registry license_note is required")
+	}
+	if entry.Meta == nil {
+		entry.Meta = map[string]interface{}{}
+	}
+	metaJSON, err := json.Marshal(entry.Meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 source registry meta: %w", err)
+	}
+	now := time.Now().UTC()
+	entry.CreatedAt = now
+	entry.UpdatedAt = now
+	enabled := 0
+	if entry.Enabled {
+		enabled = 1
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_source_registry (
+	source_id, url, kind, trust_score, fetch_interval_sec, license_note,
+	enabled, meta_json, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(source_id) DO UPDATE SET
+	url = excluded.url,
+	kind = excluded.kind,
+	trust_score = excluded.trust_score,
+	fetch_interval_sec = excluded.fetch_interval_sec,
+	license_note = excluded.license_note,
+	enabled = excluded.enabled,
+	meta_json = excluded.meta_json,
+	updated_at = excluded.updated_at
+`, entry.SourceID, entry.URL, entry.Kind, entry.TrustScore, int64(entry.FetchInterval.Seconds()), entry.LicenseNote,
+		enabled, string(metaJSON), entry.CreatedAt, entry.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save l1 source registry entry: %w", err)
+	}
+	registryNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, "source_registry")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.AppendEvent(ctx, "source_registry.saved", registryNamespace, "", 0, map[string]interface{}{
+		"source_id":      entry.SourceID,
+		"url":            entry.URL,
+		"kind":           entry.Kind,
+		"trust_score":    entry.TrustScore,
+		"enabled":        entry.Enabled,
+		"license_note":   entry.LicenseNote,
+		"fetch_interval": entry.FetchInterval.String(),
+	}, "source_registry"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 source registry event log: %w", err)
+	}
+	return &entry, nil
+}
+
+func (s *L1SQLiteStore) ListSourceRegistryEntries(ctx context.Context, enabledOnly bool) ([]L1SourceRegistryEntry, error) {
+	query := `
+SELECT source_id, url, kind, trust_score, fetch_interval_sec, license_note,
+       enabled, meta_json, created_at, updated_at
+FROM l1_source_registry
+`
+	var args []interface{}
+	if enabledOnly {
+		query += "WHERE enabled = ?\n"
+		args = append(args, 1)
+	}
+	query += "ORDER BY source_id ASC"
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 source registry: %w", err)
+	}
+	defer rows.Close()
+	return scanL1SourceRegistryEntries(rows)
+}
+
+func (s *L1SQLiteStore) SourceTrustScores(ctx context.Context) (map[string]float64, error) {
+	entries, err := s.ListSourceRegistryEntries(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	scores := make(map[string]float64, len(entries))
+	for _, entry := range entries {
+		scores[entry.SourceID] = entry.TrustScore
+	}
+	return scores, nil
 }
 
 func (s *L1SQLiteStore) SaveStagingItem(ctx context.Context, item L1StagingItem) (*L1StagingItem, error) {
@@ -921,6 +1067,16 @@ func validateL1StagingStatus(status string) error {
 	}
 }
 
+func validateL1SourceKind(kind string) error {
+	switch kind {
+	case L1SourceKindRSS, L1SourceKindAtom, L1SourceKindOfficialAPI, L1SourceKindGitHub,
+		L1SourceKindHuggingFace, L1SourceKindPyPI, L1SourceKindMediaWiki, L1SourceKindSearchFallback:
+		return nil
+	default:
+		return fmt.Errorf("invalid l1 source registry kind: %s", kind)
+	}
+}
+
 func (s *L1SQLiteStore) validateStagingItemContent(ctx context.Context, item L1StagingItem, policy L1StagingValidationPolicy) (L1StagingValidationResult, error) {
 	now := policy.Now
 	if now.IsZero() {
@@ -1199,6 +1355,43 @@ func scanL1StagingItems(rows *sql.Rows) ([]L1StagingItem, error) {
 		return nil, fmt.Errorf("l1 staging rows error: %w", err)
 	}
 	return items, nil
+}
+
+func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error) {
+	var entries []L1SourceRegistryEntry
+	for rows.Next() {
+		var entry L1SourceRegistryEntry
+		var fetchIntervalSec int64
+		var enabled int
+		var metaJSON string
+		if err := rows.Scan(
+			&entry.SourceID,
+			&entry.URL,
+			&entry.Kind,
+			&entry.TrustScore,
+			&fetchIntervalSec,
+			&entry.LicenseNote,
+			&enabled,
+			&metaJSON,
+			&entry.CreatedAt,
+			&entry.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan l1 source registry entry: %w", err)
+		}
+		entry.FetchInterval = time.Duration(fetchIntervalSec) * time.Second
+		entry.Enabled = enabled != 0
+		if metaJSON == "" {
+			metaJSON = "{}"
+		}
+		if err := json.Unmarshal([]byte(metaJSON), &entry.Meta); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 source registry meta: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 source registry rows error: %w", err)
+	}
+	return entries, nil
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {

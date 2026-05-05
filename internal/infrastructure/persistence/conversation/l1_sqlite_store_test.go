@@ -807,3 +807,106 @@ func TestL1SQLiteStore_PromoteStagingItemRequiresValidatedStatus(t *testing.T) {
 		t.Fatal("expected invalid target namespace to be rejected")
 	}
 }
+
+func TestL1SQLiteStore_SourceRegistrySaveListAndTrustScores(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	entry, err := store.SaveSourceRegistryEntry(ctx, L1SourceRegistryEntry{
+		SourceID:      "rss:example",
+		URL:           "https://example.com/feed.xml",
+		Kind:          L1SourceKindRSS,
+		TrustScore:    0.85,
+		FetchInterval: 6 * time.Hour,
+		LicenseNote:   "official rss feed",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"domain": "news"},
+	})
+	if err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	if entry.CreatedAt.IsZero() || entry.UpdatedAt.IsZero() {
+		t.Fatalf("expected timestamps: %+v", entry)
+	}
+
+	entries, err := store.ListSourceRegistryEntries(ctx, true)
+	if err != nil {
+		t.Fatalf("ListSourceRegistryEntries failed: %v", err)
+	}
+	if len(entries) != 1 || entries[0].SourceID != "rss:example" {
+		t.Fatalf("unexpected source registry entries: %+v", entries)
+	}
+	if entries[0].FetchInterval != 6*time.Hour || entries[0].Meta["domain"] != "news" {
+		t.Fatalf("unexpected registry fields: %+v", entries[0])
+	}
+	scores, err := store.SourceTrustScores(ctx)
+	if err != nil {
+		t.Fatalf("SourceTrustScores failed: %v", err)
+	}
+	if scores["rss:example"] != 0.85 {
+		t.Fatalf("unexpected trust scores: %+v", scores)
+	}
+	events, err := store.RecentEvents(ctx, "kb:source_registry", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "source_registry.saved" {
+		t.Fatalf("expected source_registry.saved event, got %+v", events)
+	}
+}
+
+func TestL1SQLiteStore_SourceRegistryRejectsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	valid := L1SourceRegistryEntry{
+		SourceID:      "api:example",
+		URL:           "https://api.example.com/items",
+		Kind:          L1SourceKindOfficialAPI,
+		TrustScore:    0.7,
+		FetchInterval: time.Hour,
+		LicenseNote:   "official api terms",
+		Enabled:       true,
+	}
+	if _, err := store.SaveSourceRegistryEntry(ctx, valid); err != nil {
+		t.Fatalf("valid SaveSourceRegistryEntry failed: %v", err)
+	}
+	invalidKind := valid
+	invalidKind.SourceID = "bad:kind"
+	invalidKind.Kind = "crawler"
+	if _, err := store.SaveSourceRegistryEntry(ctx, invalidKind); err == nil {
+		t.Fatal("expected invalid source kind to be rejected")
+	}
+	invalidURL := valid
+	invalidURL.SourceID = "bad:url"
+	invalidURL.URL = "file:///tmp/feed.xml"
+	if _, err := store.SaveSourceRegistryEntry(ctx, invalidURL); err == nil {
+		t.Fatal("expected invalid source url to be rejected")
+	}
+	invalidTrust := valid
+	invalidTrust.SourceID = "bad:trust"
+	invalidTrust.TrustScore = 1.5
+	if _, err := store.SaveSourceRegistryEntry(ctx, invalidTrust); err == nil {
+		t.Fatal("expected invalid trust score to be rejected")
+	}
+	invalidInterval := valid
+	invalidInterval.SourceID = "bad:interval"
+	invalidInterval.FetchInterval = 0
+	if _, err := store.SaveSourceRegistryEntry(ctx, invalidInterval); err == nil {
+		t.Fatal("expected invalid fetch interval to be rejected")
+	}
+	invalidLicense := valid
+	invalidLicense.SourceID = "bad:license"
+	invalidLicense.LicenseNote = ""
+	if _, err := store.SaveSourceRegistryEntry(ctx, invalidLicense); err == nil {
+		t.Fatal("expected missing license note to be rejected")
+	}
+}
