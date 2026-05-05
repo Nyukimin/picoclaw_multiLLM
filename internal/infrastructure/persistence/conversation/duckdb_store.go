@@ -19,6 +19,12 @@ type DuckDBStore struct {
 	db *sql.DB
 }
 
+const (
+	L1ArchiveMemory    = "memory"
+	L1ArchiveNews      = "news"
+	L1ArchiveKnowledge = "knowledge"
+)
+
 // NewDuckDBStore は新しいDuckDBStoreを生成
 func NewDuckDBStore(dbPath string) (*DuckDBStore, error) {
 	db, err := sql.Open("duckdb", dbPath)
@@ -66,6 +72,61 @@ func (d *DuckDBStore) initTables(ctx context.Context) error {
 	-- 複合インデックス（パフォーマンス最適化）
 	CREATE INDEX IF NOT EXISTS idx_session_thread_session_ts ON session_thread(session_id, ts_start DESC);
 	CREATE INDEX IF NOT EXISTS idx_session_thread_domain_ts ON session_thread(domain, ts_start DESC);
+
+	CREATE TABLE IF NOT EXISTS l1_memory_event_archive (
+		id VARCHAR PRIMARY KEY,
+		namespace VARCHAR NOT NULL,
+		session_id VARCHAR NOT NULL,
+		thread_id BIGINT NOT NULL,
+		speaker VARCHAR NOT NULL,
+		message TEXT NOT NULL,
+		meta_json TEXT NOT NULL,
+		memory_state VARCHAR NOT NULL,
+		layer VARCHAR NOT NULL,
+		source VARCHAR NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_l1_memory_archive_namespace_created ON l1_memory_event_archive(namespace, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_l1_memory_archive_state_created ON l1_memory_event_archive(memory_state, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS l1_news_item_archive (
+		id VARCHAR PRIMARY KEY,
+		staging_id VARCHAR NOT NULL,
+		category VARCHAR NOT NULL,
+		source_id VARCHAR NOT NULL,
+		source_url TEXT NOT NULL,
+		published_at TIMESTAMP,
+		fetched_at TIMESTAMP NOT NULL,
+		raw_text TEXT NOT NULL,
+		raw_hash VARCHAR NOT NULL,
+		summary_draft TEXT NOT NULL,
+		keywords_json TEXT NOT NULL,
+		license_note TEXT NOT NULL,
+		meta_json TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_l1_news_archive_category_published ON l1_news_item_archive(category, published_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_l1_news_archive_source_published ON l1_news_item_archive(source_id, published_at DESC);
+
+	CREATE TABLE IF NOT EXISTS l1_knowledge_item_archive (
+		id VARCHAR PRIMARY KEY,
+		staging_id VARCHAR NOT NULL,
+		domain VARCHAR NOT NULL,
+		title TEXT NOT NULL,
+		source_id VARCHAR NOT NULL,
+		source_url TEXT NOT NULL,
+		raw_text TEXT NOT NULL,
+		raw_hash VARCHAR NOT NULL,
+		summary_draft TEXT NOT NULL,
+		keywords_json TEXT NOT NULL,
+		license_note TEXT NOT NULL,
+		meta_json TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_l1_knowledge_archive_domain_updated ON l1_knowledge_item_archive(domain, updated_at DESC);
 	`
 
 	if _, err := d.db.ExecContext(ctx, schema); err != nil {
@@ -73,6 +134,90 @@ func (d *DuckDBStore) initTables(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (d *DuckDBStore) ArchiveL1MemoryEvents(ctx context.Context, items []L1MemoryEvent) error {
+	for _, item := range items {
+		metaJSON, err := json.Marshal(item.Meta)
+		if err != nil {
+			return fmt.Errorf("failed to marshal l1 memory archive meta: %w", err)
+		}
+		if _, err := d.db.ExecContext(ctx, `DELETE FROM l1_memory_event_archive WHERE id = ?`, item.ID); err != nil {
+			return fmt.Errorf("failed to replace l1 memory archive row: %w", err)
+		}
+		if _, err := d.db.ExecContext(ctx, `
+INSERT INTO l1_memory_event_archive (
+	id, namespace, session_id, thread_id, speaker, message, meta_json,
+	memory_state, layer, source, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, item.ID, item.Namespace, item.SessionID, item.ThreadID, string(item.Speaker), item.Message, string(metaJSON),
+			item.MemoryState, item.Layer, item.Source, item.CreatedAt, item.UpdatedAt); err != nil {
+			return fmt.Errorf("failed to archive l1 memory event: %w", err)
+		}
+	}
+	return nil
+}
+
+func (d *DuckDBStore) ArchiveL1NewsItems(ctx context.Context, items []L1NewsItem) error {
+	for _, item := range items {
+		keywordsJSON, metaJSON, err := marshalArchiveJSON(item.Keywords, item.Meta)
+		if err != nil {
+			return err
+		}
+		var publishedAt interface{}
+		if !item.PublishedAt.IsZero() {
+			publishedAt = item.PublishedAt
+		}
+		if _, err := d.db.ExecContext(ctx, `DELETE FROM l1_news_item_archive WHERE id = ?`, item.ID); err != nil {
+			return fmt.Errorf("failed to replace l1 news archive row: %w", err)
+		}
+		if _, err := d.db.ExecContext(ctx, `
+INSERT INTO l1_news_item_archive (
+	id, staging_id, category, source_id, source_url, published_at, fetched_at,
+	raw_text, raw_hash, summary_draft, keywords_json, license_note, meta_json,
+	created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, item.ID, item.StagingID, item.Category, item.SourceID, item.SourceURL, publishedAt, item.FetchedAt,
+			item.RawText, item.RawHash, item.SummaryDraft, keywordsJSON, item.LicenseNote, metaJSON,
+			item.CreatedAt, item.UpdatedAt); err != nil {
+			return fmt.Errorf("failed to archive l1 news item: %w", err)
+		}
+	}
+	return nil
+}
+
+func (d *DuckDBStore) ArchiveL1KnowledgeItems(ctx context.Context, items []L1KnowledgeItem) error {
+	for _, item := range items {
+		keywordsJSON, metaJSON, err := marshalArchiveJSON(item.Keywords, item.Meta)
+		if err != nil {
+			return err
+		}
+		if _, err := d.db.ExecContext(ctx, `DELETE FROM l1_knowledge_item_archive WHERE id = ?`, item.ID); err != nil {
+			return fmt.Errorf("failed to replace l1 knowledge archive row: %w", err)
+		}
+		if _, err := d.db.ExecContext(ctx, `
+INSERT INTO l1_knowledge_item_archive (
+	id, staging_id, domain, title, source_id, source_url, raw_text, raw_hash,
+	summary_draft, keywords_json, license_note, meta_json, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, item.ID, item.StagingID, item.Domain, item.Title, item.SourceID, item.SourceURL, item.RawText, item.RawHash,
+			item.SummaryDraft, keywordsJSON, item.LicenseNote, metaJSON, item.CreatedAt, item.UpdatedAt); err != nil {
+			return fmt.Errorf("failed to archive l1 knowledge item: %w", err)
+		}
+	}
+	return nil
+}
+
+func marshalArchiveJSON(keywords []string, meta map[string]interface{}) (string, string, error) {
+	keywordsJSON, err := json.Marshal(keywords)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal l1 archive keywords: %w", err)
+	}
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal l1 archive meta: %w", err)
+	}
+	return string(keywordsJSON), string(metaJSON), nil
 }
 
 // SaveThreadSummary はThread要約をDuckDBに保存
@@ -238,6 +383,61 @@ COPY (
 `, escapedPath)
 	if _, err := d.db.ExecContext(ctx, query); err != nil {
 		return fmt.Errorf("failed to export thread summaries to parquet: %w", err)
+	}
+	return nil
+}
+
+func (d *DuckDBStore) ExportL1ArchivesParquet(ctx context.Context, outputDir string) (map[string]string, error) {
+	outputDir = strings.TrimSpace(outputDir)
+	if outputDir == "" {
+		return nil, fmt.Errorf("parquet output directory is required")
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create l1 archive output directory: %w", err)
+	}
+	targets := map[string]struct {
+		table string
+		order string
+		file  string
+	}{
+		L1ArchiveMemory: {
+			table: "l1_memory_event_archive",
+			order: "created_at ASC, id ASC",
+			file:  "l1_memory_event.parquet",
+		},
+		L1ArchiveNews: {
+			table: "l1_news_item_archive",
+			order: "COALESCE(published_at, fetched_at) ASC, id ASC",
+			file:  "l1_news_item.parquet",
+		},
+		L1ArchiveKnowledge: {
+			table: "l1_knowledge_item_archive",
+			order: "updated_at ASC, id ASC",
+			file:  "l1_knowledge_item.parquet",
+		},
+	}
+	paths := make(map[string]string, len(targets))
+	for kind, target := range targets {
+		path := filepath.Join(outputDir, target.file)
+		if err := d.exportTableParquet(ctx, target.table, target.order, path); err != nil {
+			return nil, fmt.Errorf("failed to export %s archive parquet: %w", kind, err)
+		}
+		paths[kind] = path
+	}
+	return paths, nil
+}
+
+func (d *DuckDBStore) exportTableParquet(ctx context.Context, table string, order string, outputPath string) error {
+	escapedPath := strings.ReplaceAll(outputPath, "'", "''")
+	query := fmt.Sprintf(`
+COPY (
+	SELECT *
+	FROM %s
+	ORDER BY %s
+) TO '%s' (FORMAT PARQUET)
+`, table, order, escapedPath)
+	if _, err := d.db.ExecContext(ctx, query); err != nil {
+		return err
 	}
 	return nil
 }
