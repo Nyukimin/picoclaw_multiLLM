@@ -717,3 +717,93 @@ func TestL1SQLiteStore_ValidateStagingItemRejectsUnsafeCandidate(t *testing.T) {
 		t.Fatalf("unexpected rejected items: %+v", rejected)
 	}
 }
+
+func TestL1SQLiteStore_PromoteValidatedStagingItemToMemory(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindMemoryCandidate,
+		Namespace:    "conv:500",
+		EventID:      "evt-promote",
+		SourceID:     "conversation",
+		SourceURL:    "https://example.com/conversation/500",
+		FetchedAt:    time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC),
+		RawText:      "ユーザーは短い要点を好む",
+		SummaryDraft: "短く要点を好む",
+		Keywords:     []string{"preference"},
+		LicenseNote:  "user provided",
+		Meta:         map[string]interface{}{"type": "preference", "session_id": "session-500", "thread_id": float64(500)},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"conversation": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 12, 10, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+
+	promoted, err := store.PromoteValidatedStagingItemToMemory(ctx, item.ID, "user:U123", "validator")
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToMemory failed: %v", err)
+	}
+	if promoted.Namespace != "user:U123" || promoted.MemoryState != MemoryStateConfirmed || promoted.Source != "promoter" {
+		t.Fatalf("unexpected promoted memory: %+v", promoted)
+	}
+	if promoted.Message != "短く要点を好む" {
+		t.Fatalf("summary_draft should be promoted as memory message, got %q", promoted.Message)
+	}
+	if promoted.Meta["staging_id"] != item.ID || promoted.Meta["raw_hash"] != item.RawHash || promoted.Meta["promoted_by"] != "validator" {
+		t.Fatalf("promoted memory missing staging meta: %+v", promoted.Meta)
+	}
+	memories, err := store.RecentByNamespace(ctx, "user:U123", 10)
+	if err != nil {
+		t.Fatalf("RecentByNamespace failed: %v", err)
+	}
+	if len(memories) != 1 || memories[0].ID != promoted.ID {
+		t.Fatalf("unexpected promoted memories: %+v", memories)
+	}
+	events, err := store.RecentEvents(ctx, "user:U123", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "memory.promoted_from_staging" {
+		t.Fatalf("expected memory.promoted_from_staging event, got %+v", events)
+	}
+}
+
+func TestL1SQLiteStore_PromoteStagingItemRequiresValidatedStatus(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindExternalFetch,
+		Namespace:   "kb:news",
+		EventID:     "evt-pending",
+		SourceID:    "rss:example",
+		SourceURL:   "https://example.com/news/pending",
+		FetchedAt:   time.Date(2026, 5, 5, 13, 0, 0, 0, time.UTC),
+		RawText:     "未検証の本文",
+		LicenseNote: "rss",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.PromoteValidatedStagingItemToMemory(ctx, item.ID, "kb:news", "validator"); err == nil {
+		t.Fatal("expected pending staging item promotion to be rejected")
+	}
+	if _, err := store.PromoteValidatedStagingItemToMemory(ctx, item.ID, "misc:news", "validator"); err == nil {
+		t.Fatal("expected invalid target namespace to be rejected")
+	}
+}

@@ -715,6 +715,85 @@ WHERE id = ?
 	return &result, nil
 }
 
+func (s *L1SQLiteStore) PromoteValidatedStagingItemToMemory(ctx context.Context, id string, targetNamespace string, promotedBy string) (*L1MemoryEvent, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, errors.New("l1 staging item id is required")
+	}
+	if err := ValidateL1Namespace(targetNamespace); err != nil {
+		return nil, err
+	}
+	item, err := s.stagingItemByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if item.ValidationStatus != L1StagingStatusValidated {
+		return nil, fmt.Errorf("l1 staging item must be validated before promotion: %s", item.ValidationStatus)
+	}
+	message := strings.TrimSpace(item.SummaryDraft)
+	if message == "" {
+		message = strings.TrimSpace(item.RawText)
+	}
+	if message == "" {
+		return nil, errors.New("l1 staging item has no promotable text")
+	}
+	now := time.Now().UTC()
+	meta := map[string]interface{}{}
+	for k, v := range item.Meta {
+		meta[k] = v
+	}
+	meta["staging_id"] = item.ID
+	meta["staging_kind"] = item.Kind
+	meta["staging_namespace"] = item.Namespace
+	meta["event_id"] = item.EventID
+	meta["source_id"] = item.SourceID
+	meta["source_url"] = item.SourceURL
+	meta["raw_hash"] = item.RawHash
+	meta["license_note"] = item.LicenseNote
+	meta["promoted_by"] = promotedBy
+	meta["validation_status"] = item.ValidationStatus
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 staging promoted memory meta: %w", err)
+	}
+	sessionID := metaString(item.Meta, "session_id")
+	threadID := metaInt64(item.Meta, "thread_id")
+	promoted := &L1MemoryEvent{
+		ID:          fmt.Sprintf("%s:%s:%d", targetNamespace, item.ID, now.UnixNano()),
+		Namespace:   targetNamespace,
+		SessionID:   sessionID,
+		ThreadID:    threadID,
+		Speaker:     domconv.SpeakerMemory,
+		Message:     message,
+		Meta:        meta,
+		MemoryState: MemoryStateConfirmed,
+		Layer:       MemoryLayerL1,
+		Source:      "promoter",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_memory_event (
+	id, namespace, session_id, thread_id, speaker, message, meta_json,
+	memory_state, layer, source, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, promoted.ID, promoted.Namespace, promoted.SessionID, promoted.ThreadID, string(promoted.Speaker), promoted.Message, string(metaJSON),
+		promoted.MemoryState, promoted.Layer, promoted.Source, promoted.CreatedAt, promoted.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to promote l1 staging item to memory: %w", err)
+	}
+	if _, err := s.AppendEvent(ctx, "memory.promoted_from_staging", targetNamespace, sessionID, threadID, map[string]interface{}{
+		"staging_id":         item.ID,
+		"promoted_memory_id": promoted.ID,
+		"promoted_by":        promotedBy,
+		"source_namespace":   item.Namespace,
+		"memory_state":       promoted.MemoryState,
+	}, "promoter"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 staging promoted event log: %w", err)
+	}
+	return promoted, nil
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
@@ -945,6 +1024,38 @@ func containsSensitiveRawText(rawText string) bool {
 		}
 	}
 	return false
+}
+
+func metaString(meta map[string]interface{}, key string) string {
+	value, ok := meta[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return text
+}
+
+func metaInt64(meta map[string]interface{}, key string) int64 {
+	value, ok := meta[key]
+	if !ok {
+		return 0
+	}
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case json.Number:
+		i, _ := v.Int64()
+		return i
+	default:
+		return 0
+	}
 }
 
 func validateOptionalSourceURL(sourceURL string) error {
