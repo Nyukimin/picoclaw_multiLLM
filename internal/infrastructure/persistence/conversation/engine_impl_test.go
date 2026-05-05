@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,6 +123,43 @@ func TestBeginTurn_WithShortContext(t *testing.T) {
 	}
 	if pack.ShortContext[0].Msg != "prev question" {
 		t.Errorf("ShortContext[0]: want 'prev question', got %q", pack.ShortContext[0].Msg)
+	}
+}
+
+func TestBeginTurn_AddsL0RollingSummaryFromActiveThread(t *testing.T) {
+	thread := domconv.NewThread("s1", "general")
+	for i := 1; i <= 8; i++ {
+		thread.AddMessage(domconv.NewMessage(domconv.SpeakerUser, fmt.Sprintf("user turn %d", i), nil))
+		thread.AddMessage(domconv.NewMessage(domconv.SpeakerMio, fmt.Sprintf("mio turn %d", i), nil))
+	}
+	mgr := &mockManager{
+		getActiveThreadFunc: func(ctx context.Context, sessionID string) (*domconv.Thread, error) {
+			return thread, nil
+		},
+		recallFunc: func(ctx context.Context, sessionID, query string, topK int) ([]domconv.Message, error) {
+			return thread.Turns, nil
+		},
+	}
+	engine := NewRealConversationEngine(mgr, domconv.PersonaState{})
+
+	pack, err := engine.BeginTurn(context.Background(), "s1", "hello")
+	if err != nil {
+		t.Fatalf("BeginTurn failed: %v", err)
+	}
+	if pack.RollingSummary == "" {
+		t.Fatal("RollingSummary should be populated for long active thread")
+	}
+	if !strings.Contains(pack.RollingSummary, "user turn 3") || !strings.Contains(pack.RollingSummary, "mio turn 5") {
+		t.Fatalf("RollingSummary should summarize older L0 turns, got %q", pack.RollingSummary)
+	}
+	if strings.Contains(pack.RollingSummary, "user turn 8") {
+		t.Fatalf("RollingSummary should leave newest turns in ShortContext, got %q", pack.RollingSummary)
+	}
+	if len(pack.ShortContext) != 6 {
+		t.Fatalf("ShortContext should keep newest 6 turns, got %d", len(pack.ShortContext))
+	}
+	if pack.ShortContext[0].Msg != "user turn 6" || pack.ShortContext[5].Msg != "mio turn 8" {
+		t.Fatalf("ShortContext should contain newest turns, got %+v", pack.ShortContext)
 	}
 }
 

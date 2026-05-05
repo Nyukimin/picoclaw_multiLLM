@@ -28,6 +28,9 @@ func DefaultConstraints() PromptConstraints {
 
 // RecallPack は Recall 結果を構造化した LLM プロンプト注入用フォーマット
 type RecallPack struct {
+	// RollingSummary: L0現在会話の古い部分を圧縮した要約
+	RollingSummary string
+
 	// ShortContext: 現在の Thread 内の直近メッセージ（最大12件）
 	ShortContext []Message
 
@@ -65,6 +68,7 @@ type SearchCacheSnippet struct {
 // HasContext は RecallPack に何らかの文脈があるかを返す
 func (rp *RecallPack) HasContext() bool {
 	return len(rp.ShortContext) > 0 ||
+		strings.TrimSpace(rp.RollingSummary) != "" ||
 		len(rp.MidSummaries) > 0 ||
 		len(rp.LongFacts) > 0 ||
 		len(rp.KBSnippets) > 0 ||
@@ -90,6 +94,10 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 
 	// 2. 過去文脈（L2中期記憶 + L3長期記憶 + KB）
 	contextText := ""
+	if strings.TrimSpace(rp.RollingSummary) != "" {
+		contextText += "【L0 現在会話 / rolling summary】\n"
+		contextText += "- " + strings.TrimSpace(rp.RollingSummary) + "\n"
+	}
 	if len(rp.MidSummaries) > 0 {
 		contextText += "【L2 中期記憶 / 過去の会話から思い出したこと】\n"
 		for _, s := range rp.MidSummaries {

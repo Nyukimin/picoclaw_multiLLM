@@ -125,8 +125,35 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 		}
 	}
 
+	applyL0RollingSummary(pack, 6)
 	budgeted := pack.ApplyRecallBudget(pack.Constraints.MaxTotalTokens, pack.Constraints.RecallBudgetRatio)
 	return &budgeted, nil
+}
+
+func applyL0RollingSummary(pack *domconv.RecallPack, keepRecent int) {
+	if pack == nil || keepRecent <= 0 || len(pack.ShortContext) <= keepRecent {
+		return
+	}
+	cut := len(pack.ShortContext) - keepRecent
+	older := pack.ShortContext[:cut]
+	pack.ShortContext = append([]domconv.Message(nil), pack.ShortContext[cut:]...)
+	var lines []string
+	for _, msg := range older {
+		text := strings.TrimSpace(msg.Msg)
+		if text == "" {
+			continue
+		}
+		lines = append(lines, string(msg.Speaker)+": "+text)
+	}
+	if len(lines) == 0 {
+		return
+	}
+	summary := strings.Join(lines, " / ")
+	if strings.TrimSpace(pack.RollingSummary) != "" {
+		pack.RollingSummary = strings.TrimSpace(pack.RollingSummary) + " / " + summary
+		return
+	}
+	pack.RollingSummary = summary
 }
 
 var timeNowUTC = func() time.Time {

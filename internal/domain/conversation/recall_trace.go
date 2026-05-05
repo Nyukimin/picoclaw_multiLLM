@@ -23,7 +23,14 @@ func (rp *RecallPack) ToTraceItems() []RecallTraceItem {
 	if rp == nil {
 		return nil
 	}
-	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets))
+	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets)+1)
+	if rp.RollingSummary != "" {
+		items = append(items, RecallTraceItem{
+			Layer:   "L0",
+			Kind:    "rolling_summary",
+			Summary: rp.RollingSummary,
+		})
+	}
 	for _, msg := range rp.ShortContext {
 		items = append(items, RecallTraceItem{
 			Layer:   "L0",
