@@ -1103,3 +1103,88 @@ func TestL1SQLiteStore_BuildDailyDigestRequiresNews(t *testing.T) {
 		t.Fatalf("RecentDailyDigests empty failed: %v", err)
 	}
 }
+
+func TestL1SQLiteStore_PromoteValidatedStagingItemToKnowledge(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:movie",
+		EventID:      "movie-001",
+		SourceID:     "api:movie",
+		SourceURL:    "https://example.com/movie/1",
+		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		RawText:      "映画の本文情報",
+		SummaryDraft: "映画の要約",
+		Keywords:     []string{"SF", "宇宙"},
+		LicenseNote:  "official api",
+		Meta:         map[string]interface{}{"title": "Example Movie", "year": float64(2026)},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"api:movie": 0.9},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 11, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+
+	kb, err := store.PromoteValidatedStagingItemToKnowledge(ctx, item.ID, "movie")
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToKnowledge failed: %v", err)
+	}
+	if kb.Domain != "movie" || kb.Title != "Example Movie" || kb.RawText != item.RawText || kb.SummaryDraft != item.SummaryDraft {
+		t.Fatalf("unexpected knowledge item: %+v", kb)
+	}
+	recent, err := store.RecentKnowledgeItems(ctx, "movie", 10)
+	if err != nil {
+		t.Fatalf("RecentKnowledgeItems failed: %v", err)
+	}
+	if len(recent) != 1 || recent[0].ID != kb.ID {
+		t.Fatalf("unexpected recent knowledge: %+v", recent)
+	}
+	events, err := store.RecentEvents(ctx, "kb:movie", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if events[0].EventType != "knowledge.promoted_from_staging" {
+		t.Fatalf("expected knowledge.promoted_from_staging event, got %+v", events[0])
+	}
+}
+
+func TestL1SQLiteStore_PromoteKnowledgeRequiresValidatedItem(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:        L1StagingKindExternalFetch,
+		Namespace:   "kb:movie",
+		EventID:     "movie-pending",
+		SourceID:    "api:movie",
+		SourceURL:   "https://example.com/movie/pending",
+		FetchedAt:   time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC),
+		RawText:     "未検証KB",
+		LicenseNote: "api",
+		Meta:        map[string]interface{}{"title": "Pending"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.PromoteValidatedStagingItemToKnowledge(ctx, item.ID, "movie"); err == nil {
+		t.Fatal("expected pending knowledge promotion to be rejected")
+	}
+	if _, err := store.RecentKnowledgeItems(ctx, "bad domain", 10); err == nil {
+		t.Fatal("expected invalid knowledge domain to be rejected")
+	}
+}

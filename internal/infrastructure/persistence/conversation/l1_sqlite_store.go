@@ -171,6 +171,23 @@ type L1DailyDigest struct {
 	UpdatedAt  time.Time
 }
 
+type L1KnowledgeItem struct {
+	ID           string
+	StagingID    string
+	Domain       string
+	Title        string
+	SourceID     string
+	SourceURL    string
+	RawText      string
+	RawHash      string
+	SummaryDraft string
+	Keywords     []string
+	LicenseNote  string
+	Meta         map[string]interface{}
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type L1SQLiteStore struct {
 	db *sql.DB
 }
@@ -306,6 +323,24 @@ CREATE TABLE IF NOT EXISTS l1_daily_digest (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_daily_digest_date_category ON l1_daily_digest(digest_date, category);
 CREATE INDEX IF NOT EXISTS idx_l1_daily_digest_category_created ON l1_daily_digest(category, created_at DESC);
+CREATE TABLE IF NOT EXISTS l1_knowledge_item (
+	id TEXT PRIMARY KEY,
+	staging_id TEXT NOT NULL UNIQUE,
+	domain TEXT NOT NULL,
+	title TEXT NOT NULL,
+	source_id TEXT NOT NULL,
+	source_url TEXT NOT NULL DEFAULT '',
+	raw_text TEXT NOT NULL,
+	raw_hash TEXT NOT NULL,
+	summary_draft TEXT NOT NULL DEFAULT '',
+	keywords_json TEXT NOT NULL DEFAULT '[]',
+	license_note TEXT NOT NULL DEFAULT '',
+	meta_json TEXT NOT NULL DEFAULT '{}',
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_knowledge_domain_title ON l1_knowledge_item(domain, title);
+CREATE INDEX IF NOT EXISTS idx_l1_knowledge_raw_hash ON l1_knowledge_item(raw_hash);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -1231,6 +1266,126 @@ FROM l1_daily_digest
 	return scanL1DailyDigests(rows)
 }
 
+func (s *L1SQLiteStore) PromoteValidatedStagingItemToKnowledge(ctx context.Context, id string, domain string) (*L1KnowledgeItem, error) {
+	id = strings.TrimSpace(id)
+	if err := validateKnowledgeDomain(domain); err != nil {
+		return nil, err
+	}
+	domain = normalizeNewsCategory(domain)
+	if id == "" {
+		return nil, errors.New("l1 staging item id is required")
+	}
+	if err := ValidateL1Namespace("kb:" + domain); err != nil {
+		return nil, err
+	}
+	item, err := s.stagingItemByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if item.ValidationStatus != L1StagingStatusValidated {
+		return nil, fmt.Errorf("l1 staging item must be validated before knowledge promotion: %s", item.ValidationStatus)
+	}
+	title := strings.TrimSpace(metaString(item.Meta, "title"))
+	if title == "" {
+		title = item.EventID
+	}
+	now := time.Now().UTC()
+	meta := map[string]interface{}{}
+	for k, v := range item.Meta {
+		meta[k] = v
+	}
+	meta["staging_id"] = item.ID
+	meta["staging_namespace"] = item.Namespace
+	meta["event_id"] = item.EventID
+	meta["validation_status"] = item.ValidationStatus
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 knowledge meta: %w", err)
+	}
+	keywordsJSON, err := json.Marshal(item.Keywords)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 knowledge keywords: %w", err)
+	}
+	kb := &L1KnowledgeItem{
+		ID:           fmt.Sprintf("kb:%s:%s:%s", domain, item.EventID, item.RawHash[:12]),
+		StagingID:    item.ID,
+		Domain:       domain,
+		Title:        title,
+		SourceID:     item.SourceID,
+		SourceURL:    item.SourceURL,
+		RawText:      item.RawText,
+		RawHash:      item.RawHash,
+		SummaryDraft: item.SummaryDraft,
+		Keywords:     item.Keywords,
+		LicenseNote:  item.LicenseNote,
+		Meta:         meta,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_knowledge_item (
+	id, staging_id, domain, title, source_id, source_url, raw_text, raw_hash,
+	summary_draft, keywords_json, license_note, meta_json, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(staging_id) DO UPDATE SET
+	domain = excluded.domain,
+	title = excluded.title,
+	source_id = excluded.source_id,
+	source_url = excluded.source_url,
+	raw_text = excluded.raw_text,
+	raw_hash = excluded.raw_hash,
+	summary_draft = excluded.summary_draft,
+	keywords_json = excluded.keywords_json,
+	license_note = excluded.license_note,
+	meta_json = excluded.meta_json,
+	updated_at = excluded.updated_at
+`, kb.ID, kb.StagingID, kb.Domain, kb.Title, kb.SourceID, kb.SourceURL, kb.RawText, kb.RawHash,
+		kb.SummaryDraft, string(keywordsJSON), kb.LicenseNote, string(metaJSON), kb.CreatedAt, kb.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to promote l1 staging item to knowledge: %w", err)
+	}
+	namespace, err := BuildL1Namespace(NamespaceKindKnowledge, domain)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.AppendEvent(ctx, "knowledge.promoted_from_staging", namespace, "", 0, map[string]interface{}{
+		"knowledge_id": kb.ID,
+		"staging_id":   item.ID,
+		"domain":       kb.Domain,
+		"title":        kb.Title,
+		"source_id":    kb.SourceID,
+	}, "promoter"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 knowledge promoted event log: %w", err)
+	}
+	return kb, nil
+}
+
+func (s *L1SQLiteStore) RecentKnowledgeItems(ctx context.Context, domain string, limit int) ([]L1KnowledgeItem, error) {
+	if err := validateKnowledgeDomain(domain); err != nil {
+		return nil, err
+	}
+	domain = normalizeNewsCategory(domain)
+	if err := ValidateL1Namespace("kb:" + domain); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, staging_id, domain, title, source_id, source_url, raw_text, raw_hash,
+       summary_draft, keywords_json, license_note, meta_json, created_at, updated_at
+FROM l1_knowledge_item
+WHERE domain = ?
+ORDER BY updated_at DESC
+LIMIT ?
+`, domain, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 knowledge items: %w", err)
+	}
+	defer rows.Close()
+	return scanL1KnowledgeItems(rows)
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
@@ -1509,6 +1664,17 @@ func normalizeNewsCategory(category string) string {
 	return strings.Join(strings.Fields(strings.ToLower(category)), "-")
 }
 
+func validateKnowledgeDomain(domain string) error {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return errors.New("l1 knowledge domain is required")
+	}
+	if strings.ContainsAny(domain, " \t\r\n:") {
+		return fmt.Errorf("invalid l1 knowledge domain: %s", domain)
+	}
+	return nil
+}
+
 func validateOptionalSourceURL(sourceURL string) error {
 	if sourceURL == "" {
 		return nil
@@ -1766,6 +1932,50 @@ func scanL1DailyDigests(rows *sql.Rows) ([]L1DailyDigest, error) {
 		return nil, fmt.Errorf("l1 daily digest rows error: %w", err)
 	}
 	return digests, nil
+}
+
+func scanL1KnowledgeItems(rows *sql.Rows) ([]L1KnowledgeItem, error) {
+	var items []L1KnowledgeItem
+	for rows.Next() {
+		var item L1KnowledgeItem
+		var keywordsJSON string
+		var metaJSON string
+		if err := rows.Scan(
+			&item.ID,
+			&item.StagingID,
+			&item.Domain,
+			&item.Title,
+			&item.SourceID,
+			&item.SourceURL,
+			&item.RawText,
+			&item.RawHash,
+			&item.SummaryDraft,
+			&keywordsJSON,
+			&item.LicenseNote,
+			&metaJSON,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan l1 knowledge item: %w", err)
+		}
+		if keywordsJSON == "" {
+			keywordsJSON = "[]"
+		}
+		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 knowledge keywords: %w", err)
+		}
+		if metaJSON == "" {
+			metaJSON = "{}"
+		}
+		if err := json.Unmarshal([]byte(metaJSON), &item.Meta); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 knowledge meta: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 knowledge rows error: %w", err)
+	}
+	return items, nil
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {
