@@ -812,6 +812,57 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToMemory(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_ValidateStagingItemAutoPromotesMemoryCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindMemoryCandidate,
+		Namespace:    "conv:501",
+		EventID:      "evt-auto-promote",
+		SourceID:     "conversation",
+		SourceURL:    "https://example.com/conversation/501",
+		FetchedAt:    time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC),
+		RawText:      "ユーザーは箇条書きを好む",
+		SummaryDraft: "箇条書きを好む",
+		Keywords:     []string{"preference"},
+		LicenseNote:  "user provided",
+		Meta: map[string]interface{}{
+			"type":             "preference",
+			"target_namespace": "user:U123",
+			"session_id":       "session-501",
+			"thread_id":        float64(501),
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+
+	result, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores:          map[string]float64{"conversation": 1.0},
+		MinimumTrustScore:          0.5,
+		Now:                        time.Date(2026, 5, 5, 12, 10, 0, 0, time.UTC),
+		AutoPromoteMemoryCandidate: true,
+	})
+	if err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	if !result.Passed || result.PromotedMemoryID == "" || result.PromotedNamespace != "user:U123" {
+		t.Fatalf("expected auto promotion result, got %+v", result)
+	}
+	memories, err := store.RecentByNamespace(ctx, "user:U123", 10)
+	if err != nil {
+		t.Fatalf("RecentByNamespace failed: %v", err)
+	}
+	if len(memories) != 1 || memories[0].MemoryState != MemoryStateConfirmed || memories[0].Message != "箇条書きを好む" {
+		t.Fatalf("unexpected promoted memories: %+v", memories)
+	}
+}
+
 func TestL1SQLiteStore_PromoteStagingItemRequiresValidatedStatus(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

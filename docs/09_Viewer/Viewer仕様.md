@@ -314,6 +314,13 @@ Viewer Memoryタブは、L1 memoryを `candidate` / `confirmed` に更新し、`
 - 組み立てたnamespaceは `ValidateL1Namespace` を通過した場合のみpromoterへ渡す
 - 互換用に `target_namespace` を直接渡す形式も受け付けるが、同じvalidatorを通す
 
+staging validator連携:
+
+- `memory_candidate` はvalidation通過後に自動昇格できる
+- 自動昇格は `L1StagingValidationPolicy.AutoPromoteMemoryCandidate` が有効な場合のみ行う
+- targetは `meta.target_namespace` を優先し、無い場合はstaging item自身の `user:` / `char:` / `kb:` namespaceを使う
+- `conv:` namespaceは自動昇格targetにしない
+
 ## 16. 参照
 
 - `docs/03_設計文書/ログViewer仕様.md`

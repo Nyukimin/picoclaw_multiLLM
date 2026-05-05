@@ -113,9 +113,10 @@ type L1StagingItem struct {
 }
 
 type L1StagingValidationPolicy struct {
-	SourceTrustScores map[string]float64
-	MinimumTrustScore float64
-	Now               time.Time
+	SourceTrustScores          map[string]float64
+	MinimumTrustScore          float64
+	Now                        time.Time
+	AutoPromoteMemoryCandidate bool
 }
 
 type L1StagingValidationIssue struct {
@@ -124,10 +125,12 @@ type L1StagingValidationIssue struct {
 }
 
 type L1StagingValidationResult struct {
-	ItemID string
-	Passed bool
-	Status string
-	Issues []L1StagingValidationIssue
+	ItemID            string
+	Passed            bool
+	Status            string
+	Issues            []L1StagingValidationIssue
+	PromotedMemoryID  string
+	PromotedNamespace string
 }
 
 func (r L1StagingValidationResult) HasIssue(code string) bool {
@@ -1271,6 +1274,18 @@ WHERE id = ?
 	}, "validator"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 staging validation event log: %w", err)
 	}
+	if result.Passed && policy.AutoPromoteMemoryCandidate && item.Kind == L1StagingKindMemoryCandidate {
+		targetNamespace, ok := stagingMemoryPromotionNamespace(*item)
+		if !ok {
+			return nil, errors.New("validated memory candidate has no promotable target namespace")
+		}
+		promoted, err := s.PromoteValidatedStagingItemToMemory(ctx, item.ID, targetNamespace, "validator")
+		if err != nil {
+			return nil, err
+		}
+		result.PromotedMemoryID = promoted.ID
+		result.PromotedNamespace = promoted.Namespace
+	}
 	return &result, nil
 }
 
@@ -1991,6 +2006,22 @@ func (s *L1SQLiteStore) validateStagingItemContent(ctx context.Context, item L1S
 	}
 	result.Passed = true
 	return result, nil
+}
+
+func stagingMemoryPromotionNamespace(item L1StagingItem) (string, bool) {
+	targetNamespace := strings.TrimSpace(stringMeta(item.Meta, "target_namespace"))
+	if targetNamespace != "" {
+		return targetNamespace, ValidateL1Namespace(targetNamespace) == nil
+	}
+	if err := ValidateL1Namespace(item.Namespace); err != nil {
+		return "", false
+	}
+	if strings.HasPrefix(item.Namespace, NamespaceKindUser+":") ||
+		strings.HasPrefix(item.Namespace, NamespaceKindCharacter+":") ||
+		strings.HasPrefix(item.Namespace, NamespaceKindKnowledge+":") {
+		return item.Namespace, true
+	}
+	return "", false
 }
 
 func (s *L1SQLiteStore) countStagingRawHashDuplicates(ctx context.Context, id string, rawHash string) (int, error) {
