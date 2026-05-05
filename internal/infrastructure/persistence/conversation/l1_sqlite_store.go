@@ -46,6 +46,13 @@ const (
 	L1SourceKindSearchFallback = "search_fallback"
 )
 
+const (
+	L1DailyDigestSlotDay     = "day"
+	L1DailyDigestSlotMorning = "morning"
+	L1DailyDigestSlotNoon    = "noon"
+	L1DailyDigestSlotEvening = "evening"
+)
+
 type L1MemoryEvent struct {
 	ID          string
 	Namespace   string
@@ -178,6 +185,7 @@ type L1DailyDigest struct {
 	ID         string
 	DigestDate string
 	Category   string
+	DigestSlot string
 	NewsIDs    []string
 	DigestText string
 	CreatedAt  time.Time
@@ -329,13 +337,12 @@ CREATE TABLE IF NOT EXISTS l1_daily_digest (
 	id TEXT PRIMARY KEY,
 	digest_date TEXT NOT NULL,
 	category TEXT NOT NULL,
+	digest_slot TEXT NOT NULL DEFAULT 'day',
 	news_ids_json TEXT NOT NULL DEFAULT '[]',
 	digest_text TEXT NOT NULL,
 	created_at TIMESTAMP NOT NULL,
 	updated_at TIMESTAMP NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_daily_digest_date_category ON l1_daily_digest(digest_date, category);
-CREATE INDEX IF NOT EXISTS idx_l1_daily_digest_category_created ON l1_daily_digest(category, created_at DESC);
 CREATE TABLE IF NOT EXISTS l1_knowledge_item (
 	id TEXT PRIMARY KEY,
 	staging_id TEXT NOT NULL UNIQUE,
@@ -357,6 +364,16 @@ CREATE INDEX IF NOT EXISTS idx_l1_knowledge_raw_hash ON l1_knowledge_item(raw_ha
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE l1_daily_digest ADD COLUMN digest_slot TEXT NOT NULL DEFAULT 'day'`); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("failed to migrate l1 daily digest slot: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `
+DROP INDEX IF EXISTS idx_l1_daily_digest_date_category;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_daily_digest_date_category_slot ON l1_daily_digest(digest_date, category, digest_slot);
+CREATE INDEX IF NOT EXISTS idx_l1_daily_digest_category_created ON l1_daily_digest(category, digest_slot, created_at DESC);
+`); err != nil {
+		return fmt.Errorf("failed to initialize l1 daily digest slot indexes: %w", err)
 	}
 	return nil
 }
@@ -1261,9 +1278,17 @@ FROM l1_news_item
 }
 
 func (s *L1SQLiteStore) BuildDailyDigest(ctx context.Context, digestDate time.Time, category string, limit int) (*L1DailyDigest, error) {
+	return s.BuildDailyDigestForSlot(ctx, digestDate, category, L1DailyDigestSlotDay, limit)
+}
+
+func (s *L1SQLiteStore) BuildDailyDigestForSlot(ctx context.Context, digestDate time.Time, category string, digestSlot string, limit int) (*L1DailyDigest, error) {
 	category = normalizeNewsCategory(category)
 	if category == "" {
 		return nil, errors.New("l1 daily digest category is required")
+	}
+	digestSlot = normalizeDailyDigestSlot(digestSlot)
+	if digestSlot == "" {
+		return nil, errors.New("l1 daily digest slot is required")
 	}
 	if digestDate.IsZero() {
 		digestDate = time.Now().UTC()
@@ -1272,16 +1297,28 @@ func (s *L1SQLiteStore) BuildDailyDigest(ctx context.Context, digestDate time.Ti
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	query := `
 SELECT id, staging_id, category, source_id, source_url, published_at, fetched_at,
        raw_text, raw_hash, summary_draft, keywords_json, license_note, meta_json,
        created_at, updated_at
 FROM l1_news_item
 WHERE category = ?
   AND date(COALESCE(published_at, fetched_at)) = date(?)
+`
+	args := []interface{}{category, dateText}
+	if digestSlot != L1DailyDigestSlotDay {
+		startHour, endHour := dailyDigestSlotHourRange(digestSlot)
+		query += `  AND CAST(strftime('%H', COALESCE(published_at, fetched_at)) AS INTEGER) >= ?
+  AND CAST(strftime('%H', COALESCE(published_at, fetched_at)) AS INTEGER) < ?
+`
+		args = append(args, startHour, endHour)
+	}
+	query += `
 ORDER BY COALESCE(published_at, fetched_at) DESC, created_at DESC
 LIMIT ?
-`, category, dateText, limit)
+`
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query l1 news items for digest: %w", err)
 	}
@@ -1312,20 +1349,24 @@ LIMIT ?
 		ID:         fmt.Sprintf("digest:%s:%s", dateText, category),
 		DigestDate: dateText,
 		Category:   category,
+		DigestSlot: digestSlot,
 		NewsIDs:    newsIDs,
 		DigestText: strings.Join(lines, "\n"),
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
+	if digestSlot != L1DailyDigestSlotDay {
+		digest.ID = fmt.Sprintf("digest:%s:%s:%s", dateText, category, digestSlot)
+	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO l1_daily_digest (
-	id, digest_date, category, news_ids_json, digest_text, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(digest_date, category) DO UPDATE SET
+	id, digest_date, category, digest_slot, news_ids_json, digest_text, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(digest_date, category, digest_slot) DO UPDATE SET
 	news_ids_json = excluded.news_ids_json,
 	digest_text = excluded.digest_text,
 	updated_at = excluded.updated_at
-`, digest.ID, digest.DigestDate, digest.Category, string(newsIDsJSON), digest.DigestText, digest.CreatedAt, digest.UpdatedAt)
+`, digest.ID, digest.DigestDate, digest.Category, digest.DigestSlot, string(newsIDsJSON), digest.DigestText, digest.CreatedAt, digest.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save l1 daily digest: %w", err)
 	}
@@ -1337,6 +1378,7 @@ ON CONFLICT(digest_date, category) DO UPDATE SET
 		"digest_id":   digest.ID,
 		"digest_date": digest.DigestDate,
 		"category":    digest.Category,
+		"digest_slot": digest.DigestSlot,
 		"news_ids":    digest.NewsIDs,
 	}, "daily_digest"); err != nil {
 		return nil, fmt.Errorf("failed to append l1 daily digest event log: %w", err)
@@ -1350,7 +1392,7 @@ func (s *L1SQLiteStore) RecentDailyDigests(ctx context.Context, category string,
 		limit = 20
 	}
 	query := `
-SELECT id, digest_date, category, news_ids_json, digest_text, created_at, updated_at
+SELECT id, digest_date, category, digest_slot, news_ids_json, digest_text, created_at, updated_at
 FROM l1_daily_digest
 `
 	var args []interface{}
@@ -1766,6 +1808,32 @@ func normalizeNewsCategory(category string) string {
 	return strings.Join(strings.Fields(strings.ToLower(category)), "-")
 }
 
+func normalizeDailyDigestSlot(slot string) string {
+	slot = strings.ToLower(strings.TrimSpace(slot))
+	if slot == "" {
+		return L1DailyDigestSlotDay
+	}
+	switch slot {
+	case L1DailyDigestSlotDay, L1DailyDigestSlotMorning, L1DailyDigestSlotNoon, L1DailyDigestSlotEvening:
+		return slot
+	default:
+		return ""
+	}
+}
+
+func dailyDigestSlotHourRange(slot string) (startHour, endHour int) {
+	switch slot {
+	case L1DailyDigestSlotMorning:
+		return 0, 12
+	case L1DailyDigestSlotNoon:
+		return 12, 18
+	case L1DailyDigestSlotEvening:
+		return 18, 24
+	default:
+		return 0, 24
+	}
+}
+
 func validateKnowledgeDomain(domain string) error {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
@@ -2093,6 +2161,7 @@ func scanL1DailyDigests(rows *sql.Rows) ([]L1DailyDigest, error) {
 			&digest.ID,
 			&digest.DigestDate,
 			&digest.Category,
+			&digest.DigestSlot,
 			&newsIDsJSON,
 			&digest.DigestText,
 			&digest.CreatedAt,

@@ -1141,6 +1141,71 @@ func TestL1SQLiteStore_BuildDailyDigestFromNews(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_BuildDailyDigestForSlots(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	newsTimes := []struct {
+		eventID string
+		hour    int
+		summary string
+	}{
+		{"morning-news", 8, "朝のニュース"},
+		{"noon-news", 13, "昼のニュース"},
+		{"evening-news", 20, "夜のニュース"},
+	}
+	for _, nt := range newsTimes {
+		item, err := store.SaveStagingItem(ctx, L1StagingItem{
+			Kind:         L1StagingKindExternalFetch,
+			Namespace:    "kb:news",
+			EventID:      nt.eventID,
+			SourceID:     "rss:example",
+			SourceURL:    "https://example.com/news/" + nt.eventID,
+			FetchedAt:    time.Date(2026, 5, 5, nt.hour, 0, 0, 0, time.UTC),
+			PublishedAt:  time.Date(2026, 5, 5, nt.hour, 0, 0, 0, time.UTC),
+			RawText:      "本文 " + nt.eventID,
+			SummaryDraft: nt.summary,
+			LicenseNote:  "rss",
+		})
+		if err != nil {
+			t.Fatalf("SaveStagingItem failed: %v", err)
+		}
+		if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+			SourceTrustScores: map[string]float64{"rss:example": 0.9},
+			MinimumTrustScore: 0.5,
+			Now:               time.Date(2026, 5, 5, 21, 0, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatalf("ValidateStagingItem failed: %v", err)
+		}
+		if _, err := store.PromoteValidatedStagingItemToNews(ctx, item.ID, "ai"); err != nil {
+			t.Fatalf("PromoteValidatedStagingItemToNews failed: %v", err)
+		}
+	}
+
+	digestDate := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	morning, err := store.BuildDailyDigestForSlot(ctx, digestDate, "ai", L1DailyDigestSlotMorning, 10)
+	if err != nil {
+		t.Fatalf("BuildDailyDigestForSlot morning failed: %v", err)
+	}
+	evening, err := store.BuildDailyDigestForSlot(ctx, digestDate, "ai", L1DailyDigestSlotEvening, 10)
+	if err != nil {
+		t.Fatalf("BuildDailyDigestForSlot evening failed: %v", err)
+	}
+	if morning.DigestSlot != L1DailyDigestSlotMorning || !strings.Contains(morning.DigestText, "朝のニュース") || strings.Contains(morning.DigestText, "昼のニュース") {
+		t.Fatalf("unexpected morning digest: %+v", morning)
+	}
+	if evening.DigestSlot != L1DailyDigestSlotEvening || !strings.Contains(evening.DigestText, "夜のニュース") || strings.Contains(evening.DigestText, "朝のニュース") {
+		t.Fatalf("unexpected evening digest: %+v", evening)
+	}
+	if morning.ID == evening.ID {
+		t.Fatalf("slot digests should have distinct IDs: %s", morning.ID)
+	}
+}
+
 func TestL1SQLiteStore_BuildDailyDigestRequiresNews(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
