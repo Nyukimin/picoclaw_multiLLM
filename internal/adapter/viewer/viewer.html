@@ -718,6 +718,12 @@ body.live-mode .live-audio-btn{
         <tbody id="newsUsageBody"></tbody>
       </table>
     </div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>Layer</th><th>Kind</th><th>Reason</th><th>Summary</th></tr></thead>
+        <tbody id="newsRelatedMemoryBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <section id="panel-idlechat" class="panel">
@@ -3060,6 +3066,24 @@ function newsUsageCount(item) {
   return newsUsageMatches(item).length;
 }
 
+function newsRelatedMemoryMatches(item) {
+  const related = [];
+  newsUsageMatches(item).forEach((match) => {
+    const traceItems = Array.isArray(match.trace.Items || match.trace.items) ? (match.trace.Items || match.trace.items) : [];
+    traceItems.forEach((ri) => {
+      const kind = String(ri.Kind || ri.kind || '');
+      if (kind === 'search_cache') return;
+      related.push({
+        layer: ri.Layer || ri.layer || '-',
+        kind: kind || '-',
+        reason: ri.Reason || ri.reason || ri.Decision || ri.decision || '-',
+        summary: ri.Summary || ri.summary || '-',
+      });
+    });
+  });
+  return related;
+}
+
 function renderNewsPackPanel() {
   const news = newsItems();
   const digests = newsDigests();
@@ -3067,6 +3091,7 @@ function renderNewsPackPanel() {
   const digestBody = document.getElementById('newsDigestPanelBody');
   const detail = document.getElementById('newsPackDetail');
   const usageBody = document.getElementById('newsUsageBody');
+  const relatedBody = document.getElementById('newsRelatedMemoryBody');
   const newsCount = document.getElementById('newsPackPanelCount');
   const digestCount = document.getElementById('newsDigestPanelCount');
   const usageCountEl = document.getElementById('newsUsageCount');
@@ -3156,6 +3181,23 @@ function renderNewsPackPanel() {
           '<td class="code">' + esc(short(match.source || '-', 120)) + '</td>' +
           '<td>' + esc(fdt(match.trace.CreatedAt || match.trace.created_at)) + '</td>';
         usageBody.appendChild(tr);
+      });
+    }
+  }
+  if (relatedBody) {
+    relatedBody.innerHTML = '';
+    const related = selected ? newsRelatedMemoryMatches(selected) : [];
+    if (related.length === 0) {
+      relatedBody.innerHTML = '<tr><td colspan="4" class="small">No related memory for selected news</td></tr>';
+    } else {
+      related.forEach((item) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="code">' + esc(item.layer) + '</td>' +
+          '<td>' + esc(item.kind) + '</td>' +
+          '<td>' + esc(short(item.reason, 160)) + '</td>' +
+          '<td>' + esc(short(item.summary, 220)) + '</td>';
+        relatedBody.appendChild(tr);
       });
     }
   }
