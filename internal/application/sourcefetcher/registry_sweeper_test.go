@@ -135,7 +135,7 @@ func TestRunSourceStagesValidatesAndPromotesPyPIHTTPSource(t *testing.T) {
 		FetchInterval: time.Hour,
 		LicenseNote:   "pypi json api",
 		Enabled:       true,
-		Meta:          map[string]interface{}{"namespace": "kb:pypi", "domain": "pypi", "title": "sample"},
+		Meta:          map[string]interface{}{"namespace": "kb:pypi", "domain": "pypi"},
 	}); err != nil {
 		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
 	}
@@ -153,5 +153,8 @@ func TestRunSourceStagesValidatesAndPromotesPyPIHTTPSource(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Title != "sample" || items[0].SourceID != "pypi:sample" {
 		t.Fatalf("unexpected promoted knowledge: %+v", items)
+	}
+	if items[0].SummaryDraft != "sample package" || items[0].Meta["latest_version"] != "1.0.0" {
+		t.Fatalf("expected PyPI-specific fields, got %+v", items[0])
 	}
 }

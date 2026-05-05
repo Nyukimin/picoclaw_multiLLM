@@ -2,9 +2,11 @@ package sourcefetcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -157,20 +159,35 @@ func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversati
 	category := stringFromMeta(source.Meta, "category", source.Kind)
 	domain := stringFromMeta(source.Meta, "domain", category)
 	title := stringFromMeta(source.Meta, "title", source.SourceID)
+	summary := title
+	keywords := []string{category}
+	meta := map[string]interface{}{
+		"fetcher":   "source_registry_http",
+		"category":  category,
+		"domain":    domain,
+		"namespace": namespace,
+		"title":     title,
+	}
+	if source.Kind == conversationpersistence.L1SourceKindPyPI {
+		if parsed, ok := parsePyPIPayload(raw); ok {
+			raw = parsed.RawText
+			title = firstNonEmpty(stringFromMeta(source.Meta, "title", ""), parsed.Name, title)
+			summary = firstNonEmpty(parsed.Summary, title)
+			keywords = []string{"pypi", parsed.Name, parsed.LatestVersion}
+			meta["fetcher"] = "source_registry_pypi"
+			meta["title"] = title
+			meta["package"] = parsed.Name
+			meta["latest_version"] = parsed.LatestVersion
+		}
+	}
 	staged, err := store.StageSourceRegistryFetch(ctx, source.SourceID, conversationpersistence.L1SourceFetchPayload{
 		SourceURL:    source.URL,
 		FetchedAt:    now,
 		PublishedAt:  now,
 		RawText:      raw,
-		SummaryDraft: title,
-		Keywords:     []string{category},
-		Meta: map[string]interface{}{
-			"fetcher":   "source_registry_http",
-			"category":  category,
-			"domain":    domain,
-			"namespace": namespace,
-			"title":     title,
-		},
+		SummaryDraft: summary,
+		Keywords:     nonEmpty(keywords...),
+		Meta:         meta,
 	})
 	if err != nil {
 		return err
@@ -200,6 +217,52 @@ func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversati
 	}
 	result.PromotedKnowledge++
 	return nil
+}
+
+type pyPIPayload struct {
+	Name          string
+	Summary       string
+	LatestVersion string
+	RawText       string
+}
+
+func parsePyPIPayload(raw string) (pyPIPayload, bool) {
+	var payload struct {
+		Info struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+		} `json:"info"`
+		Releases map[string]interface{} `json:"releases"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return pyPIPayload{}, false
+	}
+	name := strings.TrimSpace(payload.Info.Name)
+	summary := strings.TrimSpace(payload.Info.Summary)
+	if name == "" && summary == "" {
+		return pyPIPayload{}, false
+	}
+	versions := make([]string, 0, len(payload.Releases))
+	for version := range payload.Releases {
+		if strings.TrimSpace(version) != "" {
+			versions = append(versions, version)
+		}
+	}
+	sort.Strings(versions)
+	latest := ""
+	if len(versions) > 0 {
+		latest = versions[len(versions)-1]
+	}
+	parts := nonEmpty(name, summary)
+	if latest != "" {
+		parts = append(parts, "latest_version: "+latest)
+	}
+	return pyPIPayload{
+		Name:          name,
+		Summary:       summary,
+		LatestVersion: latest,
+		RawText:       strings.Join(parts, "\n"),
+	}, true
 }
 
 func sweepFeedSource(ctx context.Context, store RegistryStore, parser *gofeed.Parser, source conversationpersistence.L1SourceRegistryEntry, trustScores map[string]float64, now time.Time, opts SweepOptions, result *SweepResult) error {
