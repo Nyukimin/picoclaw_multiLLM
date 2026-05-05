@@ -480,3 +480,119 @@ func TestL1SQLiteStore_PromoteMemoryRejectsInvalidTargetNamespace(t *testing.T) 
 		t.Fatal("expected invalid target namespace to be rejected")
 	}
 }
+
+func TestL1SQLiteStore_SaveStagingItemAndRecentByStatus(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:news",
+		EventID:      "evt-20260505-001",
+		SourceID:     "rss:example",
+		SourceURL:    "https://example.com/news/1",
+		FetchedAt:    time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+		PublishedAt:  time.Date(2026, 5, 5, 8, 30, 0, 0, time.UTC),
+		RawText:      "外部取得した本文",
+		SummaryDraft: "LLMが作った要約案",
+		Keywords:     []string{"RenCrow", "記憶OS"},
+		LicenseNote:  "example license",
+		Meta:         map[string]interface{}{"fetcher": "rss"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if item.ID == "" || item.RawHash == "" {
+		t.Fatalf("expected id and raw hash: %+v", item)
+	}
+	if item.ValidationStatus != L1StagingStatusPending {
+		t.Fatalf("unexpected validation status: %s", item.ValidationStatus)
+	}
+	if item.RawText == item.SummaryDraft {
+		t.Fatalf("raw_text and summary_draft must remain separate: %+v", item)
+	}
+
+	items, err := store.RecentStagingItems(ctx, L1StagingStatusPending, 10)
+	if err != nil {
+		t.Fatalf("RecentStagingItems failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 staging item, got %d", len(items))
+	}
+	got := items[0]
+	if got.ID != item.ID || got.Namespace != "kb:news" || got.SourceURL != "https://example.com/news/1" {
+		t.Fatalf("unexpected staging identity: %+v", got)
+	}
+	if got.RawText != "外部取得した本文" || got.SummaryDraft != "LLMが作った要約案" {
+		t.Fatalf("raw/summary fields were not preserved: %+v", got)
+	}
+	if len(got.Keywords) != 2 || got.Keywords[1] != "記憶OS" {
+		t.Fatalf("unexpected keywords: %+v", got.Keywords)
+	}
+	if got.Meta["fetcher"] != "rss" {
+		t.Fatalf("unexpected meta: %+v", got.Meta)
+	}
+
+	events, err := store.RecentEvents(ctx, "kb:news", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "staging.item_saved" {
+		t.Fatalf("expected staging.item_saved event, got %+v", events)
+	}
+	if events[0].Payload["staging_id"] != item.ID || events[0].Payload["raw_hash"] != item.RawHash {
+		t.Fatalf("unexpected staging event payload: %+v", events[0].Payload)
+	}
+}
+
+func TestL1SQLiteStore_SaveStagingItemRejectsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	valid := L1StagingItem{
+		Kind:      L1StagingKindMemoryCandidate,
+		Namespace: "user:U123",
+		EventID:   "evt-1",
+		SourceID:  "conversation",
+		SourceURL: "https://example.com/source",
+		RawText:   "覚えておく候補",
+	}
+	if _, err := store.SaveStagingItem(ctx, valid); err != nil {
+		t.Fatalf("valid SaveStagingItem failed: %v", err)
+	}
+	invalidKind := valid
+	invalidKind.EventID = "evt-2"
+	invalidKind.Kind = "freeform"
+	if _, err := store.SaveStagingItem(ctx, invalidKind); err == nil {
+		t.Fatal("expected invalid staging kind to be rejected")
+	}
+	invalidNamespace := valid
+	invalidNamespace.EventID = "evt-3"
+	invalidNamespace.Namespace = "misc:U123"
+	if _, err := store.SaveStagingItem(ctx, invalidNamespace); err == nil {
+		t.Fatal("expected invalid namespace to be rejected")
+	}
+	invalidURL := valid
+	invalidURL.EventID = "evt-4"
+	invalidURL.SourceURL = "not a url"
+	if _, err := store.SaveStagingItem(ctx, invalidURL); err == nil {
+		t.Fatal("expected invalid source url to be rejected")
+	}
+	invalidStatus := valid
+	invalidStatus.EventID = "evt-5"
+	invalidStatus.ValidationStatus = "trusted"
+	if _, err := store.SaveStagingItem(ctx, invalidStatus); err == nil {
+		t.Fatal("expected invalid validation status to be rejected")
+	}
+	if _, err := store.RecentStagingItems(ctx, "trusted", 10); err == nil {
+		t.Fatal("expected invalid RecentStagingItems status to be rejected")
+	}
+}

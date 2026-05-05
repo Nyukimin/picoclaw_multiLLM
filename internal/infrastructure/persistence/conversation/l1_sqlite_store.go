@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +21,16 @@ const (
 	MemoryStateCandidate = "candidate"
 	MemoryStateConfirmed = "confirmed"
 	MemoryLayerL1        = "L1"
+)
+
+const (
+	L1StagingKindExternalFetch   = "external_fetch"
+	L1StagingKindMemoryCandidate = "memory_candidate"
+	L1StagingKindSearchResult    = "search_result"
+
+	L1StagingStatusPending   = "pending"
+	L1StagingStatusValidated = "validated"
+	L1StagingStatusRejected  = "rejected"
 )
 
 type L1MemoryEvent struct {
@@ -59,6 +70,26 @@ type L1EventLogEntry struct {
 	Payload   map[string]interface{}
 	Source    string
 	CreatedAt time.Time
+}
+
+type L1StagingItem struct {
+	ID               string
+	Kind             string
+	Namespace        string
+	EventID          string
+	SourceID         string
+	SourceURL        string
+	FetchedAt        time.Time
+	PublishedAt      time.Time
+	RawText          string
+	RawHash          string
+	SummaryDraft     string
+	Keywords         []string
+	LicenseNote      string
+	ValidationStatus string
+	Meta             map[string]interface{}
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type L1SQLiteStore struct {
@@ -130,6 +161,28 @@ CREATE TABLE IF NOT EXISTS l1_event_log (
 CREATE INDEX IF NOT EXISTS idx_l1_event_log_namespace_created ON l1_event_log(namespace, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_event_log_type_created ON l1_event_log(event_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_event_log_session_created ON l1_event_log(session_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS l1_staging_item (
+	id TEXT PRIMARY KEY,
+	kind TEXT NOT NULL,
+	namespace TEXT NOT NULL,
+	event_id TEXT NOT NULL,
+	source_id TEXT NOT NULL,
+	source_url TEXT NOT NULL DEFAULT '',
+	fetched_at TIMESTAMP NOT NULL,
+	published_at TIMESTAMP,
+	raw_text TEXT NOT NULL,
+	raw_hash TEXT NOT NULL,
+	summary_draft TEXT NOT NULL DEFAULT '',
+	keywords_json TEXT NOT NULL DEFAULT '[]',
+	license_note TEXT NOT NULL DEFAULT '',
+	validation_status TEXT NOT NULL,
+	meta_json TEXT NOT NULL DEFAULT '{}',
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_staging_namespace_event ON l1_staging_item(namespace, event_id);
+CREATE INDEX IF NOT EXISTS idx_l1_staging_status_created ON l1_staging_item(validation_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_l1_staging_raw_hash ON l1_staging_item(raw_hash);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -454,6 +507,129 @@ INSERT INTO l1_memory_event (
 	return promoted, nil
 }
 
+func (s *L1SQLiteStore) SaveStagingItem(ctx context.Context, item L1StagingItem) (*L1StagingItem, error) {
+	item.Kind = strings.TrimSpace(item.Kind)
+	item.Namespace = strings.TrimSpace(item.Namespace)
+	item.EventID = strings.TrimSpace(item.EventID)
+	item.SourceID = strings.TrimSpace(item.SourceID)
+	item.SourceURL = strings.TrimSpace(item.SourceURL)
+	item.ValidationStatus = strings.TrimSpace(item.ValidationStatus)
+	if item.ValidationStatus == "" {
+		item.ValidationStatus = L1StagingStatusPending
+	}
+	if err := validateL1StagingKind(item.Kind); err != nil {
+		return nil, err
+	}
+	if err := ValidateL1Namespace(item.Namespace); err != nil {
+		return nil, err
+	}
+	if item.EventID == "" {
+		return nil, errors.New("l1 staging event_id is required")
+	}
+	if item.SourceID == "" {
+		return nil, errors.New("l1 staging source_id is required")
+	}
+	if err := validateOptionalSourceURL(item.SourceURL); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(item.RawText) == "" {
+		return nil, errors.New("l1 staging raw_text is required")
+	}
+	if err := validateL1StagingStatus(item.ValidationStatus); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if item.FetchedAt.IsZero() {
+		item.FetchedAt = now
+	}
+	item.FetchedAt = item.FetchedAt.UTC()
+	if !item.PublishedAt.IsZero() {
+		item.PublishedAt = item.PublishedAt.UTC()
+	}
+	item.RawHash = rawTextHash(item.RawText)
+	if item.ID == "" {
+		item.ID = fmt.Sprintf("%s:%s:%s", item.Namespace, item.EventID, item.RawHash[:12])
+	}
+	if item.Meta == nil {
+		item.Meta = map[string]interface{}{}
+	}
+	item.CreatedAt = now
+	item.UpdatedAt = now
+	keywordsJSON, err := json.Marshal(item.Keywords)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 staging keywords: %w", err)
+	}
+	metaJSON, err := json.Marshal(item.Meta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 staging meta: %w", err)
+	}
+	var publishedAt interface{}
+	if !item.PublishedAt.IsZero() {
+		publishedAt = item.PublishedAt
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_staging_item (
+	id, kind, namespace, event_id, source_id, source_url, fetched_at, published_at,
+	raw_text, raw_hash, summary_draft, keywords_json, license_note,
+	validation_status, meta_json, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(namespace, event_id) DO UPDATE SET
+	kind = excluded.kind,
+	source_id = excluded.source_id,
+	source_url = excluded.source_url,
+	fetched_at = excluded.fetched_at,
+	published_at = excluded.published_at,
+	raw_text = excluded.raw_text,
+	raw_hash = excluded.raw_hash,
+	summary_draft = excluded.summary_draft,
+	keywords_json = excluded.keywords_json,
+	license_note = excluded.license_note,
+	validation_status = excluded.validation_status,
+	meta_json = excluded.meta_json,
+	updated_at = excluded.updated_at
+`, item.ID, item.Kind, item.Namespace, item.EventID, item.SourceID, item.SourceURL, item.FetchedAt, publishedAt,
+		item.RawText, item.RawHash, item.SummaryDraft, string(keywordsJSON), item.LicenseNote,
+		item.ValidationStatus, string(metaJSON), item.CreatedAt, item.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save l1 staging item: %w", err)
+	}
+	if _, err := s.AppendEvent(ctx, "staging.item_saved", item.Namespace, "", 0, map[string]interface{}{
+		"staging_id":        item.ID,
+		"kind":              item.Kind,
+		"event_id":          item.EventID,
+		"source_id":         item.SourceID,
+		"source_url":        item.SourceURL,
+		"raw_hash":          item.RawHash,
+		"validation_status": item.ValidationStatus,
+	}, "staging"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 staging event log: %w", err)
+	}
+	return &item, nil
+}
+
+func (s *L1SQLiteStore) RecentStagingItems(ctx context.Context, validationStatus string, limit int) ([]L1StagingItem, error) {
+	if err := validateL1StagingStatus(validationStatus); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, kind, namespace, event_id, source_id, source_url, fetched_at, published_at,
+       raw_text, raw_hash, summary_draft, keywords_json, license_note,
+       validation_status, meta_json, created_at, updated_at
+FROM l1_staging_item
+WHERE validation_status = ?
+ORDER BY created_at DESC
+LIMIT ?
+`, validationStatus, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 staging items: %w", err)
+	}
+	defer rows.Close()
+	return scanL1StagingItems(rows)
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
@@ -540,6 +716,46 @@ func validateMemoryState(memoryState string) error {
 	}
 }
 
+func validateL1StagingKind(kind string) error {
+	switch kind {
+	case L1StagingKindExternalFetch, L1StagingKindMemoryCandidate, L1StagingKindSearchResult:
+		return nil
+	default:
+		return fmt.Errorf("invalid l1 staging kind: %s", kind)
+	}
+}
+
+func validateL1StagingStatus(status string) error {
+	switch status {
+	case L1StagingStatusPending, L1StagingStatusValidated, L1StagingStatusRejected:
+		return nil
+	default:
+		return fmt.Errorf("invalid l1 staging validation status: %s", status)
+	}
+}
+
+func validateOptionalSourceURL(sourceURL string) error {
+	if sourceURL == "" {
+		return nil
+	}
+	parsed, err := url.ParseRequestURI(sourceURL)
+	if err != nil {
+		return fmt.Errorf("invalid l1 staging source_url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("invalid l1 staging source_url scheme: %s", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return errors.New("invalid l1 staging source_url host")
+	}
+	return nil
+}
+
+func rawTextHash(rawText string) string {
+	sum := sha256.Sum256([]byte(rawText))
+	return hex.EncodeToString(sum[:])
+}
+
 type l1SearchCacheRow interface {
 	Scan(dest ...interface{}) error
 }
@@ -608,6 +824,57 @@ func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {
 		return nil, fmt.Errorf("l1 event log rows error: %w", err)
 	}
 	return events, nil
+}
+
+func scanL1StagingItems(rows *sql.Rows) ([]L1StagingItem, error) {
+	var items []L1StagingItem
+	for rows.Next() {
+		var item L1StagingItem
+		var keywordsJSON string
+		var metaJSON string
+		var publishedAt sql.NullTime
+		if err := rows.Scan(
+			&item.ID,
+			&item.Kind,
+			&item.Namespace,
+			&item.EventID,
+			&item.SourceID,
+			&item.SourceURL,
+			&item.FetchedAt,
+			&publishedAt,
+			&item.RawText,
+			&item.RawHash,
+			&item.SummaryDraft,
+			&keywordsJSON,
+			&item.LicenseNote,
+			&item.ValidationStatus,
+			&metaJSON,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan l1 staging item: %w", err)
+		}
+		if publishedAt.Valid {
+			item.PublishedAt = publishedAt.Time
+		}
+		if keywordsJSON == "" {
+			keywordsJSON = "[]"
+		}
+		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 staging keywords: %w", err)
+		}
+		if metaJSON == "" {
+			metaJSON = "{}"
+		}
+		if err := json.Unmarshal([]byte(metaJSON), &item.Meta); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 staging meta: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 staging rows error: %w", err)
+	}
+	return items, nil
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {
