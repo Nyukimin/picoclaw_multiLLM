@@ -9,7 +9,7 @@ func TestRecallPackToTraceItems(t *testing.T) {
 	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
 	rp := &RecallPack{
 		ShortContext: []Message{{Speaker: SpeakerUser, Msg: "今の話題"}},
-		MidSummaries: []ThreadSummary{{Summary: "mid memory", Domain: "movie"}},
+		MidSummaries: []ThreadSummary{{Summary: "mid memory", Domain: "movie", Score: 0.75}},
 		LongFacts:    []string{"long fact"},
 		KBSnippets:   []string{"kb snippet"},
 		SearchCacheSnippets: []SearchCacheSnippet{{
@@ -30,6 +30,9 @@ func TestRecallPackToTraceItems(t *testing.T) {
 	}
 	if items[1].Layer != "L2" || items[1].Kind != "thread_summary" || items[1].Summary != "mid memory" {
 		t.Fatalf("unexpected mid trace: %+v", items[0])
+	}
+	if items[1].Score != 0.75 || items[1].Decision != "included" || items[1].Reason == "" || items[1].PromptIndex != 1 {
+		t.Fatalf("mid trace should include score/decision/reason/prompt index: %+v", items[1])
 	}
 	if items[4].Layer != "L1" || items[4].Kind != "search_cache" || items[4].SourceURLs[0] != "https://example.com/a" {
 		t.Fatalf("unexpected search trace: %+v", items[4])
