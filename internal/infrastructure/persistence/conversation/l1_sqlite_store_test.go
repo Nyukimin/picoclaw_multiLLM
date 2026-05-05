@@ -76,6 +76,26 @@ func TestL1SQLiteStore_DefaultNamespaceAndState(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_RejectsInvalidNamespace(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	msg := domconv.NewMessage(domconv.SpeakerUser, "bad namespace", nil)
+	if err := store.SaveMessage(ctx, "session-1", 1, "misc:1", msg, MemoryStateObserved); err == nil {
+		t.Fatal("expected invalid namespace to be rejected")
+	}
+	if _, err := store.RecentByNamespace(ctx, "misc:1", 10); err == nil {
+		t.Fatal("expected invalid RecentByNamespace namespace to be rejected")
+	}
+	if _, err := store.AppendEvent(ctx, "test.event", "misc:1", "session-1", 1, nil, "test"); err == nil {
+		t.Fatal("expected invalid event namespace to be rejected")
+	}
+}
+
 func TestL1SQLiteStore_UpdateMemoryState(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
@@ -331,7 +351,7 @@ func TestL1SQLiteStore_SaveSearchCacheAppendsEventLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveSearchCache failed: %v", err)
 	}
-	events, err := store.RecentEvents(ctx, "search:web", 10)
+	events, err := store.RecentEvents(ctx, "kb:web", 10)
 	if err != nil {
 		t.Fatalf("RecentEvents failed: %v", err)
 	}

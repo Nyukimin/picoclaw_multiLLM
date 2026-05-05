@@ -139,7 +139,14 @@ CREATE INDEX IF NOT EXISTS idx_l1_event_log_session_created ON l1_event_log(sess
 
 func (s *L1SQLiteStore) SaveMessage(ctx context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
 	if namespace == "" {
-		namespace = fmt.Sprintf("conv:%d", threadID)
+		var err error
+		namespace, err = BuildL1Namespace(NamespaceKindConversation, fmt.Sprintf("%d", threadID))
+		if err != nil {
+			return err
+		}
+	}
+	if err := ValidateL1Namespace(namespace); err != nil {
+		return err
 	}
 	if memoryState == "" {
 		memoryState = MemoryStateObserved
@@ -240,7 +247,11 @@ ON CONFLICT(query_hash) DO UPDATE SET
 	if err != nil {
 		return nil, fmt.Errorf("failed to save l1 search cache: %w", err)
 	}
-	if _, err := s.AppendEvent(ctx, "search.cache_saved", "search:"+provider, "", 0, map[string]interface{}{
+	searchNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, provider)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.AppendEvent(ctx, "search.cache_saved", searchNamespace, "", 0, map[string]interface{}{
 		"query_hash":       entry.QueryHash,
 		"normalized_query": entry.NormalizedQuery,
 		"raw_query":        entry.RawQuery,
@@ -286,8 +297,8 @@ func (s *L1SQLiteStore) AppendEvent(ctx context.Context, eventType string, names
 	if eventType == "" {
 		return nil, errors.New("l1 event type is required")
 	}
-	if namespace == "" {
-		return nil, errors.New("l1 event namespace is required")
+	if err := ValidateL1Namespace(namespace); err != nil {
+		return nil, err
 	}
 	if payload == nil {
 		payload = map[string]interface{}{}
@@ -320,8 +331,8 @@ INSERT INTO l1_event_log (
 
 func (s *L1SQLiteStore) RecentEvents(ctx context.Context, namespace string, limit int) ([]L1EventLogEntry, error) {
 	namespace = strings.TrimSpace(namespace)
-	if namespace == "" {
-		return nil, errors.New("l1 event namespace is required")
+	if err := ValidateL1Namespace(namespace); err != nil {
+		return nil, err
 	}
 	if limit <= 0 {
 		limit = 20
@@ -387,6 +398,9 @@ WHERE id = ?
 }
 
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
+	if err := ValidateL1Namespace(namespace); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 20
 	}
