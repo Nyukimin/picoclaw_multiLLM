@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -96,6 +97,19 @@ func (r *RealConversationManager) Recall(ctx context.Context, sessionID string, 
 		return thread.Turns, nil
 	}
 
+	// 1.5. L1 hot store（SQLite: 再起動後の当日会話）
+	if r.l1Store != nil {
+		events, err := r.l1Store.RecentBySession(ctx, sessionID, topK*4)
+		if err != nil {
+			log.Printf("Recall: L1 SQLite search failed for session %q: %v", sessionID, err)
+		} else if len(events) > 0 {
+			messages := l1EventsToMessages(events)
+			if len(messages) > 0 {
+				return messages, nil
+			}
+		}
+	}
+
 	// 2. 中期記憶（DuckDB: Session履歴）
 	summaries, err := r.duckdbStore.GetSessionHistory(ctx, sessionID, topK)
 	if err == nil && len(summaries) > 0 {
@@ -146,6 +160,37 @@ func (r *RealConversationManager) Recall(ctx context.Context, sessionID string, 
 		messages = append(messages, msg)
 	}
 	return messages, nil
+}
+
+func l1EventsToMessages(events []L1MemoryEvent) []domconv.Message {
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].CreatedAt.Before(events[j].CreatedAt)
+	})
+	messages := make([]domconv.Message, 0, len(events))
+	for _, ev := range events {
+		if ev.Message == "" {
+			continue
+		}
+		meta := map[string]interface{}{
+			"namespace":    ev.Namespace,
+			"thread_id":    ev.ThreadID,
+			"memory_state": ev.MemoryState,
+			"layer":        ev.Layer,
+			"source":       ev.Source,
+		}
+		for k, v := range ev.Meta {
+			if _, exists := meta[k]; !exists {
+				meta[k] = v
+			}
+		}
+		messages = append(messages, domconv.Message{
+			Speaker:   ev.Speaker,
+			Msg:       ev.Message,
+			Timestamp: ev.CreatedAt,
+			Meta:      meta,
+		})
+	}
+	return messages
 }
 
 // Store はメッセージをActiveThreadに追加

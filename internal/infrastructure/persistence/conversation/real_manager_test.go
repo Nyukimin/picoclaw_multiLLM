@@ -264,6 +264,60 @@ func TestStore_MirrorsMessageToL1SQLiteStore(t *testing.T) {
 	}
 }
 
+func TestRecall_UsesL1WhenRedisThreadMissing(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	l1 := &mockL1Store{}
+	mgr.WithL1Store(l1)
+	ctx := context.Background()
+
+	l1.saved = append(l1.saved,
+		L1MemoryEvent{
+			Namespace:   "conv:100",
+			SessionID:   "sess-l1-recall",
+			ThreadID:    100,
+			Speaker:     domconv.SpeakerUser,
+			Message:     "前回の話題",
+			Meta:        map[string]interface{}{"kind": "original"},
+			MemoryState: MemoryStateObserved,
+			Layer:       MemoryLayerL1,
+			Source:      "conversation",
+			CreatedAt:   time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		},
+		L1MemoryEvent{
+			Namespace:   "conv:100",
+			SessionID:   "sess-l1-recall",
+			ThreadID:    100,
+			Speaker:     domconv.SpeakerMio,
+			Message:     "前回の返答",
+			Meta:        map[string]interface{}{},
+			MemoryState: MemoryStateObserved,
+			Layer:       MemoryLayerL1,
+			Source:      "conversation",
+			CreatedAt:   time.Date(2026, 5, 5, 10, 1, 0, 0, time.UTC),
+		},
+	)
+
+	messages, err := mgr.Recall(ctx, "sess-l1-recall", "続き", 3)
+	if err != nil {
+		t.Fatalf("Recall failed: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+	if messages[0].Msg != "前回の話題" || messages[1].Msg != "前回の返答" {
+		t.Fatalf("unexpected recall order: %+v", messages)
+	}
+	if messages[0].Meta["namespace"] != "conv:100" {
+		t.Fatalf("expected namespace meta, got %+v", messages[0].Meta)
+	}
+	if messages[0].Meta["memory_state"] != MemoryStateObserved {
+		t.Fatalf("expected memory_state meta, got %+v", messages[0].Meta)
+	}
+	if messages[0].Meta["kind"] != "original" {
+		t.Fatalf("expected original meta to be preserved, got %+v", messages[0].Meta)
+	}
+}
+
 func TestFlushThread_EmbedderError_FallsBackToSimple(t *testing.T) {
 	embedder := &mockEmbeddingProvider{err: fmt.Errorf("API error")}
 	summarizer := &mockSummarizer{summary: "summary", keywords: []string{"kw"}}
