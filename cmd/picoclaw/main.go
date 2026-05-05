@@ -34,6 +34,7 @@ import (
 	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	archiveapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/archive"
 	healthapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
@@ -192,6 +193,42 @@ func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
 			sweep()
 		}
 	}()
+}
+
+func startParquetExportJob(store archiveapp.ParquetExportStore) {
+	outputDir := strings.TrimSpace(os.Getenv("RENCROW_PARQUET_EXPORT_DIR"))
+	if outputDir == "" {
+		return
+	}
+	interval := 24 * time.Hour
+	if raw := strings.TrimSpace(os.Getenv("RENCROW_PARQUET_EXPORT_INTERVAL_SEC")); raw != "" {
+		sec, err := strconv.Atoi(raw)
+		if err != nil || sec <= 0 {
+			log.Printf("WARN: invalid RENCROW_PARQUET_EXPORT_INTERVAL_SEC=%q", raw)
+			return
+		}
+		interval = time.Duration(sec) * time.Second
+	}
+	job := archiveapp.NewParquetExportJob(store, archiveapp.ParquetExportOptions{
+		OutputDir: outputDir,
+		Interval:  interval,
+	})
+	go func() {
+		result, err := job.RunOnce(context.Background())
+		if err != nil {
+			log.Printf("WARN: parquet export failed: %v", err)
+		} else {
+			log.Printf("Parquet export complete: thread=%s l1_archives=%d", result.ThreadSummariesPath, len(result.L1ArchivePaths))
+		}
+		for result := range job.Start(context.Background()) {
+			if result.Error != nil {
+				log.Printf("WARN: parquet export failed: %v", result.Error)
+				continue
+			}
+			log.Printf("Parquet export complete: thread=%s l1_archives=%d", result.ThreadSummariesPath, len(result.L1ArchivePaths))
+		}
+	}()
+	log.Printf("Parquet export job enabled: dir=%s interval=%s", outputDir, interval)
 }
 
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
@@ -2707,6 +2744,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 	if l1Store != nil {
 		startSourceRegistrySweeper(l1Store)
+	}
+	if realMgr != nil {
+		startParquetExportJob(realMgr)
 	}
 
 	// 5. Memory Store（HeartbeatService用。Mio会話メモリはConversationEngine v5.1が担当）

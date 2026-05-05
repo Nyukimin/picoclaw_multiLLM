@@ -398,6 +398,20 @@ func (r *RealConversationManager) SearchKnowledgeArchiveFTS(ctx context.Context,
 	return r.duckdbStore.SearchKnowledgeArchiveFTS(ctx, domain, query, limit)
 }
 
+func (r *RealConversationManager) ExportThreadSummariesParquet(ctx context.Context, outputPath string) error {
+	if r == nil || r.duckdbStore == nil {
+		return nil
+	}
+	return r.duckdbStore.ExportThreadSummariesParquet(ctx, outputPath)
+}
+
+func (r *RealConversationManager) ExportL1ArchivesParquet(ctx context.Context, outputDir string) (map[string]string, error) {
+	if r == nil || r.duckdbStore == nil {
+		return map[string]string{}, nil
+	}
+	return r.duckdbStore.ExportL1ArchivesParquet(ctx, outputDir)
+}
+
 // --- 内部ヘルパー ---
 
 func (r *RealConversationManager) generateSummaryAndKeywords(ctx context.Context, thread *domconv.Thread) (string, []string) {

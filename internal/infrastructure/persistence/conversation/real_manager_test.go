@@ -81,6 +81,12 @@ func (m *mockDuckDBStore) SearchByDomain(_ context.Context, _ string, _ int) ([]
 func (m *mockDuckDBStore) SearchKnowledgeArchiveFTS(_ context.Context, _ string, _ string, _ int) ([]L1KnowledgeItem, error) {
 	return m.kbArchive, nil
 }
+func (m *mockDuckDBStore) ExportThreadSummariesParquet(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockDuckDBStore) ExportL1ArchivesParquet(_ context.Context, _ string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
 func (m *mockDuckDBStore) CleanupOldRecords(_ context.Context) (int64, error) { return 0, nil }
 func (m *mockDuckDBStore) Close() error                                       { return nil }
 
