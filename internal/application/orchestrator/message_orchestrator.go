@@ -67,6 +67,11 @@ type CoderAgent interface {
 	Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error)
 }
 
+// WildAgent は創作Wildを担当
+type WildAgent interface {
+	Generate(ctx context.Context, t task.Task) (string, error)
+}
+
 // CoderAgentWithProposal はProposal生成機能を持つCoderAgent
 type CoderAgentWithProposal interface {
 	CoderAgent
@@ -82,6 +87,7 @@ type MessageOrchestrator struct {
 	coder2          CoderAgent // Slot 2
 	coder3          CoderAgent // Slot 3
 	coder4          CoderAgent // Slot 4 (v4.1)
+	wild            WildAgent
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
 	codeExecutor    CodeExecutor // Phase 1リファクタリング: コード実行を委譲
@@ -159,6 +165,10 @@ func (o *MessageOrchestrator) SetCoderCapabilities(caps []capability.CoderCapabi
 	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
 		executor.WithCapabilities(caps)
 	}
+}
+
+func (o *MessageOrchestrator) SetWildAgent(wild WildAgent) {
+	o.wild = wild
 }
 
 func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
@@ -456,6 +466,18 @@ func (o *MessageOrchestrator) executeRouteDirect(ctx context.Context, t task.Tas
 			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
 		}
 		return resp, err
+	case routing.RouteWILD:
+		if o.wild == nil {
+			return "", fmt.Errorf("no wild agent available")
+		}
+		o.emit("agent.start", "mio", "wild", "創作中...", "WILD", jid, sessionID, channel, chatID)
+		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
+		resp, err := o.wild.Generate(streamCtx, t)
+		if err == nil {
+			o.emit("agent.response", "wild", "mio", resp, "WILD", jid, sessionID, channel, chatID)
+			ttsStream.Finalize(ctx, resp)
+		}
+		return resp, err
 	case routing.RoutePLAN:
 		o.emit("agent.start", "mio", "user", "計画を検討中...", "PLAN", jid, sessionID, channel, chatID)
 		planCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
@@ -557,7 +579,7 @@ func capabilityForRoute(route routing.Route) autonomousapp.CapabilityPack {
 
 func isAutonomousRoute(route routing.Route) bool {
 	switch route {
-	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH:
+	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH, routing.RouteWILD:
 		return true
 	default:
 		return false
@@ -577,6 +599,8 @@ func routeExecutionSteps(route routing.Route, ok bool) []string {
 		items = append(items, "mio.analyze")
 	case routing.RouteRESEARCH:
 		items = append(items, "mio.research")
+	case routing.RouteWILD:
+		items = append(items, "wild.generate")
 	}
 	if ok {
 		items = append(items, "done")

@@ -11,14 +11,15 @@ func TestRouteString(t *testing.T) {
 
 func TestRouteIsCoderRoute(t *testing.T) {
 	tests := []struct {
-		route    Route
-		isCoder  bool
-		name     string
+		route   Route
+		isCoder bool
+		name    string
 	}{
 		{RouteCODE, true, "CODE should be coder route"},
 		{RouteCODE1, true, "CODE1 should be coder route"},
 		{RouteCODE2, true, "CODE2 should be coder route"},
 		{RouteCODE3, true, "CODE3 should be coder route"},
+		{RouteWILD, false, "WILD should not be coder route"},
 		{RouteCHAT, false, "CHAT should not be coder route"},
 		{RoutePLAN, false, "PLAN should not be coder route"},
 		{RouteANALYZE, false, "ANALYZE should not be coder route"},

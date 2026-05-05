@@ -108,6 +108,16 @@ func (m *mockCoderAgent) Generate(ctx context.Context, t task.Task, systemPrompt
 	return m.response, nil
 }
 
+type mockWildAgent struct {
+	response string
+	called   bool
+}
+
+func (m *mockWildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
+	m.called = true
+	return m.response, nil
+}
+
 // mockWorkerExecutionService はテスト用のWorkerExecutionService
 type mockWorkerExecutionService struct{}
 
@@ -785,5 +795,27 @@ func TestMessageOrchestrator_ProcessMessage_SessionSaveError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "disk full") {
 		t.Errorf("error should contain root cause, got: %v", err)
+	}
+}
+
+func TestProcessMessage_RouteWildUsesWildAgent(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteWILD, 1.0, "explicit wild")}
+	wild := &mockWildAgent{response: "wild response"}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetWildAgent(wild)
+
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !wild.called {
+		t.Fatal("wild agent should be called")
+	}
+	if resp.Route != routing.RouteWILD {
+		t.Fatalf("route: want WILD, got %s", resp.Route)
+	}
+	if resp.Response != "wild response" {
+		t.Fatalf("response: want wild response, got %q", resp.Response)
 	}
 }

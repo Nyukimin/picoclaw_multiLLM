@@ -357,6 +357,7 @@ func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
 	}{
 		{"/analyze", routing.RouteANALYZE},
 		{"/research", routing.RouteRESEARCH},
+		{"/wild", routing.RouteWILD},
 		{"/code4", routing.RouteCODE4},
 		{"/code3", routing.RouteCODE3},
 		{"/code2", routing.RouteCODE2},

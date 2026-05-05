@@ -2377,6 +2377,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
 	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
+	wildAgent := agent.NewWildAgent(wildProvider, "")
 	if cfg.Worker.PersonaFile != "" {
 		if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, cfg.Worker.PersonaFile); ok {
 			shiroPersona := agent.AgentPersona{
@@ -2674,6 +2675,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			orch.SetReportStore(deps.reportStore)
 		}
 		orch.SetMaxRepair(cfg.Worker.MaxRepair)
+		orch.SetWildAgent(wildAgent)
 		orch.SetTTSBridge(ttsBridge)
 		orch.SetVTuberBridge(vtuberBridge)
 		// IdleChat統合（有効な場合）

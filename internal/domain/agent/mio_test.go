@@ -561,6 +561,7 @@ func TestParseExplicitCommand_AllRoutes(t *testing.T) {
 		{"/analyze logs", routing.RouteANALYZE},
 		{"/ops deploy", routing.RouteOPS},
 		{"/research topic", routing.RouteRESEARCH},
+		{"/wild image prompt", routing.RouteWILD},
 		{"/code fix bug", routing.RouteCODE},
 		{"/code1 design spec", routing.RouteCODE1},
 		{"/code2 implement feature", routing.RouteCODE2},

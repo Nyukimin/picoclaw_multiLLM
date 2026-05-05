@@ -81,6 +81,8 @@ func speakerForRoute(route routing.Route) string {
 	switch route {
 	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
 		return "shiro"
+	case routing.RouteWILD:
+		return "wild"
 	default:
 		return "mio"
 	}

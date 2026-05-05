@@ -10,6 +10,7 @@ const (
 	RouteANALYZE  Route = "ANALYZE"  // 分析
 	RouteOPS      Route = "OPS"      // 運用操作
 	RouteRESEARCH Route = "RESEARCH" // 調査
+	RouteWILD     Route = "WILD"     // 創作・画像プロンプト・雰囲気抽出
 	RouteCODE     Route = "CODE"     // コーディング（汎用）
 	RouteCODE1    Route = "CODE1"    // 仕様設計向け（スロット1）
 	RouteCODE2    Route = "CODE2"    // 実装向け（スロット2）
