@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"log"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -15,6 +17,7 @@ type ShiroAgent struct {
 	systemPrompt    string
 	subagentManager SubagentManager // v1.0: ReActループ統合
 	persona         *AgentPersona   // v4.2: Optional Agent Persona
+	conversation    conversation.ConversationEngine
 }
 
 // NewShiroAgent は新しいShiroAgentを作成
@@ -40,6 +43,11 @@ func (s *ShiroAgent) WithPersona(persona AgentPersona) *ShiroAgent {
 	return s
 }
 
+func (s *ShiroAgent) WithConversationEngine(engine conversation.ConversationEngine) *ShiroAgent {
+	s.conversation = engine
+	return s
+}
+
 // Execute はWorkerタスクを実行
 // v1.0: SubagentManager が設定されている場合は ReActLoop を使ってツールを自律的に選択・実行する
 func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
@@ -62,17 +70,19 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 	}
 
 	// フォールバック: SubagentManager がない場合は従来通りの単純な LLM 呼び出し
+	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	if s.conversation != nil {
+		recallPack, err := s.conversation.BeginTurn(ctx, t.ChatID(), t.UserMessage())
+		if err != nil {
+			log.Printf("[Shiro] BeginTurn failed: %v", err)
+		} else if recallPack != nil {
+			filtered := recallPack.FilterForRole("worker")
+			messages = append(messages, filtered.ToPromptMessages()...)
+		}
+	}
+	messages = append(messages, llm.Message{Role: "user", Content: t.UserMessage()})
 	req := llm.GenerateRequest{
-		Messages: []llm.Message{
-			{
-				Role:    "system",
-				Content: systemPrompt,
-			},
-			{
-				Role:    "user",
-				Content: t.UserMessage(),
-			},
-		},
+		Messages:    messages,
 		MaxTokens:   4096,
 		Temperature: 0.3, // Workerは確実性重視
 	}
@@ -82,6 +92,11 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 		return "", err
 	}
 
+	if s.conversation != nil {
+		if err := endConversationTurnAs(ctx, s.conversation, t.ChatID(), t.UserMessage(), resp.Content, conversation.SpeakerShiro); err != nil {
+			log.Printf("[Shiro] EndTurn failed: %v", err)
+		}
+	}
 	return resp.Content, nil
 }
 

@@ -2410,6 +2410,10 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
 	wildAgent := agent.NewWildAgent(wildProvider, "")
+	if convEngine != nil {
+		shiroAgent.WithConversationEngine(convEngine)
+		wildAgent.WithConversationEngine(convEngine)
+	}
 	if cfg.Worker.PersonaFile != "" {
 		if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, cfg.Worker.PersonaFile); ok {
 			shiroPersona := agent.AgentPersona{

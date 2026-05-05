@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
@@ -103,6 +105,43 @@ func TestShiroAgentExecute(t *testing.T) {
 
 	if result != "Task executed successfully" {
 		t.Errorf("Expected 'Task executed successfully', got '%s'", result)
+	}
+}
+
+func TestShiroAgentExecuteAppliesWorkerRecallRoleFilter(t *testing.T) {
+	engine := &mockConversationEngine{
+		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {
+			return &conversation.RecallPack{
+				MidSummaries: []conversation.ThreadSummary{
+					{Summary: "worker memory", Roles: []string{"worker"}},
+					{Summary: "chat memory", Roles: []string{"chat"}},
+				},
+			}, nil
+		},
+	}
+	var captured llm.GenerateRequest
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			captured = req
+			return llm.GenerateResponse{Content: "done"}, nil
+		},
+	}
+	shiro := NewShiroAgent(provider, &mockToolRunner{}, &mockMCPClient{}, "test prompt", nil).WithConversationEngine(engine)
+
+	if _, err := shiro.Execute(context.Background(), task.NewTask(task.NewJobID(), "整理して", "line", "U123")); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	var prompt strings.Builder
+	for _, msg := range captured.Messages {
+		prompt.WriteString(msg.Content)
+		prompt.WriteString("\n")
+	}
+	got := prompt.String()
+	if !strings.Contains(got, "worker memory") {
+		t.Fatalf("worker recall should be included, got:\n%s", got)
+	}
+	if strings.Contains(got, "chat memory") {
+		t.Fatalf("chat recall should be filtered for worker, got:\n%s", got)
 	}
 }
 

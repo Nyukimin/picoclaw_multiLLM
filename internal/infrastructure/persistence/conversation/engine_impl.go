@@ -136,6 +136,10 @@ var timeNowUTC = func() time.Time {
 // EndTurn はターン終了時にメッセージ保存を実行
 // スレッド境界検出器が設定されている場合、Store前にトピック変化を検出する
 func (e *RealConversationEngine) EndTurn(ctx context.Context, sessionID string, userMessage string, response string) error {
+	return e.EndTurnAs(ctx, sessionID, userMessage, response, domconv.SpeakerMio)
+}
+
+func (e *RealConversationEngine) EndTurnAs(ctx context.Context, sessionID string, userMessage string, response string, speaker domconv.Speaker) error {
 	// スレッド境界検出（detector が設定されている場合）
 	if e.detector != nil {
 		thread, err := e.manager.GetActiveThread(ctx, sessionID)
@@ -159,10 +163,13 @@ func (e *RealConversationEngine) EndTurn(ctx context.Context, sessionID string, 
 		log.Printf("[ConversationEngine] WARN: Store (user) failed: %v", err)
 	}
 
-	// Mio の応答を記憶
-	mioMsg := domconv.NewMessage(domconv.SpeakerMio, response, nil)
-	if err := e.manager.Store(ctx, sessionID, mioMsg); err != nil {
-		log.Printf("[ConversationEngine] WARN: Store (mio) failed: %v", err)
+	// Agent の応答を記憶
+	if strings.TrimSpace(string(speaker)) == "" {
+		speaker = domconv.SpeakerMio
+	}
+	agentMsg := domconv.NewMessage(speaker, response, nil)
+	if err := e.manager.Store(ctx, sessionID, agentMsg); err != nil {
+		log.Printf("[ConversationEngine] WARN: Store (%s) failed: %v", speaker, err)
 	}
 
 	// UserProfile 自動抽出（best-effort）
