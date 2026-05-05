@@ -178,6 +178,14 @@ ON CONFLICT(id) DO UPDATE SET
 	if err != nil {
 		return fmt.Errorf("failed to save l1 memory event: %w", err)
 	}
+	if _, err := s.AppendEvent(ctx, "memory.message_saved", namespace, sessionID, threadID, map[string]interface{}{
+		"memory_id":    id,
+		"speaker":      string(msg.Speaker),
+		"memory_state": memoryState,
+		"layer":        layer,
+	}, "conversation"); err != nil {
+		return fmt.Errorf("failed to append l1 message event log: %w", err)
+	}
 	return nil
 }
 
@@ -231,6 +239,16 @@ ON CONFLICT(query_hash) DO UPDATE SET
 		entry.RetrievedAt, entry.ExpiresAt, entry.CreatedAt, entry.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save l1 search cache: %w", err)
+	}
+	if _, err := s.AppendEvent(ctx, "search.cache_saved", "search:"+provider, "", 0, map[string]interface{}{
+		"query_hash":       entry.QueryHash,
+		"normalized_query": entry.NormalizedQuery,
+		"raw_query":        entry.RawQuery,
+		"provider":         entry.Provider,
+		"expires_at":       entry.ExpiresAt.Format(time.RFC3339),
+		"source_urls":      entry.SourceURLs,
+	}, "search_cache"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 search cache event log: %w", err)
 	}
 	return entry, nil
 }
@@ -329,6 +347,20 @@ func (s *L1SQLiteStore) UpdateMemoryState(ctx context.Context, id string, memory
 	if err := validateMemoryState(memoryState); err != nil {
 		return err
 	}
+	var namespace string
+	var sessionID string
+	var threadID int64
+	var previousState string
+	if err := s.db.QueryRowContext(ctx, `
+SELECT namespace, session_id, thread_id, memory_state
+FROM l1_memory_event
+WHERE id = ?
+`, id).Scan(&namespace, &sessionID, &threadID, &previousState); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sql.ErrNoRows
+		}
+		return fmt.Errorf("failed to load l1 memory event before state update: %w", err)
+	}
 	result, err := s.db.ExecContext(ctx, `
 UPDATE l1_memory_event
 SET memory_state = ?, updated_at = ?
@@ -343,6 +375,13 @@ WHERE id = ?
 	}
 	if affected == 0 {
 		return sql.ErrNoRows
+	}
+	if _, err := s.AppendEvent(ctx, "memory.state_updated", namespace, sessionID, threadID, map[string]interface{}{
+		"memory_id":      id,
+		"previous_state": previousState,
+		"memory_state":   memoryState,
+	}, "memory"); err != nil {
+		return fmt.Errorf("failed to append l1 memory state event log: %w", err)
 	}
 	return nil
 }

@@ -285,3 +285,107 @@ func TestL1SQLiteStore_EventLogRejectsInvalidInput(t *testing.T) {
 		t.Fatal("expected blank namespace to be rejected")
 	}
 }
+
+func TestL1SQLiteStore_SaveMessageAppendsEventLog(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	msg := domconv.Message{
+		Speaker:   domconv.SpeakerUser,
+		Msg:       "イベントにも残す",
+		Timestamp: time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC),
+	}
+	if err := store.SaveMessage(ctx, "session-1", 123, "conv:123", msg, MemoryStateObserved); err != nil {
+		t.Fatalf("SaveMessage failed: %v", err)
+	}
+
+	events, err := store.RecentEvents(ctx, "conv:123", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.EventType != "memory.message_saved" || ev.Source != "conversation" {
+		t.Fatalf("unexpected event identity: %+v", ev)
+	}
+	if ev.Payload["speaker"] != string(domconv.SpeakerUser) || ev.Payload["memory_state"] != MemoryStateObserved {
+		t.Fatalf("unexpected event payload: %+v", ev.Payload)
+	}
+}
+
+func TestL1SQLiteStore_SaveSearchCacheAppendsEventLog(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	entry, err := store.SaveSearchCache(ctx, "web", "RenCrow 最新仕様", `[{"title":"memo"}]`, []string{"https://example.com"}, time.Hour)
+	if err != nil {
+		t.Fatalf("SaveSearchCache failed: %v", err)
+	}
+	events, err := store.RecentEvents(ctx, "search:web", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.EventType != "search.cache_saved" || ev.Source != "search_cache" {
+		t.Fatalf("unexpected event identity: %+v", ev)
+	}
+	if ev.Payload["query_hash"] != entry.QueryHash || ev.Payload["normalized_query"] != "rencrow 最新仕様" {
+		t.Fatalf("unexpected event payload: %+v", ev.Payload)
+	}
+}
+
+func TestL1SQLiteStore_UpdateMemoryStateAppendsEventLog(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	msg := domconv.Message{
+		Speaker:   domconv.SpeakerUser,
+		Msg:       "昇格ログ",
+		Timestamp: time.Date(2026, 5, 5, 15, 0, 0, 0, time.UTC),
+	}
+	if err := store.SaveMessage(ctx, "session-1", 456, "conv:456", msg, MemoryStateObserved); err != nil {
+		t.Fatalf("SaveMessage failed: %v", err)
+	}
+	memories, err := store.RecentByNamespace(ctx, "conv:456", 10)
+	if err != nil {
+		t.Fatalf("RecentByNamespace failed: %v", err)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("expected 1 memory event, got %d", len(memories))
+	}
+	if err := store.UpdateMemoryState(ctx, memories[0].ID, MemoryStateCandidate); err != nil {
+		t.Fatalf("UpdateMemoryState failed: %v", err)
+	}
+
+	events, err := store.RecentEvents(ctx, "conv:456", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected message save and state update events, got %d", len(events))
+	}
+	ev := events[0]
+	if ev.EventType != "memory.state_updated" || ev.Source != "memory" {
+		t.Fatalf("unexpected event identity: %+v", ev)
+	}
+	if ev.Payload["memory_id"] != memories[0].ID || ev.Payload["memory_state"] != MemoryStateCandidate {
+		t.Fatalf("unexpected event payload: %+v", ev.Payload)
+	}
+}
