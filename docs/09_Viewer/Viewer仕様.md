@@ -282,6 +282,12 @@ Request:
 - `message` 必須
 - HTTP応答は即時 `{"ok": true}`
 - 実処理結果はSSEイベントとしてViewerへ返る
+- Rolesタブで選択中の送信先がある場合、Viewerは送信前に明示ルーティングコマンドを付与する
+- `mio` / Chat は本文をそのまま送信する
+- `shiro` / Worker は `/ops` を付与する
+- `aka` / Wild は `/wild` を付与する
+- `ao` / `gin` / `kin` はそれぞれ `/code2` / `/code3` / `/code4` を付与する
+- ユーザー入力がすでに `/ops` / `/wild` / `/code*` で始まる場合は、入力された明示指定を優先する
 
 ## 14. Evidence / Jobs
 

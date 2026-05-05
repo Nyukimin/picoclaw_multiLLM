@@ -2353,6 +2353,20 @@ function selectRoleTarget(id) {
   renderRoleSelector();
 }
 
+function applyRoleTargetToMessage(message) {
+  const trimmed = String(message || '').trim();
+  if (!trimmed) return '';
+  if (/^\/(ops|wild|code|code1|code2|code3|code4)(\s|$)/.test(trimmed)) return trimmed;
+  const selected = ROLE_TARGETS.find((target) => target.id === selectedRoleTargetID());
+  if (!selected || selected.id === 'mio') return trimmed;
+  if (selected.id === 'shiro') return '/ops ' + trimmed;
+  if (selected.id === 'coder1') return '/wild ' + trimmed;
+  if (selected.id === 'coder2') return '/code2 ' + trimmed;
+  if (selected.id === 'coder3') return '/code3 ' + trimmed;
+  if (selected.id === 'coder4') return '/code4 ' + trimmed;
+  return trimmed;
+}
+
 function roleTargetSummary(target) {
   const info = ag(target.id);
   const agent = state.agents[target.id] || {};
@@ -4299,7 +4313,7 @@ function send() {
 }
 
 async function sendViewerMessage(message) {
-  const body = {message: String(message || '').trim()};
+  const body = {message: applyRoleTargetToMessage(message)};
   if (!body.message) throw new Error('message is required');
   const r = await fetch('/viewer/send', {
     method: 'POST',

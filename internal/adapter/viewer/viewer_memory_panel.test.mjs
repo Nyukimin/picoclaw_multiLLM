@@ -36,9 +36,15 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /const ROLE_TARGETS/);
   assert.match(html, /function renderRoleSelector/);
   assert.match(html, /function selectRoleTarget/);
+  assert.match(html, /function applyRoleTargetToMessage/);
   assert.match(html, /Chat/);
   assert.match(html, /Worker/);
   assert.match(html, /Wild/);
+  assert.ok(html.includes("return '/ops ' + trimmed"));
+  assert.ok(html.includes("return '/wild ' + trimmed"));
+  assert.ok(html.includes("return '/code2 ' + trimmed"));
+  assert.ok(html.includes("return '/code3 ' + trimmed"));
+  assert.ok(html.includes("return '/code4 ' + trimmed"));
   assert.ok(html.includes('/viewer/memory/snapshot'));
   assert.ok(html.includes('/viewer/memory/layers'));
   assert.ok(html.includes('/viewer/memory/events'));
