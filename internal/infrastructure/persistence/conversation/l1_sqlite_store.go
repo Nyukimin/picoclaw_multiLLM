@@ -161,6 +161,16 @@ type L1NewsItem struct {
 	UpdatedAt    time.Time
 }
 
+type L1DailyDigest struct {
+	ID         string
+	DigestDate string
+	Category   string
+	NewsIDs    []string
+	DigestText string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
 type L1SQLiteStore struct {
 	db *sql.DB
 }
@@ -285,6 +295,17 @@ CREATE TABLE IF NOT EXISTS l1_news_item (
 CREATE INDEX IF NOT EXISTS idx_l1_news_category_published ON l1_news_item(category, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_news_source_published ON l1_news_item(source_id, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_l1_news_raw_hash ON l1_news_item(raw_hash);
+CREATE TABLE IF NOT EXISTS l1_daily_digest (
+	id TEXT PRIMARY KEY,
+	digest_date TEXT NOT NULL,
+	category TEXT NOT NULL,
+	news_ids_json TEXT NOT NULL DEFAULT '[]',
+	digest_text TEXT NOT NULL,
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_daily_digest_date_category ON l1_daily_digest(digest_date, category);
+CREATE INDEX IF NOT EXISTS idx_l1_daily_digest_category_created ON l1_daily_digest(category, created_at DESC);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)
@@ -1102,6 +1123,114 @@ FROM l1_news_item
 	return scanL1NewsItems(rows)
 }
 
+func (s *L1SQLiteStore) BuildDailyDigest(ctx context.Context, digestDate time.Time, category string, limit int) (*L1DailyDigest, error) {
+	category = normalizeNewsCategory(category)
+	if category == "" {
+		return nil, errors.New("l1 daily digest category is required")
+	}
+	if digestDate.IsZero() {
+		digestDate = time.Now().UTC()
+	}
+	dateText := digestDate.UTC().Format("2006-01-02")
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, staging_id, category, source_id, source_url, published_at, fetched_at,
+       raw_text, raw_hash, summary_draft, keywords_json, license_note, meta_json,
+       created_at, updated_at
+FROM l1_news_item
+WHERE category = ?
+  AND date(COALESCE(published_at, fetched_at)) = date(?)
+ORDER BY COALESCE(published_at, fetched_at) DESC, created_at DESC
+LIMIT ?
+`, category, dateText, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 news items for digest: %w", err)
+	}
+	news, err := scanL1NewsItems(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(news) == 0 {
+		return nil, errors.New("l1 daily digest requires at least one news item")
+	}
+	newsIDs := make([]string, 0, len(news))
+	lines := make([]string, 0, len(news))
+	for _, item := range news {
+		newsIDs = append(newsIDs, item.ID)
+		text := strings.TrimSpace(item.SummaryDraft)
+		if text == "" {
+			text = strings.TrimSpace(item.RawText)
+		}
+		lines = append(lines, "- "+text)
+	}
+	newsIDsJSON, err := json.Marshal(newsIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal l1 daily digest news ids: %w", err)
+	}
+	now := time.Now().UTC()
+	digest := &L1DailyDigest{
+		ID:         fmt.Sprintf("digest:%s:%s", dateText, category),
+		DigestDate: dateText,
+		Category:   category,
+		NewsIDs:    newsIDs,
+		DigestText: strings.Join(lines, "\n"),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO l1_daily_digest (
+	id, digest_date, category, news_ids_json, digest_text, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(digest_date, category) DO UPDATE SET
+	news_ids_json = excluded.news_ids_json,
+	digest_text = excluded.digest_text,
+	updated_at = excluded.updated_at
+`, digest.ID, digest.DigestDate, digest.Category, string(newsIDsJSON), digest.DigestText, digest.CreatedAt, digest.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save l1 daily digest: %w", err)
+	}
+	newsNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, "news")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.AppendEvent(ctx, "news.daily_digest_built", newsNamespace, "", 0, map[string]interface{}{
+		"digest_id":   digest.ID,
+		"digest_date": digest.DigestDate,
+		"category":    digest.Category,
+		"news_ids":    digest.NewsIDs,
+	}, "daily_digest"); err != nil {
+		return nil, fmt.Errorf("failed to append l1 daily digest event log: %w", err)
+	}
+	return digest, nil
+}
+
+func (s *L1SQLiteStore) RecentDailyDigests(ctx context.Context, category string, limit int) ([]L1DailyDigest, error) {
+	category = normalizeNewsCategory(category)
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+SELECT id, digest_date, category, news_ids_json, digest_text, created_at, updated_at
+FROM l1_daily_digest
+`
+	var args []interface{}
+	if category != "" {
+		query += "WHERE category = ?\n"
+		args = append(args, category)
+	}
+	query += "ORDER BY digest_date DESC, created_at DESC\nLIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query l1 daily digests: %w", err)
+	}
+	defer rows.Close()
+	return scanL1DailyDigests(rows)
+}
+
 func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error) {
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
@@ -1607,6 +1736,36 @@ func scanL1NewsItems(rows *sql.Rows) ([]L1NewsItem, error) {
 		return nil, fmt.Errorf("l1 news rows error: %w", err)
 	}
 	return items, nil
+}
+
+func scanL1DailyDigests(rows *sql.Rows) ([]L1DailyDigest, error) {
+	var digests []L1DailyDigest
+	for rows.Next() {
+		var digest L1DailyDigest
+		var newsIDsJSON string
+		if err := rows.Scan(
+			&digest.ID,
+			&digest.DigestDate,
+			&digest.Category,
+			&newsIDsJSON,
+			&digest.DigestText,
+			&digest.CreatedAt,
+			&digest.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan l1 daily digest: %w", err)
+		}
+		if newsIDsJSON == "" {
+			newsIDsJSON = "[]"
+		}
+		if err := json.Unmarshal([]byte(newsIDsJSON), &digest.NewsIDs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal l1 daily digest news ids: %w", err)
+		}
+		digests = append(digests, digest)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("l1 daily digest rows error: %w", err)
+	}
+	return digests, nil
 }
 
 func scanL1Events(rows *sql.Rows) ([]L1MemoryEvent, error) {

@@ -2,7 +2,9 @@ package conversation
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1020,5 +1022,84 @@ func TestL1SQLiteStore_PromoteNewsRequiresValidatedExternalItem(t *testing.T) {
 	}
 	if _, err := store.PromoteValidatedStagingItemToNews(ctx, memory.ID, "general"); err == nil {
 		t.Fatal("expected memory candidate news promotion to be rejected")
+	}
+}
+
+func TestL1SQLiteStore_BuildDailyDigestFromNews(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	for i, summary := range []string{"AIニュース要約1", "AIニュース要約2"} {
+		eventID := fmt.Sprintf("digest-news-%d", i+1)
+		item, err := store.SaveStagingItem(ctx, L1StagingItem{
+			Kind:         L1StagingKindExternalFetch,
+			Namespace:    "kb:news",
+			EventID:      eventID,
+			SourceID:     "rss:example",
+			SourceURL:    "https://example.com/news/" + eventID,
+			FetchedAt:    time.Date(2026, 5, 5, 8+i, 0, 0, 0, time.UTC),
+			PublishedAt:  time.Date(2026, 5, 5, 7+i, 0, 0, 0, time.UTC),
+			RawText:      "ニュース本文 " + eventID,
+			SummaryDraft: summary,
+			LicenseNote:  "rss",
+		})
+		if err != nil {
+			t.Fatalf("SaveStagingItem failed: %v", err)
+		}
+		if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+			SourceTrustScores: map[string]float64{"rss:example": 0.9},
+			MinimumTrustScore: 0.5,
+			Now:               time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatalf("ValidateStagingItem failed: %v", err)
+		}
+		if _, err := store.PromoteValidatedStagingItemToNews(ctx, item.ID, "ai"); err != nil {
+			t.Fatalf("PromoteValidatedStagingItemToNews failed: %v", err)
+		}
+	}
+
+	digest, err := store.BuildDailyDigest(ctx, time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC), "ai", 10)
+	if err != nil {
+		t.Fatalf("BuildDailyDigest failed: %v", err)
+	}
+	if digest.DigestDate != "2026-05-05" || digest.Category != "ai" || len(digest.NewsIDs) != 2 {
+		t.Fatalf("unexpected digest identity: %+v", digest)
+	}
+	if !strings.Contains(digest.DigestText, "AIニュース要約1") || !strings.Contains(digest.DigestText, "AIニュース要約2") {
+		t.Fatalf("digest text missing summaries: %q", digest.DigestText)
+	}
+	recent, err := store.RecentDailyDigests(ctx, "ai", 10)
+	if err != nil {
+		t.Fatalf("RecentDailyDigests failed: %v", err)
+	}
+	if len(recent) != 1 || recent[0].ID != digest.ID {
+		t.Fatalf("unexpected recent digests: %+v", recent)
+	}
+	events, err := store.RecentEvents(ctx, "kb:news", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if events[0].EventType != "news.daily_digest_built" {
+		t.Fatalf("expected news.daily_digest_built event, got %+v", events[0])
+	}
+}
+
+func TestL1SQLiteStore_BuildDailyDigestRequiresNews(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.BuildDailyDigest(ctx, time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC), "ai", 10); err == nil {
+		t.Fatal("expected empty digest build to be rejected")
+	}
+	if _, err := store.RecentDailyDigests(ctx, "ai", 10); err != nil {
+		t.Fatalf("RecentDailyDigests empty failed: %v", err)
 	}
 }
