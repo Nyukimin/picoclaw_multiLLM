@@ -125,7 +125,8 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 		}
 	}
 
-	return pack, nil
+	budgeted := pack.ApplyRecallBudget(pack.Constraints.MaxTotalTokens, pack.Constraints.RecallBudgetRatio)
+	return &budgeted, nil
 }
 
 var timeNowUTC = func() time.Time {

@@ -301,6 +301,54 @@ func TestDefaultConstraints(t *testing.T) {
 	if c.MaxResponseTokens != 512 {
 		t.Errorf("MaxResponseTokens: want 512, got %d", c.MaxResponseTokens)
 	}
+	if c.RecallBudgetRatio != 0.10 {
+		t.Errorf("RecallBudgetRatio: want 0.10, got %f", c.RecallBudgetRatio)
+	}
+}
+
+func TestRecallPack_ApplyRecallBudgetTrimsRecallSections(t *testing.T) {
+	rp := &RecallPack{
+		ShortContext: []Message{{Speaker: SpeakerUser, Msg: "short context is preserved"}},
+		MidSummaries: []ThreadSummary{
+			{Summary: "small mid"},
+			{Summary: strings.Repeat("large mid ", 80)},
+		},
+		LongFacts:  []string{"small long", strings.Repeat("large long ", 80)},
+		KBSnippets: []string{"small kb", strings.Repeat("large kb ", 80)},
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{Query: "small search", ResultsJSON: `[]`},
+			{Query: "large search", ResultsJSON: strings.Repeat("x", 500)},
+		},
+	}
+
+	trimmed := rp.ApplyRecallBudget(200, 0.20)
+	if len(trimmed.ShortContext) != 1 {
+		t.Fatalf("ShortContext should be preserved, got %d", len(trimmed.ShortContext))
+	}
+	if len(trimmed.MidSummaries) != 1 || trimmed.MidSummaries[0].Summary != "small mid" {
+		t.Fatalf("unexpected mid summaries after budget: %+v", trimmed.MidSummaries)
+	}
+	if len(trimmed.LongFacts) != 1 || trimmed.LongFacts[0] != "small long" {
+		t.Fatalf("unexpected long facts after budget: %+v", trimmed.LongFacts)
+	}
+	if len(trimmed.KBSnippets) > 1 {
+		t.Fatalf("budget should trim large KB snippets: %+v", trimmed.KBSnippets)
+	}
+	if len(trimmed.SearchCacheSnippets) > 1 {
+		t.Fatalf("budget should trim large search snippets: %+v", trimmed.SearchCacheSnippets)
+	}
+}
+
+func TestRecallPack_ApplyRecallBudgetNoopsWithoutBudget(t *testing.T) {
+	rp := &RecallPack{
+		MidSummaries: []ThreadSummary{{Summary: "mid"}},
+		LongFacts:    []string{"long"},
+		KBSnippets:   []string{"kb"},
+	}
+	trimmed := rp.ApplyRecallBudget(0, 0.10)
+	if len(trimmed.MidSummaries) != 1 || len(trimmed.LongFacts) != 1 || len(trimmed.KBSnippets) != 1 {
+		t.Fatalf("budget should no-op without max context: %+v", trimmed)
+	}
 }
 
 // contains is a test helper

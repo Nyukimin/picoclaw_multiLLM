@@ -13,6 +13,7 @@ type PromptConstraints struct {
 	MaxTotalTokens    int // LLM の MaxContext（デフォルト: 8192）
 	MaxPromptTokens   int // プロンプトに使えるトークン（デフォルト: 4000）
 	MaxResponseTokens int // 応答用トークン（デフォルト: 512）
+	RecallBudgetRatio float64
 }
 
 // DefaultConstraints はデフォルトのトークン制約を返す
@@ -21,6 +22,7 @@ func DefaultConstraints() PromptConstraints {
 		MaxTotalTokens:    8192,
 		MaxPromptTokens:   4000,
 		MaxResponseTokens: 512,
+		RecallBudgetRatio: 0.10,
 	}
 }
 
@@ -138,6 +140,66 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 	}
 
 	return messages
+}
+
+func (rp *RecallPack) ApplyRecallBudget(maxContextTokens int, ratio float64) RecallPack {
+	if rp == nil {
+		return RecallPack{}
+	}
+	if maxContextTokens <= 0 || ratio <= 0 {
+		return *rp
+	}
+	budget := int(float64(maxContextTokens) * ratio)
+	if budget <= 0 {
+		return *rp
+	}
+	trimmed := *rp
+	trimmed.MidSummaries = nil
+	trimmed.LongFacts = nil
+	trimmed.KBSnippets = nil
+	trimmed.SearchCacheSnippets = nil
+	used := 0
+	canAdd := func(text string) bool {
+		cost := estimateRecallTokens(text)
+		if cost > budget {
+			return false
+		}
+		if used+cost > budget {
+			return false
+		}
+		used += cost
+		return true
+	}
+	for _, summary := range rp.MidSummaries {
+		if canAdd(summary.Summary) {
+			trimmed.MidSummaries = append(trimmed.MidSummaries, summary)
+		}
+	}
+	for _, fact := range rp.LongFacts {
+		if canAdd(fact) {
+			trimmed.LongFacts = append(trimmed.LongFacts, fact)
+		}
+	}
+	for _, snippet := range rp.KBSnippets {
+		if canAdd(snippet) {
+			trimmed.KBSnippets = append(trimmed.KBSnippets, snippet)
+		}
+	}
+	for _, cache := range rp.SearchCacheSnippets {
+		if canAdd(cache.ToPromptText()) {
+			trimmed.SearchCacheSnippets = append(trimmed.SearchCacheSnippets, cache)
+		}
+	}
+	return trimmed
+}
+
+func estimateRecallTokens(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+	runes := len([]rune(text))
+	return runes/4 + 1
 }
 
 func (s SearchCacheSnippet) ToPromptText() string {
