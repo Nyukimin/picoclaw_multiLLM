@@ -45,6 +45,13 @@ type vectordbStoreIface interface {
 	Close() error
 }
 
+type l1StoreIface interface {
+	SaveMessage(ctx context.Context, sessionID string, threadID int64, namespace string, msg conversation.Message, memoryState string) error
+	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]L1MemoryEvent, error)
+	RecentBySession(ctx context.Context, sessionID string, limit int) ([]L1MemoryEvent, error)
+	Close() error
+}
+
 // noveltyThreshold は「新規情報」と判定する類似度の閾値
 const noveltyThreshold = float32(0.85)
 
@@ -52,3 +59,4 @@ const noveltyThreshold = float32(0.85)
 var _ redisStoreIface = (*RedisStore)(nil)
 var _ duckdbStoreIface = (*DuckDBStore)(nil)
 var _ vectordbStoreIface = (*VectorDBStore)(nil)
+var _ l1StoreIface = (*L1SQLiteStore)(nil)

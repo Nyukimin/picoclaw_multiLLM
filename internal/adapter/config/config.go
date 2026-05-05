@@ -227,12 +227,13 @@ type IdleChatConfig struct {
 
 // ConversationConfig は会話LLMの設定
 type ConversationConfig struct {
-	Enabled      bool   `yaml:"enabled"`       // 会話LLM機能の有効化（デフォルト: false）
-	RedisURL     string `yaml:"redis_url"`     // Redis接続先（例: "redis://localhost:6379"）
-	DuckDBPath   string `yaml:"duckdb_path"`   // DuckDBファイルパス（例: "/var/lib/picoclaw/memory.duckdb"）
-	VectorDBURL  string `yaml:"vectordb_url"`  // VectorDB gRPC接続先（例: "localhost:6334" for Qdrant）
-	EmbedModel   string `yaml:"embed_model"`   // Embedding用モデル（例: "nomic-embed-text"）。空の場合はembedding無効
-	SummaryModel string `yaml:"summary_model"` // 要約用モデル（例: "chat-v1"）。空の場合はOllama chatモデルを使用
+	Enabled      bool   `yaml:"enabled"`        // 会話LLM機能の有効化（デフォルト: false）
+	RedisURL     string `yaml:"redis_url"`      // Redis接続先（例: "redis://localhost:6379"）
+	L1SQLitePath string `yaml:"l1_sqlite_path"` // L1 hot store SQLite path（任意）
+	DuckDBPath   string `yaml:"duckdb_path"`    // DuckDBファイルパス（例: "/var/lib/picoclaw/memory.duckdb"）
+	VectorDBURL  string `yaml:"vectordb_url"`   // VectorDB gRPC接続先（例: "localhost:6334" for Qdrant）
+	EmbedModel   string `yaml:"embed_model"`    // Embedding用モデル（例: "nomic-embed-text"）。空の場合はembedding無効
+	SummaryModel string `yaml:"summary_model"`  // 要約用モデル（例: "chat-v1"）。空の場合はOllama chatモデルを使用
 }
 
 // HeartbeatConfig はハートビート（定期タスク）の設定

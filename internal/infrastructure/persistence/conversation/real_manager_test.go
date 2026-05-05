@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,7 +78,7 @@ func (m *mockDuckDBStore) SearchByDomain(_ context.Context, _ string, _ int) ([]
 	return nil, nil
 }
 func (m *mockDuckDBStore) CleanupOldRecords(_ context.Context) (int64, error) { return 0, nil }
-func (m *mockDuckDBStore) Close() error                                        { return nil }
+func (m *mockDuckDBStore) Close() error                                       { return nil }
 
 type mockVectorDBStore struct {
 	saved     []*domconv.ThreadSummary
@@ -125,6 +126,43 @@ func (m *mockVectorDBStore) DeleteOldKBDocuments(_ context.Context, _ string, _ 
 	return 0, nil
 }
 func (m *mockVectorDBStore) Close() error { return nil }
+
+type mockL1Store struct {
+	saved []L1MemoryEvent
+}
+
+func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
+	m.saved = append(m.saved, L1MemoryEvent{
+		Namespace:   namespace,
+		SessionID:   sessionID,
+		ThreadID:    threadID,
+		Speaker:     msg.Speaker,
+		Message:     msg.Msg,
+		Meta:        msg.Meta,
+		MemoryState: memoryState,
+		Layer:       MemoryLayerL1,
+	})
+	return nil
+}
+func (m *mockL1Store) RecentByNamespace(_ context.Context, namespace string, _ int) ([]L1MemoryEvent, error) {
+	var out []L1MemoryEvent
+	for _, ev := range m.saved {
+		if ev.Namespace == namespace {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
+}
+func (m *mockL1Store) RecentBySession(_ context.Context, sessionID string, _ int) ([]L1MemoryEvent, error) {
+	var out []L1MemoryEvent
+	for _, ev := range m.saved {
+		if ev.SessionID == sessionID {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
+}
+func (m *mockL1Store) Close() error { return nil }
 
 type mockEmbeddingProvider struct {
 	vec []float32
@@ -195,6 +233,34 @@ func TestFlushThread_WithLLMSummary(t *testing.T) {
 	}
 	if len(summary.Embedding) == 0 {
 		t.Error("Expected embedding to be generated")
+	}
+}
+
+func TestStore_MirrorsMessageToL1SQLiteStore(t *testing.T) {
+	mgr := newTestManager(nil, nil)
+	l1 := &mockL1Store{}
+	mgr.WithL1Store(l1)
+	ctx := context.Background()
+
+	msg := domconv.NewMessage(domconv.SpeakerUser, "L1にも保存する", map[string]interface{}{"kind": "test"})
+	if err := mgr.Store(ctx, "sess-l1", msg); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+	if len(l1.saved) != 1 {
+		t.Fatalf("expected 1 l1 event, got %d", len(l1.saved))
+	}
+	ev := l1.saved[0]
+	if ev.SessionID != "sess-l1" {
+		t.Fatalf("unexpected session: %s", ev.SessionID)
+	}
+	if !strings.HasPrefix(ev.Namespace, "conv:") {
+		t.Fatalf("unexpected namespace: %s", ev.Namespace)
+	}
+	if ev.MemoryState != MemoryStateObserved {
+		t.Fatalf("unexpected state: %s", ev.MemoryState)
+	}
+	if ev.Layer != MemoryLayerL1 {
+		t.Fatalf("unexpected layer: %s", ev.Layer)
 	}
 }
 
@@ -451,4 +517,3 @@ func TestWithSummarizer_ReturnsManager(t *testing.T) {
 		t.Error("WithSummarizer should return the same manager instance")
 	}
 }
-

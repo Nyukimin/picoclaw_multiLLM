@@ -6,17 +6,18 @@ import (
 	"log"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
+	"github.com/google/uuid"
 )
 
 // RealConversationManager は実ストアを統合した会話管理実装
 type RealConversationManager struct {
 	redisStore    redisStoreIface
+	l1Store       l1StoreIface
 	duckdbStore   duckdbStoreIface
 	vectordbStore vectordbStoreIface
-	embedder      domconv.EmbeddingProvider     // nilの場合はVectorDB機能無効
+	embedder      domconv.EmbeddingProvider      // nilの場合はVectorDB機能無効
 	summarizer    domconv.ConversationSummarizer // nilの場合は簡易実装
 }
 
@@ -59,6 +60,11 @@ func (r *RealConversationManager) WithSummarizer(s domconv.ConversationSummarize
 	return r
 }
 
+func (r *RealConversationManager) WithL1Store(store l1StoreIface) *RealConversationManager {
+	r.l1Store = store
+	return r
+}
+
 // Close はすべてのストアを閉じる
 func (r *RealConversationManager) Close() error {
 	var errs []error
@@ -70,6 +76,11 @@ func (r *RealConversationManager) Close() error {
 	}
 	if err := r.vectordbStore.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("vectordb close: %w", err))
+	}
+	if r.l1Store != nil {
+		if err := r.l1Store.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("l1 sqlite close: %w", err))
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing stores: %v", errs)
@@ -150,6 +161,12 @@ func (r *RealConversationManager) Store(ctx context.Context, sessionID string, m
 	}
 
 	thread.AddMessage(msg)
+	if r.l1Store != nil {
+		namespace := fmt.Sprintf("conv:%d", thread.ID)
+		if err := r.l1Store.SaveMessage(ctx, sessionID, thread.ID, namespace, msg, MemoryStateObserved); err != nil {
+			log.Printf("Failed to save message to L1 SQLite: %v", err)
+		}
+	}
 
 	if len(thread.Turns) >= 12 {
 		summary, err := r.FlushThread(ctx, thread.ID)
@@ -433,4 +450,3 @@ func (m *RealConversationManager) GetKBStats(ctx context.Context, domain string)
 func (m *RealConversationManager) DeleteOldKBDocuments(ctx context.Context, domain string, before time.Time) (int, error) {
 	return m.vectordbStore.DeleteOldKBDocuments(ctx, domain, before)
 }
-

@@ -2249,6 +2249,17 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if err != nil {
 			log.Fatalf("Failed to initialize conversation manager: %v", err)
 		}
+		if cfg.Conversation.L1SQLitePath != "" {
+			if err := os.MkdirAll(filepath.Dir(cfg.Conversation.L1SQLitePath), 0755); err != nil {
+				log.Fatalf("Failed to create L1 SQLite directory: %v", err)
+			}
+			l1Store, err := conversationpersistence.NewL1SQLiteStore(cfg.Conversation.L1SQLitePath)
+			if err != nil {
+				log.Fatalf("Failed to initialize L1 SQLite store: %v", err)
+			}
+			realMgr.WithL1Store(l1Store)
+			log.Printf("  L1 SQLite: %s", cfg.Conversation.L1SQLitePath)
+		}
 
 		// Embedder注入（embed_model が設定されている場合）
 		if cfg.Conversation.EmbedModel != "" {

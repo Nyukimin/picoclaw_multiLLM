@@ -256,6 +256,36 @@ session:
 	}
 }
 
+func TestLoadConfig_ConversationL1SQLitePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "conversation_l1.yaml")
+
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+conversation:
+  enabled: true
+  redis_url: "redis://localhost:6379"
+  l1_sqlite_path: "./data/l1_memory.db"
+  duckdb_path: "./data/memory.duckdb"
+  vectordb_url: "localhost:6334"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.Conversation.L1SQLitePath != "./data/l1_memory.db" {
+		t.Fatalf("unexpected l1 sqlite path: %s", cfg.Conversation.L1SQLitePath)
+	}
+}
+
 func TestLoadConfig_LocalLLMDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "local_llm.yaml")
