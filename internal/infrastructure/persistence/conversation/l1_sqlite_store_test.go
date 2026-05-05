@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -1186,5 +1187,57 @@ func TestL1SQLiteStore_PromoteKnowledgeRequiresValidatedItem(t *testing.T) {
 	}
 	if _, err := store.RecentKnowledgeItems(ctx, "bad domain", 10); err == nil {
 		t.Fatal("expected invalid knowledge domain to be rejected")
+	}
+}
+
+func TestL1SQLiteStore_ExportAndImportStagingItemsJSONL(t *testing.T) {
+	ctx := context.Background()
+	source, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "source.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore source failed: %v", err)
+	}
+	defer source.Close()
+
+	if _, err := source.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:news",
+		EventID:      "jsonl-1",
+		SourceID:     "rss:example",
+		SourceURL:    "https://example.com/jsonl/1",
+		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		RawText:      "JSONL raw",
+		SummaryDraft: "JSONL summary",
+		Keywords:     []string{"jsonl"},
+		LicenseNote:  "rss",
+	}); err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := source.ExportStagingItemsJSONL(ctx, L1StagingStatusPending, &buf); err != nil {
+		t.Fatalf("ExportStagingItemsJSONL failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "JSONL raw") || !strings.HasSuffix(buf.String(), "\n") {
+		t.Fatalf("unexpected JSONL output: %q", buf.String())
+	}
+
+	target, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "target.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore target failed: %v", err)
+	}
+	defer target.Close()
+	imported, err := target.ImportStagingItemsJSONL(ctx, bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("ImportStagingItemsJSONL failed: %v", err)
+	}
+	if imported != 1 {
+		t.Fatalf("expected 1 imported item, got %d", imported)
+	}
+	items, err := target.RecentStagingItems(ctx, L1StagingStatusPending, 10)
+	if err != nil {
+		t.Fatalf("RecentStagingItems failed: %v", err)
+	}
+	if len(items) != 1 || items[0].RawText != "JSONL raw" || items[0].SummaryDraft != "JSONL summary" {
+		t.Fatalf("unexpected imported items: %+v", items)
 	}
 }

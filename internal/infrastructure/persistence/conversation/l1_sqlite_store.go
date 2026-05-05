@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -895,6 +897,49 @@ LIMIT ?
 	}
 	defer rows.Close()
 	return scanL1StagingItems(rows)
+}
+
+func (s *L1SQLiteStore) ExportStagingItemsJSONL(ctx context.Context, validationStatus string, writer io.Writer) error {
+	if writer == nil {
+		return errors.New("l1 staging JSONL writer is required")
+	}
+	items, err := s.RecentStagingItems(ctx, validationStatus, 0)
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(writer)
+	for _, item := range items {
+		if err := encoder.Encode(item); err != nil {
+			return fmt.Errorf("failed to encode l1 staging JSONL item: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *L1SQLiteStore) ImportStagingItemsJSONL(ctx context.Context, reader io.Reader) (int, error) {
+	if reader == nil {
+		return 0, errors.New("l1 staging JSONL reader is required")
+	}
+	scanner := bufio.NewScanner(reader)
+	imported := 0
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var item L1StagingItem
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			return imported, fmt.Errorf("failed to decode l1 staging JSONL item: %w", err)
+		}
+		if _, err := s.SaveStagingItem(ctx, item); err != nil {
+			return imported, err
+		}
+		imported++
+	}
+	if err := scanner.Err(); err != nil {
+		return imported, fmt.Errorf("failed to scan l1 staging JSONL: %w", err)
+	}
+	return imported, nil
 }
 
 func (s *L1SQLiteStore) ValidateStagingItem(ctx context.Context, id string, policy L1StagingValidationPolicy) (*L1StagingValidationResult, error) {
