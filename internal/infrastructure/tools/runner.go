@@ -29,6 +29,11 @@ var ErrUnknownTool = errors.New("unknown tool")
 // ToolFuncV2 は構造化レスポンスを返すツール実行関数の型
 type ToolFuncV2 func(ctx context.Context, args map[string]interface{}) (*tool.ToolResponse, error)
 
+type WebSearchCache interface {
+	GetFreshWebSearchCache(ctx context.Context, query string) ([]GoogleSearchItem, bool, error)
+	SaveWebSearchCache(ctx context.Context, query string, items []GoogleSearchItem, ttl time.Duration) error
+}
+
 // ToolRunner はツール実行の実装（V1 + V2 対応）
 type ToolRunner struct {
 	tools    map[string]ToolFunc
@@ -46,6 +51,7 @@ type ToolRunnerConfig struct {
 	AllowedShellCommands []string                // 許可コマンドプレフィックス（空=全許可）
 	AllowedWritePaths    []string                // file_write 許可パス（空=全許可）
 	DisableWebSearch     bool                    // web_search を登録しない（会話モード安全ポリシー）
+	WebSearchCache       WebSearchCache          // nil = web_search cache 無効
 
 	// Phase 4: Shiro ツール共有
 	ToolRegistry capability.ToolRegistry // nil = register_tool 無効
@@ -68,6 +74,11 @@ func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 	runner.registerTools()
 
 	return runner
+}
+
+func (r *ToolRunner) WithWebSearchCache(cache WebSearchCache) *ToolRunner {
+	r.config.WebSearchCache = cache
+	return r
 }
 
 // registerTools は利用可能なツールを登録（ミドルウェアで安全レール適用）
@@ -117,7 +128,7 @@ func (r *ToolRunner) registerTools() {
 	// メタデータ登録
 	r.metadata["shell"] = tool.ToolMetadata{
 		ToolID: "shell", Version: "1.0.0", Category: "mutation",
-		DryRun: true,
+		DryRun:      true,
 		Description: "シェルコマンドを実行する",
 		Parameters: map[string]any{
 			"type": "object",
@@ -142,7 +153,7 @@ func (r *ToolRunner) registerTools() {
 	}
 	r.metadata["file_write"] = tool.ToolMetadata{
 		ToolID: "file_write", Version: "1.0.0", Category: "mutation",
-		DryRun: true,
+		DryRun:      true,
 		Description: "ファイルに内容を書き込む",
 		Parameters: map[string]any{
 			"type": "object",
@@ -700,6 +711,16 @@ func (r *ToolRunner) executeWebSearch(ctx context.Context, args map[string]inter
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
+	if r.config.WebSearchCache != nil {
+		items, hit, err := r.config.WebSearchCache.GetFreshWebSearchCache(ctx, query)
+		if err != nil {
+			return "", fmt.Errorf("failed to read web search cache: %w", err)
+		}
+		if hit {
+			return formatGoogleSearchResult(GoogleSearchResponse{Items: items}), nil
+		}
+	}
+
 	// 設定チェック
 	if r.config.GoogleAPIKey == "" || r.config.GoogleSearchEngineID == "" {
 		return "", fmt.Errorf("Google Search API not configured")
@@ -742,6 +763,11 @@ func (r *ToolRunner) executeWebSearch(ctx context.Context, args map[string]inter
 	var result GoogleSearchResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+	if r.config.WebSearchCache != nil && len(result.Items) > 0 {
+		if err := r.config.WebSearchCache.SaveWebSearchCache(ctx, query, result.Items, 30*time.Minute); err != nil {
+			return "", fmt.Errorf("failed to save web search cache: %w", err)
+		}
 	}
 
 	// 結果フォーマット
@@ -800,6 +826,23 @@ func (r *ToolRunner) executeWebSearchV2(ctx context.Context, args map[string]int
 		return tool.NewError(tool.ErrValidationFailed, "query cannot be empty", nil), nil
 	}
 
+	if r.config.WebSearchCache != nil {
+		items, hit, err := r.config.WebSearchCache.GetFreshWebSearchCache(ctx, query)
+		if err != nil {
+			return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to read web search cache: %v", err), nil), nil
+		}
+		if hit {
+			response := tool.NewSuccess(formatGoogleSearchResult(GoogleSearchResponse{Items: items}))
+			response.Metadata = map[string]any{
+				"query":        query,
+				"search_items": items,
+				"total_count":  len(items),
+				"cache_hit":    true,
+			}
+			return response, nil
+		}
+	}
+
 	// 設定チェック
 	if r.config.GoogleAPIKey == "" || r.config.GoogleSearchEngineID == "" {
 		return tool.NewError(tool.ErrNotFound, "Google Search API not configured", nil), nil
@@ -843,6 +886,11 @@ func (r *ToolRunner) executeWebSearchV2(ctx context.Context, args map[string]int
 	if err := json.Unmarshal(body, &result); err != nil {
 		return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to parse response: %v", err), nil), nil
 	}
+	if r.config.WebSearchCache != nil && len(result.Items) > 0 {
+		if err := r.config.WebSearchCache.SaveWebSearchCache(ctx, query, result.Items, 30*time.Minute); err != nil {
+			return tool.NewError(tool.ErrInternalError, fmt.Sprintf("failed to save web search cache: %v", err), nil), nil
+		}
+	}
 
 	// 結果フォーマット（表示用文字列）
 	formatted := formatGoogleSearchResult(result)
@@ -852,6 +900,7 @@ func (r *ToolRunner) executeWebSearchV2(ctx context.Context, args map[string]int
 		"query":        query,
 		"search_items": result.Items, // GoogleSearchItem の配列
 		"total_count":  len(result.Items),
+		"cache_hit":    false,
 	}
 
 	response := tool.NewSuccess(formatted)

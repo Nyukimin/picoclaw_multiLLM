@@ -2313,6 +2313,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		convEngine = nil
 		log.Printf("Conversation LLM disabled (v3/v4 mode)")
 	}
+	if realMgr != nil {
+		webSearchCache := newConversationWebSearchCacheAdapter(realMgr)
+		chatToolRunnerV2.WithWebSearchCache(webSearchCache)
+		workerToolRunnerV2.WithWebSearchCache(webSearchCache)
+		log.Printf("ToolRunner web_search cache enabled via Conversation L1")
+	}
 
 	// 5. Memory Store（HeartbeatService用。Mio会話メモリはConversationEngine v5.1が担当）
 	memStore := memorypersistence.NewFileStore(cfg.WorkspaceDir)

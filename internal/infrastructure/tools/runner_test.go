@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewToolRunner(t *testing.T) {
@@ -288,9 +289,11 @@ func TestToolRunner_Execute_FileList_MissingPath(t *testing.T) {
 type mockRoundTripper struct {
 	statusCode int
 	body       string
+	calls      int
 }
 
 func (m *mockRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
+	m.calls++
 	return &http.Response{
 		StatusCode: m.statusCode,
 		Body:       io.NopCloser(strings.NewReader(m.body)),
@@ -330,6 +333,102 @@ func TestToolRunner_Execute_WebSearch_Success(t *testing.T) {
 	}
 }
 
+func TestToolRunner_Execute_WebSearch_UsesFreshCache(t *testing.T) {
+	rt := &mockRoundTripper{statusCode: 500, body: `should not be called`}
+	cache := &mockWebSearchCache{
+		hit: true,
+		items: []GoogleSearchItem{
+			{Title: "Cached Result", Link: "https://example.com/cache", Snippet: "from cache"},
+		},
+	}
+	runner := NewToolRunner(ToolRunnerConfig{
+		GoogleAPIKey:         "test-api-key",
+		GoogleSearchEngineID: "test-engine-id",
+		HTTPClient:           &http.Client{Transport: rt},
+		WebSearchCache:       cache,
+	})
+
+	result, err := runner.Execute(context.Background(), "web_search", map[string]interface{}{"query": "RenCrow 最新仕様"})
+	if err != nil {
+		t.Fatalf("Execute web_search failed: %v", err)
+	}
+	if rt.calls != 0 {
+		t.Fatalf("expected HTTP not to be called on cache hit, got %d calls", rt.calls)
+	}
+	if cache.lastGetQuery != "RenCrow 最新仕様" {
+		t.Fatalf("unexpected cache lookup query: %q", cache.lastGetQuery)
+	}
+	if !strings.Contains(result, "Cached Result") || !strings.Contains(result, "https://example.com/cache") {
+		t.Fatalf("cached result not formatted: %s", result)
+	}
+}
+
+func TestToolRunner_Execute_WebSearch_SavesCacheOnMiss(t *testing.T) {
+	mockBody := `{
+		"items": [
+			{"title": "Live Result", "link": "https://example.com/live", "snippet": "from live search"}
+		]
+	}`
+	cache := &mockWebSearchCache{}
+	runner := NewToolRunner(ToolRunnerConfig{
+		GoogleAPIKey:         "test-api-key",
+		GoogleSearchEngineID: "test-engine-id",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripper{statusCode: 200, body: mockBody},
+		},
+		WebSearchCache: cache,
+	})
+
+	result, err := runner.Execute(context.Background(), "web_search", map[string]interface{}{"query": "RenCrow 最新仕様"})
+	if err != nil {
+		t.Fatalf("Execute web_search failed: %v", err)
+	}
+	if !strings.Contains(result, "Live Result") {
+		t.Fatalf("expected live search result, got: %s", result)
+	}
+	if !cache.saveCalled {
+		t.Fatal("expected live search result to be saved to cache")
+	}
+	if cache.lastSaveQuery != "RenCrow 最新仕様" {
+		t.Fatalf("unexpected saved query: %q", cache.lastSaveQuery)
+	}
+	if len(cache.savedItems) != 1 || cache.savedItems[0].Title != "Live Result" {
+		t.Fatalf("unexpected saved items: %+v", cache.savedItems)
+	}
+	if cache.lastTTL <= 0 {
+		t.Fatalf("expected positive ttl, got %s", cache.lastTTL)
+	}
+}
+
+func TestToolRunner_WithWebSearchCache_AfterCreation(t *testing.T) {
+	rt := &mockRoundTripper{statusCode: 500, body: `should not be called`}
+	cache := &mockWebSearchCache{
+		hit: true,
+		items: []GoogleSearchItem{
+			{Title: "Late Cache", Link: "https://example.com/late", Snippet: "injected later"},
+		},
+	}
+	runner := NewToolRunner(ToolRunnerConfig{
+		GoogleAPIKey:         "test-api-key",
+		GoogleSearchEngineID: "test-engine-id",
+		HTTPClient:           &http.Client{Transport: rt},
+	})
+
+	if got := runner.WithWebSearchCache(cache); got != runner {
+		t.Fatal("WithWebSearchCache should return the same runner")
+	}
+	result, err := runner.Execute(context.Background(), "web_search", map[string]interface{}{"query": "late"})
+	if err != nil {
+		t.Fatalf("Execute web_search failed: %v", err)
+	}
+	if rt.calls != 0 {
+		t.Fatalf("expected HTTP not to be called on late cache hit, got %d calls", rt.calls)
+	}
+	if !strings.Contains(result, "Late Cache") {
+		t.Fatalf("expected late cache result, got: %s", result)
+	}
+}
+
 func TestToolRunner_Execute_WebSearch_MissingQuery(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{})
 
@@ -352,4 +451,30 @@ func TestToolRunner_Execute_WebSearch_EmptyQuery(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when query is empty")
 	}
+}
+
+type mockWebSearchCache struct {
+	hit           bool
+	items         []GoogleSearchItem
+	lastGetQuery  string
+	saveCalled    bool
+	lastSaveQuery string
+	savedItems    []GoogleSearchItem
+	lastTTL       time.Duration
+}
+
+func (m *mockWebSearchCache) GetFreshWebSearchCache(_ context.Context, query string) ([]GoogleSearchItem, bool, error) {
+	m.lastGetQuery = query
+	if !m.hit {
+		return nil, false, nil
+	}
+	return m.items, true, nil
+}
+
+func (m *mockWebSearchCache) SaveWebSearchCache(_ context.Context, query string, items []GoogleSearchItem, ttl time.Duration) error {
+	m.saveCalled = true
+	m.lastSaveQuery = query
+	m.savedItems = append([]GoogleSearchItem{}, items...)
+	m.lastTTL = ttl
+	return nil
 }

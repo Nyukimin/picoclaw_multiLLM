@@ -121,6 +121,36 @@ func TestToolRunner_ExecuteV2_JSON(t *testing.T) {
 	}
 }
 
+func TestToolRunner_ExecuteV2_WebSearch_UsesFreshCache(t *testing.T) {
+	cache := &mockWebSearchCache{
+		hit: true,
+		items: []GoogleSearchItem{
+			{Title: "Cached V2 Result", Link: "https://example.com/v2", Snippet: "from cache"},
+		},
+	}
+	runner := NewToolRunner(ToolRunnerConfig{
+		GoogleAPIKey:         "test-api-key",
+		GoogleSearchEngineID: "test-engine-id",
+		WebSearchCache:       cache,
+	})
+
+	resp, err := runner.ExecuteV2(context.Background(), "web_search", map[string]any{
+		"query": "RenCrow 最新仕様",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got error: %s", resp.Error.Message)
+	}
+	if !strings.Contains(resp.String(), "Cached V2 Result") {
+		t.Fatalf("expected cached result, got: %s", resp.String())
+	}
+	if resp.Metadata["cache_hit"] != true {
+		t.Fatalf("expected cache_hit metadata, got: %+v", resp.Metadata)
+	}
+}
+
 func TestToolRunner_ListTools(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{})
 
