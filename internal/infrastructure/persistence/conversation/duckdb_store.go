@@ -128,6 +128,15 @@ func (d *DuckDBStore) initTables(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_l1_knowledge_archive_domain_updated ON l1_knowledge_item_archive(domain, updated_at DESC);
+	CREATE TABLE IF NOT EXISTS l1_knowledge_item_fts_archive (
+		id VARCHAR PRIMARY KEY,
+		domain VARCHAR NOT NULL,
+		title TEXT NOT NULL,
+		raw_text TEXT NOT NULL,
+		summary_draft TEXT NOT NULL,
+		keywords_text TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_l1_knowledge_fts_archive_domain ON l1_knowledge_item_fts_archive(domain);
 
 	CREATE TABLE IF NOT EXISTS l1_staging_item_archive (
 		id VARCHAR PRIMARY KEY,
@@ -218,6 +227,9 @@ func (d *DuckDBStore) ArchiveL1KnowledgeItems(ctx context.Context, items []L1Kno
 		if _, err := d.db.ExecContext(ctx, `DELETE FROM l1_knowledge_item_archive WHERE id = ?`, item.ID); err != nil {
 			return fmt.Errorf("failed to replace l1 knowledge archive row: %w", err)
 		}
+		if _, err := d.db.ExecContext(ctx, `DELETE FROM l1_knowledge_item_fts_archive WHERE id = ?`, item.ID); err != nil {
+			return fmt.Errorf("failed to replace l1 knowledge fts archive row: %w", err)
+		}
 		if _, err := d.db.ExecContext(ctx, `
 INSERT INTO l1_knowledge_item_archive (
 	id, staging_id, domain, title, source_id, source_url, raw_text, raw_hash,
@@ -227,8 +239,48 @@ INSERT INTO l1_knowledge_item_archive (
 			item.SummaryDraft, keywordsJSON, item.LicenseNote, metaJSON, item.CreatedAt, item.UpdatedAt); err != nil {
 			return fmt.Errorf("failed to archive l1 knowledge item: %w", err)
 		}
+		if _, err := d.db.ExecContext(ctx, `
+INSERT INTO l1_knowledge_item_fts_archive (id, domain, title, raw_text, summary_draft, keywords_text)
+VALUES (?, ?, ?, ?, ?, ?)
+`, item.ID, item.Domain, item.Title, item.RawText, item.SummaryDraft, strings.Join(item.Keywords, " ")); err != nil {
+			return fmt.Errorf("failed to archive l1 knowledge fts item: %w", err)
+		}
 	}
 	return nil
+}
+
+func (d *DuckDBStore) SearchKnowledgeArchiveFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error) {
+	if err := validateKnowledgeDomain(domain); err != nil {
+		return nil, err
+	}
+	domain = normalizeNewsCategory(domain)
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("duckdb knowledge fts query is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := d.db.QueryContext(ctx, `
+SELECT k.id, k.staging_id, k.domain, k.title, k.source_id, k.source_url, k.raw_text, k.raw_hash,
+       k.summary_draft, k.keywords_json, k.license_note, k.meta_json, k.created_at, k.updated_at
+FROM l1_knowledge_item_fts_archive f
+JOIN l1_knowledge_item_archive k ON k.id = f.id
+WHERE (
+	f.title LIKE ?
+	OR f.raw_text LIKE ?
+	OR f.summary_draft LIKE ?
+	OR f.keywords_text LIKE ?
+)
+  AND f.domain = ?
+ORDER BY k.updated_at DESC
+LIMIT ?
+`, likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), domain, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search duckdb knowledge fts archive: %w", err)
+	}
+	defer rows.Close()
+	return scanL1KnowledgeItems(rows)
 }
 
 func (d *DuckDBStore) ArchiveL1StagingItems(ctx context.Context, items []L1StagingItem) error {

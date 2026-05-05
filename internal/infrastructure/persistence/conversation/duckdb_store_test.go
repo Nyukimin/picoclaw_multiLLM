@@ -162,3 +162,60 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 		}
 	}
 }
+
+func TestDuckDBStore_SearchKnowledgeArchiveFTS(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewDuckDBStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewDuckDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC)
+	items := []L1KnowledgeItem{
+		{
+			ID:           "kb-space",
+			StagingID:    "stage-kb-space",
+			Domain:       "movie",
+			Title:        "Interstellar",
+			SourceID:     "manual",
+			SourceURL:    "https://example.com/kb/space",
+			RawText:      "重力と時間を扱う宇宙映画",
+			RawHash:      "hash-space",
+			SummaryDraft: "父と娘、重力、時間の話",
+			Keywords:     []string{"宇宙", "重力"},
+			LicenseNote:  "manual",
+			CreatedAt:    now,
+			UpdatedAt:    now.Add(time.Minute),
+		},
+		{
+			ID:           "kb-music",
+			StagingID:    "stage-kb-music",
+			Domain:       "music",
+			Title:        "Ambient Note",
+			SourceID:     "manual",
+			SourceURL:    "https://example.com/kb/music",
+			RawText:      "静かな音楽メモ",
+			RawHash:      "hash-music",
+			SummaryDraft: "音色の話",
+			Keywords:     []string{"音楽"},
+			LicenseNote:  "manual",
+			CreatedAt:    now,
+			UpdatedAt:    now.Add(2 * time.Minute),
+		},
+	}
+	if err := store.ArchiveL1KnowledgeItems(ctx, items); err != nil {
+		t.Fatalf("ArchiveL1KnowledgeItems failed: %v", err)
+	}
+
+	got, err := store.SearchKnowledgeArchiveFTS(ctx, "movie", "重力", 10)
+	if err != nil {
+		t.Fatalf("SearchKnowledgeArchiveFTS failed: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "kb-space" {
+		t.Fatalf("unexpected knowledge archive search results: %+v", got)
+	}
+	if got[0].Keywords[0] != "宇宙" {
+		t.Fatalf("keywords should be restored from archive json: %+v", got[0])
+	}
+}

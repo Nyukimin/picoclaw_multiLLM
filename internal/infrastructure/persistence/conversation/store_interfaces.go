@@ -24,6 +24,7 @@ type duckdbStoreIface interface {
 	SaveThreadSummary(ctx context.Context, summary *conversation.ThreadSummary) error
 	GetSessionHistory(ctx context.Context, sessionID string, limit int) ([]*conversation.ThreadSummary, error)
 	SearchByDomain(ctx context.Context, domain string, limit int) ([]*conversation.ThreadSummary, error)
+	SearchKnowledgeArchiveFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error)
 	CleanupOldRecords(ctx context.Context) (int64, error)
 	Close() error
 }

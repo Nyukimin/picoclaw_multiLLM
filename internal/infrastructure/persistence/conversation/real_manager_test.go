@@ -64,7 +64,8 @@ func (m *mockRedisStore) DeleteThread(_ context.Context, threadID int64) error {
 func (m *mockRedisStore) Close() error { return nil }
 
 type mockDuckDBStore struct {
-	saved []*domconv.ThreadSummary
+	saved     []*domconv.ThreadSummary
+	kbArchive []L1KnowledgeItem
 }
 
 func (m *mockDuckDBStore) SaveThreadSummary(_ context.Context, s *domconv.ThreadSummary) error {
@@ -76,6 +77,9 @@ func (m *mockDuckDBStore) GetSessionHistory(_ context.Context, _ string, _ int) 
 }
 func (m *mockDuckDBStore) SearchByDomain(_ context.Context, _ string, _ int) ([]*domconv.ThreadSummary, error) {
 	return nil, nil
+}
+func (m *mockDuckDBStore) SearchKnowledgeArchiveFTS(_ context.Context, _ string, _ string, _ int) ([]L1KnowledgeItem, error) {
+	return m.kbArchive, nil
 }
 func (m *mockDuckDBStore) CleanupOldRecords(_ context.Context) (int64, error) { return 0, nil }
 func (m *mockDuckDBStore) Close() error                                       { return nil }
