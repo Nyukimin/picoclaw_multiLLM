@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -215,6 +218,28 @@ func (d *DuckDBStore) SearchByDomain(ctx context.Context, domain string, limit i
 	}
 
 	return summaries, nil
+}
+
+func (d *DuckDBStore) ExportThreadSummariesParquet(ctx context.Context, outputPath string) error {
+	outputPath = strings.TrimSpace(outputPath)
+	if outputPath == "" {
+		return fmt.Errorf("parquet output path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create parquet output directory: %w", err)
+	}
+	escapedPath := strings.ReplaceAll(outputPath, "'", "''")
+	query := fmt.Sprintf(`
+COPY (
+	SELECT thread_id, session_id, ts_start, ts_end, domain, summary, keywords, embedding, is_novel, created_at
+	FROM session_thread
+	ORDER BY ts_start ASC, thread_id ASC
+) TO '%s' (FORMAT PARQUET)
+`, escapedPath)
+	if _, err := d.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("failed to export thread summaries to parquet: %w", err)
+	}
+	return nil
 }
 
 // CleanupOldRecords は7日以上経過したレコードを削除
