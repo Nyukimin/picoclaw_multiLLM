@@ -99,6 +99,43 @@ func TestOpenAIProviderGenerate_Success(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderGenerate_LocalCompatibleNoAPIKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("expected no Authorization header, got %q", got)
+		}
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if reqBody["model"] != "Chat" {
+			t.Fatalf("expected model Chat, got %v", reqBody["model"])
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{"total_tokens": 1},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithOptions("", "Chat", server.URL, 0)
+	resp, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages:  []llm.Message{{Role: "user", Content: "ping"}},
+		MaxTokens: 1,
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Fatalf("unexpected content: %q", resp.Content)
+	}
+}
+
 func TestOpenAIProviderGenerate_WithSystemPrompt(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}

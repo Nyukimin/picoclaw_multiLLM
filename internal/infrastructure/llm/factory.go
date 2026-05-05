@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -32,6 +33,12 @@ func CreateProvider(cc config.CoderConfig) (llm.LLMProvider, error) {
 			return nil, fmt.Errorf("openai provider requires api_key")
 		}
 		return openai.NewOpenAIProvider(cc.APIKey, cc.Model), nil
+
+	case "local_openai":
+		if cc.BaseURL == "" {
+			return nil, fmt.Errorf("local_openai provider requires base_url")
+		}
+		return openai.NewOpenAIProviderWithOptions(cc.APIKey, cc.Model, cc.BaseURL, 120*time.Second), nil
 
 	case "claude":
 		if cc.APIKey == "" {

@@ -39,6 +39,25 @@ MLX サーバ連携条件:
 - warmup は起動後に `Chat` / `Worker` / `Wild` それぞれへ `max_tokens: 1` の短い request を送る。
 - streaming や tool calling は、必要になった時点で MLX サーバ側の対応状況を確認する。
 
+実装設定例:
+
+```yaml
+local_llm:
+  enabled: true
+  provider: local_openai
+  base_url: "http://127.0.0.1:8080"
+  chat_model: "Chat"
+  worker_model: "Worker"
+  wild_model: "Wild"
+  timeout_sec: 120
+  warmup: true
+  global_concurrency: 2
+  model_concurrency: 1
+```
+
+`local_llm.enabled=true` の場合、Chat / Worker 主経路は Ollama ではなく OpenAI互換ローカル provider を使う。
+Ollama設定は互換運用用に残すが、MLX運用では必須ではない。
+
 ## 1. Chat
 
 **エイリアス**: Chat

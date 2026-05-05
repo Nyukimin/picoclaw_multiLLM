@@ -34,6 +34,9 @@ type Config struct {
 	// === v5.0 追加フィールド ===
 	Conversation ConversationConfig `yaml:"conversation"`
 
+	// === MLX / local OpenAI-compatible LLM runtime ===
+	LocalLLM LocalLLMConfig `yaml:"local_llm"`
+
 	// === v5.1 プロンプト外部ファイル ===
 	PromptsDir   string         `yaml:"prompts_dir"`   // プロンプトファイルのベースディレクトリ（デフォルト）
 	WorkspaceDir string         `yaml:"workspace_dir"` // ユーザーカスタマイズ領域（オーバーライド）
@@ -115,6 +118,22 @@ type DeepSeekConfig struct {
 type OpenAIConfig struct {
 	APIKey string `yaml:"api_key"` // 環境変数から読み込み推奨
 	Model  string `yaml:"model"`
+}
+
+// LocalLLMConfig is the primary local inference runtime for Chat / Worker / Wild.
+// It is intended for OpenAI-compatible local servers such as MLX.
+type LocalLLMConfig struct {
+	Enabled           bool   `yaml:"enabled"`
+	Provider          string `yaml:"provider"` // local_openai (default) or ollama
+	BaseURL           string `yaml:"base_url"`
+	APIKey            string `yaml:"api_key"`
+	ChatModel         string `yaml:"chat_model"`
+	WorkerModel       string `yaml:"worker_model"`
+	WildModel         string `yaml:"wild_model"`
+	TimeoutSec        int    `yaml:"timeout_sec"`
+	Warmup            *bool  `yaml:"warmup"`
+	GlobalConcurrency int    `yaml:"global_concurrency"`
+	ModelConcurrency  int    `yaml:"model_concurrency"`
 }
 
 // SessionConfig はセッション設定
@@ -439,6 +458,32 @@ func (c *Config) setDefaults() {
 		c.OpenAI.Model = "gpt-4o-mini"
 	}
 
+	if c.LocalLLM.Provider == "" {
+		c.LocalLLM.Provider = "local_openai"
+	}
+	if c.LocalLLM.ChatModel == "" {
+		c.LocalLLM.ChatModel = "Chat"
+	}
+	if c.LocalLLM.WorkerModel == "" {
+		c.LocalLLM.WorkerModel = "Worker"
+	}
+	if c.LocalLLM.WildModel == "" {
+		c.LocalLLM.WildModel = "Wild"
+	}
+	if c.LocalLLM.TimeoutSec <= 0 {
+		c.LocalLLM.TimeoutSec = 120
+	}
+	if c.LocalLLM.Warmup == nil {
+		v := true
+		c.LocalLLM.Warmup = &v
+	}
+	if c.LocalLLM.GlobalConcurrency <= 0 {
+		c.LocalLLM.GlobalConcurrency = 2
+	}
+	if c.LocalLLM.ModelConcurrency <= 0 {
+		c.LocalLLM.ModelConcurrency = 1
+	}
+
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
 	}
@@ -677,6 +722,10 @@ func (c *Config) setDefaults() {
 	}
 }
 
+func (c *Config) LocalLLMWarmupEnabled() bool {
+	return c.LocalLLM.Warmup != nil && *c.LocalLLM.Warmup
+}
+
 func shouldEnableLocalTLSSkipVerify(rawURL string) bool {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
@@ -696,13 +745,40 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid server port: %d (must be 1-65535)", c.Server.Port)
 	}
 
-	// Ollama設定検証
-	if c.Ollama.BaseURL == "" {
-		return fmt.Errorf("ollama base_url is required")
-	}
+	if c.LocalLLM.Enabled {
+		if c.LocalLLM.Provider != "local_openai" && c.LocalLLM.Provider != "ollama" {
+			return fmt.Errorf("local_llm.provider must be one of [local_openai, ollama], got '%s'", c.LocalLLM.Provider)
+		}
+		if c.LocalLLM.BaseURL == "" {
+			return fmt.Errorf("local_llm base_url is required when enabled=true")
+		}
+		if c.LocalLLM.ChatModel == "" {
+			return fmt.Errorf("local_llm chat_model is required when enabled=true")
+		}
+		if c.LocalLLM.WorkerModel == "" {
+			return fmt.Errorf("local_llm worker_model is required when enabled=true")
+		}
+		if c.LocalLLM.WildModel == "" {
+			return fmt.Errorf("local_llm wild_model is required when enabled=true")
+		}
+		if c.LocalLLM.TimeoutSec < 1 {
+			return fmt.Errorf("local_llm timeout_sec must be >= 1")
+		}
+		if c.LocalLLM.GlobalConcurrency < 1 {
+			return fmt.Errorf("local_llm global_concurrency must be >= 1")
+		}
+		if c.LocalLLM.ModelConcurrency < 1 {
+			return fmt.Errorf("local_llm model_concurrency must be >= 1")
+		}
+	} else {
+		// Ollama設定検証
+		if c.Ollama.BaseURL == "" {
+			return fmt.Errorf("ollama base_url is required")
+		}
 
-	if c.Ollama.Model == "" {
-		return fmt.Errorf("ollama model is required")
+		if c.Ollama.Model == "" {
+			return fmt.Errorf("ollama model is required")
+		}
 	}
 
 	// セッション設定検証
@@ -877,14 +953,15 @@ func (c *Config) Validate() error {
 func validateCoderConfig(name string, cc *CoderConfig) error {
 	// Provider 検証
 	validProviders := map[string]bool{
-		"deepseek": true,
-		"openai":   true,
-		"claude":   true,
-		"gemini":   true,
-		"ollama":   true,
+		"deepseek":     true,
+		"openai":       true,
+		"claude":       true,
+		"gemini":       true,
+		"ollama":       true,
+		"local_openai": true,
 	}
 	if cc.Provider != "" && !validProviders[cc.Provider] {
-		return fmt.Errorf("%s.provider must be one of [deepseek, openai, claude, gemini, ollama], got '%s'", name, cc.Provider)
+		return fmt.Errorf("%s.provider must be one of [deepseek, openai, claude, gemini, ollama, local_openai], got '%s'", name, cc.Provider)
 	}
 
 	// Model 検証（Enabled=true の場合のみ必須）
@@ -914,9 +991,9 @@ func validateCoderConfig(name string, cc *CoderConfig) error {
 			if cc.APIKey == "" {
 				return fmt.Errorf("%s.api_key is required for provider '%s' when enabled=true", name, cc.Provider)
 			}
-		case "ollama":
+		case "ollama", "local_openai":
 			if cc.BaseURL == "" {
-				return fmt.Errorf("%s.base_url is required for provider 'ollama' when enabled=true", name)
+				return fmt.Errorf("%s.base_url is required for provider '%s' when enabled=true", name, cc.Provider)
 			}
 		}
 	}

@@ -256,6 +256,47 @@ session:
 	}
 }
 
+func TestLoadConfig_LocalLLMDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "local_llm.yaml")
+
+	content := `
+server:
+  port: 8080
+session:
+  storage_dir: "./data/sessions"
+local_llm:
+  enabled: true
+  base_url: "http://127.0.0.1:8080"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.LocalLLM.Enabled {
+		t.Fatal("expected local_llm enabled")
+	}
+	if cfg.LocalLLM.Provider != "local_openai" {
+		t.Fatalf("unexpected local_llm provider: %s", cfg.LocalLLM.Provider)
+	}
+	if cfg.LocalLLM.ChatModel != "Chat" || cfg.LocalLLM.WorkerModel != "Worker" || cfg.LocalLLM.WildModel != "Wild" {
+		t.Fatalf("unexpected model aliases: %+v", cfg.LocalLLM)
+	}
+	if cfg.LocalLLM.TimeoutSec != 120 {
+		t.Fatalf("unexpected timeout_sec: %d", cfg.LocalLLM.TimeoutSec)
+	}
+	if cfg.LocalLLM.GlobalConcurrency != 2 || cfg.LocalLLM.ModelConcurrency != 1 {
+		t.Fatalf("unexpected concurrency defaults: %+v", cfg.LocalLLM)
+	}
+	if !cfg.LocalLLMWarmupEnabled() {
+		t.Fatal("expected local_llm warmup enabled by default")
+	}
+}
+
 func TestLoadConfig_AudioRouterValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "audio_router.yaml")
@@ -611,6 +652,47 @@ func TestConfig_Validate(t *testing.T) {
 				Session: SessionConfig{
 					StorageDir: "",
 				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Valid local LLM without Ollama",
+			config: &Config{
+				Server: ServerConfig{Port: 8080},
+				LocalLLM: LocalLLMConfig{
+					Enabled:           true,
+					Provider:          "local_openai",
+					BaseURL:           "http://127.0.0.1:8080",
+					ChatModel:         "Chat",
+					WorkerModel:       "Worker",
+					WildModel:         "Wild",
+					TimeoutSec:        120,
+					GlobalConcurrency: 2,
+					ModelConcurrency:  1,
+				},
+				Session: SessionConfig{StorageDir: "./data/sessions"},
+				Coder1:  CoderConfig{Name: "aka"},
+				Coder2:  CoderConfig{Name: "ao"},
+				Coder3:  CoderConfig{Name: "gin"},
+				Coder4:  CoderConfig{Name: "kin"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Local LLM missing base URL",
+			config: &Config{
+				Server: ServerConfig{Port: 8080},
+				LocalLLM: LocalLLMConfig{
+					Enabled:           true,
+					Provider:          "local_openai",
+					ChatModel:         "Chat",
+					WorkerModel:       "Worker",
+					WildModel:         "Wild",
+					TimeoutSec:        120,
+					GlobalConcurrency: 2,
+					ModelConcurrency:  1,
+				},
+				Session: SessionConfig{StorageDir: "./data/sessions"},
 			},
 			wantErr: true,
 		},

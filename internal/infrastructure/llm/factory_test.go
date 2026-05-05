@@ -64,6 +64,24 @@ func TestCreateProvider_OpenAI(t *testing.T) {
 	}
 }
 
+func TestCreateProvider_LocalOpenAI(t *testing.T) {
+	cc := config.CoderConfig{
+		Provider: "local_openai",
+		Model:    "Worker",
+		BaseURL:  "http://127.0.0.1:8080",
+		Enabled:  true,
+	}
+
+	provider, err := CreateProvider(cc)
+	if err != nil {
+		t.Fatalf("CreateProvider failed: %v", err)
+	}
+
+	if _, ok := provider.(*openai.OpenAIProvider); !ok {
+		t.Errorf("Expected *openai.OpenAIProvider, got %T", provider)
+	}
+}
+
 func TestCreateProvider_Claude(t *testing.T) {
 	cc := config.CoderConfig{
 		Provider: "claude",
@@ -170,6 +188,23 @@ func TestCreateProvider_OllamaMissingBaseURL(t *testing.T) {
 		Provider: "ollama",
 		Model:    "test-model",
 		BaseURL:  "", // Missing BaseURL
+		Enabled:  true,
+	}
+
+	provider, err := CreateProvider(cc)
+	if err == nil {
+		t.Error("Expected error for missing BaseURL")
+	}
+	if provider != nil {
+		t.Errorf("Expected nil provider, got %T", provider)
+	}
+}
+
+func TestCreateProvider_LocalOpenAIMissingBaseURL(t *testing.T) {
+	cc := config.CoderConfig{
+		Provider: "local_openai",
+		Model:    "Worker",
+		BaseURL:  "",
 		Enabled:  true,
 	}
 

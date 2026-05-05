@@ -24,12 +24,23 @@ type OpenAIProvider struct {
 
 // NewOpenAIProvider は新しいOpenAIProviderを作成
 func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
+	return NewOpenAIProviderWithOptions(apiKey, model, defaultBaseURL, 120*time.Second)
+}
+
+// NewOpenAIProviderWithOptions creates an OpenAI-compatible provider with custom endpoint and timeout.
+func NewOpenAIProviderWithOptions(apiKey, model, baseURL string, timeout time.Duration) *OpenAIProvider {
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
 	return &OpenAIProvider{
 		apiKey:  apiKey,
 		model:   model,
-		baseURL: defaultBaseURL,
+		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -69,7 +80,9 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if p.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
 
 	// リクエスト実行
 	resp, err := p.client.Do(httpReq)
@@ -162,7 +175,9 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 		return llm.ChatResponse{}, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if p.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {

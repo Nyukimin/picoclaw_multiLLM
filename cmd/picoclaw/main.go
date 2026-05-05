@@ -94,6 +94,77 @@ func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*prop
 	return a.domainCoder.GenerateProposal(ctx, t)
 }
 
+type primaryLLMProviders struct {
+	Chat   llm.LLMProvider
+	Worker llm.LLMProvider
+	Wild   llm.LLMProvider
+}
+
+func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
+	if cfg.LocalLLM.Enabled {
+		timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
+		global := make(chan struct{}, cfg.LocalLLM.GlobalConcurrency)
+		chat := buildLocalAliasProvider(cfg, "Chat", cfg.LocalLLM.ChatModel, timeout, global)
+		worker := buildLocalAliasProvider(cfg, "Worker", cfg.LocalLLM.WorkerModel, timeout, global)
+		wild := buildLocalAliasProvider(cfg, "Wild", cfg.LocalLLM.WildModel, timeout, global)
+		if cfg.LocalLLMWarmupEnabled() {
+			go warmPrimaryLLMProviders(context.Background(), map[string]llm.LLMProvider{
+				"Chat":   chat,
+				"Worker": worker,
+				"Wild":   wild,
+			}, timeout)
+		}
+		return primaryLLMProviders{
+			Chat:   infrallm.NewDateTimeProvider(chat),
+			Worker: infrallm.NewDateTimeProvider(worker),
+			Wild:   infrallm.NewDateTimeProvider(wild),
+		}
+	}
+
+	chatRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, cfg.Ollama.Model, 32768)
+	workerModel := strings.TrimSpace(cfg.Ollama.WorkerModel)
+	if workerModel == "" {
+		workerModel = cfg.Ollama.Model
+	}
+	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
+	return primaryLLMProviders{
+		Chat:   infrallm.NewDateTimeProvider(chatRawProvider),
+		Worker: infrallm.NewDateTimeProvider(workerRawProvider),
+		Wild:   infrallm.NewDateTimeProvider(workerRawProvider),
+	}
+}
+
+func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
+	var raw llm.LLMProvider
+	switch cfg.LocalLLM.Provider {
+	case "ollama":
+		raw = ollama.NewOllamaProviderWithNumCtx(cfg.LocalLLM.BaseURL, model, 32768)
+	default:
+		raw = openai.NewOpenAIProviderWithOptions(cfg.LocalLLM.APIKey, model, cfg.LocalLLM.BaseURL, timeout)
+	}
+	modelSem := make(chan struct{}, cfg.LocalLLM.ModelConcurrency)
+	return infrallm.NewLimitedProvider(raw, "local-"+alias+"-"+model, global, modelSem)
+}
+
+func warmPrimaryLLMProviders(parent context.Context, providers map[string]llm.LLMProvider, timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	for alias, provider := range providers {
+		ctx, cancel := context.WithTimeout(parent, timeout)
+		_, err := provider.Generate(ctx, llm.GenerateRequest{
+			Messages:  []llm.Message{{Role: "user", Content: "warmup"}},
+			MaxTokens: 1,
+		})
+		cancel()
+		if err != nil {
+			log.Printf("WARN: local LLM warmup failed alias=%s provider=%s err=%v", alias, provider.Name(), err)
+			continue
+		}
+		log.Printf("Local LLM warmup ok alias=%s provider=%s", alias, provider.Name())
+	}
+}
+
 func main() {
 	cmd := "run"
 	if len(os.Args) > 1 {
@@ -2040,14 +2111,14 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 
 	// 1. LLM Provider
-	chatRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, cfg.Ollama.Model, 32768)
-	chatProvider := infrallm.NewDateTimeProvider(chatRawProvider)
-	workerModel := strings.TrimSpace(cfg.Ollama.WorkerModel)
-	if workerModel == "" {
-		workerModel = cfg.Ollama.Model
+	primaryProviders := buildPrimaryLLMProviders(cfg)
+	chatProvider := primaryProviders.Chat
+	workerProvider := primaryProviders.Worker
+	wildProvider := primaryProviders.Wild
+	workerToolProvider, ok := workerProvider.(llm.ToolCallingProvider)
+	if !ok {
+		log.Fatalf("worker provider %s does not support tool calling", workerProvider.Name())
 	}
-	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
-	workerProvider := infrallm.NewDateTimeProvider(workerRawProvider)
 
 	// v4.1: Unified Coder setup using LLM Factory and Agent Persona
 	coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter := setupCoders(cfg)
@@ -2084,7 +2155,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// Subagent配線（2段階構築: ToolRunner作成後にManagerを注入）
 	var subagentMgr *subagentapp.Manager
 	if cfg.Subagent.Enabled {
-		subagentProvider := resolveSubagentProvider(cfg, workerProvider)
+		subagentProvider := resolveSubagentProvider(cfg, workerToolProvider)
 		toolDefs := workerToolRunnerV2.ToolDefinitions()
 
 		subagentOpts := []subagentapp.ManagerOption{}
@@ -2495,7 +2566,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
 		idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 			"mio":   chatProvider,
-			"shiro": chatProvider,
+			"shiro": workerProvider,
+			"wild":  wildProvider,
 		})
 		// v4.1: OpenAI provider を coder2 から取得（Forecast用）
 		if coder2Adapter != nil && cfg.Coder2.Provider == "openai" {
