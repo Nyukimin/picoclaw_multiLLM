@@ -292,6 +292,50 @@ func TestMioAgent_Chat_WithConversationEngine(t *testing.T) {
 	}
 }
 
+func TestMioAgent_Chat_AppliesChatRecallRoleFilter(t *testing.T) {
+	engine := &mockConversationEngine{
+		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {
+			return &conversation.RecallPack{
+				Persona: conversation.PersonaState{SystemPrompt: "You are Mio."},
+				MidSummaries: []conversation.ThreadSummary{
+					{Summary: "chat memory", Roles: []string{"chat"}},
+					{Summary: "worker memory", Roles: []string{"worker"}},
+				},
+				SearchCacheSnippets: []conversation.SearchCacheSnippet{
+					{Query: "chat search", Roles: []string{"chat"}},
+					{Query: "wild search", Roles: []string{"wild"}},
+				},
+			}, nil
+		},
+	}
+
+	var capturedReq llm.GenerateRequest
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			capturedReq = req
+			return llm.GenerateResponse{Content: "response"}, nil
+		},
+	}
+
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, engine)
+	if _, err := mio.Chat(context.Background(), task.NewTask(task.NewJobID(), "hello", "line", "U123")); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	var prompt strings.Builder
+	for _, msg := range capturedReq.Messages {
+		prompt.WriteString(msg.Content)
+		prompt.WriteString("\n")
+	}
+	got := prompt.String()
+	if !strings.Contains(got, "chat memory") || !strings.Contains(got, "chat search") {
+		t.Fatalf("chat role recall should be included, got:\n%s", got)
+	}
+	if strings.Contains(got, "worker memory") || strings.Contains(got, "wild search") {
+		t.Fatalf("non-chat role recall should be filtered, got:\n%s", got)
+	}
+}
+
 func TestMioAgent_Chat_ConversationEngine_BeginTurnError(t *testing.T) {
 	engine := &mockConversationEngine{
 		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {

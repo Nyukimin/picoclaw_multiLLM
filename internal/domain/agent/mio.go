@@ -130,6 +130,8 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 			fmt.Printf("WARN: BeginTurn failed: %v\n", err)
 		}
 		if recallPack != nil {
+			filtered := recallPack.FilterForRole("chat")
+			recallPack = &filtered
 			// RecallPack からプロンプトメッセージを生成（system prompt + 過去文脈 + 会話履歴）
 			messages = recallPack.ToPromptMessages()
 		}
