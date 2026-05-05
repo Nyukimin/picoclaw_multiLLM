@@ -371,6 +371,7 @@ body.live-mode .live-audio-btn{
   <button class="tab-btn" data-tab="timeline">Timeline</button>
   <button class="tab-btn" data-tab="system">System</button>
   <button class="tab-btn" data-tab="memory">Memory</button>
+  <button class="tab-btn" data-tab="news-pack">News Pack</button>
   <button class="tab-btn" data-tab="idlechat">IdleChat</button>
   <button class="tab-btn" data-tab="sessions">Sessions</button>
   <button class="tab-btn" data-tab="jobs">Jobs</button>
@@ -591,6 +592,46 @@ body.live-mode .live-audio-btn{
       <table>
         <thead><tr><th>Slot</th><th>Category</th><th>Digest</th><th>Created</th></tr></thead>
         <tbody id="digestBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="panel-news-pack" class="panel">
+    <div class="panel-head">
+      <h3>News Pack</h3>
+      <div class="sub">Daily Digest / source detail / recall usage</div>
+    </div>
+    <div class="filters">
+      <input id="newsPackCategory" placeholder="category: ai / general">
+      <button id="newsPackRefreshBtn" class="ctl-btn" type="button">Refresh</button>
+    </div>
+    <div class="grid">
+      <div class="card"><h4>News</h4><div id="newsPackPanelCount" class="ops-big">0</div><div class="ops-sub">today candidates</div></div>
+      <div class="card"><h4>Digest</h4><div id="newsDigestPanelCount" class="ops-big">0</div><div class="ops-sub">day / morning / noon / evening</div></div>
+      <div class="card"><h4>Used</h4><div id="newsUsageCount" class="ops-big">0</div><div class="ops-sub">matched recall traces</div></div>
+    </div>
+    <div class="grid" style="grid-template-columns:minmax(320px,1.2fr) minmax(300px,.8fr)">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Published</th><th>Category</th><th>Source</th><th>Summary</th><th>Usage</th></tr></thead>
+          <tbody id="newsPackPanelBody"></tbody>
+        </table>
+      </div>
+      <div id="newsPackDetail" class="card">
+        <h4>Source Detail</h4>
+        <div class="small">No news selected</div>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Slot</th><th>Category</th><th>Digest</th><th>News IDs</th><th>Created</th></tr></thead>
+        <tbody id="newsDigestPanelBody"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Response</th><th>Role</th><th>Matched Source</th><th>Used At</th></tr></thead>
+        <tbody id="newsUsageBody"></tbody>
       </table>
     </div>
   </section>
@@ -827,6 +868,7 @@ const state = {
     layers: {l0: [], l1: [], l2: [], l3: []},
     sourceRegistry: [],
     traces: [],
+    selectedNewsIndex: 0,
   },
   agents: {},
   idleChat: {
@@ -1014,6 +1056,7 @@ const panels = {
   timeline: document.getElementById('panel-timeline'),
   system: document.getElementById('panel-system'),
   memory: document.getElementById('panel-memory'),
+  'news-pack': document.getElementById('panel-news-pack'),
   idlechat: document.getElementById('panel-idlechat'),
   sessions: document.getElementById('panel-sessions'),
   jobs: document.getElementById('panel-jobs'),
@@ -1037,6 +1080,8 @@ const sourceRegistrySaveBtn = document.getElementById('sourceRegistrySaveBtn');
 const sourceRegistryExportBtn = document.getElementById('sourceRegistryExportBtn');
 const sourceRegistryImportBtn = document.getElementById('sourceRegistryImportBtn');
 const sourceRegistryYAML = document.getElementById('sourceRegistryYAML');
+const newsPackCategory = document.getElementById('newsPackCategory');
+const newsPackRefreshBtn = document.getElementById('newsPackRefreshBtn');
 const idleStartBtn = document.getElementById('idleStart');
 const idleModeNormalBtn = document.getElementById('idleModeNormal');
 const idleModeForecastBtn = document.getElementById('idleModeForecast');
@@ -1152,6 +1197,8 @@ if (memoryDomain) memoryDomain.addEventListener('keydown', (e) => { if (e.key ==
 if (sourceRegistrySaveBtn) sourceRegistrySaveBtn.addEventListener('click', saveSourceRegistryEntry);
 if (sourceRegistryExportBtn) sourceRegistryExportBtn.addEventListener('click', exportSourceRegistryYAML);
 if (sourceRegistryImportBtn) sourceRegistryImportBtn.addEventListener('click', importSourceRegistryYAML);
+if (newsPackRefreshBtn) newsPackRefreshBtn.addEventListener('click', refreshNewsPack);
+if (newsPackCategory) newsPackCategory.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshNewsPack(); });
 
 function setIdleState(mode, manual, active) {
   const currentMode = String(mode || '');
@@ -2495,6 +2542,185 @@ function renderMemorySnapshot() {
       });
     }
   }
+  renderNewsPackPanel();
+}
+
+function newsItems() {
+  const snap = state.memory.snapshot || {};
+  return Array.isArray(snap.news) ? snap.news : [];
+}
+
+function newsDigests() {
+  const snap = state.memory.snapshot || {};
+  return Array.isArray(snap.digests) ? snap.digests : [];
+}
+
+function newsSourceURL(item) {
+  return String((item && (item.SourceURL || item.source_url)) || '').trim();
+}
+
+function newsSourceID(item) {
+  return String((item && (item.SourceID || item.source_id)) || '').trim();
+}
+
+function newsSummary(item) {
+  return String((item && (item.SummaryDraft || item.summary_draft || item.RawText || item.raw_text)) || '-');
+}
+
+function newsKeywords(item) {
+  const raw = item && (item.Keywords || item.keywords);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function newsUsageMatches(item) {
+  const url = newsSourceURL(item);
+  const sourceID = newsSourceID(item);
+  if (!url && !sourceID) return [];
+  const traces = Array.isArray(state.memory.traces) ? state.memory.traces : [];
+  const matches = [];
+  traces.forEach((trace) => {
+    const items = Array.isArray(trace.Items || trace.items) ? (trace.Items || trace.items) : [];
+    items.forEach((ri) => {
+      const urls = ri.SourceURLs || ri.source_urls || [];
+      const urlText = Array.isArray(urls) ? urls.join(' ') : String(urls || '');
+      const summary = String(ri.Summary || ri.summary || '');
+      if ((url && urlText.indexOf(url) >= 0) || (sourceID && summary.indexOf(sourceID) >= 0)) {
+        matches.push({trace, item: ri, source: url || sourceID});
+      }
+    });
+  });
+  return matches;
+}
+
+function newsUsageCount(item) {
+  return newsUsageMatches(item).length;
+}
+
+function renderNewsPackPanel() {
+  const news = newsItems();
+  const digests = newsDigests();
+  const body = document.getElementById('newsPackPanelBody');
+  const digestBody = document.getElementById('newsDigestPanelBody');
+  const detail = document.getElementById('newsPackDetail');
+  const usageBody = document.getElementById('newsUsageBody');
+  const newsCount = document.getElementById('newsPackPanelCount');
+  const digestCount = document.getElementById('newsDigestPanelCount');
+  const usageCountEl = document.getElementById('newsUsageCount');
+  if (newsCount) newsCount.textContent = String(news.length);
+  if (digestCount) digestCount.textContent = String(digests.length);
+  const totalUsage = news.reduce((sum, item) => sum + newsUsageCount(item), 0);
+  if (usageCountEl) usageCountEl.textContent = String(totalUsage);
+
+  if (state.memory.selectedNewsIndex < 0 || state.memory.selectedNewsIndex >= news.length) {
+    state.memory.selectedNewsIndex = 0;
+  }
+  const selected = news[state.memory.selectedNewsIndex] || null;
+
+  if (body) {
+    body.innerHTML = '';
+    if (news.length === 0) {
+      body.innerHTML = '<tr><td colspan="5" class="small">No news pack items</td></tr>';
+    } else {
+      news.forEach((item, idx) => {
+        const tr = document.createElement('tr');
+        if (idx === state.memory.selectedNewsIndex) tr.classList.add('evi-selected');
+        const url = newsSourceURL(item);
+        const source = url || newsSourceID(item) || '-';
+        tr.innerHTML =
+          '<td>' + esc(fdt(item.PublishedAt || item.published_at || item.FetchedAt || item.fetched_at)) + '</td>' +
+          '<td>' + esc(item.Category || item.category || '-') + '</td>' +
+          '<td class="code">' + esc(short(source, 90)) + '</td>' +
+          '<td>' + esc(short(newsSummary(item), 220)) + '</td>' +
+          '<td><button class="ctl-btn" onclick="selectNewsPackItem(' + idx + ')">' + esc(String(newsUsageCount(item))) + '</button></td>';
+        tr.addEventListener('click', (evt) => {
+          if (evt.target && evt.target.tagName === 'BUTTON') return;
+          selectNewsPackItem(idx);
+        });
+        body.appendChild(tr);
+      });
+    }
+  }
+
+  if (detail) {
+    if (!selected) {
+      detail.innerHTML = '<h4>Source Detail</h4><div class="small">No news selected</div>';
+    } else {
+      const url = newsSourceURL(selected);
+      const source = url || newsSourceID(selected) || '-';
+      const link = url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(short(url, 130)) + '</a>' : esc(source);
+      detail.innerHTML =
+        '<h4>' + esc(short(newsSummary(selected), 90)) + '</h4>' +
+        '<div class="row"><span>Category</span><span>' + esc(selected.Category || selected.category || '-') + '</span></div>' +
+        '<div class="row"><span>Source</span><span class="code">' + link + '</span></div>' +
+        '<div class="row"><span>Published</span><span>' + esc(fdt(selected.PublishedAt || selected.published_at || selected.FetchedAt || selected.fetched_at)) + '</span></div>' +
+        '<div class="row"><span>Source ID</span><span class="code">' + esc(newsSourceID(selected) || '-') + '</span></div>' +
+        '<div class="row"><span>Keywords</span><span>' + esc(newsKeywords(selected).join(', ') || '-') + '</span></div>' +
+        '<div class="ops-sub">' + esc(newsSummary(selected)) + '</div>';
+    }
+  }
+
+  if (digestBody) {
+    digestBody.innerHTML = '';
+    if (digests.length === 0) {
+      digestBody.innerHTML = '<tr><td colspan="5" class="small">No daily digests</td></tr>';
+    } else {
+      digests.forEach((d) => {
+        const ids = d.NewsIDs || d.news_ids || [];
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(d.DigestSlot || d.digest_slot || '-') + '</td>' +
+          '<td>' + esc(d.Category || d.category || '-') + '</td>' +
+          '<td>' + esc(short(d.DigestText || d.digest_text || '-', 260)) + '</td>' +
+          '<td class="code">' + esc(short(Array.isArray(ids) ? ids.join(', ') : String(ids || '-'), 120)) + '</td>' +
+          '<td>' + esc(fdt(d.CreatedAt || d.created_at)) + '</td>';
+        digestBody.appendChild(tr);
+      });
+    }
+  }
+
+  if (usageBody) {
+    usageBody.innerHTML = '';
+    const matches = selected ? newsUsageMatches(selected) : [];
+    if (matches.length === 0) {
+      usageBody.innerHTML = '<tr><td colspan="4" class="small">No recall usage for selected news</td></tr>';
+    } else {
+      matches.forEach((match) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="code">' + esc(match.trace.ResponseID || match.trace.response_id || '-') + '</td>' +
+          '<td>' + esc(match.trace.Role || match.trace.role || '-') + '</td>' +
+          '<td class="code">' + esc(short(match.source || '-', 120)) + '</td>' +
+          '<td>' + esc(fdt(match.trace.CreatedAt || match.trace.created_at)) + '</td>';
+        usageBody.appendChild(tr);
+      });
+    }
+  }
+}
+
+function selectNewsPackItem(idx) {
+  state.memory.selectedNewsIndex = idx;
+  renderNewsPackPanel();
+}
+
+function refreshNewsPack() {
+  if (newsPackCategory && memoryCategory) {
+    memoryCategory.value = newsPackCategory.value.trim();
+  }
+  const params = new URLSearchParams();
+  params.set('limit', '30');
+  if (newsPackCategory && newsPackCategory.value.trim()) params.set('category', newsPackCategory.value.trim());
+  fetch('/viewer/memory/snapshot?' + params.toString())
+    .then((r) => {
+      if (!r.ok) throw new Error('news pack fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.snapshot = data || {};
+      renderMemorySnapshot();
+      renderNewsPackPanel();
+      refreshRecallTraces();
+    })
+    .catch((err) => console.error(err));
 }
 
 function renderMemoryLayers() {
@@ -2744,6 +2970,7 @@ function refreshRecallTraces() {
     .then((data) => {
       state.memory.traces = Array.isArray(data.items) ? data.items : [];
       renderRecallTraces();
+      renderNewsPackPanel();
     })
     .catch((err) => console.error(err));
 }

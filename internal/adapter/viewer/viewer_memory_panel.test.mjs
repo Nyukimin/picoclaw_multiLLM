@@ -13,8 +13,15 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="sourceRegistryYAML"/);
   assert.match(html, /id="memoryBody"/);
   assert.match(html, /id="newsPackBody"/);
+  assert.match(html, /data-tab="news-pack"/);
+  assert.match(html, /id="panel-news-pack"/);
+  assert.match(html, /id="newsPackDetail"/);
+  assert.match(html, /id="newsUsageBody"/);
   assert.match(html, /id="recallTraceBody"/);
   assert.match(html, /function refreshMemorySnapshot/);
+  assert.match(html, /function refreshNewsPack/);
+  assert.match(html, /function renderNewsPackPanel/);
+  assert.match(html, /function newsUsageCount/);
   assert.match(html, /function refreshMemoryLayers/);
   assert.match(html, /function refreshSourceRegistry/);
   assert.match(html, /function refreshRecallTraces/);
