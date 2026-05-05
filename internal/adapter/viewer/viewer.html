@@ -588,7 +588,12 @@ body.live-mode .live-audio-btn{
       <input id="memoryCategory" placeholder="news category">
       <input id="memoryDomain" placeholder="kb domain">
       <input id="memoryEventNamespace" placeholder="event namespace: kb:web">
-      <input id="memoryPromoteNamespace" placeholder="promote target: user:ren / char:mio / kb:domain">
+      <select id="memoryPromoteKind">
+        <option value="user">user</option>
+        <option value="char">char</option>
+        <option value="kb">kb</option>
+      </select>
+      <input id="memoryPromoteID" placeholder="promote id: ren / mio / domain">
       <button id="memoryRefreshBtn" class="ctl-btn" type="button">Refresh</button>
     </div>
     <div class="grid">
@@ -1265,7 +1270,8 @@ const memoryNamespace = document.getElementById('memoryNamespace');
 const memoryCategory = document.getElementById('memoryCategory');
 const memoryDomain = document.getElementById('memoryDomain');
 const memoryEventNamespace = document.getElementById('memoryEventNamespace');
-const memoryPromoteNamespace = document.getElementById('memoryPromoteNamespace');
+const memoryPromoteKind = document.getElementById('memoryPromoteKind');
+const memoryPromoteID = document.getElementById('memoryPromoteID');
 const memoryRefreshBtn = document.getElementById('memoryRefreshBtn');
 const roleFilter = document.getElementById('roleFilter');
 const sourceRegistrySaveBtn = document.getElementById('sourceRegistrySaveBtn');
@@ -3450,13 +3456,22 @@ function setMemoryState(id, memoryState) {
   postMemoryAction('/viewer/memory/state', {id, memory_state: memoryState});
 }
 
-function promoteMemory(id) {
-  if (!id || !memoryPromoteNamespace || !memoryPromoteNamespace.value.trim()) return;
-  postMemoryAction('/viewer/memory/promote', {
+function memoryPromotePayload(id) {
+  const targetKind = memoryPromoteKind ? memoryPromoteKind.value.trim() : '';
+  const targetID = memoryPromoteID ? memoryPromoteID.value.trim() : '';
+  if (!id || !targetKind || !targetID) return null;
+  return {
     id,
-    target_namespace: memoryPromoteNamespace.value.trim(),
+    target_kind: targetKind,
+    target_id: targetID,
     promoted_by: 'viewer',
-  });
+  };
+}
+
+function promoteMemory(id) {
+  const payload = memoryPromotePayload(id);
+  if (!payload) return;
+  postMemoryAction('/viewer/memory/promote', payload);
 }
 
 function renderRecallTraces() {

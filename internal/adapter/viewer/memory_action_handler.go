@@ -60,6 +60,8 @@ func HandleMemoryPromote(store MemoryActionStore) http.HandlerFunc {
 		var req struct {
 			ID              string `json:"id"`
 			TargetNamespace string `json:"target_namespace"`
+			TargetKind      string `json:"target_kind"`
+			TargetID        string `json:"target_id"`
 			PromotedBy      string `json:"promoted_by"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
@@ -68,12 +70,26 @@ func HandleMemoryPromote(store MemoryActionStore) http.HandlerFunc {
 		}
 		req.ID = strings.TrimSpace(req.ID)
 		req.TargetNamespace = strings.TrimSpace(req.TargetNamespace)
+		req.TargetKind = strings.TrimSpace(req.TargetKind)
+		req.TargetID = strings.TrimSpace(req.TargetID)
 		req.PromotedBy = strings.TrimSpace(req.PromotedBy)
 		if req.PromotedBy == "" {
 			req.PromotedBy = "viewer"
 		}
+		if req.TargetNamespace == "" && req.TargetKind != "" && req.TargetID != "" {
+			namespace, err := conversationpersistence.BuildL1Namespace(req.TargetKind, req.TargetID)
+			if err != nil {
+				http.Error(w, "invalid target namespace", http.StatusBadRequest)
+				return
+			}
+			req.TargetNamespace = namespace
+		}
 		if req.ID == "" || req.TargetNamespace == "" {
-			http.Error(w, "id and target_namespace are required", http.StatusBadRequest)
+			http.Error(w, "id and target namespace are required", http.StatusBadRequest)
+			return
+		}
+		if err := conversationpersistence.ValidateL1Namespace(req.TargetNamespace); err != nil {
+			http.Error(w, "invalid target namespace", http.StatusBadRequest)
 			return
 		}
 		item, err := store.PromoteMemoryToNamespace(r.Context(), req.ID, req.TargetNamespace, req.PromotedBy)

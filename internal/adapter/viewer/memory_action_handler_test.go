@@ -52,7 +52,7 @@ func TestHandleMemoryState(t *testing.T) {
 
 func TestHandleMemoryPromote(t *testing.T) {
 	store := &memoryActionStoreStub{}
-	body := bytes.NewBufferString(`{"id":"mem-1","target_namespace":"user:ren","promoted_by":"viewer"}`)
+	body := bytes.NewBufferString(`{"id":"mem-1","target_kind":"user","target_id":"ren","promoted_by":"viewer"}`)
 	req := httptest.NewRequest(http.MethodPost, "/viewer/memory/promote", body)
 	rec := httptest.NewRecorder()
 
@@ -72,5 +72,21 @@ func TestHandleMemoryPromote(t *testing.T) {
 	}
 	if out.Item.Namespace != "user:ren" {
 		t.Fatalf("unexpected response: %+v", out)
+	}
+}
+
+func TestHandleMemoryPromoteRejectsInvalidTargetNamespace(t *testing.T) {
+	store := &memoryActionStoreStub{}
+	body := bytes.NewBufferString(`{"id":"mem-1","target_kind":"misc","target_id":"ren"}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/memory/promote", body)
+	rec := httptest.NewRecorder()
+
+	HandleMemoryPromote(store)(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.promoteID != "" {
+		t.Fatalf("store should not be called for invalid target: %+v", store)
 	}
 }

@@ -303,7 +303,18 @@ Viewer は execution evidence と job 状態を参照する。
 | `/viewer/jobs` | `GET` | job一覧 |
 | `/viewer/job/detail` | `GET` | job詳細 |
 
-## 15. 参照
+## 15. Memory昇格操作
+
+Viewer Memoryタブは、L1 memoryを `candidate` / `confirmed` に更新し、`user:` / `char:` / `kb:` namespaceへ明示昇格できる。
+
+昇格操作:
+
+- UIは `target_kind` と `target_id` を送る
+- APIは `target_kind` + `target_id` から `user:<id>` / `char:<id>` / `kb:<id>` を組み立てる
+- 組み立てたnamespaceは `ValidateL1Namespace` を通過した場合のみpromoterへ渡す
+- 互換用に `target_namespace` を直接渡す形式も受け付けるが、同じvalidatorを通す
+
+## 16. 参照
 
 - `docs/03_設計文書/ログViewer仕様.md`
 - `docs/03_設計文書/実装仕様_ログViewer_v1.md`

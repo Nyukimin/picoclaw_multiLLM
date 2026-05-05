@@ -11,6 +11,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="memoryLayerBody"/);
   assert.match(html, /id="memoryEventBody"/);
   assert.match(html, /id="searchCacheBody"/);
+  assert.match(html, /id="memoryPromoteKind"/);
+  assert.match(html, /id="memoryPromoteID"/);
   assert.match(html, /id="sourceRegistryBody"/);
   assert.match(html, /id="sourceRegistryYAML"/);
   assert.match(html, /id="memoryBody"/);
@@ -52,4 +54,6 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(html.includes('/viewer/recall/traces'));
   assert.ok(html.includes('/viewer/memory/state'));
   assert.ok(html.includes('/viewer/memory/promote'));
+  assert.ok(html.includes('target_kind'));
+  assert.ok(html.includes('target_id'));
 });
