@@ -23,6 +23,7 @@ const (
 	L1ArchiveMemory    = "memory"
 	L1ArchiveNews      = "news"
 	L1ArchiveKnowledge = "knowledge"
+	L1ArchiveStaging   = "staging"
 )
 
 // NewDuckDBStore は新しいDuckDBStoreを生成
@@ -127,6 +128,28 @@ func (d *DuckDBStore) initTables(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_l1_knowledge_archive_domain_updated ON l1_knowledge_item_archive(domain, updated_at DESC);
+
+	CREATE TABLE IF NOT EXISTS l1_staging_item_archive (
+		id VARCHAR PRIMARY KEY,
+		kind VARCHAR NOT NULL,
+		namespace VARCHAR NOT NULL,
+		event_id VARCHAR NOT NULL,
+		source_id VARCHAR NOT NULL,
+		source_url TEXT NOT NULL,
+		fetched_at TIMESTAMP NOT NULL,
+		published_at TIMESTAMP,
+		raw_text TEXT NOT NULL,
+		raw_hash VARCHAR NOT NULL,
+		summary_draft TEXT NOT NULL,
+		keywords_json TEXT NOT NULL,
+		license_note TEXT NOT NULL,
+		validation_status VARCHAR NOT NULL,
+		meta_json TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_l1_staging_archive_status_created ON l1_staging_item_archive(validation_status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_l1_staging_archive_namespace_created ON l1_staging_item_archive(namespace, created_at DESC);
 	`
 
 	if _, err := d.db.ExecContext(ctx, schema); err != nil {
@@ -203,6 +226,34 @@ INSERT INTO l1_knowledge_item_archive (
 `, item.ID, item.StagingID, item.Domain, item.Title, item.SourceID, item.SourceURL, item.RawText, item.RawHash,
 			item.SummaryDraft, keywordsJSON, item.LicenseNote, metaJSON, item.CreatedAt, item.UpdatedAt); err != nil {
 			return fmt.Errorf("failed to archive l1 knowledge item: %w", err)
+		}
+	}
+	return nil
+}
+
+func (d *DuckDBStore) ArchiveL1StagingItems(ctx context.Context, items []L1StagingItem) error {
+	for _, item := range items {
+		keywordsJSON, metaJSON, err := marshalArchiveJSON(item.Keywords, item.Meta)
+		if err != nil {
+			return err
+		}
+		var publishedAt interface{}
+		if !item.PublishedAt.IsZero() {
+			publishedAt = item.PublishedAt
+		}
+		if _, err := d.db.ExecContext(ctx, `DELETE FROM l1_staging_item_archive WHERE id = ?`, item.ID); err != nil {
+			return fmt.Errorf("failed to replace l1 staging archive row: %w", err)
+		}
+		if _, err := d.db.ExecContext(ctx, `
+INSERT INTO l1_staging_item_archive (
+	id, kind, namespace, event_id, source_id, source_url, fetched_at, published_at,
+	raw_text, raw_hash, summary_draft, keywords_json, license_note,
+	validation_status, meta_json, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, item.ID, item.Kind, item.Namespace, item.EventID, item.SourceID, item.SourceURL, item.FetchedAt, publishedAt,
+			item.RawText, item.RawHash, item.SummaryDraft, keywordsJSON, item.LicenseNote,
+			item.ValidationStatus, metaJSON, item.CreatedAt, item.UpdatedAt); err != nil {
+			return fmt.Errorf("failed to archive l1 staging item: %w", err)
 		}
 	}
 	return nil
@@ -414,6 +465,11 @@ func (d *DuckDBStore) ExportL1ArchivesParquet(ctx context.Context, outputDir str
 			table: "l1_knowledge_item_archive",
 			order: "updated_at ASC, id ASC",
 			file:  "l1_knowledge_item.parquet",
+		},
+		L1ArchiveStaging: {
+			table: "l1_staging_item_archive",
+			order: "created_at ASC, id ASC",
+			file:  "l1_staging_item.parquet",
 		},
 	}
 	paths := make(map[string]string, len(targets))

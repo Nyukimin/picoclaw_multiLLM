@@ -114,13 +114,34 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ArchiveL1KnowledgeItems failed: %v", err)
 	}
+	if err := store.ArchiveL1StagingItems(ctx, []L1StagingItem{{
+		ID:               "stage-1",
+		Kind:             L1StagingKindMemoryCandidate,
+		Namespace:        "user:ren",
+		EventID:          "evt-stage-1",
+		SourceID:         "conversation",
+		SourceURL:        "https://example.com/conversation/1",
+		FetchedAt:        now,
+		PublishedAt:      now,
+		RawText:          "raw staging",
+		RawHash:          "hash-stage-1",
+		SummaryDraft:     "summary staging",
+		Keywords:         []string{"preference"},
+		LicenseNote:      "user provided",
+		ValidationStatus: L1StagingStatusValidated,
+		Meta:             map[string]interface{}{"type": "preference"},
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}}); err != nil {
+		t.Fatalf("ArchiveL1StagingItems failed: %v", err)
+	}
 
 	outDir := t.TempDir()
 	paths, err := store.ExportL1ArchivesParquet(ctx, outDir)
 	if err != nil {
 		t.Fatalf("ExportL1ArchivesParquet failed: %v", err)
 	}
-	for _, name := range []string{L1ArchiveMemory, L1ArchiveNews, L1ArchiveKnowledge} {
+	for _, name := range []string{L1ArchiveMemory, L1ArchiveNews, L1ArchiveKnowledge, L1ArchiveStaging} {
 		path := paths[name]
 		if path == "" {
 			t.Fatalf("missing parquet path for %s", name)

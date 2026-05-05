@@ -321,6 +321,12 @@ staging validator連携:
 - targetは `meta.target_namespace` を優先し、無い場合はstaging item自身の `user:` / `char:` / `kb:` namespaceを使う
 - `conv:` namespaceは自動昇格targetにしない
 
+staging archive:
+
+- L1 staging itemはDuckDB `l1_staging_item_archive` へ保存できる
+- `ExportL1ArchivesParquet()` は `l1_staging_item.parquet` を出力する
+- raw_text / summary_draft / validation_status / keywords / metaをParquetへ保持する
+
 ## 16. 参照
 
 - `docs/03_設計文書/ログViewer仕様.md`
