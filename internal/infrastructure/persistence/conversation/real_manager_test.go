@@ -82,6 +82,7 @@ func (m *mockDuckDBStore) Close() error                                       { 
 
 type mockVectorDBStore struct {
 	saved     []*domconv.ThreadSummary
+	kbSaved   []*domconv.Document
 	mockScore float32
 }
 
@@ -107,7 +108,8 @@ func (m *mockVectorDBStore) SearchByDomain(_ context.Context, _ string, _ int) (
 func (m *mockVectorDBStore) IsNovelQuery(_ context.Context, _ []float32, threshold float32) (bool, float32, error) {
 	return m.mockScore < threshold, m.mockScore, nil
 }
-func (m *mockVectorDBStore) SaveKB(_ context.Context, _ *domconv.Document) error {
+func (m *mockVectorDBStore) SaveKB(_ context.Context, doc *domconv.Document) error {
+	m.kbSaved = append(m.kbSaved, doc)
 	return nil
 }
 func (m *mockVectorDBStore) SearchKB(_ context.Context, _ string, _ []float32, _ int) ([]*domconv.Document, error) {
@@ -434,6 +436,45 @@ func TestRealConversationManager_WebSearchCacheRoundTrip(t *testing.T) {
 	}
 	if len(l1.cache.SourceURLs) != 1 || l1.cache.SourceURLs[0] != "https://example.com/rencrow" {
 		t.Fatalf("unexpected cached source urls: %+v", l1.cache.SourceURLs)
+	}
+}
+
+func TestSaveL1KnowledgeItemSavesVectorKBDocument(t *testing.T) {
+	ctx := context.Background()
+	vdb := &mockVectorDBStore{}
+	mgr := &RealConversationManager{
+		redisStore:    newMockRedisStore(),
+		duckdbStore:   &mockDuckDBStore{},
+		vectordbStore: vdb,
+		embedder:      &mockEmbeddingProvider{vec: []float32{0.1, 0.2, 0.3}},
+	}
+
+	err := mgr.SaveL1KnowledgeItem(ctx, L1KnowledgeItem{
+		ID:           "kb:movie:001",
+		Domain:       "movie",
+		Title:        "Example Movie",
+		SourceID:     "api:movie",
+		SourceURL:    "https://example.com/movie/1",
+		SummaryDraft: "映画の要約",
+		RawText:      "映画の本文",
+		RawHash:      "hash-001",
+		Keywords:     []string{"SF"},
+		LicenseNote:  "official api",
+		CreatedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("SaveL1KnowledgeItem failed: %v", err)
+	}
+	if len(vdb.kbSaved) != 1 {
+		t.Fatalf("expected one vector KB document, got %d", len(vdb.kbSaved))
+	}
+	doc := vdb.kbSaved[0]
+	if doc.ID != "kb:movie:001" || doc.Domain != "movie" || doc.Content != "映画の要約" || doc.Source != "https://example.com/movie/1" {
+		t.Fatalf("unexpected vector KB document: %+v", doc)
+	}
+	if doc.Meta["title"] != "Example Movie" || doc.Meta["source_id"] != "api:movie" {
+		t.Fatalf("unexpected vector KB meta: %+v", doc.Meta)
 	}
 }
 

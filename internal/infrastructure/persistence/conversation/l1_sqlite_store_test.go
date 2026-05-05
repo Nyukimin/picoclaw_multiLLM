@@ -1422,6 +1422,59 @@ func (s *stubDailyDigestSummarizer) SummarizeDailyDigest(_ context.Context, _ ti
 	return s.text, s.err
 }
 
+type stubKnowledgeVectorSink struct {
+	items []L1KnowledgeItem
+	err   error
+}
+
+func (s *stubKnowledgeVectorSink) SaveL1KnowledgeItem(_ context.Context, item L1KnowledgeItem) error {
+	s.items = append(s.items, item)
+	return s.err
+}
+
+func TestL1SQLiteStore_PromoteKnowledgeSyncsVectorSink(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	vectorSink := &stubKnowledgeVectorSink{}
+	store.WithKnowledgeVectorSink(vectorSink)
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:movie",
+		EventID:      "movie-vector-001",
+		SourceID:     "api:movie",
+		SourceURL:    "https://example.com/movie/vector",
+		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		RawText:      "映画本文",
+		SummaryDraft: "映画要約",
+		Keywords:     []string{"SF"},
+		LicenseNote:  "official api",
+		Meta:         map[string]interface{}{"title": "Vector Movie"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"api:movie": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 10, 10, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+
+	kb, err := store.PromoteValidatedStagingItemToKnowledge(ctx, item.ID, "movie")
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToKnowledge failed: %v", err)
+	}
+	if len(vectorSink.items) != 1 || vectorSink.items[0].ID != kb.ID || vectorSink.items[0].Title != "Vector Movie" {
+		t.Fatalf("knowledge vector sink was not called with promoted item: %+v", vectorSink.items)
+	}
+}
+
 func TestL1SQLiteStore_BuildDailyDigestUsesSummarizer(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

@@ -226,10 +226,15 @@ type DailyDigestSummarizer interface {
 	SummarizeDailyDigest(ctx context.Context, digestDate time.Time, category string, slot string, news []L1NewsItem) (string, error)
 }
 
+type L1KnowledgeVectorSink interface {
+	SaveL1KnowledgeItem(ctx context.Context, item L1KnowledgeItem) error
+}
+
 type L1SQLiteStore struct {
 	db                    *sql.DB
 	archiveStore          L1ArchiveStore
 	dailyDigestSummarizer DailyDigestSummarizer
+	knowledgeVectorSink   L1KnowledgeVectorSink
 }
 
 func NewL1SQLiteStore(dbPath string) (*L1SQLiteStore, error) {
@@ -256,6 +261,11 @@ func (s *L1SQLiteStore) WithArchiveStore(archiveStore L1ArchiveStore) *L1SQLiteS
 
 func (s *L1SQLiteStore) WithDailyDigestSummarizer(summarizer DailyDigestSummarizer) *L1SQLiteStore {
 	s.dailyDigestSummarizer = summarizer
+	return s
+}
+
+func (s *L1SQLiteStore) WithKnowledgeVectorSink(sink L1KnowledgeVectorSink) *L1SQLiteStore {
+	s.knowledgeVectorSink = sink
 	return s
 }
 
@@ -1760,6 +1770,9 @@ ON CONFLICT(staging_id) DO UPDATE SET
 	if err := s.archivePromotedKnowledge(ctx, *kb); err != nil {
 		return nil, err
 	}
+	if err := s.syncPromotedKnowledgeVector(ctx, *kb); err != nil {
+		return nil, err
+	}
 	return kb, nil
 }
 
@@ -1789,6 +1802,16 @@ func (s *L1SQLiteStore) archivePromotedKnowledge(ctx context.Context, item L1Kno
 	}
 	if err := s.archiveStore.ArchiveL1KnowledgeItems(ctx, []L1KnowledgeItem{item}); err != nil {
 		return fmt.Errorf("failed to archive promoted l1 knowledge: %w", err)
+	}
+	return nil
+}
+
+func (s *L1SQLiteStore) syncPromotedKnowledgeVector(ctx context.Context, item L1KnowledgeItem) error {
+	if s.knowledgeVectorSink == nil {
+		return nil
+	}
+	if err := s.knowledgeVectorSink.SaveL1KnowledgeItem(ctx, item); err != nil {
+		return fmt.Errorf("failed to sync promoted l1 knowledge to vector sink: %w", err)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -67,6 +68,7 @@ func (r *RealConversationManager) WithL1Store(store l1StoreIface) *RealConversat
 		if archiveStore, ok := r.duckdbStore.(L1ArchiveStore); ok {
 			l1.WithArchiveStore(archiveStore)
 		}
+		l1.WithKnowledgeVectorSink(r)
 	}
 	r.l1Store = store
 	return r
@@ -461,6 +463,46 @@ func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 		return fmt.Errorf("failed to save all %d web search results to KB (domain=%s, query=%q): %w", len(results), domain, query, lastErr)
 	}
 
+	return nil
+}
+
+func (m *RealConversationManager) SaveL1KnowledgeItem(ctx context.Context, item L1KnowledgeItem) error {
+	if m == nil || m.vectordbStore == nil || m.embedder == nil {
+		return nil
+	}
+	content := strings.TrimSpace(item.SummaryDraft)
+	if content == "" {
+		content = strings.TrimSpace(item.RawText)
+	}
+	if content == "" {
+		return nil
+	}
+	embedding, err := m.embedder.Embed(ctx, content)
+	if err != nil {
+		return fmt.Errorf("failed to generate l1 knowledge embedding: %w", err)
+	}
+	doc := &domconv.Document{
+		ID:        item.ID,
+		Domain:    item.Domain,
+		Content:   content,
+		Source:    item.SourceURL,
+		Embedding: embedding,
+		Meta: map[string]interface{}{
+			"title":        item.Title,
+			"source_id":    item.SourceID,
+			"staging_id":   item.StagingID,
+			"raw_hash":     item.RawHash,
+			"license_note": item.LicenseNote,
+			"keywords":     item.Keywords,
+		},
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+	}
+	if err := withRetry(ctx, DefaultRetryConfig, func() error {
+		return m.vectordbStore.SaveKB(ctx, doc)
+	}); err != nil {
+		return fmt.Errorf("failed to save l1 knowledge to vector db: %w", err)
+	}
 	return nil
 }
 
