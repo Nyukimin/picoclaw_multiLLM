@@ -36,16 +36,46 @@ MLX サーバ連携条件:
 - endpoint は OpenAI 互換の `/v1/chat/completions` を使う。
 - RenCrow 側の同時リクエスト数は 1 推奨。
 - 初回ロードや初回モデル取得は遅くなるため、timeout は 120秒以上を推奨。
-- warmup は起動後に `Chat` / `Worker` / `Wild` それぞれへ `max_tokens: 1` の短い request を送る。
+- `Chat` / `Worker` / `Wild` はrole別URLを設定できる。未設定roleは `base_url` へfallbackする。
+- warmup は起動後に `Chat` / `Worker` / `Wild` それぞれへ `max_tokens: 1` の短い request を送る。未起動roleがある場合は `warmup: false` にする。
 - streaming や tool calling は、必要になった時点で MLX サーバ側の対応状況を確認する。
 
-実装設定例:
+2026-05-06現在の確認済み構成:
+
+- Chat: `http://192.168.1.31:8081`, model `Chat`, 実体 `unsloth/gemma-4-E4B-it-UD-MLX-4bit`
+- Worker: 未起動
+- Wild: 未起動
+- `8080` は未起動
+
+Chatのみの暫定設定例:
 
 ```yaml
 local_llm:
   enabled: true
   provider: local_openai
-  base_url: "http://127.0.0.1:8080"
+  base_url: "http://192.168.1.31:8081"
+  chat_base_url: "http://192.168.1.31:8081"
+  worker_base_url: ""
+  wild_base_url: ""
+  chat_model: "Chat"
+  worker_model: "Chat"
+  wild_model: "Chat"
+  timeout_sec: 120
+  warmup: false
+  global_concurrency: 2
+  model_concurrency: 1
+```
+
+Worker / Wild を起動した後の設定例:
+
+```yaml
+local_llm:
+  enabled: true
+  provider: local_openai
+  base_url: "http://192.168.1.31:8081"
+  chat_base_url: "http://192.168.1.31:8081"
+  worker_base_url: "http://192.168.1.31:8082"
+  wild_base_url: "http://192.168.1.31:8083"
   chat_model: "Chat"
   worker_model: "Worker"
   wild_model: "Wild"
