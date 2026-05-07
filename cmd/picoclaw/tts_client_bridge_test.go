@@ -46,6 +46,27 @@ func TestBuildTTSClientBridge_UsesRenCrowBridge(t *testing.T) {
 	}
 }
 
+func TestBuildTTSClientBridge_UsesIrodoriDirectBridge(t *testing.T) {
+	cfg := &config.Config{
+		TTS: config.TTSConfig{
+			Enabled:   true,
+			OutputDir: t.TempDir(),
+			Irodori: config.TTSIrodoriConfig{
+				Enabled: true,
+				BaseURL: "http://127.0.0.1:7860",
+				VoiceID: "mio",
+			},
+		},
+	}
+	got := buildTTSClientBridge(cfg, nil, nil, nil)
+	if got == nil {
+		t.Fatal("expected non-nil bridge")
+	}
+	if _, ok := got.(*ttsinfra.SBV2TTSBridge); !ok {
+		t.Fatalf("expected generic direct TTS bridge, got %T", got)
+	}
+}
+
 func TestBuildTTSClientBridge_WithoutPlaybackCommands(t *testing.T) {
 	cfg := &config.Config{
 		TTS: config.TTSConfig{

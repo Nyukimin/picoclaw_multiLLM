@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultTTSVoiceID      = "female_01"
+	defaultTTSVoiceID      = "mio"
 	defaultTTSVoiceProfile = "lumina_female"
 	maleTTSVoiceID         = "male_01"
 	maleTTSVoiceProfile    = "lumina_male"

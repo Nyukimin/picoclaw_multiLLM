@@ -64,6 +64,9 @@ type Config struct {
 	// === TTS / OpenClaw parity ===
 	TTS TTSConfig `yaml:"tts"`
 
+	// === STT / HTTPS Viewer voice input ===
+	STT STTConfig `yaml:"stt"`
+
 	// === VTuber / VTube Studio integration ===
 	VTuber VTuberConfig `yaml:"vtuber"`
 
@@ -85,8 +88,15 @@ type Config struct {
 
 // ServerConfig はサーバー設定
 type ServerConfig struct {
-	Port int    `yaml:"port"`
-	Host string `yaml:"host"`
+	Port int       `yaml:"port"`
+	Host string    `yaml:"host"`
+	TLS  TLSConfig `yaml:"tls"`
+}
+
+type TLSConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 // OllamaConfig はOllama設定
@@ -126,6 +136,9 @@ type LocalLLMConfig struct {
 	Enabled           bool   `yaml:"enabled"`
 	Provider          string `yaml:"provider"` // local_openai (default) or ollama
 	BaseURL           string `yaml:"base_url"`
+	ChatBaseURL       string `yaml:"chat_base_url"`
+	WorkerBaseURL     string `yaml:"worker_base_url"`
+	WildBaseURL       string `yaml:"wild_base_url"`
 	APIKey            string `yaml:"api_key"`
 	ChatModel         string `yaml:"chat_model"`
 	WorkerModel       string `yaml:"worker_model"`
@@ -307,11 +320,37 @@ type TTSConfig struct {
 	TimeoutMS        int                 `yaml:"timeout_ms"`
 	VoiceID          string              `yaml:"voice_id"`
 	ProviderParams   map[string]any      `yaml:"provider_params"`
-	ProviderPriority []string            `yaml:"provider_priority"` // e.g. sbv2,azure,eleven
+	ProviderPriority []string            `yaml:"provider_priority"` // e.g. irodori
 	PlaybackCommands []TTSCommandConfig  `yaml:"playback_commands"`
 	SBV2             TTSSBV2Config       `yaml:"sbv2"`
+	Irodori          TTSIrodoriConfig    `yaml:"irodori"`
 	Azure            TTSAzureConfig      `yaml:"azure"`
 	Eleven           TTSElevenLabsConfig `yaml:"eleven"`
+}
+
+type STTConfig struct {
+	Enabled        bool              `yaml:"enabled"`
+	Provider       string            `yaml:"provider"`
+	Language       string            `yaml:"language"`
+	Model          string            `yaml:"model"`
+	TimeoutMS      int               `yaml:"timeout_ms"`
+	VAD            bool              `yaml:"vad"`
+	EndpointPath   string            `yaml:"endpoint_path"`
+	ProviderURL    string            `yaml:"provider_url"`
+	StreamURL      string            `yaml:"stream_url"`
+	ProviderParams map[string]any    `yaml:"provider_params"`
+	Debug          STTDebugConfig    `yaml:"debug"`
+	ExternalHTTP   STTExternalConfig `yaml:"external_http"`
+}
+
+type STTDebugConfig struct {
+	SaveAudio      bool `yaml:"save_audio"`
+	SaveTranscript bool `yaml:"save_transcript"`
+}
+
+type STTExternalConfig struct {
+	URL       string `yaml:"url"`
+	StreamURL string `yaml:"stream_url"`
 }
 
 type TTSCommandConfig struct {
@@ -324,6 +363,39 @@ type TTSSBV2Config struct {
 	BaseURL    string `yaml:"base_url"`
 	VoiceID    string `yaml:"voice_id"`
 	TimeoutSec int    `yaml:"timeout_sec"`
+}
+
+type TTSIrodoriConfig struct {
+	Enabled               bool    `yaml:"enabled"`
+	BaseURL               string  `yaml:"base_url"`
+	EndpointPath          string  `yaml:"endpoint_path"`
+	VoiceID               string  `yaml:"voice_id"`
+	VoiceName             string  `yaml:"voice_name"`
+	ReferenceAudio        string  `yaml:"reference_audio"`
+	ReferenceAudioURL     string  `yaml:"reference_audio_url"`
+	TimeoutSec            int     `yaml:"timeout_sec"`
+	Checkpoint            string  `yaml:"checkpoint"`
+	ModelDevice           string  `yaml:"model_device"`
+	ModelPrecision        string  `yaml:"model_precision"`
+	CodecDevice           string  `yaml:"codec_device"`
+	CodecPrecision        string  `yaml:"codec_precision"`
+	EnableWatermark       bool    `yaml:"enable_watermark"`
+	NumSteps              int     `yaml:"num_steps"`
+	NumCandidates         int     `yaml:"num_candidates"`
+	SeedRaw               string  `yaml:"seed_raw"`
+	CFGGuidanceMode       string  `yaml:"cfg_guidance_mode"`
+	CFGScaleText          float64 `yaml:"cfg_scale_text"`
+	CFGScaleSpeaker       float64 `yaml:"cfg_scale_speaker"`
+	CFGScaleRaw           string  `yaml:"cfg_scale_raw"`
+	CFGMinT               float64 `yaml:"cfg_min_t"`
+	CFGMaxT               float64 `yaml:"cfg_max_t"`
+	ContextKVCache        bool    `yaml:"context_kv_cache"`
+	TruncationFactorRaw   string  `yaml:"truncation_factor_raw"`
+	RescaleKRaw           string  `yaml:"rescale_k_raw"`
+	RescaleSigmaRaw       string  `yaml:"rescale_sigma_raw"`
+	SpeakerKVScaleRaw     string  `yaml:"speaker_kv_scale_raw"`
+	SpeakerKVMinTRaw      string  `yaml:"speaker_kv_min_t_raw"`
+	SpeakerKVMaxLayersRaw string  `yaml:"speaker_kv_max_layers_raw"`
 }
 
 type TTSAzureConfig struct {
@@ -614,7 +686,7 @@ func (c *Config) setDefaults() {
 		c.ViewerLog.Enabled = true
 	}
 	if len(c.TTS.ProviderPriority) == 0 {
-		c.TTS.ProviderPriority = []string{"sbv2", "azure", "eleven"}
+		c.TTS.ProviderPriority = []string{"irodori"}
 	}
 	if c.TTS.OutputDir == "" {
 		c.TTS.OutputDir = "./workspace/tts"
@@ -630,10 +702,89 @@ func (c *Config) setDefaults() {
 		c.TTS.TimeoutMS = 15000
 	}
 	if c.TTS.VoiceID == "" {
-		c.TTS.VoiceID = "female_01"
+		c.TTS.VoiceID = "mio"
+	}
+	if c.TTS.Irodori.VoiceID == "" {
+		c.TTS.Irodori.VoiceID = c.TTS.VoiceID
+	}
+	if c.TTS.Irodori.VoiceName == "" && (strings.EqualFold(c.TTS.Irodori.VoiceID, "mio") || strings.EqualFold(c.TTS.Irodori.VoiceID, "female_01")) {
+		c.TTS.Irodori.VoiceName = "Mio"
+	}
+	if c.TTS.Irodori.VoiceName == "" && (strings.EqualFold(c.TTS.Irodori.VoiceID, "shiro") || strings.EqualFold(c.TTS.Irodori.VoiceID, "male_01")) {
+		c.TTS.Irodori.VoiceName = "Shiro"
+	}
+	if c.TTS.Irodori.EndpointPath == "" {
+		c.TTS.Irodori.EndpointPath = "/api/tts"
+	}
+	if c.TTS.Irodori.TimeoutSec <= 0 {
+		c.TTS.Irodori.TimeoutSec = 120
+	}
+	if c.TTS.Irodori.Checkpoint == "" {
+		c.TTS.Irodori.Checkpoint = "Aratako/Irodori-TTS-500M-v2"
+	}
+	if c.TTS.Irodori.ModelDevice == "" {
+		c.TTS.Irodori.ModelDevice = "mps"
+	}
+	if c.TTS.Irodori.ModelPrecision == "" {
+		c.TTS.Irodori.ModelPrecision = "fp32"
+	}
+	if c.TTS.Irodori.CodecDevice == "" {
+		c.TTS.Irodori.CodecDevice = "mps"
+	}
+	if c.TTS.Irodori.CodecPrecision == "" {
+		c.TTS.Irodori.CodecPrecision = "fp32"
+	}
+	if c.TTS.Irodori.NumSteps <= 0 {
+		c.TTS.Irodori.NumSteps = 16
+	}
+	if c.TTS.Irodori.NumCandidates <= 0 {
+		c.TTS.Irodori.NumCandidates = 1
+	}
+	if c.TTS.Irodori.CFGGuidanceMode == "" {
+		c.TTS.Irodori.CFGGuidanceMode = "independent"
+	}
+	if c.TTS.Irodori.CFGScaleText == 0 {
+		c.TTS.Irodori.CFGScaleText = 3.0
+	}
+	if c.TTS.Irodori.CFGScaleSpeaker == 0 {
+		c.TTS.Irodori.CFGScaleSpeaker = 5.0
+	}
+	if c.TTS.Irodori.CFGMinT == 0 {
+		c.TTS.Irodori.CFGMinT = 0.5
+	}
+	if c.TTS.Irodori.CFGMaxT == 0 {
+		c.TTS.Irodori.CFGMaxT = 1.0
+	}
+	if !c.TTS.Irodori.ContextKVCache {
+		c.TTS.Irodori.ContextKVCache = true
 	}
 	if c.TTS.ProviderParams == nil {
 		c.TTS.ProviderParams = map[string]any{}
+	}
+	if c.STT.Provider == "" {
+		c.STT.Provider = "external_http"
+	}
+	if c.STT.Language == "" {
+		c.STT.Language = "ja"
+	}
+	if c.STT.TimeoutMS <= 0 {
+		c.STT.TimeoutMS = 8000
+	}
+	if c.STT.EndpointPath == "" {
+		c.STT.EndpointPath = "/stt"
+	}
+	if c.STT.ProviderParams == nil {
+		c.STT.ProviderParams = map[string]any{}
+	}
+	if envURL := strings.TrimSpace(os.Getenv("STT_PROVIDER_URL")); envURL != "" && c.STT.ProviderURL == "" && c.STT.ExternalHTTP.URL == "" {
+		c.STT.Provider = "external_http"
+		c.STT.ProviderURL = envURL
+	}
+	if c.STT.ProviderURL == "" {
+		c.STT.ProviderURL = c.STT.ExternalHTTP.URL
+	}
+	if c.STT.StreamURL == "" {
+		c.STT.StreamURL = c.STT.ExternalHTTP.StreamURL
 	}
 	if c.VTuber.TickIntervalMS <= 0 {
 		c.VTuber.TickIntervalMS = 100
@@ -750,8 +901,8 @@ func (c *Config) Validate() error {
 		if c.LocalLLM.Provider != "local_openai" && c.LocalLLM.Provider != "ollama" {
 			return fmt.Errorf("local_llm.provider must be one of [local_openai, ollama], got '%s'", c.LocalLLM.Provider)
 		}
-		if c.LocalLLM.BaseURL == "" {
-			return fmt.Errorf("local_llm base_url is required when enabled=true")
+		if c.LocalLLM.BaseURL == "" && c.LocalLLM.ChatBaseURL == "" && c.LocalLLM.WorkerBaseURL == "" && c.LocalLLM.WildBaseURL == "" {
+			return fmt.Errorf("local_llm base_url or role-specific base_url is required when enabled=true")
 		}
 		if c.LocalLLM.ChatModel == "" {
 			return fmt.Errorf("local_llm chat_model is required when enabled=true")

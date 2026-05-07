@@ -4534,7 +4534,7 @@ refreshDebugSystem();
 registerWebMCPTools();
 connect();
 
-// === STT (Speech-to-Text) via voice-bridge ===
+// === STT (Speech-to-Text) via Mac streaming endpoint ===
 const sttState = {
   ws: null,
   audioContext: null,
@@ -4542,7 +4542,9 @@ const sttState = {
   scriptNode: null,
   isRecording: false,
   isStopping: false,
-  keepSessionChannel: true,
+  keepSessionChannel: false,
+  streamReady: false,
+  sampleRate: 48000,
   draftBuffer: [],        // Recent window for draft (1 second)
   draftTimer: null,
   reconnectTimer: null,
@@ -4552,7 +4554,8 @@ const sttState = {
   captureStartedAt: '',
   captureEndedAt: '',
   captureSessionID: '(unknown)',
-  voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`
+  voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`,
+  runtimeConfigLoaded: false
 };
 
 const micBtn = document.getElementById('micBtn');
@@ -4580,12 +4583,27 @@ if (sttSessionCopyBtn) {
   sttSessionCopyBtn.addEventListener('click', copySTTSessionID);
 }
 updateSTTInputIndicators();
-connectSTTWebSocket();
+loadViewerRuntimeConfig();
+
+async function loadViewerRuntimeConfig() {
+  try {
+    const res = await fetch('/viewer/runtime-config', { cache: 'no-store' });
+    if (!res.ok) return;
+    const cfg = await res.json();
+    if (cfg && cfg.stt_stream_url) {
+      sttState.voiceBridgeURL = String(cfg.stt_stream_url).trim() || sttState.voiceBridgeURL;
+    }
+    sttState.runtimeConfigLoaded = true;
+    updateSTTInputIndicators();
+  } catch (err) {
+    console.warn('[STT] runtime config unavailable:', err);
+  }
+}
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'draft' && type !== 'final') return;
+  if (type !== 'speech_start' && type !== 'draft' && type !== 'final' && type !== 'progress' && type !== 'ready') return;
   const rawPayload = String(payload || '').trim();
-  if (type === 'speech_start') {
+  if (type === 'speech_start' || type === 'ready') {
     payload = '-';
   } else {
     if (!rawPayload) return;
@@ -4782,6 +4800,10 @@ async function startSTT() {
     sttState.capturePCM = [];
     sttState.captureStartedAt = '';
     sttState.captureEndedAt = '';
+    sttState.streamReady = false;
+    if (!sttState.runtimeConfigLoaded) {
+      await loadViewerRuntimeConfig();
+    }
     sttState.audioStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         noiseSuppression: true,
@@ -4789,7 +4811,8 @@ async function startSTT() {
         autoGainControl: true
       }
     });
-    sttState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    sttState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    sttState.sampleRate = Math.round(sttState.audioContext.sampleRate || 48000);
     const source = sttState.audioContext.createMediaStreamSource(sttState.audioStream);
 
     // ScriptProcessor for PCM capture
@@ -4806,8 +4829,9 @@ async function startSTT() {
       }
       sttState.draftBuffer.push(...pcm16);
       sttState.capturePCM.push(...pcm16);
+      sendSTTAudioChunk(pcm16);
       // Keep draft buffer to recent 1 second
-      const maxDraftSamples = 16000;
+      const maxDraftSamples = sttState.sampleRate;
       if (sttState.draftBuffer.length > maxDraftSamples) {
         sttState.draftBuffer = sttState.draftBuffer.slice(-maxDraftSamples);
       }
@@ -4816,19 +4840,6 @@ async function startSTT() {
     sttState.isRecording = true;
     updateSTTInputIndicators();
     connectSTTWebSocket();
-
-    // Draft sending loop (500ms) - server handles VAD and final detection
-    const draftInterval = setInterval(() => {
-      if (!sttState.isRecording) {
-        clearInterval(draftInterval);
-        return;
-      }
-      sendDraft();
-    }, 500);
-
-    sttState.draftTimer = () => {
-      clearInterval(draftInterval);
-    };
   } catch (err) {
     console.error('[STT] Failed:', err);
     showToast('マイクアクセス拒否', 'error');
@@ -4845,9 +4856,13 @@ function connectSTTWebSocket() {
   sttState.ws.onopen = () => {
     sttState.reconnecting = false;
     if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
-      sttState.ws.send(JSON.stringify({ type: 'config', mimeType: 'audio/wav' }));
+      sttState.ws.send(JSON.stringify({
+        type: 'start',
+        language: 'ja',
+        sample_rate: sttState.sampleRate || 48000
+      }));
     }
-    console.log('[STT] Connected - server-side VAD mode');
+    console.log('[STT] Connected - streaming PCM mode');
     updateSTTInputIndicators();
   };
   sttState.ws.onmessage = (event) => {
@@ -4863,6 +4878,12 @@ function connectSTTWebSocket() {
           if (msg.type === 'session_info' && msg.session_id) {
             sttState.captureSessionID = String(msg.session_id).trim() || '(unknown)';
             updateSTTInputIndicators();
+          } else if (msg.type === 'ready') {
+            sttState.streamReady = true;
+            if (msg.sample_rate) sttState.sampleRate = Number(msg.sample_rate) || sttState.sampleRate;
+            updateSTTInputIndicators();
+          } else if (msg.type === 'progress') {
+            recordSTTCaptureEvent('progress', `${msg.duration || 0}s / ${msg.bytes || 0} bytes`);
           }
           recordSTTCaptureEvent(msg.type, msg.text || '');
           renderDebugPanels();
@@ -4871,10 +4892,7 @@ function connectSTTWebSocket() {
           console.log('[STT] Draft:', msg.text);
         } else if (msg.type === 'final' && msg.text) {
           console.log('[STT] Final:', msg.text);
-          if (inp) {
-            inp.value = (inp.value + ' ' + msg.text).trim();
-            inp.focus();
-          }
+          handleSTTFinalText(msg.text);
           // Clear buffer for next utterance (server-side VAD detected end)
           sttState.draftBuffer = [];
         } else if (msg.type === 'reply_reset') {
@@ -4894,9 +4912,46 @@ function connectSTTWebSocket() {
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
   sttState.ws.onclose = () => {
+    sttState.streamReady = false;
     updateSTTInputIndicators();
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
+}
+
+function pcm16ToBase64(pcm16) {
+  const bytes = new Uint8Array(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function sendSTTAudioChunk(pcm16) {
+  if (!sttState.isRecording || !sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return;
+  sttState.ws.send(JSON.stringify({
+    type: 'audio',
+    format: 'pcm_s16le',
+    data: pcm16ToBase64(pcm16)
+  }));
+}
+
+function handleSTTFinalText(text) {
+  const finalText = String(text || '').trim();
+  if (!finalText) return;
+  const inp = document.getElementById('inp');
+  if (inp) {
+    inp.value = finalText;
+    autoResize();
+    inp.focus();
+  }
+  if (!sending) {
+    send();
+  }
+  if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN && !sttState.isRecording) {
+    sttState.ws.close();
+  }
 }
 
 function scheduleSTTReconnect() {
@@ -4915,7 +4970,7 @@ function scheduleSTTReconnect() {
   }, 700);
 }
 
-function pcm16ToWav(pcmBuffer, sampleRate = 16000) {
+function pcm16ToWav(pcmBuffer, sampleRate = sttState.sampleRate || 48000) {
   const numChannels = 1;
   const bitsPerSample = 16;
   const byteRate = sampleRate * numChannels * bitsPerSample / 8;
@@ -4947,10 +5002,7 @@ function pcm16ToWav(pcmBuffer, sampleRate = 16000) {
 }
 
 function sendDraft() {
-  if (sttState.draftBuffer.length < 8000 || !sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return;
-  const wav = pcm16ToWav(new Int16Array(sttState.draftBuffer));
-  sttState.ws.send(wav);
-  console.log('[STT] Sent:', sttState.draftBuffer.length, 'samples, WAV size:', wav.byteLength, 'bytes, WS state:', sttState.ws.readyState);
+  // Deprecated: Mac STT streaming endpoint receives JSON PCM chunks in real time.
 }
 
 function stopSTT() {
@@ -4980,7 +5032,7 @@ function stopSTT() {
   }
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
     try {
-      sttState.ws.send(JSON.stringify({ type: 'final_pending' }));
+      sttState.ws.send(JSON.stringify({ type: 'stop' }));
     } catch (_) {}
   }
 

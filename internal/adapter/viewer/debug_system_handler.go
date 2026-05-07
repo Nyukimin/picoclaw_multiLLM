@@ -41,20 +41,41 @@ type DebugGPUProcess struct {
 }
 
 type DebugSystemOptions struct {
-	STTBaseURL string
-	TTSBaseURL string
+	STTBaseURL    string
+	STTStreamURL  string
+	TTSBaseURL    string
+	TTSHealthPath string
+}
+
+type RuntimeConfig struct {
+	STTStreamURL string `json:"stt_stream_url,omitempty"`
+	STTBaseURL   string `json:"stt_base_url,omitempty"`
+}
+
+func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(RuntimeConfig{
+			STTStreamURL: strings.TrimSpace(opts.STTStreamURL),
+			STTBaseURL:   strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+		})
+	}
 }
 
 type DebugAudioSnapshot struct {
-	STTBaseURL  string `json:"stt_base_url,omitempty"`
-	TTSBaseURL  string `json:"tts_base_url,omitempty"`
-	STTOK       bool   `json:"stt_ok"`
-	TTSLiveOK   bool   `json:"tts_live_ok"`
-	TTSReadyOK  bool   `json:"tts_ready_ok"`
-	STTHealth   string `json:"stt_health,omitempty"`
-	TTSLive     string `json:"tts_live,omitempty"`
-	TTSReady    string `json:"tts_ready,omitempty"`
-	LastError   string `json:"last_error,omitempty"`
+	STTBaseURL string `json:"stt_base_url,omitempty"`
+	TTSBaseURL string `json:"tts_base_url,omitempty"`
+	STTOK      bool   `json:"stt_ok"`
+	TTSLiveOK  bool   `json:"tts_live_ok"`
+	TTSReadyOK bool   `json:"tts_ready_ok"`
+	STTHealth  string `json:"stt_health,omitempty"`
+	TTSLive    string `json:"tts_live,omitempty"`
+	TTSReady   string `json:"tts_ready,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
 }
 
 func HandleDebugSystemSnapshot(opts DebugSystemOptions) http.HandlerFunc {
@@ -89,6 +110,18 @@ func collectAudioSnapshot(opts DebugSystemOptions) DebugAudioSnapshot {
 		}
 	}
 	if out.TTSBaseURL != "" {
+		if strings.TrimSpace(opts.TTSHealthPath) != "" {
+			body, ok, err := fetchEndpoint(client, out.TTSBaseURL+"/"+strings.TrimLeft(strings.TrimSpace(opts.TTSHealthPath), "/"))
+			if err != nil {
+				out.LastError = appendError(out.LastError, "tts:"+err.Error())
+			} else {
+				out.TTSLive = body
+				out.TTSReady = body
+				out.TTSLiveOK = ok
+				out.TTSReadyOK = ok
+			}
+			return out
+		}
 		if body, ok, err := fetchEndpoint(client, out.TTSBaseURL+"/health/live"); err != nil {
 			out.LastError = appendError(out.LastError, "tts_live:"+err.Error())
 		} else {

@@ -411,14 +411,23 @@ tts:
   http_base_url: "https://127.0.0.1:8770"
   tls_skip_verify: true
   timeout_ms: 15000
-  voice_id: "female_01"
+  voice_id: "mio"
   provider_params:
     style: "Neutral"
     style_weight: 2.8
-  provider_priority: ["sbv2", "azure", "eleven"]
+  provider_priority: ["irodori", "sbv2", "azure", "eleven"]
   playback_commands:
     - name: "ffplay"
       args: ["-autoexit", "{audio}"]
+  irodori:
+    enabled: true
+    base_url: "http://127.0.0.1:7860"
+    endpoint_path: "/api/tts"
+    voice_id: "mio"
+    timeout_sec: 120
+    checkpoint: "Aratako/Irodori-TTS-500M-v2"
+    model_device: "mps"
+    codec_device: "mps"
   sbv2:
     enabled: true
     base_url: "http://127.0.0.1:5000/synthesis"
@@ -439,6 +448,12 @@ tts:
 	if got := cfg.TTS.SBV2.BaseURL; got != "http://127.0.0.1:5000/synthesis" {
 		t.Fatalf("unexpected sbv2 base url: %s", got)
 	}
+	if got := cfg.TTS.Irodori.BaseURL; got != "http://127.0.0.1:7860" {
+		t.Fatalf("unexpected irodori base url: %s", got)
+	}
+	if cfg.TTS.Irodori.EndpointPath != "/api/tts" || cfg.TTS.Irodori.Checkpoint != "Aratako/Irodori-TTS-500M-v2" || cfg.TTS.Irodori.NumSteps != 16 {
+		t.Fatalf("unexpected irodori defaults: %+v", cfg.TTS.Irodori)
+	}
 	if len(cfg.TTS.PlaybackCommands) != 1 || cfg.TTS.PlaybackCommands[0].Name != "ffplay" {
 		t.Fatalf("unexpected playback commands: %+v", cfg.TTS.PlaybackCommands)
 	}
@@ -453,6 +468,84 @@ tts:
 	}
 	if cfg.TTS.ProviderParams["style"] != "Neutral" {
 		t.Fatalf("unexpected provider_params: %+v", cfg.TTS.ProviderParams)
+	}
+}
+
+func TestLoadConfig_STTSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "stt.yaml")
+	content := `
+server:
+  port: 8443
+  tls:
+    enabled: true
+    cert_file: "./certs/dev.crt"
+    key_file: "./certs/dev.key"
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+stt:
+  enabled: true
+  provider: "external_http"
+  language: "ja"
+  model: "remote-stt"
+  timeout_ms: 9000
+  endpoint_path: "/stt"
+  vad: true
+  debug:
+    save_audio: false
+    save_transcript: true
+  external_http:
+    url: "http://127.0.0.1:8080/inference"
+    stream_url: "wss://127.0.0.1:8443/stt/stream"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.Server.TLS.Enabled || cfg.Server.TLS.CertFile == "" || cfg.Server.TLS.KeyFile == "" {
+		t.Fatalf("expected TLS settings: %+v", cfg.Server.TLS)
+	}
+	if !cfg.STT.Enabled || cfg.STT.Provider != "external_http" || cfg.STT.Language != "ja" {
+		t.Fatalf("unexpected stt config: %+v", cfg.STT)
+	}
+	if cfg.STT.TimeoutMS != 9000 || cfg.STT.ProviderURL != "http://127.0.0.1:8080/inference" {
+		t.Fatalf("unexpected stt timeout/provider url: %+v", cfg.STT)
+	}
+	if cfg.STT.StreamURL != "wss://127.0.0.1:8443/stt/stream" {
+		t.Fatalf("unexpected stt stream url: %+v", cfg.STT)
+	}
+}
+
+func TestLoadConfig_STTProviderURLBackwardCompatibility(t *testing.T) {
+	t.Setenv("STT_PROVIDER_URL", "http://127.0.0.1:8080/inference")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "stt_env.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.STT.Provider != "external_http" || cfg.STT.ProviderURL != "http://127.0.0.1:8080/inference" {
+		t.Fatalf("expected STT_PROVIDER_URL compatibility, got %+v", cfg.STT)
 	}
 }
 

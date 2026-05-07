@@ -13,13 +13,15 @@ func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	sink := &recordingSink{}
 	var readyTexts []string
 	var readyIndexes []int
+	var readyAudioPaths []string
 	bridge := NewSBV2TTSBridge(SBV2TTSBridgeConfig{
 		Provider:  provider,
 		Sink:      sink,
 		OutputDir: t.TempDir(),
-		OnChunkReady: func(_, _ string, chunkIndex int, _, text, _, _, _ string) {
+		OnChunkReady: func(_, _ string, chunkIndex int, _, text, _, audioPath, _ string) {
 			readyIndexes = append(readyIndexes, chunkIndex)
 			readyTexts = append(readyTexts, text)
+			readyAudioPaths = append(readyAudioPaths, audioPath)
 		},
 	})
 	if err := bridge.StartSession(context.Background(), orchestrator.TTSSessionStart{
@@ -46,6 +48,9 @@ func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	}
 	if readyIndexes[0] != 0 || readyIndexes[1] != 1 {
 		t.Fatalf("unexpected chunk indexes: %#v", readyIndexes)
+	}
+	if readyAudioPaths[0] != "01.wav" || readyAudioPaths[1] != "02.wav" {
+		t.Fatalf("unexpected viewer audio paths: %#v", readyAudioPaths)
 	}
 }
 

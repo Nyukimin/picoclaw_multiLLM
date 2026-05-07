@@ -68,9 +68,10 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float):
 
 
 def main():
-    p = argparse.ArgumentParser(description="STT E2E probe for provider and /stt")
+    p = argparse.ArgumentParser(description="STT E2E probe for Go STT API/provider and /stt")
     p.add_argument("--wav", default="tmp/client_stt_input_latest.wav", help="Path to WAV sample")
-    p.add_argument("--provider-url", default="http://192.168.1.36:8080/inference")
+    p.add_argument("--provider-url", default="http://127.0.0.1:8080/stt/file")
+    p.add_argument("--chat-input-url", default="", help="Optional /stt/chat-input URL")
     p.add_argument("--ws-url", default="ws://127.0.0.1:18790/stt")
     p.add_argument("--provider-timeout", type=float, default=8.0)
     p.add_argument("--provider-rounds", type=int, default=5)
@@ -83,13 +84,19 @@ def main():
         raise SystemExit(f"wav not found: {wav_path}")
 
     inf = run_inference_bench(args.provider_url, wav_path, args.provider_timeout, args.provider_rounds)
+    chat = []
+    if args.chat_input_url:
+        chat = run_inference_bench(args.chat_input_url, wav_path, args.provider_timeout, 1)
     ws = run_ws_bench(args.ws_url, wav_path, args.ws_rounds, args.ws_wait)
     result = {
         "provider_url": args.provider_url,
+        "chat_input_url": args.chat_input_url,
         "ws_url": args.ws_url,
         "wav": str(wav_path),
         "inference": inf,
         "inference_success": f"{sum(1 for x in inf if x['ok'])}/{len(inf)}",
+        "chat_input": chat,
+        "chat_input_success": f"{sum(1 for x in chat if x['ok'])}/{len(chat)}" if chat else "skipped",
         "ws": ws,
         "ws_success": f"{sum(1 for x in ws if x['ok'])}/{len(ws)}",
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),

@@ -21,13 +21,7 @@ func buildTTSClientBridge(
 	if cfg == nil || !cfg.TTS.Enabled {
 		return nil
 	}
-	cmds := make([]ttsinfra.CommandSpec, 0, len(cfg.TTS.PlaybackCommands))
-	for _, c := range cfg.TTS.PlaybackCommands {
-		if strings.TrimSpace(c.Name) == "" {
-			continue
-		}
-		cmds = append(cmds, ttsinfra.CommandSpec{Name: c.Name, Args: append([]string{}, c.Args...)})
-	}
+	cmds := buildTTSCommandSpecs(cfg)
 
 	sink := ttsinfra.AudioSink(ttsinfra.NewNoopAudioSink())
 	if len(cmds) == 0 {
@@ -76,15 +70,10 @@ func buildTTSClientBridge(
 			onSessionCompleted(sessionID, characterID)
 		}
 	}
-	if cfg.TTS.SBV2.Enabled && strings.TrimSpace(cfg.TTS.SBV2.BaseURL) != "" {
-		sbv2Provider := ttsinfra.NewSBV2Provider(ttsinfra.SBV2Config{
-			BaseURL: cfg.TTS.SBV2.BaseURL,
-			VoiceID: cfg.TTS.SBV2.VoiceID,
-			Timeout: time.Duration(cfg.TTS.SBV2.TimeoutSec) * time.Second,
-		})
-		log.Printf("TTS SBV2 direct bridge enabled (/voice base=%s)", cfg.TTS.SBV2.BaseURL)
+	if sel, ok := buildPrimaryTTSProvider(cfg); ok {
+		logTTSProviderSelection(sel)
 		return ttsinfra.NewSBV2TTSBridge(ttsinfra.SBV2TTSBridgeConfig{
-			Provider:           sbv2Provider,
+			Provider:           sel.Provider,
 			Sink:               sink,
 			OutputDir:          cfg.TTS.OutputDir,
 			OnChunkReady:       onChunkFn,

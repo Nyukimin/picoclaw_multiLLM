@@ -155,49 +155,21 @@ func buildTTSEntryRuntime(cfg *config.Config) ttsEntryRuntime {
 		return ttsEntryRuntime{}
 	}
 
-	providers := make([]ttsinfra.Provider, 0, len(cfg.TTS.ProviderPriority))
-	for _, name := range cfg.TTS.ProviderPriority {
-		switch strings.ToLower(strings.TrimSpace(name)) {
-		case "sbv2":
-			if cfg.TTS.SBV2.Enabled && strings.TrimSpace(cfg.TTS.SBV2.BaseURL) != "" {
-				providers = append(providers, ttsinfra.NewSBV2Provider(ttsinfra.SBV2Config{
-					BaseURL:       cfg.TTS.SBV2.BaseURL,
-					VoiceID:       cfg.TTS.SBV2.VoiceID,
-					Timeout:       time.Duration(cfg.TTS.SBV2.TimeoutSec) * time.Second,
-					AudioPathRoot: cfg.TTS.AudioPathRoot,
-				}))
-			} else {
-				providers = append(providers, ttsinfra.NewUnavailableProvider("sbv2", "sbv2 is not configured"))
-			}
-		case "azure":
-			providers = append(providers, ttsinfra.NewUnavailableProvider("azure", "azure provider is not configured yet"))
-		case "eleven":
-			providers = append(providers, ttsinfra.NewUnavailableProvider("eleven", "eleven provider is not configured yet"))
-		}
-	}
-	if len(providers) == 0 {
+	synthesizer := buildFallbackTTSSynthesizer(cfg)
+	if synthesizer == nil {
 		return ttsEntryRuntime{}
 	}
 
-	cmds := make([]ttsinfra.CommandSpec, 0, len(cfg.TTS.PlaybackCommands))
-	for _, c := range cfg.TTS.PlaybackCommands {
-		if strings.TrimSpace(c.Name) == "" {
-			continue
-		}
-		cmds = append(cmds, ttsinfra.CommandSpec{
-			Name: c.Name,
-			Args: append([]string{}, c.Args...),
-		})
-	}
+	cmds := buildTTSCommandSpecs(cfg)
 	if len(cmds) == 0 {
 		return ttsEntryRuntime{}
 	}
 
 	return ttsEntryRuntime{
-		synthesizer: ttsinfra.NewFallbackSynthesizer(providers...),
+		synthesizer: synthesizer,
 		player:      ttsinfra.NewCommandPlayer(cmds),
 		outputDir:   cfg.TTS.OutputDir,
-		voiceID:     cfg.TTS.SBV2.VoiceID,
+		voiceID:     chooseTTSVoiceID(cfg),
 	}
 }
 
@@ -303,31 +275,31 @@ func saveTTSEvidence(
 		reason = runErr.Error()
 	}
 	report := domainexecution.ExecutionReport{
-		JobID:        runReport.JobID,
-		Goal:         contract.Goal,
-		Route:        string(applier.latest.Route),
-		Capability:   string(autonomousapp.CapabilityTTSDelivery),
-		Status:       status,
-		ErrorKind:    runReport.ErrorKind,
+		JobID:         runReport.JobID,
+		Goal:          contract.Goal,
+		Route:         string(applier.latest.Route),
+		Capability:    string(autonomousapp.CapabilityTTSDelivery),
+		Status:        status,
+		ErrorKind:     runReport.ErrorKind,
 		FailureReason: reason,
-		TTSErrorKind: applier.errKind,
-		TTSProvider:  applier.synth.Provider,
-		TTSVoiceID:   applier.synth.VoiceID,
-		TTSAudioFile: applier.synth.AudioFilePath,
-		TTSDuration:  applier.synth.DurationMS,
-		PlaybackCmd:  applier.play.Command,
-		PlaybackCode: applier.play.ExitCode,
-		Acceptance:   contract.Acceptance,
-		Constraints:  contract.Constraints,
-		Artifacts:    contract.Artifacts,
-		Verification: verification,
-		Rollback:     contract.Rollback,
-		Steps:        append([]string{}, runReport.ExecutedSteps...),
-		AttemptCount: runReport.AttemptCount,
-		RepairCount:  runReport.RepairCount,
-		Error:        reason,
-		CreatedAt:    now,
-		FinishedAt:   now,
+		TTSErrorKind:  applier.errKind,
+		TTSProvider:   applier.synth.Provider,
+		TTSVoiceID:    applier.synth.VoiceID,
+		TTSAudioFile:  applier.synth.AudioFilePath,
+		TTSDuration:   applier.synth.DurationMS,
+		PlaybackCmd:   applier.play.Command,
+		PlaybackCode:  applier.play.ExitCode,
+		Acceptance:    contract.Acceptance,
+		Constraints:   contract.Constraints,
+		Artifacts:     contract.Artifacts,
+		Verification:  verification,
+		Rollback:      contract.Rollback,
+		Steps:         append([]string{}, runReport.ExecutedSteps...),
+		AttemptCount:  runReport.AttemptCount,
+		RepairCount:   runReport.RepairCount,
+		Error:         reason,
+		CreatedAt:     now,
+		FinishedAt:    now,
 	}
 	return store.Save(ctx, report)
 }

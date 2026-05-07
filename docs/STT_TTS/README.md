@@ -22,6 +22,11 @@
 ### Server仕様（提供側契約）
 - `docs/STT_TTS/AUDIO_Server仕様/README.md`
 
+### 現行外部連携メモ
+- `docs/STT_TTS/STT_Remote_HTTPS仕様.md` - Mac上の `rencrow-stt` をHTTPS reverse proxy越しに使う仕様
+- `docs/STT_TTS/STT_Streaming_Client仕様.md` - Mac上の `rencrow-stt` へWSS PCM chunkを送るブラウザクライアント仕様
+- `docs/STT_TTS/IrodoriTTS_HTTP_API仕様.md` - Mac上のIrodori-TTS Gradio HTTP API仕様
+
 ### 旧資料
 - `docs/STT_TTS/archive`
 

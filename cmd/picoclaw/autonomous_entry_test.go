@@ -172,11 +172,11 @@ func TestBuildTTSEntryRuntime_Configured(t *testing.T) {
 	cfg := &config.Config{
 		TTS: config.TTSConfig{
 			Enabled:          true,
-			ProviderPriority: []string{"sbv2"},
+			ProviderPriority: []string{"irodori"},
 			PlaybackCommands: []config.TTSCommandConfig{{Name: "sh", Args: []string{"-c", "exit 0"}}},
-			SBV2: config.TTSSBV2Config{
+			Irodori: config.TTSIrodoriConfig{
 				Enabled: true,
-				BaseURL: "http://127.0.0.1:5000/synthesis",
+				BaseURL: "http://127.0.0.1:7870",
 				VoiceID: "mio",
 			},
 		},

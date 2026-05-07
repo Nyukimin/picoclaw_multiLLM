@@ -5,12 +5,34 @@
 server:
   host: "0.0.0.0"
   port: 18790
+  tls:
+    enabled: false
+    cert_file: "./certs/dev.crt"
+    key_file: "./certs/dev.key"
 
 # Ollama 設定（mio/shiro/IdleChat共通モデル）
 ollama:
-  base_url: "http://localhost:11434"
+  base_url: "http://192.168.1.31:11434"
   model: "picoclaw-v1"  # 全Agent共通モデル
   max_context: 8192     # 常駐モデルの最大コンテキスト長（超過するモデルはNG）
+
+# Chat / Worker 用ローカルLLM（Mac MLX OpenAI互換サーバ）
+local_llm:
+  enabled: true
+  provider: "local_openai"        # local_openai | ollama
+  # 2026-05-06現在はChatだけ起動中。Worker/Wild起動後は下のrole別URLを8082/8083へ分ける。
+  base_url: "http://192.168.1.31:8081"
+  chat_base_url: "http://192.168.1.31:8081"
+  worker_base_url: ""
+  wild_base_url: ""
+  api_key: ""
+  chat_model: "Chat"
+  worker_model: "Chat"            # Worker未起動中の暫定fallback
+  wild_model: "Chat"              # Wild未起動中の暫定fallback
+  timeout_sec: 120
+  warmup: false                   # Chat以外が未起動ならfalse推奨
+  global_concurrency: 2
+  model_concurrency: 1
 
 # DeepSeek API (Code1)
 deepseek:
@@ -160,36 +182,39 @@ heartbeat:
 # TTS実行能力（OpenClaw parity）
 # 音声サーバメモ:
 # - RenCrow_TTS と RenCrow_STT は同一ホストを使用する
-# - 共通IP: 192.168.1.36
-# - STT Health: https://192.168.1.36:8090/health
-# - STT Ready:  https://192.168.1.36:8090/ready
-# - STT WebSocket（Chat側接続先）: wss://192.168.1.36:8090/stt
+# - 共通IP: 192.168.1.31
+# - STT Health: https://192.168.1.31:8443/health
+# - STT Stream: wss://192.168.1.31:8443/stt/stream
+# - STT File:   https://192.168.1.31:8443/stt/file
+# - STT Chat:   https://192.168.1.31:8443/stt/chat-input
+# - TTS Irodori wrapper: http://192.168.1.31:7870/api/tts
 # - 自己署名証明書のため curl は -k を付ける
 tts:
-  enabled: false
+  enabled: true
   output_dir: "./workspace/tts"
   # Optional: map relative audio_path (e.g. cache\\xxx.wav) to local playable path.
   # Example on Linux with mounted Windows drive: /mnt/e/GenerativeAI/Style-Bert-VITS2
   audio_path_root: ""
-  http_base_url: "http://127.0.0.1:8765"
-  ws_url: "ws://127.0.0.1:8765/sessions"
+  http_base_url: "http://192.168.1.31:7870"
+  ws_url: ""
   connect_timeout_ms: 3000
   receive_timeout_ms: 15000
   chunk_gap_timeout_ms: 3000
-  voice_id: "female_01"
+  voice_id: "mio"
   speech_mode: "conversational"
   provider_priority:
-    - "sbv2"
-    - "azure"
-    - "eleven"
-  playback_commands:
-    - name: "ffplay"
-      args: ["-autoexit", "-nodisp", "{audio}"]
-  sbv2:
+    - "irodori"
+  # Viewerが /viewer/tts/audio から再生するため、サーバ側のffplay再生は使わない。
+  playback_commands: []
+  irodori:
     enabled: true
-    base_url: "http://127.0.0.1:5000/synthesis"
+    base_url: "http://192.168.1.31:7870"
+    endpoint_path: "/api/tts"
     voice_id: "mio"
-    timeout_sec: 20
+    voice_name: "Mio"
+    # New Irodori API: client sends only voice/style/text.
+    # Voice profiles, reference audio, seed and generation parameters are managed server-side.
+    timeout_sec: 120
   azure:
     enabled: false
     endpoint: "${AZURE_TTS_ENDPOINT}"
@@ -202,6 +227,26 @@ tts:
     voice_id: ""
     model_id: "eleven_multilingual_v2"
     timeout_sec: 20
+
+# STT基本機能
+# 本番の音声入力入口は HTTPS Viewer です。
+# Viewer は secure context でマイクを取得し、Mac STT の wss://192.168.1.31:8443/stt/stream にPCM chunkを送ります。
+stt:
+  enabled: true
+  provider: "external_http"    # external_http | mock
+  language: "ja"
+  model: "large-v3-v20240930_turbo"
+  timeout_ms: 600000           # WhisperKit初回モデル準備を考慮。運用安定後は短縮可
+  endpoint_path: "/stt"
+  stream_url: "wss://192.168.1.31:8443/stt/stream"
+  vad: true
+  debug:
+    save_audio: false
+    save_transcript: true
+  external_http:
+    # Mac上のrencrow-sttをHTTPS reverse proxy越しに使う場合:
+    url: "https://192.168.1.31:8443/stt/file" # 旧 STT_PROVIDER_URL 互換の外部Provider URL
+    stream_url: "wss://192.168.1.31:8443/stt/stream"
 
 vtuber:
   enabled: false
