@@ -2012,6 +2012,11 @@ Agent Mode:
 
 // buildHealthService は HealthService を構築（CLI コマンドで共用）
 func buildHealthService(cfg *config.Config) *healthapp.HealthService {
+	if cfg.LocalLLM.Enabled && cfg.LocalLLM.Provider == "local_openai" {
+		checks := buildLocalLLMHealthChecks(cfg)
+		return healthapp.NewHealthService(checks...)
+	}
+
 	checks := []domainhealth.Check{
 		infrahealth.NewOllamaCheck(cfg.Ollama.BaseURL),
 	}
@@ -2029,6 +2034,39 @@ func buildHealthService(cfg *config.Config) *healthapp.HealthService {
 	}
 
 	return healthapp.NewHealthService(checks...)
+}
+
+func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
+	if cfg == nil {
+		return nil
+	}
+	timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	seen := map[string]struct{}{}
+	add := func(checks []domainhealth.Check, role, baseURL, model string) []domainhealth.Check {
+		role = strings.TrimSpace(role)
+		baseURL = firstNonEmpty(baseURL, cfg.LocalLLM.BaseURL)
+		model = strings.TrimSpace(model)
+		if role == "" || baseURL == "" || model == "" {
+			return checks
+		}
+		key := role + "\x00" + baseURL + "\x00" + model
+		if _, ok := seen[key]; ok {
+			return checks
+		}
+		seen[key] = struct{}{}
+		return append(checks, infrahealth.NewOpenAICompatibleChatCheck(role, baseURL, model, cfg.LocalLLM.APIKey, timeout))
+	}
+
+	checks := make([]domainhealth.Check, 0, 3)
+	checks = add(checks, "Chat", cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.ChatModel)
+	checks = add(checks, "Worker", cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.WorkerModel)
+	if cfg.LocalLLMWarmupEnabled() {
+		checks = add(checks, "Wild", cfg.LocalLLM.WildBaseURL, cfg.LocalLLM.WildModel)
+	}
+	return checks
 }
 
 func collectOllamaHealthRequirements(cfg *config.Config) []infrahealth.ModelRequirement {

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +50,54 @@ func TestCollectOllamaHealthRequirements_DeduplicatesModels(t *testing.T) {
 	got := collectOllamaHealthRequirements(cfg)
 	if len(got) != 1 {
 		t.Fatalf("expected deduplicated requirements, got %#v", got)
+	}
+}
+
+func TestBuildHealthService_LocalLLMUsesOpenAICompatibleChecks(t *testing.T) {
+	var chatHits, workerHits int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/chat/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		chatHits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	})
+	mux.HandleFunc("/worker/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		workerHits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	cfg := &config.Config{
+		LocalLLM: config.LocalLLMConfig{
+			Enabled:       true,
+			Provider:      "local_openai",
+			BaseURL:       "http://127.0.0.1:1",
+			ChatBaseURL:   srv.URL + "/chat",
+			WorkerBaseURL: srv.URL + "/worker",
+			WildBaseURL:   "http://127.0.0.1:1",
+			ChatModel:     "Chat",
+			WorkerModel:   "Worker",
+			WildModel:     "Wild",
+			TimeoutSec:    1,
+		},
+		Ollama: config.OllamaConfig{BaseURL: "http://127.0.0.1:1", Model: "chat-v1:latest"},
+	}
+	warmup := false
+	cfg.LocalLLM.Warmup = &warmup
+
+	report := buildHealthService(cfg).RunChecks(context.Background())
+	if report.Status != domainhealth.StatusOK {
+		t.Fatalf("status = %s, want ok; checks=%+v", report.Status, report.Checks)
+	}
+	if chatHits != 1 || workerHits != 1 {
+		t.Fatalf("expected chat/worker hits, got chat=%d worker=%d", chatHits, workerHits)
+	}
+	for _, check := range report.Checks {
+		if strings.HasPrefix(check.Name, "ollama") {
+			t.Fatalf("local_llm health should not include ollama check: %+v", report.Checks)
+		}
 	}
 }
 
