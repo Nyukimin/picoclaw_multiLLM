@@ -10,7 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	infraRouting "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
@@ -21,7 +21,7 @@ func main() {
 
 	// 1. ToolRunner初期化（Web検索含む）
 	cfg := tools.ToolRunnerConfig{
-		GoogleAPIKey:       os.Getenv("GOOGLE_API_KEY_CHAT"),
+		GoogleAPIKey:         os.Getenv("GOOGLE_API_KEY_CHAT"),
 		GoogleSearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID_CHAT"),
 	}
 

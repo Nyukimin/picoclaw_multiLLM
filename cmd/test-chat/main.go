@@ -10,7 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"

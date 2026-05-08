@@ -11,7 +11,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
-	llmfactory "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
+	llmfactory "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/factory"
 )
 
 func main() {

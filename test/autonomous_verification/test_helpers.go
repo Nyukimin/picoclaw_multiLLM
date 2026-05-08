@@ -15,9 +15,9 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/deepseek"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/session"
 	infrarouting "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
@@ -303,11 +303,12 @@ func assertStageSequence(t *testing.T, recorder *StageRecorder, expected []strin
 }
 
 // assertExecutionReport asserts that the execution report matches the expected values
-// checks は map[string]interface{}{
-//     "Route": "OPS",
-//     "Status": "passed",
-//     "AttemptCount": 1,
-// } の形式
+//
+//	checks は map[string]interface{}{
+//	    "Route": "OPS",
+//	    "Status": "passed",
+//	    "AttemptCount": 1,
+//	} の形式
 func assertExecutionReport(t *testing.T, report execution.ExecutionReport, checks map[string]interface{}) {
 	t.Helper()
 

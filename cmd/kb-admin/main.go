@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
 )
 
 const usageText = `kb-admin - Knowledge Base 管理ツール

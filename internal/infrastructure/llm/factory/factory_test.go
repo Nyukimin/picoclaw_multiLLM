@@ -1,14 +1,14 @@
-package llm
+package factory
 
 import (
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/gemini"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/claude"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/deepseek"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/gemini"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 )
 
 func TestCreateProvider_Disabled(t *testing.T) {

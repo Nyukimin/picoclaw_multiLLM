@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/claude"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/deepseek"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 )
 
 func TestE2E_APIProvider_Generate(t *testing.T) {

@@ -22,10 +22,10 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/claude"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/deepseek"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
 )
@@ -120,10 +120,10 @@ func (h *workerHandler) executeTask(ctx context.Context, msg domaintransport.Mes
 
 // coderHandler はCoderエージェントのハンドラ
 type coderHandler struct {
-	agentName       string
-	coderAgent      *agent.CoderAgent // Fallback agent (local config)
-	proposalPrompt  string
-	globalMemory    *agent.LightMemory // 共有メモリ（SSH経由の場合は再利用）
+	agentName      string
+	coderAgent     *agent.CoderAgent // Fallback agent (local config)
+	proposalPrompt string
+	globalMemory   *agent.LightMemory // 共有メモリ（SSH経由の場合は再利用）
 }
 
 func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {

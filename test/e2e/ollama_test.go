@@ -10,7 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	infrarouting "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"

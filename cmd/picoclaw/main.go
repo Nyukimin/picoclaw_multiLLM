@@ -56,11 +56,12 @@ import (
 	glossary "github.com/Nyukimin/picoclaw_multiLLM/internal/glossary"
 	capinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/capability"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
-	infrallm "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/claude"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/deepseek"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/ollama"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/openai"
+	llmfactory "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/factory"
+	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/claude"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/deepseek"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
@@ -115,9 +116,9 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 			}, timeout)
 		}
 		return primaryLLMProviders{
-			Chat:   infrallm.NewDateTimeProvider(chat),
-			Worker: infrallm.NewDateTimeProvider(worker),
-			Wild:   infrallm.NewDateTimeProvider(wild),
+			Chat:   llmmiddleware.NewDateTimeProvider(chat),
+			Worker: llmmiddleware.NewDateTimeProvider(worker),
+			Wild:   llmmiddleware.NewDateTimeProvider(wild),
 		}
 	}
 
@@ -128,9 +129,9 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 	}
 	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
 	return primaryLLMProviders{
-		Chat:   infrallm.NewDateTimeProvider(chatRawProvider),
-		Worker: infrallm.NewDateTimeProvider(workerRawProvider),
-		Wild:   infrallm.NewDateTimeProvider(workerRawProvider),
+		Chat:   llmmiddleware.NewDateTimeProvider(chatRawProvider),
+		Worker: llmmiddleware.NewDateTimeProvider(workerRawProvider),
+		Wild:   llmmiddleware.NewDateTimeProvider(workerRawProvider),
 	}
 }
 
@@ -239,7 +240,7 @@ func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout ti
 		raw = openai.NewOpenAIProviderWithOptions(cfg.LocalLLM.APIKey, model, baseURL, timeout)
 	}
 	modelSem := make(chan struct{}, cfg.LocalLLM.ModelConcurrency)
-	return infrallm.NewLimitedProvider(raw, "local-"+alias+"-"+model, global, modelSem)
+	return llmmiddleware.NewLimitedProvider(raw, "local-"+alias+"-"+model, global, modelSem)
 }
 
 func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
@@ -3665,7 +3666,7 @@ func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapt
 		}
 
 		// LLM Provider 生成
-		provider, err := infrallm.CreateProvider(cc.config)
+		provider, err := llmfactory.CreateProvider(cc.config)
 		if err != nil {
 			log.Printf("[setupCoders] %s (%s) provider creation failed: %v", cc.name, cc.config.Name, err)
 			continue
