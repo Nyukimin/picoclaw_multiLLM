@@ -368,6 +368,7 @@ let activeViewerTab = 'timeline';
 let sttControlsReady = false;
 
 const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+const themeButtons = Array.from(document.querySelectorAll('.theme-btn'));
 const panels = {
   ops: document.getElementById('panel-ops'),
   overview: document.getElementById('panel-overview'),
@@ -381,6 +382,25 @@ const panels = {
   sessions: document.getElementById('panel-sessions'),
   jobs: document.getElementById('panel-jobs'),
 };
+
+function applyViewerTheme(theme) {
+  const selected = (theme === 'classic' || theme === 'compact') ? theme : 'modern';
+  const body = document.body;
+  if (body && body.classList) {
+    body.classList.remove('theme-classic', 'theme-modern', 'theme-compact');
+    body.classList.add('theme-' + selected);
+  }
+  themeButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.theme === selected));
+  try { localStorage.setItem('viewer.theme', selected); } catch (_) {}
+}
+
+function savedViewerTheme() {
+  try { return localStorage.getItem('viewer.theme') || 'modern'; }
+  catch (_) { return 'modern'; }
+}
+
+applyViewerTheme(savedViewerTheme());
+themeButtons.forEach((btn) => btn.addEventListener('click', () => applyViewerTheme(btn.dataset.theme)));
 
 const fltType = document.getElementById('fltType');
 const fltAgent = document.getElementById('fltAgent');

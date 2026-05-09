@@ -4,15 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-mobile-input">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-theme-switcher">
 </head>
-<body>
+<body class="theme-modern">
 <header>
   <div class="logo"><img src="/viewer/assets/images/rencrow-logo.png" alt="RenCrow" style="height:64px;width:auto"><span>RenCrow Live</span></div>
   <div class="live-theater-banner" aria-label="妄想劇場">妄想劇場</div>
-  <div class="stat">
-    <div class="dot" id="dot"></div>
-    <span id="stxt">Connecting...</span>
+  <div class="header-tools">
+    <div class="theme-switcher" aria-label="Viewer theme">
+      <button class="theme-btn" data-theme="classic" type="button" title="Classic">○</button>
+      <button class="theme-btn active" data-theme="modern" type="button" title="Modern">◐</button>
+      <button class="theme-btn" data-theme="compact" type="button" title="Compact">▦</button>
+    </div>
+    <div class="stat">
+      <div class="dot" id="dot"></div>
+      <span id="stxt">Connecting...</span>
+    </div>
   </div>
 </header>
 <div class="live-topic-bar" id="liveTopicBar">
@@ -524,6 +531,6 @@
 </button>
 <div class="toast" id="toast"></div>
 
-<script src="/viewer/assets/js/viewer.js?v=20260509-mobile-input" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260509-theme-switcher" defer></script>
 </body>
 </html>
