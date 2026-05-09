@@ -372,7 +372,9 @@ func cmdRun() {
 	sttRuntime := buildSTTRuntime(cfg)
 	debugSystemOpts := sttRuntime.DebugOptions
 	llmOpsToken := strings.TrimSpace(os.Getenv("LLM_OPS_TOKEN"))
-	debugSystemOpts.LLMOpsEnabled = cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken != ""
+	debugSystemOpts.LLMOpsConfigured = cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != ""
+	debugSystemOpts.LLMOpsEnabled = debugSystemOpts.LLMOpsConfigured && llmOpsToken != ""
+	debugSystemOpts.LLMOpsBaseURL = cfg.LLMOps.BaseURL
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}

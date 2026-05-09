@@ -34,7 +34,9 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 
 func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
-		LLMOpsEnabled: true,
+		LLMOpsConfigured: true,
+		LLMOpsEnabled:    true,
+		LLMOpsBaseURL:    "http://192.168.1.31:8079/",
 	})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
@@ -47,5 +49,11 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.LLMOpsEnabled {
 		t.Fatalf("expected llm_ops_enabled: %+v", body)
+	}
+	if !body.LLMOpsConfigured {
+		t.Fatalf("expected llm_ops_configured: %+v", body)
+	}
+	if body.LLMOpsBaseURL != "http://192.168.1.31:8079" {
+		t.Fatalf("unexpected llm ops base url: %+v", body)
 	}
 }

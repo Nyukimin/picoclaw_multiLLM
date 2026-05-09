@@ -52,7 +52,7 @@
         <div id="debugSttSession" class="small">Session: (unknown)</div>
         <div id="debugSttTrace" class="debug-list"></div>
       </div>
-      <div class="debug-box" id="llmOpsPanel" style="display:none">
+      <div class="debug-box" id="llmOpsPanel">
         <h4>MLX LLM 管理（Viewer 経由）</h4>
         <div class="small" style="margin-bottom:8px">RenCrow が管理 API をプロキシします。トークンはサーバの LLM_OPS_TOKEN を使用してください。</div>
         <div class="debug-actions">
@@ -60,6 +60,7 @@
           <button id="llmOpsStopBtn" class="ctl-btn" type="button">停止 Chat+Worker</button>
           <button id="llmOpsRestartBtn" class="ctl-btn" type="button">再起動（全ロール）</button>
         </div>
+        <div id="llmOpsConfigState" class="small" style="margin-bottom:8px">checking...</div>
         <div class="llm-memory-grid" id="llmMemoryCards">
           <div class="llm-memory-card"><div class="ops-card-title">Total RAM</div><div class="ops-big">-</div></div>
           <div class="llm-memory-card"><div class="ops-card-title">Used RAM</div><div class="ops-big">-</div></div>

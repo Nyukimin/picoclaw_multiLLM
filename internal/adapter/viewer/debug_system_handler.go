@@ -41,17 +41,21 @@ type DebugGPUProcess struct {
 }
 
 type DebugSystemOptions struct {
-	STTBaseURL    string
-	STTStreamURL  string
-	TTSBaseURL    string
-	TTSHealthPath string
-	LLMOpsEnabled bool
+	STTBaseURL       string
+	STTStreamURL     string
+	TTSBaseURL       string
+	TTSHealthPath    string
+	LLMOpsConfigured bool
+	LLMOpsEnabled    bool
+	LLMOpsBaseURL    string
 }
 
 type RuntimeConfig struct {
-	STTStreamURL  string `json:"stt_stream_url,omitempty"`
-	STTBaseURL    string `json:"stt_base_url,omitempty"`
-	LLMOpsEnabled bool   `json:"llm_ops_enabled,omitempty"`
+	STTStreamURL     string `json:"stt_stream_url,omitempty"`
+	STTBaseURL       string `json:"stt_base_url,omitempty"`
+	LLMOpsConfigured bool   `json:"llm_ops_configured"`
+	LLMOpsEnabled    bool   `json:"llm_ops_enabled"`
+	LLMOpsBaseURL    string `json:"llm_ops_base_url,omitempty"`
 }
 
 func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
@@ -62,9 +66,11 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(RuntimeConfig{
-			STTStreamURL:  strings.TrimSpace(opts.STTStreamURL),
-			STTBaseURL:    strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
-			LLMOpsEnabled: opts.LLMOpsEnabled,
+			STTStreamURL:     strings.TrimSpace(opts.STTStreamURL),
+			STTBaseURL:       strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+			LLMOpsConfigured: opts.LLMOpsConfigured,
+			LLMOpsEnabled:    opts.LLMOpsEnabled,
+			LLMOpsBaseURL:    strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
 		})
 	}
 }

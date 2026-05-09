@@ -138,6 +138,7 @@ const state = {
     latestJobID: '',
     latestRoute: '',
     latestError: null,
+    llmOpsEnabled: false,
     llmStatus: null,
     llmStatusError: '',
   },
@@ -3862,7 +3863,7 @@ setInterval(refreshRecallTraces, 15000);
 setInterval(refreshDebugSystem, 5000);
 setInterval(() => {
   const panel = document.getElementById('llmOpsPanel');
-  if (panel && panel.style.display !== 'none') refreshLlmOpsStatus();
+  if (panel && state.ops.llmOpsEnabled) refreshLlmOpsStatus();
 }, 5000);
 refreshDebugSystem();
 registerWebMCPTools();
@@ -3942,12 +3943,33 @@ function bindLLMOpsButtons() {
 function syncLLMOpsPanel(cfg) {
   const panel = document.getElementById('llmOpsPanel');
   if (!panel) return;
-  const on = cfg && cfg.llm_ops_enabled;
-  panel.style.display = on ? '' : 'none';
-  if (on) {
-    bindLLMOpsButtons();
+  const configured = Boolean(cfg && cfg.llm_ops_configured);
+  const enabled = Boolean(cfg && cfg.llm_ops_enabled);
+  const baseURL = cfg && cfg.llm_ops_base_url ? String(cfg.llm_ops_base_url) : '';
+  state.ops.llmOpsEnabled = enabled;
+  bindLLMOpsButtons();
+  const configEl = document.getElementById('llmOpsConfigState');
+  const refresh = document.getElementById('llmOpsRefreshBtn');
+  const stopBtn = document.getElementById('llmOpsStopBtn');
+  const restartBtn = document.getElementById('llmOpsRestartBtn');
+  [refresh, stopBtn, restartBtn].forEach((btn) => {
+    if (btn) btn.disabled = !enabled;
+  });
+  if (configEl) {
+    if (enabled) {
+      configEl.innerHTML = '<span class="badge state-running">enabled</span> ' + esc(baseURL || 'llm_ops configured');
+    } else if (configured) {
+      configEl.innerHTML = '<span class="badge state-error">token missing</span> ' + esc(baseURL || 'llm_ops configured') + '<div class="ops-sub">LLM_OPS_TOKEN が未設定のためViewerプロキシは無効です</div>';
+    } else {
+      configEl.innerHTML = '<span class="badge state-offline">disabled</span><div class="ops-sub">~/.picoclaw/config.yaml に llm_ops.enabled/base_url がありません</div>';
+    }
+  }
+  if (enabled) refreshLlmOpsStatus();
+  else {
+    state.ops.llmStatus = null;
+    state.ops.llmStatusError = configured ? 'LLM_OPS_TOKEN missing' : 'llm_ops disabled';
     renderLlmMemoryStatus();
-    refreshLlmOpsStatus();
+    setLlmOpsStatusPre(state.ops.llmStatusError);
   }
 }
 
