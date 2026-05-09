@@ -897,10 +897,10 @@ function fmtGiB(value) {
   return n.toFixed(n >= 10 ? 1 : 2) + ' GiB';
 }
 
-function fmtMiB(value) {
+function fmtGiBFromMiB(value) {
   const n = num(value);
   if (n <= 0) return '-';
-  return n.toFixed(n >= 1024 ? 0 : 1) + ' MiB';
+  return fmtGiB(n / 1024);
 }
 
 function fmtBytesAsGiB(bytes) {
@@ -4001,13 +4001,16 @@ function renderLlmMemoryStatus() {
   const freeGiB = num(system.free_gib) || (num(system.free_bytes) / 1073741824);
   const usedPct = pct(usedGiB, totalGiB);
   const freePct = pct(freeGiB, totalGiB);
-  const llmTotalMiB = Object.keys(byRole).reduce((sum, role) => sum + num(byRole[role] && byRole[role].rss_mib), 0);
+  const llmTotalMiB = Object.keys(byRole).reduce((sum, role) => {
+    const info = byRole[role] || {};
+    return sum + (num(info.rss_mib) || (num(info.rss_bytes) / 1048576));
+  }, 0);
 
   cards.innerHTML = [
     {title: 'Total RAM', big: fmtGiB(totalGiB), sub: system.total_bytes ? fmtBytesAsGiB(system.total_bytes) : 'memory.system.total_gib'},
     {title: 'Used RAM', big: fmtGiB(usedGiB), sub: usedPct.toFixed(1) + '% used'},
     {title: 'Free RAM', big: fmtGiB(freeGiB), sub: freePct.toFixed(1) + '% free'},
-    {title: 'LLM RSS Total', big: fmtMiB(llmTotalMiB), sub: 'Chat / Worker process RSS'},
+    {title: 'LLM RSS Total', big: fmtGiBFromMiB(llmTotalMiB), sub: 'Chat / Worker process RSS'},
   ].map((item) => (
     '<div class="llm-memory-card">' +
       '<div class="ops-card-title">' + esc(item.title) + '</div>' +
@@ -4038,7 +4041,7 @@ function renderLlmMemoryStatus() {
     const pid = info.pid == null ? 'stopped' : 'pid ' + String(info.pid);
     return '<div class="llm-role-memory-item">' +
       '<div class="llm-role-memory-head">' +
-        '<div><div class="llm-role-memory-title">' + esc(role) + '</div><div class="llm-role-memory-meta">' + esc(pid) + ' · ' + esc(fmtMiB(rssMiB)) + ' RSS</div></div>' +
+        '<div><div class="llm-role-memory-title">' + esc(role) + '</div><div class="llm-role-memory-meta">' + esc(pid) + ' · ' + esc(fmtGiBFromMiB(rssMiB)) + ' RSS</div></div>' +
         '<span class="badge ' + stateClass(st) + '">' + esc(st) + '</span>' +
       '</div>' +
       '<div class="llm-role-memory-bar" title="' + escAttr(rssPct.toFixed(2) + '% of system RAM') + '"><span style="width:' + escAttr(rssPct.toFixed(2)) + '%"></span></div>' +
