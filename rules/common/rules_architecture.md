@@ -250,7 +250,65 @@ def load_config(common_path: str, user_path: str | None = None) -> dict:
 
 ---
 
-## 9. プロジェクト固有ルール
+## 9. ツール・CLI・テストの言語選択
+
+### 9.1 基本原則
+
+新しい CLI、テスト、補助スクリプト、E2E を作るときは、ユーザーに都度判断させず、プロジェクト側の技術選定ルールに従う。
+
+判断順序:
+
+1. プロジェクト本体の主言語
+2. 対象領域と同じ言語圏
+3. 既存テスト・既存ツールとの整合
+4. 配布・運用のしやすさ
+5. ライブラリ適性
+
+### 9.2 CLI
+
+CLI は、原則としてプロジェクト本体の主言語を第一候補にする。
+
+理由:
+
+- 既存 config / domain / API 型を再利用しやすい
+- 配布・起動・運用の依存を増やしにくい
+- 本体と同じエラー処理・ログ処理に寄せやすい
+
+例外として、短命の解析や実験スクリプトは Python / Node.js などを選んでよい。
+ただし恒久 CLI に昇格する場合は、主言語への移植を検討する。
+
+### 9.3 ブラウザ E2E
+
+ブラウザ E2E は、対象フロントエンドと同じ言語圏を優先する。
+
+- HTML / CSS / JavaScript の Viewer や Web UI なら Node.js Playwright を第一候補にする
+- Python の既存 pytest 資産がある場合のみ Python Playwright を検討する
+- DOM、console、network、WebSocket、browser context を扱うテストは、Node.js 側に寄せる
+
+### 9.4 データ・音声・解析スクリプト
+
+データ処理、音声処理、ログ解析、実験的な集計では Python を候補にする。
+
+ただし、恒久運用に組み込む場合は以下を再確認する。
+
+- 依存環境を増やしてよいか
+- 本体 CLI と責務が重複しないか
+- 再現可能な lock / requirements 管理があるか
+- CI / systemd / 運用手順に自然に乗るか
+
+### 9.5 依存管理
+
+言語ごとの依存管理を混同しない。
+
+- Node.js: `package.json` / `package-lock.json`
+- Python: `requirements.txt` / `pyproject.toml` / lock file
+- Go: `go.mod` / `go.sum`
+
+Playwright も、Node.js で使うなら Node の依存として管理し、Python で使うなら Python の依存として管理する。
+
+---
+
+## 10. プロジェクト固有ルール
 
 - 実際に採用するリトライポリシー（回数・待機時間）
 - 設定ファイルの分割戦略

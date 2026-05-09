@@ -181,7 +181,61 @@ node --test internal/adapter/viewer/*.test.mjs
 
 ---
 
-## 9. このファイルの更新ルール
+## 9. RenCrow の言語選択
+
+技術選定の共通原則は `rules/common/rules_architecture.md` に従う。
+RenCrow では、以下を標準とする。
+
+### 9.1 CLI
+
+恒久的な RenCrow / PicoClaw CLI は Go を第一候補にする。
+
+対象:
+
+- service 操作
+- health / debug / diagnosis
+- config 検証
+- IdleChat / STT / TTS の実機診断
+- RenCrow 内部 API と密接に関わる運用コマンド
+
+理由:
+
+- 本体が Go である
+- 1 バイナリで配布しやすい
+- systemd / Linux 運用と相性がよい
+- 既存 config 型や内部 API と統合しやすい
+
+### 9.2 Viewer / Playwright E2E
+
+Viewer、ブラウザ、DOM、console、WebSocket を検証する E2E は Node.js Playwright を第一候補にする。
+
+依存は `package.json` / `package-lock.json` で管理する。
+Python の `requirements.txt` へ入れない。
+
+### 9.3 Python を使ってよい領域
+
+Python は以下の補助用途で使ってよい。
+
+- 音声ファイル処理
+- STT / Whisper 周辺の実験
+- ログ解析
+- データ加工
+- 一時的な調査スクリプト
+
+恒久運用 CLI にする場合は、Go へ寄せるべきか再検討する。
+
+### 9.4 判断に迷った場合
+
+迷った場合は以下の順で選ぶ。
+
+1. RenCrow 本体や運用 CLIなら Go
+2. Viewer / browser E2E なら Node.js
+3. 音声・データ・解析補助なら Python
+4. 例外が必要なら、理由と依存管理方法を明記する
+
+---
+
+## 10. このファイルの更新ルール
 
 以下の場合だけ、このファイルを更新対象にする。
 
