@@ -72,7 +72,7 @@ function sourceBetween(html, startNeedle, endNeedle) {
 }
 
 function loadIdleModeHarness() {
-  const html = fs.readFileSync('internal/adapter/viewer/viewer.html', 'utf8');
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const source = `
 const state = { idleChat: { selectedMode: 'manual', mode: '', manualMode: false, chatActive: false, currentTopic: '', history: [] } };
 const idleStartBtn = document.getElementById('idleStart');
@@ -92,7 +92,7 @@ const idleViewSummary = document.getElementById('idleViewSummary');
 const idleViewHistory = document.getElementById('idleViewHistory');
 const idleSubtabs = [idleLiveTab, idleSummaryTab, idleHistoryTab];
 const idleSubviews = [idleViewLive, idleViewSummary, idleViewHistory];
-` + sourceBetween(html, 'function setIdleState', 'function stateClass') + `
+` + sourceBetween(js, 'function setIdleState', 'function stateClass') + `
 globalThis.__idleHarness = {
   state,
   setIdleSelectedMode,

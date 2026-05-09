@@ -372,6 +372,7 @@ func cmdRun() {
 	sttRuntime := buildSTTRuntime(cfg)
 	debugSystemOpts := sttRuntime.DebugOptions
 	mux.HandleFunc("/viewer", viewer.HandlePage)
+	mux.HandleFunc("/viewer/assets/", viewer.HandleAsset)
 	mux.HandleFunc("/viewer/runtime-config", viewer.HandleRuntimeConfig(debugSystemOpts))
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/mio-lipsync-closed.svg", viewer.HandleMioLipSyncClosed)

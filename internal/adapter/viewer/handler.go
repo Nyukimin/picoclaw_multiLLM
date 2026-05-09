@@ -15,55 +15,47 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
 
-//go:embed viewer.html
+//go:embed viewer.html assets
 var viewerFS embed.FS
-
-//go:embed rencrow-logo.png
-var logoData []byte
-
-//go:embed mio-lipsync-closed.svg
-var mioLipSyncClosedData []byte
-
-//go:embed mio-lipsync-open.svg
-var mioLipSyncOpenData []byte
-
-//go:embed shiro-lipsync-closed.svg
-var shiroLipSyncClosedData []byte
-
-//go:embed shiro-lipsync-open.svg
-var shiroLipSyncOpenData []byte
 
 // HandleLogo serves the RenCrow logo image.
 func HandleLogo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write(logoData)
+	serveEmbeddedAsset(w, r, "assets/images/rencrow-logo.png")
 }
 
 // HandleMioLipSyncClosed serves Mio closed-mouth SVG.
 func HandleMioLipSyncClosed(w http.ResponseWriter, r *http.Request) {
-	serveEmbeddedSVG(w, mioLipSyncClosedData)
+	serveEmbeddedAsset(w, r, "assets/images/mio-lipsync-closed.svg")
 }
 
 // HandleMioLipSyncOpen serves Mio open-mouth SVG.
 func HandleMioLipSyncOpen(w http.ResponseWriter, r *http.Request) {
-	serveEmbeddedSVG(w, mioLipSyncOpenData)
+	serveEmbeddedAsset(w, r, "assets/images/mio-lipsync-open.svg")
 }
 
 // HandleShiroLipSyncClosed serves Shiro closed-mouth SVG.
 func HandleShiroLipSyncClosed(w http.ResponseWriter, r *http.Request) {
-	serveEmbeddedSVG(w, shiroLipSyncClosedData)
+	serveEmbeddedAsset(w, r, "assets/images/shiro-lipsync-closed.svg")
 }
 
 // HandleShiroLipSyncOpen serves Shiro open-mouth SVG.
 func HandleShiroLipSyncOpen(w http.ResponseWriter, r *http.Request) {
-	serveEmbeddedSVG(w, shiroLipSyncOpenData)
+	serveEmbeddedAsset(w, r, "assets/images/shiro-lipsync-open.svg")
 }
 
-func serveEmbeddedSVG(w http.ResponseWriter, data []byte) {
-	w.Header().Set("Content-Type", "image/svg+xml")
+// HandleAsset serves modular Viewer CSS, JS, and image assets.
+func HandleAsset(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/viewer/assets/")
+	if name == "" || strings.Contains(name, "..") || strings.HasPrefix(name, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	serveEmbeddedAsset(w, r, "assets/"+name)
+}
+
+func serveEmbeddedAsset(w http.ResponseWriter, r *http.Request, name string) {
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write(data)
+	http.ServeFileFS(w, r, viewerFS, name)
 }
 
 // HandleSSE streams orchestrator events to the client via Server-Sent Events.

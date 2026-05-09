@@ -103,18 +103,19 @@ class FakeAudio {
 }
 
 function loadAudioHarness() {
-  const html = fs.readFileSync('internal/adapter/viewer/viewer.html', 'utf8');
-  const start = html.indexOf('const ttsPlayback = {');
-  const end = html.indexOf('let sending = false;');
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const start = js.indexOf('const ttsPlayback = {');
+  const end = js.indexOf('let sending = false;');
   assert.ok(start > 0, 'ttsPlayback block not found');
   assert.ok(end > start, 'audio handler block end not found');
-  const source = html.slice(start, end) + `
+  const source = js.slice(start, end) + `
 globalThis.__viewerAudioHarness = {
   ttsPlayback,
   updateAudioButton,
   enqueueTTSAudio,
   toggleTTSAudio,
   setCentralTTSSpeechText,
+  chatAudioSync,
 };
 `;
 
@@ -213,6 +214,38 @@ test('tts chunk is shown when audio play resolves even if media events are misse
 
   assert.equal(harness.ttsPlayback.playing, true);
   assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '末尾の表示です。');
+});
+
+test('idlechat waits for two chunks before starting audio sync', async () => {
+  const {harness, elements} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/idle-0.wav', 'mio', 'idle-session-1', 'default', 0, '最初です。', '最初です。', '', 'idle-0');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, false);
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.equal(elements.get('idleLiveLog').children.length, 0);
+
+  harness.enqueueTTSAudio('/audio/idle-1.wav', 'mio', 'idle-session-1', 'default', 1, '次です。', '次です。', '', 'idle-1');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.textContent, '最初です。');
+});
+
+test('idlechat starts a single buffered chunk after session completed', async () => {
+  const {harness, elements} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/idle-only.wav', 'shiro', 'idle-session-done', 'default', 0, '一つだけです。', '一つだけです。', '', 'idle-only');
+  await Promise.resolve();
+  assert.equal(harness.ttsPlayback.playing, false);
+  assert.equal(elements.get('idleLiveLog').children.length, 0);
+
+  harness.chatAudioSync.markSessionCompleted('idle-session-done');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.textContent, '一つだけです。');
 });
 
 test('central chat starts a new bubble after current tts speech is cleared', () => {
