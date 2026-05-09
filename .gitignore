@@ -54,6 +54,7 @@ tasks/
 .idea/
 
 # Cache directories
+node_modules/
 .cache/
 .gocache/
 .gomodcache/

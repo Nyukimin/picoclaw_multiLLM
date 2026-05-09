@@ -1,4 +1,4 @@
-# Agents.md
+# AGENTS.md
 
 ## このファイルの役割
 
@@ -11,16 +11,24 @@
 
 作業前に、必要に応じて次の順で確認すること。
 
-1. `Agents.md`  
+1. `AGENTS.md`  
 2. `CLAUDE.md`  
 3. `docs/01_正本仕様/実装仕様.md`  
 4. 関連する実装ファイルとその周辺コード  
 5. 必要に応じて以下を参照  
+   - `rules/PROJECT_AGENT.md`
    - `rules/common/GLOBAL_AGENT.md`
    - `rules/common/rules_architecture.md`
+   - `rules/common/rules_backend.md`
+   - `rules/common/rules_frontend.md`
+   - `rules/common/rules_observation_verification.md`
+   - `rules/common/rules_regression_prevention.md`
    - `rules/common/rules_security.md`
+   - `rules/common/rules_state_management.md`
    - `rules/common/rules_testing.md`
    - `rules/common/rules_logging.md`
+   - `rules/routing-policy.md`
+   - `rules/rules_domain.md`
 
 実装判断で迷った場合、**一次参照は `docs/01_正本仕様/実装仕様.md`** とする。
 
@@ -74,6 +82,39 @@ Coder が行うのは次のみ：
 実際の適用・実行は **必ず Worker が行う**。
 
 この責務境界を崩してはいけない。
+
+---
+
+## 絶対に守る検証・状態管理ルール
+
+以下は、実装・調査・修正の種類を問わず必ず守る。
+
+1. **ユーザー観測を Ground Truth とする**  
+   ユーザーの実機観測は、AI の推測、局所テスト、ログ解釈より優先する。観測と分析が矛盾したら、分析側を疑って調査をやり直す。
+
+2. **テスト通過だけで完了扱いしない**  
+   ユニットテスト、Node/Go テスト、health ok、DOM 要素の存在だけで「直った」と判断してはいけない。実機またはそれに相当する E2E 確認で、対象フローが成立することを確認する。
+
+3. **UI / Viewer は最低 1 セッションを追う**  
+   表示不具合では、開始から終了まで最低 1 セッションを追い、表示本文、イベントログ、境界、終了状態を照合する。目視できない場合は描画ログを取る。
+
+4. **不具合リストを優先度で消さない**  
+   観測された事象は番号付きで保持する。優先度は作業順のためだけに使い、品質判断では全事象の状態を追跡する。「代表例」だけで完了扱いしない。
+
+5. **ID を乱立させない**  
+   新しい ID を追加する前に、既存の `session_id` などで表現できないか確認する。発話、応答、チャンク、セッションの単位を混同しない。
+
+6. **cache / queue / pending 状態を乱立させない**  
+   cache は性能改善や遅延吸収の道具であり、整合性設計の代替ではない。主たる真実、破棄タイミング、セッション境界、不正値混入防止を説明できない状態は追加しない。
+
+7. **表示・音声・口パク・ログを混同しない**  
+   表示は表示イベントまたは表示用 state を主たる入力とする。音声 chunk は音声再生と口パクのきっかけであり、本文表示の唯一の根拠にしない。
+
+詳細は以下に従う。
+
+- `rules/common/rules_regression_prevention.md`
+- `rules/common/rules_observation_verification.md`
+- `rules/common/rules_state_management.md`
 
 ---
 
@@ -255,10 +296,12 @@ Go のテスト実行例：
 使い分けは以下。
 
 ### 最小限で必ず意識するもの
-- `Agents.md`  
+- `AGENTS.md`  
   作業ルール
 - `CLAUDE.md`  
   プロジェクト概要と全体整理
+- `rules/routing-policy.md`
+  ルーティング判断の実務ポリシー
 - `docs/01_正本仕様/実装仕様.md`  
   実装の一次参照
 
@@ -275,12 +318,21 @@ Go のテスト実行例：
 - `rules/common/GLOBAL_AGENT.md`
 - `rules/common/rules_architecture.md`
 - `rules/common/rules_backend.md`
+- `rules/common/rules_frontend.md`
+- `rules/common/rules_observation_verification.md`
+- `rules/common/rules_regression_prevention.md`
 - `rules/common/rules_security.md`
+- `rules/common/rules_state_management.md`
 - `rules/common/rules_testing.md`
+- `rules/common/rules_logging.md`
+
+### プロジェクト固有ルール
+- `rules/PROJECT_AGENT.md`
+- `rules/routing-policy.md`
+- `rules/rules_domain.md`
 
 ### archive 参照ルール
 - `docs/archive/` は履歴参照専用。実装・仕様判断の一次参照に使わない。
-- `rules/common/rules_logging.md`
 
 アーカイブ文書は原則として直接編集しない。
 

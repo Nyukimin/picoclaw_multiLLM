@@ -10,14 +10,15 @@
 
 このファイルは、RenCrow プロジェクトにおける **AI 実装エージェント向けの実務ルール本体** です。  
 実装・修正・調査・新規追加を行う AI は、このファイルをプロジェクト固有ルールの正本として扱います。
+一般的なルールは `rules/common/` に置き、このファイルには RenCrow 固有の上書きと補足だけを書くこと。
 
 文書の役割分担は以下の通りです。
 
 - `CLAUDE.md`  
   プロジェクト全体の総覧、背景、参照順序、設計の俯瞰
-- `Agents.md`  
+- `AGENTS.md`  
   汎用 AI エージェント向けの最小実務ルール
-- `routing-policy.md`  
+- `rules/routing-policy.md`  
   ルーティング判断の実務ポリシー
 - `rules/PROJECT_AGENT.md`  
   このプロジェクトで AI が実装する際の固有ルール本体
@@ -145,8 +146,8 @@ RenCrow は、LINE / Slack などからの指示を受け、複数の LLM を適
 
 1. `docs/01_正本仕様/実装仕様.md`
 2. `rules/PROJECT_AGENT.md`
-3. `routing-policy.md`
-4. `Agents.md`
+3. `rules/routing-policy.md`
+4. `AGENTS.md`
 5. `CLAUDE.md`
 6. 補助文書・履歴文書
 
@@ -331,7 +332,7 @@ AI は実装中に必要と判断した場合、新規ファイルを作成し�
 
 ## 8. ルーティングの基本
 
-ルーティングの詳細は `routing-policy.md` を正本とする。
+ルーティングの詳細は `rules/routing-policy.md` を正本とする。
 このファイルでは実装上必要な最小限のみ扱う。
 
 ### 8.1 ルーティングカテゴリ
@@ -614,7 +615,10 @@ golangci-lint run
 
 * `rules/common/rules_architecture.md`
 * `rules/common/rules_backend.md`
+* `rules/common/rules_observation_verification.md`
+* `rules/common/rules_regression_prevention.md`
 * `rules/common/rules_security.md`
+* `rules/common/rules_state_management.md`
 * `rules/common/rules_testing.md`
 * `rules/common/rules_logging.md`
 

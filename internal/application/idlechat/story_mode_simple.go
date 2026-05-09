@@ -81,7 +81,7 @@ func (o *IdleChatOrchestrator) StartSimpleStoryMode() error {
 	o.manualMode = false
 	o.chatActive = true
 	o.sessionMode = "story-simple"
-	o.currentTopic = ""
+	o.currentTopic = idleChatPendingTopic("story-simple")
 	o.lastActivity = time.Now()
 	log.Println("[SimpleStory] Simple story mode started")
 	return nil

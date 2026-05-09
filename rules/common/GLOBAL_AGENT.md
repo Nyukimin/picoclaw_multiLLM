@@ -27,6 +27,9 @@ common/
   rules_logging.md       # ログ/観測/マスキングの詳細ガイド（別途作成）
   rules_architecture.md  # 仕様検討/設計/リトライ/バッチ等（別途作成）
   rules_security.md      # セキュリティ/依存関係/アクセス制御等（別途作成）
+  rules_observation_verification.md # 観測・検証・不具合調査
+  rules_regression_prevention.md # 再発防止・教訓網羅
+  rules_state_management.md # ID・キャッシュ・状態管理
 
 <project>/
   PROJECT_AGENT.md       # プロジェクト固有の方針
@@ -62,6 +65,7 @@ common/
 1. **観測は、仮説に勝る。**  
    ユーザーの「こう動いた・こう見えた」という観測結果は、AIの内部推論より常に優先する。  
    観測と分析が矛盾したら、分析側を疑って思考をやり直す。
+   詳細は `rules/common/rules_observation_verification.md` を参照する。
 
 2. **問いかけは、視点を倍にする。**  
    問いかけは、情報不足の穴埋めだけでなく、AIには持てない「現場の視点」を取り込む行為。  
@@ -135,6 +139,15 @@ common/
     **良い例**:  
     - 全箇所で `coder3` に統一（lowercase + 数字のみ）  
     - 結果: そもそも間違いが起きない
+
+11. **【ID・キャッシュ・状態を乱立させない】**  
+    新しい ID、cache、queue、pending 状態、derived key を追加する前に、既存 ID と既存状態で表現できないか確認する。  
+    状態の主たる真実を決めずに補助状態を増やしてはいけない。  
+    詳細は `rules/common/rules_state_management.md` を参照する。
+
+12. **【過去の教訓を網羅して再発を防ぐ】**  
+    過去に列挙した失敗や教訓は、優先度で圧縮せず、全件を追跡対象として扱う。  
+    同種の作業では `rules/common/rules_regression_prevention.md` のカバレッジ表に照らして、同じ過ちを再発させない。
 
 ---
 

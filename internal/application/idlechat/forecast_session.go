@@ -178,6 +178,9 @@ func (s *forecastTopicStock) pop(domain string) *PreparedTopic {
 func (s *forecastTopicStock) push(domain string, item PreparedTopic) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if strings.TrimSpace(item.Topic) == "" {
+		return
+	}
 	items := s.stock[domain]
 	itemKey := normalizeLoopText(item.Topic)
 	for _, existing := range items {
@@ -241,15 +244,21 @@ func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, 
 
 	if stock != nil {
 		if item := stock.pop(domain.Name); item != nil {
-			log.Printf("[Forecast] Topic popped from stock: %s (remaining=%d)", domain.Name, stock.count(domain.Name))
-			o.refillTopicStockAsync(domain)
-			return item.Topic, item.Seeds
+			topic := normalizeForecastDisplayTopic(domain, item.Topic)
+			if strings.TrimSpace(item.Topic) == "" {
+				log.Printf("[Forecast] Empty topic popped from stock: %s, falling back", domain.Name)
+			} else {
+				log.Printf("[Forecast] Topic popped from stock: %s (remaining=%d)", domain.Name, stock.count(domain.Name))
+				o.refillTopicStockAsync(domain)
+				return topic, item.Seeds
+			}
 		}
 	}
 
 	// ストック空 → インライン生成（フォールバック）
 	log.Printf("[Forecast] Stock empty for %s, generating inline", domain.Name)
-	return o.generateForecastTopicInline(domain)
+	topic, seeds := o.generateForecastTopicInline(domain)
+	return normalizeForecastDisplayTopic(domain, topic), seeds
 }
 
 // generateForecastTopicInline は従来のインライン生成パイプライン。
@@ -365,6 +374,7 @@ func generateForecastTopicPrompt(domain ForecastDomain, seeds []string, avoidThe
 // buildForecastLLMTopic は LLM に渡す詳細版トピックを構築する。
 // 背景情報・ニュースシード・議論の方向性を含む。Viewer/TTS には使わない。
 func buildForecastLLMTopic(domain ForecastDomain, displayTopic string, seeds []string) string {
+	displayTopic = normalizeForecastDisplayTopic(domain, displayTopic)
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("【%s 未来展望】%s\n\n", domain.Name, displayTopic))
 	if len(seeds) > 0 {
@@ -386,6 +396,17 @@ func buildForecastLLMTopic(domain ForecastDomain, displayTopic string, seeds []s
 - 抽象論ではなく、具体的な事例・数字・影響を挙げる
 - 過去の類似事例との比較や、国際的な視点も取り入れる`)
 	return sb.String()
+}
+
+func normalizeForecastDisplayTopic(domain ForecastDomain, topic string) string {
+	if normalized := normalizeIdleTopic(topic, false); normalized != "" {
+		return normalized
+	}
+	name := strings.TrimSpace(domain.Name)
+	if name == "" {
+		name = "未来展望"
+	}
+	return fmt.Sprintf("%sの3年後を考える", name)
 }
 
 // RunForecastSession は6ドメインを順に回す未来展望セッションを実行する。
@@ -773,7 +794,7 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 		}
 		req := llm.GenerateRequest{
 			Messages:    messages,
-			MaxTokens:   150,
+			MaxTokens:   420,
 			Temperature: 0.9 + float64(attempt)*0.05,
 		}
 		resp, err := o.forecastLLM().Generate(o.ctx, req)

@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	idleCheckInterval = 30 * time.Second
-	maxTurnsPerTopic  = 12
-	speakerBreak      = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
-	topicBreak        = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
+	idleCheckInterval         = 30 * time.Second
+	maxTurnsPerTopic          = 12
+	idleChatResponseMaxTokens = 512
+	speakerBreak              = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
+	topicBreak                = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
 
 var idleChatTTSWaitTimeout = 35 * time.Second
@@ -313,7 +314,7 @@ func (o *IdleChatOrchestrator) StartForecastMode() error {
 	o.manualMode = false
 	o.chatActive = true
 	o.sessionMode = "forecast"
-	o.currentTopic = ""
+	o.currentTopic = idleChatPendingTopic("forecast")
 	o.sessionContext = ""
 	o.lastActivity = time.Now()
 	log.Println("[Forecast] Forecast mode started")
@@ -333,7 +334,7 @@ func (o *IdleChatOrchestrator) StartStoryMode() error {
 	o.manualMode = false
 	o.chatActive = true
 	o.sessionMode = "story"
-	o.currentTopic = ""
+	o.currentTopic = idleChatPendingTopic("story")
 	o.sessionContext = ""
 	o.lastActivity = time.Now()
 	log.Println("[Story] Story mode started")
@@ -386,7 +387,21 @@ func (o *IdleChatOrchestrator) CurrentMode() string {
 func (o *IdleChatOrchestrator) CurrentTopic() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if strings.TrimSpace(o.currentTopic) == "" && o.chatActive {
+		return idleChatPendingTopic(o.sessionMode)
+	}
 	return o.currentTopic
+}
+
+func idleChatPendingTopic(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "forecast":
+		return "未来展望のお題を準備中"
+	case "story", "story-simple":
+		return "物語のお題を準備中"
+	default:
+		return "今日のお題を準備中"
+	}
 }
 
 // GetHistory returns newest-first session summaries.
@@ -787,7 +802,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 		}
 		req := llm.GenerateRequest{
 			Messages:    messages,
-			MaxTokens:   150,
+			MaxTokens:   420,
 			Temperature: 0.9 + float64(attempt)*0.05, // 高めの温度で多様性確保
 		}
 		resp, err := o.providerForSpeaker("mio").Generate(o.ctx, req)
@@ -867,8 +882,11 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 }
 
 func normalizeIdleTopic(raw string, movieMode bool) string {
-	s := strings.TrimSpace(raw)
+	s := strings.TrimSpace(extractVisibleLLMAnswer(raw))
 	if s == "" {
+		return ""
+	}
+	if hasPromptLeak(s) || hasInternalReasoningLeak(s) {
 		return ""
 	}
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
@@ -906,10 +924,35 @@ func normalizeIdleTopic(raw string, movieMode bool) string {
 	}
 	s = strings.TrimSpace(strings.TrimRight(s, "。！？!? "))
 	s = multiSpaceForTopic(s)
+	if s == "" || hasPromptLeak(s) || hasInternalReasoningLeak(s) || strings.HasPrefix(strings.TrimSpace(s), "<") || looksTruncatedIdleTopic(s) {
+		return ""
+	}
 	if movieMode {
 		return formatMovieTopicPrompt(s)
 	}
 	return strings.TrimSpace(s)
+}
+
+func looksTruncatedIdleTopic(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	if strings.HasSuffix(s, "、") || strings.HasSuffix(s, ",") {
+		return true
+	}
+	for _, suffix := range []string{"そして", "また", "から", "ため", "との", "への", "取り", "取"} {
+		if strings.HasSuffix(s, suffix) {
+			return true
+		}
+	}
+	if idx := strings.LastIndexAny(s, "、,"); idx >= 0 {
+		tail := []rune(strings.TrimSpace(s[idx+len("、"):]))
+		if len(tail) > 0 && len(tail) <= 2 {
+			return true
+		}
+	}
+	return false
 }
 
 func idleTopicGeneratorSystemPrompt() string {
@@ -1255,6 +1298,7 @@ func loopReasonLabel(reason string) string {
 }
 
 func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID string, turn int, segmentTurns int, topic string) (string, error) {
+	topic = o.resolveDialogueTopic(sessionID, speaker, topic)
 	systemPrompt := o.getSystemPrompt(speaker)
 	temp := o.temperatureForSpeaker(speaker)
 
@@ -1331,7 +1375,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 
 	req := llm.GenerateRequest{
 		Messages:    messages,
-		MaxTokens:   160,
+		MaxTokens:   idleChatResponseMaxTokens,
 		Temperature: temp,
 	}
 
@@ -1343,15 +1387,16 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	}
 	firstRaw := strings.TrimSpace(resp.Content)
 	first := sanitizeIdleResponse(resp.Content, topic)
-	if invalidIdleResponse(firstRaw) {
+	firstTruncated := finishReasonLooksTruncated(resp.FinishReason)
+	if firstTruncated || unusableIdleResponse(firstRaw, first) {
 		retryInvalid := append([]llm.Message{}, messages...)
 		retryInvalid = append(retryInvalid, llm.Message{
 			Role:    "user",
-			Content: "今の返答は無効です。記号だけや空文をやめて、自然な会話文を1-2文で言い直してください。",
+			Content: "今の返答は無効です。内部推論、<|channel|>形式、箇条書き、指示文、自己説明、途中で切れた文を一切書かず、発話としてそのまま読める自然な会話文だけを1-2文で言い直してください。",
 		})
 		respInvalid, errInvalid := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retryInvalid,
-			MaxTokens:   160,
+			MaxTokens:   idleChatResponseMaxTokens,
 			Temperature: temp,
 		})
 		if errInvalid != nil {
@@ -1360,6 +1405,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		if errInvalid == nil && strings.TrimSpace(respInvalid.Content) != "" {
 			first = sanitizeIdleResponse(respInvalid.Content, topic)
 			firstRaw = strings.TrimSpace(respInvalid.Content)
+			firstTruncated = finishReasonLooksTruncated(respInvalid.FinishReason)
 		}
 	}
 	if needsIdleStyleRetry(speaker, first, latestOther, latestSelf, topic) {
@@ -1370,7 +1416,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		})
 		respStyle, errStyle := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retryStyle,
-			MaxTokens:   160,
+			MaxTokens:   idleChatResponseMaxTokens,
 			Temperature: temp,
 		})
 		if errStyle != nil {
@@ -1379,17 +1425,18 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		if errStyle == nil && strings.TrimSpace(respStyle.Content) != "" {
 			first = sanitizeIdleResponse(respStyle.Content, topic)
 			firstRaw = strings.TrimSpace(respStyle.Content)
+			firstTruncated = finishReasonLooksTruncated(respStyle.FinishReason)
 		}
 	}
-	if hasPromptLeak(first) {
+	if hasPromptLeak(firstRaw) || hasPromptLeak(first) || hasInternalReasoningLeak(firstRaw) || hasInternalReasoningLeak(first) {
 		retryLeak := append([]llm.Message{}, messages...)
 		retryLeak = append(retryLeak, llm.Message{
 			Role:    "user",
-			Content: "指示文の断片を消して、自然な会話文だけを1-2文で言い直してください。メタ表現は禁止です。",
+			Content: "指示文や内部推論の断片を消して、自然な会話文だけを1-2文で言い直してください。メタ表現、箇条書き、分析文は禁止です。",
 		})
 		respLeak, errLeak := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retryLeak,
-			MaxTokens:   160,
+			MaxTokens:   idleChatResponseMaxTokens,
 			Temperature: temp,
 		})
 		if errLeak != nil {
@@ -1397,6 +1444,8 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		}
 		if errLeak == nil && strings.TrimSpace(respLeak.Content) != "" {
 			first = sanitizeIdleResponse(respLeak.Content, topic)
+			firstRaw = strings.TrimSpace(respLeak.Content)
+			firstTruncated = finishReasonLooksTruncated(respLeak.FinishReason)
 		}
 	}
 	if violatesAttribution(first, latestOther) {
@@ -1407,23 +1456,96 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 		})
 		resp2, err2 := o.generateIdleLLM(provider, llm.GenerateRequest{
 			Messages:    retry,
-			MaxTokens:   160,
+			MaxTokens:   idleChatResponseMaxTokens,
 			Temperature: temp,
 		})
 		if err2 != nil {
 			log.Printf("[IdleChat] retryAttribution failed (%s turn=%d): %v", speaker, turn, err2)
 		}
 		if err2 == nil && strings.TrimSpace(resp2.Content) != "" {
-			return sanitizeIdleResponse(resp2.Content, topic), nil
+			candidateRaw := strings.TrimSpace(resp2.Content)
+			candidate := sanitizeIdleResponse(resp2.Content, topic)
+			if finishReasonLooksTruncated(resp2.FinishReason) || unusableIdleResponse(candidateRaw, candidate) {
+				log.Printf("[IdleChat] retryAttribution unusable (%s turn=%d): raw=%q sanitized=%q", speaker, turn, truncate(candidateRaw, 180), truncate(candidate, 180))
+				return fallbackOrStopIdleResponse(speaker, topic, latestOther, turn)
+			}
+			return candidate, nil
 		}
 	}
 
-	if invalidIdleResponse(first) {
-		log.Printf("[IdleChat] invalid_response sanitized (%s turn=%d): raw=%q sanitized=%q", speaker, turn, firstRaw, first)
-		return "", errIdleInvalidResponse
+	if firstTruncated || unusableIdleResponse(firstRaw, first) {
+		log.Printf("[IdleChat] unusable response rejected (%s turn=%d): raw=%q sanitized=%q", speaker, turn, truncate(firstRaw, 180), truncate(first, 180))
+		return fallbackOrStopIdleResponse(speaker, topic, latestOther, turn)
 	}
 
 	return first, nil
+}
+
+func unusableIdleResponse(raw, sanitized string) bool {
+	return invalidIdleResponse(sanitized) ||
+		hasPromptLeak(raw) ||
+		hasPromptLeak(sanitized) ||
+		hasInternalReasoningLeak(raw) ||
+		hasInternalReasoningLeak(sanitized)
+}
+
+func finishReasonLooksTruncated(reason string) bool {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "length", "max_tokens", "max_output_tokens":
+		return true
+	default:
+		return false
+	}
+}
+
+func fallbackOrStopIdleResponse(speaker, topic, latestOther string, turn int) (string, error) {
+	if turn >= 8 {
+		return "", errIdleInvalidResponse
+	}
+	return fallbackIdleResponse(speaker, topic, latestOther, turn), nil
+}
+
+func (o *IdleChatOrchestrator) resolveDialogueTopic(sessionID, speaker, topic string) string {
+	if normalized := strings.TrimSpace(topic); normalized != "" {
+		return normalized
+	}
+	if sessionID != "" {
+		for _, entry := range o.memory.GetUnifiedView(24) {
+			if entry.Message.SessionID != sessionID {
+				continue
+			}
+			if extracted := extractIdleTopicText(entry.Message.Content); extracted != "" {
+				log.Printf("[IdleChat] Empty dialogue topic recovered from session memory: session=%s topic=%q", sessionID, truncate(extracted, 80))
+				return extracted
+			}
+		}
+	}
+	o.mu.Lock()
+	currentTopic := strings.TrimSpace(o.currentTopic)
+	o.mu.Unlock()
+	if currentTopic != "" && !strings.Contains(currentTopic, "準備中") {
+		log.Printf("[IdleChat] Empty dialogue topic recovered from current topic: session=%s topic=%q", sessionID, truncate(currentTopic, 80))
+		return currentTopic
+	}
+	log.Printf("[IdleChat] Empty dialogue topic; using emergency fallback: session=%s speaker=%s", sessionID, speaker)
+	return "この会話の現在のお題"
+}
+
+func extractIdleTopicText(content string) string {
+	s := strings.TrimSpace(content)
+	if s == "" {
+		return ""
+	}
+	prefixes := []string{"今日のお題", "お題"}
+	for _, prefix := range prefixes {
+		if !strings.HasPrefix(s, prefix) {
+			continue
+		}
+		if idx := strings.IndexAny(s, ":：、,"); idx >= 0 && idx+1 < len(s) {
+			return strings.TrimSpace(s[idx+1:])
+		}
+	}
+	return ""
 }
 
 func (o *IdleChatOrchestrator) generateIdleLLM(provider llm.LLMProvider, req llm.GenerateRequest) (llm.GenerateResponse, error) {
@@ -1444,17 +1566,54 @@ func fallbackIdleResponse(speaker, topic, latestOther string, turn int) string {
 	if topic == "" {
 		topic = "この話題"
 	}
-	other := strings.TrimSpace(latestOther)
-	if other != "" {
-		if strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
-			return fmt.Sprintf("そこは整理すると、直前の話は「%s」の見え方を一段具体にする入口ですね。%sでは、見る人が何を手がかりに解釈を変えるのかを考えると会話が進みそうです。", truncate(other, 36), topic)
+	topicShort := truncate(topic, 42)
+	other := truncate(strings.TrimSpace(latestOther), 34)
+	isShiro := strings.EqualFold(strings.TrimSpace(speaker), "shiro")
+	variants := turn % 8
+	if isShiro {
+		switch variants {
+		case 0:
+			return fmt.Sprintf("そのお題なら、まず%sを一つの場面に絞ると話が進みます。棚や通路みたいな具体物を置くと、見え方が安定します。", topicShort)
+		case 1:
+			if other != "" {
+				return fmt.Sprintf("今の「%s」は入口として使えますね。次は誰が何を見落としたのか、一点だけ決めると輪郭が出ます。", other)
+			}
+			return fmt.Sprintf("%sは抽象のままだと散るので、最初の発見を一つ決めたいです。小さな違和感から始めるのがよさそうです。", topicShort)
+		case 2:
+			return fmt.Sprintf("%sでは、人物の動きより先に場所のルールを決めると整理できます。何が普通で、何が一度だけズレたのかを見たいですね。", topicShort)
+		case 3:
+			return fmt.Sprintf("ここは結論を急がず、%sを触れる物に落としましょう。音、匂い、置き場所のどれか一つが次の手がかりになります。", topicShort)
+		case 4:
+			return fmt.Sprintf("%sを追うなら、誰か一人の習慣を決めるのがよさそうです。同じ動きが一度だけ崩れると、会話の焦点になります。", topicShort)
+		case 5:
+			return fmt.Sprintf("視点を少し狭めると、%sは観察記録として扱えます。最初に残る痕跡を一つ選ぶと、次の問いが自然に出ます。", topicShort)
+		case 6:
+			return fmt.Sprintf("その方向なら、場所の明るさや足音の変化を使えます。%sを説明ではなく、誰かが気づく瞬間に寄せたいですね。", topicShort)
+		default:
+			return fmt.Sprintf("いま必要なのは、%sの中で変化する一点を決めることです。人、物、時間のどれが先にズレるかで展開が変わります。", topicShort)
 		}
-		return fmt.Sprintf("それ、%sの中でもかなり大事なひっかかりだね。直前の話を受けるなら、次は見る人がどこで気づくかを決めたいな。", topic)
 	}
-	if turn == 0 {
-		return fmt.Sprintf("%sは、最初に一つ具体的な場面を置くと話しやすそうです。まず誰が何を見つけるのかから考えませんか。", topic)
+	switch variants {
+	case 0:
+		return fmt.Sprintf("えー、%sって、最初に小さな違和感を一つ置くと一気に見えそうだね。たとえば誰かがいつもと違う場所で立ち止まる場面から始めたいな。", topicShort)
+	case 1:
+		if other != "" {
+			return fmt.Sprintf("その「%s」って手がかり、けっこう効きそう。じゃあ次は、それを最初に見つける人の表情から決めてみない？", other)
+		}
+		return fmt.Sprintf("いいじゃん、%sなら人の癖が見える瞬間から入りたいな。何気ない動きが、あとで意味を持つ感じにしたい。", topicShort)
+	case 2:
+		return fmt.Sprintf("%s、ただ説明するより一場面で見せたいね。古い照明が一瞬だけ揺れる、みたいな合図があると話が動きそう。", topicShort)
+	case 3:
+		return fmt.Sprintf("気になるのは、%sの中で誰が最初に違和感へ気づくかだね。そこを決めたら、会話も自然に前へ進みそう。", topicShort)
+	case 4:
+		return fmt.Sprintf("いいね、%sなら最初の手がかりをすごく小さくしたいな。落ちている紙片とか、匂いが一瞬変わるとか、そのくらいが効きそう。", topicShort)
+	case 5:
+		return fmt.Sprintf("%sって、誰かのいつもの癖がズレるだけで話になりそう。そこから『今日は何か違う』って空気を作りたい。", topicShort)
+	case 6:
+		return fmt.Sprintf("それなら、%sを一人の目線で追うのがよさそうだね。見慣れた場所の一箇所だけが変わっていて、そこから会話が動く感じ。", topicShort)
+	default:
+		return fmt.Sprintf("じゃあ%sは、最後に大きな説明を置くより、最初に触れる物を決めたいな。その物が誰の記憶につながるかで広げられそう。", topicShort)
 	}
-	return fmt.Sprintf("%sについて、いま出た観点を一つ具体例に寄せてみたいです。どの場面でそれが見えるかを決めると進みそうです。", topic)
 }
 
 func (o *IdleChatOrchestrator) temperatureForSpeaker(speaker string) float64 {
@@ -2241,12 +2400,24 @@ func hasPromptLeak(s string) bool {
 		return false
 	}
 	markers := []string{
+		"<|",
+		"|>",
+		"channel>thought",
+		"channel=analysis",
+		"analysis to=",
+		"assistant to=",
 		"発言帰属ガード",
 		"相手の発言として受ける",
 		"前に自分も触れた",
 		"要件:",
 		"要件：",
 		"（話題:",
+		"現在の状況",
+		"目標:",
+		"目標：",
+		"制約事項",
+		"会話の制約",
+		"システムプロンプト",
 	}
 	for _, m := range markers {
 		if strings.Contains(lower, strings.ToLower(m)) {
@@ -2259,10 +2430,94 @@ func hasPromptLeak(s string) bool {
 	return false
 }
 
+func extractVisibleLLMAnswer(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	lower := strings.ToLower(s)
+	finalMarkers := []string{
+		"<|channel|>final",
+		"<|channel>final",
+		"channel>final",
+		"channel=final",
+	}
+	for _, marker := range finalMarkers {
+		if idx := strings.LastIndex(lower, marker); idx >= 0 {
+			return trimHarmonyTail(strings.TrimSpace(s[idx+len(marker):]))
+		}
+	}
+	if strings.Contains(lower, "<|channel") || strings.Contains(lower, "channel>thought") || strings.Contains(lower, "channel=analysis") {
+		return ""
+	}
+	return trimHarmonyTail(s)
+}
+
+func trimHarmonyTail(s string) string {
+	s = strings.TrimSpace(s)
+	lower := strings.ToLower(s)
+	for _, marker := range []string{"<|end|>", "<|return|>", "<|message|>", "<|endoftext|>"} {
+		if idx := strings.Index(lower, marker); idx >= 0 {
+			s = strings.TrimSpace(s[:idx])
+			lower = strings.ToLower(s)
+		}
+	}
+	return s
+}
+
+func hasInternalReasoningLeak(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	markers := []string{
+		"ユーザーは私",
+		"私はmioとして",
+		"私はshiroとして",
+		"mioとして、",
+		"shiroとして、",
+		"必要がある",
+		"遵守する必要",
+		"以下の点",
+		"会話の制約",
+		"キャラクター（",
+		"**現在の状況**",
+		"**目標**",
+		"1. **",
+		"2. **",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return true
+		}
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) >= 3 {
+		bullets := 0
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || regexp.MustCompile(`^\d+[.)．]\s*`).MatchString(line) {
+				bullets++
+			}
+		}
+		if bullets >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
 func sanitizeIdleResponse(s, topic string) string {
-	out := strings.TrimSpace(s)
+	out := strings.TrimSpace(extractVisibleLLMAnswer(s))
 	if out == "" {
 		return out
+	}
+	for _, marker := range []string{"<|channel", "channel>thought", "channel=analysis"} {
+		if idx := strings.Index(strings.ToLower(out), strings.ToLower(marker)); idx >= 0 {
+			out = strings.TrimSpace(out[:idx])
+			break
+		}
 	}
 	if strings.HasPrefix(out, "（話題:") {
 		if idx := strings.Index(out, "）"); idx >= 0 && idx+len("）") < len(out) {

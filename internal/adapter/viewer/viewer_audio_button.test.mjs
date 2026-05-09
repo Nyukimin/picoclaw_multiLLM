@@ -233,6 +233,77 @@ test('idlechat tts reuses the already visible message bubble', () => {
   assert.ok(rendered.classList.contains('tts-current'));
 });
 
+test('idlechat live timeline switches to a new topic instead of mixing topics', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'user',
+    to: 'mio',
+    content: '今日のお題: 最初の話題',
+    session_id: 'idle-topic-a',
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '最初の話題の発話です。',
+    session_id: 'idle-topic-a',
+    timestamp: '2026-05-09T00:00:01+09:00',
+  });
+  assert.equal(idleLiveLog.children.length, 2);
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'user',
+    to: 'mio',
+    content: '今日のお題: 次の話題',
+    session_id: 'idle-topic-b',
+    timestamp: '2026-05-09T00:01:00+09:00',
+  });
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.ok(idleLiveLog.children[0].innerHTML.includes('次の話題'));
+  assert.ok(!idleLiveLog.children[0].innerHTML.includes('最初の話題の発話です。'));
+});
+
+test('idlechat forecast topic event is treated as topic boundary', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'user',
+    to: 'mio',
+    content: '今日のお題: 通常話題',
+    session_id: 'idle-topic-normal',
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '通常話題の発話です。',
+    session_id: 'idle-topic-normal',
+    timestamp: '2026-05-09T00:00:01+09:00',
+  });
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'user',
+    to: 'mio',
+    content: 'お題は、未来展望の話題',
+    session_id: 'forecast-topic-1',
+    timestamp: '2026-05-09T00:02:00+09:00',
+  });
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.ok(idleLiveLog.children[0].classList.contains('idle-kind-topic'));
+  assert.ok(idleLiveLog.children[0].innerHTML.includes('未来展望の話題'));
+});
+
 test('live mode audio button mirrors state and unlocks audio', async () => {
   const {harness, elements} = loadAudioHarness();
   const audioBtn = elements.get('audioBtn');

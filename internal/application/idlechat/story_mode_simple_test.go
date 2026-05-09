@@ -85,3 +85,35 @@ func TestRunSimpleStorySessionEmitsIntroBeforeGenerationCompletes(t *testing.T) 
 		t.Fatal("story session did not finish")
 	}
 }
+
+func TestStartModesExposeNonEmptyCurrentTopicImmediately(t *testing.T) {
+	tests := []struct {
+		name  string
+		start func(*IdleChatOrchestrator) error
+	}{
+		{
+			name:  "forecast",
+			start: func(o *IdleChatOrchestrator) error { return o.StartForecastMode() },
+		},
+		{
+			name:  "story",
+			start: func(o *IdleChatOrchestrator) error { return o.StartStoryMode() },
+		},
+		{
+			name:  "story-simple",
+			start: func(o *IdleChatOrchestrator) error { return o.StartSimpleStoryMode() },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+			if err := tt.start(o); err != nil {
+				t.Fatalf("start failed: %v", err)
+			}
+			if got := o.CurrentTopic(); got == "" {
+				t.Fatal("current topic is empty immediately after start")
+			}
+		})
+	}
+}

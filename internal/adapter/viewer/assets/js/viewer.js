@@ -225,6 +225,9 @@ const idleTTSSpeech = {
   chunkKeys: new Set(),
 };
 const idlePendingMessages = new Map();
+let idleLiveTopicKey = '';
+const idleLiveRenderedLog = [];
+if (typeof window !== 'undefined') window.__idleLiveRenderedLog = idleLiveRenderedLog;
 const IDLE_MESSAGE_FALLBACK_MS = 10000;
 
 function setLipSyncSpeaking(characterId, speaking) {
@@ -482,7 +485,6 @@ function switchTab(tab) {
   }
   updateLatestButton();
   if (sttControlsReady) {
-    if (tab === 'idlechat' && sttState.isRecording) stopSTT();
     updateSTTInputIndicators();
   }
   if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
@@ -1082,6 +1084,38 @@ function removeIdleLiveEmpty() {
   if (empty) empty.remove();
 }
 
+function clearIdleLiveTimelineForTopic(ev) {
+  if (!idleLiveLog || !isIdleTopicEvent(ev)) return;
+  const key = idleTopicKey(ev);
+  if (!key || key === idleLiveTopicKey) return;
+  idleLiveTopicKey = key;
+  idlePendingMessages.clear();
+  resetTTSSpeechBubble(idleTTSSpeech);
+  if (typeof idleLiveLog.replaceChildren === 'function') idleLiveLog.replaceChildren();
+  else {
+    idleLiveLog.innerHTML = '';
+    if (Array.isArray(idleLiveLog.children)) idleLiveLog.children.length = 0;
+  }
+}
+
+function idleTopicKey(ev) {
+  const sid = String((ev && (ev.session_id || ev.chat_id)) || '').trim();
+  const content = normalizeViewerDisplayText((ev && ev.content) || '').trim();
+  return sid + '|' + content;
+}
+
+function recordIdleLiveRendered(kind, ev, text) {
+  idleLiveRenderedLog.push({
+    kind,
+    from: String((ev && ev.from) || ''),
+    to: String((ev && ev.to) || ''),
+    session_id: String((ev && (ev.session_id || ev.chat_id)) || ''),
+    content: String(text || ''),
+    timestamp: String((ev && ev.timestamp) || new Date().toISOString()),
+  });
+  while (idleLiveRenderedLog.length > 200) idleLiveRenderedLog.shift();
+}
+
 function idlePendingQueue(sessionId) {
   const sid = String(sessionId || '').trim() || 'idlechat';
   if (!idlePendingMessages.has(sid)) idlePendingMessages.set(sid, []);
@@ -1171,6 +1205,7 @@ function addMsgToTimeline(ev) {
 
 function addIdleMsgToTimeline(ev) {
   if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return;
+  clearIdleLiveTimelineForTopic(ev);
   queueIdleMessageForTTS(ev);
 }
 
@@ -1195,6 +1230,7 @@ function appendIdleLiveMessageEvent(ev) {
     '<div class="mc">' + fmt(displayContent) + '</div></div>';
   el.querySelector('.mc').dataset.raw = ev.content || '';
   idleLiveLog.appendChild(el);
+  recordIdleLiveRendered(kind, ev, displayContent);
   trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
   idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
   return el;
@@ -1218,6 +1254,7 @@ function addIdleSummaryToTimeline(ev) {
     '<div class="mc">' + fmt(displayContent) + '</div></div>';
   el.querySelector('.mc').dataset.raw = ev.content || '';
   idleLiveLog.appendChild(el);
+  recordIdleLiveRendered('summary', ev, displayContent);
   trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
   idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
 }
@@ -1226,7 +1263,7 @@ function isIdleTopicEvent(ev) {
   const content = String((ev && ev.content) || '').trim();
   return String((ev && ev.from) || '').toLowerCase() === 'user' &&
     String((ev && ev.to) || '').toLowerCase() === 'mio' &&
-    /^今日のお題/.test(content);
+    (/^今日のお題/.test(content) || /^お題は[、,:：]/.test(content));
 }
 
 function isTTSSyncedSpeaker(agentID) {
