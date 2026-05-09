@@ -60,6 +60,7 @@ tasks/
 scripts/__pycache__/
 
 # Local generated artifacts
+/tmp/
 /test-story
 /.serena/go-build/
 /.serena/gomodcache/
