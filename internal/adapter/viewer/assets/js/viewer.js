@@ -4001,16 +4001,15 @@ function renderLlmMemoryStatus() {
   const freeGiB = num(system.free_gib) || (num(system.free_bytes) / 1073741824);
   const usedPct = pct(usedGiB, totalGiB);
   const freePct = pct(freeGiB, totalGiB);
-  const llmTotalMiB = Object.keys(byRole).reduce((sum, role) => {
-    const info = byRole[role] || {};
-    return sum + (num(info.rss_mib) || (num(info.rss_bytes) / 1048576));
-  }, 0);
+  const chatRSSMiB = roleRSSMiB(byRole.Chat);
+  const workerRSSMiB = roleRSSMiB(byRole.Worker);
 
   cards.innerHTML = [
     {title: 'Total RAM', big: fmtGiB(totalGiB), sub: system.total_bytes ? fmtBytesAsGiB(system.total_bytes) : 'memory.system.total_gib'},
     {title: 'Used RAM', big: fmtGiB(usedGiB), sub: usedPct.toFixed(1) + '% used'},
     {title: 'Free RAM', big: fmtGiB(freeGiB), sub: freePct.toFixed(1) + '% free'},
-    {title: 'LLM RSS Total', big: fmtGiBFromMiB(llmTotalMiB), sub: 'Chat / Worker process RSS'},
+    {title: 'Chat RSS', big: fmtGiBFromMiB(chatRSSMiB), sub: rolePIDLabel(byRole.Chat)},
+    {title: 'Worker RSS', big: fmtGiBFromMiB(workerRSSMiB), sub: rolePIDLabel(byRole.Worker)},
   ].map((item) => (
     '<div class="llm-memory-card">' +
       '<div class="ops-card-title">' + esc(item.title) + '</div>' +
@@ -4035,7 +4034,7 @@ function renderLlmMemoryStatus() {
   }
   rolesEl.innerHTML = roles.map((role) => {
     const info = byRole[role] || {};
-    const rssMiB = num(info.rss_mib) || (num(info.rss_bytes) / 1048576);
+    const rssMiB = roleRSSMiB(info);
     const rssPct = pct(rssMiB, totalGiB * 1024);
     const st = llmRoleMemoryState(role, info);
     const pid = info.pid == null ? 'stopped' : 'pid ' + String(info.pid);
@@ -4047,6 +4046,16 @@ function renderLlmMemoryStatus() {
       '<div class="llm-role-memory-bar" title="' + escAttr(rssPct.toFixed(2) + '% of system RAM') + '"><span style="width:' + escAttr(rssPct.toFixed(2)) + '%"></span></div>' +
     '</div>';
   }).join('');
+}
+
+function roleRSSMiB(info) {
+  if (!info) return 0;
+  return num(info.rss_mib) || (num(info.rss_bytes) / 1048576);
+}
+
+function rolePIDLabel(info) {
+  if (!info || info.pid == null) return 'stopped';
+  return 'pid ' + String(info.pid);
 }
 
 async function refreshLlmOpsStatus() {
