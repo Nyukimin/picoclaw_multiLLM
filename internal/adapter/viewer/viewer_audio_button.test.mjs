@@ -60,7 +60,11 @@ class FakeElement {
   }
   querySelector(selector) {
     if (selector === '.mc') {
-      if (!this._mc) this._mc = new FakeElement('mc');
+      if (!this._mc) {
+        this._mc = new FakeElement('mc');
+        const match = String(this.innerHTML || '').match(/<div class="mc">([\s\S]*?)<\/div>/);
+        if (match) this._mc.textContent = match[1];
+      }
       return this._mc;
     }
     return null;
@@ -205,6 +209,28 @@ test('idlechat message is visible before tts chunk arrives', () => {
 
   assert.equal(idleLiveLog.children.length, 1);
   assert.ok(idleLiveLog.children[0].innerHTML.includes('TTSを待たずに表示する発話です。'));
+});
+
+test('idlechat tts reuses the already visible message bubble', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '表示済みの発話をそのまま口パク対象にします。',
+    session_id: 'idle-reuse-1',
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+  const rendered = idleLiveLog.children[0];
+
+  harness.setCentralTTSSpeechText('mio', '表示済みの発話をそのまま口パク対象にします。', 'idle-reuse-1', 0, 'chunk-0');
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.equal(idleLiveLog.children[0], rendered);
+  assert.equal(rendered._mc.textContent, '表示済みの発話をそのまま口パク対象にします。');
+  assert.ok(rendered.classList.contains('tts-current'));
 });
 
 test('live mode audio button mirrors state and unlocks audio', async () => {

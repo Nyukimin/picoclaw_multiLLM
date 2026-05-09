@@ -1096,13 +1096,11 @@ function queueIdleMessageForTTS(ev) {
     ev,
     el,
     from: String(ev.from || '').trim().toLowerCase(),
-    displayed: true,
+    consumed: false,
     timer: null,
   };
   item.timer = setTimeout(() => {
-    if (item.displayed) return;
-    item.displayed = true;
-    appendIdleLiveMessageEvent(item.ev);
+    item.consumed = true;
     pruneIdlePendingQueue(sid);
   }, IDLE_MESSAGE_FALLBACK_MS);
   idlePendingQueue(sid).push(item);
@@ -1113,11 +1111,11 @@ function consumeIdlePendingMessage(sessionId, characterId) {
   const queue = idlePendingMessages.get(sid);
   if (!queue || queue.length === 0) return;
   const id = String(characterId || '').trim().toLowerCase();
-  let idx = queue.findIndex((item) => !item.displayed && (!id || item.from === id));
-  if (idx < 0) idx = queue.findIndex((item) => !item.displayed);
+  let idx = queue.findIndex((item) => !item.consumed && (!id || item.from === id));
+  if (idx < 0) idx = queue.findIndex((item) => !item.consumed);
   if (idx < 0) return;
   const item = queue[idx];
-  item.displayed = true;
+  item.consumed = true;
   if (item.timer) clearTimeout(item.timer);
   queue.splice(idx, 1);
   if (queue.length === 0) idlePendingMessages.delete(sid);
@@ -1128,7 +1126,7 @@ function pruneIdlePendingQueue(sessionId) {
   const sid = String(sessionId || '').trim() || 'idlechat';
   const queue = idlePendingMessages.get(sid);
   if (!queue) return;
-  const kept = queue.filter((item) => !item.displayed);
+  const kept = queue.filter((item) => !item.consumed);
   if (kept.length === 0) idlePendingMessages.delete(sid);
   else idlePendingMessages.set(sid, kept);
 }
