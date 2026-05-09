@@ -371,9 +371,24 @@ func cmdRun() {
 	// Live Viewer
 	sttRuntime := buildSTTRuntime(cfg)
 	debugSystemOpts := sttRuntime.DebugOptions
+	llmOpsToken := strings.TrimSpace(os.Getenv("LLM_OPS_TOKEN"))
+	debugSystemOpts.LLMOpsEnabled = cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken != ""
+	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
+		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
+	}
 	mux.HandleFunc("/viewer", viewer.HandlePage)
 	mux.HandleFunc("/viewer/assets/", viewer.HandleAsset)
 	mux.HandleFunc("/viewer/runtime-config", viewer.HandleRuntimeConfig(debugSystemOpts))
+	if debugSystemOpts.LLMOpsEnabled {
+		llmOpsOpts := viewer.LLMOpsProxyOptions{
+			BaseURL: cfg.LLMOps.BaseURL,
+			Token:   llmOpsToken,
+		}
+		mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(llmOpsOpts))
+		mux.HandleFunc("/viewer/llm-ops/stop", viewer.HandleLLMOpsStop(llmOpsOpts))
+		mux.HandleFunc("/viewer/llm-ops/restart", viewer.HandleLLMOpsRestart(llmOpsOpts))
+		log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
+	}
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/mio-lipsync-closed.svg", viewer.HandleMioLipSyncClosed)
 	mux.HandleFunc("/viewer/mio-lipsync-open.svg", viewer.HandleMioLipSyncOpen)

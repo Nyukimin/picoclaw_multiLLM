@@ -45,11 +45,13 @@ type DebugSystemOptions struct {
 	STTStreamURL  string
 	TTSBaseURL    string
 	TTSHealthPath string
+	LLMOpsEnabled bool
 }
 
 type RuntimeConfig struct {
-	STTStreamURL string `json:"stt_stream_url,omitempty"`
-	STTBaseURL   string `json:"stt_base_url,omitempty"`
+	STTStreamURL  string `json:"stt_stream_url,omitempty"`
+	STTBaseURL    string `json:"stt_base_url,omitempty"`
+	LLMOpsEnabled bool   `json:"llm_ops_enabled,omitempty"`
 }
 
 func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
@@ -60,8 +62,9 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(RuntimeConfig{
-			STTStreamURL: strings.TrimSpace(opts.STTStreamURL),
-			STTBaseURL:   strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+			STTStreamURL:  strings.TrimSpace(opts.STTStreamURL),
+			STTBaseURL:    strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+			LLMOpsEnabled: opts.LLMOpsEnabled,
 		})
 	}
 }

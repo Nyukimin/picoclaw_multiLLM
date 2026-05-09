@@ -1502,3 +1502,33 @@ func TestValidateCoderConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_Validate_LLMOps(t *testing.T) {
+	base := func() *Config {
+		cfg := &Config{
+			Server:  ServerConfig{Port: 8080},
+			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+			Session: SessionConfig{StorageDir: "./data"},
+		}
+		cfg.Coder1.Name = "aka"
+		cfg.Coder2.Name = "ao"
+		cfg.Coder3.Name = "gin"
+		cfg.Coder4.Name = "kin"
+		return cfg
+	}
+	t.Run("enabled without base_url", func(t *testing.T) {
+		cfg := base()
+		cfg.LLMOps.Enabled = true
+		if err := cfg.Validate(); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+	t.Run("enabled with base_url", func(t *testing.T) {
+		cfg := base()
+		cfg.LLMOps.Enabled = true
+		cfg.LLMOps.BaseURL = "http://192.168.1.31:8079"
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}

@@ -31,3 +31,21 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 		t.Fatalf("unexpected stt base url: %+v", body)
 	}
 }
+
+func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
+	handler := HandleRuntimeConfig(DebugSystemOptions{
+		LLMOpsEnabled: true,
+	})
+	rec := httptest.NewRecorder()
+	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	var body RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.LLMOpsEnabled {
+		t.Fatalf("expected llm_ops_enabled: %+v", body)
+	}
+}

@@ -76,6 +76,10 @@ type Config struct {
 	// === Viewer persisted JSON operation log ===
 	ViewerLog ViewerLogConfig `yaml:"viewer_log"`
 
+	// === Viewer → MLX 管理デーモン プロキシ（stop / restart / status）===
+	// トークンは環境変数 LLM_OPS_TOKEN のみ（YAML に平文保存しないこと）。
+	LLMOps LLMOpsConfig `yaml:"llm_ops"`
+
 	// === Agent Persona files (v4.2) ===
 	MioPersonaFile string `yaml:"mio_persona_file"` // workspace_dir からの相対パス
 
@@ -147,6 +151,13 @@ type LocalLLMConfig struct {
 	Warmup            *bool  `yaml:"warmup"`
 	GlobalConcurrency int    `yaml:"global_concurrency"`
 	ModelConcurrency  int    `yaml:"model_concurrency"`
+}
+
+// LLMOpsConfig は MLX 運用デーモン（8079 番管理 API）への Viewer 経由プロキシ用。
+// Bearer は LLM_OPS_TOKEN 環境変数から読む。
+type LLMOpsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	BaseURL string `yaml:"base_url"` // 例: http://192.168.1.31:8079
 }
 
 // SessionConfig はセッション設定
@@ -922,7 +933,15 @@ func (c *Config) Validate() error {
 		if c.LocalLLM.ModelConcurrency < 1 {
 			return fmt.Errorf("local_llm model_concurrency must be >= 1")
 		}
-	} else {
+	}
+
+	if c.LLMOps.Enabled {
+		if strings.TrimSpace(c.LLMOps.BaseURL) == "" {
+			return fmt.Errorf("llm_ops.base_url is required when llm_ops.enabled=true")
+		}
+	}
+
+	if !c.LocalLLM.Enabled {
 		// Ollama設定検証
 		if c.Ollama.BaseURL == "" {
 			return fmt.Errorf("ollama base_url is required")
