@@ -54,7 +54,11 @@ func HandleAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func serveEmbeddedAsset(w http.ResponseWriter, r *http.Request, name string) {
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if strings.HasSuffix(name, ".js") || strings.HasSuffix(name, ".css") {
+		w.Header().Set("Cache-Control", "no-cache")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+	}
 	http.ServeFileFS(w, r, viewerFS, name)
 }
 
