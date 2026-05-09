@@ -210,6 +210,7 @@ const centralTTSSpeech = {
   responseId: '',
   bubbleKind: '',
   active: false,
+  preRendered: false,
   chunkKeys: new Set(),
 };
 const idleTTSSpeech = {
@@ -220,6 +221,7 @@ const idleTTSSpeech = {
   responseId: '',
   bubbleKind: '',
   active: false,
+  preRendered: false,
   chunkKeys: new Set(),
 };
 const idlePendingMessages = new Map();
@@ -283,17 +285,25 @@ function setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utte
   const key = String(utteranceId || '') || (sid + ':' + String(normalizedChunkIndex >= 0 ? normalizedChunkIndex : speech.chunkKeys.size));
   if (!speech.el || speech.characterId !== id || speech.bubbleKind !== bubbleKind || shouldStartNewTTSBubble(speech, normalizedChunkIndex, key, rid)) {
     if (speech.el) speech.el.classList.remove('tts-current');
-    const el = document.createElement('div');
-    const idleClass = target === 'idle' ? ' idle-live-item idle-kind-tts idle-kind-' + bubbleKind : '';
-    const kindLabel = target === 'idle' ? '<span class="idle-kind">' + (bubbleKind === 'topic' ? 'Topic' : 'Speech') + '</span>' : '';
-    el.className = 'msg tts-current' + (id === 'shiro' ? ' shiro' : '') + idleClass;
-    el.innerHTML =
-      '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
-      '<div class="mb"><div class="mh">' +
-        kindLabel +
-        '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
-        '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
-      '</div><div class="mc"></div></div>';
+    const rendered = target === 'idle' ? consumeIdlePendingMessage(sid, id) : null;
+    const el = rendered && rendered.el ? rendered.el : document.createElement('div');
+    if (rendered && rendered.el) {
+      el.classList.add('tts-current');
+      el.classList.add('idle-kind-tts');
+      el.classList.add('idle-kind-' + bubbleKind);
+      el.classList.toggle('shiro', id === 'shiro');
+    } else {
+      const idleClass = target === 'idle' ? ' idle-live-item idle-kind-tts idle-kind-' + bubbleKind : '';
+      const kindLabel = target === 'idle' ? '<span class="idle-kind">' + (bubbleKind === 'topic' ? 'Topic' : 'Speech') + '</span>' : '';
+      el.className = 'msg tts-current' + (id === 'shiro' ? ' shiro' : '') + idleClass;
+      el.innerHTML =
+        '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+        '<div class="mb"><div class="mh">' +
+          kindLabel +
+          '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
+          '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
+        '</div><div class="mc"></div></div>';
+    }
     speech.el = el;
     speech.textEl = el.querySelector('.mc');
     speech.characterId = id;
@@ -301,15 +311,15 @@ function setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utte
     speech.responseId = rid;
     speech.bubbleKind = bubbleKind;
     speech.active = true;
+    speech.preRendered = !!(rendered && rendered.el);
     speech.chunkKeys = new Set();
     if (target === 'central') {
       const em = document.getElementById('empty');
       if (em) em.remove();
     } else {
-      consumeIdlePendingMessage(sid, id);
       removeIdleLiveEmpty();
     }
-    container.appendChild(el);
+    if (!(rendered && rendered.el)) container.appendChild(el);
     trimTimelineNodesFor(container, MAX_TIMELINE_NODES);
   } else {
     speech.el.classList.add('tts-current');
@@ -324,7 +334,7 @@ function setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utte
   speech.chunkKeys.add(key);
   if (speech.textEl) {
     const current = String(speech.textEl.textContent || '');
-    speech.textEl.textContent = appendCentralTTSText(current, normalizedText);
+    speech.textEl.textContent = speech.preRendered ? current : appendCentralTTSText(current, normalizedText);
     speech.textEl.dataset.raw = speech.textEl.textContent;
   }
   if (target === 'central') scrollToBottom();
@@ -339,6 +349,7 @@ function resetCentralTTSSpeechBubble() {
 function resetTTSSpeechBubble(speech) {
   if (speech.el) speech.el.classList.remove('tts-current');
   speech.active = false;
+  speech.preRendered = false;
 }
 
 function shouldStartNewTTSBubble(speech, chunkIndex, key, responseId) {
@@ -1080,10 +1091,12 @@ function idlePendingQueue(sessionId) {
 function queueIdleMessageForTTS(ev) {
   if (!ev || ev.type !== 'idlechat.message') return;
   const sid = String(ev.session_id || ev.chat_id || '').trim() || 'idlechat';
+  const el = appendIdleLiveMessageEvent(ev);
   const item = {
     ev,
+    el,
     from: String(ev.from || '').trim().toLowerCase(),
-    displayed: false,
+    displayed: true,
     timer: null,
   };
   item.timer = setTimeout(() => {
@@ -1108,6 +1121,7 @@ function consumeIdlePendingMessage(sessionId, characterId) {
   if (item.timer) clearTimeout(item.timer);
   queue.splice(idx, 1);
   if (queue.length === 0) idlePendingMessages.delete(sid);
+  return item;
 }
 
 function pruneIdlePendingQueue(sessionId) {
@@ -1163,7 +1177,7 @@ function addIdleMsgToTimeline(ev) {
 }
 
 function appendIdleLiveMessageEvent(ev) {
-  if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return;
+  if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return null;
   removeIdleLiveEmpty();
 
   const f = ag(ev.from);
@@ -1185,6 +1199,7 @@ function appendIdleLiveMessageEvent(ev) {
   idleLiveLog.appendChild(el);
   trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
   idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
+  return el;
 }
 
 function addIdleSummaryToTimeline(ev) {

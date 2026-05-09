@@ -115,6 +115,7 @@ globalThis.__viewerAudioHarness = {
   enqueueTTSAudio,
   toggleTTSAudio,
   setCentralTTSSpeechText,
+  addIdleMsgToTimeline,
   chatAudioSync,
 };
 `;
@@ -156,6 +157,7 @@ globalThis.__viewerAudioHarness = {
     setLipSyncSpeaking() {},
     scrollToBottom() {},
     ftime: () => '12:00:00',
+    fmt: (s) => String(s || ''),
     ag: (id) => ({c: id === 'shiro' ? '#22d3ee' : '#f472b6', l: id || 'mio', e: ''}),
   };
   vm.createContext(context);
@@ -186,6 +188,23 @@ test('speaker button can turn ready audio off without stopping central chat fall
 
   timers.shift()();
   assert.equal(harness.ttsPlayback.fallbackActive, false);
+});
+
+test('idlechat message is visible before tts chunk arrives', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: 'TTSを待たずに表示する発話です。',
+    session_id: 'idle-visible-1',
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.ok(idleLiveLog.children[0].innerHTML.includes('TTSを待たずに表示する発話です。'));
 });
 
 test('live mode audio button mirrors state and unlocks audio', async () => {
