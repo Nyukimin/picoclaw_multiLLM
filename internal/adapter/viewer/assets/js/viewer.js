@@ -138,6 +138,8 @@ const state = {
     latestJobID: '',
     latestRoute: '',
     latestError: null,
+    llmStatus: null,
+    llmStatusError: '',
   },
   debug: {
     gpu: null,
@@ -875,6 +877,36 @@ idleSubtabs.forEach((btn) => {
 });
 
 function stateClass(s) { return 'state-' + normState(s); }
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function pct(part, total) {
+  const p = num(part);
+  const t = num(total);
+  if (t <= 0) return 0;
+  return Math.max(0, Math.min(100, (p / t) * 100));
+}
+
+function fmtGiB(value) {
+  const n = num(value);
+  if (n <= 0) return '-';
+  return n.toFixed(n >= 10 ? 1 : 2) + ' GiB';
+}
+
+function fmtMiB(value) {
+  const n = num(value);
+  if (n <= 0) return '-';
+  return n.toFixed(n >= 1024 ? 0 : 1) + ' MiB';
+}
+
+function fmtBytesAsGiB(bytes) {
+  const n = num(bytes);
+  if (n <= 0) return '-';
+  return fmtGiB(n / 1073741824);
+}
 
 function bump() {
   msgCount++;
@@ -3828,6 +3860,10 @@ setInterval(refreshEvidenceSummary, 5000);
 setInterval(refreshMemorySnapshot, 15000);
 setInterval(refreshRecallTraces, 15000);
 setInterval(refreshDebugSystem, 5000);
+setInterval(() => {
+  const panel = document.getElementById('llmOpsPanel');
+  if (panel && panel.style.display !== 'none') refreshLlmOpsStatus();
+}, 5000);
 refreshDebugSystem();
 registerWebMCPTools();
 connect();
@@ -3910,6 +3946,8 @@ function syncLLMOpsPanel(cfg) {
   panel.style.display = on ? '' : 'none';
   if (on) {
     bindLLMOpsButtons();
+    renderLlmMemoryStatus();
+    refreshLlmOpsStatus();
   }
 }
 
@@ -3918,13 +3956,98 @@ function setLlmOpsStatusPre(text) {
   if (el) el.textContent = text == null ? '' : String(text);
 }
 
+function llmRoleMemoryState(role, info) {
+  if (!info || info.pid == null || info.rss_mib == null) return 'offline';
+  const roleState = state.ops.llmStatus && state.ops.llmStatus.roles && state.ops.llmStatus.roles[role];
+  if (roleState && roleState.halted) return 'error';
+  if (roleState && roleState.health_ok === false) return 'error';
+  return 'running';
+}
+
+function renderLlmMemoryStatus() {
+  const cards = document.getElementById('llmMemoryCards');
+  const systemBar = document.getElementById('llmMemorySystemBar');
+  const rolesEl = document.getElementById('llmMemoryRoles');
+  if (!cards || !systemBar || !rolesEl) return;
+
+  const status = state.ops.llmStatus || {};
+  const memory = status.memory || {};
+  const system = memory.system || {};
+  const byRole = memory.llm_by_role || {};
+  const totalGiB = num(system.total_gib) || (num(system.total_bytes) / 1073741824);
+  const usedGiB = num(system.used_gib) || (num(system.used_bytes) / 1073741824);
+  const freeGiB = num(system.free_gib) || (num(system.free_bytes) / 1073741824);
+  const usedPct = pct(usedGiB, totalGiB);
+  const freePct = pct(freeGiB, totalGiB);
+  const llmTotalMiB = Object.keys(byRole).reduce((sum, role) => sum + num(byRole[role] && byRole[role].rss_mib), 0);
+
+  cards.innerHTML = [
+    {title: 'Total RAM', big: fmtGiB(totalGiB), sub: system.total_bytes ? fmtBytesAsGiB(system.total_bytes) : 'memory.system.total_gib'},
+    {title: 'Used RAM', big: fmtGiB(usedGiB), sub: usedPct.toFixed(1) + '% used'},
+    {title: 'Free RAM', big: fmtGiB(freeGiB), sub: freePct.toFixed(1) + '% free'},
+    {title: 'LLM RSS Total', big: fmtMiB(llmTotalMiB), sub: 'Chat / Worker process RSS'},
+  ].map((item) => (
+    '<div class="llm-memory-card">' +
+      '<div class="ops-card-title">' + esc(item.title) + '</div>' +
+      '<div class="ops-big">' + esc(item.big) + '</div>' +
+      '<div class="ops-sub">' + esc(item.sub) + '</div>' +
+    '</div>'
+  )).join('');
+
+  const barFill = systemBar.querySelector('span');
+  if (barFill) barFill.style.width = usedPct.toFixed(1) + '%';
+  systemBar.title = 'Used ' + usedPct.toFixed(1) + '% / Free ' + freePct.toFixed(1) + '%';
+
+  const roles = Object.keys(byRole).sort((a, b) => {
+    const order = {Chat: 0, Worker: 1};
+    return (order[a] ?? 50) - (order[b] ?? 50) || a.localeCompare(b);
+  });
+  if (roles.length === 0) {
+    rolesEl.innerHTML = state.ops.llmStatusError
+      ? '<div class="debug-empty">' + esc(state.ops.llmStatusError) + '</div>'
+      : '<div class="debug-empty">memory.llm_by_role is empty</div>';
+    return;
+  }
+  rolesEl.innerHTML = roles.map((role) => {
+    const info = byRole[role] || {};
+    const rssMiB = num(info.rss_mib) || (num(info.rss_bytes) / 1048576);
+    const rssPct = pct(rssMiB, totalGiB * 1024);
+    const st = llmRoleMemoryState(role, info);
+    const pid = info.pid == null ? 'stopped' : 'pid ' + String(info.pid);
+    return '<div class="llm-role-memory-item">' +
+      '<div class="llm-role-memory-head">' +
+        '<div><div class="llm-role-memory-title">' + esc(role) + '</div><div class="llm-role-memory-meta">' + esc(pid) + ' · ' + esc(fmtMiB(rssMiB)) + ' RSS</div></div>' +
+        '<span class="badge ' + stateClass(st) + '">' + esc(st) + '</span>' +
+      '</div>' +
+      '<div class="llm-role-memory-bar" title="' + escAttr(rssPct.toFixed(2) + '% of system RAM') + '"><span style="width:' + escAttr(rssPct.toFixed(2)) + '%"></span></div>' +
+    '</div>';
+  }).join('');
+}
+
 async function refreshLlmOpsStatus() {
   try {
     const res = await fetch('/viewer/llm-ops/status', { cache: 'no-store' });
     const body = await res.text();
-    setLlmOpsStatusPre((res.ok ? '' : 'HTTP ' + res.status + '\n') + body);
+    if (!res.ok) {
+      state.ops.llmStatusError = 'HTTP ' + res.status;
+      setLlmOpsStatusPre('HTTP ' + res.status + '\n' + body);
+      renderLlmMemoryStatus();
+      return;
+    }
+    try {
+      state.ops.llmStatus = JSON.parse(body);
+      state.ops.llmStatusError = '';
+      renderLlmMemoryStatus();
+      setLlmOpsStatusPre(JSON.stringify(state.ops.llmStatus, null, 2));
+    } catch (parseErr) {
+      state.ops.llmStatusError = String(parseErr);
+      setLlmOpsStatusPre(body);
+      renderLlmMemoryStatus();
+    }
   } catch (err) {
+    state.ops.llmStatusError = String(err);
     setLlmOpsStatusPre(String(err));
+    renderLlmMemoryStatus();
   }
 }
 
@@ -3938,6 +4061,7 @@ async function llmOpsStopChatWorker() {
     });
     const body = await res.text();
     setLlmOpsStatusPre((res.ok ? '' : 'HTTP ' + res.status + '\n') + body);
+    await refreshLlmOpsStatus();
   } catch (err) {
     setLlmOpsStatusPre(String(err));
   }
@@ -3953,6 +4077,7 @@ async function llmOpsRestartAllRoles() {
     });
     const body = await res.text();
     setLlmOpsStatusPre((res.ok ? '' : 'HTTP ' + res.status + '\n') + body);
+    await refreshLlmOpsStatus();
   } catch (err) {
     setLlmOpsStatusPre(String(err));
   }

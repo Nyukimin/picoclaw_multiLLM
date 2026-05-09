@@ -19,6 +19,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="sourceRegistryYAML"/);
   assert.match(html, /id="memoryBody"/);
   assert.match(html, /id="newsPackBody"/);
+  assert.match(html, /id="llmMemoryCards"/);
+  assert.match(html, /id="llmMemorySystemBar"/);
+  assert.match(html, /id="llmMemoryRoles"/);
   assert.match(html, /data-tab="news-pack"/);
   assert.match(html, /id="panel-news-pack"/);
   assert.match(html, /id="newsPackDetail"/);
@@ -37,6 +40,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /function refreshMemoryLayers/);
   assert.match(js, /function refreshMemoryEvents/);
   assert.match(js, /function renderMemoryEvents/);
+  assert.match(js, /function renderLlmMemoryStatus/);
+  assert.match(js, /memory\.system/);
+  assert.match(js, /memory\.llm_by_role/);
   assert.match(js, /function refreshSourceRegistry/);
   assert.match(js, /function runSourceRegistryEntry/);
   assert.match(js, /function refreshRecallTraces/);

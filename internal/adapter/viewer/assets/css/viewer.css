@@ -132,6 +132,18 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .ops-big{font-size:20px;font-weight:700;line-height:1.3}
 .ops-sub{font-size:12px;color:var(--t2);line-height:1.5;margin-top:6px;white-space:pre-wrap;word-break:break-word}
 .ops-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.llm-memory-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+.llm-memory-card{border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025);padding:9px}
+.llm-memory-bar{height:10px;border:1px solid var(--border);border-radius:999px;background:rgba(74,222,128,.14);overflow:hidden;margin:8px 0 10px}
+.llm-memory-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--warn),var(--err));border-radius:999px;transition:width .2s}
+.llm-role-memory-list{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.llm-role-memory-item{border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025);padding:9px}
+.llm-role-memory-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
+.llm-role-memory-title{font-size:12px;font-weight:700;color:var(--t1)}
+.llm-role-memory-meta{font-size:11px;color:var(--t2)}
+.llm-role-memory-bar{height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.llm-role-memory-bar span{display:block;height:100%;background:var(--shiro);border-radius:999px;transition:width .2s}
+.llm-ops-raw{max-height:160px;overflow:auto;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,.18);padding:8px}
 .debug-panels{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));margin-bottom:12px}
 .debug-box{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px}
 .debug-box h4{font-size:12px;color:var(--t2);margin-bottom:8px}
@@ -321,7 +333,7 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
   header{gap:8px}
   .logo span{display:none}
   .stat{font-size:12px;max-width:44vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .grid,.ops-grid,.debug-panels{grid-template-columns:1fr}
+  .grid,.ops-grid,.debug-panels,.llm-memory-grid{grid-template-columns:1fr}
   .filters{padding:8px}
   .filters input,.filters select,.filters .ctl-btn{width:100%;min-width:0}
   table{min-width:680px}

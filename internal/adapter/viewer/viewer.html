@@ -60,7 +60,14 @@
           <button id="llmOpsStopBtn" class="ctl-btn" type="button">停止 Chat+Worker</button>
           <button id="llmOpsRestartBtn" class="ctl-btn" type="button">再起動（全ロール）</button>
         </div>
-        <pre id="llmOpsStatusPre" class="small">(llm_ops 未設定またはトークンなし)</pre>
+        <div class="llm-memory-grid" id="llmMemoryCards">
+          <div class="llm-memory-card"><div class="ops-card-title">Total RAM</div><div class="ops-big">-</div></div>
+          <div class="llm-memory-card"><div class="ops-card-title">Used RAM</div><div class="ops-big">-</div></div>
+          <div class="llm-memory-card"><div class="ops-card-title">Free RAM</div><div class="ops-big">-</div></div>
+        </div>
+        <div id="llmMemorySystemBar" class="llm-memory-bar" aria-label="system memory usage"><span style="width:0%"></span></div>
+        <div id="llmMemoryRoles" class="llm-role-memory-list"></div>
+        <pre id="llmOpsStatusPre" class="small llm-ops-raw">(llm_ops 未設定またはトークンなし)</pre>
       </div>
       <div class="debug-box">
         <h4>LLM Think（agent.thinking）</h4>
