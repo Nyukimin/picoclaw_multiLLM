@@ -37,6 +37,17 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 		LLMOpsConfigured: true,
 		LLMOpsEnabled:    true,
 		LLMOpsBaseURL:    "http://192.168.1.31:8079/",
+		LocalLLM: LocalLLMRuntimeConfig{
+			Enabled:           true,
+			Provider:          "local_openai",
+			ChatBaseURL:       "http://192.168.1.31:8081/",
+			WorkerBaseURL:     "http://192.168.1.31:8082/",
+			ChatModel:         "Chat",
+			WorkerModel:       "Worker",
+			TimeoutSec:        120,
+			GlobalConcurrency: 1,
+			ModelConcurrency:  1,
+		},
 	})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
@@ -55,5 +66,8 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if body.LLMOpsBaseURL != "http://192.168.1.31:8079" {
 		t.Fatalf("unexpected llm ops base url: %+v", body)
+	}
+	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" {
+		t.Fatalf("unexpected local llm runtime config: %+v", body.LocalLLM)
 	}
 }

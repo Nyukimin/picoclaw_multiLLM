@@ -375,6 +375,19 @@ func cmdRun() {
 	debugSystemOpts.LLMOpsConfigured = cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != ""
 	debugSystemOpts.LLMOpsEnabled = debugSystemOpts.LLMOpsConfigured && llmOpsToken != ""
 	debugSystemOpts.LLMOpsBaseURL = cfg.LLMOps.BaseURL
+	debugSystemOpts.LocalLLM = viewer.LocalLLMRuntimeConfig{
+		Enabled:           cfg.LocalLLM.Enabled,
+		Provider:          cfg.LocalLLM.Provider,
+		ChatBaseURL:       localLLMBaseURLForAlias(cfg, "chat"),
+		WorkerBaseURL:     localLLMBaseURLForAlias(cfg, "worker"),
+		WildBaseURL:       localLLMBaseURLForAlias(cfg, "wild"),
+		ChatModel:         cfg.LocalLLM.ChatModel,
+		WorkerModel:       cfg.LocalLLM.WorkerModel,
+		WildModel:         cfg.LocalLLM.WildModel,
+		TimeoutSec:        cfg.LocalLLM.TimeoutSec,
+		GlobalConcurrency: cfg.LocalLLM.GlobalConcurrency,
+		ModelConcurrency:  cfg.LocalLLM.ModelConcurrency,
+	}
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}

@@ -20,17 +20,17 @@ ollama:
 local_llm:
   enabled: true
   provider: "local_openai"        # local_openai | ollama
-  # 2026-05-06現在はChatだけ起動中。Worker/Wild起動後は下のrole別URLを8082/8083へ分ける。
+  # 2026-05-09現在: Chat=8081, Worker=8082, WildはChatへ集約。8083/Wild専用は将来予約。
   base_url: "http://192.168.1.31:8081"
   chat_base_url: "http://192.168.1.31:8081"
-  worker_base_url: ""
-  wild_base_url: ""
+  worker_base_url: "http://192.168.1.31:8082"
+  wild_base_url: "http://192.168.1.31:8081"
   api_key: ""
   chat_model: "Chat"
-  worker_model: "Chat"            # Worker未起動中の暫定fallback
-  wild_model: "Chat"              # Wild未起動中の暫定fallback
+  worker_model: "Worker"
+  wild_model: "Chat"              # Wild専用プロセス未起動のためChatへ集約
   timeout_sec: 120
-  warmup: false                   # Chat以外が未起動ならfalse推奨
+  warmup: false                   # WildがChatへ集約されている間は重複warmup回避でfalse推奨
   global_concurrency: 2
   model_concurrency: 1
 

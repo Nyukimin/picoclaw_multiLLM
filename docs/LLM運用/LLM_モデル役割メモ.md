@@ -13,7 +13,7 @@
 |------|--------|--------|
 | Chat | Chat | Gemma E4B |
 | 通常 Worker | Worker | Qwen3.6 35B 通常版 |
-| 創作 Wild | Wild | Qwen3.6 35B Heretic |
+| 創作 Wild | Chat | Gemma E4B（現運用ではChatへ集約） |
 
 基本ルール:
 
@@ -29,7 +29,7 @@
 - MLX サーバは OpenAI 互換 API として接続する。
 - RenCrow 側は MLX 専用 provider を新規実装しない。
 - OpenAI 互換ローカル provider の base URL と model 名を切り替えて接続する。
-- model 名は `Chat` / `Worker` / `Wild` を使う。
+- model 名は現運用では `Chat` / `Worker` を使う。`Wild` 専用モデルは未起動のため、Wild用途は `Chat` に集約する。
 
 MLX サーバ連携条件:
 
@@ -37,17 +37,18 @@ MLX サーバ連携条件:
 - RenCrow 側の同時リクエスト数は 1 推奨。
 - 初回ロードや初回モデル取得は遅くなるため、timeout は 120秒以上を推奨。
 - `Chat` / `Worker` / `Wild` はrole別URLを設定できる。未設定roleは `base_url` へfallbackする。
-- warmup は起動後に `Chat` / `Worker` / `Wild` それぞれへ `max_tokens: 1` の短い request を送る。未起動roleがある場合は `warmup: false` にする。
+- 現運用では `Wild` は専用ポートを持たず、`wild_base_url` は Chat と同じ `8081`、`wild_model` は `Chat` とする。
+- warmup は起動後に各roleへ `max_tokens: 1` の短い request を送る。未起動roleがある場合、または Wild を Chat に集約している場合は重複warmupに注意する。
 - streaming や tool calling は、必要になった時点で MLX サーバ側の対応状況を確認する。
 
-2026-05-06現在の確認済み構成:
+2026-05-09現在の確認済み構成:
 
 - Chat: `http://192.168.1.31:8081`, model `Chat`, 実体 `unsloth/gemma-4-E4B-it-UD-MLX-4bit`
-- Worker: 未起動
-- Wild: 未起動
-- `8080` は未起動
+- Worker: `http://192.168.1.31:8082`, model `Worker`, 実体 `mlx-community/Qwen3.6-35B-A3B-4bit`
+- Wild: 専用プロセス未起動。現運用では `http://192.168.1.31:8081`, model `Chat` を使う。
+- `8083` は Wild 専用プロセス用の予約扱いで、現運用では使わない。
 
-Chatのみの暫定設定例:
+現運用の設定例:
 
 ```yaml
 local_llm:
@@ -55,10 +56,10 @@ local_llm:
   provider: local_openai
   base_url: "http://192.168.1.31:8081"
   chat_base_url: "http://192.168.1.31:8081"
-  worker_base_url: ""
-  wild_base_url: ""
+  worker_base_url: "http://192.168.1.31:8082"
+  wild_base_url: "http://192.168.1.31:8081"
   chat_model: "Chat"
-  worker_model: "Chat"
+  worker_model: "Worker"
   wild_model: "Chat"
   timeout_sec: 120
   warmup: false
@@ -66,7 +67,7 @@ local_llm:
   model_concurrency: 1
 ```
 
-Worker / Wild を起動した後の設定例:
+Wild 専用プロセスを起動した後の将来設定例:
 
 ```yaml
 local_llm:
@@ -136,7 +137,7 @@ Ollama設定は互換運用用に残すが、MLX運用では必須ではない�
 
 **エイリアス**: Wild
 
-**モデル**: Qwen3.6 35B Heretic
+**モデル**: 現運用では `Chat`。将来、Wild専用プロセスを起動した場合のみ Qwen3.6 35B Heretic などへ切り替える。
 
 主用途:
 

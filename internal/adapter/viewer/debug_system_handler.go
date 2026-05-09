@@ -48,6 +48,7 @@ type DebugSystemOptions struct {
 	LLMOpsConfigured bool
 	LLMOpsEnabled    bool
 	LLMOpsBaseURL    string
+	LocalLLM         LocalLLMRuntimeConfig
 }
 
 type RuntimeConfig struct {
@@ -56,6 +57,21 @@ type RuntimeConfig struct {
 	LLMOpsConfigured bool   `json:"llm_ops_configured"`
 	LLMOpsEnabled    bool   `json:"llm_ops_enabled"`
 	LLMOpsBaseURL    string `json:"llm_ops_base_url,omitempty"`
+	LocalLLM         LocalLLMRuntimeConfig `json:"local_llm,omitempty"`
+}
+
+type LocalLLMRuntimeConfig struct {
+	Enabled           bool   `json:"enabled"`
+	Provider          string `json:"provider,omitempty"`
+	ChatBaseURL       string `json:"chat_base_url,omitempty"`
+	WorkerBaseURL     string `json:"worker_base_url,omitempty"`
+	WildBaseURL       string `json:"wild_base_url,omitempty"`
+	ChatModel         string `json:"chat_model,omitempty"`
+	WorkerModel       string `json:"worker_model,omitempty"`
+	WildModel         string `json:"wild_model,omitempty"`
+	TimeoutSec        int    `json:"timeout_sec,omitempty"`
+	GlobalConcurrency int    `json:"global_concurrency,omitempty"`
+	ModelConcurrency  int    `json:"model_concurrency,omitempty"`
 }
 
 func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
@@ -71,8 +87,20 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			LLMOpsConfigured: opts.LLMOpsConfigured,
 			LLMOpsEnabled:    opts.LLMOpsEnabled,
 			LLMOpsBaseURL:    strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
+			LocalLLM:         normalizeLocalLLMRuntimeConfig(opts.LocalLLM),
 		})
 	}
+}
+
+func normalizeLocalLLMRuntimeConfig(in LocalLLMRuntimeConfig) LocalLLMRuntimeConfig {
+	in.Provider = strings.TrimSpace(in.Provider)
+	in.ChatBaseURL = strings.TrimRight(strings.TrimSpace(in.ChatBaseURL), "/")
+	in.WorkerBaseURL = strings.TrimRight(strings.TrimSpace(in.WorkerBaseURL), "/")
+	in.WildBaseURL = strings.TrimRight(strings.TrimSpace(in.WildBaseURL), "/")
+	in.ChatModel = strings.TrimSpace(in.ChatModel)
+	in.WorkerModel = strings.TrimSpace(in.WorkerModel)
+	in.WildModel = strings.TrimSpace(in.WildModel)
+	return in
 }
 
 type DebugAudioSnapshot struct {

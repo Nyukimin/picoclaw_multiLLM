@@ -8,12 +8,14 @@
 |------|-------------------------|------------|-----------------------------------|
 | **Chat** | `http://<HOST>:8081/v1/...` | **8081** | `Chat` |
 | **Worker** | `http://<HOST>:8082/v1/...` | **8082** | `Worker` |
-| **グローバル Wild**（任意） | `http://<HOST>:8083/v1/...` | **8083** | `Wild` |
+| **Wild**（現運用） | `http://<HOST>:8081/v1/...` | **8081** | `Chat` |
+| **Wild専用**（将来任意） | `http://<HOST>:8083/v1/...` | **8083** | `Wild` |
 | **管理**（本デーモン） | `http://<HOST>:8079/...` | **8079** | （推論には使わない） |
 
 - 推論のエンドポイントは OpenAI 互換の **`/v1/chat/completions`** を前提にする。
-- 同一ホストで役割ごとにプロセス（ポート）を分ける構成を想定している（ドキュメント上の既定は 8081 / 8082）。
-- RenCrow 設定例（要点）: `local_llm.enabled: true` とし、`chat_base_url` を 8081、`worker_base_url` を 8082、`chat_model` / `worker_model` を上表の model 名に合わせる。初回ロードを考え **`timeout_sec` は 120 秒以上**、`global_concurrency` / `model_concurrency` は MLX 負荷に合わせて抑える（詳細は [`LLM_モデル役割メモ.md`](LLM_モデル役割メモ.md)）。
+- 現運用では Chat と Worker の2プロセス構成。Wildは専用プロセスを使わず、Chatの `8081` / model `Chat` へ集約する。
+- `8083` / model `Wild` は、Wild専用プロセスを後から起動した場合だけ使う予約構成である。
+- RenCrow 設定例（要点）: `local_llm.enabled: true` とし、`chat_base_url` を 8081、`worker_base_url` を 8082、`wild_base_url` を 8081、`chat_model` / `wild_model` を `Chat`、`worker_model` を `Worker` に合わせる。初回ロードを考え **`timeout_sec` は 120 秒以上**、`global_concurrency` / `model_concurrency` は MLX 負荷に合わせて抑える（詳細は [`LLM_モデル役割メモ.md`](LLM_モデル役割メモ.md)）。
 - **Viewer（Ops タブ）**: RenCrow 側で `llm_ops.enabled: true` かつ環境変数 **`LLM_OPS_TOKEN`** を設定すると、ブラウザから **状態取得 / Chat+Worker 停止 / 全ロール再起動** が可能（RenCrow が管理 API をサーバ側プロキシし、トークンはブラウザに出さない）。
 
 ## 何ができるか

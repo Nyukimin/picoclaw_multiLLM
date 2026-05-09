@@ -139,6 +139,7 @@ const state = {
     latestRoute: '',
     latestError: null,
     llmOpsEnabled: false,
+    localLLM: null,
     llmStatus: null,
     llmStatusError: '',
   },
@@ -3990,6 +3991,7 @@ function syncLLMOpsPanel(cfg) {
   const configured = Boolean(cfg && cfg.llm_ops_configured);
   const enabled = Boolean(cfg && cfg.llm_ops_enabled);
   const baseURL = cfg && cfg.llm_ops_base_url ? String(cfg.llm_ops_base_url) : '';
+  state.ops.localLLM = cfg && cfg.local_llm ? cfg.local_llm : null;
   state.ops.llmOpsEnabled = enabled;
   bindLLMOpsButtons();
   const configEl = document.getElementById('llmOpsConfigState');
@@ -4037,6 +4039,7 @@ function renderLlmMemoryStatus() {
   if (!cards || !systemBar || !rolesEl) return;
 
   const status = state.ops.llmStatus || {};
+  const localLLM = state.ops.localLLM || {};
   const memory = status.memory || {};
   const system = memory.system || {};
   const byRole = memory.llm_by_role || {};
@@ -4071,9 +4074,10 @@ function renderLlmMemoryStatus() {
     return (order[a] ?? 50) - (order[b] ?? 50) || a.localeCompare(b);
   });
   if (roles.length === 0) {
-    rolesEl.innerHTML = state.ops.llmStatusError
+    const fallback = renderLocalLLMFallback(localLLM, state.ops.llmStatusError);
+    rolesEl.innerHTML = fallback || (state.ops.llmStatusError
       ? '<div class="debug-empty">' + esc(state.ops.llmStatusError) + '</div>'
-      : '<div class="debug-empty">memory.llm_by_role is empty</div>';
+      : '<div class="debug-empty">memory.llm_by_role is empty</div>');
     return;
   }
   rolesEl.innerHTML = roles.map((role) => {
@@ -4090,6 +4094,35 @@ function renderLlmMemoryStatus() {
       '<div class="llm-role-memory-bar" title="' + escAttr(rssPct.toFixed(2) + '% of system RAM') + '"><span style="width:' + escAttr(rssPct.toFixed(2)) + '%"></span></div>' +
     '</div>';
   }).join('');
+}
+
+function renderLocalLLMFallback(localLLM, errorText) {
+  if (!localLLM || !localLLM.enabled) return '';
+  const rows = [
+    {role: 'Chat', model: localLLM.chat_model, url: localLLM.chat_base_url},
+    {role: 'Worker', model: localLLM.worker_model, url: localLLM.worker_base_url},
+    {role: 'Wild', model: localLLM.wild_model, url: localLLM.wild_base_url},
+  ].filter((row) => row.model || row.url);
+  if (!rows.length) return '';
+  const note = errorText
+    ? '<div class="debug-empty">' + esc(errorText) + '<div class="ops-sub">Mac管理APIが未到達のため、メモリ値は取得できません。推論API設定のみ表示しています。</div></div>'
+    : '';
+  const params = [
+    localLLM.provider ? 'provider=' + localLLM.provider : '',
+    localLLM.timeout_sec ? 'timeout=' + localLLM.timeout_sec + 's' : '',
+    localLLM.global_concurrency ? 'global=' + localLLM.global_concurrency : '',
+    localLLM.model_concurrency ? 'model=' + localLLM.model_concurrency : '',
+  ].filter(Boolean).join(' · ');
+  return note + rows.map((row) => (
+    '<div class="llm-role-memory-item">' +
+      '<div class="llm-role-memory-head">' +
+        '<div><div class="llm-role-memory-title">' + esc(row.role) + '</div>' +
+        '<div class="llm-role-memory-meta">' + esc(row.model || '-') + '</div>' +
+        '<div class="ops-sub">' + esc(row.url || '-') + '</div></div>' +
+        '<span class="badge state-offline">ops api down</span>' +
+      '</div>' +
+    '</div>'
+  )).join('') + (params ? '<div class="ops-sub">' + esc(params) + '</div>' : '');
 }
 
 function roleRSSMiB(info) {
