@@ -34,6 +34,9 @@
 MLX サーバ連携条件:
 
 - endpoint は OpenAI 互換の `/v1/chat/completions` を使う。
+- 正しい呼び出し先は `http://192.168.1.31:8081/v1/chat/completions` model `Chat`、`http://192.168.1.31:8082/v1/chat/completions` model `Worker`。
+- Chat / Worker 推論サーバは `/ready` を実装しない。クライアントは `http://<HOST>:8081/ready` や `http://<HOST>:8082/ready` を readiness 判定に使ってはいけない。
+- 到達確認は、軽量な `POST /v1/chat/completions`（`max_tokens: 1`）またはサーバが提供する `GET /health` を使う。
 - RenCrow 側の同時リクエスト数は 1 推奨。
 - 初回ロードや初回モデル取得は遅くなるため、timeout は 120秒以上を推奨。
 - `Chat` / `Worker` / `Wild` はrole別URLを設定できる。未設定roleは `base_url` へfallbackする。

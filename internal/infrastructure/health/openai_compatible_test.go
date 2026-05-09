@@ -10,7 +10,9 @@ import (
 )
 
 func TestOpenAICompatibleChatCheck_OK(t *testing.T) {
+	paths := make([]string, 0, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -26,6 +28,9 @@ func TestOpenAICompatibleChatCheck_OK(t *testing.T) {
 	}
 	if result.Name != "local_llm_chat" {
 		t.Fatalf("name = %q", result.Name)
+	}
+	if len(paths) != 1 || paths[0] != "/v1/chat/completions" {
+		t.Fatalf("health check must not probe /ready; paths=%v", paths)
 	}
 }
 

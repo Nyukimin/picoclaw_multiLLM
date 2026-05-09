@@ -13,6 +13,9 @@
 | **管理**（本デーモン） | `http://<HOST>:8079/...` | **8079** | （推論には使わない） |
 
 - 推論のエンドポイントは OpenAI 互換の **`/v1/chat/completions`** を前提にする。
+- 正しい推論リクエストは **Chat = `http://<HOST>:8081/v1/chat/completions` model `Chat`**、**Worker = `http://<HOST>:8082/v1/chat/completions` model `Worker`**。
+- Chat / Worker 推論サーバは **`/ready` を実装しない**。`http://<HOST>:8081/ready` や `http://<HOST>:8082/ready` を readiness 判定に使うのは仕様違反。
+- 推論サーバの生存確認は `GET /health`、または `max_tokens: 1` の軽量な `POST /v1/chat/completions` を使う。
 - 現運用では Chat と Worker の2プロセス構成。Wildは専用プロセスを使わず、Chatの `8081` / model `Chat` へ集約する。
 - `8083` / model `Wild` は、Wild専用プロセスを後から起動した場合だけ使う予約構成である。
 - RenCrow 設定例（要点）: `local_llm.enabled: true` とし、`chat_base_url` を 8081、`worker_base_url` を 8082、`wild_base_url` を 8081、`chat_model` / `wild_model` を `Chat`、`worker_model` を `Worker` に合わせる。初回ロードを考え **`timeout_sec` は 120 秒以上**、`global_concurrency` / `model_concurrency` は MLX 負荷に合わせて抑える（詳細は [`LLM_モデル役割メモ.md`](LLM_モデル役割メモ.md)）。
