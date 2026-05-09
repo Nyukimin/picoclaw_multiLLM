@@ -144,6 +144,11 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .ops-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
 .llm-memory-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
 .llm-memory-card{border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025);padding:9px}
+.llm-runtime-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:8px;margin:8px 0 10px}
+.llm-runtime-card{border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(34,211,238,.055);padding:10px;min-width:0}
+.llm-runtime-card .ops-card-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.llm-runtime-model{font-size:16px;font-weight:800;color:var(--t1);line-height:1.25;word-break:break-word}
+.llm-runtime-url{font-size:11px;color:var(--t2);line-height:1.35;word-break:break-all;margin-top:4px}
 .llm-memory-bar{height:10px;border:1px solid var(--border);border-radius:999px;background:rgba(74,222,128,.14);overflow:hidden;margin:8px 0 10px}
 .llm-memory-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--warn),var(--err));border-radius:999px;transition:width .2s}
 .llm-role-memory-list{display:flex;flex-direction:column;gap:8px;margin:10px 0}
@@ -347,6 +352,7 @@ body.theme-modern .card,
 body.theme-modern .debug-box,
 body.theme-modern .table-wrap,
 body.theme-modern .llm-memory-card,
+body.theme-modern .llm-runtime-card,
 body.theme-modern .llm-role-memory-item{
   background:linear-gradient(180deg,rgba(22,32,43,.96),rgba(14,20,28,.96));
   border-color:rgba(64,84,102,.78);box-shadow:0 10px 28px rgba(0,0,0,.18);
@@ -425,7 +431,7 @@ body.theme-compact .input-wrap textarea{min-height:38px;max-height:86px}
   .stat{font-size:12px;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .header-tools{gap:6px}
   .theme-btn{width:24px;height:24px;font-size:12px}
-  .grid,.ops-grid,.debug-panels,.llm-memory-grid{grid-template-columns:1fr}
+  .grid,.ops-grid,.debug-panels,.llm-memory-grid,.llm-runtime-grid{grid-template-columns:1fr}
   .filters{padding:8px}
   .filters input,.filters select,.filters .ctl-btn{width:100%;min-width:0}
   table{min-width:680px}

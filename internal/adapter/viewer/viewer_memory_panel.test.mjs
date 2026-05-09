@@ -31,6 +31,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="llmMemoryCards"/);
   assert.match(html, /id="llmMemorySystemBar"/);
   assert.match(html, /id="llmMemoryRoles"/);
+  assert.match(html, /id="llmRuntimeConfigCards"/);
   assert.match(html, /id="llmOpsConfigState"/);
   assert.match(html, /data-tab="news-pack"/);
   assert.match(html, /id="panel-news-pack"/);
@@ -55,6 +56,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /function switchAdjacentPanel/);
   assert.match(js, /mobilePanelSelect\.addEventListener\('change'/);
   assert.match(js, /function renderLlmMemoryStatus/);
+  assert.match(js, /function renderLocalLLMRuntimeConfig/);
+  assert.match(js, /\/v1\/chat\/completions/);
   assert.match(js, /llm_ops_configured/);
   assert.match(js, /LLM_OPS_TOKEN missing/);
   assert.match(js, /memory\.system/);

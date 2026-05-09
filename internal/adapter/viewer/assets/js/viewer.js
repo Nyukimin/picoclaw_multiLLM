@@ -4010,6 +4010,7 @@ function syncLLMOpsPanel(cfg) {
       configEl.innerHTML = '<span class="badge state-offline">disabled</span><div class="ops-sub">~/.picoclaw/config.yaml に llm_ops.enabled/base_url がありません</div>';
     }
   }
+  renderLocalLLMRuntimeConfig();
   if (enabled) refreshLlmOpsStatus();
   else {
     state.ops.llmStatus = null;
@@ -4017,6 +4018,39 @@ function syncLLMOpsPanel(cfg) {
     renderLlmMemoryStatus();
     setLlmOpsStatusPre(state.ops.llmStatusError);
   }
+}
+
+function renderLocalLLMRuntimeConfig() {
+  const el = document.getElementById('llmRuntimeConfigCards');
+  if (!el) return;
+  const localLLM = state.ops.localLLM || {};
+  if (!localLLM.enabled) {
+    el.innerHTML = '<div class="debug-empty">local_llm disabled</div>';
+    return;
+  }
+  const rows = [
+    {role: 'Chat', model: localLLM.chat_model, url: localLLM.chat_base_url, state: 'running'},
+    {role: 'Worker', model: localLLM.worker_model, url: localLLM.worker_base_url, state: 'running'},
+    {role: 'Wild', model: localLLM.wild_model, url: localLLM.wild_base_url, state: sameLocalLLMEndpoint(localLLM.wild_base_url, localLLM.chat_base_url, localLLM.wild_model, localLLM.chat_model) ? 'shared' : 'running'},
+  ].filter((row) => row.model || row.url);
+  const params = [
+    localLLM.provider ? 'provider=' + localLLM.provider : '',
+    localLLM.timeout_sec ? 'timeout=' + localLLM.timeout_sec + 's' : '',
+    localLLM.global_concurrency ? 'global=' + localLLM.global_concurrency : '',
+    localLLM.model_concurrency ? 'model=' + localLLM.model_concurrency : '',
+  ].filter(Boolean).join(' · ');
+  el.innerHTML = rows.map((row) => (
+    '<div class="llm-runtime-card">' +
+      '<div class="ops-card-title">' + esc(row.role) + '<span class="badge ' + (row.state === 'shared' ? 'state-thinking' : 'state-running') + '">' + esc(row.state) + '</span></div>' +
+      '<div class="llm-runtime-model">' + esc(row.model || '-') + '</div>' +
+      '<div class="llm-runtime-url">' + esc(row.url || '-') + '/v1/chat/completions</div>' +
+    '</div>'
+  )).join('') + (params ? '<div class="ops-sub">' + esc(params) + '</div>' : '');
+}
+
+function sameLocalLLMEndpoint(urlA, urlB, modelA, modelB) {
+  return String(urlA || '').replace(/\/+$/, '') === String(urlB || '').replace(/\/+$/, '') &&
+    String(modelA || '') === String(modelB || '');
 }
 
 function setLlmOpsStatusPre(text) {

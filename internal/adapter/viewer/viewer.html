@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-llm-fallback">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-llm-runtime">
 </head>
 <body class="theme-modern">
 <header>
@@ -86,6 +86,7 @@
           <button id="llmOpsRestartBtn" class="ctl-btn" type="button">再起動（全ロール）</button>
         </div>
         <div id="llmOpsConfigState" class="small" style="margin-bottom:8px">checking...</div>
+        <div id="llmRuntimeConfigCards" class="llm-runtime-grid"></div>
         <div class="llm-memory-grid" id="llmMemoryCards">
           <div class="llm-memory-card"><div class="ops-card-title">Total RAM</div><div class="ops-big">-</div></div>
           <div class="llm-memory-card"><div class="ops-card-title">Used RAM</div><div class="ops-big">-</div></div>
@@ -549,6 +550,6 @@
 </button>
 <div class="toast" id="toast"></div>
 
-<script src="/viewer/assets/js/viewer.js?v=20260509-llm-fallback" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260509-llm-runtime" defer></script>
 </body>
 </html>
