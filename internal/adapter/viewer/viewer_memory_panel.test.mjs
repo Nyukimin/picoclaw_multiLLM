@@ -13,6 +13,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /data-theme="classic"/);
   assert.match(html, /data-theme="modern"/);
   assert.match(html, /data-theme="compact"/);
+  assert.match(html, /id="mobilePanelSelect"/);
+  assert.match(html, /id="mobilePanelPrev"/);
+  assert.match(html, /id="mobilePanelNext"/);
+  assert.match(html, /<option value="idlechat">IdleChat<\/option>/);
   assert.match(html, /id="memoryNamespace"/);
   assert.match(html, /id="memorySession"/);
   assert.match(html, /id="memoryLayerBody"/);
@@ -48,6 +52,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /function renderMemoryEvents/);
   assert.match(js, /function applyViewerTheme/);
   assert.match(js, /viewer\.theme/);
+  assert.match(js, /function switchAdjacentPanel/);
+  assert.match(js, /mobilePanelSelect\.addEventListener\('change'/);
   assert.match(js, /function renderLlmMemoryStatus/);
   assert.match(js, /llm_ops_configured/);
   assert.match(js, /LLM_OPS_TOKEN missing/);

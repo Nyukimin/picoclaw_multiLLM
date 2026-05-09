@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-theme-switcher">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-mobile-panels">
 </head>
 <body class="theme-modern">
 <header>
@@ -27,6 +27,24 @@
   <span class="live-topic-text" id="liveTopicText">-</span>
 </div>
 <div class="app-shell">
+  <div class="mobile-panel-switch" aria-label="Mobile panel navigation">
+    <button id="mobilePanelPrev" class="mobile-panel-step" type="button" aria-label="前のパネル">&lt;</button>
+    <label class="mobile-panel-label" for="mobilePanelSelect">Panel</label>
+    <select id="mobilePanelSelect" class="mobile-panel-select">
+      <option value="ops">Ops</option>
+      <option value="overview">Overview</option>
+      <option value="roles">Roles</option>
+      <option value="progress">Progress</option>
+      <option value="timeline">Chat Timeline</option>
+      <option value="system">System</option>
+      <option value="memory">Memory</option>
+      <option value="news-pack">News Pack</option>
+      <option value="idlechat">IdleChat</option>
+      <option value="sessions">Sessions</option>
+      <option value="jobs">Jobs</option>
+    </select>
+    <button id="mobilePanelNext" class="mobile-panel-step" type="button" aria-label="次のパネル">&gt;</button>
+  </div>
   <nav class="tabs" aria-label="Viewer navigation">
     <button class="tab-btn" data-tab="ops">Ops</button>
     <button class="tab-btn active" data-tab="overview">Overview</button>
@@ -531,6 +549,6 @@
 </button>
 <div class="toast" id="toast"></div>
 
-<script src="/viewer/assets/js/viewer.js?v=20260509-theme-switcher" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260509-mobile-panels" defer></script>
 </body>
 </html>

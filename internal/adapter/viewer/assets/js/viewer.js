@@ -369,6 +369,9 @@ let sttControlsReady = false;
 
 const tabs = Array.from(document.querySelectorAll('.tab-btn'));
 const themeButtons = Array.from(document.querySelectorAll('.theme-btn'));
+const mobilePanelSelect = document.getElementById('mobilePanelSelect');
+const mobilePanelPrev = document.getElementById('mobilePanelPrev');
+const mobilePanelNext = document.getElementById('mobilePanelNext');
 const panels = {
   ops: document.getElementById('panel-ops'),
   overview: document.getElementById('panel-overview'),
@@ -445,9 +448,15 @@ const eviCopySummary = document.getElementById('eviCopySummary');
 const eviSort = document.getElementById('eviSort');
 
 function switchTab(tab) {
+  if (!panels[tab]) return;
   activeViewerTab = tab;
   tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   Object.keys(panels).forEach((k) => panels[k].classList.toggle('active', k === tab));
+  if (mobilePanelSelect && mobilePanelSelect.value !== tab) mobilePanelSelect.value = tab;
+  const activeTab = tabs.find((b) => b.dataset.tab === tab);
+  if (activeTab && typeof activeTab.scrollIntoView === 'function') {
+    activeTab.scrollIntoView({block: 'nearest', inline: 'center'});
+  }
   updateLatestButton();
   if (sttControlsReady) {
     if (tab === 'idlechat' && sttState.isRecording) stopSTT();
@@ -456,6 +465,21 @@ function switchTab(tab) {
   if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
 }
 tabs.forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+
+function switchAdjacentPanel(delta) {
+  const names = tabs.map((btn) => btn.dataset.tab).filter((name) => panels[name]);
+  if (!names.length) return;
+  const current = names.includes(activeViewerTab) ? activeViewerTab : names[0];
+  const nextIndex = (names.indexOf(current) + delta + names.length) % names.length;
+  switchTab(names[nextIndex]);
+}
+
+if (mobilePanelSelect) {
+  mobilePanelSelect.addEventListener('change', () => switchTab(mobilePanelSelect.value));
+  mobilePanelSelect.value = activeViewerTab;
+}
+if (mobilePanelPrev) mobilePanelPrev.addEventListener('click', () => switchAdjacentPanel(-1));
+if (mobilePanelNext) mobilePanelNext.addEventListener('click', () => switchAdjacentPanel(1));
 
 function matchesFilters(ev) {
   if (isSystemEvent(ev)) return false;
