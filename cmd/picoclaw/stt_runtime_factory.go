@@ -72,7 +72,22 @@ func sttStreamURLFromConfig(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	return strings.TrimSpace(cfg.STT.StreamURL)
+	if raw := strings.TrimSpace(cfg.STT.StreamURL); raw != "" {
+		return raw
+	}
+	return inferSTTStreamURLFromProviderURL(cfg.STT.ProviderURL)
+}
+
+func inferSTTStreamURLFromProviderURL(providerURL string) string {
+	u, err := url.Parse(strings.TrimSpace(providerURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	scheme := "ws"
+	if strings.EqualFold(u.Scheme, "https") {
+		scheme = "wss"
+	}
+	return fmt.Sprintf("%s://%s/ws/transcribe", scheme, u.Host)
 }
 
 func inferSTTBaseURL(ttsBaseURL, sttProviderURL string) string {
@@ -215,7 +230,7 @@ func handleSTTWebSocketProxy(gatewayURL string) http.Handler {
 					return
 				}
 				var sendErr error
-				if src.PayloadType == websocket.TextFrame {
+				if isSTTTextFramePayload(msg) {
 					sendErr = websocket.Message.Send(dst, string(msg))
 				} else {
 					sendErr = websocket.Message.Send(dst, msg)
@@ -230,6 +245,18 @@ func handleSTTWebSocketProxy(gatewayURL string) http.Handler {
 		go relay(gw, conn) // voice-bridge → browser
 		<-errc
 	})
+}
+
+func isSTTTextFramePayload(payload []byte) bool {
+	if len(payload) == 0 {
+		return true
+	}
+	switch payload[0] {
+	case '{', '[', '"':
+		return json.Valid(payload)
+	default:
+		return false
+	}
 }
 
 func handleSTTWebSocket(sttProviderURL string) http.Handler {
@@ -289,7 +316,8 @@ func handleSTTWebSocket(sttProviderURL string) http.Handler {
 				}
 				continue
 			}
-			if isLikelySilentWAV(payload, silenceThreshold) {
+			audioPayload := normalizeSTTAudioPayload(payload)
+			if isLikelySilentWAV(audioPayload, silenceThreshold) {
 				if speechStarted && strings.TrimSpace(lastDraft) != "" && !lastVoiceAt.IsZero() && time.Since(lastVoiceAt) >= autoFinalTimeout {
 					_ = sendSTTEvent(conn, map[string]any{
 						"type": "final",
@@ -311,7 +339,7 @@ func handleSTTWebSocket(sttProviderURL string) http.Handler {
 				_ = sendSTTEvent(conn, map[string]any{"type": "speech_start"})
 			}
 
-			text, err := sttInferViaHTTP(sttProviderURL, payload, adaptiveInferTimeout)
+			text, err := sttInferViaHTTP(sttProviderURL, audioPayload, adaptiveInferTimeout)
 			if err != nil {
 				if isSTTTimeoutErr(err) {
 					timeoutStreak++
@@ -427,7 +455,8 @@ func handleSTTWebSocketProvider(provider sttinfra.Provider) http.Handler {
 				}
 				continue
 			}
-			if isLikelySilentWAV(payload, silenceThreshold) {
+			audioPayload := normalizeSTTAudioPayload(payload)
+			if isLikelySilentWAV(audioPayload, silenceThreshold) {
 				if speechStarted && strings.TrimSpace(lastDraft) != "" && !lastVoiceAt.IsZero() && time.Since(lastVoiceAt) >= autoFinalTimeout {
 					_ = sendSTTEvent(conn, map[string]any{"type": "final", "text": strings.TrimSpace(lastDraft)})
 					lastDraft = ""
@@ -442,7 +471,7 @@ func handleSTTWebSocketProvider(provider sttinfra.Provider) http.Handler {
 				speechStarted = true
 				_ = sendSTTEvent(conn, map[string]any{"type": "speech_start"})
 			}
-			result, err := provider.Transcribe(context.Background(), payload)
+			result, err := provider.Transcribe(context.Background(), audioPayload)
 			if err != nil {
 				if speechStarted && strings.TrimSpace(lastDraft) != "" {
 					_ = sendSTTEvent(conn, map[string]any{"type": "final", "text": strings.TrimSpace(lastDraft)})
@@ -517,6 +546,55 @@ func isLikelySilentWAV(wav []byte, absThreshold int) bool {
 	}
 	avgAbs := int(sum / n)
 	return avgAbs < absThreshold
+}
+
+func normalizeSTTAudioPayload(payload []byte) []byte {
+	if sttinfra.IsWAV(payload) {
+		return payload
+	}
+	if len(payload) < 2 {
+		return payload
+	}
+	audioLen := len(payload)
+	if audioLen%2 != 0 {
+		audioLen--
+	}
+	return pcm16LEToWAV(payload[:audioLen], 16000)
+}
+
+func pcm16LEToWAV(pcm []byte, sampleRate int) []byte {
+	if sampleRate <= 0 {
+		sampleRate = 16000
+	}
+	dataSize := len(pcm)
+	out := make([]byte, 44+dataSize)
+	copy(out[0:4], "RIFF")
+	putLE32(out[4:8], uint32(36+dataSize))
+	copy(out[8:12], "WAVE")
+	copy(out[12:16], "fmt ")
+	putLE32(out[16:20], 16)
+	putLE16(out[20:22], 1)
+	putLE16(out[22:24], 1)
+	putLE32(out[24:28], uint32(sampleRate))
+	putLE32(out[28:32], uint32(sampleRate*2))
+	putLE16(out[32:34], 2)
+	putLE16(out[34:36], 16)
+	copy(out[36:40], "data")
+	putLE32(out[40:44], uint32(dataSize))
+	copy(out[44:], pcm)
+	return out
+}
+
+func putLE16(dst []byte, v uint16) {
+	dst[0] = byte(v)
+	dst[1] = byte(v >> 8)
+}
+
+func putLE32(dst []byte, v uint32) {
+	dst[0] = byte(v)
+	dst[1] = byte(v >> 8)
+	dst[2] = byte(v >> 16)
+	dst[3] = byte(v >> 24)
 }
 
 func parseSTTControlMessage(payload []byte) (string, bool) {

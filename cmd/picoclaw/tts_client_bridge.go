@@ -65,6 +65,17 @@ func buildTTSClientBridge(
 		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payload), "TTS", "", sessionID, channel, chatID))
 	}
 	onSessionDoneFn := func(sessionID, characterID string) {
+		if onChunk != nil {
+			payload, err := json.Marshal(map[string]any{
+				"session_id":   strings.TrimSpace(sessionID),
+				"character_id": strings.TrimSpace(characterID),
+			})
+			if err != nil {
+				log.Printf("WARN: tts session completed payload marshal failed: %v", err)
+			} else {
+				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payload), "TTS", "", sessionID, "viewer", "viewer-user"))
+			}
+		}
 		notifyIdleChatTTSCompleted(sessionID)
 		if onSessionCompleted != nil {
 			onSessionCompleted(sessionID, characterID)

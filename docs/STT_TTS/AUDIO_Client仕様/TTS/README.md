@@ -1,11 +1,12 @@
 # TTS 正本ドキュメント
 
-本ディレクトリ直下は、正本として次の4ファイルを配置する。
+本ディレクトリ直下は、正本として次の5ファイルを配置する。
 
 1. `README.md`（本書）
 2. `仕様.md`（正本エントリ）
 3. `実装仕様.md`（契約仕様）
 4. `実装.md`（実装・運用・TDD実行手順）
+5. `ChatAudioSync仕様.md`（TimeLine描画と音声再生の同期仕様）
 
 ## 目的
 - Chat 連携で利用する TTS（SBV2 含む）の契約と実装方針を一本化する。
@@ -19,6 +20,9 @@
   - Provider 非依存の基本契約と、現行 SBV2 実装準拠の要点を併記。
 - `実装.md`
   - 実装時の設定、TDD 手順、テストID運用、実行順序の正本。
+- `ChatAudioSync仕様.md`
+  - TimeLine の文字列描画と TTS chunk 音声再生の同期仕様。
+  - IdleChat の 2 chunk buffer before start も本書で定義する。
 
 ## 実装同期メモ（2026-04-26）
 - `tts.audio_chunk` の同期キーとして `response_id` / `utterance_id` を正本化。
@@ -34,5 +38,6 @@
 - まず `仕様.md` で必須/任意/型と最小契約を確認する。
 - まず `実装仕様.md` の `0. 先に見る最小仕様（実装準拠）` を読む。
 - 次に `4.7 Chat 内部イベント tts.audio_chunk` で payload 契約を確認する。
+- TimeLine と音声再生の同期は `ChatAudioSync仕様.md` を確認する。
 - 実装手順は `実装.md` の `6.1 文章同期制御（現行実装）` を参照する。
 - RenCrow_TTS の実運用手順は `実装.md` の `11. RenCrow_TTS の使い方（詳細）` を参照する。

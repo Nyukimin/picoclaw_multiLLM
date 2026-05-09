@@ -79,6 +79,43 @@ func TestInferSTTProviderURLFromConfig_UsesExternalProviderCompatibility(t *test
 	}
 }
 
+func TestSTTStreamURLFromConfig_InfersRealtimeEndpointFromProviderURL(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.STT.ProviderURL = "http://192.168.1.33:8766/v1/audio/transcriptions"
+
+	got := sttStreamURLFromConfig(cfg)
+	want := "ws://192.168.1.33:8766/ws/transcribe"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestSTTStreamURLFromConfig_UsesExplicitStreamURL(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.STT.ProviderURL = "http://192.168.1.33:8766/v1/audio/transcriptions"
+	cfg.STT.StreamURL = "wss://stt.local/ws/transcribe"
+
+	got := sttStreamURLFromConfig(cfg)
+	if got != cfg.STT.StreamURL {
+		t.Fatalf("expected explicit stream url, got %q", got)
+	}
+}
+
+func TestIsSTTTextFramePayload(t *testing.T) {
+	if !isSTTTextFramePayload([]byte(`{"type":"ready"}`)) {
+		t.Fatal("json object should be relayed as text")
+	}
+	if !isSTTTextFramePayload([]byte(`"final_pending"`)) {
+		t.Fatal("json string should be relayed as text")
+	}
+	if isSTTTextFramePayload(rawPCM16Chunk()) {
+		t.Fatal("pcm16 audio should be relayed as binary")
+	}
+	if isSTTTextFramePayload([]byte{0xff, 0x00, 0x01}) {
+		t.Fatal("non-json bytes should be relayed as binary")
+	}
+}
+
 func TestSTTWebSocketProviderE2E_ReturnsFinal(t *testing.T) {
 	mux := http.NewServeMux()
 	registerSTTRoutes(mux, handleSTTWebSocketProvider(sttinfra.MockProvider{Text: "ルミナ、今日の予定を確認して。"}))
@@ -129,6 +166,46 @@ func TestSTTWebSocketProviderE2E_ReturnsFinal(t *testing.T) {
 	t.Fatal("timed out waiting for final")
 }
 
+func TestSTTWebSocketProviderE2E_AcceptsRawPCM16Chunks(t *testing.T) {
+	mux := http.NewServeMux()
+	registerSTTRoutes(mux, handleSTTWebSocketProvider(sttinfra.MockProvider{Text: "ルミナ、今日の予定を確認して。"}))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/stt"
+	conn, err := websocket.Dial(wsURL, "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, rawPCM16Chunk()); err != nil {
+		t.Fatalf("send raw pcm: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"final_pending"}`); err != nil {
+		t.Fatalf("send final_pending: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var raw string
+		if err := websocket.Message.Receive(conn, &raw); err != nil {
+			t.Fatalf("receive: %v", err)
+		}
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			t.Fatalf("decode event %q: %v", raw, err)
+		}
+		if ev["type"] == "final" {
+			if strings.TrimSpace(ev["text"].(string)) == "" {
+				t.Fatalf("empty final event: %+v", ev)
+			}
+			return
+		}
+	}
+	t.Fatal("timed out waiting for final")
+}
+
 func tinyTestWAV() []byte {
 	dataSize := 32000
 	out := make([]byte, 44+dataSize)
@@ -156,6 +233,15 @@ func tinyTestWAV() []byte {
 	out[42] = byte(ds >> 16)
 	out[43] = byte(ds >> 24)
 	for i := 44; i+1 < len(out); i += 2 {
+		out[i] = 0x10
+		out[i+1] = 0x01
+	}
+	return out
+}
+
+func rawPCM16Chunk() []byte {
+	out := make([]byte, 3200)
+	for i := 0; i+1 < len(out); i += 2 {
 		out[i] = 0x10
 		out[i+1] = 0x01
 	}
