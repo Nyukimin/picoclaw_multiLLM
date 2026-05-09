@@ -31,21 +31,22 @@ func buildTTSClientBridge(
 		sink = ttsinfra.NewPlaybackAudioSink(player, cfg.TTS.AudioPathRoot)
 	}
 	onChunkFn := func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string) {
+		publicSessionID, publicChunkIndex := resolveTTSPublicChunk(sessionID, chunkIndex)
 		displayText = strings.TrimSpace(displayText)
 		if displayText == "" {
 			displayText = text
 		}
 		if onChunkReady != nil {
-			onChunkReady(sessionID, characterID, displayText)
+			onChunkReady(publicSessionID, characterID, displayText)
 		}
 		if onChunk == nil {
 			return
 		}
 		payload, err := json.Marshal(map[string]any{
-			"session_id":   sessionID,
+			"session_id":   publicSessionID,
 			"response_id":  responseID,
-			"utterance_id": fmt.Sprintf("%s:%04d", sessionID, chunkIndex),
-			"chunk_index":  chunkIndex,
+			"utterance_id": fmt.Sprintf("%s:%04d", publicSessionID, publicChunkIndex),
+			"chunk_index":  publicChunkIndex,
 			"character_id": characterID,
 			"text":         text,
 			"display_text": displayText,
@@ -58,27 +59,35 @@ func buildTTSClientBridge(
 		}
 		channel := "viewer"
 		chatID := "viewer-user"
-		if strings.HasPrefix(strings.TrimSpace(sessionID), "idle-") {
+		if isIdleChatPublicSession(publicSessionID) {
 			channel = "idlechat"
-			chatID = strings.TrimSpace(sessionID)
+			chatID = strings.TrimSpace(publicSessionID)
 		}
-		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payload), "TTS", "", sessionID, channel, chatID))
+		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
 	}
 	onSessionDoneFn := func(sessionID, characterID string) {
+		publicSessionID := resolveTTSPublicSession(sessionID)
 		if onChunk != nil {
 			payload, err := json.Marshal(map[string]any{
-				"session_id":   strings.TrimSpace(sessionID),
+				"session_id":   strings.TrimSpace(publicSessionID),
 				"character_id": strings.TrimSpace(characterID),
 			})
 			if err != nil {
 				log.Printf("WARN: tts session completed payload marshal failed: %v", err)
 			} else {
-				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payload), "TTS", "", sessionID, "viewer", "viewer-user"))
+				channel := "viewer"
+				chatID := "viewer-user"
+				if isIdleChatPublicSession(publicSessionID) {
+					channel = "idlechat"
+					chatID = strings.TrimSpace(publicSessionID)
+				}
+				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
 			}
 		}
 		notifyIdleChatTTSCompleted(sessionID)
+		clearTTSPublicSession(sessionID)
 		if onSessionCompleted != nil {
-			onSessionCompleted(sessionID, characterID)
+			onSessionCompleted(publicSessionID, characterID)
 		}
 	}
 	if sel, ok := buildPrimaryTTSProvider(cfg); ok {

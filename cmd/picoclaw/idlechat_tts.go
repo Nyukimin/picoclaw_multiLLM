@@ -64,13 +64,14 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		VoiceProfile: voiceProfile,
 	})
 
-	sessionID := fmt.Sprintf("%s-tts-%d", strings.TrimSpace(ev.SessionID), time.Now().UnixNano())
+	publicSessionID := strings.TrimSpace(ev.SessionID)
+	sessionID := fmt.Sprintf("%s-tts-%d", publicSessionID, time.Now().UnixNano())
+	registerTTSPublicSession(sessionID, publicSessionID)
+	responseID := nextTTSPublicResponseID(publicSessionID)
 	waitCh := registerIdleChatTTSPending(sessionID)
-	if isIdleChatTopicAnnouncement(ev) {
-		registerIdleChatTopicGate(ev.SessionID, sessionID)
-	}
 	if err := bridge.StartSession(ctx, orchestrator.TTSSessionStart{
 		SessionID:        sessionID,
+		ResponseID:       responseID,
 		CharacterID:      characterID,
 		VoiceID:          voiceID,
 		SpeechMode:       "conversational",
@@ -190,11 +191,6 @@ func ensureIdleChatTTSQueue() {
 					waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
 					if !ok || waitCh == nil {
 						return
-					}
-					select {
-					case <-waitCh:
-					case <-ctx.Done():
-						clearIdleChatTTSPendingByChan(waitCh)
 					}
 				}()
 			}

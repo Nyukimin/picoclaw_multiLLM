@@ -282,6 +282,20 @@ test('central chat keeps same speaker speech chunks in one bubble after audio cl
   assert.equal(chat.children[0]._mc.textContent, '前半です。 後半です。');
 });
 
+test('central chat splits same speaker speech when response id changes', () => {
+  const {harness, elements} = loadAudioHarness();
+  const chat = elements.get('chat');
+
+  harness.setCentralTTSSpeechText('mio', 'ひとつめです。', 'idle-response-boundary', 0, 'chunk-0', 'idle-response-boundary:0000');
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('mio', 'ふたつめです。', 'idle-response-boundary', 1, 'chunk-1', 'idle-response-boundary:0001');
+
+  assert.equal(chat.children.length, 0);
+  assert.equal(elements.get('idleLiveLog').children.length, 2);
+  assert.equal(elements.get('idleLiveLog').children[0]._mc.textContent, 'ひとつめです。');
+  assert.equal(elements.get('idleLiveLog').children[1]._mc.textContent, 'ふたつめです。');
+});
+
 test('central chat splits when speaker changes even inside chunk sequence', () => {
   const {harness, elements} = loadAudioHarness();
   const chat = elements.get('chat');

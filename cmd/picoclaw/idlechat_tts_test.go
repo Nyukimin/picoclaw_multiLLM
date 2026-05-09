@@ -181,6 +181,40 @@ func TestEmitIdleChatTTSAsyncSerializesIdleSpeech(t *testing.T) {
 	}
 }
 
+func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{notifyOnEnd: false}
+
+	first := emitIdleChatTTSAsync(bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "shiro",
+		Content:   "先に合成する発話です。",
+		SessionID: "idle-prefetch-1",
+	})
+	second := emitIdleChatTTSAsync(bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "shiro",
+		To:        "mio",
+		Content:   "再生完了を待たずに合成する発話です。",
+		SessionID: "idle-prefetch-1",
+	})
+
+	for name, done := range map[string]<-chan struct{}{"first": first, "second": second} {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s synthesis completion was not signaled", name)
+		}
+	}
+	if len(bridge.pushTexts) < 2 {
+		t.Fatalf("expected queued speech to be synthesized without playback completion, got %d pushes", len(bridge.pushTexts))
+	}
+	if bridge.pushTexts[len(bridge.pushTexts)-2] != "先に合成する発話です。" ||
+		bridge.pushTexts[len(bridge.pushTexts)-1] != "再生完了を待たずに合成する発話です。" {
+		t.Fatalf("unexpected synthesis order: %#v", bridge.pushTexts)
+	}
+}
+
 func TestEmitIdleChatTTS_RemovesLoopNotesFromSpeechOnly(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 	content := "今回のまとめです。\n注記: テンプレ反復で打ち切り\n\n本文を読み上げます。"
