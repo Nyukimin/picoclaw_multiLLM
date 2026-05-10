@@ -50,6 +50,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="mobilePanelPrev"/);
   assert.match(html, /id="mobilePanelNext"/);
   assert.match(html, /<option value="idlechat">IdleChat<\/option>/);
+  assert.match(html, /data-chat-route="worker">Worker/);
+  assert.match(html, /data-chat-route="heavy">Heavy/);
+  assert.match(html, /data-chat-route="wild">Wild/);
   assert.match(html, /id="memoryNamespace"/);
   assert.match(html, /id="memorySession"/);
   assert.match(html, /id="memoryLayerBody"/);
@@ -97,6 +100,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /assets\/js\/tabs\/timeline\.js/);
   assert.match(html, /assets\/js\/tabs\/idlechat\.js/);
   assert.match(timelineJs, /function addMsgToTimeline/);
+  assert.match(timelineJs, /function applyChatRouteAliasToMessage/);
+  assert.match(timelineJs, /worker: \{label: 'Worker', prefix: '\/ops'\}/);
+  assert.match(timelineJs, /heavy: \{label: 'Heavy', prefix: '\/analyze'\}/);
+  assert.match(timelineJs, /wild: \{label: 'Wild', prefix: '\/wild'\}/);
   assert.doesNotMatch(timelineJs, /function addIdleMsgToTimeline/);
   assert.match(idleChatJs, /function addIdleMsgToTimeline/);
   assert.match(idleChatJs, /function appendIdleLiveMessageEvent/);

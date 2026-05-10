@@ -1,4 +1,54 @@
 // Chat Timeline tab module: normal chat message rendering.
+const CHAT_ROUTE_ALIASES = {
+  worker: {label: 'Worker', prefix: '/ops'},
+  heavy: {label: 'Heavy', prefix: '/analyze'},
+  wild: {label: 'Wild', prefix: '/wild'},
+};
+const CHAT_ROUTE_ALIAS_STORAGE_KEY = 'chatRouteAlias.selected';
+
+function selectedChatRouteAlias() {
+  const value = localStorage.getItem(CHAT_ROUTE_ALIAS_STORAGE_KEY) || '';
+  return Object.prototype.hasOwnProperty.call(CHAT_ROUTE_ALIASES, value) ? value : '';
+}
+
+function isExplicitRouteMessage(message) {
+  return /^\/(ops|wild|code|code1|code2|code3|code4|plan|analyze|research|chat)(\s|$)/.test(String(message || '').trim());
+}
+
+function selectChatRouteAlias(alias) {
+  const next = selectedChatRouteAlias() === alias ? '' : String(alias || '');
+  if (Object.prototype.hasOwnProperty.call(CHAT_ROUTE_ALIASES, next)) {
+    localStorage.setItem(CHAT_ROUTE_ALIAS_STORAGE_KEY, next);
+  } else {
+    localStorage.removeItem(CHAT_ROUTE_ALIAS_STORAGE_KEY);
+  }
+  syncChatRouteAliasButtons();
+}
+
+function syncChatRouteAliasButtons() {
+  const selected = selectedChatRouteAlias();
+  document.querySelectorAll('[data-chat-route]').forEach((btn) => {
+    const active = btn.dataset.chatRoute === selected;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function bindChatRouteAliasButtons() {
+  document.querySelectorAll('[data-chat-route]').forEach((btn) => {
+    btn.addEventListener('click', () => selectChatRouteAlias(btn.dataset.chatRoute || ''));
+  });
+  syncChatRouteAliasButtons();
+}
+
+function applyChatRouteAliasToMessage(message) {
+  const trimmed = String(message || '').trim();
+  if (!trimmed || isExplicitRouteMessage(trimmed)) return trimmed;
+  const selected = selectedChatRouteAlias();
+  const alias = selected ? CHAT_ROUTE_ALIASES[selected] : null;
+  return alias ? alias.prefix + ' ' + trimmed : trimmed;
+}
+
 function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
@@ -36,3 +86,5 @@ function addMsgToTimeline(ev) {
   trimTimelineNodes();
   bump();
 }
+
+bindChatRouteAliasButtons();

@@ -2208,7 +2208,7 @@ function send() {
 }
 
 async function sendViewerMessage(message) {
-  const body = {message: applyRoleTargetToMessage(message)};
+  const body = {message: applyRoleTargetToMessage(applyChatRouteAliasToMessage(message))};
   if (!body.message) throw new Error('message is required');
   const r = await fetch('/viewer/send', {
     method: 'POST',

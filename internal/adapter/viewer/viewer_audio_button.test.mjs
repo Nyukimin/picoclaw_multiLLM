@@ -138,10 +138,16 @@ globalThis.__viewerAudioHarness = {
     querySelectorAll: () => [],
   };
   const timers = [];
+  const localStore = new Map();
   const context = {
     document,
     console: {error() {}},
     window: {addEventListener() {}, location: {protocol: 'http:'}, history: null},
+    localStorage: {
+      getItem: (key) => localStore.get(key) || null,
+      setItem: (key, value) => localStore.set(key, String(value)),
+      removeItem: (key) => localStore.delete(key),
+    },
     HTMLMediaElement: {HAVE_CURRENT_DATA: 2},
     Audio: FakeAudio,
     MAX_TIMELINE_NODES: 400,
