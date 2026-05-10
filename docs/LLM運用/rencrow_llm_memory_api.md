@@ -32,11 +32,43 @@ curl -s \
 - `memory.system.free_gib`: 空き容量（GiB）
 - `memory.system.used_bytes`: 使用中容量（bytes）
 - `memory.system.used_gib`: 使用中容量（GiB）
+- `memory.system.available_bytes`: OS全体の利用可能RAM（bytes）
+- `memory.system.available_gib`: OS全体の利用可能RAM（GiB）
+- `memory.system.available_for_llm_bytes`: LLM切替判定用の利用可能RAM（bytes）
+- `memory.system.available_for_llm_gib`: LLM切替判定用の利用可能RAM（GiB）
+- `memory.system.used_for_llm_bytes`: LLM切替判定用の使用中RAM（bytes）
+- `memory.system.used_for_llm_gib`: LLM切替判定用の使用中RAM（GiB）
+- `memory.system.llm_safety_margin_bytes`: LLM向け安全マージン（bytes）
+- `memory.system.llm_safety_margin_gib`: LLM向け安全マージン（GiB）
+- `memory.system.safe_available_for_llm_bytes`: 安全マージン差し引き後の利用可能RAM（bytes）
+- `memory.system.safe_available_for_llm_gib`: 安全マージン差し引き後の利用可能RAM（GiB）
+- `memory.system.swap_used_bytes`: swap使用量（bytes）
+- `memory.system.swap_used_gib`: swap使用量（GiB）
+- `memory.system.memory_pressure`: メモリ圧迫状態（例: `normal`, `warning`, `critical`）
+- `memory.system.compressed_bytes`: compressed memory（bytes）
+- `memory.system.compressed_gib`: compressed memory（GiB）
+- `memory.system.file_cache_bytes`: file cache（bytes）
+- `memory.system.file_cache_gib`: file cache（GiB）
+- `memory.system.wired_bytes`: wired memory（bytes）
+- `memory.system.wired_gib`: wired memory（GiB）
 - `memory.llm_by_role.Chat`: Chat LLMプロセス情報
 - `memory.llm_by_role.Worker`: Worker LLMプロセス情報
   - `pid`: 対象プロセスPID
   - `rss_bytes`: プロセスRSS（bytes）
   - `rss_mib`: プロセスRSS（MiB）
+- `memory.top_memory_processes`: RSS順の上位プロセス一覧
+- `memory.model_processes`: Chat / Worker などモデルプロセス一覧
+
+`top_memory_processes` / `model_processes` の各要素は以下を推奨します。
+
+- `pid`
+- `name`
+- `command`
+- `rss_bytes`
+- `rss_mib`
+- `role`（モデルプロセスの場合）
+- `model`（モデルプロセスの場合）
+- `port`（モデルプロセスの場合）
 
 ## 4. レスポンス例
 

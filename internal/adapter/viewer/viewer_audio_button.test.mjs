@@ -108,11 +108,13 @@ class FakeAudio {
 
 function loadAudioHarness() {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const idleJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/idlechat.js', 'utf8');
   const start = js.indexOf('const ttsPlayback = {');
   const end = js.indexOf('let sending = false;');
   assert.ok(start > 0, 'ttsPlayback block not found');
   assert.ok(end > start, 'audio handler block end not found');
-  const source = js.slice(start, end) + `
+  const source = timelineJs + '\n' + idleJs + '\n' + js.slice(start, end) + `
 globalThis.__viewerAudioHarness = {
   ttsPlayback,
   updateAudioButton,
@@ -160,7 +162,17 @@ globalThis.__viewerAudioHarness = {
     clearLipSyncSpeaking() {},
     setLipSyncSpeaking() {},
     scrollToBottom() {},
+    refreshMemorySnapshot() {},
+    refreshMemoryEvents() {},
+    saveSourceRegistryEntry() {},
+    exportSourceRegistryYAML() {},
+    importSourceRegistryYAML() {},
+    refreshNewsPack() {},
+    renderRoleSelector() {},
+    renderSystem() {},
     ftime: () => '12:00:00',
+    stripIdleTopicCategory: (s) => String(s || '').replace(/^今日のお題(?:（[^）]+）)*[:：]\s*/, '今日のお題：').trim(),
+    normalizeViewerDisplayText: (s) => String(s || '').replace(/^今日のお題(?:（[^）]+）)*[:：]\s*/, '今日のお題：').trim(),
     fmt: (s) => String(s || ''),
     ag: (id) => ({c: id === 'shiro' ? '#22d3ee' : '#f472b6', l: id || 'mio', e: ''}),
   };

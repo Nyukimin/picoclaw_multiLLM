@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
 <link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260509-llm-runtime">
+<link rel="stylesheet" href="/viewer/assets/css/tabs/ops.css?v=20260510-tabs-ops">
 </head>
 <body class="theme-modern">
 <header>
@@ -93,6 +94,7 @@
           <div class="llm-memory-card"><div class="ops-card-title">Free RAM</div><div class="ops-big">-</div></div>
         </div>
         <div id="llmMemorySystemBar" class="llm-memory-bar" aria-label="system memory usage"><span style="width:0%"></span></div>
+        <div id="llmMemoryProcessLists" class="llm-memory-process-grid"></div>
         <div id="llmMemoryRoles" class="llm-role-memory-list"></div>
         <pre id="llmOpsStatusPre" class="small llm-ops-raw">(llm_ops 未設定またはトークンなし)</pre>
       </div>
@@ -550,6 +552,17 @@
 </button>
 <div class="toast" id="toast"></div>
 
-<script src="/viewer/assets/js/viewer.js?v=20260509-llm-runtime" defer></script>
+<script src="/viewer/assets/js/tabs/ops.js?v=20260510-tabs-ops" defer></script>
+<script src="/viewer/assets/js/tabs/overview.js?v=20260510-tabs-overview" defer></script>
+<script src="/viewer/assets/js/tabs/system.js?v=20260510-tabs-system" defer></script>
+<script src="/viewer/assets/js/tabs/memory.js?v=20260510-tabs-memory" defer></script>
+<script src="/viewer/assets/js/tabs/news-pack.js?v=20260510-tabs-memory" defer></script>
+<script src="/viewer/assets/js/tabs/roles.js?v=20260510-tabs-roles" defer></script>
+<script src="/viewer/assets/js/tabs/progress.js?v=20260510-tabs-progress" defer></script>
+<script src="/viewer/assets/js/tabs/timeline.js?v=20260510-tabs-timeline" defer></script>
+<script src="/viewer/assets/js/tabs/idlechat.js?v=20260510-tabs-idlechat" defer></script>
+<script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
+<script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260510-tabs-ops" defer></script>
 </body>
 </html>
