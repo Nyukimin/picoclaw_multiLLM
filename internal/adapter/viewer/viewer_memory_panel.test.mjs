@@ -101,9 +101,17 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /assets\/js\/tabs\/idlechat\.js/);
   assert.match(timelineJs, /function addMsgToTimeline/);
   assert.match(timelineJs, /function applyChatRouteAliasToMessage/);
-  assert.match(timelineJs, /worker: \{label: 'Worker', prefix: '\/ops'\}/);
-  assert.match(timelineJs, /heavy: \{label: 'Heavy', prefix: '\/analyze'\}/);
-  assert.match(timelineJs, /wild: \{label: 'Wild', prefix: '\/wild'\}/);
+  assert.match(timelineJs, /function buildViewerSendRequest/);
+  assert.match(timelineJs, /function ensureViewerLLMReadyForRequest/);
+  assert.match(timelineJs, /function viewerLLMStopRolesBeforeStart/);
+  assert.match(timelineJs, /\/viewer\/llm-ops\/health/);
+  assert.match(timelineJs, /\/viewer\/llm-ops\/stop/);
+  assert.match(timelineJs, /\/viewer\/llm-ops\/start/);
+  assert.match(timelineJs, /worker: \{label: 'Worker', baseURL: 'http:\/\/127\.0\.0\.1:8082', model: 'Worker', routePrefix: '\/ops'\}/);
+  assert.match(timelineJs, /heavy: \{label: 'Heavy', baseURL: 'http:\/\/127\.0\.0\.1:8083', model: 'Heavy', routePrefix: '\/analyze'\}/);
+  assert.match(timelineJs, /wild: \{label: 'Wild', baseURL: 'http:\/\/127\.0\.0\.1:8084', model: 'Wild', routePrefix: '\/wild'\}/);
+  assert.match(js, /const body = buildViewerSendRequest\(message\)/);
+  assert.match(js, /await ensureViewerLLMReadyForRequest\(body\)/);
   assert.doesNotMatch(timelineJs, /function addIdleMsgToTimeline/);
   assert.match(idleChatJs, /function addIdleMsgToTimeline/);
   assert.match(idleChatJs, /function appendIdleLiveMessageEvent/);
@@ -237,4 +245,125 @@ globalThis.__processes = document.getElementById('llmMemoryProcessLists').innerH
   assert.ok(context.__processes.includes('Model Processes'));
   assert.ok(context.__processes.includes('python'));
   assert.ok(context.__processes.includes('qwen'));
+});
+
+test('viewer chat route alias builds llm switch request fields', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const store = new Map();
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {
+      getItem: (key) => store.get(key) || null,
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+    },
+  });
+  vm.runInContext(timelineJs, context);
+
+  vm.runInContext("localStorage.setItem('chatRouteAlias.selected', 'heavy')", context);
+  const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
+  assert.deepEqual(heavyReq, {
+    message: '原因を調べて',
+    model_alias: 'Heavy',
+    base_url: 'http://127.0.0.1:8083',
+    model: 'Heavy',
+    route_prefix: '/analyze',
+  });
+
+  const explicitReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('/wild 物語にして'))", context));
+  assert.deepEqual(explicitReq, {message: '/wild 物語にして'});
+});
+
+test('viewer starts selected llm before sending alias request', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const calls = [];
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {getItem: () => null, setItem: () => {}, removeItem: () => {}},
+    fetch: async (url, opts = {}) => {
+      calls.push({url, opts});
+      if (url === '/viewer/llm-ops/health') {
+        return {
+          ok: true,
+          json: async () => ({status: 'ok', daemon: 'llm-mgmt'}),
+          text: async () => '{"status":"ok","daemon":"llm-mgmt"}',
+        };
+      }
+      if (url === '/viewer/llm-ops/status') {
+        return {
+          ok: true,
+          json: async () => ({roles: {Chat: {health_ok: true}, Heavy: {health_ok: false}}}),
+        };
+      }
+      if (url === '/viewer/llm-ops/stop') {
+        return {ok: true, text: async () => '{"stopped":["Worker","Wild"],"halted":true}'};
+      }
+      if (url === '/viewer/llm-ops/start') {
+        return {ok: true, text: async () => '{"ok_all":true}'};
+      }
+      throw new Error('unexpected fetch: ' + url);
+    },
+    refreshLlmOpsStatus: () => {},
+  });
+  vm.runInContext(timelineJs, context);
+
+  await vm.runInContext(`ensureViewerLLMReadyForRequest({
+    message: '原因を調べて',
+    model_alias: 'Heavy',
+    base_url: 'http://127.0.0.1:8083',
+    model: 'Heavy',
+    route_prefix: '/analyze'
+  })`, context);
+
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0].url, '/viewer/llm-ops/health');
+  assert.equal(calls[1].url, '/viewer/llm-ops/status');
+  assert.equal(calls[2].url, '/viewer/llm-ops/stop');
+  assert.equal(calls[2].opts.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[2].opts.body), {roles: ['Worker', 'Wild']});
+  assert.equal(calls[3].url, '/viewer/llm-ops/start');
+  assert.equal(calls[3].opts.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'Heavy'});
+});
+
+test('viewer stops Worker and Heavy before starting Wild', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const calls = [];
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {getItem: () => null, setItem: () => {}, removeItem: () => {}},
+    fetch: async (url, opts = {}) => {
+      calls.push({url, opts});
+      if (url === '/viewer/llm-ops/health') {
+        return {ok: true, json: async () => ({status: 'ok'}), text: async () => '{"status":"ok"}'};
+      }
+      if (url === '/viewer/llm-ops/status') {
+        return {ok: true, json: async () => ({roles: {Chat: {health_ok: true}, Worker: {health_ok: true}, Heavy: {health_ok: false}, Wild: {health_ok: false}}})};
+      }
+      if (url === '/viewer/llm-ops/stop') {
+        return {ok: true, text: async () => '{"stopped":["Worker","Heavy"],"halted":true}'};
+      }
+      if (url === '/viewer/llm-ops/start') {
+        return {ok: true, text: async () => '{"ok_all":true}'};
+      }
+      throw new Error('unexpected fetch: ' + url);
+    },
+    refreshLlmOpsStatus: () => {},
+  });
+  vm.runInContext(timelineJs, context);
+
+  await vm.runInContext(`ensureViewerLLMReadyForRequest({
+    message: '物語にして',
+    model_alias: 'Wild',
+    base_url: 'http://127.0.0.1:8084',
+    model: 'Wild',
+    route_prefix: '/wild'
+  })`, context);
+
+  assert.equal(calls[0].url, '/viewer/llm-ops/health');
+  assert.equal(calls[1].url, '/viewer/llm-ops/status');
+  assert.equal(calls[2].url, '/viewer/llm-ops/stop');
+  assert.deepEqual(JSON.parse(calls[2].opts.body), {roles: ['Worker', 'Heavy']});
+  assert.equal(calls[3].url, '/viewer/llm-ops/start');
+  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'Wild'});
 });

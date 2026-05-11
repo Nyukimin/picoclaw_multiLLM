@@ -2208,8 +2208,9 @@ function send() {
 }
 
 async function sendViewerMessage(message) {
-  const body = {message: applyRoleTargetToMessage(applyChatRouteAliasToMessage(message))};
+  const body = buildViewerSendRequest(message);
   if (!body.message) throw new Error('message is required');
+  await ensureViewerLLMReadyForRequest(body);
   const r = await fetch('/viewer/send', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},

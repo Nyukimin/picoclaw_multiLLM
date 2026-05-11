@@ -1,8 +1,8 @@
 // Chat Timeline tab module: normal chat message rendering.
 const CHAT_ROUTE_ALIASES = {
-  worker: {label: 'Worker', prefix: '/ops'},
-  heavy: {label: 'Heavy', prefix: '/analyze'},
-  wild: {label: 'Wild', prefix: '/wild'},
+  worker: {label: 'Worker', baseURL: 'http://127.0.0.1:8082', model: 'Worker', routePrefix: '/ops'},
+  heavy: {label: 'Heavy', baseURL: 'http://127.0.0.1:8083', model: 'Heavy', routePrefix: '/analyze'},
+  wild: {label: 'Wild', baseURL: 'http://127.0.0.1:8084', model: 'Wild', routePrefix: '/wild'},
 };
 const CHAT_ROUTE_ALIAS_STORAGE_KEY = 'chatRouteAlias.selected';
 
@@ -46,7 +46,100 @@ function applyChatRouteAliasToMessage(message) {
   if (!trimmed || isExplicitRouteMessage(trimmed)) return trimmed;
   const selected = selectedChatRouteAlias();
   const alias = selected ? CHAT_ROUTE_ALIASES[selected] : null;
-  return alias ? alias.prefix + ' ' + trimmed : trimmed;
+  return alias ? alias.routePrefix + ' ' + trimmed : trimmed;
+}
+
+function buildViewerSendRequest(message) {
+  const trimmed = String(message || '').trim();
+  if (!trimmed) return {message: ''};
+  if (isExplicitRouteMessage(trimmed)) return {message: trimmed};
+
+  const selected = selectedChatRouteAlias();
+  const alias = selected ? CHAT_ROUTE_ALIASES[selected] : null;
+  if (alias) {
+    return {
+      message: trimmed,
+      model_alias: alias.label,
+      base_url: alias.baseURL,
+      model: alias.model,
+      route_prefix: alias.routePrefix,
+    };
+  }
+
+  return {message: applyRoleTargetToMessage(trimmed)};
+}
+
+function viewerLLMStartSelectionForRequest(req) {
+  const alias = String(req && req.model_alias ? req.model_alias : '').trim();
+  return alias === 'Worker' || alias === 'Heavy' || alias === 'Wild' ? alias : '';
+}
+
+function viewerLLMRoleInfo(status, role) {
+  if (!status || !role) return null;
+  if (status.roles && status.roles[role]) return status.roles[role];
+  return status[role] || null;
+}
+
+function viewerLLMRoleHealthy(status, role) {
+  const info = viewerLLMRoleInfo(status, role);
+  if (!info) return false;
+  if (info.halted === true) return false;
+  return info.health_ok === true || info.status === 'ok' || info.health === 'ok';
+}
+
+function viewerLLMSelectionReady(status, selection) {
+  return viewerLLMRoleHealthy(status, 'Chat') && viewerLLMRoleHealthy(status, selection);
+}
+
+function viewerLLMStopRolesBeforeStart(selection) {
+  if (selection === 'Wild') return ['Worker', 'Heavy'];
+  if (selection === 'Heavy') return ['Worker', 'Wild'];
+  if (selection === 'Worker') return ['Heavy', 'Wild'];
+  return [];
+}
+
+async function stopViewerLLMRolesBeforeStart(selection) {
+  const roles = viewerLLMStopRolesBeforeStart(selection);
+  if (!roles.length) return;
+  const stopRes = await fetch('/viewer/llm-ops/stop', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({roles}),
+  });
+  const body = await stopRes.text();
+  if (!stopRes.ok) {
+    throw new Error('llm ops stop failed: HTTP ' + stopRes.status + (body ? ' ' + body : ''));
+  }
+}
+
+async function ensureViewerLLMReadyForRequest(req) {
+  const selection = viewerLLMStartSelectionForRequest(req);
+  if (!selection) return;
+
+  const healthRes = await fetch('/viewer/llm-ops/health', {cache: 'no-store'});
+  if (!healthRes.ok) {
+    throw new Error('llm ops health failed: HTTP ' + healthRes.status);
+  }
+
+  const statusRes = await fetch('/viewer/llm-ops/status', {cache: 'no-store'});
+  if (!statusRes.ok) {
+    throw new Error('llm ops status failed: HTTP ' + statusRes.status);
+  }
+  const status = await statusRes.json();
+  if (viewerLLMSelectionReady(status, selection)) return;
+
+  await stopViewerLLMRolesBeforeStart(selection);
+
+  const startRes = await fetch('/viewer/llm-ops/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({selection}),
+  });
+  const body = await startRes.text();
+  if (!startRes.ok) {
+    throw new Error('llm ops start failed: HTTP ' + startRes.status + (body ? ' ' + body : ''));
+  }
+  if (typeof refreshLlmOpsStatus === 'function') refreshLlmOpsStatus();
 }
 
 function addMsgToTimeline(ev) {

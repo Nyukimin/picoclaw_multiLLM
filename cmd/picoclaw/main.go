@@ -101,19 +101,28 @@ type primaryLLMProviders struct {
 	Wild   llm.LLMProvider
 }
 
+const (
+	localLLMDefaultTimeout = 120 * time.Second
+	localLLMChatTimeout    = 10 * time.Second
+	localLLMWildTimeout    = 15 * time.Second
+	localLLMHeavyTimeout   = 30 * time.Second
+)
+
 func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 	if cfg.LocalLLM.Enabled {
-		timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
 		global := make(chan struct{}, cfg.LocalLLM.GlobalConcurrency)
-		chat := buildLocalAliasProvider(cfg, "Chat", cfg.LocalLLM.ChatModel, timeout, global)
-		worker := buildLocalAliasProvider(cfg, "Worker", cfg.LocalLLM.WorkerModel, timeout, global)
-		wild := buildLocalAliasProvider(cfg, "Wild", cfg.LocalLLM.WildModel, timeout, global)
+		chatTimeout := localLLMTimeoutForAlias(cfg, "Chat")
+		workerTimeout := localLLMTimeoutForAlias(cfg, "Worker")
+		wildTimeout := localLLMTimeoutForAlias(cfg, "Wild")
+		chat := buildLocalAliasProvider(cfg, "Chat", cfg.LocalLLM.ChatModel, chatTimeout, global)
+		worker := buildLocalAliasProvider(cfg, "Worker", cfg.LocalLLM.WorkerModel, workerTimeout, global)
+		wild := buildLocalAliasProvider(cfg, "Wild", cfg.LocalLLM.WildModel, wildTimeout, global)
 		if cfg.LocalLLMWarmupEnabled() {
 			go warmPrimaryLLMProviders(context.Background(), map[string]llm.LLMProvider{
 				"Chat":   chat,
 				"Worker": worker,
 				"Wild":   wild,
-			}, timeout)
+			}, maxDuration(chatTimeout, workerTimeout, wildTimeout))
 		}
 		return primaryLLMProviders{
 			Chat:   llmmiddleware.NewDateTimeProvider(chat),
@@ -243,6 +252,21 @@ func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout ti
 	return llmmiddleware.NewLimitedProvider(raw, "local-"+alias+"-"+model, global, modelSem)
 }
 
+func localLLMTimeoutForAlias(cfg *config.Config, alias string) time.Duration {
+	switch strings.ToLower(strings.TrimSpace(alias)) {
+	case "chat":
+		return localLLMChatTimeout
+	case "wild":
+		return localLLMWildTimeout
+	case "heavy":
+		return localLLMHeavyTimeout
+	}
+	if cfg == nil || cfg.LocalLLM.TimeoutSec <= 0 {
+		return localLLMDefaultTimeout
+	}
+	return time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
+}
+
 func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
 	if cfg == nil {
 		return ""
@@ -268,9 +292,19 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func maxDuration(values ...time.Duration) time.Duration {
+	var max time.Duration
+	for _, v := range values {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
 func warmPrimaryLLMProviders(parent context.Context, providers map[string]llm.LLMProvider, timeout time.Duration) {
 	if timeout <= 0 {
-		timeout = 120 * time.Second
+		timeout = localLLMDefaultTimeout
 	}
 	for alias, provider := range providers {
 		ctx, cancel := context.WithTimeout(parent, timeout)
@@ -399,7 +433,9 @@ func cmdRun() {
 			BaseURL: cfg.LLMOps.BaseURL,
 			Token:   llmOpsToken,
 		}
+		mux.HandleFunc("/viewer/llm-ops/health", viewer.HandleLLMOpsHealth(llmOpsOpts))
 		mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(llmOpsOpts))
+		mux.HandleFunc("/viewer/llm-ops/start", viewer.HandleLLMOpsStart(llmOpsOpts))
 		mux.HandleFunc("/viewer/llm-ops/stop", viewer.HandleLLMOpsStop(llmOpsOpts))
 		mux.HandleFunc("/viewer/llm-ops/restart", viewer.HandleLLMOpsRestart(llmOpsOpts))
 		log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
@@ -2072,10 +2108,6 @@ func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
 	if cfg == nil {
 		return nil
 	}
-	timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
-	}
 	seen := map[string]struct{}{}
 	add := func(checks []domainhealth.Check, role, baseURL, model string) []domainhealth.Check {
 		role = strings.TrimSpace(role)
@@ -2089,6 +2121,7 @@ func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
 			return checks
 		}
 		seen[key] = struct{}{}
+		timeout := localLLMTimeoutForAlias(cfg, role)
 		return append(checks, infrahealth.NewOpenAICompatibleChatCheck(role, baseURL, model, cfg.LocalLLM.APIKey, timeout))
 	}
 

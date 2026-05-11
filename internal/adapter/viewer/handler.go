@@ -136,6 +136,83 @@ func HandlePage(w http.ResponseWriter, r *http.Request) {
 // MessageHandler processes a user message from the viewer.
 type MessageHandler func(ctx context.Context, message string) (string, error)
 
+type viewerSendRequest struct {
+	Message     string `json:"message"`
+	ModelAlias  string `json:"model_alias,omitempty"`
+	BaseURL     string `json:"base_url,omitempty"`
+	Model       string `json:"model,omitempty"`
+	RoutePrefix string `json:"route_prefix,omitempty"`
+}
+
+type viewerLLMAliasSpec struct {
+	ModelAlias  string `json:"model_alias"`
+	BaseURL     string `json:"base_url"`
+	Model       string `json:"model"`
+	RoutePrefix string `json:"route_prefix"`
+}
+
+var viewerLLMAliasSpecs = map[string]viewerLLMAliasSpec{
+	"worker": {
+		ModelAlias:  "Worker",
+		BaseURL:     "http://127.0.0.1:8082",
+		Model:       "Worker",
+		RoutePrefix: "/ops",
+	},
+	"coder": {
+		ModelAlias:  "Coder",
+		BaseURL:     "http://127.0.0.1:8082",
+		Model:       "Coder",
+		RoutePrefix: "/code2",
+	},
+	"heavy": {
+		ModelAlias:  "Heavy",
+		BaseURL:     "http://127.0.0.1:8083",
+		Model:       "Heavy",
+		RoutePrefix: "/analyze",
+	},
+	"wild": {
+		ModelAlias:  "Wild",
+		BaseURL:     "http://127.0.0.1:8084",
+		Model:       "Wild",
+		RoutePrefix: "/wild",
+	},
+}
+
+func viewerSendAliasSpec(req viewerSendRequest) (viewerLLMAliasSpec, bool) {
+	key := strings.ToLower(strings.TrimSpace(req.ModelAlias))
+	if key == "" {
+		key = strings.ToLower(strings.TrimSpace(req.Model))
+	}
+	spec, ok := viewerLLMAliasSpecs[key]
+	return spec, ok
+}
+
+func viewerSendHasExplicitRoute(message string) bool {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" || trimmed[0] != '/' {
+		return false
+	}
+	head := strings.Fields(trimmed)
+	if len(head) == 0 {
+		return false
+	}
+	switch head[0] {
+	case "/ops", "/wild", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
+		return true
+	default:
+		return false
+	}
+}
+
+func viewerEffectiveMessage(req viewerSendRequest) (string, viewerLLMAliasSpec, bool) {
+	message := strings.TrimSpace(req.Message)
+	spec, ok := viewerSendAliasSpec(req)
+	if !ok || viewerSendHasExplicitRoute(message) {
+		return message, viewerLLMAliasSpec{}, false
+	}
+	return spec.RoutePrefix + " " + message, spec, true
+}
+
 // HandleSend creates an HTTP handler that receives messages from the viewer input.
 // onError is called with the processing error if the async handler fails (may be nil).
 func HandleSend(handler MessageHandler, onError func(error)) http.HandlerFunc {
@@ -155,23 +232,27 @@ func HandleSend(handler MessageHandler, onError func(error)) http.HandlerFunc {
 			return
 		}
 
-		var req struct {
-			Message string `json:"message"`
-		}
-		if err := json.Unmarshal(body, &req); err != nil || req.Message == "" {
+		var req viewerSendRequest
+		if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.Message) == "" {
 			log.Printf("[Viewer] HandleSend: invalid JSON or empty message: %v", err)
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
 
-		log.Printf("[Viewer] HandleSend: message received: %q", req.Message)
+		effectiveMessage, aliasSpec, aliasApplied := viewerEffectiveMessage(req)
+		if aliasApplied {
+			log.Printf("[Viewer] HandleSend: message received: %q alias=%s base_url=%s model=%s route_prefix=%s",
+				req.Message, aliasSpec.ModelAlias, aliasSpec.BaseURL, aliasSpec.Model, aliasSpec.RoutePrefix)
+		} else {
+			log.Printf("[Viewer] HandleSend: message received: %q", req.Message)
+		}
 
 		// Process asynchronously — events flow back via SSE.
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			log.Printf("[Viewer] HandleSend: starting async handler for message: %q", req.Message)
-			response, err := handler(ctx, req.Message)
+			log.Printf("[Viewer] HandleSend: starting async handler for message: %q", effectiveMessage)
+			response, err := handler(ctx, effectiveMessage)
 			if err != nil {
 				log.Printf("[Viewer] HandleSend: handler error: %v", err)
 				if onError != nil {
@@ -183,7 +264,26 @@ func HandleSend(handler MessageHandler, onError func(error)) http.HandlerFunc {
 		}()
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"ok":true}`))
+		if aliasApplied {
+			resp := struct {
+				OK          bool   `json:"ok"`
+				ModelAlias  string `json:"model_alias"`
+				BaseURL     string `json:"base_url"`
+				Model       string `json:"model"`
+				RoutePrefix string `json:"route_prefix"`
+			}{
+				OK:          true,
+				ModelAlias:  aliasSpec.ModelAlias,
+				BaseURL:     aliasSpec.BaseURL,
+				Model:       aliasSpec.Model,
+				RoutePrefix: aliasSpec.RoutePrefix,
+			}
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				log.Printf("[Viewer] HandleSend: response encode error: %v", err)
+			}
+		} else {
+			w.Write([]byte(`{"ok":true}`))
+		}
 		log.Printf("[Viewer] HandleSend: sent OK response")
 	}
 }

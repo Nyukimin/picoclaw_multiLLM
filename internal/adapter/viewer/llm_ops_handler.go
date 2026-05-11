@@ -16,12 +16,29 @@ type LLMOpsProxyOptions struct {
 	Token   string
 }
 
+const llmOpsProxyTimeout = 650 * time.Second
+
 func (o LLMOpsProxyOptions) ready() bool {
 	return strings.TrimSpace(o.BaseURL) != "" && strings.TrimSpace(o.Token) != ""
 }
 
 func normalizeLLMOpsBase(u string) string {
 	return strings.TrimRight(strings.TrimSpace(u), "/")
+}
+
+// HandleLLMOpsHealth proxies GET /health to the MLX management API.
+func HandleLLMOpsHealth(opts LLMOpsProxyOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if strings.TrimSpace(opts.BaseURL) == "" {
+			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+			return
+		}
+		proxyLLMOps(w, r, opts, http.MethodGet, "/health", nil)
+	}
 }
 
 // HandleLLMOpsStatus proxies GET /v1/status to the MLX management API.
@@ -36,6 +53,29 @@ func HandleLLMOpsStatus(opts LLMOpsProxyOptions) http.HandlerFunc {
 			return
 		}
 		proxyLLMOps(w, r, opts, http.MethodGet, "/v1/status", nil)
+	}
+}
+
+// HandleLLMOpsStart proxies POST /v1/control/start. Empty body defaults to Worker selection.
+func HandleLLMOpsStart(opts LLMOpsProxyOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !opts.ready() {
+			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "read body", http.StatusBadRequest)
+			return
+		}
+		if len(bytes.TrimSpace(body)) == 0 {
+			body = []byte(`{"selection":"Worker"}`)
+		}
+		proxyLLMOps(w, r, opts, http.MethodPost, "/v1/control/start", body)
 	}
 }
 
@@ -101,7 +141,7 @@ func proxyLLMOps(w http.ResponseWriter, r *http.Request, opts LLMOpsProxyOptions
 	if body != nil {
 		upReq.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: llmOpsProxyTimeout}
 	resp, err := client.Do(upReq)
 	if err != nil {
 		log.Printf("[viewer] llm-ops %s %s: %v", method, path, err)
