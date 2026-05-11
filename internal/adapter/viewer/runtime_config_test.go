@@ -42,8 +42,12 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			Provider:          "local_openai",
 			ChatBaseURL:       "http://192.168.1.31:8081/",
 			WorkerBaseURL:     "http://192.168.1.31:8082/",
+			HeavyBaseURL:      "http://192.168.1.31:8083/",
+			WildBaseURL:       "http://192.168.1.31:8084/",
 			ChatModel:         "Chat",
 			WorkerModel:       "Worker",
+			HeavyModel:        "Heavy",
+			WildModel:         "Wild",
 			TimeoutSec:        120,
 			GlobalConcurrency: 1,
 			ModelConcurrency:  1,
@@ -67,7 +71,7 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	if body.LLMOpsBaseURL != "http://192.168.1.31:8079" {
 		t.Fatalf("unexpected llm ops base url: %+v", body)
 	}
-	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" {
+	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" {
 		t.Fatalf("unexpected local llm runtime config: %+v", body.LocalLLM)
 	}
 }

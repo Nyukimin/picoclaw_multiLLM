@@ -42,8 +42,11 @@ func TestWildAgentGenerateAppliesWildRecallRoleFilter(t *testing.T) {
 	engine := &mockConversationEngine{
 		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {
 			return &conversation.RecallPack{
+				MidSummaries: []conversation.ThreadSummary{
+					{Summary: "wild mood board", Roles: []string{"wild"}},
+					{Summary: "worker plan", Roles: []string{"worker"}},
+				},
 				SearchCacheSnippets: []conversation.SearchCacheSnippet{
-					{Query: "wild mood board", Roles: []string{"wild"}},
 					{Query: "worker report", Roles: []string{"worker"}},
 				},
 			}, nil
@@ -70,7 +73,7 @@ func TestWildAgentGenerateAppliesWildRecallRoleFilter(t *testing.T) {
 	if !strings.Contains(got, "wild mood board") {
 		t.Fatalf("wild recall should be included, got:\n%s", got)
 	}
-	if strings.Contains(got, "worker report") {
+	if strings.Contains(got, "worker plan") || strings.Contains(got, "worker report") {
 		t.Fatalf("worker recall should be filtered for wild, got:\n%s", got)
 	}
 }

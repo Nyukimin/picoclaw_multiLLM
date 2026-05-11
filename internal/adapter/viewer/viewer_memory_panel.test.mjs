@@ -110,6 +110,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(timelineJs, /worker: \{label: 'Worker', baseURL: 'http:\/\/127\.0\.0\.1:8082', model: 'Worker', routePrefix: '\/ops'\}/);
   assert.match(timelineJs, /heavy: \{label: 'Heavy', baseURL: 'http:\/\/127\.0\.0\.1:8083', model: 'Heavy', routePrefix: '\/analyze'\}/);
   assert.match(timelineJs, /wild: \{label: 'Wild', baseURL: 'http:\/\/127\.0\.0\.1:8084', model: 'Wild', routePrefix: '\/wild'\}/);
+  assert.match(timelineJs, /function syncChatRouteAliasesFromRuntimeConfig/);
   assert.match(js, /const body = buildViewerSendRequest\(message\)/);
   assert.match(js, /await ensureViewerLLMReadyForRequest\(body\)/);
   assert.doesNotMatch(timelineJs, /function addIdleMsgToTimeline/);
@@ -272,6 +273,39 @@ test('viewer chat route alias builds llm switch request fields', () => {
 
   const explicitReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('/wild 物語にして'))", context));
   assert.deepEqual(explicitReq, {message: '/wild 物語にして'});
+});
+
+test('viewer chat route aliases follow runtime local llm config', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const store = new Map();
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {
+      getItem: (key) => store.get(key) || null,
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+    },
+  });
+  vm.runInContext(timelineJs, context);
+
+  vm.runInContext(`syncChatRouteAliasesFromRuntimeConfig({
+    enabled: true,
+    worker_base_url: 'http://192.168.1.31:8082',
+    worker_model: 'WorkerRuntime',
+    heavy_base_url: 'http://192.168.1.31:8083',
+    heavy_model: 'HeavyRuntime',
+    wild_base_url: 'http://192.168.1.31:8084',
+    wild_model: 'WildRuntime'
+  })`, context);
+  vm.runInContext("localStorage.setItem('chatRouteAlias.selected', 'heavy')", context);
+  const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
+  assert.deepEqual(heavyReq, {
+    message: '原因を調べて',
+    model_alias: 'Heavy',
+    base_url: 'http://192.168.1.31:8083',
+    model: 'HeavyRuntime',
+    route_prefix: '/analyze',
+  });
 });
 
 test('viewer starts selected llm before sending alias request', async () => {

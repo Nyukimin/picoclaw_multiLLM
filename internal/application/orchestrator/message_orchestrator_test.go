@@ -118,6 +118,16 @@ func (m *mockWildAgent) Generate(ctx context.Context, t task.Task) (string, erro
 	return m.response, nil
 }
 
+type mockHeavyAgent struct {
+	response string
+	called   bool
+}
+
+func (m *mockHeavyAgent) Generate(ctx context.Context, t task.Task) (string, error) {
+	m.called = true
+	return m.response, nil
+}
+
 // mockWorkerExecutionService はテスト用のWorkerExecutionService
 type mockWorkerExecutionService struct{}
 
@@ -817,5 +827,27 @@ func TestProcessMessage_RouteWildUsesWildAgent(t *testing.T) {
 	}
 	if resp.Response != "wild response" {
 		t.Fatalf("response: want wild response, got %q", resp.Response)
+	}
+}
+
+func TestProcessMessage_RouteAnalyzeUsesHeavyAgent(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteANALYZE, 1.0, "explicit analyze")}
+	heavy := &mockHeavyAgent{response: "heavy response"}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetHeavyAgent(heavy)
+
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !heavy.called {
+		t.Fatal("heavy agent should be called")
+	}
+	if resp.Route != routing.RouteANALYZE {
+		t.Fatalf("route: want ANALYZE, got %s", resp.Route)
+	}
+	if resp.Response != "heavy response" {
+		t.Fatalf("response: want heavy response, got %q", resp.Response)
 	}
 }

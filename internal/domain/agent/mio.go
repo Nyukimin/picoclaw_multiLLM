@@ -50,6 +50,7 @@ type MioAgent struct {
 	searchCacheManager SearchCacheManager              // L1 Search Cache連携（nilを許容）
 	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
 	recentContext      func(context.Context, int) (string, error)
+	systemPrompt       string
 }
 
 // NewMioAgent は新しいMioAgentを作成
@@ -98,6 +99,11 @@ func (m *MioAgent) WithRecentContextProvider(provider func(context.Context, int)
 	return m
 }
 
+func (m *MioAgent) WithSystemPrompt(prompt string) *MioAgent {
+	m.systemPrompt = strings.TrimSpace(prompt)
+	return m
+}
+
 // DecideAction はMioによる委譲判断（4段階優先順位）
 func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
 	// 優先度1: 明示コマンド
@@ -122,6 +128,9 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 
 	// === v5.1: ConversationEngine による RecallPack 生成 ===
 	var messages []llm.Message
+	if m.systemPrompt != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: m.systemPrompt})
+	}
 	var recallPack *conversation.RecallPack
 	if m.conversationEngine != nil {
 		var err error
@@ -136,7 +145,7 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 				log.Printf("[Mio] RecordRecallTrace failed: %v", err)
 			}
 			// RecallPack からプロンプトメッセージを生成（system prompt + 過去文脈 + 会話履歴）
-			messages = recallPack.ToPromptMessages()
+			messages = append(messages, recallPack.ToPromptMessages()...)
 		}
 	}
 
@@ -361,6 +370,7 @@ func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
 		route routing.Route
 	}{
 		{"/analyze", routing.RouteANALYZE},
+		{"/heavy", routing.RouteANALYZE},
 		{"/research", routing.RouteRESEARCH},
 		{"/wild", routing.RouteWILD},
 		{"/code4", routing.RouteCODE4},

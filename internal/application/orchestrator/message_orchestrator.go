@@ -72,6 +72,11 @@ type WildAgent interface {
 	Generate(ctx context.Context, t task.Task) (string, error)
 }
 
+// HeavyAgent は深い分析・診断を担当
+type HeavyAgent interface {
+	Generate(ctx context.Context, t task.Task) (string, error)
+}
+
 // CoderAgentWithProposal はProposal生成機能を持つCoderAgent
 type CoderAgentWithProposal interface {
 	CoderAgent
@@ -88,6 +93,7 @@ type MessageOrchestrator struct {
 	coder3          CoderAgent // Slot 3
 	coder4          CoderAgent // Slot 4 (v4.1)
 	wild            WildAgent
+	heavy           HeavyAgent
 	workerExecution service.WorkerExecutionService
 	coderStatus     *CoderStatus
 	codeExecutor    CodeExecutor // Phase 1リファクタリング: コード実行を委譲
@@ -169,6 +175,10 @@ func (o *MessageOrchestrator) SetCoderCapabilities(caps []capability.CoderCapabi
 
 func (o *MessageOrchestrator) SetWildAgent(wild WildAgent) {
 	o.wild = wild
+}
+
+func (o *MessageOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
+	o.heavy = heavy
 }
 
 func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
@@ -383,11 +393,21 @@ func (o *MessageOrchestrator) executeTask(ctx context.Context, t task.Task, rout
 		return resp, err
 
 	case routing.RouteANALYZE:
-		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+		if o.heavy == nil {
+			o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+			analyzeCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
+			resp, err := o.mio.Chat(analyzeCtx, t)
+			if err == nil {
+				o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+				ttsStream.Finalize(ctx, resp)
+			}
+			return resp, err
+		}
+		o.emit("agent.start", "mio", "heavy", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
 		analyzeCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
-		resp, err := o.mio.Chat(analyzeCtx, t)
+		resp, err := o.heavy.Generate(analyzeCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+			o.emit("agent.response", "heavy", "mio", resp, "ANALYZE", jid, sessionID, channel, chatID)
 			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
@@ -488,11 +508,21 @@ func (o *MessageOrchestrator) executeRouteDirect(ctx context.Context, t task.Tas
 		}
 		return resp, err
 	case routing.RouteANALYZE:
-		o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+		if o.heavy == nil {
+			o.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+			analyzeCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
+			resp, err := o.mio.Chat(analyzeCtx, t)
+			if err == nil {
+				o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+				ttsStream.Finalize(ctx, resp)
+			}
+			return resp, err
+		}
+		o.emit("agent.start", "mio", "heavy", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
 		analyzeCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
-		resp, err := o.mio.Chat(analyzeCtx, t)
+		resp, err := o.heavy.Generate(analyzeCtx, t)
 		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+			o.emit("agent.response", "heavy", "mio", resp, "ANALYZE", jid, sessionID, channel, chatID)
 			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
@@ -596,7 +626,7 @@ func routeExecutionSteps(route routing.Route, ok bool) []string {
 	case routing.RoutePLAN:
 		items = append(items, "mio.plan")
 	case routing.RouteANALYZE:
-		items = append(items, "mio.analyze")
+		items = append(items, "heavy.analyze")
 	case routing.RouteRESEARCH:
 		items = append(items, "mio.research")
 	case routing.RouteWILD:

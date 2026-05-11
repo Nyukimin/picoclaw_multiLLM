@@ -52,11 +52,11 @@ type DebugSystemOptions struct {
 }
 
 type RuntimeConfig struct {
-	STTStreamURL     string `json:"stt_stream_url,omitempty"`
-	STTBaseURL       string `json:"stt_base_url,omitempty"`
-	LLMOpsConfigured bool   `json:"llm_ops_configured"`
-	LLMOpsEnabled    bool   `json:"llm_ops_enabled"`
-	LLMOpsBaseURL    string `json:"llm_ops_base_url,omitempty"`
+	STTStreamURL     string                `json:"stt_stream_url,omitempty"`
+	STTBaseURL       string                `json:"stt_base_url,omitempty"`
+	LLMOpsConfigured bool                  `json:"llm_ops_configured"`
+	LLMOpsEnabled    bool                  `json:"llm_ops_enabled"`
+	LLMOpsBaseURL    string                `json:"llm_ops_base_url,omitempty"`
 	LocalLLM         LocalLLMRuntimeConfig `json:"local_llm,omitempty"`
 }
 
@@ -65,9 +65,11 @@ type LocalLLMRuntimeConfig struct {
 	Provider          string `json:"provider,omitempty"`
 	ChatBaseURL       string `json:"chat_base_url,omitempty"`
 	WorkerBaseURL     string `json:"worker_base_url,omitempty"`
+	HeavyBaseURL      string `json:"heavy_base_url,omitempty"`
 	WildBaseURL       string `json:"wild_base_url,omitempty"`
 	ChatModel         string `json:"chat_model,omitempty"`
 	WorkerModel       string `json:"worker_model,omitempty"`
+	HeavyModel        string `json:"heavy_model,omitempty"`
 	WildModel         string `json:"wild_model,omitempty"`
 	TimeoutSec        int    `json:"timeout_sec,omitempty"`
 	GlobalConcurrency int    `json:"global_concurrency,omitempty"`
@@ -96,9 +98,11 @@ func normalizeLocalLLMRuntimeConfig(in LocalLLMRuntimeConfig) LocalLLMRuntimeCon
 	in.Provider = strings.TrimSpace(in.Provider)
 	in.ChatBaseURL = strings.TrimRight(strings.TrimSpace(in.ChatBaseURL), "/")
 	in.WorkerBaseURL = strings.TrimRight(strings.TrimSpace(in.WorkerBaseURL), "/")
+	in.HeavyBaseURL = strings.TrimRight(strings.TrimSpace(in.HeavyBaseURL), "/")
 	in.WildBaseURL = strings.TrimRight(strings.TrimSpace(in.WildBaseURL), "/")
 	in.ChatModel = strings.TrimSpace(in.ChatModel)
 	in.WorkerModel = strings.TrimSpace(in.WorkerModel)
+	in.HeavyModel = strings.TrimSpace(in.HeavyModel)
 	in.WildModel = strings.TrimSpace(in.WildModel)
 	return in
 }

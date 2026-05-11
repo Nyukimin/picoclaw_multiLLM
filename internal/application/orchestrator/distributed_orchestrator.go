@@ -32,6 +32,8 @@ const (
 type DistributedOrchestrator struct {
 	sessionRepo   SessionRepository
 	mio           MioAgent
+	wild          WildAgent
+	heavy         HeavyAgent
 	router        *transport.MessageRouter
 	memory        *session.CentralMemory
 	sshTransports map[string]domaintransport.Transport // SSH経由のリモートAgent
@@ -138,6 +140,14 @@ func (o *DistributedOrchestrator) SetReportStore(store ReportStore) {
 // SetIdleNotifier sets an optional notifier used to control idle chat.
 func (o *DistributedOrchestrator) SetIdleNotifier(n IdleNotifier) {
 	o.idleNotifier = n
+}
+
+func (o *DistributedOrchestrator) SetWildAgent(wild WildAgent) {
+	o.wild = wild
+}
+
+func (o *DistributedOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
+	o.heavy = heavy
 }
 
 // SetTTSBridge sets an optional TTS bridge.
@@ -440,6 +450,28 @@ func (o *DistributedOrchestrator) executeDistributedDirect(ctx context.Context, 
 			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 			o.emitNote("mio", "user", "コード作業の報告をまとめて返したよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
 			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+		}
+		return resp, err
+	}
+	if route == routing.RouteWILD && o.wild != nil {
+		o.emit("agent.start", "mio", "wild", "創作中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+		resp, err := o.wild.Generate(streamCtx, t)
+		if err == nil {
+			o.emit("agent.response", "wild", "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			ttsStream.Finalize(ctx, resp)
+		}
+		return resp, err
+	}
+	if route == routing.RouteANALYZE && o.heavy != nil {
+		o.emit("agent.start", "mio", "heavy", "分析中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+		resp, err := o.heavy.Generate(streamCtx, t)
+		if err == nil {
+			o.emit("agent.response", "heavy", "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 	}

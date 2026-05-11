@@ -120,10 +120,11 @@ func (h *workerHandler) executeTask(ctx context.Context, msg domaintransport.Mes
 
 // coderHandler はCoderエージェントのハンドラ
 type coderHandler struct {
-	agentName      string
-	coderAgent     *agent.CoderAgent // Fallback agent (local config)
-	proposalPrompt string
-	globalMemory   *agent.LightMemory // 共有メモリ（SSH経由の場合は再利用）
+	agentName        string
+	coderAgent       *agent.CoderAgent // Fallback agent (local config)
+	proposalPrompt   string
+	characterPrompts map[string]string
+	globalMemory     *agent.LightMemory // 共有メモリ（SSH経由の場合は再利用）
 }
 
 func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Message) (domaintransport.Message, error) {
@@ -152,10 +153,10 @@ func (h *coderHandler) HandleMessage(ctx context.Context, msg domaintransport.Me
 					tempAgent := agent.NewCoderAgent(provider, nil, nil, h.proposalPrompt)
 
 					// Persona 適用
-					if coderCfg.Personality != "" {
+					if personality := coderPersonalityFromCharacters(coderCfg, h.characterPrompts); personality != "" {
 						persona := agent.AgentPersona{
 							Name:        coderCfg.Name,
-							Personality: coderCfg.Personality,
+							Personality: personality,
 							Tone:        coderCfg.Tone,
 						}
 						tempAgent.WithPersona(persona)
@@ -466,10 +467,10 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 	coderAgent := agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 
 	// Persona 適用
-	if coderCfg.Personality != "" {
+	if personality := coderPersonalityFromPrompts(coderCfg, cfg.Prompts); personality != "" {
 		persona := agent.AgentPersona{
 			Name:        coderCfg.Name,
-			Personality: coderCfg.Personality,
+			Personality: personality,
 			Tone:        coderCfg.Tone,
 		}
 		coderAgent.WithPersona(persona)
@@ -486,10 +487,36 @@ func initCoderHandler(agentName string, cfg *config.Config) (*coderHandler, erro
 	log.Printf("[picoclaw-agent] %s initialized: provider=%s, model=%s", agentName, coderCfg.Provider, coderCfg.Model)
 
 	return &coderHandler{
-		agentName:      agentName,
-		coderAgent:     coderAgent,
-		proposalPrompt: cfg.Prompts.CoderProposal,
+		agentName:        agentName,
+		coderAgent:       coderAgent,
+		proposalPrompt:   cfg.Prompts.CoderProposal,
+		characterPrompts: cfg.Prompts.CharacterPrompts,
 	}, nil
+}
+
+func coderPersonalityFromPrompts(coderCfg config.CoderConfig, prompts *config.LoadedPrompts) string {
+	if strings.TrimSpace(coderCfg.Personality) != "" {
+		return coderCfg.Personality
+	}
+	if prompts == nil {
+		return ""
+	}
+	return characterPromptForCoder(coderCfg.Name, prompts.CharacterPrompts)
+}
+
+func coderPersonalityFromCharacters(coderCfg config.CoderConfig, characterPrompts map[string]string) string {
+	if strings.TrimSpace(coderCfg.Personality) != "" {
+		return coderCfg.Personality
+	}
+	return characterPromptForCoder(coderCfg.Name, characterPrompts)
+}
+
+func characterPromptForCoder(name string, characterPrompts map[string]string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return ""
+	}
+	return strings.TrimSpace(characterPrompts[key])
 }
 
 // runMessageLoop はstdin/stdout上のJSON通信ループ

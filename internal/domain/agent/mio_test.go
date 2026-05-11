@@ -72,6 +72,7 @@ func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 		{"/code3 implement feature", routing.RouteCODE3},
 		{"/plan create project", routing.RoutePLAN},
 		{"/analyze logs", routing.RouteANALYZE},
+		{"/heavy logs", routing.RouteANALYZE},
 	}
 
 	for _, tt := range tests {
@@ -204,6 +205,36 @@ func TestMioAgentChat(t *testing.T) {
 	}
 }
 
+func TestMioAgentChat_UsesSystemPrompt(t *testing.T) {
+	var gotMessages []llm.Message
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			gotMessages = req.Messages
+			return llm.GenerateResponse{Content: "了解しました"}, nil
+		},
+	}
+
+	mio := NewMioAgent(
+		llmProvider,
+		&mockClassifier{},
+		&mockRuleDictionary{},
+		&mockToolRunner{},
+		&mockMCPClient{},
+		nil,
+	).WithSystemPrompt("Mio system prompt")
+
+	_, err := mio.Chat(context.Background(), task.NewTask(task.NewJobID(), "こんにちは", "line", "U123"))
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if len(gotMessages) == 0 {
+		t.Fatal("expected messages")
+	}
+	if gotMessages[0].Role != "system" || gotMessages[0].Content != "Mio system prompt" {
+		t.Fatalf("expected system prompt first, got %#v", gotMessages[0])
+	}
+}
+
 // === mockConversationEngine ===
 
 type mockConversationEngine struct {
@@ -328,10 +359,10 @@ func TestMioAgent_Chat_AppliesChatRecallRoleFilter(t *testing.T) {
 		prompt.WriteString("\n")
 	}
 	got := prompt.String()
-	if !strings.Contains(got, "chat memory") || !strings.Contains(got, "chat search") {
+	if !strings.Contains(got, "chat memory") {
 		t.Fatalf("chat role recall should be included, got:\n%s", got)
 	}
-	if strings.Contains(got, "worker memory") || strings.Contains(got, "wild search") {
+	if strings.Contains(got, "worker memory") || strings.Contains(got, "chat search") || strings.Contains(got, "wild search") {
 		t.Fatalf("non-chat role recall should be filtered, got:\n%s", got)
 	}
 }
@@ -603,6 +634,7 @@ func TestParseExplicitCommand_AllRoutes(t *testing.T) {
 		{"/chat hello", routing.RouteCHAT},
 		{"/plan create project", routing.RoutePLAN},
 		{"/analyze logs", routing.RouteANALYZE},
+		{"/heavy logs", routing.RouteANALYZE},
 		{"/ops deploy", routing.RouteOPS},
 		{"/research topic", routing.RouteRESEARCH},
 		{"/wild image prompt", routing.RouteWILD},

@@ -134,7 +134,7 @@ type OpenAIConfig struct {
 	Model  string `yaml:"model"`
 }
 
-// LocalLLMConfig is the primary local inference runtime for Chat / Worker / Wild.
+// LocalLLMConfig is the primary local inference runtime for Chat / Worker / Heavy / Wild.
 // It is intended for OpenAI-compatible local servers such as MLX.
 type LocalLLMConfig struct {
 	Enabled           bool   `yaml:"enabled"`
@@ -142,10 +142,12 @@ type LocalLLMConfig struct {
 	BaseURL           string `yaml:"base_url"`
 	ChatBaseURL       string `yaml:"chat_base_url"`
 	WorkerBaseURL     string `yaml:"worker_base_url"`
+	HeavyBaseURL      string `yaml:"heavy_base_url"`
 	WildBaseURL       string `yaml:"wild_base_url"`
 	APIKey            string `yaml:"api_key"`
 	ChatModel         string `yaml:"chat_model"`
 	WorkerModel       string `yaml:"worker_model"`
+	HeavyModel        string `yaml:"heavy_model"`
 	WildModel         string `yaml:"wild_model"`
 	TimeoutSec        int    `yaml:"timeout_sec"`
 	Warmup            *bool  `yaml:"warmup"`
@@ -551,6 +553,9 @@ func (c *Config) setDefaults() {
 	if c.LocalLLM.WorkerModel == "" {
 		c.LocalLLM.WorkerModel = "Worker"
 	}
+	if c.LocalLLM.HeavyModel == "" {
+		c.LocalLLM.HeavyModel = "Heavy"
+	}
 	if c.LocalLLM.WildModel == "" {
 		c.LocalLLM.WildModel = "Wild"
 	}
@@ -912,7 +917,7 @@ func (c *Config) Validate() error {
 		if c.LocalLLM.Provider != "local_openai" && c.LocalLLM.Provider != "ollama" {
 			return fmt.Errorf("local_llm.provider must be one of [local_openai, ollama], got '%s'", c.LocalLLM.Provider)
 		}
-		if c.LocalLLM.BaseURL == "" && c.LocalLLM.ChatBaseURL == "" && c.LocalLLM.WorkerBaseURL == "" && c.LocalLLM.WildBaseURL == "" {
+		if c.LocalLLM.BaseURL == "" && c.LocalLLM.ChatBaseURL == "" && c.LocalLLM.WorkerBaseURL == "" && c.LocalLLM.HeavyBaseURL == "" && c.LocalLLM.WildBaseURL == "" {
 			return fmt.Errorf("local_llm base_url or role-specific base_url is required when enabled=true")
 		}
 		if c.LocalLLM.ChatModel == "" {
@@ -920,6 +925,9 @@ func (c *Config) Validate() error {
 		}
 		if c.LocalLLM.WorkerModel == "" {
 			return fmt.Errorf("local_llm worker_model is required when enabled=true")
+		}
+		if c.LocalLLM.HeavyModel == "" {
+			return fmt.Errorf("local_llm heavy_model is required when enabled=true")
 		}
 		if c.LocalLLM.WildModel == "" {
 			return fmt.Errorf("local_llm wild_model is required when enabled=true")

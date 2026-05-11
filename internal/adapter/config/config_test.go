@@ -313,7 +313,7 @@ local_llm:
 	if cfg.LocalLLM.Provider != "local_openai" {
 		t.Fatalf("unexpected local_llm provider: %s", cfg.LocalLLM.Provider)
 	}
-	if cfg.LocalLLM.ChatModel != "Chat" || cfg.LocalLLM.WorkerModel != "Worker" || cfg.LocalLLM.WildModel != "Wild" {
+	if cfg.LocalLLM.ChatModel != "Chat" || cfg.LocalLLM.WorkerModel != "Worker" || cfg.LocalLLM.HeavyModel != "Heavy" || cfg.LocalLLM.WildModel != "Wild" {
 		t.Fatalf("unexpected model aliases: %+v", cfg.LocalLLM)
 	}
 	if cfg.LocalLLM.TimeoutSec != 120 {
@@ -788,6 +788,7 @@ func TestConfig_Validate(t *testing.T) {
 					BaseURL:           "http://127.0.0.1:8080",
 					ChatModel:         "Chat",
 					WorkerModel:       "Worker",
+					HeavyModel:        "Heavy",
 					WildModel:         "Wild",
 					TimeoutSec:        120,
 					GlobalConcurrency: 2,
@@ -810,6 +811,7 @@ func TestConfig_Validate(t *testing.T) {
 					Provider:          "local_openai",
 					ChatModel:         "Chat",
 					WorkerModel:       "Worker",
+					HeavyModel:        "Heavy",
 					WildModel:         "Wild",
 					TimeoutSec:        120,
 					GlobalConcurrency: 2,

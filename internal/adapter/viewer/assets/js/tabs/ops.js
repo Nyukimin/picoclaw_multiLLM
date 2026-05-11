@@ -116,6 +116,9 @@ function syncLLMOpsPanel(cfg) {
   const enabled = Boolean(cfg && cfg.llm_ops_enabled);
   const baseURL = cfg && cfg.llm_ops_base_url ? String(cfg.llm_ops_base_url) : '';
   state.ops.localLLM = cfg && cfg.local_llm ? cfg.local_llm : null;
+  if (typeof syncChatRouteAliasesFromRuntimeConfig === 'function') {
+    syncChatRouteAliasesFromRuntimeConfig(state.ops.localLLM);
+  }
   state.ops.llmOpsEnabled = enabled;
   bindLLMOpsButtons();
   const configEl = document.getElementById('llmOpsConfigState');
@@ -155,6 +158,7 @@ function renderLocalLLMRuntimeConfig() {
   const rows = [
     {role: 'Chat', model: localLLM.chat_model, url: localLLM.chat_base_url, state: 'running'},
     {role: 'Worker', model: localLLM.worker_model, url: localLLM.worker_base_url, state: 'running'},
+    {role: 'Heavy', model: localLLM.heavy_model, url: localLLM.heavy_base_url, state: sameLocalLLMEndpoint(localLLM.heavy_base_url, localLLM.worker_base_url, localLLM.heavy_model, localLLM.worker_model) ? 'shared' : 'running'},
     {role: 'Wild', model: localLLM.wild_model, url: localLLM.wild_base_url, state: sameLocalLLMEndpoint(localLLM.wild_base_url, localLLM.chat_base_url, localLLM.wild_model, localLLM.chat_model) ? 'shared' : 'running'},
   ].filter((row) => row.model || row.url);
   const params = [

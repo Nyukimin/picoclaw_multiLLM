@@ -9,22 +9,28 @@ import (
 
 // LoadedPrompts は外部ファイルから読み込まれたプロンプト群
 type LoadedPrompts struct {
-	MioPersona     string            // Mio会話ペルソナ
-	CoderProposal  string            // Coder proposal生成
-	Classifier     string            // タスク分類器
-	Worker         string            // Shiro Worker
-	IdleChatAgents map[string]string // IdleChat Agent名 → プロンプト
+	MioPersona       string            // Mio会話ペルソナ
+	CoderProposal    string            // Coder proposal生成
+	Classifier       string            // タスク分類器
+	Worker           string            // Shiro Worker
+	Heavy            string            // Kuro Heavy
+	Wild             string            // Midori Wild
+	CharacterPrompts map[string]string // character名 → manifest結合済みプロンプト
+	IdleChatAgents   map[string]string // IdleChat Agent名 → プロンプト
 }
 
 // LoadPrompts は prompts_dir からプロンプトファイルを読み込む
 // ファイルが存在しない場合はフォールバック値を使用
 func LoadPrompts(baseDir, workspaceDir string) *LoadedPrompts {
 	p := &LoadedPrompts{
-		MioPersona:     defaultMioPersona,
-		CoderProposal:  defaultCoderProposal,
-		Classifier:     defaultClassifier,
-		Worker:         defaultWorker,
-		IdleChatAgents: copyMap(defaultIdleChatAgents),
+		MioPersona:       defaultMioPersona,
+		CoderProposal:    defaultCoderProposal,
+		Classifier:       defaultClassifier,
+		Worker:           defaultWorker,
+		Heavy:            "",
+		Wild:             "",
+		CharacterPrompts: map[string]string{},
+		IdleChatAgents:   copyMap(defaultIdleChatAgents),
 	}
 
 	// Step 1: prompts/ から読み込み（デフォルト）
@@ -83,7 +89,79 @@ func loadPromptsFromDir(dir string, p *LoadedPrompts) int {
 		log.Printf("Loaded %d prompt files from %s", loaded, dir)
 	}
 
+	loaded += loadCharacterPromptsFromDir(dir, p)
+
 	return loaded
+}
+
+func loadCharacterPromptsFromDir(dir string, p *LoadedPrompts) int {
+	characterRoot := filepath.Join(dir, "prompts", "characters")
+	entries, err := os.ReadDir(characterRoot)
+	if err != nil {
+		return 0
+	}
+	loaded := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(entry.Name()))
+		if name == "" {
+			continue
+		}
+		content, ok := readPromptBundle(filepath.Join(characterRoot, name))
+		if !ok {
+			continue
+		}
+		p.CharacterPrompts[name] = content
+		applyCharacterPrompt(name, content, p)
+		loaded++
+	}
+	if loaded > 0 {
+		log.Printf("Loaded %d character prompt bundles from %s", loaded, characterRoot)
+	}
+	return loaded
+}
+
+func applyCharacterPrompt(name, content string, p *LoadedPrompts) {
+	switch name {
+	case "mio":
+		p.MioPersona = content
+	case "shiro":
+		p.Worker = content
+	case "kuro":
+		p.Heavy = content
+	case "midori":
+		p.Wild = content
+	}
+}
+
+func readPromptBundle(dir string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.txt"))
+	if err != nil {
+		return "", false
+	}
+	var parts []string
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.Contains(line, "..") || strings.ContainsAny(line, `/\`) || filepath.Ext(line) != ".md" {
+			log.Printf("WARN: ignoring invalid prompt bundle entry dir=%s entry=%q", dir, line)
+			continue
+		}
+		content, ok := readPromptFile(dir, line)
+		if !ok {
+			log.Printf("WARN: prompt bundle entry missing or empty dir=%s entry=%q", dir, line)
+			continue
+		}
+		parts = append(parts, content)
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	return strings.Join(parts, "\n\n---\n\n"), true
 }
 
 // LoadPersonaFile はペルソナファイルを workspaceDir からの相対パスで読み込む。

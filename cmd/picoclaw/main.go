@@ -98,6 +98,7 @@ func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*prop
 type primaryLLMProviders struct {
 	Chat   llm.LLMProvider
 	Worker llm.LLMProvider
+	Heavy  llm.LLMProvider
 	Wild   llm.LLMProvider
 }
 
@@ -113,20 +114,24 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 		global := make(chan struct{}, cfg.LocalLLM.GlobalConcurrency)
 		chatTimeout := localLLMTimeoutForAlias(cfg, "Chat")
 		workerTimeout := localLLMTimeoutForAlias(cfg, "Worker")
+		heavyTimeout := localLLMTimeoutForAlias(cfg, "Heavy")
 		wildTimeout := localLLMTimeoutForAlias(cfg, "Wild")
 		chat := buildLocalAliasProvider(cfg, "Chat", cfg.LocalLLM.ChatModel, chatTimeout, global)
 		worker := buildLocalAliasProvider(cfg, "Worker", cfg.LocalLLM.WorkerModel, workerTimeout, global)
+		heavy := buildLocalAliasProvider(cfg, "Heavy", localLLMModelForAlias(cfg, "Heavy"), heavyTimeout, global)
 		wild := buildLocalAliasProvider(cfg, "Wild", cfg.LocalLLM.WildModel, wildTimeout, global)
 		if cfg.LocalLLMWarmupEnabled() {
 			go warmPrimaryLLMProviders(context.Background(), map[string]llm.LLMProvider{
 				"Chat":   chat,
 				"Worker": worker,
+				"Heavy":  heavy,
 				"Wild":   wild,
-			}, maxDuration(chatTimeout, workerTimeout, wildTimeout))
+			}, maxDuration(chatTimeout, workerTimeout, heavyTimeout, wildTimeout))
 		}
 		return primaryLLMProviders{
 			Chat:   llmmiddleware.NewDateTimeProvider(chat),
 			Worker: llmmiddleware.NewDateTimeProvider(worker),
+			Heavy:  llmmiddleware.NewDateTimeProvider(heavy),
 			Wild:   llmmiddleware.NewDateTimeProvider(wild),
 		}
 	}
@@ -140,6 +145,7 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 	return primaryLLMProviders{
 		Chat:   llmmiddleware.NewDateTimeProvider(chatRawProvider),
 		Worker: llmmiddleware.NewDateTimeProvider(workerRawProvider),
+		Heavy:  llmmiddleware.NewDateTimeProvider(workerRawProvider),
 		Wild:   llmmiddleware.NewDateTimeProvider(workerRawProvider),
 	}
 }
@@ -276,10 +282,33 @@ func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
 		return firstNonEmpty(cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.BaseURL)
 	case "worker":
 		return firstNonEmpty(cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.BaseURL)
+	case "heavy":
+		return firstNonEmpty(cfg.LocalLLM.HeavyBaseURL, cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.BaseURL)
 	case "wild":
 		return firstNonEmpty(cfg.LocalLLM.WildBaseURL, cfg.LocalLLM.BaseURL)
 	default:
 		return cfg.LocalLLM.BaseURL
+	}
+}
+
+func localLLMModelForAlias(cfg *config.Config, alias string) string {
+	if cfg == nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(alias)) {
+	case "chat":
+		return cfg.LocalLLM.ChatModel
+	case "worker":
+		return cfg.LocalLLM.WorkerModel
+	case "heavy":
+		if strings.TrimSpace(cfg.LocalLLM.HeavyBaseURL) == "" && strings.TrimSpace(cfg.LocalLLM.WorkerBaseURL) != "" {
+			return cfg.LocalLLM.WorkerModel
+		}
+		return cfg.LocalLLM.HeavyModel
+	case "wild":
+		return cfg.LocalLLM.WildModel
+	default:
+		return ""
 	}
 }
 
@@ -414,9 +443,11 @@ func cmdRun() {
 		Provider:          cfg.LocalLLM.Provider,
 		ChatBaseURL:       localLLMBaseURLForAlias(cfg, "chat"),
 		WorkerBaseURL:     localLLMBaseURLForAlias(cfg, "worker"),
+		HeavyBaseURL:      localLLMBaseURLForAlias(cfg, "heavy"),
 		WildBaseURL:       localLLMBaseURLForAlias(cfg, "wild"),
 		ChatModel:         cfg.LocalLLM.ChatModel,
 		WorkerModel:       cfg.LocalLLM.WorkerModel,
+		HeavyModel:        localLLMModelForAlias(cfg, "heavy"),
 		WildModel:         cfg.LocalLLM.WildModel,
 		TimeoutSec:        cfg.LocalLLM.TimeoutSec,
 		GlobalConcurrency: cfg.LocalLLM.GlobalConcurrency,
@@ -2125,9 +2156,12 @@ func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
 		return append(checks, infrahealth.NewOpenAICompatibleChatCheck(role, baseURL, model, cfg.LocalLLM.APIKey, timeout))
 	}
 
-	checks := make([]domainhealth.Check, 0, 3)
+	checks := make([]domainhealth.Check, 0, 4)
 	checks = add(checks, "Chat", cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.ChatModel)
 	checks = add(checks, "Worker", cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.WorkerModel)
+	if strings.TrimSpace(cfg.LocalLLM.HeavyBaseURL) != "" {
+		checks = add(checks, "Heavy", cfg.LocalLLM.HeavyBaseURL, localLLMModelForAlias(cfg, "heavy"))
+	}
 	if cfg.LocalLLMWarmupEnabled() {
 		checks = add(checks, "Wild", cfg.LocalLLM.WildBaseURL, cfg.LocalLLM.WildModel)
 	}
@@ -2351,6 +2385,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	primaryProviders := buildPrimaryLLMProviders(cfg)
 	chatProvider := primaryProviders.Chat
 	workerProvider := primaryProviders.Worker
+	heavyProvider := primaryProviders.Heavy
 	wildProvider := primaryProviders.Wild
 	workerToolProvider, ok := workerProvider.(llm.ToolCallingProvider)
 	if !ok {
@@ -2600,7 +2635,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 
 	// 6. Agents
-	mioAgent := agent.NewMioAgent(chatProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine)
+	mioAgent := agent.NewMioAgent(chatProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine).
+		WithSystemPrompt(cfg.Prompts.MioPersona)
 	if recentGlossaryContext != nil {
 		mioAgent = mioAgent.WithRecentContextProvider(recentGlossaryContext)
 		log.Printf("Mio: Glossary context injected")
@@ -2617,9 +2653,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
 	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
-	wildAgent := agent.NewWildAgent(wildProvider, "")
+	heavyAgent := agent.NewHeavyAgent(heavyProvider, cfg.Prompts.Heavy)
+	wildAgent := agent.NewWildAgent(wildProvider, cfg.Prompts.Wild)
 	if convEngine != nil {
 		shiroAgent.WithConversationEngine(convEngine)
+		heavyAgent.WithConversationEngine(convEngine)
 		wildAgent.WithConversationEngine(convEngine)
 	}
 	if cfg.Worker.PersonaFile != "" {
@@ -2838,6 +2876,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 			"mio":   chatProvider,
 			"shiro": workerProvider,
+			"kuro":  heavyProvider,
 			"wild":  wildProvider,
 		})
 		// v4.1: OpenAI provider を coder2 から取得（Forecast用）
@@ -2905,7 +2944,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	// 10. v3/v4 モード分岐
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
-		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge, vtuberBridge)
+		deps.buildDistributedMode(cfg, sessionRepo, mioAgent, shiroAgent, heavyAgent, wildAgent, coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter, workerExecutionService, chatProvider, centralMemory, ttsBridge, vtuberBridge)
 		deps.viewerSend = viewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = entryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = chromeBridgeFromOrch(deps.distOrch)
@@ -2933,6 +2972,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		}
 		orch.SetMaxRepair(cfg.Worker.MaxRepair)
 		orch.SetWildAgent(wildAgent)
+		orch.SetHeavyAgent(heavyAgent)
 		orch.SetTTSBridge(ttsBridge)
 		orch.SetVTuberBridge(vtuberBridge)
 		// IdleChat統合（有効な場合）
@@ -3063,6 +3103,8 @@ func (d *Dependencies) buildDistributedMode(
 	sessionRepo orchestrator.SessionRepository,
 	mioAgent *agent.MioAgent,
 	shiroAgent *agent.ShiroAgent,
+	heavyAgent *agent.HeavyAgent,
+	wildAgent *agent.WildAgent,
 	coder1Adapter *coderAdapter,
 	coder2Adapter *coderAdapter,
 	coder3Adapter *coderAdapter,
@@ -3147,20 +3189,22 @@ func (d *Dependencies) buildDistributedMode(
 		sshTransports,
 	)
 	d.distOrch = distOrch
+	distOrch.SetHeavyAgent(heavyAgent)
+	distOrch.SetWildAgent(wildAgent)
 
 	// v4.1: SSH 経由で CoderConfig を送信するための設定
 	coderConfigs := make(map[string]interface{})
 	if cfg.Coder1.Enabled && distributedAgentAvailable("coder1", localTransports, sshTransports) {
-		coderConfigs["coder1"] = cfg.Coder1
+		coderConfigs["coder1"] = coderConfigWithRuntimePersonality(cfg, cfg.Coder1)
 	}
 	if cfg.Coder2.Enabled && distributedAgentAvailable("coder2", localTransports, sshTransports) {
-		coderConfigs["coder2"] = cfg.Coder2
+		coderConfigs["coder2"] = coderConfigWithRuntimePersonality(cfg, cfg.Coder2)
 	}
 	if cfg.Coder3.Enabled && distributedAgentAvailable("coder3", localTransports, sshTransports) {
-		coderConfigs["coder3"] = cfg.Coder3
+		coderConfigs["coder3"] = coderConfigWithRuntimePersonality(cfg, cfg.Coder3)
 	}
 	if cfg.Coder4.Enabled && distributedAgentAvailable("coder4", localTransports, sshTransports) {
-		coderConfigs["coder4"] = cfg.Coder4
+		coderConfigs["coder4"] = coderConfigWithRuntimePersonality(cfg, cfg.Coder4)
 	}
 	distOrch.SetCoderConfigs(coderConfigs)
 
@@ -3743,13 +3787,10 @@ func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapt
 		// CoderAgent 作成
 		domainCoder := agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)
 
-		// Agent Persona 設定（persona_file 優先、なければ personality インライン）
-		personality := cc.config.Personality
-		if cc.config.PersonaFile != "" {
-			if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, cc.config.PersonaFile); ok {
-				personality = content
-				log.Printf("[setupCoders] %s (%s) persona loaded from file: %s", cc.name, cc.config.DisplayName, cc.config.PersonaFile)
-			}
+		// Agent Persona 設定（persona_file 優先、なければ personality、最後に characters/<name>）
+		personality, source := resolveCoderPersonality(cfg, cc.config)
+		if source != "" {
+			log.Printf("[setupCoders] %s (%s) persona loaded from %s", cc.name, cc.config.DisplayName, source)
 		}
 		if personality != "" {
 			coderPersona := agent.AgentPersona{
@@ -3782,4 +3823,30 @@ func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapt
 	}
 
 	return
+}
+
+func coderConfigWithRuntimePersonality(cfg *config.Config, coderCfg config.CoderConfig) config.CoderConfig {
+	personality, _ := resolveCoderPersonality(cfg, coderCfg)
+	if personality != "" {
+		coderCfg.Personality = personality
+	}
+	return coderCfg
+}
+
+func resolveCoderPersonality(cfg *config.Config, coderCfg config.CoderConfig) (string, string) {
+	if cfg != nil && coderCfg.PersonaFile != "" {
+		if content, ok := config.LoadPersonaFile(cfg.WorkspaceDir, coderCfg.PersonaFile); ok {
+			return content, "file: " + coderCfg.PersonaFile
+		}
+	}
+	if strings.TrimSpace(coderCfg.Personality) != "" {
+		return coderCfg.Personality, "inline personality"
+	}
+	if cfg != nil && cfg.Prompts != nil {
+		name := strings.ToLower(strings.TrimSpace(coderCfg.Name))
+		if content := strings.TrimSpace(cfg.Prompts.CharacterPrompts[name]); content != "" {
+			return content, "character bundle: " + name
+		}
+	}
+	return "", ""
 }

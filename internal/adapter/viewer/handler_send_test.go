@@ -82,3 +82,47 @@ func TestHandleSendExplicitRouteWinsOverAlias(t *testing.T) {
 		t.Fatal("handler was not called")
 	}
 }
+
+func TestHandleSendUsesRuntimeAliasFields(t *testing.T) {
+	received := make(chan string, 1)
+	h := HandleSend(func(_ context.Context, message string) (string, error) {
+		received <- message
+		return "ok", nil
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/send", strings.NewReader(`{
+		"message":"原因を調べて",
+		"model_alias":"Heavy",
+		"base_url":"http://192.168.1.31:18083",
+		"model":"HeavyRuntime",
+		"route_prefix":"/heavy"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var body struct {
+		ModelAlias  string `json:"model_alias"`
+		BaseURL     string `json:"base_url"`
+		Model       string `json:"model"`
+		RoutePrefix string `json:"route_prefix"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if body.ModelAlias != "Heavy" || body.BaseURL != "http://192.168.1.31:18083" || body.Model != "HeavyRuntime" || body.RoutePrefix != "/heavy" {
+		t.Fatalf("unexpected response: %+v", body)
+	}
+
+	select {
+	case got := <-received:
+		if got != "/heavy 原因を調べて" {
+			t.Fatalf("unexpected handler message: %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler was not called")
+	}
+}

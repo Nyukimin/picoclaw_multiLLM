@@ -184,7 +184,28 @@ func viewerSendAliasSpec(req viewerSendRequest) (viewerLLMAliasSpec, bool) {
 		key = strings.ToLower(strings.TrimSpace(req.Model))
 	}
 	spec, ok := viewerLLMAliasSpecs[key]
+	if !ok {
+		return viewerLLMAliasSpec{}, false
+	}
+	if v := strings.TrimSpace(req.BaseURL); v != "" {
+		spec.BaseURL = v
+	}
+	if v := strings.TrimSpace(req.Model); v != "" {
+		spec.Model = v
+	}
+	if v := strings.TrimSpace(req.RoutePrefix); validViewerRoutePrefix(v) {
+		spec.RoutePrefix = v
+	}
 	return spec, ok
+}
+
+func validViewerRoutePrefix(prefix string) bool {
+	switch strings.TrimSpace(prefix) {
+	case "/ops", "/wild", "/heavy", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
+		return true
+	default:
+		return false
+	}
 }
 
 func viewerSendHasExplicitRoute(message string) bool {
@@ -197,7 +218,7 @@ func viewerSendHasExplicitRoute(message string) bool {
 		return false
 	}
 	switch head[0] {
-	case "/ops", "/wild", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
+	case "/ops", "/wild", "/heavy", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
 		return true
 	default:
 		return false

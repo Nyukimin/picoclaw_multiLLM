@@ -1,10 +1,35 @@
 // Chat Timeline tab module: normal chat message rendering.
-const CHAT_ROUTE_ALIASES = {
+const DEFAULT_CHAT_ROUTE_ALIASES = {
   worker: {label: 'Worker', baseURL: 'http://127.0.0.1:8082', model: 'Worker', routePrefix: '/ops'},
   heavy: {label: 'Heavy', baseURL: 'http://127.0.0.1:8083', model: 'Heavy', routePrefix: '/analyze'},
   wild: {label: 'Wild', baseURL: 'http://127.0.0.1:8084', model: 'Wild', routePrefix: '/wild'},
 };
+let CHAT_ROUTE_ALIASES = {...DEFAULT_CHAT_ROUTE_ALIASES};
 const CHAT_ROUTE_ALIAS_STORAGE_KEY = 'chatRouteAlias.selected';
+
+function syncChatRouteAliasesFromRuntimeConfig(localLLM) {
+  if (!localLLM || !localLLM.enabled) {
+    CHAT_ROUTE_ALIASES = {...DEFAULT_CHAT_ROUTE_ALIASES};
+    return;
+  }
+  CHAT_ROUTE_ALIASES = {
+    worker: {
+      ...DEFAULT_CHAT_ROUTE_ALIASES.worker,
+      baseURL: localLLM.worker_base_url || DEFAULT_CHAT_ROUTE_ALIASES.worker.baseURL,
+      model: localLLM.worker_model || DEFAULT_CHAT_ROUTE_ALIASES.worker.model,
+    },
+    heavy: {
+      ...DEFAULT_CHAT_ROUTE_ALIASES.heavy,
+      baseURL: localLLM.heavy_base_url || DEFAULT_CHAT_ROUTE_ALIASES.heavy.baseURL,
+      model: localLLM.heavy_model || DEFAULT_CHAT_ROUTE_ALIASES.heavy.model,
+    },
+    wild: {
+      ...DEFAULT_CHAT_ROUTE_ALIASES.wild,
+      baseURL: localLLM.wild_base_url || DEFAULT_CHAT_ROUTE_ALIASES.wild.baseURL,
+      model: localLLM.wild_model || DEFAULT_CHAT_ROUTE_ALIASES.wild.model,
+    },
+  };
+}
 
 function selectedChatRouteAlias() {
   const value = localStorage.getItem(CHAT_ROUTE_ALIAS_STORAGE_KEY) || '';
@@ -12,7 +37,7 @@ function selectedChatRouteAlias() {
 }
 
 function isExplicitRouteMessage(message) {
-  return /^\/(ops|wild|code|code1|code2|code3|code4|plan|analyze|research|chat)(\s|$)/.test(String(message || '').trim());
+  return /^\/(ops|wild|heavy|code|code1|code2|code3|code4|plan|analyze|research|chat)(\s|$)/.test(String(message || '').trim());
 }
 
 function selectChatRouteAlias(alias) {
