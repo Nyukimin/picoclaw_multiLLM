@@ -156,10 +156,12 @@ function renderLocalLLMRuntimeConfig() {
     return;
   }
   const rows = [
-    {role: 'Chat', model: localLLM.chat_model, url: localLLM.chat_base_url, state: 'running'},
-    {role: 'Worker', model: localLLM.worker_model, url: localLLM.worker_base_url, state: 'running'},
-    {role: 'Heavy', model: localLLM.heavy_model, url: localLLM.heavy_base_url, state: sameLocalLLMEndpoint(localLLM.heavy_base_url, localLLM.worker_base_url, localLLM.heavy_model, localLLM.worker_model) ? 'shared' : 'running'},
-    {role: 'Wild', model: localLLM.wild_model, url: localLLM.wild_base_url, state: sameLocalLLMEndpoint(localLLM.wild_base_url, localLLM.chat_base_url, localLLM.wild_model, localLLM.chat_model) ? 'shared' : 'running'},
+    llmRuntimeRoleRow('Chat', localLLM.chat_model, localLLM.chat_base_url, ''),
+    llmRuntimeRoleRow('Worker', localLLM.worker_model, localLLM.worker_base_url, ''),
+    llmRuntimeRoleRow('Heavy', localLLM.heavy_model, localLLM.heavy_base_url,
+      sameLocalLLMEndpoint(localLLM.heavy_base_url, localLLM.worker_base_url, localLLM.heavy_model, localLLM.worker_model) ? 'shared' : ''),
+    llmRuntimeRoleRow('Wild', localLLM.wild_model, localLLM.wild_base_url,
+      sameLocalLLMEndpoint(localLLM.wild_base_url, localLLM.chat_base_url, localLLM.wild_model, localLLM.chat_model) ? 'shared' : ''),
   ].filter((row) => row.model || row.url);
   const params = [
     localLLM.provider ? 'provider=' + localLLM.provider : '',
@@ -169,11 +171,63 @@ function renderLocalLLMRuntimeConfig() {
   ].filter(Boolean).join(' · ');
   el.innerHTML = rows.map((row) => (
     '<div class="llm-runtime-card">' +
-      '<div class="ops-card-title">' + esc(row.role) + '<span class="badge ' + (row.state === 'shared' ? 'state-thinking' : 'state-running') + '">' + esc(row.state) + '</span></div>' +
+      '<div class="ops-card-title">' + esc(row.role) + '<span class="badge ' + stateClass(row.stateClass || row.state) + '">' + esc(row.state) + '</span></div>' +
       '<div class="llm-runtime-model">' + esc(row.model || '-') + '</div>' +
       '<div class="llm-runtime-url">' + esc(row.url || '-') + '/v1/chat/completions</div>' +
+      (row.meta ? '<div class="ops-sub">' + esc(row.meta) + '</div>' : '') +
     '</div>'
   )).join('') + (params ? '<div class="ops-sub">' + esc(params) + '</div>' : '');
+}
+
+function llmRuntimeRoleRow(role, configModel, configURL, configuredState) {
+  const status = state.ops.llmStatus || {};
+  const roleState = status.roles && status.roles[role] ? status.roles[role] : null;
+  const memoryRole = status.memory && status.memory.llm_by_role && status.memory.llm_by_role[role]
+    ? status.memory.llm_by_role[role]
+    : null;
+  const livePort = memoryRole && memoryRole.port != null ? Number(memoryRole.port) : null;
+  const liveURL = Number.isFinite(livePort) ? replaceURLPort(configURL, livePort) : '';
+  const liveModel = memoryRole && memoryRole.model ? String(memoryRole.model) : '';
+  const pid = memoryRole && memoryRole.pid != null ? 'pid ' + String(memoryRole.pid) : '';
+  let runtimeState = configuredState || 'configured';
+  let stateClassName = configuredState === 'shared' ? 'thinking' : 'offline';
+
+  if (roleState) {
+    if (roleState.halted) {
+      runtimeState = 'halted';
+      stateClassName = 'error';
+    } else if (roleState.health_ok === false) {
+      runtimeState = 'unhealthy';
+      stateClassName = 'error';
+    } else if (roleState.health_ok === true || pid) {
+      runtimeState = 'running';
+      stateClassName = 'running';
+    }
+  } else if (memoryRole && memoryRole.pid != null) {
+    runtimeState = 'running';
+    stateClassName = 'running';
+  }
+
+  return {
+    role,
+    model: liveModel || configModel,
+    url: liveURL || configURL,
+    state: runtimeState,
+    stateClass: stateClassName,
+    meta: pid,
+  };
+}
+
+function replaceURLPort(rawURL, port) {
+  const text = String(rawURL || '').trim();
+  if (!text) return 'http://127.0.0.1:' + String(port);
+  try {
+    const parsed = new URL(text);
+    parsed.port = String(port);
+    return parsed.toString().replace(/\/+$/, '');
+  } catch (_) {
+    return text.replace(/:\d+(\/.*)?$/, ':' + String(port));
+  }
 }
 
 function sameLocalLLMEndpoint(urlA, urlB, modelA, modelB) {

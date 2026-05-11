@@ -248,6 +248,70 @@ globalThis.__processes = document.getElementById('llmMemoryProcessLists').innerH
   assert.ok(context.__processes.includes('qwen'));
 });
 
+test('viewer runtime cards prefer live llm ops status over local config labels', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function escAttr(s) { return String(s || ''); }
+function stateClass(s) { return 'state-' + s; }
+var state = {
+  ops: {
+    localLLM: {
+      enabled: true,
+      provider: 'local_openai',
+      chat_base_url: 'http://192.168.1.31:8081',
+      worker_base_url: 'http://192.168.1.31:8082',
+      heavy_base_url: 'http://192.168.1.31:8082',
+      wild_base_url: 'http://192.168.1.31:8081',
+      chat_model: 'Chat',
+      worker_model: 'Worker',
+      heavy_model: 'Worker',
+      wild_model: 'Chat',
+    },
+    llmStatus: {
+      roles: {
+        Chat: {health_ok: true, halted: false},
+        Worker: {health_ok: false, halted: true},
+        Heavy: {health_ok: true, halted: false},
+        Wild: {health_ok: false, halted: true},
+      },
+      memory: {
+        llm_by_role: {
+          Chat: {role: 'Chat', model: '/models/gemma', port: 8081, pid: 30289, rss_mib: 707.47},
+          Worker: {role: 'Worker', model: '/models/qwen-vl', port: 8082, pid: null, rss_mib: null},
+          Heavy: {role: 'Heavy', model: '/models/qwen-heavy', port: 8083, pid: 46923, rss_mib: 49971.38},
+          Wild: {role: 'Wild', model: '/models/qwen-wild', port: 8084, pid: null, rss_mib: null},
+        },
+      },
+    },
+  },
+};
+` + sourceBetween(js, 'function normState', 'function fmt') +
+sourceBetween(opsJs, 'function renderLocalLLMRuntimeConfig', 'function setLlmOpsStatusPre') + `
+renderLocalLLMRuntimeConfig();
+globalThis.__runtime = document.getElementById('llmRuntimeConfigCards').innerHTML;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.ok(context.__runtime.includes('Worker'));
+  assert.ok(context.__runtime.includes('Heavy'));
+  assert.ok(context.__runtime.includes('halted'), 'Worker should not be shown as running when llm-ops marks it halted');
+  assert.ok(context.__runtime.includes('/models/qwen-heavy'), 'Heavy should use live status model, not stale local config label');
+  assert.ok(context.__runtime.includes('http://192.168.1.31:8083'), 'Heavy should use live status port');
+});
+
 test('viewer chat route alias builds llm switch request fields', () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();
