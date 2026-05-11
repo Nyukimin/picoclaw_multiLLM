@@ -271,9 +271,10 @@ RenCrow プロジェクト固有の注意事項は、このファイル（CLAUDE
 
 ### 6.4 LLM 運用
 
-- **Coder3 仕様**: `docs/LLM運用/Coder3_Claude_API仕様.md`
-- **Worker 仕様**: `docs/LLM運用/LLM_Worker_Spec_v1_0.md`
-- **Ollama 管理**: `docs/LLM運用/LLM_Ollama常駐管理.md`
+- **LLM 運用入口**: `docs/LLM運用/README.md`
+- **最新情報**: `docs/LLM運用/最新情報/README.md`
+- **LLM 仕様**: `docs/LLM運用/LLM/LLM仕様.md`
+- **サーバ / クライアント仕様**: `docs/LLM運用/サーバとクライアント/`
 
 ### 6.5 ツール開発
 

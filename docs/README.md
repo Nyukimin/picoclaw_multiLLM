@@ -296,10 +296,11 @@ IdleChat のストーリーモード実装仕様。8ステップパイプライ�
 
 | ファイル | 内容 |
 |---------|------|
-| Coder3_Claude_API仕様.md | Claude API 運用、Proposal生成 |
-| LLM_モデル役割メモ.md | Chat / 通常 Worker / 創作 Wild のモデル役割メモ |
-| LLM_Worker_Spec_v1_0.md | Worker（Shiro）の仕様 |
-| LLM_Ollama常駐管理.md | Ollama 常駐管理、ヘルスチェック |
+| README.md | LLM 運用仕様の入口 |
+| 最新情報/README.md | 現行構成、公開 model 名、主要仕様へのリンク |
+| LLM/LLM仕様.md | LLM role、モデル割り当て、起動方式 |
+| LLM/PromptBundle仕様.md | Prompt Bundle と KV キャッシュ向け固定 prefix |
+| サーバとクライアント/ | OpenAI互換API、管理API、Viewer連携、メモリ監視 |
 
 ### 5.4 06_実装ガイド進行管理/
 

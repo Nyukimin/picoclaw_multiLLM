@@ -1,12 +1,12 @@
 # LLM 仕様
 
-この文書は、RenCrow_LLM が提供する MLX VLM ベースの OpenAI 互換 API 仕様をまとめる。
+この文書は、RenCrow_LLM が提供する MLX / oMLX ベースの OpenAI 互換 API 仕様をまとめる。
 
 ## 実行方式
 
 - Python / `uv` で起動する。
-- LLM 実体は `mlx-vlm` を使う。
-- 各ロールは `mlx_vlm.server` backend と OpenAI model alias proxy の 2 プロセスで構成する。
+- LLM 実体は `mlx-vlm` または `oMLX` を使う。
+- 各ロールは backend と OpenAI model alias proxy の 2 プロセスで構成する。
 - backend は `127.0.0.1:180xx` で待ち受ける。
 - proxy は `0.0.0.0:808x` で待ち受け、クライアント向けの model 名を backend model に変換する。
 
@@ -26,10 +26,11 @@
 | Chat | `/Users/yukimi/models/gemma-4-E4B-it-UD-MLX-4bit` | 会話テンポ、ルミナ人格、音声 UI、自然な対話 |
 | Worker | `/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit` | 実務処理、要約、整理、RAG、通常の画像解析、UI・資料・スクショ理解 |
 | Heavy | `/Users/yukimi/models/Qwen3.5-122B-A10B-4bit` | 深考察、前提の見直し、失敗原因分析、ローカル最終レビュー |
-| Wild | `/Users/yukimi/models/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit` | 物語生成、画像プロンプト生成、創作用の画像解析 |
+| Wild | `/Users/yukimi/models/Qwen3.5-27B-heretic-8bit` | 物語生成、画像プロンプト生成、創作用の画像解析 |
 
-現行の公開 model 名は `Chat` / `Worker` / `Heavy` / `Wild` の 4 つ。
-`Coder` は Worker 設定内に用途名として残しているが、現行 proxy ではクライアントへ公開しない。
+現行の主要公開 model 名は `Chat` / `Worker` / `Heavy` / `Wild`。
+Worker / Heavy / Wild では、同じ backend に向く `Coder1` / `Coder2` / `Coder3` / `Coder4` alias も公開する。
+`Coder` 単体 alias はクライアントへ公開しない。
 
 ## 起動
 

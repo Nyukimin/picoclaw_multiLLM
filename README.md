@@ -492,9 +492,10 @@ picoclaw/
 │   ├── 仕様.md                        # 要件定義
 │   ├── 実装仕様_v3.md                 # v3実装仕様（3,067行）
 │   ├── LLM運用/                       # LLM運用仕様
-│   │   ├── Coder3_Claude_API仕様.md
-│   │   ├── LLM_Ollama常駐管理.md
-│   │   └── LLM_Worker_Spec_v1_0.md
+│   │   ├── README.md
+│   │   ├── 最新情報/
+│   │   ├── サーバとクライアント/
+│   │   └── LLM/
 │   └── archive/                       # アーカイブ
 ├── config.yaml.example                # 設定例
 ├── Makefile                           # ビルドファイル
@@ -519,9 +520,10 @@ picoclaw/
 
 ### LLM運用（技術詳細）
 
-- **[docs/LLM運用/Coder3_Claude_API仕様.md](docs/LLM運用/Coder3_Claude_API仕様.md)** - Coder3仕様
-- **[docs/LLM運用/LLM_Worker_Spec_v1_0.md](docs/LLM運用/LLM_Worker_Spec_v1_0.md)** - Worker仕様
-- **[docs/LLM運用/LLM_Ollama常駐管理.md](docs/LLM運用/LLM_Ollama常駐管理.md)** - Ollama管理
+- **[docs/LLM運用/README.md](docs/LLM運用/README.md)** - LLM運用仕様の入口
+- **[docs/LLM運用/最新情報/README.md](docs/LLM運用/最新情報/README.md)** - 現行構成と参照先
+- **[docs/LLM運用/LLM/LLM仕様.md](docs/LLM運用/LLM/LLM仕様.md)** - LLM role / model / API 概要
+- **[docs/LLM運用/サーバとクライアント/](docs/LLM運用/サーバとクライアント/)** - OpenAI互換API、管理API、Viewer連携
 
 ### プロジェクトルール
 
