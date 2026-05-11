@@ -18,28 +18,52 @@
 - `heavy`
 - `wild`
 
+実装上のキャラクター名は以下の role に対応する。
+
+| character | role |
+|-----------|------|
+| `mio` | Chat |
+| `shiro` | Worker |
+| `kuro` | Heavy |
+| `midori` | Wild |
+| `aka` / `ao` / `gin` / `kin` | Coder |
+
 ## ディレクトリ構成
 
-プロンプトは role ごとのディレクトリに配置する。
+Git 管理するキャラクター別プロンプトは repo 側の `prompts/characters/<character>/` に配置する。
+運用中に上書きしたい場合は `workspace_dir/prompts/characters/<character>/` に同じ構成で置く。
+
+```text
+prompts/characters/mio/
+prompts/characters/shiro/
+prompts/characters/kuro/
+prompts/characters/midori/
+prompts/characters/aka/
+prompts/characters/ao/
+prompts/characters/gin/
+prompts/characters/kin/
+```
+
+各 character ディレクトリには `manifest.txt` を置き、読み込む `.md` ファイルと順序を明示する。
+
+例:
+
+```text
+prompts/characters/mio/
+  manifest.txt
+  00_system.md
+  10_policy.md
+  20_routing.md
+  30_knowledge.md
+```
+
+将来的な role 共通配置として、以下の role ディレクトリも仕様上は扱える。
 
 ```text
 ~/.picoclaw/prompts/llm/chat/
 ~/.picoclaw/prompts/llm/worker/
 ~/.picoclaw/prompts/llm/heavy/
 ~/.picoclaw/prompts/llm/wild/
-```
-
-各 role ディレクトリには `manifest.txt` を置き、読み込む `.md` ファイルと順序を明示する。
-
-例:
-
-```text
-~/.picoclaw/prompts/llm/chat/
-  manifest.txt
-  00_system.md
-  10_policy.md
-  20_routing.md
-  30_knowledge.md
 ```
 
 `manifest.txt` の例:
@@ -188,4 +212,3 @@ Chat / Worker / Heavy / Wild の責務をまたぐプロンプト混在は禁止
 - Wild の創作用ナレッジを Chat の通常会話 prefix に混ぜない。
 
 固定プロンプトは LLM role の恒久的な振る舞いを定義するためのものであり、セッション状態や実行状態の保存場所として使ってはならない。
-

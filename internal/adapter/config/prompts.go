@@ -2,9 +2,10 @@ package config
 
 import (
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config/promptbundle"
 )
 
 // LoadedPrompts は外部ファイルから読み込まれたプロンプト群
@@ -95,32 +96,12 @@ func loadPromptsFromDir(dir string, p *LoadedPrompts) int {
 }
 
 func loadCharacterPromptsFromDir(dir string, p *LoadedPrompts) int {
-	characterRoot := filepath.Join(dir, "prompts", "characters")
-	entries, err := os.ReadDir(characterRoot)
-	if err != nil {
-		return 0
+	bundles := promptbundle.LoadCharacterBundlesFromDir(dir)
+	for _, bundle := range bundles {
+		p.CharacterPrompts[bundle.Name] = bundle.Content
+		applyCharacterPrompt(bundle.Name, bundle.Content, p)
 	}
-	loaded := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(entry.Name()))
-		if name == "" {
-			continue
-		}
-		content, ok := readPromptBundle(filepath.Join(characterRoot, name))
-		if !ok {
-			continue
-		}
-		p.CharacterPrompts[name] = content
-		applyCharacterPrompt(name, content, p)
-		loaded++
-	}
-	if loaded > 0 {
-		log.Printf("Loaded %d character prompt bundles from %s", loaded, characterRoot)
-	}
-	return loaded
+	return len(bundles)
 }
 
 func applyCharacterPrompt(name, content string, p *LoadedPrompts) {
@@ -136,34 +117,6 @@ func applyCharacterPrompt(name, content string, p *LoadedPrompts) {
 	}
 }
 
-func readPromptBundle(dir string) (string, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, "manifest.txt"))
-	if err != nil {
-		return "", false
-	}
-	var parts []string
-	for _, rawLine := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.Contains(line, "..") || strings.ContainsAny(line, `/\`) || filepath.Ext(line) != ".md" {
-			log.Printf("WARN: ignoring invalid prompt bundle entry dir=%s entry=%q", dir, line)
-			continue
-		}
-		content, ok := readPromptFile(dir, line)
-		if !ok {
-			log.Printf("WARN: prompt bundle entry missing or empty dir=%s entry=%q", dir, line)
-			continue
-		}
-		parts = append(parts, content)
-	}
-	if len(parts) == 0 {
-		return "", false
-	}
-	return strings.Join(parts, "\n\n---\n\n"), true
-}
-
 // LoadPersonaFile はペルソナファイルを workspaceDir からの相対パスで読み込む。
 // ファイルが存在しない・空の場合は ("", false) を返す。
 func LoadPersonaFile(workspaceDir, relPath string) (string, bool) {
@@ -171,16 +124,7 @@ func LoadPersonaFile(workspaceDir, relPath string) (string, bool) {
 }
 
 func readPromptFile(baseDir, relPath string) (string, bool) {
-	path := filepath.Join(baseDir, relPath)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	content := strings.TrimSpace(string(data))
-	if content == "" {
-		return "", false
-	}
-	return content, true
+	return promptbundle.ReadFile(baseDir, relPath)
 }
 
 func copyMap(src map[string]string) map[string]string {

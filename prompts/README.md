@@ -27,6 +27,36 @@ prompts_dir: "./prompts"
 | `idle_chat/ao.md` | IdleChat用 Aoの性格 | IdleChatOrchestrator |
 | `idle_chat/gin.md` | IdleChat用 Ginの性格 | IdleChatOrchestrator |
 
+## キャラクタープロンプト
+
+キャラクター、プロンプト、固定ナレッジは `characters/<name>/` にまとめます。
+各ディレクトリは `manifest.txt` を持ち、読み込む `.md` ファイルの順序を明示します。
+
+```text
+prompts/characters/
+├── mio/     # Chat
+├── shiro/   # Worker
+├── kuro/    # Heavy
+├── midori/  # Wild
+├── aka/     # Coder
+├── ao/      # Coder
+├── gin/     # Coder
+└── kin/     # Coder
+```
+
+標準構成:
+
+```text
+manifest.txt
+00_system.md
+10_policy.md
+20_routing.md
+30_knowledge.md
+```
+
+repo 側の `prompts/characters` は Git 管理する初期値・フォールバックです。
+運用中の上書きは `workspace_dir/prompts/characters` に置けます。
+
 ## 注意事項
 
 - ファイル形式: UTF-8テキスト（拡張子は `.md` だが中身はプレーンテキスト）

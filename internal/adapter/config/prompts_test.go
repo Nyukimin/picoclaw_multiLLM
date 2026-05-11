@@ -57,6 +57,28 @@ func TestLoadPromptsLoadsCharacterBundlesFromWorkspace(t *testing.T) {
 	}
 }
 
+func TestLoadPromptsLoadsCharacterBundlesFromPromptsDir(t *testing.T) {
+	baseDir := t.TempDir()
+	workspaceDir := t.TempDir()
+
+	writeCharacterBundleAtRoot(t, filepath.Join(baseDir, "characters"), "mio", map[string]string{
+		"00_system.md":    "repo mio system",
+		"30_knowledge.md": "repo mio knowledge",
+	})
+	writeCharacterBundleAtRoot(t, filepath.Join(baseDir, "characters"), "midori", map[string]string{
+		"00_system.md": "repo midori system",
+	})
+
+	p := LoadPrompts(baseDir, workspaceDir)
+
+	if !strings.Contains(p.MioPersona, "repo mio system") || !strings.Contains(p.MioPersona, "repo mio knowledge") {
+		t.Fatalf("MioPersona did not load repo character bundle:\n%s", p.MioPersona)
+	}
+	if !strings.Contains(p.Wild, "repo midori system") {
+		t.Fatalf("Wild did not load repo character bundle:\n%s", p.Wild)
+	}
+}
+
 func TestLoadPromptsCharacterBundleOverridesLegacyPrompt(t *testing.T) {
 	baseDir := t.TempDir()
 	workspaceDir := t.TempDir()
@@ -76,7 +98,12 @@ func TestLoadPromptsCharacterBundleOverridesLegacyPrompt(t *testing.T) {
 
 func writeCharacterBundle(t *testing.T, workspaceDir, name string, files map[string]string) {
 	t.Helper()
-	dir := filepath.Join(workspaceDir, "prompts", "characters", name)
+	writeCharacterBundleAtRoot(t, filepath.Join(workspaceDir, "prompts", "characters"), name, files)
+}
+
+func writeCharacterBundleAtRoot(t *testing.T, root, name string, files map[string]string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir character bundle: %v", err)
 	}
