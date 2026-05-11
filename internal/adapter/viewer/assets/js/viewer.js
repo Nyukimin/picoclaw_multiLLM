@@ -2169,10 +2169,16 @@ function playNextTTSAudio() {
 
 const inp = document.getElementById('inp');
 const sendBtn = document.getElementById('sendBtn');
+const attachBtn = document.getElementById('attachBtn');
+const cameraBtn = document.getElementById('cameraBtn');
+const attachInput = document.getElementById('attachInput');
+const cameraInput = document.getElementById('cameraInput');
+const attachmentTray = document.getElementById('attachmentTray');
 bindTTSAudioButton(audioBtn);
 bindTTSAudioButton(liveAudioBtn);
 updateAudioButton();
 let sending = false;
+let viewerAttachments = [];
 function autoResize() {
   inp.style.height = 'auto';
   inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
@@ -2185,17 +2191,80 @@ inp.addEventListener('keydown', (e) => {
   }
 });
 sendBtn.addEventListener('click', send);
+if (attachBtn && attachInput) attachBtn.addEventListener('click', () => attachInput.click());
+if (cameraBtn && cameraInput) cameraBtn.addEventListener('click', () => cameraInput.click());
+if (attachInput) attachInput.addEventListener('change', () => addViewerAttachments(attachInput.files, attachInput));
+if (cameraInput) cameraInput.addEventListener('change', () => addViewerAttachments(cameraInput.files, cameraInput));
+
+function addViewerAttachments(files, input) {
+  Array.from(files || []).forEach((file) => {
+    if (!viewerAttachmentAccepted(file)) {
+      showToast('未対応の添付形式です', 'error');
+      return;
+    }
+    viewerAttachments.push(file);
+  });
+  if (input) input.value = '';
+  renderAttachmentTray();
+}
+
+function viewerAttachmentAccepted(file) {
+  const type = String(file && file.type || '').toLowerCase();
+  const name = String(file && file.name || '').toLowerCase();
+  return type.startsWith('image/') || type === 'application/pdf' || type.startsWith('text/') ||
+    /\.(txt|md|json|csv|yaml|yml)$/.test(name);
+}
+
+function renderAttachmentTray() {
+  if (!attachmentTray) return;
+  attachmentTray.innerHTML = '';
+  attachmentTray.classList.toggle('has-items', viewerAttachments.length > 0);
+  viewerAttachments.forEach((file, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'attachment-chip';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = file.name || 'attachment';
+    const size = document.createElement('span');
+    size.className = 'size';
+    size.textContent = formatAttachmentSize(file.size || 0);
+    const remove = document.createElement('button');
+    remove.className = 'attachment-remove';
+    remove.type = 'button';
+    remove.title = '添付を外す';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      viewerAttachments.splice(index, 1);
+      renderAttachmentTray();
+    });
+    chip.append(name, size, remove);
+    attachmentTray.appendChild(chip);
+  });
+}
+
+function formatAttachmentSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KiB';
+  return Math.round(bytes / (1024 * 1024)) + ' MiB';
+}
 
 function send() {
   const text = inp.value.trim();
-  if (!text || sending) return;
+  const message = text;
+  const attachments = viewerAttachments.slice();
+  if ((!text && attachments.length === 0) || sending) return;
   sending = true;
   sendBtn.disabled = true;
   inp.disabled = true;
+  if (attachBtn) attachBtn.disabled = true;
+  if (cameraBtn) cameraBtn.disabled = true;
 
-  sendViewerMessage(text)
+  const sendPromise = attachments.length > 0 ? sendViewerMessage(message, attachments) : sendViewerMessage(message);
+  sendPromise
   .then(() => {
     inp.value = '';
+    viewerAttachments = [];
+    renderAttachmentTray();
     autoResize();
   })
   .catch((err) => console.error(err))
@@ -2203,19 +2272,30 @@ function send() {
     sending = false;
     sendBtn.disabled = false;
     inp.disabled = false;
+    if (attachBtn) attachBtn.disabled = false;
+    if (cameraBtn) cameraBtn.disabled = false;
     inp.focus();
   });
 }
 
-async function sendViewerMessage(message) {
+async function sendViewerMessage(message, attachments = []) {
   const body = buildViewerSendRequest(message);
-  if (!body.message) throw new Error('message is required');
+  if (!body.message && (!attachments || attachments.length === 0)) throw new Error('message or attachment is required');
   await ensureViewerLLMReadyForRequest(body);
-  const r = await fetch('/viewer/send', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
+  let request;
+  if (attachments && attachments.length > 0) {
+    const form = new FormData();
+    Object.entries(body).forEach(([key, value]) => form.append(key, value || ''));
+    attachments.forEach((file) => form.append('attachments[]', file, file.name));
+    request = {method: 'POST', body: form};
+  } else {
+    request = {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    };
+  }
+  const r = await fetch('/viewer/send', request);
   if (!r.ok) throw new Error('send failed');
   return {ok: true};
 }

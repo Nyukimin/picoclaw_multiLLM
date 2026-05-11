@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -334,15 +335,39 @@ func (p *ClaudeProvider) convertMessages(messages []llm.Message) []map[string]in
 			continue
 		}
 
-		claudeMessages = append(claudeMessages, map[string]interface{}{
-			"role": msg.Role,
-			"content": []map[string]interface{}{
-				{
-					"type": "text",
-					"text": msg.Content,
-				},
-			},
-		})
+		content := []map[string]interface{}{{"type": "text", "text": msg.Content}}
+		if len(msg.Parts) > 0 {
+			content = make([]map[string]interface{}, 0, len(msg.Parts))
+			for _, part := range msg.Parts {
+				switch part.Type {
+				case llm.MessagePartImage:
+					if len(part.Data) == 0 || part.MimeType == "" {
+						continue
+					}
+					content = append(content, map[string]interface{}{
+						"type": "image",
+						"source": map[string]interface{}{
+							"type":       "base64",
+							"media_type": part.MimeType,
+							"data":       base64.StdEncoding.EncodeToString(part.Data),
+						},
+					})
+				default:
+					text := part.Text
+					if text == "" {
+						text = msg.Content
+					}
+					if text != "" {
+						content = append(content, map[string]interface{}{"type": "text", "text": text})
+					}
+				}
+			}
+			if len(content) == 0 {
+				content = []map[string]interface{}{{"type": "text", "text": msg.Content}}
+			}
+		}
+
+		claudeMessages = append(claudeMessages, map[string]interface{}{"role": msg.Role, "content": content})
 	}
 
 	return claudeMessages

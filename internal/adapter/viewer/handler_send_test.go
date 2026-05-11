@@ -1,19 +1,24 @@
 package viewer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
+	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 )
 
 func TestHandleSendAppliesViewerLLMAlias(t *testing.T) {
 	received := make(chan string, 1)
-	h := HandleSend(func(_ context.Context, message string) (string, error) {
-		received <- message
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req.Message
 		return "ok", nil
 	}, nil)
 
@@ -57,8 +62,8 @@ func TestHandleSendAppliesViewerLLMAlias(t *testing.T) {
 
 func TestHandleSendExplicitRouteWinsOverAlias(t *testing.T) {
 	received := make(chan string, 1)
-	h := HandleSend(func(_ context.Context, message string) (string, error) {
-		received <- message
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req.Message
 		return "ok", nil
 	}, nil)
 
@@ -85,8 +90,8 @@ func TestHandleSendExplicitRouteWinsOverAlias(t *testing.T) {
 
 func TestHandleSendUsesRuntimeAliasFields(t *testing.T) {
 	received := make(chan string, 1)
-	h := HandleSend(func(_ context.Context, message string) (string, error) {
-		received <- message
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req.Message
 		return "ok", nil
 	}, nil)
 
@@ -125,4 +130,70 @@ func TestHandleSendUsesRuntimeAliasFields(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handler was not called")
 	}
+}
+
+func TestHandleSendAcceptsMultipartAttachments(t *testing.T) {
+	received := make(chan SendRequest, 1)
+	saver := &fakeAttachmentSaver{attachments: []domainattachment.Attachment{{
+		ID:          "att-1",
+		Kind:        domainattachment.KindImage,
+		Filename:    "camera.png",
+		ContentType: "image/png",
+		SizeBytes:   8,
+		Path:        "/tmp/camera.png",
+		Data:        []byte("png-data"),
+	}}}
+	h := HandleSendWithAttachments(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req
+		return "ok", nil
+	}, nil, saver)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("message", "画像を見て"); err != nil {
+		t.Fatalf("WriteField failed: %v", err)
+	}
+	part, err := writer.CreateFormFile("attachments[]", "camera.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile failed: %v", err)
+	}
+	if _, err := part.Write([]byte("png-data")); err != nil {
+		t.Fatalf("part write failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer close failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/send", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(saver.files) != 1 || saver.files[0].Filename != "camera.png" {
+		t.Fatalf("saver received unexpected files: %#v", saver.files)
+	}
+	select {
+	case got := <-received:
+		if got.Message != "画像を見て" {
+			t.Fatalf("Message = %q, want %q", got.Message, "画像を見て")
+		}
+		if len(got.Attachments) != 1 || got.Attachments[0].ID != "att-1" {
+			t.Fatalf("Attachments = %#v", got.Attachments)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler was not called")
+	}
+}
+
+type fakeAttachmentSaver struct {
+	files       []appattachment.IncomingFile
+	attachments []domainattachment.Attachment
+}
+
+func (f *fakeAttachmentSaver) SaveAll(_ context.Context, files []appattachment.IncomingFile) ([]domainattachment.Attachment, error) {
+	f.files = files
+	return f.attachments, nil
 }

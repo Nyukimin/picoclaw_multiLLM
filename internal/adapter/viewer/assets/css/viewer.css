@@ -255,6 +255,20 @@ main::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
 .audio-btn.off{color:var(--warn);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
 .audio-btn.blocked{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
 .live-audio-btn{display:none}
+.attachment-tray{display:none;align-items:center;gap:6px;flex-wrap:wrap;min-height:0}
+.attachment-tray.has-items{display:flex}
+.attachment-chip{
+  display:inline-flex;align-items:center;gap:7px;max-width:260px;min-height:28px;
+  border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.045);
+  color:var(--t2);font-size:12px;line-height:1;padding:5px 7px 5px 10px
+}
+.attachment-chip .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-chip .size{color:var(--t3);font-size:11px;white-space:nowrap}
+.attachment-remove{
+  width:18px;height:18px;border:0;border-radius:50%;cursor:pointer;background:rgba(255,255,255,.08);
+  color:var(--t2);display:inline-flex;align-items:center;justify-content:center;line-height:1;font-size:14px
+}
+.attachment-remove:hover{background:rgba(248,113,113,.16);color:var(--err)}
 .stt-state{
   font-size:11px;line-height:1.2;border:1px solid var(--border);border-radius:999px;padding:4px 8px;
   color:var(--t2);background:rgba(255,255,255,.04);white-space:nowrap;align-self:center

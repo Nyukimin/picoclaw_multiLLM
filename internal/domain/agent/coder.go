@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	ProposalFailureEmpty            = "proposal_empty"
-	ProposalFailureMissingPlan      = "proposal_missing_plan"
-	ProposalFailureMissingPatch     = "proposal_missing_patch"
-	ProposalFailureInvalidPatch     = "proposal_invalid_patch"
+	ProposalFailureEmpty             = "proposal_empty"
+	ProposalFailureMissingPlan       = "proposal_missing_plan"
+	ProposalFailureMissingPatch      = "proposal_missing_patch"
+	ProposalFailureInvalidPatch      = "proposal_invalid_patch"
 	ProposalFailureDisallowedCommand = "proposal_disallowed_command"
 )
 
@@ -106,10 +106,7 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 				Role:    "system",
 				Content: systemPrompt,
 			},
-			{
-				Role:    "user",
-				Content: t.UserMessage(),
-			},
+			userMessageWithAttachments(t.UserMessage(), t.Attachments()),
 		},
 		MaxTokens:   8192,
 		Temperature: 0.5,
@@ -147,7 +144,7 @@ func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, system
 	req := llm.GenerateRequest{
 		Messages: []llm.Message{
 			{Role: "system", Content: finalSystemPrompt},
-			{Role: "user", Content: t.UserMessage()},
+			userMessageWithAttachments(t.UserMessage(), t.Attachments()),
 		},
 		MaxTokens:   8192,
 		Temperature: 0.5,

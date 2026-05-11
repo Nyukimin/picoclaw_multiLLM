@@ -206,7 +206,7 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	}
 
 	// ユーザーメッセージを最後に追加
-	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
+	messages = append(messages, userMessageWithAttachments(userMessage, t.Attachments()))
 
 	req := llm.GenerateRequest{
 		Messages:    messages,

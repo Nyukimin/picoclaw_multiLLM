@@ -76,11 +76,19 @@ function applyChatRouteAliasToMessage(message) {
 
 function buildViewerSendRequest(message) {
   const trimmed = String(message || '').trim();
-  if (!trimmed) return {message: ''};
-  if (isExplicitRouteMessage(trimmed)) return {message: trimmed};
-
   const selected = selectedChatRouteAlias();
   const alias = selected ? CHAT_ROUTE_ALIASES[selected] : null;
+  if (!trimmed) {
+    return alias ? {
+      message: '',
+      model_alias: alias.label,
+      base_url: alias.baseURL,
+      model: alias.model,
+      route_prefix: alias.routePrefix,
+    } : {message: ''};
+  }
+  if (isExplicitRouteMessage(trimmed)) return {message: trimmed};
+
   if (alias) {
     return {
       message: trimmed,

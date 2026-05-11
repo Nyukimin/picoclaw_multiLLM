@@ -1,6 +1,9 @@
 package task
 
-import "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+import (
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+)
 
 // Task はユーザーからの指示を表す値オブジェクト
 type Task struct {
@@ -8,6 +11,7 @@ type Task struct {
 	userMessage string
 	channel     string
 	chatID      string
+	attachments []attachment.Attachment
 	forcedRoute routing.Route // 明示的なルート指定（オプション）
 	route       routing.Route // 決定されたルート
 }
@@ -44,6 +48,11 @@ func (t Task) ChatID() string {
 	return t.chatID
 }
 
+// Attachments はユーザー入力に添付されたファイルを返す。
+func (t Task) Attachments() []attachment.Attachment {
+	return append([]attachment.Attachment(nil), t.attachments...)
+}
+
 // ForcedRoute は強制ルートを返す
 func (t Task) ForcedRoute() routing.Route {
 	return t.forcedRoute
@@ -69,6 +78,12 @@ func (t Task) WithRoute(route routing.Route) Task {
 // WithUserMessage returns a new task with the updated user message.
 func (t Task) WithUserMessage(message string) Task {
 	t.userMessage = message
+	return t
+}
+
+// WithAttachments returns a new task with user attachments.
+func (t Task) WithAttachments(attachments []attachment.Attachment) Task {
+	t.attachments = append([]attachment.Attachment(nil), attachments...)
 	return t
 }
 

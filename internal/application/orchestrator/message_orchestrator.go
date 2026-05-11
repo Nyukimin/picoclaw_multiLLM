@@ -11,6 +11,7 @@ import (
 	contractapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -26,6 +27,7 @@ type ProcessMessageRequest struct {
 	Channel     string
 	ChatID      string
 	UserMessage string
+	Attachments []attachment.Attachment
 }
 
 // ProcessMessageResponse はメッセージ処理レスポンス
@@ -248,7 +250,12 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 
 	// 3. タスクを作成
 	jobID := task.NewJobID()
-	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID)
+	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID).WithAttachments(req.Attachments)
+	if len(req.Attachments) > 0 {
+		o.emit("viewer.attachment.received", "viewer", "mio",
+			fmt.Sprintf("%d attachment(s)", len(req.Attachments)),
+			"", jobID.String(), req.SessionID, req.Channel, req.ChatID)
+	}
 	ttsSessionID := ""
 	if o.ttsBridge != nil {
 		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())

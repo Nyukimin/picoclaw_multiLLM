@@ -33,6 +33,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	archiveapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/archive"
+	attachmentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	healthapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/health"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
@@ -2798,13 +2799,15 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// viewerSendFromOrch はオーケストレーター共通のviewer送信ハンドラを生成
 	viewerSendFromOrch := func(proc messageProcessor) http.HandlerFunc {
-		return viewer.HandleSend(func(ctx context.Context, message string) (string, error) {
-			log.Printf("[main] viewerSendFromOrch: calling ProcessMessage for viewer message: %q", message)
+		attachmentStore := attachmentapp.NewStore(cfg.WorkspaceDir)
+		return viewer.HandleSendWithAttachments(func(ctx context.Context, req viewer.SendRequest) (string, error) {
+			log.Printf("[main] viewerSendFromOrch: calling ProcessMessage for viewer message: %q attachments=%d", req.Message, len(req.Attachments))
 			resp, err := proc.ProcessMessage(ctx, orchestrator.ProcessMessageRequest{
 				SessionID:   "viewer",
 				Channel:     "viewer",
 				ChatID:      "viewer-user",
-				UserMessage: message,
+				UserMessage: req.Message,
+				Attachments: req.Attachments,
 			})
 			if err != nil {
 				log.Printf("[main] viewerSendFromOrch: ProcessMessage error: %v", err)
@@ -2819,7 +2822,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 					"", "", "viewer", "viewer", "viewer-user",
 				))
 			}
-		})
+		}, attachmentStore)
 	}
 	entryFromOrch := func(proc messageProcessor) http.HandlerFunc {
 		return entryadapter.HandleWithObserver(

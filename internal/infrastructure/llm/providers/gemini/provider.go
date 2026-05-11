@@ -3,6 +3,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -130,7 +131,13 @@ type geminiContent struct {
 }
 
 type geminiPart struct {
-	Text string `json:"text"`
+	Text       string            `json:"text,omitempty"`
+	InlineData *geminiInlineData `json:"inlineData,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type geminiGenerationConfig struct {
@@ -162,12 +169,35 @@ func convertMessages(messages []llm.Message) []geminiContent {
 			role = "model"
 		}
 
-		contents = append(contents, geminiContent{
-			Role: role,
-			Parts: []geminiPart{
-				{Text: msg.Content},
-			},
-		})
+		parts := []geminiPart{{Text: msg.Content}}
+		if len(msg.Parts) > 0 {
+			parts = make([]geminiPart, 0, len(msg.Parts))
+			for _, part := range msg.Parts {
+				switch part.Type {
+				case llm.MessagePartImage:
+					if len(part.Data) == 0 || part.MimeType == "" {
+						continue
+					}
+					parts = append(parts, geminiPart{InlineData: &geminiInlineData{
+						MimeType: part.MimeType,
+						Data:     base64.StdEncoding.EncodeToString(part.Data),
+					}})
+				default:
+					text := part.Text
+					if text == "" {
+						text = msg.Content
+					}
+					if text != "" {
+						parts = append(parts, geminiPart{Text: text})
+					}
+				}
+			}
+			if len(parts) == 0 {
+				parts = []geminiPart{{Text: msg.Content}}
+			}
+		}
+
+		contents = append(contents, geminiContent{Role: role, Parts: parts})
 	}
 
 	return contents

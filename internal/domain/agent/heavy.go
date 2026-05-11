@@ -48,7 +48,7 @@ func (h *HeavyAgent) Generate(ctx context.Context, t task.Task) (string, error) 
 			messages = append(messages, filtered.ToPromptMessages()...)
 		}
 	}
-	messages = append(messages, llm.Message{Role: "user", Content: userMessage})
+	messages = append(messages, userMessageWithAttachments(userMessage, t.Attachments()))
 	req := llm.GenerateRequest{
 		SystemPrompt: h.systemPrompt,
 		Messages:     messages,

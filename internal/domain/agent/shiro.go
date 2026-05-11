@@ -83,7 +83,7 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 			messages = append(messages, filtered.ToPromptMessages()...)
 		}
 	}
-	messages = append(messages, llm.Message{Role: "user", Content: t.UserMessage()})
+	messages = append(messages, userMessageWithAttachments(t.UserMessage(), t.Attachments()))
 	req := llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   4096,

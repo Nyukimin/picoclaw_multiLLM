@@ -534,12 +534,17 @@
     <div class="input-main">
       <button class="audio-btn" id="audioBtn" type="button" title="音声を有効化">🔊</button>
       <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
+      <button class="audio-btn" id="attachBtn" type="button" title="画像・PDF・テキストを添付">📎</button>
+      <button class="audio-btn" id="cameraBtn" type="button" title="カメラ画像を添付">📷</button>
+      <input id="attachInput" type="file" multiple accept="image/*,application/pdf,text/*,.txt,.md,.json,.csv,.yaml,.yml" hidden>
+      <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
       <span id="micState" class="stt-state">Mic: off</span>
       <span id="sttConnState" class="stt-state">STT: off</span>
       <span id="sttSessionState" class="stt-state session-id" title="Session: (unknown)">Session: (unknown)</span>
       <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
       <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
     </div>
+    <div class="attachment-tray" id="attachmentTray" aria-live="polite"></div>
     <div class="idle-tools">
       <button id="idleModeNormal" class="ctl-btn" title="通常のIdleChat会話を選択">通常Chat</button>
       <button id="idleModeForecast" class="ctl-btn mode-forecast" title="未来展望セッション（6ドメイン×100ターン）を選択">未来展望</button>

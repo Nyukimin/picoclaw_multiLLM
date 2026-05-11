@@ -6,6 +6,23 @@ import "context"
 type Message struct {
 	Role    string // "user", "assistant", "system"
 	Content string
+	Parts   []MessagePart
+}
+
+// MessagePartType identifies a multimodal message part.
+type MessagePartType string
+
+const (
+	MessagePartText  MessagePartType = "text"
+	MessagePartImage MessagePartType = "image"
+)
+
+// MessagePart is an optional multimodal payload for Generate requests.
+type MessagePart struct {
+	Type     MessagePartType
+	Text     string
+	MimeType string
+	Data     []byte
 }
 
 // StreamCallback はストリーミング時にトークンごとに呼ばれるコールバック
@@ -37,7 +54,7 @@ type LLMProvider interface {
 
 // ChatMessage はツール呼び出し対応メッセージ
 type ChatMessage struct {
-	Role       string     // "system", "user", "assistant", "tool"
+	Role       string // "system", "user", "assistant", "tool"
 	Content    string
 	ToolCalls  []ToolCall // role="assistant" 時のツール呼び出し
 	ToolCallID string     // role="tool" 時の対応ID
@@ -57,7 +74,7 @@ type ToolCallFunction struct {
 
 // ToolDefinition はLLMに渡すツール定義
 type ToolDefinition struct {
-	Type     string          // "function"
+	Type     string // "function"
 	Function ToolFunctionDef
 }
 

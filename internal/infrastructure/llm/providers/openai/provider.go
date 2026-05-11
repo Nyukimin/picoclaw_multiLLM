@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -299,9 +300,38 @@ func (p *OpenAIProvider) convertMessages(req llm.GenerateRequest) []map[string]i
 
 	// ユーザーメッセージを追加
 	for _, msg := range req.Messages {
+		content := any(msg.Content)
+		if len(msg.Parts) > 0 {
+			parts := make([]map[string]interface{}, 0, len(msg.Parts))
+			for _, part := range msg.Parts {
+				switch part.Type {
+				case llm.MessagePartImage:
+					if len(part.Data) == 0 || part.MimeType == "" {
+						continue
+					}
+					parts = append(parts, map[string]interface{}{
+						"type": "image_url",
+						"image_url": map[string]interface{}{
+							"url": "data:" + part.MimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
+						},
+					})
+				default:
+					text := part.Text
+					if text == "" {
+						text = msg.Content
+					}
+					if text != "" {
+						parts = append(parts, map[string]interface{}{"type": "text", "text": text})
+					}
+				}
+			}
+			if len(parts) > 0 {
+				content = parts
+			}
+		}
 		messages = append(messages, map[string]interface{}{
 			"role":    msg.Role,
-			"content": msg.Content,
+			"content": content,
 		})
 	}
 
