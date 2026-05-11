@@ -944,6 +944,23 @@ func buildChannelRegistry(cfg *config.Config) *adapterchannels.Registry {
 	return registry
 }
 
+func buildOutboundChannelRegistry(cfg *config.Config) *adapterchannels.Registry {
+	registry := adapterchannels.NewRegistry()
+	if strings.TrimSpace(cfg.Line.AccessToken) != "" {
+		_ = registry.Register(line.NewHandler(nil, cfg.Line.ChannelSecret, cfg.Line.AccessToken))
+	}
+	if strings.TrimSpace(cfg.Telegram.BotToken) != "" {
+		_ = registry.Register(telegramadapter.NewAdapter(cfg.Telegram.BotToken))
+	}
+	if strings.TrimSpace(cfg.Discord.BotToken) != "" {
+		_ = registry.Register(discordadapter.NewAdapter(cfg.Discord.BotToken))
+	}
+	if strings.TrimSpace(cfg.Slack.BotToken) != "" {
+		_ = registry.Register(slackadapter.NewAdapter(cfg.Slack.BotToken, cfg.Slack.SigningSecret))
+	}
+	return registry
+}
+
 type channelRegistry interface {
 	List() []string
 	ProbeAll(ctx context.Context) map[string]error
@@ -3001,22 +3018,14 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 
 	// 10. Heartbeat Service
 	if cfg.Heartbeat.Enabled {
-		// LINE Push通知用のNotificationSender
-		var sender heartbeat.NotificationSender
-		if cfg.Line.AccessToken != "" {
-			sender = &lineNotificationSender{
-				lineSender: line.NewMessageSender(cfg.Line.AccessToken),
-				chatID:     cfg.Heartbeat.ChatID,
-			}
-		}
-
 		heartbeatSvc := heartbeat.NewHeartbeatService(
 			mioAgent,
-			sender,
+			buildHeartbeatNotificationSender(cfg),
 			cfg.WorkspaceDir,
 			cfg.Heartbeat.Interval,
 		)
 		heartbeatSvc.WithMemoryStore(memStore)
+		heartbeatSvc.WithEventListener(deps.eventRelay)
 		heartbeatSvc.Start()
 		deps.heartbeatSvc = heartbeatSvc
 		log.Printf("HeartbeatService enabled (interval: %dm, workspace: %s)", cfg.Heartbeat.Interval, cfg.WorkspaceDir)
@@ -3083,18 +3092,44 @@ func buildCoderCapabilities(nodeCaps capdomain.NodeCapabilities, cfg *config.Con
 	return caps
 }
 
-// lineNotificationSender はLINE Push APIを使ったNotificationSender実装
-type lineNotificationSender struct {
-	lineSender *line.MessageSender
-	chatID     string
+// channelNotificationSender sends Heartbeat notifications through the configured channel adapter.
+type channelNotificationSender struct {
+	registry *adapterchannels.Registry
+	channel  string
+	chatID   string
 }
 
-func (s *lineNotificationSender) SendNotification(ctx context.Context, message string) error {
-	if s.chatID == "" {
-		log.Printf("[Heartbeat] notification skipped: PICOCLAW_HEARTBEAT_CHAT_ID not set")
+func buildHeartbeatNotificationSender(cfg *config.Config) heartbeat.NotificationSender {
+	channel := strings.ToLower(strings.TrimSpace(cfg.Heartbeat.Channel))
+	chatID := strings.TrimSpace(cfg.Heartbeat.ChatID)
+	if channel == "" && chatID != "" {
+		channel = "line"
+	}
+	if channel == "" && chatID == "" {
 		return nil
 	}
-	return s.lineSender.SendPushMessage(ctx, s.chatID, message)
+	return &channelNotificationSender{
+		registry: buildOutboundChannelRegistry(cfg),
+		channel:  channel,
+		chatID:   chatID,
+	}
+}
+
+func (s *channelNotificationSender) SendNotification(ctx context.Context, message string) error {
+	if s.channel == "" {
+		log.Printf("[Heartbeat] notification skipped: heartbeat.channel not set")
+		return nil
+	}
+	if s.chatID == "" {
+		log.Printf("[Heartbeat] notification skipped: heartbeat.chat_id not set (channel=%s)", s.channel)
+		return nil
+	}
+	adapter, ok := s.registry.Get(s.channel)
+	if !ok {
+		log.Printf("[Heartbeat] notification skipped: channel adapter not configured (channel=%s)", s.channel)
+		return nil
+	}
+	return adapter.Send(ctx, s.chatID, message)
 }
 
 // buildDistributedMode はv4分散モードの依存関係を構築

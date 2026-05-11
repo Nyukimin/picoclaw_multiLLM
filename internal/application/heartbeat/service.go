@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	ctxbuilder "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/context"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -31,6 +32,7 @@ type HeartbeatService struct {
 	sender         NotificationSender
 	workspaceDir   string
 	contextBuilder *ctxbuilder.Builder
+	listener       orchestrator.EventListener
 	interval       time.Duration
 	stopCh         chan struct{}
 	done           chan struct{}
@@ -62,6 +64,12 @@ func NewHeartbeatService(
 // WithMemoryStore はメモリストアを設定する（オプション）
 func (s *HeartbeatService) WithMemoryStore(store memory.Store) *HeartbeatService {
 	s.contextBuilder.WithMemoryStore(store)
+	return s
+}
+
+// WithEventListener sends Heartbeat results to external monitors such as Viewer SSE.
+func (s *HeartbeatService) WithEventListener(listener orchestrator.EventListener) *HeartbeatService {
+	s.listener = listener
 	return s
 }
 
@@ -121,14 +129,18 @@ func (s *HeartbeatService) tick(ctx context.Context) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Println("[Heartbeat] HEARTBEAT.md not found, skipping")
+			s.emitEvent("heartbeat.skip", "HEARTBEAT.md not found")
 			return nil
 		}
-		return fmt.Errorf("failed to read HEARTBEAT.md: %w", err)
+		wrapped := fmt.Errorf("failed to read HEARTBEAT.md: %w", err)
+		s.emitEvent("heartbeat.error", wrapped.Error())
+		return wrapped
 	}
 
 	heartbeatContent := strings.TrimSpace(string(data))
 	if heartbeatContent == "" {
 		log.Println("[Heartbeat] HEARTBEAT.md is empty, skipping")
+		s.emitEvent("heartbeat.skip", "HEARTBEAT.md is empty")
 		return nil
 	}
 
@@ -142,19 +154,23 @@ func (s *HeartbeatService) tick(ctx context.Context) error {
 	response, err := s.chatAgent.Chat(ctx, t)
 	if err != nil {
 		s.logHeartbeat("ERROR", fmt.Sprintf("chat failed: %v", err))
+		s.emitEvent("heartbeat.error", fmt.Sprintf("chat failed: %v", err))
 		return fmt.Errorf("chat failed: %w", err)
 	}
 
 	// HEARTBEAT_OK なら正常終了（サイレント）
 	if strings.TrimSpace(response) == "HEARTBEAT_OK" {
 		s.logHeartbeat("OK", "silent")
+		s.emitEvent("heartbeat.ok", "silent")
 		return nil
 	}
 
 	// HEARTBEAT_OK 以外はユーザーに通知
 	s.logHeartbeat("NOTIFY", response)
+	s.emitEvent("heartbeat.notify", response)
 	if s.sender != nil {
 		if err := s.sender.SendNotification(ctx, response); err != nil {
+			s.emitEvent("heartbeat.error", fmt.Sprintf("failed to send notification: %v", err))
 			return fmt.Errorf("failed to send notification: %w", err)
 		}
 	}
@@ -175,4 +191,21 @@ func (s *HeartbeatService) logHeartbeat(status, message string) {
 	}
 	defer f.Close()
 	f.WriteString(entry)
+}
+
+func (s *HeartbeatService) emitEvent(eventType, content string) {
+	if s.listener == nil {
+		return
+	}
+	s.listener.OnEvent(orchestrator.NewEvent(
+		eventType,
+		"heartbeat",
+		"viewer",
+		content,
+		"HEARTBEAT",
+		"",
+		"heartbeat",
+		"heartbeat",
+		"viewer",
+	))
 }

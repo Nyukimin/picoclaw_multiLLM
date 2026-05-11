@@ -179,7 +179,8 @@ subagent:
 heartbeat:
   enabled: false
   interval: 30            # チェック間隔（分）、最小5分
-  chat_id: "${PICOCLAW_HEARTBEAT_CHAT_ID}"
+  channel: "line"         # 通知先: line / telegram / discord / slack
+  chat_id: "${PICOCLAW_HEARTBEAT_CHAT_ID}"  # 各チャネルの送信先ID
 
 # TTS実行能力（OpenClaw parity）
 # 音声サーバメモ:

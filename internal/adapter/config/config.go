@@ -266,7 +266,8 @@ type ConversationConfig struct {
 type HeartbeatConfig struct {
 	Enabled  bool   `yaml:"enabled"`  // ハートビートの有効化（デフォルト: false）
 	Interval int    `yaml:"interval"` // チェック間隔（分）、最小5分（デフォルト: 30）
-	ChatID   string `yaml:"chat_id"`  // LINE Push通知先のユーザーID
+	Channel  string `yaml:"channel"`  // 通知先チャネル（line, telegram, discord, slack）
+	ChatID   string `yaml:"chat_id"`  // 通知先ID（LINE user ID / Telegram chat ID / Discord channel ID / Slack channel ID）
 }
 
 type GlossaryConfig struct {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
@@ -36,6 +37,14 @@ func (m *mockSender) SendNotification(ctx context.Context, message string) error
 	return m.err
 }
 
+type recordingEventListener struct {
+	events []orchestrator.OrchestratorEvent
+}
+
+func (r *recordingEventListener) OnEvent(ev orchestrator.OrchestratorEvent) {
+	r.events = append(r.events, ev)
+}
+
 func TestNewHeartbeatService(t *testing.T) {
 	t.Run("minimum interval is 5 minutes", func(t *testing.T) {
 		svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, "/tmp", 1)
@@ -50,6 +59,68 @@ func TestNewHeartbeatService(t *testing.T) {
 			t.Errorf("expected 30m, got %v", svc.interval)
 		}
 	})
+}
+
+func TestTick_HeartbeatOKEmitsViewerEvent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check system status"), 0644)
+
+	listener := &recordingEventListener{}
+	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30).WithEventListener(listener)
+
+	if err := svc.tick(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(listener.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(listener.events))
+	}
+	ev := listener.events[0]
+	if ev.Type != "heartbeat.ok" || ev.From != "heartbeat" || ev.Channel != "heartbeat" || ev.Route != "HEARTBEAT" {
+		t.Fatalf("unexpected event: %+v", ev)
+	}
+	if ev.Content != "silent" {
+		t.Fatalf("unexpected event content: %q", ev.Content)
+	}
+}
+
+func TestTick_NotificationEmitsViewerEvent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check alerts"), 0644)
+
+	listener := &recordingEventListener{}
+	agent := &mockChatAgent{response: "Disk usage is 95%"}
+	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30).WithEventListener(listener)
+
+	if err := svc.tick(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(listener.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(listener.events))
+	}
+	ev := listener.events[0]
+	if ev.Type != "heartbeat.notify" {
+		t.Fatalf("expected heartbeat.notify, got %+v", ev)
+	}
+	if ev.Content != "Disk usage is 95%" {
+		t.Fatalf("unexpected event content: %q", ev.Content)
+	}
+}
+
+func TestTick_MissingFileEmitsViewerSkipEvent(t *testing.T) {
+	dir := t.TempDir()
+	listener := &recordingEventListener{}
+	svc := NewHeartbeatService(&mockChatAgent{response: "HEARTBEAT_OK"}, &mockSender{}, dir, 30).WithEventListener(listener)
+
+	if err := svc.tick(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(listener.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(listener.events))
+	}
+	if listener.events[0].Type != "heartbeat.skip" {
+		t.Fatalf("expected heartbeat.skip, got %+v", listener.events[0])
+	}
 }
 
 func TestTick_HeartbeatOK(t *testing.T) {
