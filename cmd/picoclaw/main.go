@@ -465,6 +465,7 @@ func cmdRun() {
 			BaseURL: cfg.LLMOps.BaseURL,
 			Token:   llmOpsToken,
 		}
+		dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)
 		mux.HandleFunc("/viewer/llm-ops/health", viewer.HandleLLMOpsHealth(llmOpsOpts))
 		mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(llmOpsOpts))
 		mux.HandleFunc("/viewer/llm-ops/start", viewer.HandleLLMOpsStart(llmOpsOpts))
@@ -2271,9 +2272,14 @@ type Dependencies struct {
 	router               *transport.MessageRouter               // v4 distributed mode
 	localTransports      map[string]*transport.LocalTransport   // v4 local transports
 	idleChatOrch         *idlechat.IdleChatOrchestrator         // v4 idle chat
+	idleChatStartGate    idleChatStartGate                      // IdleChat 起動前の LLM Ops ガード
 	sshTransports        map[string]domaintransport.Transport   // v4 SSH transports
 	heartbeatSvc         *heartbeat.HeartbeatService            // heartbeat service
 	toolRegistry         capdomain.ToolRegistry                 // Phase 4: Shiro ツール共有用 ToolRegistry
+}
+
+type idleChatStartGate interface {
+	PrepareIdleChatStart(context.Context) error
 }
 
 type idleAwareEventListener struct {
@@ -3529,6 +3535,9 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		if !d.idleChatOrch.IsManualMode() && !d.prepareIdleChatStart(w, r) {
+			return
+		}
 		if err := d.idleChatOrch.StartManualMode(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -3617,6 +3626,9 @@ func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		if !d.idleChatOrch.IsChatActive() && !d.prepareIdleChatStart(w, r) {
+			return
+		}
 		if err := d.idleChatOrch.StartForecastMode(); err != nil {
 			status := http.StatusBadRequest
 			if strings.Contains(err.Error(), "already active") {
@@ -3644,6 +3656,9 @@ func (d *Dependencies) handleIdleChatStory() http.HandlerFunc {
 		}
 		if d.idleChatOrch == nil {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		if !d.idleChatOrch.IsChatActive() && !d.prepareIdleChatStart(w, r) {
 			return
 		}
 		if err := d.idleChatOrch.StartStoryMode(); err != nil {
@@ -3675,6 +3690,9 @@ func (d *Dependencies) handleIdleChatStorySimple() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		if !d.idleChatOrch.IsChatActive() && !d.prepareIdleChatStart(w, r) {
+			return
+		}
 		if err := d.idleChatOrch.StartSimpleStoryMode(); err != nil {
 			status := http.StatusBadRequest
 			if strings.Contains(err.Error(), "already active") {
@@ -3690,6 +3708,25 @@ func (d *Dependencies) handleIdleChatStorySimple() http.HandlerFunc {
 			"chat_active": d.idleChatOrch.IsChatActive(),
 		})
 	}
+}
+
+func (d *Dependencies) prepareIdleChatStart(w http.ResponseWriter, r *http.Request) bool {
+	if d.idleChatStartGate == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 650*time.Second)
+	defer cancel()
+	if err := d.idleChatStartGate.PrepareIdleChatStart(ctx); err != nil {
+		var busy *viewer.LLMOpsIdleChatBusyError
+		if errors.As(err, &busy) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return false
+		}
+		log.Printf("[IdleChat] llm ops prepare failed: %v", err)
+		http.Error(w, "idlechat llm runtime prepare failed", http.StatusBadGateway)
+		return false
+	}
+	return true
 }
 
 func (d *Dependencies) handleIdleChatLogs() http.HandlerFunc {

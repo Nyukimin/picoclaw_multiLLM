@@ -70,6 +70,11 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="llmMemoryRoles"/);
   assert.match(html, /id="llmRuntimeConfigCards"/);
   assert.match(html, /id="llmOpsConfigState"/);
+  assert.match(html, /class="memory-shelf"/);
+  assert.match(html, /Memory Desk/);
+  assert.match(html, /shelf-card-memory/);
+  assert.match(html, /shelf-card-recall/);
+  assert.match(html, /shelf-card-source/);
   assert.match(html, /data-tab="news-pack"/);
   assert.match(html, /id="panel-news-pack"/);
   assert.match(html, /id="newsPackDetail"/);
@@ -137,6 +142,13 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(opsJs, /function renderMemoryProcessList/);
   assert.match(opsJs, /function renderLocalLLMRuntimeConfig/);
   assert.match(css, /html\{width:100%;max-width:100vw;overflow-x:hidden\}/);
+  assert.match(css, /linear-gradient\(135deg,#050713/);
+  assert.match(css, /body::after/);
+  assert.match(css, /repeating-linear-gradient/);
+  assert.match(css, /backdrop-filter:blur/);
+  assert.match(css, /\.memory-shelf/);
+  assert.match(css, /\.shelf-card/);
+  assert.match(css, /\.lipsync-stage\{/);
   assert.match(css, /main\{[^}]*max-width:100vw;[^}]*overflow-x:hidden/);
   assert.match(css, /\.panel\{[^}]*max-width:100%/);
   assert.match(opsCss, /#panel-ops,#panel-ops \*\{min-width:0\}/);

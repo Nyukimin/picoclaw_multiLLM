@@ -2,9 +2,13 @@ package viewer
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -24,6 +28,133 @@ func (o LLMOpsProxyOptions) ready() bool {
 
 func normalizeLLMOpsBase(u string) string {
 	return strings.TrimRight(strings.TrimSpace(u), "/")
+}
+
+// LLMOpsIdleChatGate prepares model runtime for IdleChat.
+type LLMOpsIdleChatGate struct {
+	opts   LLMOpsProxyOptions
+	client *http.Client
+}
+
+// LLMOpsIdleChatBusyError means Kuro/Heavy or Midori/Wild is still running.
+type LLMOpsIdleChatBusyError struct {
+	Roles []string
+}
+
+func (e *LLMOpsIdleChatBusyError) Error() string {
+	if e == nil || len(e.Roles) == 0 {
+		return "idlechat blocked: Heavy/Wild is running"
+	}
+	return "idlechat blocked: " + strings.Join(e.Roles, ", ") + " is running"
+}
+
+// NewLLMOpsIdleChatGate creates an IdleChat start gate backed by llm-ops.
+func NewLLMOpsIdleChatGate(opts LLMOpsProxyOptions) *LLMOpsIdleChatGate {
+	return &LLMOpsIdleChatGate{
+		opts:   opts,
+		client: &http.Client{Timeout: llmOpsProxyTimeout},
+	}
+}
+
+// PrepareIdleChatStart blocks when Heavy/Wild are active; otherwise it halts them and starts Worker.
+func (g *LLMOpsIdleChatGate) PrepareIdleChatStart(ctx context.Context) error {
+	if g == nil || !g.opts.ready() {
+		return nil
+	}
+	status, err := g.fetchStatus(ctx)
+	if err != nil {
+		return err
+	}
+	busy := llmOpsIdleBusyRoles(status)
+	if len(busy) > 0 {
+		return &LLMOpsIdleChatBusyError{Roles: busy}
+	}
+	if err := g.postJSON(ctx, "/v1/control/stop", []byte(`{"roles":["Heavy","Wild"]}`)); err != nil {
+		return err
+	}
+	if err := g.postJSON(ctx, "/v1/control/start", []byte(`{"selection":"Worker"}`)); err != nil {
+		return err
+	}
+	return nil
+}
+
+type llmOpsStatusSnapshot struct {
+	Roles  map[string]llmOpsRoleState `json:"roles"`
+	Memory struct {
+		LLMByRole map[string]llmOpsMemoryRole `json:"llm_by_role"`
+	} `json:"memory"`
+}
+
+type llmOpsRoleState struct {
+	HealthOK bool `json:"health_ok"`
+	Halted   bool `json:"halted"`
+}
+
+type llmOpsMemoryRole struct {
+	PID int `json:"pid"`
+}
+
+func (g *LLMOpsIdleChatGate) fetchStatus(ctx context.Context) (llmOpsStatusSnapshot, error) {
+	var status llmOpsStatusSnapshot
+	body, err := g.do(ctx, http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		return status, err
+	}
+	if err := json.Unmarshal(body, &status); err != nil {
+		return status, fmt.Errorf("llm-ops status decode: %w", err)
+	}
+	return status, nil
+}
+
+func (g *LLMOpsIdleChatGate) postJSON(ctx context.Context, path string, body []byte) error {
+	_, err := g.do(ctx, http.MethodPost, path, body)
+	return err
+}
+
+func (g *LLMOpsIdleChatGate) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	base := normalizeLLMOpsBase(g.opts.BaseURL)
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("llm-ops request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.opts.Token))
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := g.client
+	if client == nil {
+		client = &http.Client{Timeout: llmOpsProxyTimeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("llm-ops %s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("llm-ops %s %s failed: status=%d body=%s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("llm-ops response read: %w", readErr)
+	}
+	return respBody, nil
+}
+
+func llmOpsIdleBusyRoles(status llmOpsStatusSnapshot) []string {
+	var busy []string
+	for _, role := range []string{"Heavy", "Wild"} {
+		state := status.Roles[role]
+		mem := status.Memory.LLMByRole[role]
+		if mem.PID > 0 || (!state.Halted && state.HealthOK) {
+			busy = append(busy, role)
+		}
+	}
+	sort.Strings(busy)
+	return busy
 }
 
 // HandleLLMOpsHealth proxies GET /health to the MLX management API.

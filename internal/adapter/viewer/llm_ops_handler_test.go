@@ -1,7 +1,9 @@
 package viewer
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -154,5 +156,75 @@ func TestHandleLLMOpsNotConfigured(t *testing.T) {
 	h(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestLLMOpsIdleChatGate_BlocksWhenHeavyOrWildRunning(t *testing.T) {
+	var requests []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.URL.Path != "/v1/status" {
+			t.Fatalf("unexpected request while blocked: %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{
+			"roles":{
+				"Heavy":{"health_ok":true,"halted":false},
+				"Wild":{"health_ok":false,"halted":true}
+			},
+			"memory":{"llm_by_role":{"Heavy":{"pid":2345},"Wild":{"pid":3456}}}
+		}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	gate := NewLLMOpsIdleChatGate(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "tok"})
+	err := gate.PrepareIdleChatStart(context.Background())
+	var busy *LLMOpsIdleChatBusyError
+	if !errors.As(err, &busy) {
+		t.Fatalf("expected busy error, got %v", err)
+	}
+	if strings.Join(busy.Roles, ",") != "Heavy,Wild" {
+		t.Fatalf("busy roles: %+v", busy.Roles)
+	}
+	if strings.Join(requests, ",") != "GET /v1/status" {
+		t.Fatalf("requests: %+v", requests)
+	}
+}
+
+func TestLLMOpsIdleChatGate_StopsHeavyWildThenStartsWorkerWhenStopped(t *testing.T) {
+	var requests []string
+	var bodies []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Fatalf("unexpected auth: %q", r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/v1/status":
+			_, _ = w.Write([]byte(`{
+				"roles":{
+					"Heavy":{"health_ok":false,"halted":true},
+					"Wild":{"health_ok":false,"halted":true}
+				},
+				"memory":{"llm_by_role":{"Heavy":{"pid":null},"Wild":{"pid":null}}}
+			}`))
+		case "/v1/control/stop", "/v1/control/start":
+			b, _ := io.ReadAll(r.Body)
+			bodies = append(bodies, string(b))
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	gate := NewLLMOpsIdleChatGate(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "tok"})
+	if err := gate.PrepareIdleChatStart(context.Background()); err != nil {
+		t.Fatalf("PrepareIdleChatStart: %v", err)
+	}
+	if strings.Join(requests, ",") != "GET /v1/status,POST /v1/control/stop,POST /v1/control/start" {
+		t.Fatalf("requests: %+v", requests)
+	}
+	if strings.Join(bodies, ",") != `{"roles":["Heavy","Wild"]},{"selection":"Worker"}` {
+		t.Fatalf("bodies: %+v", bodies)
 	}
 }
