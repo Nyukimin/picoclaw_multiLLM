@@ -685,13 +685,22 @@ func (o *IdleChatOrchestrator) summarizeByForecastLLM(domain ForecastDomain, top
 2. （テーマ名）: 一行説明
 3. （テーマ名）: 一行説明`, domain.Name, topic, body)},
 	}
-	req := llm.GenerateRequest{Messages: messages, MaxTokens: 1200, Temperature: 0.4}
+	req := llm.GenerateRequest{Messages: messages, MaxTokens: shiroMaxTokens, Temperature: 0.4}
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, req)
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
 		log.Printf("[Forecast] Summary generation failed (worker): %v", err)
+		if err == nil {
+			logIdleRaw("forecast.summary.generate", resp.Content)
+		}
 		return truncate(body, 200)
 	}
-	return strings.TrimSpace(resp.Content)
+	logIdleRaw("forecast.summary.generate", resp.Content)
+	summary := sanitizeIdleSummaryResponse(resp.Content, topic)
+	if summary == "" {
+		log.Printf("[Forecast] Summary sanitize failed; raw=%q", truncate(strings.TrimSpace(resp.Content), 180))
+		return truncate(body, 200)
+	}
+	return summary
 }
 
 // extractCoveredThemes は直近のトランスクリプトから新たに出た論点をキーワードリストとして抽出する。
@@ -728,13 +737,14 @@ func (o *IdleChatOrchestrator) extractCoveredThemes(domain ForecastDomain, topic
 	}
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, llm.GenerateRequest{
 		Messages:    messages,
-		MaxTokens:   150,
+		MaxTokens:   shiroMaxTokens,
 		Temperature: 0.3,
 	})
 	if err != nil {
 		log.Printf("[Forecast] Theme extraction failed (worker): %v", err)
 		return nil
 	}
+	logIdleRaw("forecast.theme_extract.generate", resp.Content)
 
 	var themes []string
 	for _, line := range strings.Split(resp.Content, "\n") {
@@ -802,6 +812,7 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 			log.Printf("[Forecast] Topic generation failed: %v", err)
 			break
 		}
+		logIdleRaw(fmt.Sprintf("forecast.topic.generate attempt=%d domain=%s", attempt+1, domain.Name), resp.Content)
 		topic := normalizeIdleTopic(resp.Content, false)
 		if topic == "" {
 			continue
@@ -851,6 +862,7 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 		log.Printf("[Forecast] Keyword extraction failed: %v", err)
 		return domain.Name
 	}
+	logIdleRaw("forecast.keyword.generate", resp.Content)
 	kw := strings.TrimSpace(resp.Content)
 	if kw == "" {
 		return domain.Name

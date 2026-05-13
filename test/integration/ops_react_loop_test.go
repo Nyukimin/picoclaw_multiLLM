@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
@@ -118,8 +119,11 @@ func TestOPSRoute_WithoutSubagentManager_UsesFallback(t *testing.T) {
 
 			// システムプロンプトの確認
 			if len(req.Messages) > 0 && req.Messages[0].Role == "system" {
-				if req.Messages[0].Content != "You are a worker" {
-					t.Errorf("Expected system prompt 'You are a worker', got '%s'", req.Messages[0].Content)
+				if !strings.Contains(req.Messages[0].Content, "You are a worker") {
+					t.Errorf("Expected system prompt to contain 'You are a worker', got '%s'", req.Messages[0].Content)
+				}
+				if !strings.Contains(req.Messages[0].Content, "必ず自然な日本語で応答") {
+					t.Errorf("Expected system prompt to require Japanese response, got '%s'", req.Messages[0].Content)
 				}
 			}
 
@@ -210,5 +214,3 @@ func TestOPSRoute_SubagentManagerError_PropagatesError(t *testing.T) {
 		t.Error("Expected non-empty error message")
 	}
 }
-
-

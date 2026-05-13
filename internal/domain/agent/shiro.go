@@ -2,12 +2,16 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
+
+const shiroMaxTokens = 32000
 
 // ShiroAgent は Worker（実行・道具係）を担当するエンティティ
 type ShiroAgent struct {
@@ -55,10 +59,11 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 	if s.persona != nil {
 		systemPrompt = s.persona.BuildSystemPrompt(s.systemPrompt)
 	}
+	systemPrompt = ensureShiroJapaneseResponsePrompt(systemPrompt)
 
 	// SubagentManager が設定されている場合は ReActLoop を使用
 	if s.subagentManager != nil {
-		result, err := s.subagentManager.RunSync(ctx, SubagentTask{
+		result, err := s.runSubagentSafely(ctx, SubagentTask{
 			AgentName:    "shiro",
 			Instruction:  t.UserMessage(),
 			SystemPrompt: systemPrompt,
@@ -86,7 +91,7 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 	messages = append(messages, userMessageWithAttachments(t.UserMessage(), t.Attachments()))
 	req := llm.GenerateRequest{
 		Messages:    messages,
-		MaxTokens:   4096,
+		MaxTokens:   shiroMaxTokens,
 		Temperature: 0.3, // Workerは確実性重視
 	}
 
@@ -101,6 +106,27 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 		}
 	}
 	return resp.Content, nil
+}
+
+func (s *ShiroAgent) runSubagentSafely(ctx context.Context, t SubagentTask) (res SubagentResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("subagent runtime panic: %v", r)
+		}
+	}()
+	res, err = s.subagentManager.RunSync(ctx, t)
+	return res, err
+}
+
+func ensureShiroJapaneseResponsePrompt(systemPrompt string) string {
+	const guard = "出力言語の絶対ルール: Shiroは必ず自然な日本語で応答する。英語での説明、英語の見出し、英語だけの完了報告は禁止する。ユーザーが英語を求めた場合だけ、必要最小限の英語を併記してよい。"
+	if strings.Contains(systemPrompt, "必ず自然な日本語で応答") {
+		return systemPrompt
+	}
+	if systemPrompt == "" {
+		return guard
+	}
+	return systemPrompt + "\n\n" + guard
 }
 
 // ExecuteTool はツールを実行

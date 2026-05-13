@@ -117,6 +117,39 @@ func applyCharacterPrompt(name, content string, p *LoadedPrompts) {
 	}
 }
 
+// BuildIdleChatAgentPrompts layers character bundles with IdleChat-specific corrections.
+func BuildIdleChatAgentPrompts(p *LoadedPrompts) map[string]string {
+	if p == nil {
+		return nil
+	}
+	out := make(map[string]string, len(p.IdleChatAgents)+len(p.CharacterPrompts)*2)
+	for name, content := range p.IdleChatAgents {
+		setPromptAliases(out, name, strings.TrimSpace(content))
+	}
+	for name, characterPrompt := range p.CharacterPrompts {
+		key := strings.ToLower(strings.TrimSpace(name))
+		characterPrompt = strings.TrimSpace(characterPrompt)
+		if key == "" || characterPrompt == "" {
+			continue
+		}
+		content := characterPrompt
+		if idleCorrection := strings.TrimSpace(out[key]); idleCorrection != "" {
+			content += promptbundle.Separator + "# IdleChat補正\n\n" + idleCorrection
+		}
+		setPromptAliases(out, key, content)
+	}
+	return out
+}
+
+func setPromptAliases(prompts map[string]string, name, content string) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" || strings.TrimSpace(content) == "" {
+		return
+	}
+	prompts[key] = strings.TrimSpace(content)
+	prompts[strings.ToUpper(key[:1])+key[1:]] = strings.TrimSpace(content)
+}
+
 // LoadPersonaFile はペルソナファイルを workspaceDir からの相対パスで読み込む。
 // ファイルが存在しない・空の場合は ("", false) を返す。
 func LoadPersonaFile(workspaceDir, relPath string) (string, bool) {

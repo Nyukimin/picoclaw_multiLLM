@@ -55,10 +55,10 @@ func TestBuildIdleTurnPromptIncludesTopicInterestProfile(t *testing.T) {
 	got := buildIdleTurnPrompt("RenCrow の Git 運用を整理する", "shiro", "自動化しすぎるのは怖いね。", "人間がpushする線引きが大事。", 3, 3, false)
 
 	for _, want := range []string{
-		"話題タイプ: 技術・運用",
-		"面白さの狙い: 構造と対比",
-		"面白さの出し方: 原因・分岐点・別案との差",
-		"面白さの狙いから外れる要素を混ぜすぎない",
+		"RenCrow の Git 運用を整理する",
+		"直前の相手発言",
+		"読者の楽しみ",
+		"実際に動かす時の落とし穴",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt does not contain %q:\n%s", want, got)

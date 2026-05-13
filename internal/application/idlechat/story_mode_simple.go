@@ -139,6 +139,7 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, "", "", transcript, startedAt, "generation_error")
 		return
 	}
+	logIdleRaw("story_simple.generate", resp.Content)
 
 	raw := strings.TrimSpace(resp.Content)
 	if raw == "" {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -55,8 +56,9 @@ func (p *OpenAIProvider) SetBaseURL(url string) {
 func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
 	// OpenAI APIリクエスト構築
 	openaiReq := map[string]interface{}{
-		"model":    p.model,
-		"messages": p.convertMessages(req),
+		"model":           p.model,
+		"messages":        p.convertMessages(req),
+		"enable_thinking": false,
 	}
 
 	// MaxTokens（OpenAIではmax_tokens）
@@ -196,8 +198,13 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 
 // convertChatMessages はChatMessageをOpenAI APIフォーマットに変換
 func (p *OpenAIProvider) convertChatMessages(msgs []llm.ChatMessage) []map[string]interface{} {
+	systemParts := make([]string, 0, 2)
 	messages := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
+		if strings.EqualFold(strings.TrimSpace(m.Role), "system") && strings.TrimSpace(m.Content) != "" && len(m.ToolCalls) == 0 && strings.TrimSpace(m.ToolCallID) == "" {
+			systemParts = append(systemParts, strings.TrimSpace(m.Content))
+			continue
+		}
 		msg := map[string]interface{}{
 			"role": m.Role,
 		}
@@ -223,6 +230,14 @@ func (p *OpenAIProvider) convertChatMessages(msgs []llm.ChatMessage) []map[strin
 			msg["tool_call_id"] = m.ToolCallID
 		}
 		messages = append(messages, msg)
+	}
+	if len(systemParts) > 0 {
+		messages = append([]map[string]interface{}{
+			{
+				"role":    "system",
+				"content": strings.Join(systemParts, "\n\n"),
+			},
+		}, messages...)
 	}
 	return messages
 }
@@ -289,17 +304,21 @@ func (p *OpenAIProvider) parseChatResponse(body io.Reader) (llm.ChatResponse, er
 // convertMessages はドメインメッセージをOpenAI APIフォーマットに変換
 func (p *OpenAIProvider) convertMessages(req llm.GenerateRequest) []map[string]interface{} {
 	messages := make([]map[string]interface{}, 0)
+	systemParts := make([]string, 0, 2)
 
 	// システムプロンプトを最初に追加
 	if req.SystemPrompt != "" {
-		messages = append(messages, map[string]interface{}{
-			"role":    "system",
-			"content": req.SystemPrompt,
-		})
+		systemParts = append(systemParts, req.SystemPrompt)
 	}
 
 	// ユーザーメッセージを追加
 	for _, msg := range req.Messages {
+		if msg.Role == "system" && len(msg.Parts) == 0 {
+			if strings.TrimSpace(msg.Content) != "" {
+				systemParts = append(systemParts, msg.Content)
+			}
+			continue
+		}
 		content := any(msg.Content)
 		if len(msg.Parts) > 0 {
 			parts := make([]map[string]interface{}, 0, len(msg.Parts))
@@ -333,6 +352,14 @@ func (p *OpenAIProvider) convertMessages(req llm.GenerateRequest) []map[string]i
 			"role":    msg.Role,
 			"content": content,
 		})
+	}
+
+	if len(systemParts) > 0 {
+		systemMessage := map[string]interface{}{
+			"role":    "system",
+			"content": strings.Join(systemParts, "\n\n"),
+		}
+		messages = append([]map[string]interface{}{systemMessage}, messages...)
 	}
 
 	return messages

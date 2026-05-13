@@ -96,6 +96,38 @@ func TestLoadPromptsCharacterBundleOverridesLegacyPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildIdleChatAgentPromptsLayersCharacterBundleThenIdleCorrection(t *testing.T) {
+	p := &LoadedPrompts{
+		CharacterPrompts: map[string]string{
+			"mio":   "mio character system\nmio character policy",
+			"shiro": "shiro character system\nshiro character policy",
+		},
+		IdleChatAgents: map[string]string{
+			"mio":   "mio idle correction",
+			"Shiro": "shiro idle correction",
+		},
+	}
+
+	got := BuildIdleChatAgentPrompts(p)
+
+	for _, key := range []string{"mio", "Mio"} {
+		if !strings.Contains(got[key], "mio character system") || !strings.Contains(got[key], "mio idle correction") {
+			t.Fatalf("mio idle prompt %q did not layer character and idle prompts:\n%s", key, got[key])
+		}
+		if strings.Index(got[key], "mio character system") > strings.Index(got[key], "mio idle correction") {
+			t.Fatalf("mio idle correction should be appended after character prompt:\n%s", got[key])
+		}
+	}
+	for _, key := range []string{"shiro", "Shiro"} {
+		if !strings.Contains(got[key], "shiro character system") || !strings.Contains(got[key], "shiro idle correction") {
+			t.Fatalf("shiro idle prompt %q did not layer character and idle prompts:\n%s", key, got[key])
+		}
+		if strings.Index(got[key], "shiro character system") > strings.Index(got[key], "shiro idle correction") {
+			t.Fatalf("shiro idle correction should be appended after character prompt:\n%s", got[key])
+		}
+	}
+}
+
 func writeCharacterBundle(t *testing.T, workspaceDir, name string, files map[string]string) {
 	t.Helper()
 	writeCharacterBundleAtRoot(t, filepath.Join(workspaceDir, "prompts", "characters"), name, files)

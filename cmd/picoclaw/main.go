@@ -130,10 +130,10 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 			}, maxDuration(chatTimeout, workerTimeout, heavyTimeout, wildTimeout))
 		}
 		return primaryLLMProviders{
-			Chat:   llmmiddleware.NewDateTimeProvider(chat),
-			Worker: llmmiddleware.NewDateTimeProvider(worker),
-			Heavy:  llmmiddleware.NewDateTimeProvider(heavy),
-			Wild:   llmmiddleware.NewDateTimeProvider(wild),
+			Chat:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(chat), "chat"),
+			Worker: llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(worker), "worker"),
+			Heavy:  llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(heavy), "heavy"),
+			Wild:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(wild), "wild"),
 		}
 	}
 
@@ -144,10 +144,10 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 	}
 	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
 	return primaryLLMProviders{
-		Chat:   llmmiddleware.NewDateTimeProvider(chatRawProvider),
-		Worker: llmmiddleware.NewDateTimeProvider(workerRawProvider),
-		Heavy:  llmmiddleware.NewDateTimeProvider(workerRawProvider),
-		Wild:   llmmiddleware.NewDateTimeProvider(workerRawProvider),
+		Chat:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(chatRawProvider), "chat"),
+		Worker: llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(workerRawProvider), "worker"),
+		Heavy:  llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(workerRawProvider), "heavy"),
+		Wild:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(workerRawProvider), "wild"),
 	}
 }
 
@@ -162,7 +162,8 @@ func buildConversationTextProvider(cfg *config.Config, providers primaryLLMProvi
 	if summaryModel == "" {
 		return nil, ""
 	}
-	return ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768), fmt.Sprintf("%s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+	summaryProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768)
+	return llmmiddleware.NewRawLogProvider(summaryProvider, "conversation-summary"), fmt.Sprintf("%s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
 }
 
 func buildConversationEmbedder(cfg *config.Config) (conversation.EmbeddingProvider, string) {
@@ -2676,7 +2677,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	personaEditor := persona.NewFilePersonaEditor(mioPersonaFile)
 	mioAgent = mioAgent.WithPersonaEditor(personaEditor)
 	log.Printf("Mio: PersonaEditor injected (file: %s)", mioPersonaFile)
-	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, subagentMgr)
+	// 設計契約: subagent が無効なときは interface へ型付き nil を渡さない
+	var shiroSubagentManager agent.SubagentManager
+	if subagentMgr != nil {
+		shiroSubagentManager = subagentMgr
+	}
+	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, shiroSubagentManager)
 	heavyAgent := agent.NewHeavyAgent(heavyProvider, cfg.Prompts.Heavy)
 	wildAgent := agent.NewWildAgent(wildProvider, cfg.Prompts.Wild)
 	if convEngine != nil {
@@ -2895,7 +2901,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			cfg.IdleChat.IntervalMin,
 			cfg.IdleChat.MaxTurns,
 			cfg.IdleChat.Temperature,
-			cfg.Prompts.IdleChatAgents,
+			config.BuildIdleChatAgentPrompts(cfg.Prompts),
 			cfg.IdleChat.StoryDataDir,
 		)
 		idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)

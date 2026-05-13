@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
@@ -111,6 +112,9 @@ func TestOpenAIProviderGenerate_LocalCompatibleNoAPIKey(t *testing.T) {
 		if reqBody["model"] != "Chat" {
 			t.Fatalf("expected model Chat, got %v", reqBody["model"])
 		}
+		if reqBody["enable_thinking"] != false {
+			t.Fatalf("expected enable_thinking=false, got %v", reqBody["enable_thinking"])
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
@@ -187,6 +191,42 @@ func TestOpenAIProviderGenerate_WithSystemPrompt(t *testing.T) {
 	_, err := provider.Generate(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Generate with system prompt failed: %v", err)
+	}
+}
+
+func TestConvertMessagesAggregatesSystemMessagesAtHead(t *testing.T) {
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+
+	got := provider.convertMessages(llm.GenerateRequest{
+		SystemPrompt: "base system",
+		Messages: []llm.Message{
+			{Role: "user", Content: "first user"},
+			{Role: "system", Content: "late system"},
+			{Role: "assistant", Content: "assistant context"},
+			{Role: "system", Content: "another late system"},
+			{Role: "user", Content: "second user"},
+		},
+	})
+
+	if len(got) != 4 {
+		t.Fatalf("messages length = %d, want 4: %#v", len(got), got)
+	}
+	if got[0]["role"] != "system" {
+		t.Fatalf("first message role = %v, want system: %#v", got[0]["role"], got)
+	}
+	content, _ := got[0]["content"].(string)
+	for _, want := range []string{"base system", "late system", "another late system"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("aggregated system content missing %q:\n%s", want, content)
+		}
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i]["role"] == "system" {
+			t.Fatalf("message %d should not remain system: %#v", i, got)
+		}
+	}
+	if got[1]["role"] != "user" || got[2]["role"] != "assistant" || got[3]["role"] != "user" {
+		t.Fatalf("non-system message order changed: %#v", got)
 	}
 }
 
