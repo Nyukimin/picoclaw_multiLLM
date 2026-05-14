@@ -90,6 +90,25 @@ func TestGenerateResponseSelectsMoreFunCandidate(t *testing.T) {
 	}
 }
 
+func TestGenerateResponseUses4096MaxTokensForShiro(t *testing.T) {
+	provider := &capturingIdleProvider{responses: []string{
+		"その点は、封筒を開ける前に誰が見ていたかで意味が変わる。",
+		"その点は、封筒を戻す選択にも小さな嘘が残る。",
+	}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+
+	_, err := o.generateResponse("shiro", "mio", "idle-shiro-token-limit", 1, 1, "郵便と古書店")
+	if err != nil {
+		t.Fatalf("generateResponse() error = %v", err)
+	}
+	if len(provider.requests) == 0 {
+		t.Fatal("no LLM requests captured")
+	}
+	if got := provider.requests[0].MaxTokens; got != 4096 {
+		t.Fatalf("shiro primary max tokens = %d, want 4096", got)
+	}
+}
+
 func TestGenerateResponseTenThemesDoNotUseFallback(t *testing.T) {
 	topics := []string{
 		"郵便と古書店",

@@ -56,10 +56,8 @@ func (p *RawLogProvider) Generate(ctx context.Context, req domainllm.GenerateReq
 		switch strings.ToLower(strings.TrimSpace(p.Name())) {
 		case "chat":
 			writeChatRaw("generate", p.Name(), strings.TrimSpace(resp.FinishReason), req.MaxTokens, len(req.Messages), resp.Content)
-			writeIdleChatRaw("mio", "generate", p.Name(), strings.TrimSpace(resp.FinishReason), req.MaxTokens, len(req.Messages), resp.Content)
 		case "worker":
 			writeWorkerRaw("generate", p.Name(), strings.TrimSpace(resp.FinishReason), req.MaxTokens, len(req.Messages), resp.Content)
-			writeIdleChatRaw("shiro", "generate", p.Name(), strings.TrimSpace(resp.FinishReason), req.MaxTokens, len(req.Messages), resp.Content)
 		}
 	}
 	return resp, err
@@ -89,10 +87,8 @@ func (p *RawLogProvider) Chat(ctx context.Context, req domainllm.ChatRequest) (d
 		switch strings.ToLower(strings.TrimSpace(p.Name())) {
 		case "chat":
 			writeChatRaw("chat", p.Name(), strings.TrimSpace(resp.FinishReason), 0, len(req.Messages), resp.Message.Content)
-			writeIdleChatRaw("mio", "chat", p.Name(), strings.TrimSpace(resp.FinishReason), 0, len(req.Messages), resp.Message.Content)
 		case "worker":
 			writeWorkerRaw("chat", p.Name(), strings.TrimSpace(resp.FinishReason), 0, len(req.Messages), resp.Message.Content)
-			writeIdleChatRaw("shiro", "chat", p.Name(), strings.TrimSpace(resp.FinishReason), 0, len(req.Messages), resp.Message.Content)
 		}
 	}
 	return resp, err

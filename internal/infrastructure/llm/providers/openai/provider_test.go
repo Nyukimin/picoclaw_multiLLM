@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -112,13 +113,22 @@ func TestOpenAIProviderGenerate_LocalCompatibleNoAPIKey(t *testing.T) {
 		if reqBody["model"] != "Chat" {
 			t.Fatalf("expected model Chat, got %v", reqBody["model"])
 		}
-		if reqBody["enable_thinking"] != false {
-			t.Fatalf("expected enable_thinking=false, got %v", reqBody["enable_thinking"])
+		if reqBody["parse_reasoning"] != true {
+			t.Fatalf("expected parse_reasoning=true, got %v", reqBody["parse_reasoning"])
+		}
+		if reqBody["include_reasoning"] != false {
+			t.Fatalf("expected include_reasoning=false, got %v", reqBody["include_reasoning"])
+		}
+		if reqBody["separate_reasoning"] != true {
+			t.Fatalf("expected separate_reasoning=true, got %v", reqBody["separate_reasoning"])
+		}
+		if _, ok := reqBody["enable_thinking"]; ok {
+			t.Fatalf("enable_thinking should not be sent to ThinkingBridge server: %#v", reqBody)
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
-					"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+					"message":       map[string]interface{}{"role": "assistant", "content": "ok", "reasoning_content": "hidden", "thinking": "hidden", "raw_content": "<think>hidden</think>ok"},
 					"finish_reason": "stop",
 				},
 			},
@@ -137,6 +147,175 @@ func TestOpenAIProviderGenerate_LocalCompatibleNoAPIKey(t *testing.T) {
 	}
 	if resp.Content != "ok" {
 		t.Fatalf("unexpected content: %q", resp.Content)
+	}
+}
+
+func TestOpenAIProviderGenerate_PublicOpenAIDoesNotSendThinkingBridgeFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		for _, key := range []string{"parse_reasoning", "include_reasoning", "separate_reasoning", "think"} {
+			if _, ok := reqBody[key]; ok {
+				t.Fatalf("public OpenAI request should not include %s: %#v", key, reqBody)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider("test-api-key", "gpt-4")
+	provider.SetBaseURL(server.URL)
+
+	if _, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "ping"}},
+	}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
+func TestOpenAIProviderGenerate_LocalCompatibleStreamingUsesDeltaContentOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if reqBody["stream"] != true {
+			t.Fatalf("expected stream=true, got %v", reqBody["stream"])
+		}
+		if reqBody["include_reasoning"] != false || reqBody["separate_reasoning"] != true {
+			t.Fatalf("unexpected thinking bridge flags: %#v", reqBody)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, line := range []string{
+			`data: {"choices":[{"delta":{"reasoning_content":"hidden","content":""}}]}`,
+			`data: {"choices":[{"delta":{"reasoning_content":"","content":"最終"}}]}`,
+			`data: {"choices":[{"delta":{"content":"回答"}}]}`,
+			`data: [DONE]`,
+		} {
+			fmt.Fprintln(w, line)
+			fmt.Fprintln(w)
+		}
+	}))
+	defer server.Close()
+
+	var tokens []string
+	provider := NewOpenAIProviderWithOptions("", "Worker", server.URL, 0)
+	resp, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages:  []llm.Message{{Role: "user", Content: "ping"}},
+		OnToken:   func(token string) { tokens = append(tokens, token) },
+		MaxTokens: 4,
+	})
+	if err != nil {
+		t.Fatalf("Generate streaming failed: %v", err)
+	}
+	if resp.Content != "最終回答" {
+		t.Fatalf("stream content = %q, want final content only", resp.Content)
+	}
+	if strings.Join(tokens, "|") != "最終|回答" {
+		t.Fatalf("tokens = %#v, want content deltas only", tokens)
+	}
+}
+
+func TestOpenAIProviderGenerate_LocalCompatibleStreamingDropsUntaggedReasoning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, line := range []string{
+			`data: {"choices":[{"delta":{"content":"Okay, the user is asking for a confirmation message. "}}]}`,
+			`data: {"choices":[{"delta":{"content":"Let me check the query again.\n\nFinal answer: "}}]}`,
+			`data: {"choices":[{"delta":{"content":"了解しました。"}}]}`,
+			`data: [DONE]`,
+		} {
+			fmt.Fprintln(w, line)
+			fmt.Fprintln(w)
+		}
+	}))
+	defer server.Close()
+
+	var tokens []string
+	provider := NewOpenAIProviderWithOptions("", "Worker", server.URL, 0)
+	resp, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "ping"}},
+		OnToken:  func(token string) { tokens = append(tokens, token) },
+	})
+	if err != nil {
+		t.Fatalf("Generate streaming failed: %v", err)
+	}
+	if resp.Content != "了解しました。" {
+		t.Fatalf("stream content = %q, want final answer only", resp.Content)
+	}
+	if strings.Join(tokens, "|") != "了解しました。" {
+		t.Fatalf("tokens = %#v, want sanitized final answer only", tokens)
+	}
+}
+
+func TestOpenAIProviderGenerate_LocalCompatibleTreatsNoReasoningLeakAsReasoning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role":         "assistant",
+						"content":      "Okay, the user is asking for a confirmation message in Japanese, just one sentence. Let me check the query again.\n\nFinal answer: 了解しました。",
+						"parse_status": "no_reasoning",
+						"parser_name":  "qwen3",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{"total_tokens": 32},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithOptions("", "Worker", server.URL, 0)
+	resp, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "疎通確認"}},
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if resp.Content != "了解しました。" {
+		t.Fatalf("content = %q, want final answer only", resp.Content)
+	}
+}
+
+func TestOpenAIProviderGenerate_LocalCompatibleDropsReasoningOnlyNoReasoningLeak(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role":         "assistant",
+						"content":      "Okay, the user is asking for a confirmation message in Japanese, just one sentence. Let me check the query again.\n\nThey wrote: \"疎通確認です。\" So they want me to confirm communication.",
+						"parse_status": "no_reasoning",
+						"parser_name":  "qwen3",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{"total_tokens": 32},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithOptions("", "Worker", server.URL, 0)
+	resp, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "疎通確認"}},
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if resp.Content != "" {
+		t.Fatalf("content = %q, want reasoning-only leak removed", resp.Content)
 	}
 }
 
@@ -424,6 +603,44 @@ func TestChat_WithoutToolCalls(t *testing.T) {
 	}
 	if len(resp.Message.ToolCalls) != 0 {
 		t.Errorf("expected no tool calls, got %d", len(resp.Message.ToolCalls))
+	}
+}
+
+func TestChat_LocalCompatibleSendsThinkingBridgeFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if reqBody["parse_reasoning"] != true {
+			t.Fatalf("expected parse_reasoning=true, got %v", reqBody["parse_reasoning"])
+		}
+		if reqBody["include_reasoning"] != false {
+			t.Fatalf("expected include_reasoning=false, got %v", reqBody["include_reasoning"])
+		}
+		if reqBody["separate_reasoning"] != true {
+			t.Fatalf("expected separate_reasoning=true, got %v", reqBody["separate_reasoning"])
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message":       map[string]interface{}{"role": "assistant", "content": "本文", "reasoning_content": "hidden"},
+					"finish_reason": "stop",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithOptions("", "Worker", server.URL, 0)
+	resp, err := provider.Chat(context.Background(), llm.ChatRequest{
+		Messages: []llm.ChatMessage{{Role: "user", Content: "ping"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if resp.Message.Content != "本文" {
+		t.Fatalf("content = %q, want visible content only", resp.Message.Content)
 	}
 }
 

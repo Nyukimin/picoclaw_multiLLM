@@ -58,8 +58,11 @@ func (c *OpenAICompatibleChatCheck) Run(ctx context.Context) domainhealth.CheckR
 		"messages": []map[string]string{
 			{"role": "user", "content": "health check"},
 		},
-		"max_tokens":  1,
-		"temperature": 0,
+		"max_tokens":         1,
+		"temperature":        0,
+		"parse_reasoning":    true,
+		"include_reasoning":  false,
+		"separate_reasoning": true,
 	})
 	if err != nil {
 		return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDown, Message: fmt.Sprintf("marshal failed: %v", err), Duration: time.Since(start)}

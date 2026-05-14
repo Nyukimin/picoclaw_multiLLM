@@ -10,6 +10,7 @@ import (
 )
 
 const maxStoreCache = 5000
+const maxTopicStoreLineBytes = 32 * 1024 * 1024
 
 // TopicStore is a lightweight persistent store for idleChat topic summaries.
 // It appends one JSON record per line and keeps an in-memory cache for fast reads.
@@ -44,6 +45,7 @@ func (s *TopicStore) load() error {
 	defer f.Close()
 
 	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), maxTopicStoreLineBytes)
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {

@@ -205,6 +205,15 @@ func TestDistributedOrchestrator_ProcessMessage_SavesEvidenceOnSuccess(t *testin
 	if report.Status != "passed" {
 		t.Fatalf("expected passed report, got %s", report.Status)
 	}
+	if report.Route != "CHAT" {
+		t.Fatalf("expected route CHAT, got %s", report.Route)
+	}
+	if report.AttemptCount != 1 {
+		t.Fatalf("expected attempt count 1, got %d", report.AttemptCount)
+	}
+	if report.RepairCount != 0 {
+		t.Fatalf("expected repair count 0, got %d", report.RepairCount)
+	}
 	if report.ErrorKind != "" {
 		t.Fatalf("expected empty error kind, got %s", report.ErrorKind)
 	}

@@ -297,11 +297,13 @@ func (o *DistributedOrchestrator) saveExecutionReport(ctx context.Context, jobID
 	report := domainexecution.ExecutionReport{
 		JobID:        jobID,
 		Goal:         goal,
+		Route:        strings.ToUpper(strings.TrimSpace(route)),
 		Status:       "passed",
 		ErrorKind:    "",
 		Acceptance:   distributedAcceptance(route),
 		Verification: distributedVerification(route, runErr),
 		Steps:        distributedEvidenceSteps(route, runErr),
+		AttemptCount: 1,
 		RepairCount:  0,
 		Error:        "",
 		CreatedAt:    startedAt,

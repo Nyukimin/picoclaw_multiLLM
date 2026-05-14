@@ -315,6 +315,8 @@ summary の主対象:
 
 この 2 つは同一ではない。`live jobs` は進行中でも見えるが、`evidence` は保存後にのみ見える。
 
+完了判定、`mio_reported`、live job と evidence の優先順位は `docs/01_正本仕様/実装仕様.md` の「20. Viewer / Evidence / Job 実装仕様」を正本とする。
+
 ### 6.8 live jobs の内容
 
 `/viewer/jobs` は `MonitorStore.Jobs()` を通じて、event から導出した `JobSnapshot` を返す。
@@ -408,6 +410,8 @@ summary の主対象:
   - まず進行中かどうかを確認する
   - 次に `System` または persisted logs を見る
   - 最後に evidence 保存失敗を疑う
+- `evidence.status=passed` だが `job detail` が `phase=reporting` / `status=running` / `mio_reported=false`
+  - 正本仕様の「20. Viewer / Evidence / Job 実装仕様」に従い、実行自体は成功完了と見る
 
 ---
 

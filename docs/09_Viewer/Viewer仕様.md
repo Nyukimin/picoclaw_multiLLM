@@ -303,6 +303,8 @@ Viewer は execution evidence と job 状態を参照する。
 | `/viewer/jobs` | `GET` | job一覧 |
 | `/viewer/job/detail` | `GET` | job詳細 |
 
+完了判定、`mio_reported`、live job と evidence の優先順位は `docs/01_正本仕様/実装仕様.md` の「20. Viewer / Evidence / Job 実装仕様」を正本とする。
+
 ## 15. Memory昇格操作
 
 Viewer Memoryタブは、L1 memoryを `candidate` / `confirmed` に更新し、`user:` / `char:` / `kb:` namespaceへ明示昇格できる。

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -18,10 +19,11 @@ const defaultBaseURL = "https://api.openai.com"
 
 // OpenAIProvider はOpenAI APIプロバイダーの実装
 type OpenAIProvider struct {
-	apiKey  string
-	model   string
-	baseURL string
-	client  *http.Client
+	apiKey         string
+	model          string
+	baseURL        string
+	thinkingBridge bool
+	client         *http.Client
 }
 
 // NewOpenAIProvider は新しいOpenAIProviderを作成
@@ -38,9 +40,10 @@ func NewOpenAIProviderWithOptions(apiKey, model, baseURL string, timeout time.Du
 		timeout = 120 * time.Second
 	}
 	return &OpenAIProvider{
-		apiKey:  apiKey,
-		model:   model,
-		baseURL: baseURL,
+		apiKey:         apiKey,
+		model:          model,
+		baseURL:        baseURL,
+		thinkingBridge: strings.TrimRight(baseURL, "/") != defaultBaseURL,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -54,12 +57,14 @@ func (p *OpenAIProvider) SetBaseURL(url string) {
 
 // Generate はLLM生成を実行
 func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+	streaming := req.OnToken != nil
+
 	// OpenAI APIリクエスト構築
 	openaiReq := map[string]interface{}{
-		"model":           p.model,
-		"messages":        p.convertMessages(req),
-		"enable_thinking": false,
+		"model":    p.model,
+		"messages": p.convertMessages(req),
 	}
+	p.addThinkingBridgeFields(openaiReq, streaming)
 
 	// MaxTokens（OpenAIではmax_tokens）
 	if req.MaxTokens > 0 {
@@ -99,12 +104,18 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 		return llm.GenerateResponse{}, fmt.Errorf("openai API error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
+	if streaming {
+		return p.readChatCompletionsStream(resp.Body, req.OnToken)
+	}
+
 	// レスポンスパース
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
+				Role        string `json:"role"`
+				Content     string `json:"content"`
+				ParseStatus string `json:"parse_status"`
+				ParserName  string `json:"parser_name"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
@@ -121,7 +132,8 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 	var content string
 	var finishReason string
 	if len(openaiResp.Choices) > 0 {
-		content = openaiResp.Choices[0].Message.Content
+		msg := openaiResp.Choices[0].Message
+		content = p.sanitizeThinkingBridgeContent(msg.Content, msg.ParseStatus, msg.ParserName)
 		finishReason = openaiResp.Choices[0].FinishReason
 	}
 
@@ -150,6 +162,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 		"model":    model,
 		"messages": messages,
 	}
+	p.addThinkingBridgeFields(openaiReq, false)
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]interface{}, 0, len(req.Tools))
 		for _, td := range req.Tools {
@@ -194,6 +207,84 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 	}
 
 	return p.parseChatResponse(resp.Body)
+}
+
+func (p *OpenAIProvider) addThinkingBridgeFields(req map[string]interface{}, streaming bool) {
+	if !p.thinkingBridge {
+		return
+	}
+	req["parse_reasoning"] = true
+	req["include_reasoning"] = false
+	req["separate_reasoning"] = true
+	if streaming {
+		req["stream"] = true
+	}
+}
+
+func (p *OpenAIProvider) readChatCompletionsStream(body io.Reader, onToken llm.StreamCallback) (llm.GenerateResponse, error) {
+	var full strings.Builder
+	chunks := make([]string, 0, 16)
+	var finishReason string
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return llm.GenerateResponse{}, fmt.Errorf("failed to decode stream chunk: %w", err)
+		}
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != "" {
+				finishReason = choice.FinishReason
+			}
+			if choice.Delta.Content == "" {
+				continue
+			}
+			full.WriteString(choice.Delta.Content)
+			chunks = append(chunks, choice.Delta.Content)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return llm.GenerateResponse{}, fmt.Errorf("failed to read stream: %w", err)
+	}
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	content := full.String()
+	if p.thinkingBridge && looksLikeUntaggedReasoning(content) {
+		content = extractFinalAnswerFromUntaggedReasoning(content)
+		if content != "" {
+			onToken(content)
+		}
+		return llm.GenerateResponse{
+			Content:      content,
+			FinishReason: finishReason,
+		}, nil
+	}
+	for _, chunk := range chunks {
+		onToken(chunk)
+	}
+	return llm.GenerateResponse{
+		Content:      content,
+		FinishReason: finishReason,
+	}, nil
 }
 
 // convertChatMessages はChatMessageをOpenAI APIフォーマットに変換
@@ -247,9 +338,11 @@ func (p *OpenAIProvider) parseChatResponse(body io.Reader) (llm.ChatResponse, er
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
-				Role      string `json:"role"`
-				Content   string `json:"content"`
-				ToolCalls []struct {
+				Role        string `json:"role"`
+				Content     string `json:"content"`
+				ParseStatus string `json:"parse_status"`
+				ParserName  string `json:"parser_name"`
+				ToolCalls   []struct {
 					ID       string `json:"id"`
 					Type     string `json:"type"`
 					Function struct {
@@ -274,7 +367,7 @@ func (p *OpenAIProvider) parseChatResponse(body io.Reader) (llm.ChatResponse, er
 	result := llm.ChatResponse{
 		Message: llm.ChatMessage{
 			Role:    choice.Message.Role,
-			Content: choice.Message.Content,
+			Content: p.sanitizeThinkingBridgeContent(choice.Message.Content, choice.Message.ParseStatus, choice.Message.ParserName),
 		},
 		Done:         true,
 		FinishReason: choice.FinishReason,
@@ -299,6 +392,78 @@ func (p *OpenAIProvider) parseChatResponse(body io.Reader) (llm.ChatResponse, er
 	}
 
 	return result, nil
+}
+
+func (p *OpenAIProvider) sanitizeThinkingBridgeContent(content, parseStatus, _ string) string {
+	if !p.thinkingBridge {
+		return content
+	}
+	if strings.TrimSpace(parseStatus) != "no_reasoning" {
+		return content
+	}
+	if !looksLikeUntaggedReasoning(content) {
+		return content
+	}
+	if final := extractFinalAnswerFromUntaggedReasoning(content); final != "" {
+		return final
+	}
+	return ""
+}
+
+func looksLikeUntaggedReasoning(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	startsLikeReasoning := strings.HasPrefix(lower, "okay,") ||
+		strings.HasPrefix(lower, "ok,") ||
+		strings.HasPrefix(lower, "let me ") ||
+		strings.HasPrefix(lower, "we need ") ||
+		strings.HasPrefix(lower, "i need ") ||
+		strings.HasPrefix(lower, "i should ") ||
+		strings.HasPrefix(lower, "the user ")
+	if !startsLikeReasoning {
+		return false
+	}
+	markers := []string{
+		"the user",
+		"they wrote",
+		"the query",
+		"let me",
+		"i need to",
+		"i should",
+		"translates to",
+		"asking for",
+		"want me to",
+		"need to respond",
+		"final answer",
+	}
+	hits := 0
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			hits++
+		}
+	}
+	return hits >= 2
+}
+
+func extractFinalAnswerFromUntaggedReasoning(s string) string {
+	candidates := []string{
+		"Final answer:",
+		"Final Answer:",
+		"final answer:",
+		"最終回答:",
+		"最終回答：",
+		"回答:",
+		"回答：",
+	}
+	for _, marker := range candidates {
+		if idx := strings.LastIndex(s, marker); idx >= 0 {
+			return strings.TrimSpace(s[idx+len(marker):])
+		}
+	}
+	return ""
 }
 
 // convertMessages はドメインメッセージをOpenAI APIフォーマットに変換

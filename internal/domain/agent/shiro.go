@@ -11,7 +11,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
-const shiroMaxTokens = 32000
+const shiroMaxTokens = 4096
 
 // ShiroAgent は Worker（実行・道具係）を担当するエンティティ
 type ShiroAgent struct {

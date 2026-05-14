@@ -70,8 +70,8 @@ func TestE2E_ViewerModelSwitch_RuntimeConfigStartAndSend(t *testing.T) {
 	mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(ops))
 	mux.HandleFunc("/viewer/llm-ops/stop", viewer.HandleLLMOpsStop(ops))
 	mux.HandleFunc("/viewer/llm-ops/start", viewer.HandleLLMOpsStart(ops))
-	mux.HandleFunc("/viewer/send", viewer.HandleSend(func(_ context.Context, message string) (string, error) {
-		received <- message
+	mux.HandleFunc("/viewer/send", viewer.HandleSend(func(_ context.Context, req viewer.SendRequest) (string, error) {
+		received <- req.Message
 		return "ok", nil
 	}, nil))
 	server := httptest.NewServer(mux)

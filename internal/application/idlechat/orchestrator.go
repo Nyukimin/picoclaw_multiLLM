@@ -24,7 +24,7 @@ const (
 	maxTurnsPerTopic          = 12
 	idleChatResponseMaxTokens = 512
 	idleChatRetryMaxTokens    = 256
-	shiroMaxTokens            = 32000
+	shiroMaxTokens            = 4096
 	speakerBreak              = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
 	topicBreak                = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
@@ -144,7 +144,6 @@ func (o *IdleChatOrchestrator) SetTopicStore(path string) error {
 	o.mu.Lock()
 	o.topicStore = store
 	o.history = store.GetRecent(200)
-	o.promptGuides = promptGuidesFromHistory(o.history, 5)
 	o.mu.Unlock()
 	return nil
 }
@@ -1198,7 +1197,6 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 	if len(o.history) > 200 {
 		o.history = o.history[len(o.history)-200:]
 	}
-	o.addPromptGuideLocked(promptGuidance)
 	store := o.topicStore
 	o.mu.Unlock()
 	if store != nil {
@@ -2480,7 +2478,6 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 
 	o.mu.Lock()
 	mode := o.sessionMode
-	promptGuidance := formatPromptGuidance(o.promptGuides)
 	o.mu.Unlock()
 
 	var idleStyle string
@@ -2491,9 +2488,9 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 	}
 
 	if prompt, ok := o.personalities[agentName]; ok {
-		return idlePolicy + "\n\n" + prompt + "\n" + idleStyle + promptGuidance
+		return idlePolicy + "\n\n" + prompt + "\n" + idleStyle
 	}
-	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s%s", agentName, idlePolicy, idleStyle, promptGuidance)
+	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleStyle)
 }
 
 func forecastSpeakerContract(agentName string) string {

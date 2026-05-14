@@ -145,6 +145,8 @@ filter:
 
 このため、job 監視は persisted log の単純な再表示ではなく、event reducer による導出表示である。
 
+完了判定、`mio_reported`、live job と evidence の優先順位は `docs/01_正本仕様/実装仕様.md` の「20. Viewer / Evidence / Job 実装仕様」を正本とする。
+
 ### 4.5 `/viewer/audit/summary`
 
 `/viewer/audit/summary` は monitor が保持する集約情報を返す。

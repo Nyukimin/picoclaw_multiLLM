@@ -29,7 +29,7 @@ func (p *queuedQualityProvider) Name() string {
 	return "queued-quality"
 }
 
-func TestSaveSummaryReviewsQualityAndAppliesPromptGuidance(t *testing.T) {
+func TestSaveSummaryReviewsQualityButDoesNotInjectPromptGuidance(t *testing.T) {
 	provider := &queuedQualityProvider{responses: []string{
 		"会話の要約です。",
 		"QUALITY: fail\nBORING_CAUSE: テンプレ反復で聞き手の楽しみが落ちた\nINTEREST_HOOK: 猫市長が市役所の机で魚の予算を隠す選択\nMISSED_TURN: 制度論に逃げず、誰が困るかを出せた\nPROMPT_FIX: INTEREST_HOOKを1つ選び、誰かが損をする選択か隠し事が露出する瞬間に変える。2文以内で余白を残す。",
@@ -60,8 +60,8 @@ func TestSaveSummaryReviewsQualityAndAppliesPromptGuidance(t *testing.T) {
 	if !strings.Contains(record.PromptGuidance, "INTEREST_HOOK") || !strings.Contains(record.PromptGuidance, "2文以内") {
 		t.Fatalf("prompt guidance not recorded: %q", record.PromptGuidance)
 	}
-	if got := o.getSystemPrompt("mio"); !strings.Contains(got, "聞き手体験レビュー") || !strings.Contains(got, "INTEREST_HOOK") || !strings.Contains(got, "2文以内") {
-		t.Fatalf("system prompt does not include guidance: %q", got)
+	if got := o.getSystemPrompt("mio"); strings.Contains(got, "聞き手体験レビュー") || strings.Contains(got, "INTEREST_HOOK") || strings.Contains(got, "2文以内") {
+		t.Fatalf("system prompt should not include review guidance: %q", got)
 	}
 }
 
