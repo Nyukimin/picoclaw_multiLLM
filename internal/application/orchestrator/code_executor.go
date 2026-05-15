@@ -272,7 +272,7 @@ func (e *DefaultCodeExecutor) tryExecuteProposalPath(
 	formatted := formatExecutionResult(p, result)
 	e.emitProposalExecutionResult(req, formatted)
 
-	return CodeExecutionResponse{Response: formatted, Handled: true}, true, nil
+	return buildProposalHandledResponse(formatted), true, nil
 }
 
 func proposalCoderForTarget(target codeTarget) (CoderAgentWithProposal, bool) {
@@ -357,7 +357,15 @@ func (e *DefaultCodeExecutor) executeCoderGeneratePath(
 
 	e.emitCoderGenerateResponse(req, target, resp)
 
-	return CodeExecutionResponse{Response: resp, Handled: false}, nil
+	return buildCoderGenerateResponse(resp), nil
+}
+
+func buildProposalHandledResponse(response string) CodeExecutionResponse {
+	return CodeExecutionResponse{Response: response, Handled: true}
+}
+
+func buildCoderGenerateResponse(response string) CodeExecutionResponse {
+	return CodeExecutionResponse{Response: response, Handled: false}
 }
 
 func (e *DefaultCodeExecutor) emitCoderGenerateError(req CodeExecutionRequest, target codeTarget, err error) {
