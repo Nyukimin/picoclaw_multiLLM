@@ -222,78 +222,26 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		defer o.idleNotifier.SetChatBusy(false)
 	}
 
-	// 1. セッションをロードまたは作成
-	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
+	sess, err := o.loadSessionForRequest(ctx, req)
 	if err != nil {
-		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to load or create session: %v", err)
-		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
+		return ProcessMessageResponse{}, err
 	}
-	log.Printf("[MessageOrch] Session loaded/created: %s", sess.ID())
 
-	// Event: ユーザーメッセージ受信
-	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+	o.emitMessageReceived(req)
+	if resp, handled, err := o.handlePreRoutingChatCommand(ctx, req); err != nil {
+		return ProcessMessageResponse{}, err
+	} else if handled {
+		return resp, nil
+	}
 
-	// 2. チャットコマンドのチェック（ルーティング前）
-	cmdResult, err := o.mio.HandleChatCommand(ctx, req.ChatID, req.UserMessage)
+	t, jobID, ttsSessionID := o.buildTaskForRequest(req)
+	decision, err := o.decideRouteForTask(ctx, t, req, jobID)
 	if err != nil {
-		return ProcessMessageResponse{}, fmt.Errorf("chat command failed: %w", err)
-	}
-	if cmdResult.Handled {
-		o.emit("agent.response", "mio", "user", cmdResult.Response, "CHAT", "", req.SessionID, req.Channel, req.ChatID)
-		return ProcessMessageResponse{
-			Response:   cmdResult.Response,
-			Route:      routing.RouteCHAT,
-			Confidence: 1.0,
-			JobID:      task.NewJobID().String(),
-		}, nil
+		return ProcessMessageResponse{}, err
 	}
 
-	// 3. タスクを作成
-	jobID := task.NewJobID()
-	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID).WithAttachments(req.Attachments)
-	if len(req.Attachments) > 0 {
-		o.emit("viewer.attachment.received", "viewer", "mio",
-			fmt.Sprintf("%d attachment(s)", len(req.Attachments)),
-			"", jobID.String(), req.SessionID, req.Channel, req.ChatID)
-	}
-	ttsSessionID := ""
-	if o.ttsBridge != nil {
-		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
-	}
-
-	// 4. ルーティング決定
-	decision, err := o.mio.DecideAction(ctx, t)
-	if err != nil {
-		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
-	}
-
-	// Event: ルーティング決定
-	o.emit("routing.decision", "mio", "",
-		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
-		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
-
-	// タスクにルートを設定
 	t = t.WithRoute(decision.Route)
-	if o.ttsBridge != nil && ttsSessionID != "" {
-		ttsCtx := buildTTSContext(decision.Route, "normal", false)
-		voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
-		startReq := TTSSessionStart{
-			SessionID:             ttsSessionID,
-			ResponseID:            jobID.String(),
-			CharacterID:           speakerForRoute(decision.Route),
-			VoiceID:               voiceID,
-			SpeechMode:            speechModeForRoute(decision.Route),
-			Event:                 eventForRoute(decision.Route),
-			Urgency:               ttsCtx.Urgency,
-			ConversationMode:      ttsCtx.ConversationMode,
-			UserAttentionRequired: ttsCtx.UserAttentionRequired,
-			Context:               ttsCtx,
-			VoiceProfile:          voiceProfile,
-		}
-		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
-			log.Printf("[MessageOrch] TTS route update degraded: %v", err)
-		}
-	}
+	o.startTTSSessionForRoute(ctx, req, jobID, decision, ttsSessionID)
 
 	workerMarkedBusy := false
 	if o.idleNotifier != nil && decision.Route != routing.RouteCHAT {
@@ -309,19 +257,10 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
 	}
-	if ttsSessionID != "" {
-		if err := o.ttsBridge.EndSession(ctx, ttsSessionID); err != nil {
-			log.Printf("[MessageOrch] TTS end degraded: %v", err)
-		}
-	}
+	o.endTTSSession(ctx, ttsSessionID)
 
-	// 5. タスクを履歴に追加
-	sess.AddTask(t)
-
-	// 6. セッションを保存
-	if err := o.sessionRepo.Save(ctx, sess); err != nil {
-		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to save session: %v", err)
-		return ProcessMessageResponse{}, fmt.Errorf("failed to save session: %w", err)
+	if err := o.saveCompletedTask(ctx, sess, t); err != nil {
+		return ProcessMessageResponse{}, err
 	}
 
 	log.Printf("[MessageOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
@@ -333,6 +272,105 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		Confidence: decision.Confidence,
 		JobID:      jobID.String(),
 	}, nil
+}
+
+func (o *MessageOrchestrator) loadSessionForRequest(ctx context.Context, req ProcessMessageRequest) (*session.Session, error) {
+	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
+	if err != nil {
+		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to load or create session: %v", err)
+		return nil, fmt.Errorf("failed to load or create session: %w", err)
+	}
+	log.Printf("[MessageOrch] Session loaded/created: %s", sess.ID())
+	return sess, nil
+}
+
+func (o *MessageOrchestrator) emitMessageReceived(req ProcessMessageRequest) {
+	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+}
+
+func (o *MessageOrchestrator) handlePreRoutingChatCommand(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, bool, error) {
+	cmdResult, err := o.mio.HandleChatCommand(ctx, req.ChatID, req.UserMessage)
+	if err != nil {
+		return ProcessMessageResponse{}, false, fmt.Errorf("chat command failed: %w", err)
+	}
+	if !cmdResult.Handled {
+		return ProcessMessageResponse{}, false, nil
+	}
+	o.emit("agent.response", "mio", "user", cmdResult.Response, "CHAT", "", req.SessionID, req.Channel, req.ChatID)
+	return ProcessMessageResponse{
+		Response:   cmdResult.Response,
+		Route:      routing.RouteCHAT,
+		Confidence: 1.0,
+		JobID:      task.NewJobID().String(),
+	}, true, nil
+}
+
+func (o *MessageOrchestrator) buildTaskForRequest(req ProcessMessageRequest) (task.Task, task.JobID, string) {
+	jobID := task.NewJobID()
+	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID).WithAttachments(req.Attachments)
+	if len(req.Attachments) > 0 {
+		o.emit("viewer.attachment.received", "viewer", "mio",
+			fmt.Sprintf("%d attachment(s)", len(req.Attachments)),
+			"", jobID.String(), req.SessionID, req.Channel, req.ChatID)
+	}
+	ttsSessionID := ""
+	if o.ttsBridge != nil {
+		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
+	}
+	return t, jobID, ttsSessionID
+}
+
+func (o *MessageOrchestrator) decideRouteForTask(ctx context.Context, t task.Task, req ProcessMessageRequest, jobID task.JobID) (routing.Decision, error) {
+	decision, err := o.mio.DecideAction(ctx, t)
+	if err != nil {
+		return routing.Decision{}, fmt.Errorf("routing decision failed: %w", err)
+	}
+	o.emit("routing.decision", "mio", "",
+		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
+		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
+	return decision, nil
+}
+
+func (o *MessageOrchestrator) startTTSSessionForRoute(ctx context.Context, req ProcessMessageRequest, jobID task.JobID, decision routing.Decision, ttsSessionID string) {
+	if o.ttsBridge == nil || ttsSessionID == "" {
+		return
+	}
+	ttsCtx := buildTTSContext(decision.Route, "normal", false)
+	voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
+	startReq := TTSSessionStart{
+		SessionID:             ttsSessionID,
+		ResponseID:            jobID.String(),
+		CharacterID:           speakerForRoute(decision.Route),
+		VoiceID:               voiceID,
+		SpeechMode:            speechModeForRoute(decision.Route),
+		Event:                 eventForRoute(decision.Route),
+		Urgency:               ttsCtx.Urgency,
+		ConversationMode:      ttsCtx.ConversationMode,
+		UserAttentionRequired: ttsCtx.UserAttentionRequired,
+		Context:               ttsCtx,
+		VoiceProfile:          voiceProfile,
+	}
+	if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
+		log.Printf("[MessageOrch] TTS route update degraded: %v", err)
+	}
+}
+
+func (o *MessageOrchestrator) endTTSSession(ctx context.Context, ttsSessionID string) {
+	if ttsSessionID == "" {
+		return
+	}
+	if err := o.ttsBridge.EndSession(ctx, ttsSessionID); err != nil {
+		log.Printf("[MessageOrch] TTS end degraded: %v", err)
+	}
+}
+
+func (o *MessageOrchestrator) saveCompletedTask(ctx context.Context, sess *session.Session, t task.Task) error {
+	sess.AddTask(t)
+	if err := o.sessionRepo.Save(ctx, sess); err != nil {
+		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to save session: %v", err)
+		return fmt.Errorf("failed to save session: %w", err)
+	}
+	return nil
 }
 
 // loadOrCreateSession はセッションをロードまたは作成
