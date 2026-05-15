@@ -83,7 +83,12 @@ func (r *ToolRunner) WithWebSearchCache(cache WebSearchCache) *ToolRunner {
 
 // registerTools は利用可能なツールを登録（ミドルウェアで安全レール適用）
 func (r *ToolRunner) registerTools() {
-	// V1 ツール登録（既存互換）
+	r.registerCoreTools()
+	r.registerOptionalTools()
+	r.registerToolMetadata()
+}
+
+func (r *ToolRunner) registerCoreTools() {
 	r.tools["shell"] = withTimeout(
 		withStringValidation(r.executeShell, "command", 10000),
 		30*time.Second,
@@ -100,6 +105,14 @@ func (r *ToolRunner) registerTools() {
 		withPathValidation(r.executeFileList, "path"),
 		10*time.Second,
 	)
+
+	r.toolsV2["shell"] = v2Wrap(r.tools["shell"])
+	r.toolsV2["file_read"] = v2Wrap(r.tools["file_read"])
+	r.toolsV2["file_write"] = v2Wrap(r.tools["file_write"])
+	r.toolsV2["file_list"] = v2Wrap(r.tools["file_list"])
+}
+
+func (r *ToolRunner) registerOptionalTools() {
 	if !r.config.DisableWebSearch {
 		r.tools["web_search"] = withTimeout(
 			withRetry(
@@ -110,22 +123,20 @@ func (r *ToolRunner) registerTools() {
 		)
 	}
 	if len(r.config.Subagents) > 0 {
-		r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
+		r.registerSubagentTool()
 	}
 
-	// V2 ツール登録（V1 → ToolResponse 変換ラッパー）
-	r.toolsV2["shell"] = v2Wrap(r.tools["shell"])
-	r.toolsV2["file_read"] = v2Wrap(r.tools["file_read"])
-	r.toolsV2["file_write"] = v2Wrap(r.tools["file_write"])
-	r.toolsV2["file_list"] = v2Wrap(r.tools["file_list"])
 	if !r.config.DisableWebSearch {
 		r.toolsV2["web_search"] = r.executeWebSearchV2 // 構造化データ対応
 	}
-	if len(r.config.Subagents) > 0 {
-		r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
-	}
 
-	// メタデータ登録
+	// Phase 4: register_tool（ToolRegistry が有効な場合のみ登録）
+	if r.config.ToolRegistry != nil {
+		r.registerToolRegistryTool()
+	}
+}
+
+func (r *ToolRunner) registerToolMetadata() {
 	r.metadata["shell"] = tool.ToolMetadata{
 		ToolID: "shell", Version: "1.0.0", Category: "mutation",
 		DryRun:      true,
@@ -189,37 +200,52 @@ func (r *ToolRunner) registerTools() {
 		}
 	}
 	if len(r.config.Subagents) > 0 {
-		r.metadata["subagent"] = tool.ToolMetadata{
-			ToolID: "subagent", Version: "1.0.0", Category: "query",
-			Description: "サブエージェントにタスクを委譲する",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"agent":   map[string]any{"type": "string", "description": "サブエージェント名"},
-					"message": map[string]any{"type": "string", "description": "タスク指示文"},
-				},
-				"required": []any{"agent", "message"},
-			},
-		}
+		r.metadata["subagent"] = subagentToolMetadata()
 	}
 
-	// Phase 4: register_tool（ToolRegistry が有効な場合のみ登録）
 	if r.config.ToolRegistry != nil {
-		r.tools["register_tool"] = withTimeout(r.executeRegisterTool, 10*time.Second)
-		r.toolsV2["register_tool"] = v2Wrap(r.tools["register_tool"])
-		r.metadata["register_tool"] = tool.ToolMetadata{
-			ToolID: "register_tool", Version: "1.0.0", Category: "mutation",
-			Description: "シェルスクリプトを再利用可能なツールとして ToolRegistry に登録する。スクリプトは事前に workspace/tools/<name>.sh に保存しておくこと。",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name":              map[string]any{"type": "string", "description": "ツール名（英数字とアンダースコアのみ）"},
-					"description":       map[string]any{"type": "string", "description": "ツールの説明文（LLM に渡す）"},
-					"parameters_schema": map[string]any{"type": "object", "description": "ツール引数の JSON Schema（省略可）"},
-				},
-				"required": []any{"name", "description"},
+		r.metadata["register_tool"] = registerToolMetadata()
+	}
+}
+
+func (r *ToolRunner) registerSubagentTool() {
+	r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
+	r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
+}
+
+func (r *ToolRunner) registerToolRegistryTool() {
+	r.tools["register_tool"] = withTimeout(r.executeRegisterTool, 10*time.Second)
+	r.toolsV2["register_tool"] = v2Wrap(r.tools["register_tool"])
+}
+
+func subagentToolMetadata() tool.ToolMetadata {
+	return tool.ToolMetadata{
+		ToolID: "subagent", Version: "1.0.0", Category: "query",
+		Description: "サブエージェントにタスクを委譲する",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"agent":   map[string]any{"type": "string", "description": "サブエージェント名"},
+				"message": map[string]any{"type": "string", "description": "タスク指示文"},
 			},
-		}
+			"required": []any{"agent", "message"},
+		},
+	}
+}
+
+func registerToolMetadata() tool.ToolMetadata {
+	return tool.ToolMetadata{
+		ToolID: "register_tool", Version: "1.0.0", Category: "mutation",
+		Description: "シェルスクリプトを再利用可能なツールとして ToolRegistry に登録する。スクリプトは事前に workspace/tools/<name>.sh に保存しておくこと。",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":              map[string]any{"type": "string", "description": "ツール名（英数字とアンダースコアのみ）"},
+				"description":       map[string]any{"type": "string", "description": "ツールの説明文（LLM に渡す）"},
+				"parameters_schema": map[string]any{"type": "object", "description": "ツール引数の JSON Schema（省略可）"},
+			},
+			"required": []any{"name", "description"},
+		},
 	}
 }
 
@@ -308,20 +334,8 @@ func (r *ToolRunner) RegisterSubagent(name string, fn SubagentFunc) {
 	r.config.Subagents[name] = fn
 
 	// ツールも登録
-	r.tools["subagent"] = withTimeout(r.executeSubagent, 30*time.Second)
-	r.toolsV2["subagent"] = v2Wrap(r.tools["subagent"])
-	r.metadata["subagent"] = tool.ToolMetadata{
-		ToolID: "subagent", Version: "1.0.0", Category: "query",
-		Description: "サブエージェントにタスクを委譲する",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"agent":   map[string]any{"type": "string", "description": "サブエージェント名"},
-				"message": map[string]any{"type": "string", "description": "タスク指示文"},
-			},
-			"required": []any{"agent", "message"},
-		},
-	}
+	r.registerSubagentTool()
+	r.metadata["subagent"] = subagentToolMetadata()
 }
 
 // executeRegisterTool はシェルスクリプトを ToolRegistry に登録する（Phase 4）
