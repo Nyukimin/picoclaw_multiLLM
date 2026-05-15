@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -87,6 +88,28 @@ func TestMessageOrchestrator_RouteChainContract_InvalidProposalDoesNotReachWorke
 	}
 	if worker.calls != 0 {
 		t.Fatalf("invalid proposal reached WorkerExecutionService: calls=%d", worker.calls)
+	}
+}
+
+func TestMessageOrchestrator_RouteChainContract_UnknownRouteDoesNotEmitSuccessResponse(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.Route("UNKNOWN"), 0.5, "unknown"),
+	}
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("unknown route should return error")
+	}
+	if !strings.Contains(err.Error(), "unknown route") {
+		t.Fatalf("unknown route error missing route detail: %v", err)
+	}
+	for _, ev := range rec.events {
+		if ev.Type == "agent.response" {
+			t.Fatalf("unknown route should not emit success response event: %#v", rec.events)
+		}
 	}
 }
 
