@@ -39,46 +39,68 @@ func (w *workerExecutionService) ExecuteProposal(
 	jobID task.JobID,
 	p *proposal.Proposal,
 ) (*patch.PatchExecutionResult, error) {
-	// 1. Patchをパース
+	commands, err := w.parseProposalCommands(p)
+	if err != nil {
+		return nil, err
+	}
+
+	w.showExecutionSummaryIfEnabled(jobID, commands)
+	if err := w.autoCommitBeforeExecution(ctx, jobID); err != nil {
+		return nil, err
+	}
+
+	result := w.executeCommands(ctx, jobID, commands)
+	w.autoCommitAfterExecution(ctx, jobID, result)
+	return w.finalizeExecutionResult(commands, result), nil
+}
+
+func (w *workerExecutionService) parseProposalCommands(p *proposal.Proposal) ([]patch.PatchCommand, error) {
 	commands, err := patch.ParsePatch(p.Patch())
 	if err != nil {
 		return nil, fmt.Errorf("patch parse error: %w", err)
 	}
+	return commands, nil
+}
 
-	// 2. 実行前サマリ表示
+func (w *workerExecutionService) showExecutionSummaryIfEnabled(jobID task.JobID, commands []patch.PatchCommand) {
 	if w.config.ShowExecutionSummary {
 		w.showExecutionSummary(jobID, commands)
 	}
+}
 
-	// 3. Git auto-commit（実行前）
-	if w.config.AutoCommit {
-		preCommitHash, err := w.autoCommitChanges(ctx, jobID, "Before patch execution")
-		if err != nil {
-			return nil, fmt.Errorf("pre-execution auto-commit failed: %w", err)
-		}
-		fmt.Printf("[Worker] Pre-commit succeeded: %s\n", preCommitHash)
+func (w *workerExecutionService) autoCommitBeforeExecution(ctx context.Context, jobID task.JobID) error {
+	if !w.config.AutoCommit {
+		return nil
 	}
+	preCommitHash, err := w.autoCommitChanges(ctx, jobID, "Before patch execution")
+	if err != nil {
+		return fmt.Errorf("pre-execution auto-commit failed: %w", err)
+	}
+	fmt.Printf("[Worker] Pre-commit succeeded: %s\n", preCommitHash)
+	return nil
+}
 
-	// 4. コマンド実行（並列 or 順次）
-	var result *patch.PatchExecutionResult
+func (w *workerExecutionService) executeCommands(ctx context.Context, jobID task.JobID, commands []patch.PatchCommand) *patch.PatchExecutionResult {
 	if w.config.ParallelExecution {
-		result = w.executeParallel(ctx, jobID, commands)
-	} else {
-		result = w.executeSequential(ctx, jobID, commands)
+		return w.executeParallel(ctx, jobID, commands)
 	}
+	return w.executeSequential(ctx, jobID, commands)
+}
 
-	// 5. Git auto-commit（実行後）
-	if w.config.AutoCommit && result.ExecutedCmds > 0 {
-		postCommitHash, err := w.autoCommitChanges(ctx, jobID,
-			fmt.Sprintf("Patch execution: %d commands", result.ExecutedCmds))
-		if err == nil {
-			result = result.WithGitCommit(postCommitHash)
-		} else {
-			fmt.Printf("[Worker] Post-commit failed: %v\n", err)
-		}
+func (w *workerExecutionService) autoCommitAfterExecution(ctx context.Context, jobID task.JobID, result *patch.PatchExecutionResult) {
+	if !w.config.AutoCommit || result.ExecutedCmds == 0 {
+		return
 	}
+	postCommitHash, err := w.autoCommitChanges(ctx, jobID,
+		fmt.Sprintf("Patch execution: %d commands", result.ExecutedCmds))
+	if err == nil {
+		result.WithGitCommit(postCommitHash)
+		return
+	}
+	fmt.Printf("[Worker] Post-commit failed: %v\n", err)
+}
 
-	// 6. サマリ生成
+func (w *workerExecutionService) finalizeExecutionResult(commands []patch.PatchCommand, result *patch.PatchExecutionResult) *patch.PatchExecutionResult {
 	summary := fmt.Sprintf("実行: %d 件, 成功: %d 件, 失敗: %d 件",
 		len(commands), result.ExecutedCmds, result.FailedCmds)
 	w.classifyExecutionFailure(result)
@@ -86,7 +108,7 @@ func (w *workerExecutionService) ExecuteProposal(
 
 	fmt.Printf("[Worker] Patch execution completed: %s\n", summary)
 
-	return result, nil
+	return result
 }
 
 // executeSequential はコマンドを順次実行
