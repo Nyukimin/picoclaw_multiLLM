@@ -93,14 +93,8 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	log.Printf("[CodeExecutor] code handoff route=%s target=%s job=%s", req.Route, target.name, req.JobID)
 
 	// 明示ルートで品質縮退が発生した場合にユーザー通知
-	if target.degradedRoute != "" && req.Route != routing.RouteCODE {
-		msg := fmt.Sprintf("⚠️ %s は利用不可のため %s 品質で代替実行します", req.Route, target.degradedRoute)
-		e.emit("agent.notice", "shiro", "mio", msg, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
-		log.Printf("[CodeExecutor] quality degraded route=%s degraded=%s target=%s", req.Route, target.degradedRoute, target.name)
-	}
-
-	e.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
-	e.emit("agent.start", "shiro", target.name, req.Task.UserMessage(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	e.emitDegradedRouteNotice(req, target)
+	e.emitCodeHandoffStart(req, target)
 
 	// CODE3明示ルート、または動的選択でCODE3品質へ縮退したルートは、
 	// Proposal生成が可能ならWorkerで即時実行する。
@@ -335,6 +329,20 @@ func (e *DefaultCodeExecutor) emitProposalExecutionResult(req CodeExecutionReque
 	e.emit("agent.response", "shiro", "mio", formatted, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 }
 
+func (e *DefaultCodeExecutor) emitDegradedRouteNotice(req CodeExecutionRequest, target codeTarget) {
+	if target.degradedRoute == "" || req.Route == routing.RouteCODE {
+		return
+	}
+	msg := fmt.Sprintf("⚠️ %s は利用不可のため %s 品質で代替実行します", req.Route, target.degradedRoute)
+	e.emit("agent.notice", "shiro", "mio", msg, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	log.Printf("[CodeExecutor] quality degraded route=%s degraded=%s target=%s", req.Route, target.degradedRoute, target.name)
+}
+
+func (e *DefaultCodeExecutor) emitCodeHandoffStart(req CodeExecutionRequest, target codeTarget) {
+	e.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	e.emit("agent.start", "shiro", target.name, req.Task.UserMessage(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+}
+
 // executeCoderGeneratePath は通常のGenerate実行パス
 func (e *DefaultCodeExecutor) executeCoderGeneratePath(
 	ctx context.Context,
@@ -343,14 +351,23 @@ func (e *DefaultCodeExecutor) executeCoderGeneratePath(
 ) (CodeExecutionResponse, error) {
 	resp, err := target.coder.Generate(ctx, req.Task, target.systemPrompt)
 	if err != nil {
-		e.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+		e.emitCoderGenerateError(req, target, err)
 		return CodeExecutionResponse{}, err
 	}
 
-	e.emit("agent.response", target.name, "shiro", truncate(resp, 500), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
-	e.emit("agent.response", "shiro", "mio", truncate(resp, 500), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	e.emitCoderGenerateResponse(req, target, resp)
 
 	return CodeExecutionResponse{Response: resp, Handled: false}, nil
+}
+
+func (e *DefaultCodeExecutor) emitCoderGenerateError(req CodeExecutionRequest, target codeTarget, err error) {
+	e.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+}
+
+func (e *DefaultCodeExecutor) emitCoderGenerateResponse(req CodeExecutionRequest, target codeTarget, response string) {
+	content := truncate(response, 500)
+	e.emit("agent.response", target.name, "shiro", content, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	e.emit("agent.response", "shiro", "mio", content, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 }
 
 func (e *DefaultCodeExecutor) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
