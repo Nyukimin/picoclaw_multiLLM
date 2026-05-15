@@ -1,0 +1,74 @@
+profile_schema_version: "1.0"
+name: rencrow-core-map
+
+module_groups:
+  - id: entrypoints_config_docs
+    name: エントリポイント・設定・仕様文書
+    dirs:
+      - cmd/
+      - config/
+      - docs/01_正本仕様/
+      - docs/LLM運用/
+      - rules/
+      - prompts/
+    focus:
+      - 起動経路
+      - runtime config
+      - 仕様とルールの参照先
+      - prompt bundle
+
+  - id: domain
+    name: Domain 層
+    dirs:
+      - internal/domain/
+    focus:
+      - agent/task/routing/patch/tool の値と契約
+      - 会話記憶とセッション
+      - 破壊的操作に関係する domain 境界
+
+  - id: application
+    name: Application 層
+    dirs:
+      - internal/application/
+    focus:
+      - MessageOrchestrator
+      - WorkerExecutionService
+      - IdleChat
+      - autonomous/toolloop/health/execution usecase
+
+  - id: infrastructure
+    name: Infrastructure 層
+    dirs:
+      - internal/infrastructure/
+    focus:
+      - LLM provider
+      - persistence
+      - security policy
+      - tools/STT/TTS/transport
+
+  - id: adapter
+    name: Adapter 層
+    dirs:
+      - internal/adapter/
+    focus:
+      - Viewer
+      - LINE/channel handlers
+      - health/config/chrome bridge
+      - Source Registry UI/API
+
+use_cases:
+  - id: chat_message
+    name: ユーザー入力から Chat/Worker/Coder ルーティング
+  - id: code_execution
+    name: Coder proposal から Worker 実行
+  - id: idlechat
+    name: IdleChat セッションと Viewer 表示
+  - id: memory_source_registry
+    name: 記憶・Source Registry・staging/validator
+  - id: audio_viewer
+    name: Viewer 音声/STT/TTS
+
+output:
+  base: docs/codebase-map
+  modules_subdir: modules
+  anomaly_file: 潜在バグ一覧.md

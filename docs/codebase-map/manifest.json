@@ -1,0 +1,121 @@
+{
+  "version": "1.0",
+  "manifest_schema_version": "1.0",
+  "profile_schema_version": "1.0",
+  "run_id": "run_20260515_080548",
+  "target_dir": "/home/nyukimi/picoclaw_multiLLM",
+  "phase_requested": "all",
+  "phase_done": "phase2",
+  "profile_path": "docs/codebase-map/analysis-profile.yaml",
+  "timestamp_start": "2026-05-15T08:05:48Z",
+  "timestamp_end": "2026-05-15T08:05:48Z",
+  "git_branch": "feature/coder-test",
+  "git_commit": "2a7864ccc98adf64aa25304562414c27cd964784",
+  "steps": [
+    {
+      "step_id": "0b",
+      "name": "既存調査マッピング",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "refs_mapping.md"
+    },
+    {
+      "step_id": "1-1",
+      "name": "module entrypoints_config_docs",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/entrypoints_config_docs.md"
+    },
+    {
+      "step_id": "1-2",
+      "name": "module domain",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/domain.md"
+    },
+    {
+      "step_id": "1-3",
+      "name": "module application",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/application.md"
+    },
+    {
+      "step_id": "1-4",
+      "name": "module infrastructure",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/infrastructure.md"
+    },
+    {
+      "step_id": "1-5",
+      "name": "module adapter",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/adapter.md"
+    },
+    {
+      "step_id": "7",
+      "name": "結合ポイントマップ",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "結合ポイントマップ.md"
+    },
+    {
+      "step_id": "8",
+      "name": "ユースケース逆引き",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "ユースケース逆引き.md"
+    },
+    {
+      "step_id": "9",
+      "name": "アーキテクチャ総合",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "アーキテクチャ総合.md"
+    },
+    {
+      "step_id": "10",
+      "name": "フォルダ概要の修正・補強",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/*"
+    },
+    {
+      "step_id": "11",
+      "name": "結合・UC の修正・補強",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "結合ポイントマップ.md"
+    },
+    {
+      "step_id": "12",
+      "name": "全体概要の最終化",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "アーキテクチャ総合.md"
+    },
+    {
+      "step_id": "13",
+      "name": "異常一覧の生成",
+      "status": "done",
+      "started_at": "2026-05-15T08:05:48Z",
+      "finished_at": "2026-05-15T08:05:48Z",
+      "output": "modules/潜在バグ一覧.md"
+    }
+  ],
+  "errors": []
+}
