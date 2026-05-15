@@ -422,16 +422,7 @@ func cmdRun() {
 	log.Printf("Starting RenCrow server on %s", addr)
 
 	mux := http.NewServeMux()
-	mux.Handle("/webhook", dependencies.lineHandler)
-	if dependencies.telegramHandler != nil {
-		mux.Handle("/webhook/telegram", dependencies.telegramHandler)
-	}
-	if dependencies.discordHandler != nil {
-		mux.Handle("/webhook/discord", dependencies.discordHandler)
-	}
-	if dependencies.slackHandler != nil {
-		mux.Handle("/webhook/slack", dependencies.slackHandler)
-	}
+	registerChannelRoutes(mux, dependencies)
 
 	// Live Viewer
 	sttRuntime := buildSTTRuntime(cfg)
@@ -458,22 +449,48 @@ func cmdRun() {
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}
+	registerViewerBaseRoutes(mux, cfg, dependencies, debugSystemOpts)
+	registerLLMOpsRoutes(mux, cfg, dependencies, &debugSystemOpts)
+	registerSTTAndAudioRoutes(mux, sttRuntime, dependencies)
+	registerViewerDynamicRoutes(mux, dependencies)
+	registerEntryAndChromeRoutes(mux, dependencies)
+	registerIdleChatRoutes(mux, dependencies)
+	registerHealthRoutes(mux, dependencies, cfg)
+
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			log.Printf("[ConnState] %s -> %s (remote: %s)", state.String(), conn.LocalAddr(), conn.RemoteAddr())
+		},
+	}
+	if cfg.Server.TLS.Enabled {
+		err = server.ListenAndServeTLS(cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile)
+	} else {
+		err = server.ListenAndServe()
+	}
+	if err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
+}
+
+func registerChannelRoutes(mux *http.ServeMux, dependencies *Dependencies) {
+	mux.Handle("/webhook", dependencies.lineHandler)
+	if dependencies.telegramHandler != nil {
+		mux.Handle("/webhook/telegram", dependencies.telegramHandler)
+	}
+	if dependencies.discordHandler != nil {
+		mux.Handle("/webhook/discord", dependencies.discordHandler)
+	}
+	if dependencies.slackHandler != nil {
+		mux.Handle("/webhook/slack", dependencies.slackHandler)
+	}
+}
+
+func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts viewer.DebugSystemOptions) {
 	mux.HandleFunc("/viewer", viewer.HandlePage)
 	mux.HandleFunc("/viewer/assets/", viewer.HandleAsset)
 	mux.HandleFunc("/viewer/runtime-config", viewer.HandleRuntimeConfig(debugSystemOpts))
-	if debugSystemOpts.LLMOpsEnabled {
-		llmOpsOpts := viewer.LLMOpsProxyOptions{
-			BaseURL: cfg.LLMOps.BaseURL,
-			Token:   llmOpsToken,
-		}
-		dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)
-		mux.HandleFunc("/viewer/llm-ops/health", viewer.HandleLLMOpsHealth(llmOpsOpts))
-		mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(llmOpsOpts))
-		mux.HandleFunc("/viewer/llm-ops/start", viewer.HandleLLMOpsStart(llmOpsOpts))
-		mux.HandleFunc("/viewer/llm-ops/stop", viewer.HandleLLMOpsStop(llmOpsOpts))
-		mux.HandleFunc("/viewer/llm-ops/restart", viewer.HandleLLMOpsRestart(llmOpsOpts))
-		log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
-	}
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/mio-lipsync-closed.svg", viewer.HandleMioLipSyncClosed)
 	mux.HandleFunc("/viewer/mio-lipsync-open.svg", viewer.HandleMioLipSyncOpen)
@@ -483,11 +500,34 @@ func cmdRun() {
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
 	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
+}
+
+func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts *viewer.DebugSystemOptions) {
+	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsEnabled {
+		return
+	}
+	llmOpsOpts := viewer.LLMOpsProxyOptions{
+		BaseURL: cfg.LLMOps.BaseURL,
+		Token:   strings.TrimSpace(os.Getenv("LLM_OPS_TOKEN")),
+	}
+	dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)
+	mux.HandleFunc("/viewer/llm-ops/health", viewer.HandleLLMOpsHealth(llmOpsOpts))
+	mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(llmOpsOpts))
+	mux.HandleFunc("/viewer/llm-ops/start", viewer.HandleLLMOpsStart(llmOpsOpts))
+	mux.HandleFunc("/viewer/llm-ops/stop", viewer.HandleLLMOpsStop(llmOpsOpts))
+	mux.HandleFunc("/viewer/llm-ops/restart", viewer.HandleLLMOpsRestart(llmOpsOpts))
+	log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
+}
+
+func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, dependencies *Dependencies) {
 	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave("tmp/client_stt_log.txt"))
 	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave("tmp/client_stt_input_latest.wav", "tmp/stt_inputs"))
 	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest("scripts/stt_e2e_probe.py", "tmp/client_stt_input_latest.wav", "tmp/stt_e2e_from_mic_latest.json"))
 	registerSTTRuntimeRoutes(mux, sttRuntime)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
+}
+
+func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	if dependencies.viewerStatus != nil {
 		mux.HandleFunc("/viewer/status", dependencies.viewerStatus)
 	}
@@ -545,6 +585,9 @@ func cmdRun() {
 	if dependencies.viewerSourceRegistry != nil {
 		mux.HandleFunc("/viewer/source-registry", dependencies.viewerSourceRegistry)
 	}
+}
+
+func registerEntryAndChromeRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	if dependencies.entryHandler != nil {
 		mux.HandleFunc("/entry", dependencies.entryHandler)
 	}
@@ -557,35 +600,25 @@ func cmdRun() {
 	if dependencies.chromeBridgeEvents != nil {
 		mux.HandleFunc("/chrome/bridge/events", dependencies.chromeBridgeEvents)
 	}
-	if dependencies.idleChatOrch != nil {
-		mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
-		mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
-		mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
-		mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
-		mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())
-		mux.HandleFunc("/viewer/idlechat/story", dependencies.handleIdleChatStory())
-		mux.HandleFunc("/viewer/idlechat/story-simple", dependencies.handleIdleChatStorySimple())
-	}
+}
 
+func registerIdleChatRoutes(mux *http.ServeMux, dependencies *Dependencies) {
+	if dependencies.idleChatOrch == nil {
+		return
+	}
+	mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
+	mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
+	mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
+	mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
+	mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())
+	mux.HandleFunc("/viewer/idlechat/story", dependencies.handleIdleChatStory())
+	mux.HandleFunc("/viewer/idlechat/story-simple", dependencies.handleIdleChatStorySimple())
+}
+
+func registerHealthRoutes(mux *http.ServeMux, dependencies *Dependencies, cfg *config.Config) {
 	healthHandler := dependencies.buildHealthHandler(cfg)
 	mux.HandleFunc("/health", healthHandler.HandleHealth)
 	mux.HandleFunc("/ready", healthHandler.HandleReady)
-
-	server := &http.Server{
-		Addr:    addr,
-		Handler: mux,
-		ConnState: func(conn net.Conn, state http.ConnState) {
-			log.Printf("[ConnState] %s -> %s (remote: %s)", state.String(), conn.LocalAddr(), conn.RemoteAddr())
-		},
-	}
-	if cfg.Server.TLS.Enabled {
-		err = server.ListenAndServeTLS(cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile)
-	} else {
-		err = server.ListenAndServe()
-	}
-	if err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
 }
 
 // cmdVersion はバージョン情報を表示
