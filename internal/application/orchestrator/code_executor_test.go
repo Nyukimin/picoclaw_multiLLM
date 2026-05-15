@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
@@ -175,6 +177,98 @@ func TestCodeExecutor_CODEDynamicSelectsCODE3_UsesProposalPath(t *testing.T) {
 	}
 }
 
+func TestCodeExecutor_CODE_ReleasesCoderStatusAfterGenerateSuccess(t *testing.T) {
+	status := NewCoderStatus()
+	coder1 := &mockCoderAgent{response: "CODE response"}
+	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, status, noopEventEmitter)
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if resp.Response != "CODE response" {
+		t.Fatalf("Response=%q, want CODE response", resp.Response)
+	}
+	if status.IsBusy("coder1") {
+		t.Fatal("coder1 should be released after successful Generate path")
+	}
+}
+
+func TestCodeExecutor_CODE_ReleasesCoderStatusAfterGenerateError(t *testing.T) {
+	status := NewCoderStatus()
+	coderErr := errors.New("generate failed")
+	coder1 := &failingCoderAgent{err: coderErr}
+	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, status, noopEventEmitter)
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	_, err := executor.ExecuteCode(context.Background(), req)
+	if !errors.Is(err, coderErr) {
+		t.Fatalf("Expected Generate error %v, got %v", coderErr, err)
+	}
+	if status.IsBusy("coder1") {
+		t.Fatal("coder1 should be released after failed Generate path")
+	}
+}
+
+func TestCodeExecutor_DegradedRouteNoticeDoesNotMeanProposalHandled(t *testing.T) {
+	var events []codeExecutorEvent
+	coder2 := &mockCoderAgent{response: "degraded generate response"}
+	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, nil, nil, recordingCodeEventEmitter(&events)).WithCapabilities([]capability.CoderCapability{
+		{Name: "coder2", Quality: 4, Available: true},
+	})
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE3,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if resp.Handled {
+		t.Fatal("degraded route notice must not mark Generate path as proposal-handled")
+	}
+	if resp.Response != "degraded generate response" {
+		t.Fatalf("Response=%q, want degraded generate response", resp.Response)
+	}
+
+	notice, ok := findCodeExecutorEvent(events, "agent.notice", "shiro", "mio")
+	if !ok {
+		t.Fatal("Expected degraded route notice event")
+	}
+	if notice.route != routing.RouteCODE3.String() {
+		t.Fatalf("notice route=%q, want %q", notice.route, routing.RouteCODE3.String())
+	}
+	if !strings.Contains(notice.content, routing.RouteCODE3.String()) || !strings.Contains(notice.content, routing.RouteCODE2.String()) {
+		t.Fatalf("notice content=%q should include requested and degraded routes", notice.content)
+	}
+}
+
 // TestCodeExecutor_CODE_GenericRoute_Fallback はCODE汎用ルートのフォールバックテスト
 func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
 	// coder1がnilの場合にcoder2にフォールバック
@@ -206,6 +300,51 @@ func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
 // ヘルパー関数
 func noopEventEmitter(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
 	// テスト用の空実装
+}
+
+type failingCoderAgent struct {
+	err error
+}
+
+func (m *failingCoderAgent) Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
+	return "", m.err
+}
+
+type codeExecutorEvent struct {
+	eventType string
+	from      string
+	to        string
+	content   string
+	route     string
+	jobID     string
+	sessionID string
+	channel   string
+	chatID    string
+}
+
+func recordingCodeEventEmitter(events *[]codeExecutorEvent) func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
+	return func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
+		*events = append(*events, codeExecutorEvent{
+			eventType: eventType,
+			from:      from,
+			to:        to,
+			content:   content,
+			route:     route,
+			jobID:     jobID,
+			sessionID: sessionID,
+			channel:   channel,
+			chatID:    chatID,
+		})
+	}
+}
+
+func findCodeExecutorEvent(events []codeExecutorEvent, eventType, from, to string) (codeExecutorEvent, bool) {
+	for _, event := range events {
+		if event.eventType == eventType && event.from == from && event.to == to {
+			return event, true
+		}
+	}
+	return codeExecutorEvent{}, false
 }
 
 type recordingCodeWorkerExecutionService struct {
