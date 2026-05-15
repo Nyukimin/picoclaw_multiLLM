@@ -34,36 +34,6 @@ func formatExecutionResult(
 	p *proposal.Proposal,
 	result *patch.PatchExecutionResult,
 ) string {
-	// 成功/失敗の絵文字
-	statusEmoji := "✅"
-	if !result.Success {
-		statusEmoji = "⚠️"
-	}
-
-	// Gitコミット行
-	gitCommitLine := ""
-	if result.GitCommit != "" && result.GitCommit != "no-changes" {
-		shortHash := result.GitCommit
-		if len(shortHash) > 8 {
-			shortHash = shortHash[:8]
-		}
-		gitCommitLine = fmt.Sprintf("\n- **Git Commit**: `%s`", shortHash)
-	}
-
-	// コマンド結果詳細
-	commandDetails := ""
-	for i, cmdResult := range result.Results {
-		status := "✅"
-		if !cmdResult.Success {
-			status = "❌"
-		}
-		commandDetails += fmt.Sprintf("\n%d. %s `%s` %s",
-			i+1, status, cmdResult.Command.Action, cmdResult.Command.Target)
-		if cmdResult.Error != "" {
-			commandDetails += fmt.Sprintf("\n   Error: %s", cmdResult.Error)
-		}
-	}
-
 	return fmt.Sprintf(`## Plan
 %s
 
@@ -79,12 +49,46 @@ func formatExecutionResult(
 %s
 `,
 		p.Plan(),
-		statusEmoji,
+		executionStatusEmoji(result),
 		result.ExecutedCmds,
 		result.FailedCmds,
 		result.SuccessRate()*100,
-		gitCommitLine,
-		commandDetails,
+		formatGitCommitLine(result),
+		formatCommandDetails(result),
 		p.Risk(),
 	)
+}
+
+func executionStatusEmoji(result *patch.PatchExecutionResult) string {
+	if result.Success {
+		return "✅"
+	}
+	return "⚠️"
+}
+
+func formatGitCommitLine(result *patch.PatchExecutionResult) string {
+	if result.GitCommit == "" || result.GitCommit == "no-changes" {
+		return ""
+	}
+	shortHash := result.GitCommit
+	if len(shortHash) > 8 {
+		shortHash = shortHash[:8]
+	}
+	return fmt.Sprintf("\n- **Git Commit**: `%s`", shortHash)
+}
+
+func formatCommandDetails(result *patch.PatchExecutionResult) string {
+	commandDetails := ""
+	for i, cmdResult := range result.Results {
+		status := "✅"
+		if !cmdResult.Success {
+			status = "❌"
+		}
+		commandDetails += fmt.Sprintf("\n%d. %s `%s` %s",
+			i+1, status, cmdResult.Command.Action, cmdResult.Command.Target)
+		if cmdResult.Error != "" {
+			commandDetails += fmt.Sprintf("\n   Error: %s", cmdResult.Error)
+		}
+	}
+	return commandDetails
 }
