@@ -22,7 +22,6 @@ var (
 	BuildDate = "unknown"
 )
 
-// coderAdapter はdomain CoderAgentをorchestrator CoderAgentに適応
 func main() {
 	cmd := "run"
 	if len(os.Args) > 1 {
