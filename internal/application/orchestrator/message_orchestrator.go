@@ -266,12 +266,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	log.Printf("[MessageOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
 		jobID.String(), decision.Route, len(response))
 
-	return ProcessMessageResponse{
-		Response:   response,
-		Route:      decision.Route,
-		Confidence: decision.Confidence,
-		JobID:      jobID.String(),
-	}, nil
+	return buildProcessMessageResponse(response, decision, jobID), nil
 }
 
 func (o *MessageOrchestrator) loadSessionForRequest(ctx context.Context, req ProcessMessageRequest) (*session.Session, error) {
@@ -297,12 +292,25 @@ func (o *MessageOrchestrator) handlePreRoutingChatCommand(ctx context.Context, r
 		return ProcessMessageResponse{}, false, nil
 	}
 	o.emit("agent.response", "mio", "user", cmdResult.Response, "CHAT", "", req.SessionID, req.Channel, req.ChatID)
+	return buildChatCommandResponse(cmdResult.Response), true, nil
+}
+
+func buildProcessMessageResponse(response string, decision routing.Decision, jobID task.JobID) ProcessMessageResponse {
 	return ProcessMessageResponse{
-		Response:   cmdResult.Response,
+		Response:   response,
+		Route:      decision.Route,
+		Confidence: decision.Confidence,
+		JobID:      jobID.String(),
+	}
+}
+
+func buildChatCommandResponse(response string) ProcessMessageResponse {
+	return ProcessMessageResponse{
+		Response:   response,
 		Route:      routing.RouteCHAT,
 		Confidence: 1.0,
 		JobID:      task.NewJobID().String(),
-	}, true, nil
+	}
 }
 
 func (o *MessageOrchestrator) buildTaskForRequest(req ProcessMessageRequest) (task.Task, task.JobID, string) {
