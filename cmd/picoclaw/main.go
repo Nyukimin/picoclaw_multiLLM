@@ -2946,7 +2946,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 					if chatID == "" {
 						chatID = "idlechat"
 					}
-					deps.eventHub.OnEvent(orchestrator.NewEvent(
+					viewerEvent := orchestrator.NewEvent(
 						viewerType,
 						ev.From,
 						ev.To,
@@ -2956,7 +2956,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 						ev.SessionID,
 						"idlechat",
 						chatID,
-					))
+					)
+					viewerEvent.RawContent = ev.RawContent
+					deps.eventHub.OnEvent(viewerEvent)
 				}
 				// "idlechat.viewer" は Viewer 専用 — TTS には送らない
 				if ev.Type == "idlechat.viewer" {

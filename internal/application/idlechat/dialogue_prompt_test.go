@@ -2,7 +2,6 @@ package idlechat
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +89,26 @@ func TestGenerateResponseSelectsMoreFunCandidate(t *testing.T) {
 	}
 }
 
-func TestGenerateResponseUses4096MaxTokensForShiro(t *testing.T) {
+func TestGenerateResponseWithRawReturnsUneditedSelectedOutput(t *testing.T) {
+	provider := &capturingIdleProvider{responses: []string{
+		"Mio: 雨の古書店で宛先不明の手紙が棚から落ちたら、隠した人の嘘まで濡れて見えそう。",
+		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
+	}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+
+	got, raw, err := o.generateResponseWithRaw("mio", "shiro", "idle-raw-response", 0, 0, "郵便と古書店")
+	if err != nil {
+		t.Fatalf("generateResponseWithRaw() error = %v", err)
+	}
+	if strings.Contains(got, "Mio:") {
+		t.Fatalf("response was not sanitized: %q", got)
+	}
+	if raw != "Mio: 雨の古書店で宛先不明の手紙が棚から落ちたら、隠した人の嘘まで濡れて見えそう。" {
+		t.Fatalf("raw response = %q", raw)
+	}
+}
+
+func TestGenerateResponseUsesDialogueMaxTokensForShiro(t *testing.T) {
 	provider := &capturingIdleProvider{responses: []string{
 		"その点は、封筒を開ける前に誰が見ていたかで意味が変わる。",
 		"その点は、封筒を戻す選択にも小さな嘘が残る。",
@@ -104,8 +122,8 @@ func TestGenerateResponseUses4096MaxTokensForShiro(t *testing.T) {
 	if len(provider.requests) == 0 {
 		t.Fatal("no LLM requests captured")
 	}
-	if got := provider.requests[0].MaxTokens; got != 4096 {
-		t.Fatalf("shiro primary max tokens = %d, want 4096", got)
+	if got := provider.requests[0].MaxTokens; got != idleChatShiroResponseMaxTokens {
+		t.Fatalf("shiro primary max tokens = %d, want %d", got, idleChatShiroResponseMaxTokens)
 	}
 }
 
@@ -268,25 +286,73 @@ func TestHasInternalReasoningLeakDetectsEnglishReasoning(t *testing.T) {
 	}
 }
 
-func TestGenerateResponseReturnsErrorWhenInternalReasoningPersists(t *testing.T) {
+func TestHasInternalReasoningLeakDetectsChineseReasoning(t *testing.T) {
+	raw := "好的，我现在需要处理用户的请求。首先，需要确认Shiro的规则。可能的回应：「市場の端に置かれた手紙なら、午前のざわめきが宛先を隠していそうです。」"
+	if !hasInternalReasoningLeak(raw) {
+		t.Fatalf("Chinese reasoning leak was not detected: %q", raw)
+	}
+}
+
+func TestSanitizeIdleResponseExtractsJapaneseQuoteFromChineseReasoning(t *testing.T) {
+	raw := "好的，我现在需要处理用户的请求。可能的回应：「市場の端に置かれた手紙なら、午前のざわめきが宛先を隠していそうです。」"
+	got := sanitizeIdleResponse(raw, "朝の市場と手紙")
+	want := "市場の端に置かれた手紙なら、午前のざわめきが宛先を隠していそうです。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponse() = %q, want %q", got, want)
+	}
+}
+
+func TestUnusableIdleResponseAllowsSanitizedJapaneseFromReasoningRaw(t *testing.T) {
+	raw := "好的，我现在需要处理用户的请求。可能的回应：「市場の端に置かれた手紙なら、午前のざわめきが宛先を隠していそうです。」"
+	sanitized := sanitizeIdleResponse(raw, "朝の市場と手紙")
+	if unusableIdleResponse(raw, sanitized) {
+		t.Fatalf("sanitized Japanese candidate should be usable: raw=%q sanitized=%q", raw, sanitized)
+	}
+}
+
+func TestUnusableIdleResponseRejectsReasoningFragmentWithoutSentenceEnd(t *testing.T) {
+	raw := "好的，我现在需要处理用户的请求。例えば「安全対策で警備員の数が限られている」"
+	sanitized := sanitizeIdleResponse(raw, "夏祭りの裏通り")
+	if !unusableIdleResponse(raw, sanitized) {
+		t.Fatalf("reasoning fragment should be unusable: raw=%q sanitized=%q", raw, sanitized)
+	}
+}
+
+func TestUnusableIdleResponseRejectsPromptInstructionCandidate(t *testing.T) {
+	raw := "好的，我现在需要处理用户的请求。例えば「相手の案を整理し、次に起きそうな場面を一つ置く。」"
+	sanitized := sanitizeIdleResponse(raw, "壊れたオルゴール")
+	if !unusableIdleResponse(raw, sanitized) {
+		t.Fatalf("prompt instruction candidate should be unusable: raw=%q sanitized=%q", raw, sanitized)
+	}
+}
+
+func TestInvalidIdleResponseRejectsUnexpectedScript(t *testing.T) {
+	got := invalidIdleResponse("えー、鍵とかも一緒かな？持って行ったって सोचाがんばってるんだよね。")
+	if !got {
+		t.Fatal("expected unexpected script response to be invalid")
+	}
+}
+
+func TestInvalidIdleResponseRejectsShortUnfinishedJapaneseFragment(t *testing.T) {
+	got := invalidIdleResponse("昨日、玄")
+	if !got {
+		t.Fatal("expected short unfinished Japanese fragment to be invalid")
+	}
+}
+
+func TestGenerateResponseErrorsWhenInternalReasoningPersists(t *testing.T) {
 	provider := &capturingIdleProvider{
 		response: "channel>thought\nユーザーは私（Mio）に対して、会話の制約を課している。\n1. **キャラクター**: Mio\n2. **目標**: 自然な返答。",
 	}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
 
-	got, err := o.generateResponse("mio", "shiro", "idle-leak-fallback", 0, 0, "小さな映画館の音響空間")
+	got, err := o.generateResponse("mio", "shiro", "idle-leak-error", 0, 0, "小さな映画館の音響空間")
 	if err == nil {
-		t.Fatal("generateResponse() error = nil, want invalid response")
-	}
-	if !errors.Is(err, errIdleInvalidResponse) {
-		t.Fatalf("expected errIdleInvalidResponse, got %v", err)
-	}
-	if got != "" {
-		t.Fatalf("generateResponse() = %q, want empty", got)
+		t.Fatalf("generateResponse() returned fallback instead of error: %q", got)
 	}
 }
 
-func TestGenerateResponseStopsFallbackBeforeRepeatingCycle(t *testing.T) {
+func TestGenerateResponseDoesNotFallbackAfterRetryCycle(t *testing.T) {
 	provider := &capturingIdleProvider{
 		response: "channel>thought\nユーザーは私（Mio）に対して、会話の制約を課している。",
 	}
@@ -294,10 +360,7 @@ func TestGenerateResponseStopsFallbackBeforeRepeatingCycle(t *testing.T) {
 
 	got, err := o.generateResponse("mio", "shiro", "idle-leak-stop", 8, 8, "映画館の映写担当")
 	if err == nil {
-		t.Fatal("generateResponse() error = nil, want invalid response after fallback cycle")
-	}
-	if got != "" {
-		t.Fatalf("generateResponse() = %q, want empty", got)
+		t.Fatalf("generateResponse() returned fallback instead of error: %q", got)
 	}
 }
 
@@ -523,7 +586,7 @@ func TestLatestOtherUtteranceUsesPreviousSpeakerLine(t *testing.T) {
 	}
 }
 
-func TestGenerateResponseReturnsErrorWhenIdleLLMTimesOut(t *testing.T) {
+func TestGenerateResponseErrorsWhenIdleLLMTimesOut(t *testing.T) {
 	provider := &capturingIdleProvider{block: true}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
 	old := idleChatLLMGenerateTimeout
@@ -532,12 +595,6 @@ func TestGenerateResponseReturnsErrorWhenIdleLLMTimesOut(t *testing.T) {
 
 	got, err := o.generateResponse("shiro", "mio", "idle-dialogue-timeout", 1, 1, "郵便と古書店")
 	if err == nil {
-		t.Fatal("generateResponse() error = nil, want timeout error")
-	}
-	if !errors.Is(err, errIdleGenerationFailed) {
-		t.Fatalf("expected errIdleGenerationFailed, got %v", err)
-	}
-	if got != "" {
-		t.Fatalf("generateResponse() = %q, want empty", got)
+		t.Fatalf("generateResponse() returned fallback instead of error: %q", got)
 	}
 }

@@ -20,13 +20,16 @@ import (
 )
 
 const (
-	idleCheckInterval         = 30 * time.Second
-	maxTurnsPerTopic          = 12
-	idleChatResponseMaxTokens = 512
-	idleChatRetryMaxTokens    = 256
-	shiroMaxTokens            = 4096
-	speakerBreak              = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
-	topicBreak                = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
+	idleCheckInterval              = 30 * time.Second
+	maxTurnsPerTopic               = 12
+	idleChatResponseMaxTokens      = 512
+	idleChatRetryMaxTokens         = 256
+	idleChatShiroResponseMaxTokens = 768
+	idleChatShiroRetryMaxTokens    = 384
+	idleChatShiroSummaryMaxTokens  = 1200
+	idleChatQualityReviewMaxTokens = 900
+	speakerBreak                   = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
+	topicBreak                     = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
 
 var idleChatTTSWaitTimeout = 35 * time.Second
@@ -64,11 +67,12 @@ type SessionSummary struct {
 }
 
 type TimelineEvent struct {
-	Type      string
-	From      string
-	To        string
-	Content   string
-	SessionID string
+	Type       string
+	From       string
+	To         string
+	Content    string
+	RawContent string
+	SessionID  string
 }
 
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
@@ -606,7 +610,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 			speaker := o.participants[currentSpeaker]
 			nextSpeaker := o.participants[(currentSpeaker+1)%len(o.participants)]
 
-			response, err := o.generateResponse(speaker, nextSpeaker, segmentID, turn, segmentTurns, topic)
+			response, rawResponse, err := o.generateResponseWithRaw(speaker, nextSpeaker, segmentID, turn, segmentTurns, topic)
 			if err != nil {
 				log.Printf("[IdleChat] Generation error: %v", err)
 				generationFailed = true
@@ -630,11 +634,12 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 			msg.Type = domaintransport.MessageTypeIdleChat
 			o.memory.RecordMessage(msg)
 			o.emitTimelineEvent(TimelineEvent{
-				Type:      "idlechat.message",
-				From:      speaker,
-				To:        nextSpeaker,
-				Content:   response,
-				SessionID: segmentID,
+				Type:       "idlechat.message",
+				From:       speaker,
+				To:         nextSpeaker,
+				Content:    response,
+				RawContent: rawResponse,
+				SessionID:  segmentID,
 			})
 			transcript = append(transcript, fmt.Sprintf("%s: %s", speaker, response))
 			segmentTurns++
@@ -1249,7 +1254,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。硬い報告書ではなく、読んで雰囲気が分かる短い要約にしてください。1. いちばん面白かった点 2. 何が話を前に進めたか 3. 次に広がりそうな観点、の順で自然にまとめてください。\n話題: %s\n\n%s", topic, body)},
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 800, Temperature: 0.4}
-	req.MaxTokens = shiroMaxTokens
+	req.MaxTokens = idleChatShiroSummaryMaxTokens
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, req)
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
 		if err == nil {
@@ -1310,6 +1315,11 @@ func loopReasonLabel(reason string) string {
 }
 
 func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID string, turn int, segmentTurns int, topic string) (string, error) {
+	response, _, err := o.generateResponseWithRaw(speaker, target, sessionID, turn, segmentTurns, topic)
+	return response, err
+}
+
+func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionID string, turn int, segmentTurns int, topic string) (string, string, error) {
 	topic = o.resolveDialogueTopic(sessionID, speaker, topic)
 	systemPrompt := o.getSystemPrompt(speaker)
 	temp := o.temperatureForSpeaker(speaker)
@@ -1390,7 +1400,7 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 	resp, err := o.generateIdleLLM(provider, req)
 	if err != nil {
 		log.Printf("[IdleChat] LLM generate primary failed (%s turn=%d): %v", speaker, turn, err)
-		return "", fmt.Errorf("%w: speaker=%s turn=%d cause=%v", errIdleGenerationFailed, speaker, turn, err)
+		return "", "", fmt.Errorf("idlechat dialogue generation failed: speaker=%s turn=%d: %w", speaker, turn, err)
 	}
 	logIdleRaw(fmt.Sprintf("dialogue.primary speaker=%s turn=%d", speaker, turn), resp.Content)
 	firstRaw := strings.TrimSpace(resp.Content)
@@ -1509,18 +1519,18 @@ func (o *IdleChatOrchestrator) generateResponse(speaker, target, sessionID strin
 			candidate := sanitizeIdleResponse(resp2.Content, topic)
 			if finishReasonLooksTruncated(resp2.FinishReason) || unusableIdleResponse(candidateRaw, candidate) {
 				log.Printf("[IdleChat] retryAttribution unusable (%s turn=%d): raw=%q sanitized=%q", speaker, turn, truncate(candidateRaw, 180), truncate(candidate, 180))
-				return "", errIdleInvalidResponse
+				return "", candidateRaw, fmt.Errorf("idlechat dialogue retry_attribution unusable: speaker=%s turn=%d", speaker, turn)
 			}
-			return candidate, nil
+			return candidate, candidateRaw, nil
 		}
 	}
 
 	if firstTruncated || unusableIdleResponse(firstRaw, first) {
 		log.Printf("[IdleChat] unusable response rejected (%s turn=%d): truncated=%t raw=%q sanitized=%q", speaker, turn, firstTruncated, truncate(firstRaw, 180), truncate(first, 180))
-		return "", errIdleInvalidResponse
+		return "", firstRaw, fmt.Errorf("idlechat dialogue response unusable: speaker=%s turn=%d truncated=%t", speaker, turn, firstTruncated)
 	}
 
-	return first, nil
+	return first, firstRaw, nil
 }
 
 func firstTurnLabel(turn int) string {
@@ -1532,7 +1542,10 @@ func firstTurnLabel(turn int) string {
 
 func idleMaxTokensForSpeaker(speaker string, defaultMax int) int {
 	if strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
-		return shiroMaxTokens
+		if defaultMax <= idleChatRetryMaxTokens {
+			return idleChatShiroRetryMaxTokens
+		}
+		return idleChatShiroResponseMaxTokens
 	}
 	return defaultMax
 }
@@ -1617,9 +1630,8 @@ func idleFunScorePercent(response, latestOther, latestSelf, topic string) int {
 
 func unusableIdleResponse(raw, sanitized string) bool {
 	return invalidIdleResponse(sanitized) ||
-		hasPromptLeak(raw) ||
+		((hasPromptLeak(raw) || hasInternalReasoningLeak(raw)) && !hasIdleSentenceEnd(sanitized)) ||
 		hasPromptLeak(sanitized) ||
-		hasInternalReasoningLeak(raw) ||
 		hasInternalReasoningLeak(sanitized)
 }
 
@@ -2549,7 +2561,15 @@ func hasPromptLeak(s string) bool {
 		"assistant to=",
 		"発言帰属ガード",
 		"相手の発言として受ける",
+		"相手の案を整理",
 		"前に自分も触れた",
+		"次に起きそうな場面",
+		"直前の相手発言",
+		"直前の自分",
+		"1〜2文",
+		"1-2文",
+		"具体物・選択",
+		"条件・制約",
 		"要件:",
 		"要件：",
 		"（話題:",
@@ -2593,6 +2613,11 @@ func extractVisibleLLMAnswer(raw string) string {
 	}
 	if extracted := extractFinalAnswerBlock(s); extracted != "" {
 		return trimHarmonyTail(extracted)
+	}
+	if hasInternalReasoningLeak(s) {
+		if extracted := extractQuotedJapaneseDialogueCandidate(s); extracted != "" {
+			return trimHarmonyTail(extracted)
+		}
 	}
 	if extracted := extractTrailingJapaneseDialogueBlock(s); extracted != "" {
 		return trimHarmonyTail(extracted)
@@ -2651,6 +2676,23 @@ func extractTrailingJapaneseDialogueBlock(s string) string {
 	return ""
 }
 
+func extractQuotedJapaneseDialogueCandidate(s string) string {
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`「([^「」]{12,240})」`),
+		regexp.MustCompile(`“([^“”]{12,240})”`),
+	}
+	for _, re := range patterns {
+		matches := re.FindAllStringSubmatch(s, -1)
+		for i := len(matches) - 1; i >= 0; i-- {
+			candidate := strings.TrimSpace(matches[i][1])
+			if looksLikeDialogueBody(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
 func looksLikeDialogueBody(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -2659,14 +2701,21 @@ func looksLikeDialogueBody(s string) bool {
 	if hasPromptLeak(s) || hasInternalReasoningLeak(s) {
 		return false
 	}
-	hasVisibleText := false
+	if !hasIdleSentenceEnd(s) {
+		return false
+	}
+	hasKana := false
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana) {
-			hasVisibleText = true
+		if unicode.In(r, unicode.Hiragana, unicode.Katakana) {
+			hasKana = true
 			break
 		}
 	}
-	return hasVisibleText
+	return hasKana
+}
+
+func hasIdleSentenceEnd(s string) bool {
+	return strings.ContainsAny(strings.TrimSpace(s), "。！？!?")
 }
 
 func trimHarmonyTail(s string) string {
@@ -2712,6 +2761,16 @@ func hasInternalReasoningLeak(s string) bool {
 		"**目標**",
 		"1. **",
 		"2. **",
+		"好的",
+		"我现在需要",
+		"用户",
+		"规则",
+		"检查",
+		"首先",
+		"比如",
+		"或者",
+		"因为",
+		"所以",
 	}
 	for _, marker := range markers {
 		if strings.Contains(lower, strings.ToLower(marker)) {
@@ -2929,6 +2988,9 @@ func invalidIdleResponse(s string) bool {
 	if trimmed == "" {
 		return true
 	}
+	if containsUnexpectedIdleScript(trimmed) {
+		return true
+	}
 	hasText := false
 	for _, r := range trimmed {
 		if unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana) {
@@ -2939,6 +3001,9 @@ func invalidIdleResponse(s string) bool {
 	if !hasText {
 		return true
 	}
+	if utf8.RuneCountInString(trimmed) < 12 && !hasIdleSentenceEnd(trimmed) {
+		return true
+	}
 	first, _ := utf8.DecodeRuneInString(trimmed)
 	if unicode.IsPunct(first) || unicode.IsSymbol(first) {
 		return true
@@ -2946,6 +3011,16 @@ func invalidIdleResponse(s string) bool {
 	lower := strings.ToLower(trimmed)
 	if lower == "。" || lower == "、" || lower == "!" || lower == "！" || lower == "?" || lower == "？" {
 		return true
+	}
+	return false
+}
+
+func containsUnexpectedIdleScript(s string) bool {
+	for _, r := range s {
+		switch {
+		case unicode.In(r, unicode.Devanagari, unicode.Hangul, unicode.Arabic, unicode.Hebrew, unicode.Thai, unicode.Cyrillic):
+			return true
+		}
 	}
 	return false
 }

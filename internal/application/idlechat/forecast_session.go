@@ -685,7 +685,7 @@ func (o *IdleChatOrchestrator) summarizeByForecastLLM(domain ForecastDomain, top
 2. （テーマ名）: 一行説明
 3. （テーマ名）: 一行説明`, domain.Name, topic, body)},
 	}
-	req := llm.GenerateRequest{Messages: messages, MaxTokens: shiroMaxTokens, Temperature: 0.4}
+	req := llm.GenerateRequest{Messages: messages, MaxTokens: idleChatShiroSummaryMaxTokens, Temperature: 0.4}
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, req)
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
 		log.Printf("[Forecast] Summary generation failed (worker): %v", err)
@@ -737,7 +737,7 @@ func (o *IdleChatOrchestrator) extractCoveredThemes(domain ForecastDomain, topic
 	}
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, llm.GenerateRequest{
 		Messages:    messages,
-		MaxTokens:   shiroMaxTokens,
+		MaxTokens:   idleChatQualityReviewMaxTokens,
 		Temperature: 0.3,
 	})
 	if err != nil {

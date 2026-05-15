@@ -229,6 +229,26 @@ test('idlechat message is visible before tts chunk arrives', () => {
   assert.ok(idleLiveLog.children[0].innerHTML.includes('TTSを待たずに表示する発話です。'));
 });
 
+test('idlechat message renders raw response for test mode review', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '編集後の発話です。',
+    raw_content: 'Mio: 編集前の素の応答です。',
+    session_id: 'idle-raw-1',
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.ok(idleLiveLog.children[0].innerHTML.includes('編集後の発話です。'));
+  assert.ok(idleLiveLog.children[0].innerHTML.includes('編集前（テストモード）'));
+  assert.ok(idleLiveLog.children[0].innerHTML.includes('Mio: 編集前の素の応答です。'));
+});
+
 test('idlechat tts reuses the already visible message bubble', () => {
   const {harness, elements} = loadAudioHarness();
   const idleLiveLog = elements.get('idleLiveLog');

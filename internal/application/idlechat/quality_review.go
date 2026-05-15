@@ -54,7 +54,7 @@ LENGTH_CONTROL: 2文以内、または最大120字など、短くする制約を
 
 	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, llm.GenerateRequest{
 		Messages:    messages,
-		MaxTokens:   shiroMaxTokens,
+		MaxTokens:   idleChatQualityReviewMaxTokens,
 		Temperature: 0.2,
 	})
 	if err != nil || strings.TrimSpace(resp.Content) == "" {

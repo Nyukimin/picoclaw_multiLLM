@@ -11,17 +11,18 @@ type EventListener interface {
 
 // OrchestratorEvent represents a significant event in message processing
 type OrchestratorEvent struct {
-	Seq       int64  `json:"seq,omitempty"`        // monotonic event sequence (set by EventHub)
-	Type      string `json:"type"`                 // message.received, routing.decision, agent.start, agent.response
-	From      string `json:"from"`                 // source agent
-	To        string `json:"to,omitempty"`         // target agent
-	Content   string `json:"content"`              // message content
-	Route     string `json:"route,omitempty"`      // routing category
-	JobID     string `json:"job_id,omitempty"`     // task identifier
-	SessionID string `json:"session_id,omitempty"` // session identifier
-	Channel   string `json:"channel,omitempty"`    // channel identifier
-	ChatID    string `json:"chat_id,omitempty"`    // chat identifier
-	Timestamp string `json:"timestamp"`
+	Seq        int64  `json:"seq,omitempty"`         // monotonic event sequence (set by EventHub)
+	Type       string `json:"type"`                  // message.received, routing.decision, agent.start, agent.response
+	From       string `json:"from"`                  // source agent
+	To         string `json:"to,omitempty"`          // target agent
+	Content    string `json:"content"`               // message content
+	RawContent string `json:"raw_content,omitempty"` // unedited model output for diagnostics
+	Route      string `json:"route,omitempty"`       // routing category
+	JobID      string `json:"job_id,omitempty"`      // task identifier
+	SessionID  string `json:"session_id,omitempty"`  // session identifier
+	Channel    string `json:"channel,omitempty"`     // channel identifier
+	ChatID     string `json:"chat_id,omitempty"`     // chat identifier
+	Timestamp  string `json:"timestamp"`
 }
 
 // NewEvent creates a new OrchestratorEvent with the current timestamp

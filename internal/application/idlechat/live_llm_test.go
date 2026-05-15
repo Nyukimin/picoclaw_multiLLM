@@ -13,6 +13,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
+	"gopkg.in/yaml.v3"
 )
 
 func TestLiveIdleChatTenThemesDoNotUseFallback(t *testing.T) {
@@ -24,10 +25,7 @@ func TestLiveIdleChatTenThemesDoNotUseFallback(t *testing.T) {
 	if cfgPath == "" {
 		cfgPath = filepath.Join(os.Getenv("HOME"), ".picoclaw", "config.yaml")
 	}
-	cfg, err := appconfig.LoadConfig(cfgPath)
-	if err != nil {
-		t.Fatalf("load config %s: %v", cfgPath, err)
-	}
+	cfg := loadLiveIdleChatConfig(t, cfgPath)
 
 	chatProvider, workerProvider := liveIdleChatProviders(t, cfg)
 	probeLiveIdleChatProvider(t, "mio", chatProvider)
@@ -80,6 +78,44 @@ func TestLiveIdleChatTenThemesDoNotUseFallback(t *testing.T) {
 		}
 		t.Logf("theme %02d %s/%s: %s", i+1, topic, speaker, got)
 	}
+}
+
+func loadLiveIdleChatConfig(t *testing.T, cfgPath string) *appconfig.Config {
+	t.Helper()
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config %s: %v", cfgPath, err)
+	}
+	var cfg appconfig.Config
+	if err := yaml.Unmarshal([]byte(os.ExpandEnv(string(data))), &cfg); err != nil {
+		t.Fatalf("parse config %s: %v", cfgPath, err)
+	}
+	if cfg.LocalLLM.Provider == "" {
+		cfg.LocalLLM.Provider = "local_openai"
+	}
+	if cfg.LocalLLM.ChatModel == "" {
+		cfg.LocalLLM.ChatModel = "Chat"
+	}
+	if cfg.LocalLLM.WorkerModel == "" {
+		cfg.LocalLLM.WorkerModel = "Worker"
+	}
+	if cfg.LocalLLM.TimeoutSec <= 0 {
+		cfg.LocalLLM.TimeoutSec = 120
+	}
+	if len(cfg.IdleChat.Participants) == 0 {
+		cfg.IdleChat.Participants = []string{"mio", "shiro"}
+	}
+	if cfg.IdleChat.Temperature == 0 {
+		cfg.IdleChat.Temperature = 0.8
+	}
+	if cfg.PromptsDir == "" {
+		cfg.PromptsDir = "./prompts"
+	}
+	if cfg.WorkspaceDir == "" {
+		cfg.WorkspaceDir = "./workspace"
+	}
+	cfg.Prompts = appconfig.LoadPrompts(cfg.PromptsDir, cfg.WorkspaceDir)
+	return &cfg
 }
 
 func probeLiveIdleChatProvider(t *testing.T, name string, provider llm.LLMProvider) {
