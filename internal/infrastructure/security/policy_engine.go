@@ -29,67 +29,95 @@ func NewPolicyEngine(cfg PolicyConfig) *PolicyEngine {
 }
 
 func (e *PolicyEngine) Evaluate(action execution.Action) execution.PolicyDecision {
-	// 1) 強制 deny: shell の禁止コマンド
-	if action.Tool == "shell" {
-		if cmd, ok := action.Arguments["command"].(string); ok && e.guard.IsCommandDenied(cmd, e.cfg.DenyCommands) {
-			return execution.PolicyDecision{
-				Decision:      execution.DecisionDeny,
-				Reason:        "blocked shell command signature",
-				MatchedRuleID: "deny.shell.signature",
-			}
-		}
+	if decision, denied := e.evaluateShellPolicy(action); denied {
+		return decision
 	}
-
-	// 2) 強制 deny: workspace 外書き込み
-	if e.cfg.WorkspaceEnforced && action.Tool == "file_write" {
-		if p, ok := action.Arguments["path"].(string); ok {
-			if !e.guard.IsPathWithinWorkspace(p, e.cfg.Workspace) {
-				return execution.PolicyDecision{
-					Decision:      execution.DecisionDeny,
-					Reason:        fmt.Sprintf("path outside workspace: %s", p),
-					MatchedRuleID: "deny.workspace.outside",
-				}
-			}
-		}
+	if decision, denied := e.evaluateWorkspacePolicy(action); denied {
+		return decision
 	}
+	if decision, denied := e.evaluateNetworkPolicy(action); denied {
+		return decision
+	}
+	return allowDecision()
+}
 
-	// 2.5) 強制 deny: ネットワーク権限
+func (e *PolicyEngine) evaluateShellPolicy(action execution.Action) (execution.PolicyDecision, bool) {
+	if action.Tool != "shell" {
+		return execution.PolicyDecision{}, false
+	}
+	cmd, ok := action.Arguments["command"].(string)
+	if !ok || !e.guard.IsCommandDenied(cmd, e.cfg.DenyCommands) {
+		return execution.PolicyDecision{}, false
+	}
+	return execution.PolicyDecision{
+		Decision:      execution.DecisionDeny,
+		Reason:        "blocked shell command signature",
+		MatchedRuleID: "deny.shell.signature",
+	}, true
+}
+
+func (e *PolicyEngine) evaluateWorkspacePolicy(action execution.Action) (execution.PolicyDecision, bool) {
+	if !e.cfg.WorkspaceEnforced || action.Tool != "file_write" {
+		return execution.PolicyDecision{}, false
+	}
+	p, ok := action.Arguments["path"].(string)
+	if !ok || e.guard.IsPathWithinWorkspace(p, e.cfg.Workspace) {
+		return execution.PolicyDecision{}, false
+	}
+	return execution.PolicyDecision{
+		Decision:      execution.DecisionDeny,
+		Reason:        fmt.Sprintf("path outside workspace: %s", p),
+		MatchedRuleID: "deny.workspace.outside",
+	}, true
+}
+
+func (e *PolicyEngine) evaluateNetworkPolicy(action execution.Action) (execution.PolicyDecision, bool) {
+	if !isNetworkTool(action.Tool) {
+		return execution.PolicyDecision{}, false
+	}
 	networkScope := strings.TrimSpace(e.cfg.NetworkScope)
 	if networkScope == "" {
 		profile := e.profileByMode()
 		networkScope = profile.NetworkScope
 	}
-	if isNetworkTool(action.Tool) {
-		switch networkScope {
-		case "blocked":
-			return execution.PolicyDecision{
-				Decision:      execution.DecisionDeny,
-				Reason:        "network access blocked by policy",
-				MatchedRuleID: "deny.network.blocked",
-			}
-		case "allowlist":
-			host, ok := e.guard.ExtractNetworkHost(action.Arguments)
-			if !ok {
-				return execution.PolicyDecision{
-					Decision:      execution.DecisionDeny,
-					Reason:        "network host is required under allowlist policy",
-					MatchedRuleID: "deny.network.host.missing",
-				}
-			}
-			allowed := e.cfg.NetworkAllowed
-			if len(allowed) == 0 {
-				allowed = []string{"localhost", "127.0.0.1", "::1"}
-			}
-			if !e.guard.IsHostAllowed(host, allowed) {
-				return execution.PolicyDecision{
-					Decision:      execution.DecisionDeny,
-					Reason:        fmt.Sprintf("host not in allowlist: %s", host),
-					MatchedRuleID: "deny.network.host.not_allowlisted",
-				}
-			}
-		}
+	switch networkScope {
+	case "blocked":
+		return execution.PolicyDecision{
+			Decision:      execution.DecisionDeny,
+			Reason:        "network access blocked by policy",
+			MatchedRuleID: "deny.network.blocked",
+		}, true
+	case "allowlist":
+		return e.evaluateNetworkAllowlistPolicy(action)
+	default:
+		return execution.PolicyDecision{}, false
 	}
+}
 
+func (e *PolicyEngine) evaluateNetworkAllowlistPolicy(action execution.Action) (execution.PolicyDecision, bool) {
+	host, ok := e.guard.ExtractNetworkHost(action.Arguments)
+	if !ok {
+		return execution.PolicyDecision{
+			Decision:      execution.DecisionDeny,
+			Reason:        "network host is required under allowlist policy",
+			MatchedRuleID: "deny.network.host.missing",
+		}, true
+	}
+	allowed := e.cfg.NetworkAllowed
+	if len(allowed) == 0 {
+		allowed = []string{"localhost", "127.0.0.1", "::1"}
+	}
+	if e.guard.IsHostAllowed(host, allowed) {
+		return execution.PolicyDecision{}, false
+	}
+	return execution.PolicyDecision{
+		Decision:      execution.DecisionDeny,
+		Reason:        fmt.Sprintf("host not in allowlist: %s", host),
+		MatchedRuleID: "deny.network.host.not_allowlisted",
+	}, true
+}
+
+func allowDecision() execution.PolicyDecision {
 	return execution.PolicyDecision{
 		Decision:      execution.DecisionAllow,
 		Reason:        "policy allow",
