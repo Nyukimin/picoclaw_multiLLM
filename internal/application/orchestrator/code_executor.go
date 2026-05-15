@@ -123,84 +123,96 @@ func shouldUseProposalPath(route routing.Route, target codeTarget) bool {
 func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarget, error) {
 	// Phase 3: 動的選択（coderCaps が設定されている場合）
 	if e.coderCaps != nil {
-		chosen, degraded, err := capability.SelectCoder(e.coderCaps, route)
-		if err != nil {
-			return codeTarget{}, fmt.Errorf("%s route: %w", route, err)
-		}
-		coder := e.coderByName(chosen)
-		if coder == nil {
-			return codeTarget{}, fmt.Errorf("%s route: selected coder %s is not initialized", route, chosen)
-		}
-		log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=dynamic degraded=%s", route, chosen, degraded)
-		return codeTarget{
-			name:          chosen,
-			coder:         coder,
-			systemPrompt:  systemPromptForRoute(route),
-			degradedRoute: degraded,
-		}, nil
+		return e.selectDynamicCoderForRoute(route)
 	}
 
 	// 後方互換: 静的チェーン（coderCaps が nil の場合）
 	if name, prompt, ok := explicitCodeRouteTarget(route); ok {
-		coder := e.coderByName(name)
-		if coder == nil {
-			return codeTarget{}, fmt.Errorf("%s route requested but no %s available", route, name)
-		}
-		log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=explicit", route, name)
-		return codeTarget{name: name, coder: coder, systemPrompt: prompt}, nil
+		return e.selectExplicitCoderForRoute(route, name, prompt)
 	}
 
 	switch route {
 	case routing.RouteCODE:
-		// 汎用CODEルート: coder1→coder2→coder3→coder4の順でフォールバック
-		type coderEntry struct {
-			name  string
-			coder CoderAgent
-		}
-		chain := []coderEntry{
-			{name: "coder1", coder: e.coder1},
-			{name: "coder2", coder: e.coder2},
-			{name: "coder3", coder: e.coder3},
-			{name: "coder4", coder: e.coder4},
-		}
-		for _, c := range chain {
-			if c.coder == nil {
-				log.Printf("[CodeExecutor] coder skip route=%s target=%s reason=unavailable", route, c.name)
-				continue
-			}
-			// CoderStatusがあれば、busy checkを行う
-			if e.coderStatus != nil {
-				if !e.coderStatus.Acquire(c.name) {
-					log.Printf("[CodeExecutor] coder skip route=%s target=%s reason=busy", route, c.name)
-					continue
-				}
-				// Acquire成功時はreleaseを設定
-				coderName := c.name
-				log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=auto", route, coderName)
-				return codeTarget{
-					name:         coderName,
-					coder:        c.coder,
-					systemPrompt: "You are a code generation assistant.",
-					release: func() {
-						e.coderStatus.Release(coderName)
-					},
-				}, nil
-			}
-			// CoderStatusがない場合は単純に選択
-			log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=auto", route, c.name)
-			return codeTarget{
-				name:         c.name,
-				coder:        c.coder,
-				systemPrompt: "You are a code generation assistant.",
-			}, nil
-		}
-		if e.coderStatus != nil {
-			return codeTarget{}, fmt.Errorf("CODE route requested but all coders are busy or unavailable")
-		}
-		return codeTarget{}, fmt.Errorf("CODE route requested but all coders are unavailable")
+		return e.selectAvailableCoderForGenericRoute(route)
 	default:
 		return codeTarget{}, fmt.Errorf("unknown code route: %s", route)
 	}
+}
+
+func (e *DefaultCodeExecutor) selectDynamicCoderForRoute(route routing.Route) (codeTarget, error) {
+	chosen, degraded, err := capability.SelectCoder(e.coderCaps, route)
+	if err != nil {
+		return codeTarget{}, fmt.Errorf("%s route: %w", route, err)
+	}
+	coder := e.coderByName(chosen)
+	if coder == nil {
+		return codeTarget{}, fmt.Errorf("%s route: selected coder %s is not initialized", route, chosen)
+	}
+	log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=dynamic degraded=%s", route, chosen, degraded)
+	return codeTarget{
+		name:          chosen,
+		coder:         coder,
+		systemPrompt:  systemPromptForRoute(route),
+		degradedRoute: degraded,
+	}, nil
+}
+
+func (e *DefaultCodeExecutor) selectExplicitCoderForRoute(route routing.Route, name, prompt string) (codeTarget, error) {
+	coder := e.coderByName(name)
+	if coder == nil {
+		return codeTarget{}, fmt.Errorf("%s route requested but no %s available", route, name)
+	}
+	log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=explicit", route, name)
+	return codeTarget{name: name, coder: coder, systemPrompt: prompt}, nil
+}
+
+func (e *DefaultCodeExecutor) selectAvailableCoderForGenericRoute(route routing.Route) (codeTarget, error) {
+	// 汎用CODEルート: coder1→coder2→coder3→coder4の順でフォールバック
+	type coderEntry struct {
+		name  string
+		coder CoderAgent
+	}
+	chain := []coderEntry{
+		{name: "coder1", coder: e.coder1},
+		{name: "coder2", coder: e.coder2},
+		{name: "coder3", coder: e.coder3},
+		{name: "coder4", coder: e.coder4},
+	}
+	for _, c := range chain {
+		if c.coder == nil {
+			log.Printf("[CodeExecutor] coder skip route=%s target=%s reason=unavailable", route, c.name)
+			continue
+		}
+		// CoderStatusがあれば、busy checkを行う
+		if e.coderStatus != nil {
+			if !e.coderStatus.Acquire(c.name) {
+				log.Printf("[CodeExecutor] coder skip route=%s target=%s reason=busy", route, c.name)
+				continue
+			}
+			// Acquire成功時はreleaseを設定
+			coderName := c.name
+			log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=auto", route, coderName)
+			return codeTarget{
+				name:         coderName,
+				coder:        c.coder,
+				systemPrompt: "You are a code generation assistant.",
+				release: func() {
+					e.coderStatus.Release(coderName)
+				},
+			}, nil
+		}
+		// CoderStatusがない場合は単純に選択
+		log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=auto", route, c.name)
+		return codeTarget{
+			name:         c.name,
+			coder:        c.coder,
+			systemPrompt: "You are a code generation assistant.",
+		}, nil
+	}
+	if e.coderStatus != nil {
+		return codeTarget{}, fmt.Errorf("CODE route requested but all coders are busy or unavailable")
+	}
+	return codeTarget{}, fmt.Errorf("CODE route requested but all coders are unavailable")
 }
 
 // systemPromptForRoute はルートに対応するシステムプロンプトを返す
