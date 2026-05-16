@@ -213,6 +213,7 @@ func TestE2E_Routing_Code_NaturalLanguage(t *testing.T) {
 // Ollama (Mio) が応答することを検証する。
 func TestE2E_Routing_Chat_NaturalLanguage(t *testing.T) {
 	cfg := getConfig(t)
+	requireOllamaReachable(t, cfg.Ollama.BaseURL)
 
 	orch := buildOrchestrator(t, cfg)
 

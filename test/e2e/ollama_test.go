@@ -18,6 +18,7 @@ import (
 
 func TestE2E_OllamaProvider_Generate(t *testing.T) {
 	cfg := getConfig(t)
+	requireOllamaReachable(t, cfg.Ollama.BaseURL)
 	provider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -41,6 +42,7 @@ func TestE2E_OllamaProvider_Generate(t *testing.T) {
 
 func TestE2E_OllamaProvider_Japanese(t *testing.T) {
 	cfg := getConfig(t)
+	requireOllamaReachable(t, cfg.Ollama.BaseURL)
 	provider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -64,6 +66,7 @@ func TestE2E_OllamaProvider_Japanese(t *testing.T) {
 
 func TestE2E_OllamaProvider_Timeout(t *testing.T) {
 	cfg := getConfig(t)
+	requireOllamaReachable(t, cfg.Ollama.BaseURL)
 	provider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -83,6 +86,7 @@ func TestE2E_OllamaProvider_Timeout(t *testing.T) {
 
 func TestE2E_MioAgent_Chat_RealOllama(t *testing.T) {
 	cfg := getConfig(t)
+	requireOllamaReachable(t, cfg.Ollama.BaseURL)
 	provider := ollama.NewOllamaProvider(cfg.Ollama.BaseURL, cfg.Ollama.Model)
 	classifier := infrarouting.NewLLMClassifier(provider, cfg.Prompts.Classifier)
 	ruleDictionary := infrarouting.NewRuleDictionary()

@@ -451,6 +451,12 @@ make install
 # 全テスト実行
 make test
 
+# Go 全体テスト（Phase リファクタリング後の標準確認）
+GOCACHE=/tmp/picoclaw-gocache go test ./...
+
+# E2E テスト（外部 API / Ollama 未設定のケースは skip として明示）
+GOCACHE=/tmp/picoclaw-gocache go test -tags=e2e ./test/e2e
+
 # カバレッジ確認
 go test ./internal/... -coverprofile=coverage.out
 go tool cover -html=coverage.out
@@ -461,13 +467,18 @@ go tool cover -html=coverage.out
 ```
 picoclaw/
 ├── cmd/picoclaw/                      # メインアプリケーション
-│   └── main.go                        # エントリーポイント（DI設定）
+│   ├── main.go                        # composition root（起動、config load、server startup）
+│   ├── routes.go                      # HTTP route registration
+│   ├── runtime_dependencies.go         # runtime dependency assembly
+│   ├── runtime_options.go              # debug / display / runtime option assembly
+│   └── health_runtime.go               # health / runtime helper
 ├── internal/                          # v3クリーンアーキテクチャ
 │   ├── adapter/                       # Adapter層
 │   │   ├── config/                    # 設定管理
+│   │   ├── health/                    # health adapter
 │   │   └── line/                      # LINE統合
 │   ├── application/                   # Application層
-│   │   ├── orchestrator/              # メッセージオーケストレーター
+│   │   ├── orchestrator/              # Message / Code / Distributed orchestration
 │   │   └── service/                   # Worker実行サービス
 │   ├── domain/                        # Domain層
 │   │   ├── agent/                     # エージェント（Mio/Shiro/Coder）
@@ -489,18 +500,27 @@ picoclaw/
 │       └── tools/                     # ツール実装
 ├── pkg/                               # レガシー実装（v2以前）
 ├── docs/                              # ドキュメント
-│   ├── 仕様.md                        # 要件定義
-│   ├── 実装仕様_v3.md                 # v3実装仕様（3,067行）
+│   ├── 01_正本仕様/                  # 実装判断の一次参照
+│   ├── refactor/                     # リファクタリング方針、Phase仕様、完了判定
+│   ├── codebase-map/                 # ソースコード一次解析資料
 │   ├── LLM運用/                       # LLM運用仕様
 │   │   ├── README.md
 │   │   ├── 最新情報/
 │   │   ├── サーバとクライアント/
 │   │   └── LLM/
 │   └── archive/                       # アーカイブ
-├── config.yaml.example                # 設定例
+├── config/config.yaml.example         # 設定例
 ├── Makefile                           # ビルドファイル
 └── README.md                          # このファイル
 ```
+
+### リファクタリング後の主要境界
+
+- `cmd/picoclaw/main.go` は composition root として残し、route 登録、runtime dependency、runtime option、health helper は別ファイルへ分離しています。
+- `internal/application/orchestrator/message_orchestrator*.go` は route dispatch、routing decision、response assembly、session、task context、TTS lifecycle、event emitter を責務別に分割しています。
+- `internal/application/orchestrator/code_executor*.go` は coder selection、proposal path、generate path、event helper、response helper を分割しています。
+- `internal/application/orchestrator/distributed_orchestrator*.go` は event、evidence、TTS lifecycle、session lifecycle、autonomous coordinator、route dispatcher、transport executor、code execution、coder selection、attribution guard を分割しています。
+- リファクタリング判断の履歴は `docs/refactor/` に集約しています。正本仕様は引き続き `docs/01_正本仕様/実装仕様.md` です。
 
 ---
 
@@ -561,12 +581,17 @@ picoclaw/
 
 ```bash
 # 全テスト実行
-go test ./...
+GOCACHE=/tmp/picoclaw-gocache go test ./...
+
+# E2E テスト
+GOCACHE=/tmp/picoclaw-gocache go test -tags=e2e ./test/e2e
 
 # カバレッジ確認
 go test ./internal/... -coverprofile=coverage.out
 go tool cover -func=coverage.out
 ```
+
+`test/e2e` は `//go:build e2e` 付きです。外部 API key、Google Search、Ollama endpoint が未設定または到達不能なケースは環境未準備として skip されます。httptest で完結する Viewer model switch と route rule の E2E は通常環境でも実行されます。
 
 ---
 

@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -19,13 +20,45 @@ func getConfig(t *testing.T) *config.Config {
 	t.Helper()
 	configPath := os.Getenv("PICOCLAW_CONFIG")
 	if configPath == "" {
-		configPath = "../../config/config.yaml"
+		configPath = firstExistingPath(t,
+			"../../config/config.yaml",
+			"../../config/config.yaml.example",
+			"config/config.yaml",
+			"config/config.yaml.example",
+		)
 	}
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 	return cfg
+}
+
+func firstExistingPath(t *testing.T, candidates ...string) string {
+	t.Helper()
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	t.Fatalf("no config file found in candidates: %s", strings.Join(candidates, ", "))
+	return ""
+}
+
+func requireOllamaReachable(t *testing.T, baseURL string) {
+	t.Helper()
+	if strings.TrimSpace(baseURL) == "" {
+		t.Skip("ollama base_url is empty")
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(strings.TrimRight(baseURL, "/") + "/api/tags")
+	if err != nil {
+		t.Skipf("ollama is not reachable at %s: %v", baseURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		t.Skipf("ollama is not ready at %s: status=%d", baseURL, resp.StatusCode)
+	}
 }
 
 func TestE2E_GoogleSearch_Chat(t *testing.T) {

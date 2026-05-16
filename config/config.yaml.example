@@ -269,6 +269,18 @@ vtuber:
         surprised: "ExpSurprised"
         annoyed: "ExpAnnoyed"
         sad: "ExpSad"
+    shiro:
+      audio_output: "Audio-Out-Shiro"
+      vts_host: "127.0.0.1"
+      vts_port: 8002
+      expression_map:
+        neutral: "ExpNeutral"
+        happy: "ExpHappy"
+        calm: "ExpCalm"
+        thinking: "ExpThinking"
+        surprised: "ExpSurprised"
+        annoyed: "ExpAnnoyed"
+        sad: "ExpSad"
 
 audio_router:
   enabled: false
@@ -284,15 +296,3 @@ audio_router:
     shiro:
       device_id: "{0.0.0.00000000}.{SHIRO-DEVICE-ID}"
       display_name: "Audio-Out-Shiro"
-    shiro:
-      audio_output: "Audio-Out-Shiro"
-      vts_host: "127.0.0.1"
-      vts_port: 8002
-      expression_map:
-        neutral: "ExpNeutral"
-        happy: "ExpHappy"
-        calm: "ExpCalm"
-        thinking: "ExpThinking"
-        surprised: "ExpSurprised"
-        annoyed: "ExpAnnoyed"
-        sad: "ExpSad"
