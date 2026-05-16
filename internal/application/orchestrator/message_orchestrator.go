@@ -108,6 +108,7 @@ type MessageOrchestrator struct {
 	autonomousExecutions *autonomousExecutionCoordinator
 	routeDispatcher      *messageRouteDispatcher
 	ttsLifecycle         *messageTTSLifecycle
+	events               *messageEventPort
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -160,21 +161,22 @@ func NewMessageOrchestrator(
 		coderStatus:     coderStatus,
 		codeExecutor:    codeExecutor,
 	}
+	orch.events = newMessageEventPort(nil)
 	orch.responses = messageResponseAssembler{}
 	orch.sessions = newMessageSessionLifecycle(sessionRepo)
-	orch.preRoutingCommands = newPreRoutingCommandHandler(mio, orch.emit, orch.responses)
-	orch.routeDecisions = newRouteDecisionCoordinator(mio, orch.emit)
+	orch.preRoutingCommands = newPreRoutingCommandHandler(mio, orch.events.Emit, orch.responses)
+	orch.routeDecisions = newRouteDecisionCoordinator(mio, orch.events.Emit)
 	orch.idleBusyGuards = newIdleBusyGuardFactory(nil)
-	orch.ttsLifecycle = newMessageTTSLifecycle(nil, nil, orch.emit)
+	orch.ttsLifecycle = newMessageTTSLifecycle(nil, nil, orch.events.Emit)
 	orch.routeDispatcher = newMessageRouteDispatcher(
 		mio,
 		shiro,
 		codeExecutor,
-		orch.emit,
+		orch.events.Emit,
 		orch.ttsLifecycle.WithStreamHooks,
 		orch.ttsLifecycle.Push,
 	)
-	orch.autonomousExecutions = newAutonomousExecutionCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.routeDispatcher.ExecuteDirect)
+	orch.autonomousExecutions = newAutonomousExecutionCoordinator(nil, orch.maxRepairOrDefault, orch.events.Emit, orch.routeDispatcher.ExecuteDirect)
 	orch.routeDispatcher.SetAutonomousExecutor(orch.autonomousExecutions.Execute)
 	return orch
 }
@@ -182,9 +184,12 @@ func NewMessageOrchestrator(
 // SetEventListener sets an optional listener for monitoring events.
 func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
+	if o.events != nil {
+		o.events.SetListener(l)
+	}
 	// CodeExecutorにもイベント発火関数を設定
 	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
-		executor.SetEventEmitter(o.emit)
+		executor.SetEventEmitter(o.events.Emit)
 	}
 }
 
@@ -253,7 +258,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return ProcessMessageResponse{}, err
 	}
 
-	o.emitMessageReceived(req)
+	o.events.EmitMessageReceived(req)
 	if resp, handled, err := o.preRoutingCommands.Handle(ctx, req); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {
