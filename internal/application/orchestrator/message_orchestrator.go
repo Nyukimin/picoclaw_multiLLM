@@ -107,6 +107,7 @@ type MessageOrchestrator struct {
 	idleBusyGuards       *idleBusyGuardFactory
 	autonomousExecutions *autonomousExecutionCoordinator
 	routeDispatcher      *messageRouteDispatcher
+	ttsLifecycle         *messageTTSLifecycle
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -164,13 +165,14 @@ func NewMessageOrchestrator(
 	orch.preRoutingCommands = newPreRoutingCommandHandler(mio, orch.emit, orch.responses)
 	orch.routeDecisions = newRouteDecisionCoordinator(mio, orch.emit)
 	orch.idleBusyGuards = newIdleBusyGuardFactory(nil)
+	orch.ttsLifecycle = newMessageTTSLifecycle(nil, nil, orch.emit)
 	orch.routeDispatcher = newMessageRouteDispatcher(
 		mio,
 		shiro,
 		codeExecutor,
 		orch.emit,
-		orch.withStreamHooks,
-		orch.pushTTS,
+		orch.ttsLifecycle.WithStreamHooks,
+		orch.ttsLifecycle.Push,
 	)
 	orch.autonomousExecutions = newAutonomousExecutionCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.routeDispatcher.ExecuteDirect)
 	orch.routeDispatcher.SetAutonomousExecutor(orch.autonomousExecutions.Execute)
@@ -225,11 +227,17 @@ func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
 // SetTTSBridge sets an optional TTS bridge.
 func (o *MessageOrchestrator) SetTTSBridge(b TTSBridge) {
 	o.ttsBridge = b
+	if o.ttsLifecycle != nil {
+		o.ttsLifecycle.SetTTSBridge(b)
+	}
 }
 
 // SetVTuberBridge sets an optional VTuber bridge.
 func (o *MessageOrchestrator) SetVTuberBridge(b VTuberBridge) {
 	o.vtuberBridge = b
+	if o.ttsLifecycle != nil {
+		o.ttsLifecycle.SetVTuberBridge(b)
+	}
 }
 
 // ProcessMessage はメッセージを処理
@@ -259,7 +267,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 
 	t = t.WithRoute(decision.Route)
-	o.startTTSSessionForRoute(ctx, req, jobID, decision, ttsSessionID)
+	o.ttsLifecycle.StartSessionForRoute(ctx, req, jobID, decision, ttsSessionID)
 
 	endWorkerBusy := o.idleBusyGuards.BeginWorker(decision.Route)
 	defer endWorkerBusy()
@@ -269,7 +277,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
 	}
-	o.endTTSSession(ctx, ttsSessionID)
+	o.ttsLifecycle.EndSession(ctx, ttsSessionID)
 
 	if err := o.sessions.SaveCompletedTask(ctx, sess, t); err != nil {
 		return ProcessMessageResponse{}, err
