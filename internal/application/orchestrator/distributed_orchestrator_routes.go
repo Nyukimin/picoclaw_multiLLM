@@ -14,7 +14,7 @@ type distributedAutonomousExecutor func(ctx context.Context, t task.Task, route 
 type distributedCodeExecutor func(ctx context.Context, t task.Task, route routing.Route, sessionID, jid string) (string, error)
 type distributedRouteToAgent func(route routing.Route) string
 type distributedAttributionGuard func(t task.Task, targetAgent, sessionID string) task.Task
-type distributedTransportExecutor func(ctx context.Context, targetAgent string, msg domaintransport.Message) (domaintransport.Message, error)
+type distributedAgentTransportExecutor func(ctx context.Context, targetAgent string, msg domaintransport.Message) (domaintransport.Message, error)
 type distributedNoteEmitter func(from, to, content, route, jobID, sessionID, channel, chatID string)
 
 type distributedRouteDispatcher struct {
@@ -30,7 +30,7 @@ type distributedRouteDispatcher struct {
 	executeCodeViaShiro distributedCodeExecutor
 	routeToAgent        distributedRouteToAgent
 	withAttribution     distributedAttributionGuard
-	executeToAgent      distributedTransportExecutor
+	executeToAgent      distributedAgentTransportExecutor
 }
 
 func newDistributedRouteDispatcher(
@@ -43,7 +43,7 @@ func newDistributedRouteDispatcher(
 	executeCodeViaShiro distributedCodeExecutor,
 	routeToAgent distributedRouteToAgent,
 	withAttribution distributedAttributionGuard,
-	executeToAgent distributedTransportExecutor,
+	executeToAgent distributedAgentTransportExecutor,
 ) *distributedRouteDispatcher {
 	return &distributedRouteDispatcher{
 		mio:                 mio,

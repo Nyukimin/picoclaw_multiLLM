@@ -50,6 +50,7 @@ type DistributedOrchestrator struct {
 	sessions      *distributedSessionLifecycle
 	autonomous    *distributedAutonomousCoordinator
 	routes        *distributedRouteDispatcher
+	transports    *distributedTransportExecutor
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -118,6 +119,7 @@ func NewDistributedOrchestrator(
 	orch.evidence = newDistributedEvidenceReporter(nil)
 	orch.ttsLifecycle = newDistributedTTSLifecycle(nil, nil, orch.emit)
 	orch.sessions = newDistributedSessionLifecycle(sessionRepo)
+	orch.transports = newDistributedTransportExecutor(router, sshTransports, memory, orch.emitProgress, orch.distributedWaitTimeout)
 	orch.routes = newDistributedRouteDispatcher(
 		mio,
 		memory,
@@ -523,120 +525,20 @@ func fallbackString(value, fallback string) string {
 // executeViaSSH はSSH Transport経由でリモートAgentと通信
 // SSHTransportは1:1接続のため、同一transport上でSend→Receiveする
 func (o *DistributedOrchestrator) executeViaSSH(ctx context.Context, sshTransport domaintransport.Transport, targetAgent string, msg domaintransport.Message) (string, error) {
-	// メッセージ送信
-	if err := sshTransport.Send(ctx, msg); err != nil {
-		return "", fmt.Errorf("failed to send message to %s via SSH: %w", targetAgent, err)
-	}
-
-	log.Printf("[DistributedOrch] Sent task to %s via SSH (job=%s)", targetAgent, msg.JobID)
-
-	// 応答待機（同一transport上で受信）
-	waitTimeout := o.distributedWaitTimeout(targetAgent, msg)
-	timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
-	defer cancel()
-
-	result, err := sshTransport.Receive(timeoutCtx)
-	if err != nil {
-		return "", fmt.Errorf("waiting for SSH response from %s: %w", targetAgent, err)
-	}
-
-	// メモリに記録
-	o.memory.RecordMessage(result)
-
-	log.Printf("[DistributedOrch] Received SSH response from %s (type=%s)", result.From, result.Type)
-
-	if result.Type == domaintransport.MessageTypeError {
-		return "", fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
-	}
-
-	return result.Content, nil
+	return o.transports.ExecuteViaSSH(ctx, sshTransport, targetAgent, msg)
 }
 
 func (o *DistributedOrchestrator) executeToAgent(ctx context.Context, targetAgent string, msg domaintransport.Message) (domaintransport.Message, error) {
-	return o.executeToAgentViaMailbox(ctx, targetAgent, msg, msg.From)
+	return o.transports.ExecuteToAgent(ctx, targetAgent, msg)
 }
 
 func (o *DistributedOrchestrator) executeToAgentViaMailbox(ctx context.Context, targetAgent string, msg domaintransport.Message, receiveOnAgent string) (domaintransport.Message, error) {
-	log.Printf("[DistributedOrch] mailbox send target=%s receive_on=%s via=%s job=%s type=%s has_proposal=%t", targetAgent, receiveOnAgent, transportMode(o.sshTransports, targetAgent), msg.JobID, msg.Type, msg.Proposal != nil)
-	o.emitProgress("mailbox.sent", msg.From, targetAgent, fmt.Sprintf("via=%s receive_on=%s type=%s", transportMode(o.sshTransports, targetAgent), receiveOnAgent, msg.Type), msg)
-	if sshTransport, ok := o.sshTransports[targetAgent]; ok {
-		if err := sshTransport.Send(ctx, msg); err != nil {
-			o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
-			return domaintransport.Message{}, fmt.Errorf("failed to send message to %s via SSH: %w", targetAgent, err)
-		}
-		waitTimeout := o.distributedWaitTimeout(targetAgent, msg)
-		timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
-		defer cancel()
-		log.Printf("[DistributedOrch] mailbox wait target=%s via=ssh timeout=%s job=%s", targetAgent, waitTimeout, msg.JobID)
-		o.emitProgress("mailbox.waiting", receiveOnAgent, targetAgent, fmt.Sprintf("via=ssh timeout=%s", waitTimeout), msg)
-		result, err := sshTransport.Receive(timeoutCtx)
-		if err != nil {
-			log.Printf("[DistributedOrch] mailbox wait error target=%s via=ssh job=%s err=%v", targetAgent, msg.JobID, err)
-			o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
-			return domaintransport.Message{}, fmt.Errorf("waiting for SSH response from %s: %w", targetAgent, err)
-		}
-		o.memory.RecordMessage(result)
-		log.Printf("[DistributedOrch] mailbox recv target=%s via=ssh from=%s type=%s job=%s", targetAgent, result.From, result.Type, result.JobID)
-		o.emitProgress("mailbox.received", result.From, receiveOnAgent, fmt.Sprintf("via=ssh type=%s", result.Type), msg)
-		if result.Type == domaintransport.MessageTypeError {
-			o.emitProgress("agent.error", result.From, receiveOnAgent, result.Content, msg)
-			return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
-		}
-		return result, nil
-	}
-	return o.executeViaLocal(ctx, targetAgent, msg, receiveOnAgent)
+	return o.transports.ExecuteToAgentViaMailbox(ctx, targetAgent, msg, receiveOnAgent)
 }
 
 // executeViaLocal はMessageRouter経由でローカルAgentと通信
 func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAgent string, msg domaintransport.Message, receiveOnAgent string) (domaintransport.Message, error) {
-	agentTransport, ok := o.router.GetAgent(targetAgent)
-	if !ok {
-		return domaintransport.Message{}, fmt.Errorf("agent '%s' not registered in router", targetAgent)
-	}
-
-	// メッセージ送信
-	if err := agentTransport.PutInboundMessage(msg); err != nil {
-		o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
-		return domaintransport.Message{}, fmt.Errorf("failed to send message to %s: %w", targetAgent, err)
-	}
-
-	log.Printf("[DistributedOrch] Sent task to %s via Local (job=%s type=%s receive_on=%s)", targetAgent, msg.JobID, msg.Type, receiveOnAgent)
-	o.emitProgress("mailbox.waiting", receiveOnAgent, targetAgent, fmt.Sprintf("via=local timeout=%s", o.distributedWaitTimeout(targetAgent, msg)), msg)
-
-	// 応答待機（指定agent経由。未登録ならmioにフォールバック）
-	receiveTransport, ok := o.router.GetAgent(receiveOnAgent)
-	if !ok {
-		receiveTransport, ok = o.router.GetAgent("mio")
-	}
-	if !ok {
-		o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, "receive transport not registered", msg)
-		return domaintransport.Message{}, fmt.Errorf("receive transport not registered (agent=%s)", receiveOnAgent)
-	}
-
-	waitTimeout := o.distributedWaitTimeout(targetAgent, msg)
-	timeoutCtx, cancel := context.WithTimeout(ctx, waitTimeout)
-	defer cancel()
-	log.Printf("[DistributedOrch] wait local response target=%s receive_on=%s timeout=%s job=%s", targetAgent, receiveOnAgent, waitTimeout, msg.JobID)
-
-	result, err := receiveTransport.Receive(timeoutCtx)
-	if err != nil {
-		log.Printf("[DistributedOrch] wait local response error target=%s receive_on=%s job=%s err=%v", targetAgent, receiveOnAgent, msg.JobID, err)
-		o.emitProgress("mailbox.error", targetAgent, receiveOnAgent, err.Error(), msg)
-		return domaintransport.Message{}, fmt.Errorf("waiting for response from %s: %w", targetAgent, err)
-	}
-
-	// メモリに記録
-	o.memory.RecordMessage(result)
-
-	log.Printf("[DistributedOrch] Received response from %s (type=%s job=%s to=%s)", result.From, result.Type, result.JobID, result.To)
-	o.emitProgress("mailbox.received", result.From, receiveOnAgent, fmt.Sprintf("via=local type=%s", result.Type), msg)
-
-	if result.Type == domaintransport.MessageTypeError {
-		o.emitProgress("agent.error", result.From, receiveOnAgent, result.Content, msg)
-		return domaintransport.Message{}, fmt.Errorf("agent %s returned error: %s", result.From, result.Content)
-	}
-
-	return result, nil
+	return o.transports.ExecuteViaLocal(ctx, targetAgent, msg, receiveOnAgent)
 }
 
 func transportMode(sshTransports map[string]domaintransport.Transport, targetAgent string) string {
