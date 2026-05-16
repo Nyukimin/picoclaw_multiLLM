@@ -12,7 +12,6 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domaincontract "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/contract"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -50,6 +49,7 @@ type DistributedOrchestrator struct {
 	coderRetryMax int           // 0以下は distributedCoderRetryMax とみなす
 	events        *distributedEventPort
 	evidence      *distributedEvidenceReporter
+	ttsLifecycle  *distributedTTSLifecycle
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -116,6 +116,7 @@ func NewDistributedOrchestrator(
 	}
 	orch.events = newDistributedEventPort(nil)
 	orch.evidence = newDistributedEvidenceReporter(nil)
+	orch.ttsLifecycle = newDistributedTTSLifecycle(nil, nil, orch.emit)
 	return orch
 }
 
@@ -164,11 +165,17 @@ func (o *DistributedOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
 // SetTTSBridge sets an optional TTS bridge.
 func (o *DistributedOrchestrator) SetTTSBridge(b TTSBridge) {
 	o.ttsBridge = b
+	if o.ttsLifecycle != nil {
+		o.ttsLifecycle.SetTTSBridge(b)
+	}
 }
 
 // SetVTuberBridge sets an optional VTuber bridge.
 func (o *DistributedOrchestrator) SetVTuberBridge(b VTuberBridge) {
 	o.vtuberBridge = b
+	if o.ttsLifecycle != nil {
+		o.ttsLifecycle.SetVTuberBridge(b)
+	}
 }
 
 func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
@@ -227,29 +234,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 
 	t = t.WithRoute(decision.Route)
-	ttsSessionID := ""
-	if o.ttsBridge != nil {
-		ttsSessionID = fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
-		ttsCtx := buildTTSContext(decision.Route, "normal", false)
-		voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
-		startReq := TTSSessionStart{
-			SessionID:             ttsSessionID,
-			ResponseID:            jobID.String(),
-			CharacterID:           speakerForRoute(decision.Route),
-			VoiceID:               voiceID,
-			SpeechMode:            speechModeForRoute(decision.Route),
-			Event:                 eventForRoute(decision.Route),
-			Urgency:               ttsCtx.Urgency,
-			ConversationMode:      ttsCtx.ConversationMode,
-			UserAttentionRequired: ttsCtx.UserAttentionRequired,
-			Context:               ttsCtx,
-			VoiceProfile:          voiceProfile,
-		}
-		if err := o.ttsBridge.StartSession(ctx, startReq); err != nil {
-			log.Printf("[DistributedOrch] TTS start degraded: %v", err)
-			ttsSessionID = ""
-		}
-	}
+	ttsSessionID := o.ttsLifecycle.StartSessionForRoute(ctx, req, jobID, decision)
 
 	workerMarkedBusy := false
 	if o.idleNotifier != nil && decision.Route != routing.RouteCHAT {
@@ -268,11 +253,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		}
 		return ProcessMessageResponse{}, fmt.Errorf("distributed execution failed: %w", err)
 	}
-	if ttsSessionID != "" {
-		if err := o.ttsBridge.EndSession(ctx, ttsSessionID); err != nil {
-			log.Printf("[DistributedOrch] TTS end degraded: %v", err)
-		}
-	}
+	o.ttsLifecycle.EndSession(ctx, ttsSessionID)
 
 	// 5. タスクを履歴に追加
 	sess.AddTask(t)
@@ -451,27 +432,11 @@ func (o *DistributedOrchestrator) withStreamHooks(
 	route routing.Route,
 	jid, sessionID, channel, chatID, ttsSessionID string,
 ) (context.Context, *streamBundle) {
-	prev := llm.StreamCallbackFromContext(ctx)
-	ttsStream := newTTSStreamForwarder(o.ttsBridge, ttsSessionID, route, "agent.response", "[DistributedOrch] TTS push degraded:")
-	vtuberStream := newVTuberStreamForwarder(o.vtuberBridge, ttsSessionID, route, "agent.response", "[DistributedOrch] VTuber push degraded:")
-	return llm.ContextWithStreamCallback(ctx, func(token string) {
-		if prev != nil {
-			prev(token)
-		}
-		o.emit("agent.thinking", "mio", "user", token, string(route), jid, sessionID, channel, chatID)
-		ttsStream.OnToken(ctx, token)
-		vtuberStream.OnToken(ctx, token)
-	}), &streamBundle{tts: ttsStream, vtuber: vtuberStream}
+	return o.ttsLifecycle.WithStreamHooks(ctx, route, jid, sessionID, channel, chatID, ttsSessionID)
 }
 
 func (o *DistributedOrchestrator) pushTTS(ctx context.Context, sessionID string, route routing.Route, eventType, text string) {
-	ttsCtx := buildTTSContext(route, "normal", false)
-	_, voiceProfile := voiceForSpeaker(speakerForRoute(route))
-	pushTTSTextChunks(ctx, o.ttsBridge, sessionID, route, eventType, text, ttsCtx, voiceProfile, "[DistributedOrch] TTS push degraded:")
-	req, ok := buildVTuberRequest(eventType, route, sessionID, text, ttsCtx, voiceProfile)
-	if ok {
-		pushVTuber(ctx, o.vtuberBridge, req, "[DistributedOrch] VTuber push degraded:")
-	}
+	o.ttsLifecycle.Push(ctx, sessionID, route, eventType, text)
 }
 
 func (o *DistributedOrchestrator) executeCodeViaShiro(
