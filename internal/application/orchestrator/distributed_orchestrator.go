@@ -49,6 +49,7 @@ type DistributedOrchestrator struct {
 	ttsLifecycle  *distributedTTSLifecycle
 	sessions      *distributedSessionLifecycle
 	autonomous    *distributedAutonomousCoordinator
+	routes        *distributedRouteDispatcher
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -117,7 +118,20 @@ func NewDistributedOrchestrator(
 	orch.evidence = newDistributedEvidenceReporter(nil)
 	orch.ttsLifecycle = newDistributedTTSLifecycle(nil, nil, orch.emit)
 	orch.sessions = newDistributedSessionLifecycle(sessionRepo)
-	orch.autonomous = newDistributedAutonomousCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.executeDistributedDirect)
+	orch.routes = newDistributedRouteDispatcher(
+		mio,
+		memory,
+		orch.emit,
+		orch.emitNote,
+		orch.withStreamHooks,
+		orch.pushTTS,
+		orch.executeCodeViaShiro,
+		orch.routeToAgent,
+		orch.withAttributionGuard,
+		orch.executeToAgent,
+	)
+	orch.autonomous = newDistributedAutonomousCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.routes.ExecuteDirect)
+	orch.routes.SetAutonomousExecutor(orch.autonomous.Execute)
 	return orch
 }
 
@@ -160,10 +174,16 @@ func (o *DistributedOrchestrator) SetIdleNotifier(n IdleNotifier) {
 
 func (o *DistributedOrchestrator) SetWildAgent(wild WildAgent) {
 	o.wild = wild
+	if o.routes != nil {
+		o.routes.SetWildAgent(wild)
+	}
 }
 
 func (o *DistributedOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
 	o.heavy = heavy
+	if o.routes != nil {
+		o.routes.SetHeavyAgent(heavy)
+	}
 }
 
 // SetTTSBridge sets an optional TTS bridge.
@@ -282,10 +302,7 @@ func (o *DistributedOrchestrator) saveExecutionReport(ctx context.Context, jobID
 
 // executeDistributed はルートに応じてTransport経由でAgent間通信
 func (o *DistributedOrchestrator) executeDistributed(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
-	if route != routing.RouteCHAT {
-		return o.executeAutonomousDistributed(ctx, t, route, sessionID, ttsSessionID)
-	}
-	return o.executeDistributedDirect(ctx, t, route, sessionID, ttsSessionID)
+	return o.routes.ExecuteTask(ctx, t, route, sessionID, ttsSessionID)
 }
 
 func (o *DistributedOrchestrator) executeAutonomousDistributed(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
@@ -293,88 +310,7 @@ func (o *DistributedOrchestrator) executeAutonomousDistributed(ctx context.Conte
 }
 
 func (o *DistributedOrchestrator) executeDistributedDirect(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
-	jid := t.JobID().String()
-	if isCodeRoute(route) {
-		resp, err := o.executeCodeViaShiro(ctx, t, route, sessionID, jid)
-		if err == nil {
-			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.emitNote("mio", "user", "コード作業の報告をまとめて返したよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
-		}
-		return resp, err
-	}
-	if route == routing.RouteWILD && o.wild != nil {
-		o.emit("agent.start", "mio", "wild", "創作中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
-		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
-		resp, err := o.wild.Generate(streamCtx, t)
-		if err == nil {
-			o.emit("agent.response", "wild", "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			ttsStream.Finalize(ctx, resp)
-		}
-		return resp, err
-	}
-	if route == routing.RouteANALYZE && o.heavy != nil {
-		o.emit("agent.start", "mio", "heavy", "分析中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
-		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
-		resp, err := o.heavy.Generate(streamCtx, t)
-		if err == nil {
-			o.emit("agent.response", "heavy", "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			ttsStream.Finalize(ctx, resp)
-		}
-		return resp, err
-	}
-	targetAgent := o.routeToAgent(route)
-
-	if targetAgent == "" {
-		// ローカル処理（CHAT など mio が直接処理）
-		guardedTask := o.withAttributionGuard(t, "mio", sessionID)
-		userMsg := domaintransport.NewMessage("user", "mio", sessionID, jid, t.UserMessage())
-		userMsg.Type = domaintransport.MessageTypeTask
-		o.memory.RecordMessage(userMsg)
-
-		o.emit("agent.start", "mio", "user", "考え中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
-		// ストリーミングコールバック: トークンを agent.thinking イベントとして配信しつつ、文単位でTTSへ送る。
-		streamCtx, ttsStream := o.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
-		resp, err := o.mio.Chat(streamCtx, guardedTask)
-		if err == nil {
-			respMsg := domaintransport.NewMessage("mio", "user", sessionID, jid, resp)
-			respMsg.Type = domaintransport.MessageTypeResult
-			o.memory.RecordMessage(respMsg)
-			o.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.emitNote("mio", "user", "会話処理が終わったよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-			ttsStream.Finalize(ctx, resp)
-		}
-		return resp, err
-	}
-
-	guardedTask := o.withAttributionGuard(t, targetAgent, sessionID)
-	msg := domaintransport.NewMessage("mio", targetAgent, sessionID, jid, guardedTask.UserMessage())
-	msg.Type = domaintransport.MessageTypeTask
-	msg.Context = map[string]interface{}{
-		"route":   string(route),
-		"channel": t.Channel(),
-		"chat_id": t.ChatID(),
-	}
-
-	o.emit("agent.start", "mio", targetAgent, t.UserMessage(), string(route), jid, sessionID, t.Channel(), t.ChatID())
-	o.emit("agent.dispatch", "mio", targetAgent, "ルーティング先へ依頼を転送", string(route), jid, sessionID, t.Channel(), t.ChatID())
-
-	// メモリに記録
-	o.memory.RecordMessage(msg)
-
-	result, err := o.executeToAgent(ctx, targetAgent, msg)
-	if err == nil {
-		o.emit("agent.response", targetAgent, "mio", result.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.emitNote(targetAgent, "mio",
-			fmt.Sprintf("%s の作業が終わりました。", displayAgentName(targetAgent)),
-			string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.emit("agent.response", "mio", "user", result.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.emitNote("mio", "user", fmt.Sprintf("%sの報告をまとめて返したよ。", displayAgentName(targetAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.pushTTS(ctx, ttsSessionID, route, "agent.response", result.Content)
-	}
-	return result.Content, err
+	return o.routes.ExecuteDirect(ctx, t, route, sessionID, ttsSessionID)
 }
 
 func (o *DistributedOrchestrator) withStreamHooks(
