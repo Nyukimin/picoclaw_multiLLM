@@ -499,6 +499,21 @@
           <div class="box domain"><strong>Coder: Aka / Ao / Gin</strong><small>plan / patch / proposal を生成。採用・実行はしない。</small></div>
         </div>
       </div>
+      <h3>Worker と Coder ができること</h3>
+      <div class="grid-3">
+        <div class="box app">
+          <strong>Worker ができること</strong>
+          <small>実行可否判断、Coder 選定、proposal 検証、protected file / workspace / policy 確認、file / shell / git / test 実行、patch 適用、report / event / log 記録。</small>
+        </div>
+        <div class="box domain">
+          <strong>Coder ができること</strong>
+          <small>plan / patch / proposal / risk / cost hint の生成、設計説明、複数案提示。成果物は実行命令ではなく候補として扱う。</small>
+        </div>
+        <div class="box danger">
+          <strong>Coder ができないこと</strong>
+          <small>採用決定、正本ブランチ管理、patch 適用、file / shell / git 実行、破壊的操作の直接実行。</small>
+        </div>
+      </div>
       <table class="matrix">
         <thead>
           <tr><th>境界</th><th>守ること</th><th>主な実装</th></tr>
@@ -619,6 +634,38 @@
         <div class="box infra"><strong>DuckDB</strong><small><code>duckdb_l1_archive.go</code><br><code>duckdb_threads.go</code><br><code>duckdb_export.go</code></small></div>
         <div class="box infra"><strong>RealConversationManager</strong><small><code>real_manager_*.go</code><br>recall / thread / archive / KB facade</small></div>
       </div>
+      <h3>保存データの種類</h3>
+      <table class="matrix">
+        <thead>
+          <tr><th>種類</th><th>仕様上の意味</th><th>主な保存・検索境界</th><th>混同しないもの</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>会話データ</td>
+            <td>会話履歴、summary、RecallPack、thread memory。role に応じて prompt 注入用の文脈として選別される。</td>
+            <td><code>conversation memory</code>, <code>L1SQLite</code>, <code>VectorDB thread memory</code>, <code>DuckDB archive</code>, <code>RealConversationManager</code></td>
+            <td>Viewer 表示 state、TTS chunk、LLM raw log</td>
+          </tr>
+          <tr>
+            <td>ユーザー / セッションデータ</td>
+            <td>docs/10_新仕様では、独立したユーザープロフィール保存領域ではなく、session、session_id、memory contract、conversation tracking として扱う。</td>
+            <td><code>internal/domain/session</code>, <code>runtime_sessions</code>, <code>conversation memory</code></td>
+            <td>一般知識 KB、Source Registry の promoted knowledge</td>
+          </tr>
+          <tr>
+            <td>一般知識 / 外部ソース</td>
+            <td>Web search result や外部ソースを Source Registry / KB として扱う。observed、candidate / staging、validated、promoted の状態を分ける。</td>
+            <td><code>Source Registry</code>, <code>L1SQLite source registry</code>, <code>VectorDB KB</code>, <code>sourcefetcher</code></td>
+            <td>無審査の正式 memory 化、会話履歴そのもの</td>
+          </tr>
+          <tr>
+            <td>実行記録</td>
+            <td>Worker execution の job_id、session_id、route、status、結果。実行の追跡と検証に使う。</td>
+            <td><code>internal/domain/execution</code>, <code>internal/infrastructure/persistence/execution</code>, event / report / log</td>
+            <td>ユーザー向け自然対話の本文、正式 knowledge</td>
+          </tr>
+        </tbody>
+      </table>
       <div class="note">Source Registry を無審査で正式 memory へ昇格しない。Viewer 表示 state と永続化 state を同じものとして扱わない。</div>
     </section>
 
