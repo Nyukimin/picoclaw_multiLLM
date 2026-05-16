@@ -22,33 +22,36 @@
 
 ## 読み順
 
-1. `新仕様_概要.md`
-2. `モジュール構成仕様.md`
-3. `Chat_Worker_Coder仕様.md`
-4. `Viewer仕様.md`
-5. `IdleChat仕様.md`
-6. `STT_TTS仕様.md`
-7. `LLM_provider仕様.md`
-8. `Memory_SourceRegistry仕様.md`
-9. `検証仕様.md`
-10. `分割再設計候補.md`
-11. `新規リポジトリ移行方針.md`
+1. `01_新仕様_概要.md`
+2. `02_モジュール構成仕様.md`
+3. `03_モジュール関係図.html`
+4. `04_Chat_Worker_Coder仕様.md`
+5. `05_Viewer仕様.md`
+6. `06_IdleChat仕様.md`
+7. `07_STT_TTS仕様.md`
+8. `08_LLM_provider仕様.md`
+9. `09_Memory_SourceRegistry仕様.md`
+10. `10_検証仕様.md`
+11. `11_分割再設計候補.md`
+12. `12_新規リポジトリ移行方針.md`
 
 ## 文書一覧
 
 | 文書 | 役割 |
 | --- | --- |
-| `新仕様_概要.md` | RenCrow の目的、原則、主要コンポーネントの位置づけ |
-| `モジュール構成仕様.md` | Clean Architecture 風の層、主要実装箇所、仕様変更時に触る場所 |
-| `Chat_Worker_Coder仕様.md` | Chat / Worker / Coder の責務、route chain、plan / patch / execution 境界 |
-| `Viewer仕様.md` | Viewer 表示、SSE event、log、history、audio trigger の契約 |
-| `IdleChat仕様.md` | IdleChat の raw response、view data、audio trigger、forecast/story/normal mode |
-| `STT_TTS仕様.md` | STT 入力経路、TTS provider / bridge / audio router、口パク trigger |
-| `LLM_provider仕様.md` | Chat / Worker / Heavy / Wild / Coder provider と factory / middleware |
-| `Memory_SourceRegistry仕様.md` | conversation memory、L1SQLite、VectorDB、DuckDB、Source Registry |
-| `検証仕様.md` | unit / integration / e2e / live / browser 検証の標準 |
-| `分割再設計候補.md` | 1 対 1 で説明しにくい箇所や将来の分割候補 |
-| `新規リポジトリ移行方針.md` | 新規リポジトリへ持っていく docs と持っていかない旧 docs |
+| `00_README.md` | 新仕様セットの入口、読み順、各文書の役割 |
+| `01_新仕様_概要.md` | RenCrow の目的、原則、主要コンポーネントの位置づけ |
+| `02_モジュール構成仕様.md` | Clean Architecture 風の層、主要実装箇所、仕様変更時に触る場所 |
+| `03_モジュール関係図.html` | モジュールの意味とつながりを概要図から詳細図まで示す HTML 図解 |
+| `04_Chat_Worker_Coder仕様.md` | Chat / Worker / Coder の責務、route chain、plan / patch / execution 境界 |
+| `05_Viewer仕様.md` | Viewer 表示、SSE event、log、history、audio trigger の契約 |
+| `06_IdleChat仕様.md` | IdleChat の raw response、view data、audio trigger、forecast/story/normal mode |
+| `07_STT_TTS仕様.md` | STT 入力経路、TTS provider / bridge / audio router、口パク trigger |
+| `08_LLM_provider仕様.md` | Chat / Worker / Heavy / Wild / Coder provider と factory / middleware |
+| `09_Memory_SourceRegistry仕様.md` | conversation memory、L1SQLite、VectorDB、DuckDB、Source Registry |
+| `10_検証仕様.md` | unit / integration / e2e / live / browser 検証の標準 |
+| `11_分割再設計候補.md` | 1 対 1 で説明しにくい箇所や将来の分割候補 |
+| `12_新規リポジトリ移行方針.md` | 新規リポジトリへ持っていく docs と持っていかない旧 docs |
 
 ## 基本方針
 
