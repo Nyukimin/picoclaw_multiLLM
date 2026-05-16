@@ -106,6 +106,7 @@ type MessageOrchestrator struct {
 	routeDecisions       *routeDecisionCoordinator
 	idleBusyGuards       *idleBusyGuardFactory
 	autonomousExecutions *autonomousExecutionCoordinator
+	routeDispatcher      *messageRouteDispatcher
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -163,7 +164,16 @@ func NewMessageOrchestrator(
 	orch.preRoutingCommands = newPreRoutingCommandHandler(mio, orch.emit, orch.responses)
 	orch.routeDecisions = newRouteDecisionCoordinator(mio, orch.emit)
 	orch.idleBusyGuards = newIdleBusyGuardFactory(nil)
-	orch.autonomousExecutions = newAutonomousExecutionCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.executeRouteDirect)
+	orch.routeDispatcher = newMessageRouteDispatcher(
+		mio,
+		shiro,
+		codeExecutor,
+		orch.emit,
+		orch.withStreamHooks,
+		orch.pushTTS,
+	)
+	orch.autonomousExecutions = newAutonomousExecutionCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.routeDispatcher.ExecuteDirect)
+	orch.routeDispatcher.SetAutonomousExecutor(orch.autonomousExecutions.Execute)
 	return orch
 }
 
@@ -185,10 +195,16 @@ func (o *MessageOrchestrator) SetCoderCapabilities(caps []capability.CoderCapabi
 
 func (o *MessageOrchestrator) SetWildAgent(wild WildAgent) {
 	o.wild = wild
+	if o.routeDispatcher != nil {
+		o.routeDispatcher.SetWildAgent(wild)
+	}
 }
 
 func (o *MessageOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
 	o.heavy = heavy
+	if o.routeDispatcher != nil {
+		o.routeDispatcher.SetHeavyAgent(heavy)
+	}
 }
 
 func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
@@ -249,7 +265,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	defer endWorkerBusy()
 
 	// 4. ルートに応じて実行
-	response, err := o.executeTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
+	response, err := o.routeDispatcher.ExecuteTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
 	if err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
 	}

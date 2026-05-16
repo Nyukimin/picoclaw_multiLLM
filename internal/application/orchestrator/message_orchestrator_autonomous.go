@@ -39,10 +39,6 @@ func (c *autonomousExecutionCoordinator) SetReportStore(reporter ReportStore) {
 	c.reporter = reporter
 }
 
-func (o *MessageOrchestrator) executeAutonomousTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
-	return o.autonomousExecutions.Execute(ctx, t, route, sessionID, channel, chatID, ttsSessionID)
-}
-
 func (c *autonomousExecutionCoordinator) Execute(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	if !isAutonomousRoute(route) {
 		return "", fmt.Errorf("unknown route: %s", route)
