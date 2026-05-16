@@ -1,0 +1,132 @@
+package main
+
+import (
+	"log"
+	"path/filepath"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
+	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
+	securityinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/security"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
+)
+
+type toolRuntime struct {
+	ChatRunnerV2   *tools.ToolRunner
+	WorkerRunnerV2 *tools.ToolRunner
+	ChatLegacy     agent.ToolRunner
+	WorkerLegacy   agent.ToolRunner
+	SubagentMgr    *subagent.Manager
+}
+
+func buildToolRuntime(cfg *config.Config, workerToolProvider llm.ToolCallingProvider, runtimeToolRegistry capdomain.ToolRegistry) toolRuntime {
+	personaWritePaths := []string{
+		filepath.Join(cfg.WorkspaceDir, "persona", "mio.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "shiro.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "aka.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "ao.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "gin.md"),
+		filepath.Join(cfg.WorkspaceDir, "persona", "kin.md"),
+	}
+	chatToolRunnerCfg := tools.ToolRunnerConfig{
+		GoogleAPIKey:         cfg.GoogleSearchChat.APIKey,
+		GoogleSearchEngineID: cfg.GoogleSearchChat.SearchEngineID,
+		AllowedWritePaths:    personaWritePaths,
+	}
+	workerToolRunnerCfg := tools.ToolRunnerConfig{
+		GoogleAPIKey:         cfg.GoogleSearchWorker.APIKey,
+		GoogleSearchEngineID: cfg.GoogleSearchWorker.SearchEngineID,
+		ToolRegistry:         runtimeToolRegistry,
+		WorkspaceDir:         cfg.WorkspaceDir,
+	}
+
+	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)
+	workerToolRunnerV2 := tools.NewToolRunner(workerToolRunnerCfg)
+
+	var subagentMgr *subagent.Manager
+	if cfg.Subagent.Enabled {
+		subagentProvider := resolveSubagentProvider(cfg, workerToolProvider)
+		toolDefs := workerToolRunnerV2.ToolDefinitions()
+		subagentOpts := []subagent.ManagerOption{}
+		if runtimeToolRegistry != nil {
+			subagentOpts = append(subagentOpts, subagent.WithToolRegistry(runtimeToolRegistry))
+		}
+		subagentMgr = subagent.NewManager(
+			subagentProvider,
+			workerToolRunnerV2,
+			toolDefs,
+			toolloop.Config{MaxIterations: cfg.Subagent.MaxIterations},
+			subagentOpts...,
+		)
+		workerToolRunnerV2.RegisterSubagent("worker", tools.NewSubagentFuncFromManager(subagentMgr))
+		log.Printf("Subagent enabled (provider: %s, max_iterations: %d)",
+			subagentProvider.Name(), cfg.Subagent.MaxIterations)
+	} else {
+		log.Printf("Subagent disabled")
+	}
+
+	var chatRunnerV2 domaintool.RunnerV2 = chatToolRunnerV2
+	var workerRunnerV2 domaintool.RunnerV2 = workerToolRunnerV2
+	if cfg.Security.Enabled {
+		var execRepo domainexecution.Repository
+		if cfg.Security.Audit.Enabled && cfg.Security.Audit.Backend == "jsonl" {
+			repo, err := executionpersistence.NewJSONLRepository(cfg.Security.Audit.Path)
+			if err != nil {
+				log.Fatalf("Failed to initialize execution audit repository: %v", err)
+			}
+			execRepo = repo
+		}
+
+		policy := securityinfra.NewPolicyEngine(securityinfra.PolicyConfig{
+			Mode:              cfg.Security.PolicyMode,
+			NetworkScope:      cfg.Security.NetworkScope,
+			NetworkAllowed:    cfg.Security.NetworkAllowlist,
+			DenyCommands:      cfg.Security.DenyCommands,
+			Workspace:         cfg.WorkspaceDir,
+			WorkspaceEnforced: cfg.Security.WorkspaceEnforced,
+		})
+
+		securedChatRunner, err := securityinfra.NewPolicyRunner(chatToolRunnerV2, policy, execRepo, "chat")
+		if err != nil {
+			log.Fatalf("Failed to create chat policy runner: %v", err)
+		}
+		securedWorkerRunner, err := securityinfra.NewPolicyRunner(workerToolRunnerV2, policy, execRepo, "worker")
+		if err != nil {
+			log.Fatalf("Failed to create worker policy runner: %v", err)
+		}
+		chatRunnerV2 = securedChatRunner
+		workerRunnerV2 = securedWorkerRunner
+		log.Printf("Security policy runner enabled (mode=%s)", cfg.Security.PolicyMode)
+	}
+
+	if runtimeToolRegistry != nil {
+		workerRunnerV2 = tools.NewCompositeRunnerV2(workerRunnerV2, runtimeToolRegistry, cfg.WorkspaceDir)
+		log.Printf("CompositeRunnerV2 enabled (ToolRegistry fallback for worker)")
+	}
+
+	chatToolRunner := domaintool.NewLegacyRunner(chatRunnerV2)
+	workerToolRunner := domaintool.NewLegacyRunner(workerRunnerV2)
+	log.Printf("ToolRunner initialized: Chat=%d tools, Worker=%d tools",
+		len(mustGetToolList(chatToolRunner)), len(mustGetToolList(workerToolRunner)))
+
+	if chatToolRunnerCfg.GoogleAPIKey != "" && chatToolRunnerCfg.GoogleSearchEngineID != "" {
+		log.Printf("Google Search API (Chat) configured")
+	}
+	if workerToolRunnerCfg.GoogleAPIKey != "" && workerToolRunnerCfg.GoogleSearchEngineID != "" {
+		log.Printf("Google Search API (Worker) configured")
+	}
+
+	return toolRuntime{
+		ChatRunnerV2:   chatToolRunnerV2,
+		WorkerRunnerV2: workerToolRunnerV2,
+		ChatLegacy:     chatToolRunner,
+		WorkerLegacy:   workerToolRunner,
+		SubagentMgr:    subagentMgr,
+	}
+}

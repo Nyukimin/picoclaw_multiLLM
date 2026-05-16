@@ -8,6 +8,8 @@ import (
 	adapterchannels "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	memorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/memory"
 )
 
 // channelNotificationSender sends Heartbeat notifications through the configured channel adapter.
@@ -48,4 +50,26 @@ func (s *channelNotificationSender) SendNotification(ctx context.Context, messag
 		return nil
 	}
 	return adapter.Send(ctx, s.chatID, message)
+}
+
+func buildHeartbeatRuntime(
+	cfg *config.Config,
+	deps *Dependencies,
+	mioAgent *agent.MioAgent,
+	memStore *memorypersistence.FileStore,
+) {
+	if !cfg.Heartbeat.Enabled {
+		return
+	}
+	heartbeatSvc := heartbeat.NewHeartbeatService(
+		mioAgent,
+		buildHeartbeatNotificationSender(cfg),
+		cfg.WorkspaceDir,
+		cfg.Heartbeat.Interval,
+	)
+	heartbeatSvc.WithMemoryStore(memStore)
+	heartbeatSvc.WithEventListener(deps.eventRelay)
+	heartbeatSvc.Start()
+	deps.heartbeatSvc = heartbeatSvc
+	log.Printf("HeartbeatService enabled (interval: %dm, workspace: %s)", cfg.Heartbeat.Interval, cfg.WorkspaceDir)
 }

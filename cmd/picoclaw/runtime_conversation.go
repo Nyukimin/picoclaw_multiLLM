@@ -1,0 +1,111 @@
+package main
+
+import (
+	"log"
+	"os"
+	"path/filepath"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
+	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
+)
+
+type conversationRuntime struct {
+	Engine  conversation.ConversationEngine
+	Manager *conversationpersistence.RealConversationManager
+	L1Store *conversationpersistence.L1SQLiteStore
+}
+
+func buildConversationRuntime(
+	cfg *config.Config,
+	primaryProviders primaryLLMProviders,
+	chatToolRunnerV2 *tools.ToolRunner,
+	workerToolRunnerV2 *tools.ToolRunner,
+) conversationRuntime {
+	var convEngine conversation.ConversationEngine
+	var realMgr *conversationpersistence.RealConversationManager
+	var l1Store *conversationpersistence.L1SQLiteStore
+	if cfg.Conversation.Enabled {
+		var err error
+		realMgr, err = conversationpersistence.NewRealConversationManager(
+			cfg.Conversation.RedisURL,
+			cfg.Conversation.DuckDBPath,
+			cfg.Conversation.VectorDBURL,
+		)
+		if err != nil {
+			log.Fatalf("Failed to initialize conversation manager: %v", err)
+		}
+		if cfg.Conversation.L1SQLitePath != "" {
+			if err := os.MkdirAll(filepath.Dir(cfg.Conversation.L1SQLitePath), 0755); err != nil {
+				log.Fatalf("Failed to create L1 SQLite directory: %v", err)
+			}
+			l1Store, err = conversationpersistence.NewL1SQLiteStore(cfg.Conversation.L1SQLitePath)
+			if err != nil {
+				log.Fatalf("Failed to initialize L1 SQLite store: %v", err)
+			}
+			realMgr.WithL1Store(l1Store)
+			log.Printf("  L1 SQLite: %s", cfg.Conversation.L1SQLitePath)
+		}
+
+		embedder, embedderLabel := buildConversationEmbedder(cfg)
+		if embedder != nil {
+			realMgr.WithEmbedder(embedder)
+			log.Printf("  Embedder: %s", embedderLabel)
+		}
+
+		summaryProvider, summaryProviderLabel := buildConversationTextProvider(cfg, primaryProviders)
+		if summaryProvider != nil {
+			summarizer := conversationpersistence.NewLLMSummarizer(summaryProvider)
+			realMgr.WithSummarizer(summarizer)
+			if l1Store != nil {
+				l1Store.WithDailyDigestSummarizer(conversationpersistence.NewLLMDailyDigestSummarizer(summaryProvider))
+			}
+			log.Printf("  Summarizer: %s", summaryProviderLabel)
+		}
+
+		var embedderForDetector conversation.EmbeddingProvider
+		embedderForDetector = embedder
+		detector := conversationpersistence.NewThreadBoundaryDetector(embedderForDetector)
+
+		var profileExtractor conversation.ProfileExtractor
+		if summaryProvider != nil {
+			profileExtractor = conversationpersistence.NewLLMProfileExtractor(summaryProvider)
+			log.Printf("  ProfileExtractor: %s", summaryProviderLabel)
+		}
+
+		engine := conversationpersistence.NewRealConversationEngine(
+			realMgr,
+			conversation.NewMioPersona(cfg.Prompts.MioPersona),
+		).WithDetector(detector)
+		if profileExtractor != nil {
+			engine = engine.WithProfileExtractor(profileExtractor)
+		}
+		convEngine = engine
+
+		log.Printf("ConversationEngine v5.1 enabled (RecallPack + Persona + ProfileExtractor)")
+		log.Printf("  Redis: %s", cfg.Conversation.RedisURL)
+		log.Printf("  DuckDB: %s", cfg.Conversation.DuckDBPath)
+		log.Printf("  VectorDB: %s", cfg.Conversation.VectorDBURL)
+	} else {
+		convEngine = nil
+		log.Printf("Conversation LLM disabled (v3/v4 mode)")
+	}
+	if realMgr != nil {
+		webSearchCache := newConversationWebSearchCacheAdapter(realMgr)
+		chatToolRunnerV2.WithWebSearchCache(webSearchCache)
+		workerToolRunnerV2.WithWebSearchCache(webSearchCache)
+		log.Printf("ToolRunner web_search cache enabled via Conversation L1")
+	}
+	if l1Store != nil {
+		startSourceRegistrySweeper(l1Store)
+	}
+	if realMgr != nil {
+		startParquetExportJob(realMgr)
+	}
+	return conversationRuntime{
+		Engine:  convEngine,
+		Manager: realMgr,
+		L1Store: l1Store,
+	}
+}
