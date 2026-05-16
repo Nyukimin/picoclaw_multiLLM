@@ -25,12 +25,6 @@ type CodeExecutionRequest struct {
 	JobID     string
 }
 
-// CodeExecutionResponse はコード実行レスポンス
-type CodeExecutionResponse struct {
-	Response string
-	Handled  bool // Proposal経由で処理された場合true
-}
-
 // DefaultCodeExecutor は標準的なCodeExecutor実装
 type DefaultCodeExecutor struct {
 	coder1          CoderAgent
@@ -93,12 +87,4 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	}
 
 	return e.executeCoderGeneratePath(ctx, req, target)
-}
-
-func buildProposalHandledResponse(response string) CodeExecutionResponse {
-	return CodeExecutionResponse{Response: response, Handled: true}
-}
-
-func buildCoderGenerateResponse(response string) CodeExecutionResponse {
-	return CodeExecutionResponse{Response: response, Handled: false}
 }
