@@ -50,6 +50,7 @@ type DistributedOrchestrator struct {
 	events        *distributedEventPort
 	evidence      *distributedEvidenceReporter
 	ttsLifecycle  *distributedTTSLifecycle
+	sessions      *distributedSessionLifecycle
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -117,6 +118,7 @@ func NewDistributedOrchestrator(
 	orch.events = newDistributedEventPort(nil)
 	orch.evidence = newDistributedEvidenceReporter(nil)
 	orch.ttsLifecycle = newDistributedTTSLifecycle(nil, nil, orch.emit)
+	orch.sessions = newDistributedSessionLifecycle(sessionRepo)
 	return orch
 }
 
@@ -204,12 +206,10 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	}
 
 	// 1. セッションをロードまたは作成
-	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
+	sess, err := o.sessions.LoadForRequest(ctx, req)
 	if err != nil {
-		log.Printf("[DistributedOrch] ProcessMessage ERROR: failed to load or create session: %v", err)
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
-	log.Printf("[DistributedOrch] Session loaded/created: %s", sess.ID())
 
 	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 
@@ -255,12 +255,8 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	}
 	o.ttsLifecycle.EndSession(ctx, ttsSessionID)
 
-	// 5. タスクを履歴に追加
-	sess.AddTask(t)
-
-	// 6. セッションを保存
-	if err := o.sessionRepo.Save(ctx, sess); err != nil {
-		log.Printf("[DistributedOrch] ProcessMessage ERROR: failed to save session: %v", err)
+	// 5. タスクを履歴に追加し、セッションを保存
+	if err := o.sessions.SaveCompletedTask(ctx, sess, t); err != nil {
 		return ProcessMessageResponse{}, fmt.Errorf("failed to save session: %w", err)
 	}
 
@@ -280,14 +276,6 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 
 func (o *DistributedOrchestrator) saveExecutionReport(ctx context.Context, jobID, goal, route string, startedAt, finishedAt time.Time, runErr error) {
 	o.evidence.Save(ctx, jobID, goal, route, startedAt, finishedAt, runErr)
-}
-
-func (o *DistributedOrchestrator) loadOrCreateSession(ctx context.Context, id, channel, chatID string) (*session.Session, error) {
-	sess, err := o.sessionRepo.Load(ctx, id)
-	if err != nil {
-		return session.NewSession(id, channel, chatID), nil
-	}
-	return sess, nil
 }
 
 // executeDistributed はルートに応じてTransport経由でAgent間通信
