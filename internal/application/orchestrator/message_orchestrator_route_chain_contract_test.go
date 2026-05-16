@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -113,11 +114,79 @@ func TestMessageOrchestrator_RouteChainContract_UnknownRouteDoesNotEmitSuccessRe
 	}
 }
 
+func TestMessageOrchestrator_RouteChainContract_WorkerErrorDoesNotBecomeSuccess(t *testing.T) {
+	workerErr := errors.New("worker failed")
+	worker := &recordingWorkerExecutionService{err: workerErr}
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE3, 1.0, "code3"),
+	}
+	coder3 := &mockCoderAgentWithProposal{
+		proposal: proposal.NewProposal(
+			"Plan",
+			`[{"type":"shell","command":"echo ok"}]`,
+			"Low risk",
+			"Low cost",
+		),
+	}
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, coder3, nil, worker)
+	orch.SetMaxRepair(0)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("worker execution error should return ProcessMessage error")
+	}
+	if !strings.Contains(err.Error(), "worker execution failed") {
+		t.Fatalf("worker execution error should keep worker context: %v", err)
+	}
+	if worker.calls == 0 {
+		t.Fatal("worker ExecuteProposal should be reached for a valid proposal before returning the worker error")
+	}
+	if indexOfEvent(rec.events, "agent.response", "mio", "user", "CODE3") >= 0 {
+		t.Fatalf("worker error should not be converted into a user-facing success event: %#v", rec.events)
+	}
+}
+
+func TestMessageOrchestrator_RouteChainContract_GenerateErrorDoesNotBecomeFallbackSuccess(t *testing.T) {
+	generateErr := errors.New("generate failed")
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE1, 1.0, "code1"),
+	}
+	coder1 := &failingCoderAgent{err: generateErr}
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, coder1, nil, nil, nil, nil)
+	orch.SetMaxRepair(0)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("Generate error should return ProcessMessage error")
+	}
+	if !strings.Contains(err.Error(), "generate failed") {
+		t.Fatalf("Generate error should not be hidden behind fallback success: %v", err)
+	}
+	if resp.Response != "" {
+		t.Fatalf("Generate error should not produce fallback response text: %q", resp.Response)
+	}
+	if indexOfEvent(rec.events, "agent.response", "shiro", "mio", "CODE1") >= 0 {
+		t.Fatalf("Generate error should not emit shiro->mio success response: %#v", rec.events)
+	}
+}
+
 type recordingWorkerExecutionService struct {
-	calls int
+	calls  int
+	err    error
+	result *patch.PatchExecutionResult
 }
 
 func (w *recordingWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID task.JobID, p *proposal.Proposal) (*patch.PatchExecutionResult, error) {
 	w.calls++
+	if w.err != nil {
+		return nil, w.err
+	}
+	if w.result != nil {
+		return w.result, nil
+	}
 	return patch.NewPatchExecutionResult(), nil
 }

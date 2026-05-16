@@ -269,6 +269,112 @@ func TestCodeExecutor_DegradedRouteNoticeDoesNotMeanProposalHandled(t *testing.T
 	}
 }
 
+func TestCodeExecutor_ProposalUnsupportedCoderFallsBackToGeneratePath(t *testing.T) {
+	coder3 := &mockCoderAgent{response: "generate response"}
+	workerService := &recordingCodeWorkerExecutionService{}
+	executor := NewDefaultCodeExecutor(nil, nil, coder3, nil, workerService, nil, noopEventEmitter)
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE3,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if resp.Handled {
+		t.Fatal("coder without proposal support should stay on Generate path, not proposal-handled")
+	}
+	if resp.Response != "generate response" {
+		t.Fatalf("Response=%q, want generate response", resp.Response)
+	}
+	if workerService.calls != 0 {
+		t.Fatalf("worker ExecuteProposal calls=%d, want 0", workerService.calls)
+	}
+}
+
+func TestCodeExecutor_WorkerExecutionErrorIsReturnedAsError(t *testing.T) {
+	workerErr := errors.New("worker failed")
+	testProposal := proposal.NewProposal(
+		"Test plan",
+		`[{"type": "shell", "command": "echo ok"}]`,
+		"Low risk",
+		"Low cost",
+	)
+	coder3 := &mockCoderAgentWithProposal{proposal: testProposal}
+	workerService := &recordingCodeWorkerExecutionService{err: workerErr}
+	var events []codeExecutorEvent
+	executor := NewDefaultCodeExecutor(nil, nil, coder3, nil, workerService, nil, recordingCodeEventEmitter(&events))
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE3,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err == nil {
+		t.Fatal("Expected worker execution error")
+	}
+	if !errors.Is(err, workerErr) {
+		t.Fatalf("Expected wrapped worker error %v, got %v", workerErr, err)
+	}
+	if resp.Response != "" || resp.Handled {
+		t.Fatalf("worker error should not produce handled success response: %#v", resp)
+	}
+	if workerService.calls != 1 {
+		t.Fatalf("worker ExecuteProposal calls=%d, want 1", workerService.calls)
+	}
+	event, ok := findCodeExecutorEvent(events, "agent.response", "shiro", "mio")
+	if !ok {
+		t.Fatal("Expected worker error event from shiro to mio")
+	}
+	if !strings.Contains(event.content, "実行失敗") {
+		t.Fatalf("worker error event content=%q, want execution failure", event.content)
+	}
+}
+
+func TestCodeExecutor_GenerateErrorDoesNotEmitShiroSuccess(t *testing.T) {
+	generateErr := errors.New("generate failed")
+	coder1 := &failingCoderAgent{err: generateErr}
+	var events []codeExecutorEvent
+	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, nil, recordingCodeEventEmitter(&events))
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE1,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if !errors.Is(err, generateErr) {
+		t.Fatalf("Expected Generate error %v, got %v", generateErr, err)
+	}
+	if resp.Response != "" || resp.Handled {
+		t.Fatalf("Generate error should not produce fallback success response: %#v", resp)
+	}
+	if _, ok := findCodeExecutorEvent(events, "agent.response", "shiro", "mio"); ok {
+		t.Fatalf("Generate error should not emit shiro->mio success response: %#v", events)
+	}
+	if _, ok := findCodeExecutorEvent(events, "agent.response", "coder1", "shiro"); !ok {
+		t.Fatalf("Generate error should emit coder->shiro error evidence: %#v", events)
+	}
+}
+
 // TestCodeExecutor_CODE_GenericRoute_Fallback はCODE汎用ルートのフォールバックテスト
 func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
 	// coder1がnilの場合にcoder2にフォールバック
@@ -351,12 +457,16 @@ type recordingCodeWorkerExecutionService struct {
 	calls    int
 	jobID    task.JobID
 	proposal *proposal.Proposal
+	err      error
 }
 
 func (s *recordingCodeWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID task.JobID, p *proposal.Proposal) (*patch.PatchExecutionResult, error) {
 	s.calls++
 	s.jobID = jobID
 	s.proposal = p
+	if s.err != nil {
+		return nil, s.err
+	}
 	result := patch.NewPatchExecutionResult()
 	result.AddResult(patch.CommandResult{Success: true, Output: "ok"})
 	return result.WithSummary("実行: 1 件, 成功: 1 件, 失敗: 0 件"), nil

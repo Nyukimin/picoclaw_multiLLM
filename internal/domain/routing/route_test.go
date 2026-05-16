@@ -19,6 +19,7 @@ func TestRouteIsCoderRoute(t *testing.T) {
 		{RouteCODE1, true, "CODE1 should be coder route"},
 		{RouteCODE2, true, "CODE2 should be coder route"},
 		{RouteCODE3, true, "CODE3 should be coder route"},
+		{RouteCODE4, true, "CODE4 should be coder route"},
 		{RouteWILD, false, "WILD should not be coder route"},
 		{RouteCHAT, false, "CHAT should not be coder route"},
 		{RoutePLAN, false, "PLAN should not be coder route"},

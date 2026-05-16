@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 )
 
@@ -123,5 +125,83 @@ func TestMessageOrchestrator_CodeRoute_AlwaysViaShiro_CODE4(t *testing.T) {
 	}
 	if !(i1 < i2 && i2 < i3 && i3 < i4) {
 		t.Fatalf("unexpected CODE4 event order: i1=%d i2=%d i3=%d i4=%d", i1, i2, i3, i4)
+	}
+}
+
+func TestMessageOrchestrator_CodeRoute_AlwaysViaShiro_GenericCODE(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE, 1.0, "generic code"),
+	}
+	shiro := &mockShiroAgent{response: "unused"}
+	coder1 := &mockCoderAgent{response: "generic code response\n```go\nfunc generated() {}\n```"}
+	orch := NewMessageOrchestrator(repo, mio, shiro, coder1, nil, nil, nil, nil)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "s-code",
+		Channel:     "line",
+		ChatID:      "u-code",
+		UserMessage: "change this",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+
+	i1 := indexOfEvent(rec.events, "agent.start", "mio", "shiro", "CODE")
+	i2 := indexOfEvent(rec.events, "agent.start", "shiro", "coder1", "CODE")
+	i3 := indexOfEvent(rec.events, "agent.response", "coder1", "shiro", "CODE")
+	i4 := indexOfEvent(rec.events, "agent.response", "shiro", "mio", "CODE")
+
+	if i1 < 0 || i2 < 0 || i3 < 0 || i4 < 0 {
+		t.Fatalf("missing expected shiro relay events for generic CODE: %#v", rec.events)
+	}
+	if !(i1 < i2 && i2 < i3 && i3 < i4) {
+		t.Fatalf("unexpected generic CODE event order: i1=%d i2=%d i3=%d i4=%d", i1, i2, i3, i4)
+	}
+}
+
+func TestMessageOrchestrator_CodeRoute_CODE3ProposalKeepsShiroEventOrder(t *testing.T) {
+	p := proposal.NewProposal(
+		"Plan CODE3",
+		`[{"type":"shell","command":"echo ok"}]`,
+		"Low risk",
+		"Low cost",
+	)
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE3, 1.0, "explicit code3"),
+	}
+	shiro := &mockShiroAgent{response: "unused"}
+	coder3 := &mockCoderAgentWithProposal{proposal: p}
+	worker := &recordingWorkerExecutionService{
+		result: patch.NewPatchExecutionResult().WithSummary("実行: 1 件, 成功: 1 件, 失敗: 0 件"),
+	}
+	orch := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, worker)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "s-code3",
+		Channel:     "line",
+		ChatID:      "u-code3",
+		UserMessage: "apply this",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+
+	i1 := indexOfEvent(rec.events, "agent.start", "mio", "shiro", "CODE3")
+	i2 := indexOfEvent(rec.events, "agent.start", "shiro", "coder3", "CODE3")
+	i3 := indexOfEvent(rec.events, "agent.response", "coder3", "shiro", "CODE3")
+	i4 := indexOfEvent(rec.events, "agent.start", "shiro", "mio", "CODE3")
+	i5 := indexOfEvent(rec.events, "agent.response", "shiro", "mio", "CODE3")
+
+	if i1 < 0 || i2 < 0 || i3 < 0 || i4 < 0 || i5 < 0 {
+		t.Fatalf("missing expected CODE3 proposal events: %#v", rec.events)
+	}
+	if !(i1 < i2 && i2 < i3 && i3 < i4 && i4 < i5) {
+		t.Fatalf("unexpected CODE3 proposal event order: i1=%d i2=%d i3=%d i4=%d i5=%d", i1, i2, i3, i4, i5)
 	}
 }
