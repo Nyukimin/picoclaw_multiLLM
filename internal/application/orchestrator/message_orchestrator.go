@@ -99,6 +99,13 @@ type MessageOrchestrator struct {
 	ttsBridge       TTSBridge
 	vtuberBridge    VTuberBridge
 	maxRepair       int // 0以下は1とみなす
+
+	sessions             *messageSessionLifecycle
+	responses            messageResponseAssembler
+	preRoutingCommands   *preRoutingCommandHandler
+	routeDecisions       *routeDecisionCoordinator
+	idleBusyGuards       *idleBusyGuardFactory
+	autonomousExecutions *autonomousExecutionCoordinator
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -139,7 +146,7 @@ func NewMessageOrchestrator(
 		nil, // eventEmitterは後でSetEventListenerで設定
 	)
 
-	return &MessageOrchestrator{
+	orch := &MessageOrchestrator{
 		sessionRepo:     sessionRepo,
 		mio:             mio,
 		shiro:           shiro,
@@ -151,6 +158,13 @@ func NewMessageOrchestrator(
 		coderStatus:     coderStatus,
 		codeExecutor:    codeExecutor,
 	}
+	orch.responses = messageResponseAssembler{}
+	orch.sessions = newMessageSessionLifecycle(sessionRepo)
+	orch.preRoutingCommands = newPreRoutingCommandHandler(mio, orch.emit, orch.responses)
+	orch.routeDecisions = newRouteDecisionCoordinator(mio, orch.emit)
+	orch.idleBusyGuards = newIdleBusyGuardFactory(nil)
+	orch.autonomousExecutions = newAutonomousExecutionCoordinator(nil, orch.maxRepairOrDefault, orch.emit, orch.executeRouteDirect)
+	return orch
 }
 
 // SetEventListener sets an optional listener for monitoring events.
@@ -179,11 +193,17 @@ func (o *MessageOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
 
 func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
 	o.reporter = store
+	if o.autonomousExecutions != nil {
+		o.autonomousExecutions.SetReportStore(store)
+	}
 }
 
 // SetIdleNotifier sets an optional notifier used to control idle chat.
 func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
 	o.idleNotifier = n
+	if o.idleBusyGuards != nil {
+		o.idleBusyGuards.SetNotifier(n)
+	}
 }
 
 // SetTTSBridge sets an optional TTS bridge.
@@ -201,23 +221,23 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	log.Printf("[MessageOrch] ProcessMessage START: sessionID=%s channel=%s chatID=%s message=%q",
 		req.SessionID, req.Channel, req.ChatID, req.UserMessage)
 
-	endChatBusy := o.beginChatBusy()
+	endChatBusy := o.idleBusyGuards.BeginChat()
 	defer endChatBusy()
 
-	sess, err := o.loadSessionForRequest(ctx, req)
+	sess, err := o.sessions.LoadForRequest(ctx, req)
 	if err != nil {
 		return ProcessMessageResponse{}, err
 	}
 
 	o.emitMessageReceived(req)
-	if resp, handled, err := o.handlePreRoutingChatCommand(ctx, req); err != nil {
+	if resp, handled, err := o.preRoutingCommands.Handle(ctx, req); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {
 		return resp, nil
 	}
 
 	t, jobID, ttsSessionID := o.buildTaskForRequest(req)
-	decision, err := o.decideRouteForTask(ctx, t, req, jobID)
+	decision, err := o.routeDecisions.Decide(ctx, t, req, jobID)
 	if err != nil {
 		return ProcessMessageResponse{}, err
 	}
@@ -225,7 +245,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	t = t.WithRoute(decision.Route)
 	o.startTTSSessionForRoute(ctx, req, jobID, decision, ttsSessionID)
 
-	endWorkerBusy := o.beginWorkerBusy(decision.Route)
+	endWorkerBusy := o.idleBusyGuards.BeginWorker(decision.Route)
 	defer endWorkerBusy()
 
 	// 4. ルートに応じて実行
@@ -235,12 +255,12 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 	o.endTTSSession(ctx, ttsSessionID)
 
-	if err := o.saveCompletedTask(ctx, sess, t); err != nil {
+	if err := o.sessions.SaveCompletedTask(ctx, sess, t); err != nil {
 		return ProcessMessageResponse{}, err
 	}
 
 	log.Printf("[MessageOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
 		jobID.String(), decision.Route, len(response))
 
-	return buildProcessMessageResponse(response, decision, jobID), nil
+	return o.responses.Build(response, decision, jobID), nil
 }

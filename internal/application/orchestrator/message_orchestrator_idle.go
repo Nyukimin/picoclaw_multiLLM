@@ -2,23 +2,35 @@ package orchestrator
 
 import "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 
-func (o *MessageOrchestrator) beginChatBusy() func() {
-	if o.idleNotifier == nil {
+type idleBusyGuardFactory struct {
+	idleNotifier IdleNotifier
+}
+
+func newIdleBusyGuardFactory(idleNotifier IdleNotifier) *idleBusyGuardFactory {
+	return &idleBusyGuardFactory{idleNotifier: idleNotifier}
+}
+
+func (f *idleBusyGuardFactory) SetNotifier(idleNotifier IdleNotifier) {
+	f.idleNotifier = idleNotifier
+}
+
+func (f *idleBusyGuardFactory) BeginChat() func() {
+	if f.idleNotifier == nil {
 		return func() {}
 	}
-	o.idleNotifier.NotifyActivity()
-	o.idleNotifier.SetChatBusy(true)
+	f.idleNotifier.NotifyActivity()
+	f.idleNotifier.SetChatBusy(true)
 	return func() {
-		o.idleNotifier.SetChatBusy(false)
+		f.idleNotifier.SetChatBusy(false)
 	}
 }
 
-func (o *MessageOrchestrator) beginWorkerBusy(route routing.Route) func() {
-	if o.idleNotifier == nil || route == routing.RouteCHAT {
+func (f *idleBusyGuardFactory) BeginWorker(route routing.Route) func() {
+	if f.idleNotifier == nil || route == routing.RouteCHAT {
 		return func() {}
 	}
-	o.idleNotifier.SetWorkerBusy(true)
+	f.idleNotifier.SetWorkerBusy(true)
 	return func() {
-		o.idleNotifier.SetWorkerBusy(false)
+		f.idleNotifier.SetWorkerBusy(false)
 	}
 }

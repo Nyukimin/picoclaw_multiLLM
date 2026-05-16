@@ -10,8 +10,16 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
-func (o *MessageOrchestrator) loadSessionForRequest(ctx context.Context, req ProcessMessageRequest) (*session.Session, error) {
-	sess, err := o.loadOrCreateSession(ctx, req.SessionID, req.Channel, req.ChatID)
+type messageSessionLifecycle struct {
+	sessionRepo SessionRepository
+}
+
+func newMessageSessionLifecycle(sessionRepo SessionRepository) *messageSessionLifecycle {
+	return &messageSessionLifecycle{sessionRepo: sessionRepo}
+}
+
+func (l *messageSessionLifecycle) LoadForRequest(ctx context.Context, req ProcessMessageRequest) (*session.Session, error) {
+	sess, err := l.loadOrCreate(ctx, req.SessionID, req.Channel, req.ChatID)
 	if err != nil {
 		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to load or create session: %v", err)
 		return nil, fmt.Errorf("failed to load or create session: %w", err)
@@ -20,21 +28,19 @@ func (o *MessageOrchestrator) loadSessionForRequest(ctx context.Context, req Pro
 	return sess, nil
 }
 
-func (o *MessageOrchestrator) saveCompletedTask(ctx context.Context, sess *session.Session, t task.Task) error {
+func (l *messageSessionLifecycle) SaveCompletedTask(ctx context.Context, sess *session.Session, t task.Task) error {
 	sess.AddTask(t)
-	if err := o.sessionRepo.Save(ctx, sess); err != nil {
+	if err := l.sessionRepo.Save(ctx, sess); err != nil {
 		log.Printf("[MessageOrch] ProcessMessage ERROR: failed to save session: %v", err)
 		return fmt.Errorf("failed to save session: %w", err)
 	}
 	return nil
 }
 
-// loadOrCreateSession はセッションをロードまたは作成
-func (o *MessageOrchestrator) loadOrCreateSession(ctx context.Context, id, channel, chatID string) (*session.Session, error) {
-	sess, err := o.sessionRepo.Load(ctx, id)
+func (l *messageSessionLifecycle) loadOrCreate(ctx context.Context, id, channel, chatID string) (*session.Session, error) {
+	sess, err := l.sessionRepo.Load(ctx, id)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionNotFound) {
-			// 新規セッション作成
 			return session.NewSession(id, channel, chatID), nil
 		}
 		return nil, err

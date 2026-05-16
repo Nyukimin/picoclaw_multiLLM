@@ -12,7 +12,38 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
+type autonomousRouteExecutor func(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error)
+
+type autonomousExecutionCoordinator struct {
+	reporter      ReportStore
+	maxRepair     func() int
+	emit          messageEventEmitter
+	executeDirect autonomousRouteExecutor
+}
+
+func newAutonomousExecutionCoordinator(
+	reporter ReportStore,
+	maxRepair func() int,
+	emit messageEventEmitter,
+	executeDirect autonomousRouteExecutor,
+) *autonomousExecutionCoordinator {
+	return &autonomousExecutionCoordinator{
+		reporter:      reporter,
+		maxRepair:     maxRepair,
+		emit:          emit,
+		executeDirect: executeDirect,
+	}
+}
+
+func (c *autonomousExecutionCoordinator) SetReportStore(reporter ReportStore) {
+	c.reporter = reporter
+}
+
 func (o *MessageOrchestrator) executeAutonomousTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	return o.autonomousExecutions.Execute(ctx, t, route, sessionID, channel, chatID, ttsSessionID)
+}
+
+func (c *autonomousExecutionCoordinator) Execute(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	if !isAutonomousRoute(route) {
 		return "", fmt.Errorf("unknown route: %s", route)
 	}
@@ -25,17 +56,17 @@ func (o *MessageOrchestrator) executeAutonomousTask(ctx context.Context, t task.
 		Route:      route.String(),
 		Capability: capabilityForRoute(route),
 		Contract:   contract,
-		MaxRepair:  o.maxRepairOrDefault(),
+		MaxRepair:  c.maxRepair(),
 		Observe: func(stage autonomousapp.Stage) {
-			o.emit("entry.stage", channel, "system", string(stage), route.String(), t.JobID().String(), sessionID, channel, chatID)
+			c.emit("entry.stage", channel, "system", string(stage), route.String(), t.JobID().String(), sessionID, channel, chatID)
 		},
-		ReportStore: o.reporter,
+		ReportStore: c.reporter,
 		Execute: func(execCtx context.Context, attempt int, failureKind, failureReason string) (autonomousapp.AttemptResult, error) {
 			execTask := t
 			if attempt > 0 {
 				execTask = execTask.WithUserMessage(buildExecutorRetryMessage(t.UserMessage(), route, failureKind, failureReason, attempt))
 			}
-			resp, runErr := o.executeRouteDirect(execCtx, execTask, route, sessionID, channel, chatID, ttsSessionID)
+			resp, runErr := c.executeDirect(execCtx, execTask, route, sessionID, channel, chatID, ttsSessionID)
 			return autonomousapp.AttemptResult{
 				Response:      resp,
 				Steps:         routeExecutionSteps(route, runErr == nil),

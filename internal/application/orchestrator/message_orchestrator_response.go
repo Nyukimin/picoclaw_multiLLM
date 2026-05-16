@@ -5,7 +5,9 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
-func buildProcessMessageResponse(response string, decision routing.Decision, jobID task.JobID) ProcessMessageResponse {
+type messageResponseAssembler struct{}
+
+func (messageResponseAssembler) Build(response string, decision routing.Decision, jobID task.JobID) ProcessMessageResponse {
 	return ProcessMessageResponse{
 		Response:   response,
 		Route:      decision.Route,
@@ -14,7 +16,7 @@ func buildProcessMessageResponse(response string, decision routing.Decision, job
 	}
 }
 
-func buildChatCommandResponse(response string) ProcessMessageResponse {
+func (messageResponseAssembler) BuildChatCommand(response string) ProcessMessageResponse {
 	return ProcessMessageResponse{
 		Response:   response,
 		Route:      routing.RouteCHAT,
