@@ -52,6 +52,7 @@ type DistributedOrchestrator struct {
 	routes        *distributedRouteDispatcher
 	transports    *distributedTransportExecutor
 	codeExecution *distributedCodeExecutionCoordinator
+	coderSelector *distributedCoderSelection
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -121,6 +122,7 @@ func NewDistributedOrchestrator(
 	orch.ttsLifecycle = newDistributedTTSLifecycle(nil, nil, orch.emit)
 	orch.sessions = newDistributedSessionLifecycle(sessionRepo)
 	orch.transports = newDistributedTransportExecutor(router, sshTransports, memory, orch.emitProgress, orch.distributedWaitTimeout)
+	orch.coderSelector = newDistributedCoderSelection(router, sshTransports, orch.nodeSelector, orch.nodeCaps)
 	orch.codeExecution = newDistributedCodeExecutionCoordinator(
 		memory,
 		orch.emit,
@@ -152,9 +154,15 @@ func NewDistributedOrchestrator(
 func (o *DistributedOrchestrator) SetNodeCapabilities(caps map[string]domainnode.ResourceProfile) {
 	if caps == nil {
 		o.nodeCaps = make(map[string]domainnode.ResourceProfile)
+		if o.coderSelector != nil {
+			o.coderSelector.SetNodeCapabilities(o.nodeCaps)
+		}
 		return
 	}
 	o.nodeCaps = caps
+	if o.coderSelector != nil {
+		o.coderSelector.SetNodeCapabilities(caps)
+	}
 }
 
 // SetCoderConfigs sets CoderConfig map for SSH transport (v4.1)
@@ -513,78 +521,15 @@ func (o *DistributedOrchestrator) routeToAgent(route routing.Route) string {
 }
 
 func (o *DistributedOrchestrator) routeToCoder(route routing.Route) string {
-	switch route {
-	case routing.RouteCODE:
-		for _, coder := range []string{"coder1", "coder2", "coder3", "coder4"} {
-			if o.isCoderConnected(coder) {
-				log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=fallback_chain", route, coder)
-				return coder
-			}
-			log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, coder)
-		}
-		return ""
-	case routing.RouteCODE1:
-		if o.isCoderConnected("coder1") {
-			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder1")
-			return "coder1"
-		}
-		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder1")
-		return ""
-	case routing.RouteCODE2:
-		if o.isCoderConnected("coder2") {
-			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder2")
-			return "coder2"
-		}
-		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder2")
-		return ""
-	case routing.RouteCODE3:
-		if o.isCoderConnected("coder3") {
-			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder3")
-			return "coder3"
-		}
-		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder3")
-		return ""
-	case routing.RouteCODE4:
-		if o.isCoderConnected("coder4") {
-			log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=explicit", route, "coder4")
-			return "coder4"
-		}
-		log.Printf("[DistributedOrch] coder skip route=%s target=%s reason=unconnected", route, "coder4")
-		return ""
-	default:
-		return ""
-	}
+	return o.coderSelector.RouteToCoder(route)
 }
 
 func (o *DistributedOrchestrator) routeToCoderForMessage(route routing.Route, userMessage string) string {
-	if route != routing.RouteCODE || o.nodeSelector == nil || len(o.nodeCaps) == 0 {
-		return o.routeToCoder(route)
-	}
-	candidates := make([]string, 0, 4)
-	for _, coder := range []string{"coder1", "coder2", "coder3", "coder4"} {
-		if o.isCoderConnected(coder) {
-			candidates = append(candidates, coder)
-		}
-	}
-	req := inferTaskRequirement(userMessage)
-	selected := o.nodeSelector.Select(candidates, o.nodeCaps, req)
-	if selected != "" {
-		log.Printf("[DistributedOrch] coder selected route=%s target=%s mode=capability candidates=%v req=%+v", route, selected, candidates, req)
-		return selected
-	}
-	log.Printf("[DistributedOrch] coder capability select fell back route=%s candidates=%v req=%+v", route, candidates, req)
-	return o.routeToCoder(route)
+	return o.coderSelector.RouteToCoderForMessage(route, userMessage)
 }
 
 func (o *DistributedOrchestrator) isCoderConnected(agent string) bool {
-	if _, ok := o.sshTransports[agent]; ok {
-		return true
-	}
-	if o.router == nil {
-		return false
-	}
-	_, ok := o.router.GetAgent(agent)
-	return ok
+	return o.coderSelector.IsCoderConnected(agent)
 }
 
 func isCodeRoute(route routing.Route) bool {
