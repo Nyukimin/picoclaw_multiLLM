@@ -109,6 +109,7 @@ type MessageOrchestrator struct {
 	routeDispatcher      *messageRouteDispatcher
 	ttsLifecycle         *messageTTSLifecycle
 	events               *messageEventPort
+	taskContexts         *messageTaskContextBuilder
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -164,6 +165,7 @@ func NewMessageOrchestrator(
 	orch.events = newMessageEventPort(nil)
 	orch.responses = messageResponseAssembler{}
 	orch.sessions = newMessageSessionLifecycle(sessionRepo)
+	orch.taskContexts = newMessageTaskContextBuilder(orch.events.Emit, orch.ttsEnabled)
 	orch.preRoutingCommands = newPreRoutingCommandHandler(mio, orch.events.Emit, orch.responses)
 	orch.routeDecisions = newRouteDecisionCoordinator(mio, orch.events.Emit)
 	orch.idleBusyGuards = newIdleBusyGuardFactory(nil)
@@ -245,6 +247,10 @@ func (o *MessageOrchestrator) SetVTuberBridge(b VTuberBridge) {
 	}
 }
 
+func (o *MessageOrchestrator) ttsEnabled() bool {
+	return o.ttsBridge != nil
+}
+
 // ProcessMessage はメッセージを処理
 func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
 	log.Printf("[MessageOrch] ProcessMessage START: sessionID=%s channel=%s chatID=%s message=%q",
@@ -265,7 +271,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return resp, nil
 	}
 
-	t, jobID, ttsSessionID := o.buildTaskForRequest(req)
+	t, jobID, ttsSessionID := o.taskContexts.Build(req)
 	decision, err := o.routeDecisions.Decide(ctx, t, req, jobID)
 	if err != nil {
 		return ProcessMessageResponse{}, err
