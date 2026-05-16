@@ -110,39 +110,12 @@ func (e *DefaultCodeExecutor) emitCodeHandoffStart(req CodeExecutionRequest, tar
 	e.emit("agent.start", "shiro", target.name, req.Task.UserMessage(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 }
 
-// executeCoderGeneratePath は通常のGenerate実行パス
-func (e *DefaultCodeExecutor) executeCoderGeneratePath(
-	ctx context.Context,
-	req CodeExecutionRequest,
-	target codeTarget,
-) (CodeExecutionResponse, error) {
-	resp, err := target.coder.Generate(ctx, req.Task, target.systemPrompt)
-	if err != nil {
-		e.emitCoderGenerateError(req, target, err)
-		return CodeExecutionResponse{}, err
-	}
-
-	e.emitCoderGenerateResponse(req, target, resp)
-
-	return buildCoderGenerateResponse(resp), nil
-}
-
 func buildProposalHandledResponse(response string) CodeExecutionResponse {
 	return CodeExecutionResponse{Response: response, Handled: true}
 }
 
 func buildCoderGenerateResponse(response string) CodeExecutionResponse {
 	return CodeExecutionResponse{Response: response, Handled: false}
-}
-
-func (e *DefaultCodeExecutor) emitCoderGenerateError(req CodeExecutionRequest, target codeTarget, err error) {
-	e.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
-}
-
-func (e *DefaultCodeExecutor) emitCoderGenerateResponse(req CodeExecutionRequest, target codeTarget, response string) {
-	content := truncate(response, 500)
-	e.emit("agent.response", target.name, "shiro", content, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
-	e.emit("agent.response", "shiro", "mio", content, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 }
 
 func (e *DefaultCodeExecutor) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
