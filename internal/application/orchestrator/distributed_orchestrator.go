@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -357,89 +355,6 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	return o.codeExecution.Execute(ctx, t, route, sessionID, jid)
 }
 
-func nextCoderRetryRequest(userMessage string, proposal *domaintransport.ProposalPayload, shiroResult domaintransport.Message, attempt int) (string, bool) {
-	if shiroResult.Result == nil || shiroResult.Result.Success || !shiroResult.Result.Retryable {
-		return "", false
-	}
-	if attempt >= distributedCoderRetryMax {
-		return "", false
-	}
-	return buildCoderRetryInstruction(userMessage, proposal, shiroResult.Result.FailureKind, shiroResult.Result.FailureReason, attempt+1), true
-}
-
-func classifyDistributedExecutionError(err error) (string, string, bool) {
-	if err == nil {
-		return "", "", false
-	}
-	text := err.Error()
-	lower := strings.ToLower(text)
-	switch {
-	case strings.Contains(lower, agent.ProposalFailureEmpty),
-		strings.Contains(lower, agent.ProposalFailureMissingPlan),
-		strings.Contains(lower, agent.ProposalFailureMissingPatch),
-		strings.Contains(lower, agent.ProposalFailureInvalidPatch):
-		return proposalFailureKindFromText(lower), text, true
-	case strings.Contains(lower, agent.ProposalFailureDisallowedCommand):
-		return agent.ProposalFailureDisallowedCommand, text, false
-	case strings.Contains(lower, "patch parse error"):
-		return "patch_parse_failed", text, true
-	case strings.Contains(lower, "command not found"), strings.Contains(lower, "exit status 127"), strings.Contains(lower, "not found"):
-		return "missing_command", text, true
-	case strings.Contains(lower, "security error"), strings.Contains(lower, "protected file"):
-		return "unsafe_operation", text, false
-	default:
-		return "unknown", text, false
-	}
-}
-
-func proposalFailureKindFromText(lower string) string {
-	switch {
-	case strings.Contains(lower, agent.ProposalFailureMissingPlan):
-		return agent.ProposalFailureMissingPlan
-	case strings.Contains(lower, agent.ProposalFailureMissingPatch):
-		return agent.ProposalFailureMissingPatch
-	case strings.Contains(lower, agent.ProposalFailureInvalidPatch):
-		return agent.ProposalFailureInvalidPatch
-	default:
-		return agent.ProposalFailureEmpty
-	}
-}
-
-func buildCoderRetryInstruction(userMessage string, proposal *domaintransport.ProposalPayload, failureKind, failureReason string, retry int) string {
-	var prevPlan, prevPatch string
-	if proposal != nil {
-		prevPlan = strings.TrimSpace(proposal.Plan)
-		prevPatch = strings.TrimSpace(proposal.Patch)
-	}
-	return fmt.Sprintf(`%s
-
-## Retry Context
-- retry_attempt: %d
-- failure_kind: %s
-- failure_reason: %s
-
-## Worker Requirements
-- Return a Worker-executable patch only
-- Keep the patch directly parseable and runnable
-- Include the environment repair or verification steps inside Patch
-- Do not use bare pip; use python3 -m pip or python -m pip if Python package installation is truly required
-- Prefer concrete file edits and deterministic non-interactive commands
-
-## Previous Proposal Plan
-%s
-
-## Previous Proposal Patch
-%s
-`, userMessage, retry, fallbackString(failureKind, "unknown"), fallbackString(failureReason, "execution failed"), fallbackString(prevPlan, "(none)"), truncate(fallbackString(prevPatch, "(none)"), 1600))
-}
-
-func fallbackString(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-
 // executeViaSSH はSSH Transport経由でリモートAgentと通信
 // SSHTransportは1:1接続のため、同一transport上でSend→Receiveする
 func (o *DistributedOrchestrator) executeViaSSH(ctx context.Context, sshTransport domaintransport.Transport, targetAgent string, msg domaintransport.Message) (string, error) {
@@ -459,50 +374,8 @@ func (o *DistributedOrchestrator) executeViaLocal(ctx context.Context, targetAge
 	return o.transports.ExecuteViaLocal(ctx, targetAgent, msg, receiveOnAgent)
 }
 
-func transportMode(sshTransports map[string]domaintransport.Transport, targetAgent string) string {
-	if _, ok := sshTransports[targetAgent]; ok {
-		return "ssh"
-	}
-	return "local"
-}
-
-func routeAndChannelFromMessage(msg domaintransport.Message) (route, channel, chatID string) {
-	if msg.Context == nil {
-		return "", "", ""
-	}
-	route = stringContextValue(msg.Context, "route")
-	channel = stringContextValue(msg.Context, "channel")
-	chatID = stringContextValue(msg.Context, "chat_id")
-	return route, channel, chatID
-}
-
-func stringContextValue(ctx map[string]interface{}, key string) string {
-	raw, ok := ctx[key]
-	if !ok || raw == nil {
-		return ""
-	}
-	v, ok := raw.(string)
-	if !ok {
-		return ""
-	}
-	return v
-}
-
-// distributedWaitTimeout はエージェント種別とメッセージ内容に基づくタイムアウト時間を返す（パッケージレベル関数）。
-// テストから直接呼べるよう、デフォルト定数を使う版。
-func distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
-	switch {
-	case strings.HasPrefix(targetAgent, "coder"):
-		return distributedCoderTimeout
-	case targetAgent == "shiro" && msg.Proposal != nil:
-		return distributedWorkerTimeout
-	default:
-		return distributedDefaultTimeout
-	}
-}
-
 func (o *DistributedOrchestrator) distributedWaitTimeout(targetAgent string, msg domaintransport.Message) time.Duration {
-	if strings.HasPrefix(targetAgent, "coder") {
+	if isCoderAgent(targetAgent) {
 		return o.coderTimeoutOrDefault()
 	}
 	return distributedWaitTimeout(targetAgent, msg)
@@ -541,50 +414,6 @@ func isCodeRoute(route routing.Route) bool {
 	default:
 		return false
 	}
-}
-
-func displayAgentName(agentID string) string {
-	switch strings.ToLower(agentID) {
-	case "mio":
-		return "みお"
-	case "shiro":
-		return "しろ"
-	case "coder1":
-		return "あか"
-	case "coder2":
-		return "あお"
-	case "coder3":
-		return "ぎん"
-	default:
-		return agentID
-	}
-}
-
-func routeNoticeText(route routing.Route, userMessage string) string {
-	switch route {
-	case routing.RouteCHAT:
-		return "みおが会話として対応するよ。"
-	case routing.RouteOPS:
-		return "しろに運用作業をお願いしたよ。"
-	case routing.RoutePLAN:
-		return "計画モードで整理するよ。"
-	case routing.RouteANALYZE:
-		return "分析として進めるよ。"
-	case routing.RouteRESEARCH:
-		return "調査タスクとして進めるよ。"
-	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
-		return fmt.Sprintf("しろ経由でコーディング依頼に回したよ（依頼: %s）。", truncateForNote(userMessage, 32))
-	default:
-		return "処理経路を決めて進めるよ。"
-	}
-}
-
-func truncateForNote(s string, max int) string {
-	r := []rune(strings.TrimSpace(s))
-	if len(r) <= max {
-		return string(r)
-	}
-	return string(r[:max]) + "..."
 }
 
 func (o *DistributedOrchestrator) withAttributionGuard(t task.Task, targetAgent, sessionID string) task.Task {
