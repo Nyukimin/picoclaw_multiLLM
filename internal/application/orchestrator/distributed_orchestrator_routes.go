@@ -13,7 +13,7 @@ import (
 type distributedAutonomousExecutor func(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error)
 type distributedCodeExecutor func(ctx context.Context, t task.Task, route routing.Route, sessionID, jid string) (string, error)
 type distributedRouteToAgent func(route routing.Route) string
-type distributedAttributionGuard func(t task.Task, targetAgent, sessionID string) task.Task
+type distributedAttributionGuardFunc func(t task.Task, targetAgent, sessionID string) task.Task
 type distributedAgentTransportExecutor func(ctx context.Context, targetAgent string, msg domaintransport.Message) (domaintransport.Message, error)
 type distributedNoteEmitter func(from, to, content, route, jobID, sessionID, channel, chatID string)
 
@@ -29,7 +29,7 @@ type distributedRouteDispatcher struct {
 	executeAutonomous   distributedAutonomousExecutor
 	executeCodeViaShiro distributedCodeExecutor
 	routeToAgent        distributedRouteToAgent
-	withAttribution     distributedAttributionGuard
+	withAttribution     distributedAttributionGuardFunc
 	executeToAgent      distributedAgentTransportExecutor
 }
 
@@ -42,7 +42,7 @@ func newDistributedRouteDispatcher(
 	pushTTS messageTTSPusher,
 	executeCodeViaShiro distributedCodeExecutor,
 	routeToAgent distributedRouteToAgent,
-	withAttribution distributedAttributionGuard,
+	withAttribution distributedAttributionGuardFunc,
 	executeToAgent distributedAgentTransportExecutor,
 ) *distributedRouteDispatcher {
 	return &distributedRouteDispatcher{
