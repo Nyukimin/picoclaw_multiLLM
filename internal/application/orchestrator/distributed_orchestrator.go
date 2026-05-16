@@ -51,6 +51,7 @@ type DistributedOrchestrator struct {
 	autonomous    *distributedAutonomousCoordinator
 	routes        *distributedRouteDispatcher
 	transports    *distributedTransportExecutor
+	codeExecution *distributedCodeExecutionCoordinator
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -120,6 +121,16 @@ func NewDistributedOrchestrator(
 	orch.ttsLifecycle = newDistributedTTSLifecycle(nil, nil, orch.emit)
 	orch.sessions = newDistributedSessionLifecycle(sessionRepo)
 	orch.transports = newDistributedTransportExecutor(router, sshTransports, memory, orch.emitProgress, orch.distributedWaitTimeout)
+	orch.codeExecution = newDistributedCodeExecutionCoordinator(
+		memory,
+		orch.emit,
+		orch.emitNote,
+		orch.routeToCoderForMessage,
+		func() map[string]interface{} { return orch.coderConfigs },
+		orch.coderRetryMaxOrDefault,
+		orch.executeToAgentViaMailbox,
+		orch.executeToAgent,
+	)
 	orch.routes = newDistributedRouteDispatcher(
 		mio,
 		memory,
@@ -333,110 +344,7 @@ func (o *DistributedOrchestrator) executeCodeViaShiro(
 	route routing.Route,
 	sessionID, jid string,
 ) (string, error) {
-	coderAgent := o.routeToCoderForMessage(route, t.UserMessage())
-	if coderAgent == "" {
-		return "", fmt.Errorf("no coder mapped for route %s", route)
-	}
-	log.Printf("[DistributedOrch] code handoff route=%s target=%s job=%s", route, coderAgent, jid)
-
-	o.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
-	o.emitNote("mio", "user", "しろにコード実装の取りまとめをお願いしたよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-	requestText := t.UserMessage()
-
-	for attempt := 0; attempt <= o.coderRetryMaxOrDefault(); attempt++ {
-		o.emit("agent.start", "shiro", coderAgent, requestText, string(route), jid, sessionID, t.Channel(), t.ChatID())
-		if attempt == 0 {
-			o.emitNote("shiro", "mio", fmt.Sprintf("%sにコーディング依頼しました。進捗を監視して、必要なら作業を前に進めます。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
-		} else {
-			o.emit("worker.retry_request", "shiro", coderAgent, fmt.Sprintf("retry=%d", attempt), string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.emitNote("shiro", "mio", fmt.Sprintf("%sに修正版patchを再依頼します。retry=%d", displayAgentName(coderAgent), attempt), string(route), jid, sessionID, t.Channel(), t.ChatID())
-		}
-
-		coderMsg := domaintransport.NewMessage("shiro", coderAgent, sessionID, jid, requestText)
-		coderMsg.Type = domaintransport.MessageTypeTask
-		coderMsg.Context = map[string]interface{}{
-			"route":         string(route),
-			"retry_attempt": attempt,
-			"channel":       t.Channel(),
-			"chat_id":       t.ChatID(),
-		}
-		// v4.1: SSH 経由の場合、CoderConfig を Context に含める
-		if o.coderConfigs != nil {
-			if coderCfg, ok := o.coderConfigs[coderAgent]; ok {
-				coderMsg.Context["coder_config"] = coderCfg
-			}
-		}
-		o.memory.RecordMessage(coderMsg)
-
-		coderResult, err := o.executeToAgentViaMailbox(ctx, coderAgent, coderMsg, "mio")
-		if err != nil {
-			failureKind, reason, retryable := classifyDistributedExecutionError(err)
-			if retryable && attempt < o.coderRetryMaxOrDefault() {
-				o.emit("worker.classified_failure", "shiro", coderAgent, fmt.Sprintf("%s: %s", failureKind, reason), string(route), jid, sessionID, t.Channel(), t.ChatID())
-				requestText = buildCoderRetryInstruction(t.UserMessage(), nil, failureKind, reason, attempt+1)
-				continue
-			}
-			return "", err
-		}
-		o.emit("agent.response", coderAgent, "shiro", coderResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.emitNote(coderAgent, "shiro", "おわったっす。", string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.emitNote("shiro", "mio", fmt.Sprintf("%sの結果を受け取って、内容確認と仕上げを進めます。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
-
-		if coderResult.Proposal == nil {
-			o.emit("agent.start", "shiro", "mio", "Coder結果をShiroで整形", string(route), jid, sessionID, t.Channel(), t.ChatID())
-			shiroTask := domaintransport.NewMessage("mio", "shiro", sessionID, jid, coderResult.Content)
-			shiroTask.Type = domaintransport.MessageTypeTask
-			shiroTask.Context = map[string]interface{}{
-				"route":       string(route),
-				"coder_agent": coderAgent,
-				"channel":     t.Channel(),
-				"chat_id":     t.ChatID(),
-			}
-			o.memory.RecordMessage(shiroTask)
-			shiroResult, err := o.executeToAgent(ctx, "shiro", shiroTask)
-			if err != nil {
-				return "", err
-			}
-			o.emit("agent.response", "shiro", "mio", shiroResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-			o.emitNote("shiro", "mio", fmt.Sprintf("%sの作業が終わりました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
-			return shiroResult.Content, nil
-		}
-
-		o.emit("agent.start", "shiro", "mio", "CoderのProposalをWorker実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
-
-		execMsg := domaintransport.NewMessage("mio", "shiro", sessionID, jid, "Execute coder proposal")
-		execMsg.Type = domaintransport.MessageTypeTask
-		execMsg.Context = map[string]interface{}{
-			"route":         string(route),
-			"coder_agent":   coderAgent,
-			"retry_attempt": attempt,
-			"channel":       t.Channel(),
-			"chat_id":       t.ChatID(),
-		}
-		execMsg.Proposal = coderResult.Proposal
-		o.memory.RecordMessage(execMsg)
-
-		shiroResult, err := o.executeToAgent(ctx, "shiro", execMsg)
-		if err != nil {
-			failureKind, reason, retryable := classifyDistributedExecutionError(err)
-			if retryable && attempt < o.coderRetryMaxOrDefault() {
-				o.emit("worker.classified_failure", "shiro", coderAgent, fmt.Sprintf("%s: %s", failureKind, reason), string(route), jid, sessionID, t.Channel(), t.ChatID())
-				requestText = buildCoderRetryInstruction(t.UserMessage(), coderResult.Proposal, failureKind, reason, attempt+1)
-				continue
-			}
-			return "", err
-		}
-		o.emit("agent.response", "shiro", "mio", shiroResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
-		o.emitNote("shiro", "mio", fmt.Sprintf("%sの作業が終わりました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
-
-		if retryReq, ok := nextCoderRetryRequest(t.UserMessage(), coderResult.Proposal, shiroResult, attempt); ok {
-			requestText = retryReq
-			continue
-		}
-		return shiroResult.Content, nil
-	}
-
-	return "", fmt.Errorf("coder retry budget exhausted for job %s", jid)
+	return o.codeExecution.Execute(ctx, t, route, sessionID, jid)
 }
 
 func nextCoderRetryRequest(userMessage string, proposal *domaintransport.ProposalPayload, shiroResult domaintransport.Message, attempt int) (string, bool) {
