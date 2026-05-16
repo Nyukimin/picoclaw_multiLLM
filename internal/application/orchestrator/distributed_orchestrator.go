@@ -48,6 +48,8 @@ type DistributedOrchestrator struct {
 	maxRepair     int           // 0以下は1とみなす
 	coderTimeout  time.Duration // 0以下は distributedCoderTimeout とみなす
 	coderRetryMax int           // 0以下は distributedCoderRetryMax とみなす
+	events        *distributedEventPort
+	evidence      *distributedEvidenceReporter
 }
 
 // SetMaxRepair は自律実行のリペア上限を設定する（デフォルト: 1）
@@ -103,7 +105,7 @@ func NewDistributedOrchestrator(
 	if sshTransports == nil {
 		sshTransports = make(map[string]domaintransport.Transport)
 	}
-	return &DistributedOrchestrator{
+	orch := &DistributedOrchestrator{
 		sessionRepo:   sessionRepo,
 		mio:           mio,
 		router:        router,
@@ -112,6 +114,9 @@ func NewDistributedOrchestrator(
 		nodeSelector:  NewNodeSelector(),
 		nodeCaps:      make(map[string]domainnode.ResourceProfile),
 	}
+	orch.events = newDistributedEventPort(nil)
+	orch.evidence = newDistributedEvidenceReporter(nil)
+	return orch
 }
 
 // SetNodeCapabilities sets capability map used by RouteCODE coder selection.
@@ -131,10 +136,16 @@ func (o *DistributedOrchestrator) SetCoderConfigs(configs map[string]interface{}
 // SetEventListener sets an optional listener for monitoring events.
 func (o *DistributedOrchestrator) SetEventListener(l EventListener) {
 	o.listener = l
+	if o.events != nil {
+		o.events.SetListener(l)
+	}
 }
 
 func (o *DistributedOrchestrator) SetReportStore(store ReportStore) {
 	o.reporter = store
+	if o.evidence != nil {
+		o.evidence.SetReportStore(store)
+	}
 }
 
 // SetIdleNotifier sets an optional notifier used to control idle chat.
@@ -161,19 +172,15 @@ func (o *DistributedOrchestrator) SetVTuberBridge(b VTuberBridge) {
 }
 
 func (o *DistributedOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
-	if o.listener == nil {
-		return
-	}
-	o.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID))
+	o.events.Emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID)
 }
 
 func (o *DistributedOrchestrator) emitNote(from, to, content, route, jobID, sessionID, channel, chatID string) {
-	o.emit("agent.note", from, to, content, route, jobID, sessionID, channel, chatID)
+	o.events.EmitNote(from, to, content, route, jobID, sessionID, channel, chatID)
 }
 
 func (o *DistributedOrchestrator) emitProgress(eventType, from, to, content string, msg domaintransport.Message) {
-	route, channel, chatID := routeAndChannelFromMessage(msg)
-	o.emit(eventType, from, to, content, route, msg.JobID, msg.SessionID, channel, chatID)
+	o.events.EmitProgress(eventType, from, to, content, msg)
 }
 
 // ProcessMessage は既存MessageOrchestratorと同じシグネチャでメッセージを処理
@@ -291,97 +298,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 }
 
 func (o *DistributedOrchestrator) saveExecutionReport(ctx context.Context, jobID, goal, route string, startedAt, finishedAt time.Time, runErr error) {
-	if o.reporter == nil || strings.TrimSpace(jobID) == "" || strings.TrimSpace(goal) == "" {
-		return
-	}
-	report := domainexecution.ExecutionReport{
-		JobID:        jobID,
-		Goal:         goal,
-		Route:        strings.ToUpper(strings.TrimSpace(route)),
-		Status:       "passed",
-		ErrorKind:    "",
-		Acceptance:   distributedAcceptance(route),
-		Verification: distributedVerification(route, runErr),
-		Steps:        distributedEvidenceSteps(route, runErr),
-		AttemptCount: 1,
-		RepairCount:  0,
-		Error:        "",
-		CreatedAt:    startedAt,
-		FinishedAt:   finishedAt,
-	}
-	if runErr != nil {
-		report.Status = "failed"
-		report.ErrorKind = distributedEvidenceErrorKind(runErr)
-		report.Error = runErr.Error()
-	}
-	if err := o.reporter.Save(ctx, report); err != nil {
-		log.Printf("[DistributedOrch] evidence save failed: job=%s err=%v", jobID, err)
-	}
-}
-
-func distributedAcceptance(route string) []string {
-	items := []string{"ルーティング完了", "最終応答生成"}
-	switch strings.ToUpper(strings.TrimSpace(route)) {
-	case "CHAT":
-		items = append(items, "Mio 応答完了")
-	case "OPS":
-		items = append(items, "Worker 応答完了")
-	case "CODE", "CODE1", "CODE2", "CODE3", "CODE4":
-		items = append(items, "Coder 実行完了", "Worker 取りまとめ完了")
-	default:
-		items = append(items, "Agent 応答完了")
-	}
-	return items
-}
-
-func distributedVerification(route string, runErr error) []string {
-	items := []string{"viewer jobs に記録されること"}
-	if strings.TrimSpace(route) != "" {
-		items = append(items, fmt.Sprintf("route=%s", strings.ToUpper(strings.TrimSpace(route))))
-	}
-	if runErr == nil {
-		items = append(items, "final:passed")
-		return items
-	}
-	items = append(items, "final:failed")
-	return items
-}
-
-func distributedEvidenceSteps(route string, runErr error) []string {
-	items := []string{"message.received", "routing.decision"}
-	switch strings.ToUpper(strings.TrimSpace(route)) {
-	case "CHAT":
-		items = append(items, "mio.chat")
-	case "OPS":
-		items = append(items, "shiro.execute")
-	case "CODE", "CODE1", "CODE2", "CODE3", "CODE4":
-		items = append(items, "shiro.delegate", "coder.execute", "shiro.verify")
-	default:
-		items = append(items, "agent.execute")
-	}
-	if runErr != nil {
-		items = append(items, "error")
-	} else {
-		items = append(items, "done")
-	}
-	return items
-}
-
-func distributedEvidenceErrorKind(runErr error) string {
-	if runErr == nil {
-		return ""
-	}
-	lower := strings.ToLower(runErr.Error())
-	switch {
-	case strings.Contains(lower, "verify"):
-		return "verify"
-	case strings.Contains(lower, "repair"), strings.Contains(lower, "retry"):
-		return "repair"
-	case strings.Contains(lower, "patch"), strings.Contains(lower, "command"), strings.Contains(lower, "timeout"), strings.Contains(lower, "error"):
-		return "apply"
-	default:
-		return "other"
-	}
+	o.evidence.Save(ctx, jobID, goal, route, startedAt, finishedAt, runErr)
 }
 
 func (o *DistributedOrchestrator) loadOrCreateSession(ctx context.Context, id, channel, chatID string) (*session.Session, error) {
