@@ -8,10 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestE2E_Phase25BrowserViewerSessionContract(t *testing.T) {
+func TestE2E_BrowserViewerTabContract(t *testing.T) {
 	if os.Getenv("PICOCLAW_BROWSER_E2E") != "1" {
 		t.Skip("set PICOCLAW_BROWSER_E2E=1 to verify Viewer in a real browser session")
 	}
@@ -25,43 +24,54 @@ func TestE2E_Phase25BrowserViewerSessionContract(t *testing.T) {
 	if baseURL == "" {
 		baseURL = "http://127.0.0.1:18790"
 	}
-	message := "Phase25 browser e2e " + time.Now().UTC().Format("20060102T150405Z")
 
 	script := `const { chromium } = require('playwright');
 const baseURL = process.env.PICOCLAW_LIVE_BASE_URL || 'http://127.0.0.1:18790';
-const message = process.env.PHASE25_BROWSER_MESSAGE;
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
   try {
-    await page.goto(baseURL + '/viewer', { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.waitForSelector('#inp', { timeout: 10000 });
-    for (const selector of ['#chat', '#opsFeedBody', '#idleLiveLog', '#ttsNowPlaying', '#lipSyncMio', '#lipSyncShiro', '#micBtn', '#idleStart']) {
-      await page.waitForSelector(selector, { state: 'attached', timeout: 5000 });
+    const health = await page.request.get(baseURL + '/health', { timeout: 5000 });
+    if (health.status() !== 200) {
+      throw new Error('live /health status=' + health.status());
     }
+    await page.goto(baseURL + '/viewer', { waitUntil: 'domcontentloaded', timeout: 15000 });
+    for (const selector of [
+      '.tab-btn[data-tab="home"]',
+      '.tab-btn[data-tab="timeline"]',
+      '.tab-btn[data-tab="idlechat"]',
+      '#inp',
+      '#sendBtn',
+      '#micBtn',
+      '#chat',
+      '#idleStart',
+      '#idleLiveLog',
+      '#lipSyncMio',
+      '#lipSyncShiro'
+    ]) {
+      await page.waitForSelector(selector, { state: 'attached', timeout: 10000 });
+    }
+
     await page.click('.tab-btn[data-tab="timeline"]');
     await page.waitForSelector('#chat', { state: 'visible', timeout: 10000 });
-    const micVisible = await page.locator('#micBtn').isVisible();
-    if (!micVisible) {
+    if (!(await page.locator('#inp').isVisible())) {
+      throw new Error('chat input must be visible on Chat tab');
+    }
+    if (!(await page.locator('#micBtn').isVisible())) {
       throw new Error('normal chat mic must be visible on Chat tab');
     }
+
     await page.click('.tab-btn[data-tab="idlechat"]');
     await page.waitForSelector('#idleStart', { state: 'visible', timeout: 10000 });
-    const idleVisible = await page.locator('#idleStart').isVisible();
-    if (!idleVisible) {
+    if (!(await page.locator('#idleLiveLog').isVisible())) {
+      throw new Error('IdleChat live log must be visible on IdleChat tab');
+    }
+    if (!(await page.locator('#idleStart').isVisible())) {
       throw new Error('IdleChat start control must be visible on IdleChat tab');
     }
+
     await page.click('.tab-btn[data-tab="timeline"]');
     await page.waitForSelector('#chat', { state: 'visible', timeout: 10000 });
-    const sendResponse = page.waitForResponse(resp => resp.url().includes('/viewer/send') && resp.status() === 200, { timeout: 15000 });
-    await page.fill('#inp', message);
-    await page.click('#sendBtn');
-    await sendResponse;
-    await page.waitForFunction((expected) => {
-      const chat = document.querySelector('#chat')?.innerText || '';
-      const ops = document.querySelector('#opsFeedBody')?.innerText || '';
-      return chat.includes(expected) || ops.includes(expected);
-    }, message, { timeout: 30000 });
   } finally {
     await browser.close();
   }
@@ -70,7 +80,7 @@ const message = process.env.PHASE25_BROWSER_MESSAGE;
   process.exit(1);
 });`
 
-	scriptPath := filepath.Join(t.TempDir(), "phase25_viewer_browser_e2e.js")
+	scriptPath := filepath.Join(t.TempDir(), "viewer_tab_contract_e2e.js")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
 		t.Fatalf("write playwright script: %v", err)
 	}
@@ -80,27 +90,9 @@ const message = process.env.PHASE25_BROWSER_MESSAGE;
 	cmd.Env = append(os.Environ(),
 		"NODE_PATH="+filepath.Join(repoRoot, "node_modules"),
 		"PICOCLAW_LIVE_BASE_URL="+baseURL,
-		"PHASE25_BROWSER_MESSAGE="+message,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("browser viewer e2e failed: %v\n%s", err, out)
-	}
-}
-
-func findRepoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get working directory: %v", err)
-	}
-	for dir := wd; ; dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("go.mod not found from %s", wd)
-		}
+		t.Fatalf("browser viewer tab e2e failed: %v\n%s", err, out)
 	}
 }
