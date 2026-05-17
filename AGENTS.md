@@ -28,6 +28,7 @@
    - `rules/common/rules_testing.md`
    - `rules/common/rules_logging.md`
    - `rules/routing-policy.md`
+   - `rules/rules_viewer_ui.md`
    - `rules/rules_domain.md`
 
 実装判断で迷った場合、**一次参照は `docs/01_正本仕様/実装仕様.md`** とする。
@@ -320,6 +321,8 @@ Go のテスト実行例：
   プロジェクト概要と全体整理
 - `rules/routing-policy.md`
   ルーティング判断の実務ポリシー
+- `rules/rules_viewer_ui.md`
+  RenCrow Viewer の新 UI / 新タブ追加時の見た目と情報量の実務ルール
 - `docs/01_正本仕様/実装仕様.md`  
   実装の一次参照
 
@@ -347,6 +350,7 @@ Go のテスト実行例：
 ### プロジェクト固有ルール
 - `rules/PROJECT_AGENT.md`
 - `rules/routing-policy.md`
+- `rules/rules_viewer_ui.md`
 - `rules/rules_domain.md`
 
 ### archive 参照ルール
