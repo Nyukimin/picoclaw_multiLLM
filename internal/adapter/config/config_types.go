@@ -349,6 +349,7 @@ type STTConfig struct {
 	Language       string            `yaml:"language"`
 	Model          string            `yaml:"model"`
 	TimeoutMS      int               `yaml:"timeout_ms"`
+	BusyPolicy     string            `yaml:"busy_policy"`
 	VAD            bool              `yaml:"vad"`
 	EndpointPath   string            `yaml:"endpoint_path"`
 	ProviderURL    string            `yaml:"provider_url"`

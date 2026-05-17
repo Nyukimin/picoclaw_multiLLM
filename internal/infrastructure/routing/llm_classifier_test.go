@@ -62,6 +62,12 @@ func TestLLMClassifier_Classify_CHAT(t *testing.T) {
 	if decision.Reason == "" {
 		t.Error("Reason should not be empty")
 	}
+	if len(decision.Evidence) != 1 {
+		t.Fatalf("evidence count=%d, want 1", len(decision.Evidence))
+	}
+	if decision.Evidence[0].Source != routing.EvidenceSourceClassifier || !decision.Evidence[0].Matched {
+		t.Fatalf("unexpected classifier evidence: %#v", decision.Evidence[0])
+	}
 }
 
 func TestLLMClassifier_Classify_CODE(t *testing.T) {
@@ -168,6 +174,12 @@ func TestLLMClassifier_Classify_InvalidRoute(t *testing.T) {
 
 	if decision.Confidence > 0.5 {
 		t.Errorf("Expected low confidence for invalid route, got %f", decision.Confidence)
+	}
+	if len(decision.Evidence) != 1 {
+		t.Fatalf("evidence count=%d, want 1", len(decision.Evidence))
+	}
+	if decision.Evidence[0].Source != routing.EvidenceSourceSafeFallback || !decision.Evidence[0].Matched {
+		t.Fatalf("unexpected fallback evidence: %#v", decision.Evidence[0])
 	}
 }
 

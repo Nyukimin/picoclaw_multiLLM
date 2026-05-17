@@ -77,18 +77,57 @@ func NewMioAgent(
 func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
 	// 優先度1: 明示コマンド
 	if explicitRoute := m.parseExplicitCommand(t.UserMessage()); explicitRoute != "" {
-		return routing.NewDecision(explicitRoute, 1.0, "Explicit command"), nil
+		return routing.NewDecisionWithEvidence(explicitRoute, 1.0, "Explicit command",
+			routing.DecisionEvidence{
+				Source:     routing.EvidenceSourceExplicitCommand,
+				Matched:    true,
+				Route:      explicitRoute,
+				Confidence: 1.0,
+				Reason:     "explicit command matched",
+			},
+		), nil
+	}
+	evidence := []routing.DecisionEvidence{
+		{
+			Source:  routing.EvidenceSourceExplicitCommand,
+			Matched: false,
+			Reason:  "no explicit command matched",
+		},
 	}
 
 	// 優先度2: ルール辞書
 	if route, confidence, matched := m.ruleDictionary.Match(t); matched {
-		return routing.NewDecision(route, confidence, "Rule dictionary match"), nil
+		evidence = append(evidence, routing.DecisionEvidence{
+			Source:     routing.EvidenceSourceRuleDictionary,
+			Matched:    true,
+			Route:      route,
+			Confidence: confidence,
+			Reason:     "rule dictionary matched",
+		})
+		return routing.NewDecisionWithEvidence(route, confidence, "Rule dictionary match", evidence...), nil
 	}
+	evidence = append(evidence, routing.DecisionEvidence{
+		Source:  routing.EvidenceSourceRuleDictionary,
+		Matched: false,
+		Reason:  "no rule dictionary match",
+	})
+	evidence = append(evidence, routing.DecisionEvidence{
+		Source:  routing.EvidenceSourceClassifier,
+		Matched: false,
+		Reason:  "classifier skipped",
+	})
+	evidence = append(evidence, routing.DecisionEvidence{
+		Source:     routing.EvidenceSourceSafeFallback,
+		Matched:    true,
+		Route:      routing.RouteCHAT,
+		Confidence: 0.7,
+		Reason:     "default to CHAT",
+	})
 
 	// 優先度3: 安全側フォールバック（CHAT）
 	// 技術的キーワードがルール辞書で捕捉されなかったメッセージは会話として処理
 	// LLM分類器は精度向上のためのオプション（レイテンシ優先で現在はスキップ）
-	return routing.NewDecision(routing.RouteCHAT, 0.7, "No rule match, default to CHAT"), nil
+	return routing.NewDecisionWithEvidence(routing.RouteCHAT, 0.7, "No rule match, default to CHAT", evidence...), nil
 }
 
 // Chat は会話を実行（v5.1: ConversationEngine + キーワードベース自動Web検索）

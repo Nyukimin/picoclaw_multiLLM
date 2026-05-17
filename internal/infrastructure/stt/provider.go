@@ -130,14 +130,18 @@ func (p HTTPProvider) Transcribe(ctx context.Context, wav []byte) (Result, error
 
 func NewProvider(cfg Config) Provider {
 	cfg = cfg.WithDefaults()
+	var provider Provider
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case ProviderMock:
-		return MockProvider{Text: "ルミナ、今日の予定を確認して。"}
+		provider = MockProvider{Text: "ルミナ、今日の予定を確認して。"}
+	case ProviderOpenAIAPI:
+		provider = HTTPProvider{URL: cfg.ExternalHTTPURL, Timeout: cfg.Timeout, Provider: ProviderOpenAIAPI, Model: cfg.Model, Language: cfg.Language}
 	case ProviderExternalHTTP:
-		return HTTPProvider{URL: cfg.ExternalHTTPURL, Timeout: cfg.Timeout, Provider: ProviderExternalHTTP, Model: cfg.Model, Language: cfg.Language}
+		provider = HTTPProvider{URL: cfg.ExternalHTTPURL, Timeout: cfg.Timeout, Provider: ProviderExternalHTTP, Model: cfg.Model, Language: cfg.Language}
 	default:
-		return HTTPProvider{URL: cfg.ExternalHTTPURL, Timeout: cfg.Timeout, Provider: ProviderExternalHTTP, Model: cfg.Model, Language: cfg.Language}
+		provider = HTTPProvider{URL: cfg.ExternalHTTPURL, Timeout: cfg.Timeout, Provider: ProviderExternalHTTP, Model: cfg.Model, Language: cfg.Language}
 	}
+	return NewBusyPolicyProvider(provider, cfg.BusyPolicy)
 }
 
 func fallback(v, d string) string {

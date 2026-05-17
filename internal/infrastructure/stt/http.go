@@ -130,6 +130,8 @@ func statusForError(code string) int {
 		return http.StatusBadRequest
 	case ErrorProviderTimeout:
 		return http.StatusGatewayTimeout
+	case ErrorProviderBusy:
+		return http.StatusTooManyRequests
 	case ErrorProviderFailure:
 		return http.StatusBadGateway
 	default:

@@ -8,10 +8,13 @@ import (
 	telegramadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels/telegram"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
+	attachmentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 )
 
 func buildChannelRuntimeHandlers(cfg *config.Config, deps *Dependencies, proc messageProcessor) {
-	deps.lineHandler = line.NewHandler(proc, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
+	lineHandler := line.NewHandler(proc, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
+	lineHandler.SetAttachmentSaver(attachmentapp.NewStore(cfg.WorkspaceDir))
+	deps.lineHandler = lineHandler
 	if strings.TrimSpace(cfg.Telegram.BotToken) != "" {
 		tg := telegramadapter.NewAdapter(cfg.Telegram.BotToken, proc)
 		tg.SetWebhookSecret(cfg.Telegram.WebhookSecret)

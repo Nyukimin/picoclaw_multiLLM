@@ -289,6 +289,9 @@ func (c *Config) setDefaults() {
 	if c.STT.TimeoutMS <= 0 {
 		c.STT.TimeoutMS = 8000
 	}
+	if c.STT.BusyPolicy == "" {
+		c.STT.BusyPolicy = "queue_latest"
+	}
 	if c.STT.EndpointPath == "" {
 		c.STT.EndpointPath = "/stt"
 	}

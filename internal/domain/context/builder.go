@@ -32,6 +32,7 @@ var DefaultBootstrapFiles = []BootstrapFile{
 type Builder struct {
 	workspaceDir string
 	memoryStore  memory.Store // nilを許容
+	skillDirs    []string
 }
 
 // NewBuilder は新しい Builder を作成する
@@ -44,6 +45,12 @@ func NewBuilder(workspaceDir string) *Builder {
 // WithMemoryStore はメモリストアを設定する（オプション）
 func (b *Builder) WithMemoryStore(store memory.Store) *Builder {
 	b.memoryStore = store
+	return b
+}
+
+// WithSkillDirs は skill context を読み込むディレクトリを優先順に設定する。
+func (b *Builder) WithSkillDirs(skillDirs ...string) *Builder {
+	b.skillDirs = append([]string{}, skillDirs...)
 	return b
 }
 
@@ -86,9 +93,12 @@ func (b *Builder) BuildContext(route string) string {
 
 // BuildSkillsSummary は skills/ 配下の SKILL.md から概要一覧を生成する
 func (b *Builder) BuildSkillsSummary() string {
-	skillsDir := filepath.Join(b.workspaceDir, "skills")
-	loader := NewSkillsLoader(skillsDir)
-	skills, err := loader.LoadAll()
+	skillDirs := b.skillDirs
+	if len(skillDirs) == 0 {
+		skillDirs = []string{filepath.Join(b.workspaceDir, "skills")}
+	}
+	loader := NewSkillsLoader(skillDirs[0])
+	skills, err := loader.LoadAllFromDirs(skillDirs...)
 	if err != nil || len(skills) == 0 {
 		return ""
 	}

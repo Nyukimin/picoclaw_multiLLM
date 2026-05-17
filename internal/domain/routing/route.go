@@ -51,6 +51,23 @@ type Decision struct {
 	Route      Route   // 決定されたルート
 	Confidence float64 // 確信度（0.0 - 1.0）
 	Reason     string  // 決定理由
+	Evidence   []DecisionEvidence
+}
+
+const (
+	EvidenceSourceExplicitCommand = "explicit_command"
+	EvidenceSourceRuleDictionary  = "rule_dictionary"
+	EvidenceSourceClassifier      = "classifier"
+	EvidenceSourceSafeFallback    = "safe_fallback"
+)
+
+// DecisionEvidence は route 判定の各段階で何が起きたかを構造化して表す。
+type DecisionEvidence struct {
+	Source     string
+	Matched    bool
+	Route      Route
+	Confidence float64
+	Reason     string
 }
 
 // NewDecision は新しいDecisionを作成
@@ -59,5 +76,15 @@ func NewDecision(route Route, confidence float64, reason string) Decision {
 		Route:      route,
 		Confidence: confidence,
 		Reason:     reason,
+	}
+}
+
+// NewDecisionWithEvidence は route 判定理由を構造化 evidence とともに返す。
+func NewDecisionWithEvidence(route Route, confidence float64, reason string, evidence ...DecisionEvidence) Decision {
+	return Decision{
+		Route:      route,
+		Confidence: confidence,
+		Reason:     reason,
+		Evidence:   evidence,
 	}
 }

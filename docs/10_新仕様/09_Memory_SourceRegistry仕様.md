@@ -76,6 +76,20 @@ Web search result や外部ソースは、Source Registry / KB として保存�
 
 `cmd/kb-admin`、`cmd/vocabulary`、`cmd/picoclaw/cli_knowledge.go` は Knowledge DB の初期投入・確認・運用補助である。CLI から投入する場合も、未検証外部データを直接 confirmed memory として扱わない。
 
+## 外部入力 risk metadata
+
+外部ソース、添付、channel message は、本文や memory と混ぜずに risk metadata を持つ。
+
+現行実装では `internal/domain/security.DetectPromptInjectionWarnings` が代表的な prompt injection pattern を検出し、attachment の `SecurityWarnings` に保存する。これは拒否判定そのものではなく、外部入力を扱う downstream が警告として参照するための metadata である。
+
+検出対象の例:
+
+- previous instruction の無視要求。
+- system prompt の開示要求。
+- tool / shell / command 実行の誘導。
+
+warning 付き外部入力を、検証済み memory や prompt 方針として昇格してはいけない。
+
 ## L1 SQLite
 
 L1SQLite は hot store として次を扱う。

@@ -1,6 +1,9 @@
 package context
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -139,5 +142,86 @@ func TestFormatSummary(t *testing.T) {
 	}
 	if lines != 3 {
 		t.Errorf("expected 3 skills in summary")
+	}
+}
+
+func TestSkillsLoader_LoadAllFromDirsWorkspaceOverridesPrompts(t *testing.T) {
+	dir := t.TempDir()
+	workspaceSkills := filepath.Join(dir, "workspace", "skills")
+	promptSkills := filepath.Join(dir, "prompts", "skills")
+	mustWriteSkill(t, filepath.Join(promptSkills, "file_read"), `---
+name: file_read
+description: Prompt file read.
+---
+
+# file_read`)
+	mustWriteSkill(t, filepath.Join(workspaceSkills, "file_read"), `---
+name: file_read
+description: Workspace file read.
+---
+
+# file_read`)
+	mustWriteSkill(t, filepath.Join(promptSkills, "shell"), `---
+name: shell
+description: Shell context only.
+---
+
+# shell`)
+
+	loader := NewSkillsLoader(workspaceSkills)
+	skills, err := loader.LoadAllFromDirs(workspaceSkills, promptSkills)
+	if err != nil {
+		t.Fatalf("LoadAllFromDirs failed: %v", err)
+	}
+
+	summary := loader.FormatSummary(skills)
+	if !strings.Contains(summary, "file_read: Workspace file read.") {
+		t.Fatalf("workspace skill should override prompt skill: %s", summary)
+	}
+	if strings.Contains(summary, "Prompt file read.") {
+		t.Fatalf("prompt duplicate should be skipped: %s", summary)
+	}
+	if !strings.Contains(summary, "shell: Shell context only.") {
+		t.Fatalf("non-duplicate prompt skill should be included: %s", summary)
+	}
+}
+
+func TestSkillsLoader_LoadAllFromDirsSkipsBrokenSkillAndRemainsContextOnly(t *testing.T) {
+	dir := t.TempDir()
+	skillsDir := filepath.Join(dir, "skills")
+	mustWriteSkill(t, filepath.Join(skillsDir, "broken"), `---
+name: broken
+description: missing closing frontmatter`)
+	mustWriteSkill(t, filepath.Join(skillsDir, "write"), `---
+name: write
+description: Write files.
+category: mutation
+---
+
+# write`)
+
+	loader := NewSkillsLoader(skillsDir)
+	skills, err := loader.LoadAllFromDirs(skillsDir)
+	if err != nil {
+		t.Fatalf("LoadAllFromDirs failed: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("skills count=%d, want 1: %#v", len(skills), skills)
+	}
+	if skills[0].Name != "write" {
+		t.Fatalf("skill name=%q, want write", skills[0].Name)
+	}
+	if skills[0].CanExecute {
+		t.Fatal("loaded skills are context only and must not grant execution permission")
+	}
+}
+
+func mustWriteSkill(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
 	}
 }

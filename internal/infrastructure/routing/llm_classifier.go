@@ -43,15 +43,31 @@ func (c *LLMClassifier) Classify(ctx context.Context, t task.Task) (routing.Deci
 	}
 
 	// LLM応答からルートを抽出
-	route := c.parseRoute(resp.Content)
+	route, matched := c.parseRouteWithMatch(resp.Content)
 	confidence := c.calculateConfidence(route, resp.Content)
 	reason := fmt.Sprintf("LLM classified as %s", route)
+	source := routing.EvidenceSourceClassifier
+	if !matched {
+		source = routing.EvidenceSourceSafeFallback
+		reason = "LLM classification fallback to CHAT"
+	}
 
-	return routing.NewDecision(route, confidence, reason), nil
+	return routing.NewDecisionWithEvidence(route, confidence, reason, routing.DecisionEvidence{
+		Source:     source,
+		Matched:    true,
+		Route:      route,
+		Confidence: confidence,
+		Reason:     reason,
+	}), nil
 }
 
 // parseRoute はLLM応答からルートを抽出
 func (c *LLMClassifier) parseRoute(response string) routing.Route {
+	route, _ := c.parseRouteWithMatch(response)
+	return route
+}
+
+func (c *LLMClassifier) parseRouteWithMatch(response string) (routing.Route, bool) {
 	// レスポンスをトリムして大文字化
 	trimmed := strings.TrimSpace(response)
 	upper := strings.ToUpper(trimmed)
@@ -74,12 +90,12 @@ func (c *LLMClassifier) parseRoute(response string) routing.Route {
 
 	for _, vr := range validRoutes {
 		if strings.Contains(upper, vr.key) {
-			return vr.route
+			return vr.route, true
 		}
 	}
 
 	// 無効なルート名の場合はCHATにフォールバック
-	return routing.RouteCHAT
+	return routing.RouteCHAT, false
 }
 
 // calculateConfidence は信頼度を計算

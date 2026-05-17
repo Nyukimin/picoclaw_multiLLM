@@ -92,6 +92,12 @@ func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 			if decision.Confidence != 1.0 {
 				t.Errorf("Expected confidence 1.0 for explicit command, got %f", decision.Confidence)
 			}
+			if len(decision.Evidence) == 0 || decision.Evidence[0].Source != routing.EvidenceSourceExplicitCommand {
+				t.Fatalf("explicit command evidence missing: %#v", decision.Evidence)
+			}
+			if !decision.Evidence[0].Matched || decision.Evidence[0].Route != tt.expectedRoute {
+				t.Fatalf("unexpected explicit command evidence: %#v", decision.Evidence[0])
+			}
 		})
 	}
 }
@@ -129,6 +135,15 @@ func TestMioAgentDecideAction_RuleDictionary(t *testing.T) {
 
 	if decision.Confidence != 0.95 {
 		t.Errorf("Expected confidence 0.95, got %f", decision.Confidence)
+	}
+	if len(decision.Evidence) < 2 {
+		t.Fatalf("expected explicit and rule evidence, got %#v", decision.Evidence)
+	}
+	if decision.Evidence[0].Source != routing.EvidenceSourceExplicitCommand || decision.Evidence[0].Matched {
+		t.Fatalf("unexpected explicit evidence: %#v", decision.Evidence[0])
+	}
+	if decision.Evidence[1].Source != routing.EvidenceSourceRuleDictionary || !decision.Evidence[1].Matched {
+		t.Fatalf("unexpected rule evidence: %#v", decision.Evidence[1])
 	}
 }
 
@@ -169,6 +184,23 @@ func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
 
 	if classifierCalled {
 		t.Error("Classifier should not be called when defaulting to CHAT")
+	}
+	if len(decision.Evidence) != 4 {
+		t.Fatalf("evidence count=%d, want 4: %#v", len(decision.Evidence), decision.Evidence)
+	}
+	wantSources := []string{
+		routing.EvidenceSourceExplicitCommand,
+		routing.EvidenceSourceRuleDictionary,
+		routing.EvidenceSourceClassifier,
+		routing.EvidenceSourceSafeFallback,
+	}
+	for i, source := range wantSources {
+		if decision.Evidence[i].Source != source {
+			t.Fatalf("evidence[%d].source=%q, want %q", i, decision.Evidence[i].Source, source)
+		}
+	}
+	if !decision.Evidence[3].Matched || decision.Evidence[3].Route != routing.RouteCHAT {
+		t.Fatalf("unexpected fallback evidence: %#v", decision.Evidence[3])
 	}
 }
 

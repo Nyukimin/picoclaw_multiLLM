@@ -61,9 +61,24 @@ adapter input
 
 fallback は正常系ではなく、分類できなかった場合の安全側経路である。
 
+route 判定は `routing.Decision.Evidence` に、明示コマンド、ルール辞書、分類器、安全側 fallback の各段階を `DecisionEvidence` として残す。event log の `routing.decision` には evidence summary を含める。これは Worker execution evidence とは別であり、route 判定の根拠だけを扱う。
+
 自然文の実装、修正、更新、テスト追加の依頼は `CODE2` を優先する。Proposal を生成できる Coder であれば、Worker が policy / protected file / workspace を確認して patch 実行へ進む。
 
 `CODE1` から `CODE4` は Shiro 経由の autonomous route として扱う。provider 未接続や distributed 実機接続が不足する場合は、成功扱いにせず案内・ログ・report で区別する。
+
+## capability adaptation
+
+Coder 自動選択は route 判定そのものとは別責務として扱う。
+
+| 領域 | 主担当 | 内容 |
+| --- | --- | --- |
+| node capability 観測 | `internal/infrastructure/capability`, `cmd/picoclaw/runtime_capability.go` | OS / memory / LLM provider availability / ToolRegistry を起動時に観測する |
+| capability contract | `internal/domain/capability` | `NodeCapabilities`, `LLMCapability`, `ToolCapability`, profile, coder selection evidence を保持する |
+| runtime wiring | `cmd/picoclaw/runtime_coders.go`, `cmd/picoclaw/runtime_orchestrator.go` | config と観測結果から coder capability を構成し、MessageOrchestrator へ渡す |
+| Coder 選択 | `internal/application/orchestrator/code_executor*.go` | route の要求品質、利用可能 coder、縮退先を使って実行先 Coder を選ぶ |
+
+`SelectCoderWithEvidence` は、選択結果だけでなく要求品質、選択 Coder、縮退 route、候補ごとの除外理由を `CoderSelectionEvidence` として返す。Application はこの evidence をログへ残す。これは routing evidence とは別であり、Mio が `CODE3` などを選んだ理由ではなく、Worker がどの Coder へ渡したかの能力根拠である。
 
 ## plan / patch / execution の境界
 
@@ -102,9 +117,12 @@ prompt 本文は Go source へ埋め込まず、外部ファイルとして扱�
 | --- | --- | --- |
 | PromptBundle | `internal/adapter/config/promptbundle`, `internal/adapter/config/prompts.go` | manifest と prompt file を読み込み、runtime へ渡す |
 | character prompts | `prompts/characters/*`, `prompts/*.md` | Mio / Shiro / Coder などの system / policy / routing / knowledge |
+| skill context loader | `internal/domain/context/skills_loader.go`, `internal/domain/context/builder.go`, `workspace/skills`, `prompts/skills` | SKILL.md の metadata / context summary を読む。workspace が prompts より優先され、同名 skill は先勝ち |
 | Persona registry | `internal/infrastructure/persona`, `workspace/` | persona / styleguide の保存と読み込み |
 
 prompt、persona、runtime memory は近いが、同じ state として扱わない。prompt は初期方針、persona は人格・文体設定、memory は runtime により増える観測データである。
+
+skill context は prompt 補助であり、実行権限ではない。`SkillMetadata.CanExecute` は loader では常に false とし、shell / file / web などの実行は ToolRunner、Worker execution、security policy を必ず通る。
 
 ## 実装箇所
 
@@ -123,6 +141,7 @@ prompt、persona、runtime memory は近いが、同じ state として扱わな
 | autonomous / subagent execution | `internal/application/autonomous`, `internal/application/subagent`, `cmd/picoclaw/autonomous_entry.go` |
 | distributed execution / transport | `internal/application/orchestrator/distributed_orchestrator_*.go`, `internal/domain/transport`, `internal/infrastructure/transport` |
 | prompt bundle / external prompts | `internal/adapter/config/promptbundle`, `internal/adapter/config/prompts.go`, `prompts/` |
+| skill context loader | `internal/domain/context/skills_loader.go`, `internal/domain/context/builder.go`, `workspace/skills`, `prompts/skills` |
 | persona / light memory | `internal/infrastructure/persona`, `internal/domain/agent/light_memory.go` |
 
 ## 検証

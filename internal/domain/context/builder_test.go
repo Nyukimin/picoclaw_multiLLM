@@ -127,3 +127,28 @@ func TestBuildSkillsSummary_Empty(t *testing.T) {
 		t.Errorf("expected empty, got %q", got)
 	}
 }
+
+func TestBuildSkillsSummary_WithSkillDirsWorkspacePriority(t *testing.T) {
+	dir := t.TempDir()
+	workspaceSkills := filepath.Join(dir, "workspace", "skills")
+	promptSkills := filepath.Join(dir, "prompts", "skills")
+	os.MkdirAll(filepath.Join(workspaceSkills, "file_read"), 0755)
+	os.MkdirAll(filepath.Join(promptSkills, "file_read"), 0755)
+	os.MkdirAll(filepath.Join(promptSkills, "web_search"), 0755)
+	os.WriteFile(filepath.Join(workspaceSkills, "file_read", "SKILL.md"), []byte("# Workspace file read"), 0644)
+	os.WriteFile(filepath.Join(promptSkills, "file_read", "SKILL.md"), []byte("# Prompt file read"), 0644)
+	os.WriteFile(filepath.Join(promptSkills, "web_search", "SKILL.md"), []byte("# Web search"), 0644)
+
+	b := NewBuilder(filepath.Join(dir, "workspace")).WithSkillDirs(workspaceSkills, promptSkills)
+	got := b.BuildSkillsSummary()
+
+	if !strings.Contains(got, "file_read: Workspace file read") {
+		t.Fatalf("expected workspace file_read skill: %q", got)
+	}
+	if strings.Contains(got, "Prompt file read") {
+		t.Fatalf("prompt duplicate should not override workspace: %q", got)
+	}
+	if !strings.Contains(got, "web_search: Web search") {
+		t.Fatalf("expected prompt-only skill: %q", got)
+	}
+}

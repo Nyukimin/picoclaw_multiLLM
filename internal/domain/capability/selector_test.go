@@ -118,3 +118,78 @@ func TestSelectCoder_SameQuality_AlphabeticalOrder(t *testing.T) {
 		t.Errorf("expected coder2 (alphabetically first among equal quality), got %s", selected)
 	}
 }
+
+func TestSelectCoderWithEvidence_RecordsCapabilityDecision(t *testing.T) {
+	coders := []capability.CoderCapability{
+		{Name: "coder1", Quality: 3, Available: true},
+		{Name: "coder2", Quality: 4, Available: true},
+		{Name: "coder3", Quality: 5, Available: false},
+	}
+
+	selected, degraded, evidence, err := capability.SelectCoderWithEvidence(coders, routing.RouteCODE3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if selected != "coder2" {
+		t.Fatalf("selected=%q, want coder2", selected)
+	}
+	if degraded != routing.RouteCODE2 {
+		t.Fatalf("degraded=%q, want CODE2", degraded)
+	}
+	if evidence.RequestedRoute != routing.RouteCODE3 {
+		t.Fatalf("requested route=%q, want CODE3", evidence.RequestedRoute)
+	}
+	if evidence.RequiredQuality != 5 {
+		t.Fatalf("required quality=%d, want 5", evidence.RequiredQuality)
+	}
+	if evidence.Selected != "coder2" || evidence.SelectedQuality != 4 {
+		t.Fatalf("selected evidence=%s/%d, want coder2/4", evidence.Selected, evidence.SelectedQuality)
+	}
+	if evidence.DegradedRoute != routing.RouteCODE2 {
+		t.Fatalf("evidence degraded route=%q, want CODE2", evidence.DegradedRoute)
+	}
+	if len(evidence.Candidates) != 3 {
+		t.Fatalf("candidate count=%d, want 3", len(evidence.Candidates))
+	}
+	assertCandidate := func(name, reason string) {
+		t.Helper()
+		for _, candidate := range evidence.Candidates {
+			if candidate.Name == name {
+				if candidate.Reason != reason {
+					t.Fatalf("%s reason=%q, want %q", name, candidate.Reason, reason)
+				}
+				return
+			}
+		}
+		t.Fatalf("candidate %s not found in evidence", name)
+	}
+	assertCandidate("coder1", capability.SelectionReasonBelowRequiredQuality)
+	assertCandidate("coder2", capability.SelectionReasonSelectedWithDegradation)
+	assertCandidate("coder3", capability.SelectionReasonUnavailable)
+}
+
+func TestSelectCoderWithEvidence_AllUnavailableStillReturnsEvidence(t *testing.T) {
+	coders := []capability.CoderCapability{
+		{Name: "coder1", Quality: 3, Available: false},
+		{Name: "coder2", Quality: 4, Available: false},
+	}
+
+	_, _, evidence, err := capability.SelectCoderWithEvidence(coders, routing.RouteCODE2)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if evidence.RequestedRoute != routing.RouteCODE2 {
+		t.Fatalf("requested route=%q, want CODE2", evidence.RequestedRoute)
+	}
+	if evidence.Selected != "" {
+		t.Fatalf("selected=%q, want empty", evidence.Selected)
+	}
+	if len(evidence.Candidates) != 2 {
+		t.Fatalf("candidate count=%d, want 2", len(evidence.Candidates))
+	}
+	for _, candidate := range evidence.Candidates {
+		if candidate.Reason != capability.SelectionReasonUnavailable {
+			t.Fatalf("%s reason=%q, want unavailable", candidate.Name, candidate.Reason)
+		}
+	}
+}

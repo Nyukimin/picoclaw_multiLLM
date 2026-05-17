@@ -57,6 +57,9 @@ func TestHandleSendAttachmentE2EAcceptsImageAndText(t *testing.T) {
 		if got.Attachments[1].Kind != domainattachment.KindDocument {
 			t.Fatalf("second attachment kind = %q", got.Attachments[1].Kind)
 		}
+		if got.Attachments[1].ExtractedText != "hello text" {
+			t.Fatalf("text attachment ExtractedText = %q", got.Attachments[1].ExtractedText)
+		}
 		for _, att := range got.Attachments {
 			if _, err := os.Stat(att.Path); err != nil {
 				t.Fatalf("stored attachment missing: %s: %v", att.Path, err)

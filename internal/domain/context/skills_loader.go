@@ -19,24 +19,36 @@ func NewSkillsLoader(skillsDir string) *SkillsLoader {
 
 // LoadAll はすべてのスキルメタデータを読み込む
 func (l *SkillsLoader) LoadAll() ([]SkillMetadata, error) {
-	entries, err := os.ReadDir(l.skillsDir)
-	if err != nil {
-		return nil, err
-	}
+	return l.LoadAllFromDirs(l.skillsDir)
+}
 
+// LoadAllFromDirs は複数の skills/ ディレクトリを優先順に読み込む。
+// 同名 skill は先に渡したディレクトリのものを採用する。
+func (l *SkillsLoader) LoadAllFromDirs(skillDirs ...string) ([]SkillMetadata, error) {
 	var skills []SkillMetadata
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		skillFile := filepath.Join(l.skillsDir, entry.Name(), "SKILL.md")
-		data, err := os.ReadFile(skillFile)
+	seen := make(map[string]bool)
+	for _, skillsDir := range skillDirs {
+		entries, err := os.ReadDir(skillsDir)
 		if err != nil {
-			continue
+			return nil, err
 		}
 
-		meta := parseSkillFile(string(data), entry.Name())
-		if meta.Name != "" {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			skillFile := filepath.Join(skillsDir, entry.Name(), "SKILL.md")
+			data, err := os.ReadFile(skillFile)
+			if err != nil {
+				continue
+			}
+
+			meta := parseSkillFile(string(data), entry.Name())
+			if meta.Name == "" || seen[meta.Name] {
+				continue
+			}
+			meta.CanExecute = false
+			seen[meta.Name] = true
 			skills = append(skills, meta)
 		}
 	}

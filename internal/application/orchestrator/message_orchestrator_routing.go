@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -26,7 +27,26 @@ func (c *routeDecisionCoordinator) Decide(ctx context.Context, t task.Task, req 
 		return routing.Decision{}, fmt.Errorf("routing decision failed: %w", err)
 	}
 	c.emit("routing.decision", "mio", "",
-		fmt.Sprintf("confidence %.0f%%", decision.Confidence*100),
+		fmt.Sprintf("confidence %.0f%% evidence=%s", decision.Confidence*100, routeDecisionEvidenceSummary(decision.Evidence)),
 		string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 	return decision, nil
+}
+
+func routeDecisionEvidenceSummary(evidence []routing.DecisionEvidence) string {
+	if len(evidence) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(evidence))
+	for _, ev := range evidence {
+		state := "miss"
+		if ev.Matched {
+			state = "matched"
+		}
+		route := string(ev.Route)
+		if route == "" {
+			route = "-"
+		}
+		parts = append(parts, fmt.Sprintf("%s:%s:%s", ev.Source, state, route))
+	}
+	return strings.Join(parts, ",")
 }

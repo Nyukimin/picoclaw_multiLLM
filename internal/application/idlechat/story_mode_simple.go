@@ -164,6 +164,12 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 		}
 	}
 	body := strings.Join(bodyLines, "\n")
+	validation := validateSimpleStoryDraft(tale.title, protagonist, titleLine, body)
+	if !validation.Valid {
+		log.Printf("[SimpleStory] invalid story: %s", validation.Reason)
+		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, titleLine, "", transcript, startedAt, "invalid_story:"+validation.Reason)
+		return
+	}
 
 	if titleLine != "" {
 		titleSpeech := fmt.Sprintf("改題は『%s』。", titleLine)
@@ -184,6 +190,44 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, titleLine, body, transcript, startedAt, "")
 
 	log.Printf("[SimpleStory] Session complete: %s × %s", tale.title, protagonist)
+}
+
+type simpleStoryValidationResult struct {
+	Valid  bool
+	Reason string
+}
+
+func validateSimpleStoryDraft(sourceTitle, protagonist, storyTitle, storyText string) simpleStoryValidationResult {
+	body := strings.TrimSpace(storyText)
+	if utf8.RuneCountInString(body) < 120 {
+		return simpleStoryValidationResult{Reason: "too_short"}
+	}
+	if !strings.Contains(body, protagonist) && !strings.Contains(storyTitle, protagonist) {
+		return simpleStoryValidationResult{Reason: "missing_protagonist"}
+	}
+	if containsHypotheticalFrame(body) || containsHypotheticalFrame(storyTitle) {
+		return simpleStoryValidationResult{Reason: "hypothetical_frame"}
+	}
+	if containsAnyStoryMetaText(body) {
+		return simpleStoryValidationResult{Reason: "meta_text"}
+	}
+	if strings.TrimSpace(sourceTitle) == "" {
+		return simpleStoryValidationResult{Reason: "missing_source"}
+	}
+	return simpleStoryValidationResult{Valid: true}
+}
+
+func containsHypotheticalFrame(text string) bool {
+	normalized := strings.ReplaceAll(text, " ", "")
+	return strings.Contains(normalized, "もし") &&
+		(strings.Contains(normalized, "だったら") || strings.Contains(normalized, "なら"))
+}
+
+func containsAnyStoryMetaText(text string) bool {
+	return strings.Contains(text, "本文のみ") ||
+		strings.Contains(text, "解説") ||
+		strings.Contains(text, "メタ発言") ||
+		strings.Contains(text, "条件:")
 }
 
 func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTitle, protagonist, storyTitle, storyText string, transcript []string, startedAt time.Time, loopReason string) {

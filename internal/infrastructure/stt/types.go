@@ -9,21 +9,28 @@ import (
 
 const (
 	ProviderExternalHTTP = "external_http"
+	ProviderOpenAIAPI    = "openai-api"
 	ProviderMock         = "mock"
 
 	ErrorNoSpeechDetected = "NO_SPEECH_DETECTED"
 	ErrorInvalidAudio     = "INVALID_AUDIO"
 	ErrorProviderFailure  = "PROVIDER_FAILURE"
 	ErrorProviderTimeout  = "PROVIDER_TIMEOUT"
+	ErrorProviderBusy     = "PROVIDER_BUSY"
+
+	BusyPolicyQueueLatest = "queue_latest"
+	BusyPolicyReject      = "reject"
+	BusyPolicyDirect      = "direct"
 )
 
 type Config struct {
-	Enabled   bool
-	Provider  string
-	Language  string
-	Model     string
-	Timeout   time.Duration
-	SaveAudio bool
+	Enabled    bool
+	Provider   string
+	Language   string
+	Model      string
+	Timeout    time.Duration
+	SaveAudio  bool
+	BusyPolicy string
 
 	ExternalHTTPURL string
 	HelperCommand   string
@@ -39,6 +46,9 @@ func (c Config) WithDefaults() Config {
 	}
 	if c.Timeout <= 0 {
 		c.Timeout = 8 * time.Second
+	}
+	if strings.TrimSpace(c.BusyPolicy) == "" {
+		c.BusyPolicy = BusyPolicyQueueLatest
 	}
 	return c
 }

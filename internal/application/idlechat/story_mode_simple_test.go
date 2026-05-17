@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,45 @@ type blockingStoryProvider struct {
 	started chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+func TestValidateSimpleStoryDraftRejectsWeakStory(t *testing.T) {
+	result := validateSimpleStoryDraft("桃太郎", "AIロボット", "もし桃太郎がAIロボットだったら面白いです。", "仮説だけの短文です。")
+	if result.Valid {
+		t.Fatal("expected invalid story")
+	}
+	if result.Reason == "" {
+		t.Fatal("expected validation reason")
+	}
+}
+
+func TestValidateSimpleStoryDraftAcceptsChangedProtagonistStory(t *testing.T) {
+	body := strings.Repeat("AIロボットは村の回覧板を解析し、犬と猿と雉に役割を配った。鬼ヶ島では交渉ログを突きつけ、盗まれた米俵を取り戻した。", 3)
+	result := validateSimpleStoryDraft("桃太郎", "AIロボット", "桃と回覧板のロボ太郎", body)
+	if !result.Valid {
+		t.Fatalf("expected valid story, got %s", result.Reason)
+	}
+}
+
+func TestRunSimpleStorySessionRecordsInvalidStoryWithoutBodySuccess(t *testing.T) {
+	provider := &queuedQualityProvider{responses: []string{
+		"【もしもの桃太郎】\nもし桃太郎がAIロボットだったら面白いです。",
+		"QUALITY: fail\nISSUES:\n- invalid story\nPROMPT_FIX: 主人公改変を事件と解決に落とす。",
+	}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+
+	o.RunSimpleStorySession()
+
+	history := o.GetHistory(1)
+	if len(history) != 1 {
+		t.Fatalf("history count=%d, want 1", len(history))
+	}
+	if !history[0].LoopRestarted || !strings.HasPrefix(history[0].LoopReason, "invalid_story:") {
+		t.Fatalf("expected invalid_story loop reason, got %#v", history[0])
+	}
+	if history[0].StoryText != "" {
+		t.Fatalf("invalid story should not be stored as successful story text: %q", history[0].StoryText)
+	}
 }
 
 func (p *blockingStoryProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {

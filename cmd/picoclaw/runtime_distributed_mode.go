@@ -9,6 +9,7 @@ import (
 	telegramadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels/telegram"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/line"
+	attachmentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
@@ -139,7 +140,9 @@ func (d *Dependencies) buildDistributedMode(
 	if d.eventRelay != nil {
 		distOrch.SetEventListener(d.eventRelay)
 	}
-	d.lineHandler = line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
+	lineHandler := line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
+	lineHandler.SetAttachmentSaver(attachmentapp.NewStore(cfg.WorkspaceDir))
+	d.lineHandler = lineHandler
 	if strings.TrimSpace(cfg.Telegram.BotToken) != "" {
 		tg := telegramadapter.NewAdapter(cfg.Telegram.BotToken, distOrch)
 		tg.SetWebhookSecret(cfg.Telegram.WebhookSecret)

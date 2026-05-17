@@ -111,6 +111,7 @@ func buildSTTProvider(cfg *config.Config) sttinfra.Provider {
 		Model:           cfg.STT.Model,
 		Timeout:         time.Duration(cfg.STT.TimeoutMS) * time.Millisecond,
 		SaveAudio:       cfg.STT.Debug.SaveAudio,
+		BusyPolicy:      cfg.STT.BusyPolicy,
 		ExternalHTTPURL: cfg.STT.ProviderURL,
 	}
 	return sttinfra.NewProvider(providerCfg)

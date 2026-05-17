@@ -14,6 +14,7 @@ import (
 	"time"
 
 	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
+	domainsecurity "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/security"
 )
 
 // IncomingFile is a transport-neutral upload passed into the attachment store.
@@ -117,15 +118,21 @@ func (s *Store) SaveAll(ctx context.Context, files []IncomingFile) ([]domainatta
 			return nil, fmt.Errorf("write attachment: %w", err)
 		}
 		sum := sha256.Sum256(data)
+		extractedText, extractionError, extractionTruncated := extractAttachmentText(filename, contentType, data)
+		securityWarnings := domainsecurity.DetectPromptInjectionWarnings(extractedText)
 		out = append(out, domainattachment.Attachment{
-			ID:          id,
-			Kind:        kind,
-			Filename:    filename,
-			ContentType: contentType,
-			SizeBytes:   int64(len(data)),
-			Path:        path,
-			SHA256:      hex.EncodeToString(sum[:]),
-			Data:        data,
+			ID:                  id,
+			Kind:                kind,
+			Filename:            filename,
+			ContentType:         contentType,
+			SizeBytes:           int64(len(data)),
+			Path:                path,
+			SHA256:              hex.EncodeToString(sum[:]),
+			ExtractedText:       extractedText,
+			ExtractionError:     extractionError,
+			ExtractionTruncated: extractionTruncated,
+			SecurityWarnings:    securityWarnings,
+			Data:                data,
 		})
 	}
 	return out, nil

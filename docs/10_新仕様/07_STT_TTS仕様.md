@@ -38,6 +38,22 @@ STT input は通常 chat に流す。IdleChat に直接流さない。
 - trailing silence がないと final text に進まない場合がある。
 - gateway 未設定時の fallback は品質低下を伴う回復経路であり、正常系として扱わない。
 
+### provider / busy policy
+
+STT provider は `internal/infrastructure/stt` の `Provider` 境界で扱う。
+
+| 項目 | 内容 |
+| --- | --- |
+| `external_http` | 既存の外部 HTTP STT provider。`provider_url` へ WAV multipart を送る。 |
+| `openai-api` | OpenAI-compatible transcription endpoint 用 engine 名。実装は HTTP provider 境界を使うが、engine 名を `external_http` と分けて記録する。 |
+| `busy_policy: queue_latest` | provider が処理中の場合、pending は最新 1 件だけ保持し、古い pending は `PROVIDER_BUSY` として supersede する。 |
+| `busy_policy: reject` | provider が処理中の場合、新規入力を `PROVIDER_BUSY` で拒否する。 |
+| `busy_policy: direct` | busy policy wrapper を通さず provider を直接呼ぶ。検証や特殊運用向け。 |
+
+`queue_latest` は無制限 queue ではない。古い pending を破棄した場合も成功扱いにせず、error code として追跡する。
+
+STT provider failure、timeout、busy、no speech は通常 chat 成功として隠さない。STT input は final text になった場合だけ通常 chat に接続し、IdleChat へ直接流さない。
+
 ## TTS
 
 ### 出力経路
@@ -91,6 +107,8 @@ live / browser では次を確認する。
 - mic permission
 - WebSocket 接続
 - final text
+- busy policy が `queue_latest` / `reject` の期待動作をすること
+- `openai-api` engine 名が provider 状態として区別されること
 - normal chat 入力への接続
 - TTS provider response
 - browser playback

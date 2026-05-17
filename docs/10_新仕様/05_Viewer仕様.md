@@ -49,6 +49,20 @@ Viewer は運用・会話・記憶の観測 UI を持つ。
 - Source Registry 操作: source の登録、JSON/YAML import/export、個別 run、fetch / validate / promote を操作する。
 - Viewer upload / attachment: Viewer 入力に添付情報を付与し、routing classification と本文表示を混同しない。
 
+## Viewer upload / attachment
+
+Viewer 添付は `internal/domain/attachment` の contract に正規化してから orchestration へ渡す。
+
+- image は file metadata と raw data を保持し、画像対応 provider へ `MessagePartImage` として渡せる。
+- text / JSON / YAML / XML / CSV / Markdown は UTF-8 text として本文抽出し、`ExtractedText` に保存する。
+- PDF は依存を増やさない軽量抽出を行い、埋め込み literal text を取れる場合だけ `ExtractedText` に保存する。
+- 抽出できない PDF は upload 自体を失敗にせず、`ExtractionError` として attachment metadata に残す。
+- 抽出本文に prompt injection pattern が含まれる場合は、拒否とは別の `SecurityWarnings` metadata に残す。
+- 抽出本文は routing classification の補助情報であり、Viewer 表示本文や正式 memory state と混同しない。
+- OCR、画像 PDF 高精度解析、外部クラウド抽出、添付本文の無審査 memory promote は現行範囲外である。
+
+外部チャネル添付は Viewer upload と同じ `Attachment` contract へ寄せる。現行実装では LINE の `image` / `file` message を media download して attachment pipeline へ渡す。Slack / Discord / Telegram の file payload 正規化は未実装であり、channel ごとの署名検証と download 失敗を Application attachment 境界へ混ぜない。
+
 ## route / API
 
 代表的な route:
@@ -102,6 +116,8 @@ Viewer 変更では DOM 存在だけで完了扱いしない。
 - 入力できる。
 - `/viewer/send` が成功する。
 - route と response が対応する。
+- 添付 text / PDF の抽出結果または抽出エラーが attachment metadata として追える。
+- prompt injection warning が本文や memory と混ざらず metadata として追える。
 - SSE event が届く。
 - event log / history に残る。
 - error / invalid response が隠れない。

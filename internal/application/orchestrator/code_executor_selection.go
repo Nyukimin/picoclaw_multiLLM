@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -38,15 +39,18 @@ func (e *DefaultCodeExecutor) selectCoderForRoute(route routing.Route) (codeTarg
 }
 
 func (e *DefaultCodeExecutor) selectDynamicCoderForRoute(route routing.Route) (codeTarget, error) {
-	chosen, degraded, err := capability.SelectCoder(e.coderCaps, route)
+	chosen, degraded, evidence, err := capability.SelectCoderWithEvidence(e.coderCaps, route)
 	if err != nil {
+		log.Printf("[CodeExecutor] coder selection failed route=%s required_quality=%d evidence=%s err=%v",
+			route, evidence.RequiredQuality, coderSelectionEvidenceSummary(evidence), err)
 		return codeTarget{}, fmt.Errorf("%s route: %w", route, err)
 	}
 	coder := e.coderByName(chosen)
 	if coder == nil {
 		return codeTarget{}, fmt.Errorf("%s route: selected coder %s is not initialized", route, chosen)
 	}
-	log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=dynamic degraded=%s", route, chosen, degraded)
+	log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=dynamic degraded=%s required_quality=%d selected_quality=%d evidence=%s",
+		route, chosen, degraded, evidence.RequiredQuality, evidence.SelectedQuality, coderSelectionEvidenceSummary(evidence))
 	return codeTarget{
 		name:          chosen,
 		coder:         coder,
@@ -62,6 +66,17 @@ func (e *DefaultCodeExecutor) selectExplicitCoderForRoute(route routing.Route, n
 	}
 	log.Printf("[CodeExecutor] coder selected route=%s target=%s mode=explicit", route, name)
 	return codeTarget{name: name, coder: coder, systemPrompt: prompt}, nil
+}
+
+func coderSelectionEvidenceSummary(evidence capability.CoderSelectionEvidence) string {
+	if len(evidence.Candidates) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(evidence.Candidates))
+	for _, candidate := range evidence.Candidates {
+		parts = append(parts, fmt.Sprintf("%s:q%d:%s", candidate.Name, candidate.Quality, candidate.Reason))
+	}
+	return strings.Join(parts, ",")
 }
 
 func (e *DefaultCodeExecutor) selectAvailableCoderForGenericRoute(route routing.Route) (codeTarget, error) {

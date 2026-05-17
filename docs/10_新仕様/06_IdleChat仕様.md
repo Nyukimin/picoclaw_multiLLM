@@ -26,6 +26,19 @@ Viewer は IdleChat の Live Timeline、Summary Review、History を表示する
 
 fallback は成功扱いしない。空応答、invalid response、generation error は失敗または回復経路として扱い、Viewer / log に隠さない。
 
+## story validator
+
+story-simple は、LLM raw response を title / body に分離したあと `validateSimpleStoryDraft` を通す。
+
+validator は次を確認する。
+
+- 本文が短すぎない。
+- 主人公改変が title または body に現れている。
+- `もし〜だったら` / `もし〜なら` の仮説フレームだけで終わっていない。
+- 解説、条件、メタ発言などの prompt 漏れを本文として扱わない。
+
+validator を通らない story は本文配信を続けず、`invalid_story:<reason>` として Summary / History に残す。これは fallback 成功ではない。
+
 ## STT との境界
 
 STT input は通常 chat に流す。IdleChat に直接流さない。
@@ -76,6 +89,7 @@ IdleChat は Viewer / TTS / log に event を出す。
 - audio trigger が本文表示と混ざらない。
 - fallback が成功扱いされない。
 - invalid response / generation error が隠れない。
+- story validator を通らない story が `invalid_story:<reason>` として残る。
 - TTS 完了待ちと break が成立する。
 
 主な確認:

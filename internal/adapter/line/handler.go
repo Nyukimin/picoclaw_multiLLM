@@ -1,18 +1,27 @@
 package line
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	adapterchannels "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels"
+	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	channelapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/channel"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
+	domainsecurity "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/security"
 )
+
+type AttachmentSaver interface {
+	SaveAll(ctx context.Context, files []appattachment.IncomingFile) ([]domainattachment.Attachment, error)
+}
 
 // Handler はLINE webhookハンドラー
 type Handler struct {
@@ -20,6 +29,8 @@ type Handler struct {
 	channelSecret   string
 	sender          *MessageSender
 	mediaDownloader *MediaDownloader
+	attachmentSaver AttachmentSaver
+	channelPolicy   *domainsecurity.ChannelPolicy
 	botUserID       string // Bot's LINE user ID for mention detection
 }
 
@@ -60,7 +71,7 @@ func (h *Handler) NormalizeEvent(event WebhookEvent, raw []byte) adapterchannels
 	}
 	return adapterchannels.ChannelEvent{
 		Channel:   "line",
-		ChatID:    event.Source.UserID,
+		ChatID:    lineChatID(event.Source),
 		UserID:    event.Source.UserID,
 		MessageID: event.Message.ID,
 		Text:      event.Message.Text,
@@ -83,6 +94,16 @@ func NewHandler(orch orchestrator.Orchestrator, channelSecret, accessToken strin
 // SetBotUserID sets the bot's user ID for mention detection in group chats
 func (h *Handler) SetBotUserID(botUserID string) {
 	h.botUserID = botUserID
+}
+
+// SetAttachmentSaver enables LINE media messages to enter the shared attachment pipeline.
+func (h *Handler) SetAttachmentSaver(saver AttachmentSaver) {
+	h.attachmentSaver = saver
+}
+
+// SetChannelPolicy enables channel-level DM/group/sender authorization.
+func (h *Handler) SetChannelPolicy(policy domainsecurity.ChannelPolicy) {
+	h.channelPolicy = &policy
 }
 
 // ServeHTTP はHTTPリクエストを処理
@@ -142,8 +163,10 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// テキストメッセージのみ処理
-		if event.Message.Type != "text" {
+		if !h.shouldProcessMessage(event) {
+			continue
+		}
+		if !h.authorizeEvent(event) {
 			continue
 		}
 
@@ -169,14 +192,27 @@ func (h *Handler) processEvent(event WebhookEvent) {
 	defer cancel()
 
 	// セッションID生成（仕様: ChatID = ユーザーID、SessionID = line:<user_id>）
-	sessionID := h.generateSessionID(event.Source.UserID)
+	chatID := lineChatID(event.Source)
+	sessionID := h.generateSessionID(chatID)
+
+	attachments, err := h.attachmentsForEvent(ctx, event)
+	if err != nil {
+		log.Printf("[Webhook] Failed to prepare LINE attachment: %v", err)
+		_ = h.sender.SendReplyMessage(ctx, event.ReplyToken, "添付ファイルを取得できませんでした。")
+		return
+	}
+	userMessage := strings.TrimSpace(event.Message.Text)
+	if userMessage == "" && len(attachments) > 0 {
+		userMessage = "添付ファイルを確認してください。"
+	}
 
 	// オーケストレータを呼び出し
 	req := orchestrator.ProcessMessageRequest{
 		SessionID:   sessionID,
 		Channel:     "line",
-		ChatID:      event.Source.UserID,
-		UserMessage: event.Message.Text,
+		ChatID:      chatID,
+		UserMessage: userMessage,
+		Attachments: attachments,
 	}
 
 	resp, err := h.orchestrator.ProcessMessage(ctx, req)
@@ -208,6 +244,104 @@ func (h *Handler) generateSessionID(userID string) string {
 	return channelapp.BuildSessionID(time.Now(), "line", userID)
 }
 
+func (h *Handler) authorizeEvent(event WebhookEvent) bool {
+	if h.channelPolicy == nil {
+		return true
+	}
+	chatID := lineChatID(event.Source)
+	decision := h.channelPolicy.Evaluate(domainsecurity.ChannelRequest{
+		Channel:    "line",
+		SourceType: event.Source.Type,
+		SenderID:   event.Source.UserID,
+		ChatID:     chatID,
+	})
+	if decision.Allowed {
+		return true
+	}
+	log.Printf("[Webhook] Channel policy denied source=%s sender=%s chat=%s reason=%s",
+		event.Source.Type, event.Source.UserID, chatID, decision.Reason)
+	if event.ReplyToken != "" && h.sender != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = h.sender.SendReplyMessage(ctx, event.ReplyToken, "このチャネルからの利用は許可されていません。")
+	}
+	return false
+}
+
+func lineChatID(source EventSource) string {
+	switch source.Type {
+	case "group":
+		if source.GroupID != "" {
+			return source.GroupID
+		}
+	case "room":
+		if source.RoomID != "" {
+			return source.RoomID
+		}
+	}
+	return source.UserID
+}
+
+func (h *Handler) shouldProcessMessage(event WebhookEvent) bool {
+	switch event.Message.Type {
+	case "text", "image", "file":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) attachmentsForEvent(ctx context.Context, event WebhookEvent) ([]domainattachment.Attachment, error) {
+	switch event.Message.Type {
+	case "image", "file":
+	default:
+		return nil, nil
+	}
+	if h.mediaDownloader == nil {
+		return nil, fmt.Errorf("line media downloader is nil")
+	}
+	if h.attachmentSaver == nil {
+		return nil, fmt.Errorf("line attachment saver is nil")
+	}
+	media, err := h.mediaDownloader.DownloadContent(ctx, event.Message.ID)
+	if err != nil {
+		return nil, err
+	}
+	contentType := http.DetectContentType(media)
+	filename := lineAttachmentFilename(event, contentType)
+	return h.attachmentSaver.SaveAll(ctx, []appattachment.IncomingFile{{
+		Filename:    filename,
+		ContentType: contentType,
+		SizeBytes:   int64(len(media)),
+		Reader:      bytes.NewReader(media),
+	}})
+}
+
+func lineAttachmentFilename(event WebhookEvent, contentType string) string {
+	if name := strings.TrimSpace(event.Message.FileName); name != "" {
+		return name
+	}
+	id := strings.TrimSpace(event.Message.ID)
+	if id == "" {
+		id = "line"
+	}
+	switch strings.TrimSpace(contentType) {
+	case "image/png":
+		return id + ".png"
+	case "image/gif":
+		return id + ".gif"
+	case "image/webp":
+		return id + ".webp"
+	case "application/pdf":
+		return id + ".pdf"
+	default:
+		if strings.HasPrefix(contentType, "text/") {
+			return id + ".txt"
+		}
+		return id + ".jpg"
+	}
+}
+
 // WebhookPayload はLINE webhookペイロード
 type WebhookPayload struct {
 	Events []WebhookEvent `json:"events"`
@@ -227,6 +361,7 @@ type EventMessage struct {
 	Type       string   `json:"type"`
 	Text       string   `json:"text"`
 	ID         string   `json:"id"`
+	FileName   string   `json:"fileName,omitempty"`
 	QuoteToken string   `json:"quoteToken"`
 	Mention    *Mention `json:"mention,omitempty"`
 }

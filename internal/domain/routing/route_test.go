@@ -53,3 +53,24 @@ func TestNewDecision(t *testing.T) {
 		t.Errorf("Expected reason 'Explicit command', got '%s'", decision.Reason)
 	}
 }
+
+func TestNewDecisionWithEvidence(t *testing.T) {
+	decision := NewDecisionWithEvidence(RouteCHAT, 0.7, "default", DecisionEvidence{
+		Source:     EvidenceSourceSafeFallback,
+		Matched:    true,
+		Route:      RouteCHAT,
+		Confidence: 0.7,
+		Reason:     "no rule match",
+	})
+
+	if len(decision.Evidence) != 1 {
+		t.Fatalf("evidence count=%d, want 1", len(decision.Evidence))
+	}
+	ev := decision.Evidence[0]
+	if ev.Source != EvidenceSourceSafeFallback {
+		t.Fatalf("source=%q, want safe_fallback", ev.Source)
+	}
+	if !ev.Matched || ev.Route != RouteCHAT || ev.Confidence != 0.7 {
+		t.Fatalf("unexpected evidence: %#v", ev)
+	}
+}

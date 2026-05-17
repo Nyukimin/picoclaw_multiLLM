@@ -16,14 +16,18 @@ const (
 
 // Attachment is the domain representation of a user supplied file.
 type Attachment struct {
-	ID          string `json:"id"`
-	Kind        Kind   `json:"kind"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	SizeBytes   int64  `json:"size_bytes"`
-	Path        string `json:"path"`
-	SHA256      string `json:"sha256"`
-	Data        []byte `json:"-"`
+	ID                  string   `json:"id"`
+	Kind                Kind     `json:"kind"`
+	Filename            string   `json:"filename"`
+	ContentType         string   `json:"content_type"`
+	SizeBytes           int64    `json:"size_bytes"`
+	Path                string   `json:"path"`
+	SHA256              string   `json:"sha256"`
+	ExtractedText       string   `json:"extracted_text,omitempty"`
+	ExtractionError     string   `json:"extraction_error,omitempty"`
+	ExtractionTruncated bool     `json:"extraction_truncated,omitempty"`
+	SecurityWarnings    []string `json:"security_warnings,omitempty"`
+	Data                []byte   `json:"-"`
 }
 
 // Limits defines accepted attachment sizes.
@@ -90,7 +94,28 @@ func SummaryLine(a Attachment) string {
 	if kind == "" {
 		kind = "file"
 	}
-	return "- " + kind + ": " + a.Filename + " (" + a.ContentType + ", " + formatBytes(a.SizeBytes) + ", path=" + a.Path + ")"
+	line := "- " + kind + ": " + a.Filename + " (" + a.ContentType + ", " + formatBytes(a.SizeBytes) + ", path=" + a.Path + ")"
+	if preview := compactPreview(a.ExtractedText, 600); preview != "" {
+		line += " 本文プレビュー: " + preview
+		if a.ExtractionTruncated {
+			line += " ..."
+		}
+	}
+	if errText := compactPreview(a.ExtractionError, 200); errText != "" {
+		line += " 抽出エラー: " + errText
+	}
+	if len(a.SecurityWarnings) > 0 {
+		line += " 警告: " + strings.Join(a.SecurityWarnings, ",")
+	}
+	return line
+}
+
+func compactPreview(s string, limit int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if limit <= 0 || len(s) <= limit {
+		return s
+	}
+	return strings.TrimSpace(s[:limit])
 }
 
 func formatBytes(n int64) string {

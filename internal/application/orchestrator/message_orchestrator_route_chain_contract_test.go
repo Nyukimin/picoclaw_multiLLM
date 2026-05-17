@@ -16,7 +16,13 @@ import (
 func TestMessageOrchestrator_RouteChainContract_RoutingDecisionBeforeDispatch(t *testing.T) {
 	repo := newMockSessionRepository()
 	mio := &mockMioAgent{
-		decision: routing.NewDecision(routing.RouteCHAT, 0.91, "chat"),
+		decision: routing.NewDecisionWithEvidence(routing.RouteCHAT, 0.91, "chat", routing.DecisionEvidence{
+			Source:     routing.EvidenceSourceRuleDictionary,
+			Matched:    true,
+			Route:      routing.RouteCHAT,
+			Confidence: 0.91,
+			Reason:     "test rule",
+		}),
 		response: "chat response",
 	}
 	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
@@ -37,6 +43,9 @@ func TestMessageOrchestrator_RouteChainContract_RoutingDecisionBeforeDispatch(t 
 	}
 	if !(messageIdx < decisionIdx && decisionIdx < startIdx && startIdx < responseIdx) {
 		t.Fatalf("unexpected route chain event order: message=%d decision=%d start=%d response=%d", messageIdx, decisionIdx, startIdx, responseIdx)
+	}
+	if !strings.Contains(rec.events[decisionIdx].Content, "evidence=rule_dictionary:matched:CHAT") {
+		t.Fatalf("routing.decision event should include structured evidence: %#v", rec.events[decisionIdx])
 	}
 }
 

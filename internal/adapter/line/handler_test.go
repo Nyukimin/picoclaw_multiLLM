@@ -9,20 +9,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
+	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	domainsecurity "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/security"
 )
 
 // mockOrchestrator はテスト用のOrchestrator
 type mockOrchestrator struct {
 	response orchestrator.ProcessMessageResponse
 	err      error
+	reqCh    chan orchestrator.ProcessMessageRequest
 }
 
 func (m *mockOrchestrator) ProcessMessage(ctx context.Context, req orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error) {
+	if m.reqCh != nil {
+		m.reqCh <- req
+	}
 	if m.err != nil {
 		return orchestrator.ProcessMessageResponse{}, m.err
 	}
@@ -88,6 +95,141 @@ func TestHandler_WebhookEndpoint_ValidMessage(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+}
+
+func TestHandler_WebhookEndpoint_LineFileMessageBecomesAttachment(t *testing.T) {
+	reqCh := make(chan orchestrator.ProcessMessageRequest, 1)
+	orch := &mockOrchestrator{
+		response: orchestrator.ProcessMessageResponse{Response: "ok", Route: routing.RouteCHAT},
+		reqCh:    reqCh,
+	}
+	handler := NewHandler(orch, "test-secret", "test-token")
+	handler.SetAttachmentSaver(appattachment.NewStore(t.TempDir()))
+
+	mediaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("missing authorization header: %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("line attachment text"))
+	}))
+	defer mediaServer.Close()
+	handler.mediaDownloader.contentEndpoint = mediaServer.URL + "/%s/content"
+
+	replyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer replyServer.Close()
+	handler.sender.replyEndpoint = replyServer.URL
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type":     "file",
+					"id":       "line-file-1",
+					"fileName": "memo.txt",
+				},
+				"source": map[string]interface{}{
+					"type":   "user",
+					"userId": "U123456",
+				},
+				"replyToken": "reply-token",
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", generateSignature(body, "test-secret"))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case got := <-reqCh:
+		if got.UserMessage != "添付ファイルを確認してください。" {
+			t.Fatalf("UserMessage = %q", got.UserMessage)
+		}
+		if len(got.Attachments) != 1 {
+			t.Fatalf("Attachments = %#v", got.Attachments)
+		}
+		att := got.Attachments[0]
+		if att.Filename != "memo.txt" || att.ExtractedText != "line attachment text" {
+			t.Fatalf("unexpected attachment: %#v", att)
+		}
+		if filepath.Base(att.Path) != "memo.txt" {
+			t.Fatalf("attachment path = %q", att.Path)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("orchestrator was not called")
+	}
+}
+
+func TestHandler_WebhookEndpoint_ChannelPolicyRejectsUnpairedGroup(t *testing.T) {
+	reqCh := make(chan orchestrator.ProcessMessageRequest, 1)
+	orch := &mockOrchestrator{
+		response: orchestrator.ProcessMessageResponse{Response: "ok", Route: routing.RouteCHAT},
+		reqCh:    reqCh,
+	}
+	handler := NewHandler(orch, "test-secret", "test-token")
+	handler.SetChannelPolicy(domainsecurity.ChannelPolicy{
+		AllowDM:      true,
+		AllowGroups:  true,
+		PairedGroups: []string{"G-paired"},
+	})
+	replyCh := make(chan struct{}, 1)
+	replyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		replyCh <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer replyServer.Close()
+	handler.sender.replyEndpoint = replyServer.URL
+
+	payload := map[string]interface{}{
+		"events": []map[string]interface{}{
+			{
+				"type": "message",
+				"message": map[string]interface{}{
+					"type": "text",
+					"text": "こんにちは",
+				},
+				"source": map[string]interface{}{
+					"type":    "group",
+					"userId":  "U123456",
+					"groupId": "G-new",
+				},
+				"replyToken": "reply-token",
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Line-Signature", generateSignature(body, "test-secret"))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-reqCh:
+		t.Fatal("orchestrator should not be called for denied group")
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-replyCh:
+	case <-time.After(time.Second):
+		t.Fatal("expected rejection reply")
 	}
 }
 

@@ -548,6 +548,7 @@ stt:
   language: "ja"
   model: "remote-stt"
   timeout_ms: 9000
+  busy_policy: "queue_latest"
   endpoint_path: "/stt"
   vad: true
   debug:
@@ -573,6 +574,9 @@ stt:
 	}
 	if cfg.STT.TimeoutMS != 9000 || cfg.STT.ProviderURL != "http://127.0.0.1:8080/inference" {
 		t.Fatalf("unexpected stt timeout/provider url: %+v", cfg.STT)
+	}
+	if cfg.STT.BusyPolicy != "queue_latest" {
+		t.Fatalf("unexpected stt busy policy: %+v", cfg.STT)
 	}
 	if cfg.STT.StreamURL != "wss://127.0.0.1:8443/stt/stream" {
 		t.Fatalf("unexpected stt stream url: %+v", cfg.STT)

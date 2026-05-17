@@ -2,10 +2,14 @@ package stt
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -109,4 +113,109 @@ func tinyWAV() []byte {
 	copy(out[36:40], "data")
 	out[40] = byte(dataSize)
 	return out
+}
+
+func TestQueuedProviderQueueLatestSupersedesPendingRequest(t *testing.T) {
+	base := &blockingProvider{release: make(chan struct{})}
+	provider := NewBusyPolicyProvider(base, BusyPolicyQueueLatest)
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := provider.Transcribe(context.Background(), namedWAV("first"))
+		firstDone <- err
+	}()
+	base.waitCalls(t, 1)
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := provider.Transcribe(context.Background(), namedWAV("second"))
+		secondDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	thirdDone := make(chan Result, 1)
+	go func() {
+		result, err := provider.Transcribe(context.Background(), namedWAV("third"))
+		if err != nil {
+			t.Errorf("third Transcribe returned error: %v", err)
+			return
+		}
+		thirdDone <- result
+	}()
+
+	select {
+	case err := <-secondDone:
+		var sttErr *Error
+		if !errors.As(err, &sttErr) || sttErr.Code != ErrorProviderBusy {
+			t.Fatalf("second error = %v, want %s", err, ErrorProviderBusy)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second request was not superseded")
+	}
+
+	close(base.release)
+
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("first Transcribe error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first request did not finish")
+	}
+	select {
+	case result := <-thirdDone:
+		if result.Text != "third" {
+			t.Fatalf("third result text = %q", result.Text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("third request did not finish")
+	}
+}
+
+func TestNewProviderSupportsOpenAIAPIEngineName(t *testing.T) {
+	provider := NewProvider(Config{Enabled: true, Provider: ProviderOpenAIAPI, ExternalHTTPURL: "http://127.0.0.1:8766/v1/audio/transcriptions"})
+	if provider.Name() != ProviderOpenAIAPI {
+		t.Fatalf("provider.Name() = %q, want %q", provider.Name(), ProviderOpenAIAPI)
+	}
+}
+
+type blockingProvider struct {
+	release chan struct{}
+	mu      sync.Mutex
+	calls   int
+}
+
+func (p *blockingProvider) Name() string { return "blocking" }
+
+func (p *blockingProvider) Health(context.Context) Health {
+	return Health{Status: "ok", Provider: p.Name(), Ready: true}
+}
+
+func (p *blockingProvider) Transcribe(_ context.Context, wav []byte) (Result, error) {
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+	<-p.release
+	return Result{Text: strings.Trim(strings.TrimSpace(string(wav[44:])), "\x00")}, nil
+}
+
+func (p *blockingProvider) waitCalls(t *testing.T, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		p.mu.Lock()
+		got := p.calls
+		p.mu.Unlock()
+		if got >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("provider calls did not reach %d", want)
+}
+
+func namedWAV(name string) []byte {
+	wav := tinyWAV()
+	return append(wav, []byte(name)...)
 }

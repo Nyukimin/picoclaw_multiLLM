@@ -1,6 +1,9 @@
 package attachment
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestKindFromContentType(t *testing.T) {
 	tests := []struct {
@@ -48,5 +51,33 @@ func TestKindFromFilename(t *testing.T) {
 	}
 	if _, ok := KindFromFilename("archive.zip"); ok {
 		t.Fatal("KindFromFilename accepted unsupported extension")
+	}
+}
+
+func TestSummaryLineIncludesExtractedDocumentTextPreview(t *testing.T) {
+	got := SummaryLine(Attachment{
+		Kind:          KindDocument,
+		Filename:      "memo.txt",
+		ContentType:   "text/plain",
+		SizeBytes:     11,
+		Path:          "/tmp/memo.txt",
+		ExtractedText: "hello text",
+	})
+	if !strings.Contains(got, "本文プレビュー: hello text") {
+		t.Fatalf("SummaryLine did not include extracted text preview: %q", got)
+	}
+}
+
+func TestSummaryLineIncludesExtractionError(t *testing.T) {
+	got := SummaryLine(Attachment{
+		Kind:            KindDocument,
+		Filename:        "broken.pdf",
+		ContentType:     "application/pdf",
+		SizeBytes:       7,
+		Path:            "/tmp/broken.pdf",
+		ExtractionError: "pdf text not found",
+	})
+	if !strings.Contains(got, "抽出エラー: pdf text not found") {
+		t.Fatalf("SummaryLine did not include extraction error: %q", got)
 	}
 }
