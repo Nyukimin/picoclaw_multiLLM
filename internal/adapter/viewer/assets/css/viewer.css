@@ -64,7 +64,7 @@ header{
   width:100%;max-width:100vw;background:transparent;overflow:hidden;position:relative;
 }
 .tabs{
-  display:flex;flex-direction:column;gap:5px;padding:14px 12px;
+  display:flex;flex-direction:column;gap:5px;padding:14px 12px calc(var(--input-h) + 24px + var(--safe-bottom));
   border-right:1px solid var(--border);background:linear-gradient(180deg,rgba(11,17,38,.60),rgba(8,12,27,.72));
   backdrop-filter:blur(18px) saturate(1.12);
   overflow:auto;min-width:0;
@@ -436,7 +436,7 @@ body.theme-compact{
 }
 body.theme-compact header{padding:calc(5px + var(--safe-top)) 16px 7px}
 body.theme-compact .logo img{height:46px !important}
-body.theme-compact .tabs{padding:8px;gap:3px}
+body.theme-compact .tabs{padding:8px 8px calc(var(--input-h) + 16px + var(--safe-bottom));gap:3px}
 body.theme-compact .tab-btn{min-height:30px;padding:7px 8px;font-size:11px;border-radius:6px}
 body.theme-compact main{padding-top:10px}
 body.theme-compact .panel{padding:0 16px}
