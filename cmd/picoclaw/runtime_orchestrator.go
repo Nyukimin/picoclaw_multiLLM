@@ -22,6 +22,7 @@ func buildOrchestratorRuntime(
 	ttsBridge orchestrator.TTSBridge,
 	vtuberBridge orchestrator.VTuberBridge,
 	bridges viewerBridgeFactories,
+	verificationRuntime verificationRuntime,
 ) {
 	if cfg.Distributed.Enabled {
 		log.Println("=== v4 Distributed Mode ===")
@@ -72,6 +73,10 @@ func buildOrchestratorRuntime(
 	orch.SetHeavyAgent(agents.Heavy)
 	orch.SetTTSBridge(ttsBridge)
 	orch.SetVTuberBridge(vtuberBridge)
+	if verificationRuntime.Pipeline != nil {
+		orch.SetVerificationPipeline(verificationRuntime.Pipeline)
+		log.Println("Verification pipeline integrated with MessageOrchestrator")
+	}
 	if deps.idleChatOrch != nil {
 		orch.SetIdleNotifier(deps.idleChatOrch)
 		log.Printf("IdleChat integrated with MessageOrchestrator")

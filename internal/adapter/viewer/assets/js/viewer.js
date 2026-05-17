@@ -103,6 +103,8 @@ const state = {
   jobs: {},
   evidence: [],
   evidenceSummary: {status: {}, error_kind: {}},
+  verificationReports: [],
+  verificationSummary: {status: {}, trigger_level: {}},
   evidenceOrder: [],
   selectedEvidenceJobID: '',
   selectedEvidenceItem: null,
@@ -1143,7 +1145,7 @@ function renderEvidence() {
   body.innerHTML = '';
   const statusFilter = (eviStatus && eviStatus.value) ? eviStatus.value : '';
   const kindFilter = (eviErrorKind && eviErrorKind.value) ? eviErrorKind.value : '';
-  const list = (state.evidence || []).filter((r) => {
+  const list = combinedEvidenceList().filter((r) => {
     if (statusFilter && String(r.status || '') !== statusFilter) return false;
     if (kindFilter && String(r.error_kind || '') !== kindFilter) return false;
     return true;
@@ -1170,22 +1172,23 @@ function renderEvidence() {
   }
 
   list.forEach((r) => {
-    const st = (r.status === 'failed') ? 'error' : (r.status === 'passed' ? 'idle' : 'running');
+    const isVerificationReport = r._kind === 'verification_report';
+    const st = isVerificationReport ? verificationStatusClass(r.status) : ((r.status === 'failed') ? 'error' : (r.status === 'passed' ? 'idle' : 'running'));
     const ek = String(r.error_kind || '');
     const stepsCount = Array.isArray(r.steps) ? r.steps.length : 0;
-    const verifyCount = Array.isArray(r.verification) ? r.verification.length : 0;
-    const latestVerify = latestVerificationLink(r.job_id || '', r.verification);
+    const verifyCount = isVerificationReport ? Number(r.claim_count || 0) : (Array.isArray(r.verification) ? r.verification.length : 0);
+    const latestVerify = isVerificationReport ? latestVerificationReportLink(r.job_id || '', r.status) : latestVerificationLink(r.job_id || '', r.verification);
     const tr = document.createElement('tr');
     if ((r.job_id || '') === (state.selectedEvidenceJobID || '')) tr.classList.add('evi-selected');
     tr.innerHTML =
-      '<td class="code">' + esc('execution_report:' + (r.job_id || '-')) + '</td>' +
+      '<td class="code">' + esc((isVerificationReport ? 'verification_report:' : 'execution_report:') + (r.job_id || '-')) + '</td>' +
       '<td class="code">' + esc(r.job_id || '-') + '</td>' +
       '<td><span class="badge ' + stateClass(st) + '">' + esc(r.status || '-') + '</span></td>' +
-      '<td><span class="badge ' + errorKindClass(ek) + '">' + esc(ek || '-') + '</span></td>' +
+      '<td><span class="badge ' + (isVerificationReport ? 'state-thinking' : errorKindClass(ek)) + '">' + esc(ek || r.trigger_level || '-') + '</span></td>' +
       '<td>' + latestVerify + '</td>' +
       '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'steps\', event)">' + esc(String(stepsCount)) + '</button></td>' +
       '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'verification\', event)">' + esc(String(verifyCount)) + '</button></td>' +
-      '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'\', event)">' + esc(short(r.goal || '-', 90)) + '</button></td>' +
+      '<td><button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(r.job_id || '') + '\', \'\', event)">' + esc(short(r.goal || r.route || '-', 90)) + '</button></td>' +
       '<td>' + esc(String(r.attempt_count || 0)) + '</td>' +
       '<td>' + esc(String(r.repair_count || 0)) + '</td>' +
       '<td>' + esc(fdt(r.finished_at)) + '</td>' +
@@ -1200,13 +1203,27 @@ function renderEvidence() {
   });
 }
 
+function combinedEvidenceList() {
+  const out = Array.isArray(state.evidence) ? state.evidence.slice() : [];
+  const seenJobs = new Set(out.map((r) => String(r.job_id || '')).filter((id) => id !== ''));
+  (state.verificationReports || []).forEach((r) => {
+    const jobID = String(r.job_id || '');
+    if (!jobID || seenJobs.has(jobID)) return;
+    out.push(Object.assign({_kind: 'verification_report'}, r));
+  });
+  return out;
+}
+
 function renderEvidenceSummary() {
   const root = document.getElementById('evidenceSummaryCards');
   if (!root) return;
   const s = state.evidenceSummary || {};
   const st = s.status || {};
   const ek = s.error_kind || {};
+  const vs = (state.verificationSummary || {}).status || {};
+  const vl = (state.verificationSummary || {}).trigger_level || {};
   const total = (st.passed || 0) + (st.failed || 0) + (st.other || 0);
+  const verifyTotal = (vs.verified || 0) + (vs.weakly_supported || 0) + (vs.unsupported || 0) + (vs.conflict || 0) + (vs.not_checked || 0);
   root.innerHTML = '' +
     '<div class="card"><h4>Evidence Total</h4><div style="font-size:22px;font-weight:700">' + esc(String(total)) + '</div></div>' +
     '<div class="card"><h4>Status</h4>' +
@@ -1219,6 +1236,14 @@ function renderEvidenceSummary() {
       '<div class="row"><span>verify</span><span class="badge state-error">' + esc(String(ek.verify || 0)) + '</span></div>' +
       '<div class="row"><span>repair</span><span class="badge state-thinking">' + esc(String(ek.repair || 0)) + '</span></div>' +
       '<div class="row"><span>none</span><span class="badge state-offline">' + esc(String(ek.none || 0)) + '</span></div>' +
+    '</div>' +
+    '<div class="card"><h4>Verification Reports</h4>' +
+      '<div class="row"><span>total</span><span class="badge state-running">' + esc(String(verifyTotal)) + '</span></div>' +
+      '<div class="row"><span>verified</span><span class="badge state-idle">' + esc(String(vs.verified || 0)) + '</span></div>' +
+      '<div class="row"><span>weak</span><span class="badge state-thinking">' + esc(String(vs.weakly_supported || 0)) + '</span></div>' +
+      '<div class="row"><span>unsupported</span><span class="badge state-error">' + esc(String(vs.unsupported || 0)) + '</span></div>' +
+      '<div class="row"><span>conflict</span><span class="badge state-error">' + esc(String(vs.conflict || 0)) + '</span></div>' +
+      '<div class="row"><span>high</span><span class="badge state-error">' + esc(String(vl.high || 0)) + '</span></div>' +
     '</div>';
 }
 
@@ -1303,12 +1328,43 @@ function refreshEvidenceSummary() {
     .catch((err) => console.error(err));
 }
 
+function refreshVerification() {
+  fetch('/viewer/verification/recent?limit=20')
+    .then((r) => {
+      if (r.status === 404) return {items: []};
+      if (!r.ok) throw new Error('verification fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.verificationReports = Array.isArray(data.items) ? data.items : [];
+      renderEvidence();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshVerificationSummary() {
+  fetch('/viewer/verification/summary')
+    .then((r) => {
+      if (r.status === 404) return {summary: {status: {}, trigger_level: {}}};
+      if (!r.ok) throw new Error('verification summary fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.verificationSummary = data.summary || {status: {}, trigger_level: {}};
+      renderEvidenceSummary();
+    })
+    .catch((err) => console.error(err));
+}
+
 function openEvidence(jobID) {
   if (!jobID) return;
   state.selectedEvidenceJobID = jobID;
   syncEvidenceQuery(jobID);
   renderEvidence();
-  fetch('/viewer/evidence/detail?job_id=' + encodeURIComponent(jobID))
+  const hasVerificationOnly = (state.verificationReports || []).some((r) => String(r.job_id || '') === String(jobID)) &&
+    !(state.evidence || []).some((r) => String(r.job_id || '') === String(jobID));
+  const detailURL = hasVerificationOnly ? '/viewer/verification/detail?job_id=' : '/viewer/evidence/detail?job_id=';
+  fetch(detailURL + encodeURIComponent(jobID))
     .then((r) => {
       if (!r.ok) {
         if (r.status === 404) throw new Error('evidence not found');
@@ -1320,7 +1376,7 @@ function openEvidence(jobID) {
       state.selectedEvidenceItem = data.item || null;
       updateEvidenceNav();
       const el = document.getElementById('evidenceDetail');
-      el.innerHTML = renderEvidenceDetail(state.selectedEvidenceItem || {});
+      el.innerHTML = hasVerificationOnly ? renderVerificationReportDetail(state.selectedEvidenceItem || {}) : renderEvidenceDetail(state.selectedEvidenceItem || {});
       if (state.selectedEvidenceFocus) {
         scrollEvidenceFocus(state.selectedEvidenceFocus);
         state.selectedEvidenceFocus = '';
@@ -1438,6 +1494,47 @@ function renderVerificationLine(v) {
     return '<span class="badge state-error">error</span> ' + esc(line);
   }
   return '<span class="badge state-offline">note</span> ' + esc(line);
+}
+
+function renderVerificationReportDetail(item) {
+  const claims = Array.isArray(item.claims) ? item.claims : [];
+  const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+  const questions = Array.isArray(item.questions) ? item.questions : [];
+  const status = String(item.status || '-');
+  const claimHTML = claims.length > 0 ? claims.map((c, i) => {
+    return String(i + 1) + '. <span class="badge ' + stateClass(verificationStatusClass(c.status)) + '">' + esc(c.status || '-') + '</span> ' + esc(c.text || '-') + ' <span class="small">' + esc(c.reason || '') + '</span>';
+  }).join('<br>') : '-';
+  const evidenceHTML = evidence.length > 0 ? evidence.map((ev, i) => {
+    const support = ev.conflicts ? 'conflict' : (ev.supports ? 'support' : 'ref');
+    const cls = ev.conflicts ? 'state-error' : (ev.supports ? 'state-idle' : 'state-offline');
+    return String(i + 1) + '. <span class="badge ' + cls + '">' + esc(support) + '</span> ' + esc(ev.source_type || '-') + ':' + esc(ev.source_id || '-') + ' <span class="small">' + esc(ev.note || '') + '</span>';
+  }).join('<br>') : '-';
+  const questionHTML = questions.length > 0 ? questions.map((q, i) => String(i + 1) + '. ' + esc(q.query || '-')).join('<br>') : '-';
+  return '' +
+    '<div class="row"><span>Job ID</span><span class="code">' + esc(item.job_id || '-') + '</span></div>' +
+    '<div class="row"><span>Status</span><span class="badge ' + stateClass(verificationStatusClass(status)) + '">' + esc(status) + '</span></div>' +
+    '<div class="row"><span>Trigger</span><span class="badge state-thinking">' + esc(item.trigger_level || '-') + '</span></div>' +
+    '<div class="row"><span>Route</span><span>' + esc(item.route || '-') + '</span></div>' +
+    '<div class="row"><span>Counts</span><span>' + esc('claims=' + String(item.claim_count || 0) + ' verified=' + String(item.verified_count || 0) + ' weak=' + String(item.weak_count || 0) + ' unsupported=' + String(item.unsupported_count || 0) + ' conflict=' + String(item.conflict_count || 0)) + '</span></div>' +
+    '<div id="evidenceSectionVerification" style="margin-top:8px"><b>Claims</b><div style="margin-top:4px;line-height:1.5">' + claimHTML + '</div></div>' +
+    '<div style="margin-top:8px"><b>Evidence Refs</b><div style="margin-top:4px;line-height:1.5">' + evidenceHTML + '</div></div>' +
+    '<div style="margin-top:8px"><b>Verification Questions</b><div style="margin-top:4px;line-height:1.5">' + questionHTML + '</div></div>' +
+    '<div style="margin-top:8px" class="small">Created: ' + esc(fdt(item.created_at)) + '</div>';
+}
+
+function verificationStatusClass(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'verified') return 'idle';
+  if (s === 'weakly_supported' || s === 'not_checked') return 'thinking';
+  if (s === 'unsupported' || s === 'conflict') return 'error';
+  return 'offline';
+}
+
+function latestVerificationReportLink(jobID, status) {
+  const cls = stateClass(verificationStatusClass(status));
+  const badge = '<span class="badge ' + cls + '">' + esc(status || '-') + '</span>';
+  if (!jobID) return badge;
+  return '<button class="ctl-btn" onclick="openEvidenceWithFocus(\'' + esc(jobID) + '\', \'verification\', event)">' + badge + '</button>';
 }
 
 function latestVerificationBadge(list) {
@@ -2415,6 +2512,8 @@ initEvidenceFromQuery();
 refreshOpsData();
 refreshEvidence();
 refreshEvidenceSummary();
+refreshVerification();
+refreshVerificationSummary();
 refreshMemorySnapshot();
 refreshRecallTraces();
 refreshViewerStatus();
@@ -2429,6 +2528,8 @@ setInterval(refreshIdleLogs, 5000);
 setInterval(refreshOpsData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
+setInterval(refreshVerification, 5000);
+setInterval(refreshVerificationSummary, 5000);
 setInterval(refreshMemorySnapshot, 15000);
 setInterval(refreshRecallTraces, 15000);
 setInterval(refreshDebugSystem, 5000);

@@ -180,6 +180,12 @@ func (c *Config) setDefaults() {
 	if c.ViewerLog.GCIntervalMinutes <= 0 {
 		c.ViewerLog.GCIntervalMinutes = 60
 	}
+	if c.Verification.Mode == "" {
+		c.Verification.Mode = "dry_run"
+	}
+	if c.Verification.DefaultLevel == "" {
+		c.Verification.DefaultLevel = "low"
+	}
 
 	// v5.1 プロンプト/workspace デフォルト
 	if c.PromptsDir == "" {
@@ -187,6 +193,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.WorkspaceDir == "" {
 		c.WorkspaceDir = "./workspace"
+	}
+	if c.Verification.ReportPath == "" {
+		c.Verification.ReportPath = c.WorkspaceDir + "/verification_report.jsonl"
 	}
 	if !c.ViewerLog.Enabled {
 		c.ViewerLog.Enabled = true

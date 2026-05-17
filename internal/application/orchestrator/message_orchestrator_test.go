@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	appverification "github.com/Nyukimin/picoclaw_multiLLM/internal/application/verification"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	domainverification "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/verification"
 )
 
 // mockSessionRepository はテスト用のSessionRepository（エラー注入対応）
@@ -135,6 +138,19 @@ func (m *mockWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID 
 	return nil, nil
 }
 
+type mockResponseVerifier struct {
+	req    appverification.Request
+	result appverification.Result
+}
+
+func (m *mockResponseVerifier) VerifyResponse(_ context.Context, req appverification.Request) (appverification.Result, error) {
+	m.req = req
+	if m.result.Response == "" {
+		m.result.Response = req.DraftResponse
+	}
+	return m.result, nil
+}
+
 type mockTTSBridge struct {
 	startReqs []TTSSessionStart
 	pushes    []string
@@ -208,6 +224,52 @@ func TestMessageOrchestrator_ProcessMessage_NewSession(t *testing.T) {
 	exists, _ := repo.Exists(context.Background(), "20260302-line-U123")
 	if !exists {
 		t.Error("Session should be saved")
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_AttachesVerificationReport(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		response: "これは2014年公開です。",
+	}
+	shiro := &mockShiroAgent{response: "executed"}
+	verifier := &mockResponseVerifier{result: appverification.Result{
+		Response: "これは2014年公開です。",
+		Report: domainverification.VerificationReport{
+			ID:           "verify_job",
+			JobID:        "job",
+			SessionID:    "20260302-line-U123",
+			Route:        "CHAT",
+			Status:       domainverification.StatusWeaklySupported,
+			TriggerLevel: domainverification.TriggerMedium,
+			CreatedAt:    time.Now().UTC(),
+		},
+	}}
+
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
+	orchestrator.SetVerificationPipeline(verifier)
+
+	resp, err := orchestrator.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "20260302-line-U123",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "作品情報を教えて",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Response != "これは2014年公開です。" {
+		t.Fatalf("verification dry-run response should preserve output, got %q", resp.Response)
+	}
+	if resp.Verification == nil {
+		t.Fatal("expected verification report")
+	}
+	if resp.Verification.Status != domainverification.StatusWeaklySupported {
+		t.Fatalf("unexpected verification status: %s", resp.Verification.Status)
+	}
+	if verifier.req.DraftResponse != "これは2014年公開です。" || verifier.req.UserMessage != "作品情報を教えて" {
+		t.Fatalf("unexpected verifier request: %+v", verifier.req)
 	}
 }
 

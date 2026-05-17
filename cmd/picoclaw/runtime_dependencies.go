@@ -50,6 +50,9 @@ type Dependencies struct {
 	viewerMemoryPromote  http.HandlerFunc                       // viewer memory promote API
 	viewerRecallTraces   http.HandlerFunc                       // viewer recall trace API
 	viewerSourceRegistry http.HandlerFunc                       // viewer source registry API
+	verificationRecent   http.HandlerFunc                       // viewer verification recent API
+	verificationDetail   http.HandlerFunc                       // viewer verification detail API
+	verificationSummary  http.HandlerFunc                       // viewer verification summary API
 	entryHandler         http.HandlerFunc                       // unified entry endpoint
 	chromeBridge         http.HandlerFunc                       // chrome bridge endpoint
 	chromeBridgeStatus   http.HandlerFunc                       // chrome bridge status endpoint
@@ -138,6 +141,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	deps.toolRegistry = runtimeToolRegistry
 	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
 	buildViewerRuntimeHandlers(cfg, deps, conversationRuntime.L1Store, conversationRuntime.Manager, reportPath)
+	verificationRuntime := buildVerificationRuntime(cfg, deps, conversationRuntime.L1Store)
 
 	ttsRuntime := buildTTSEntryRuntime(cfg)
 	vtuberBridge := buildVTuberBridge(cfg)
@@ -196,6 +200,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		ttsBridge,
 		vtuberBridge,
 		bridges,
+		verificationRuntime,
 	)
 	buildHeartbeatRuntime(cfg, deps, agents.Mio, sessionRuntime.MemoryStore)
 

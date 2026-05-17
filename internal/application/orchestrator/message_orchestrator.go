@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	appverification "github.com/Nyukimin/picoclaw_multiLLM/internal/application/verification"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
@@ -13,6 +14,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	domainverification "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/verification"
 )
 
 // ProcessMessageRequest はメッセージ処理リクエスト
@@ -26,10 +28,11 @@ type ProcessMessageRequest struct {
 
 // ProcessMessageResponse はメッセージ処理レスポンス
 type ProcessMessageResponse struct {
-	Response   string
-	Route      routing.Route
-	Confidence float64
-	JobID      string
+	Response     string
+	Route        routing.Route
+	Confidence   float64
+	JobID        string
+	Verification *domainverification.VerificationReport `json:"verification,omitempty"`
 }
 
 // Orchestrator は MessageOrchestrator と DistributedOrchestrator の共通インターフェース。
@@ -73,6 +76,10 @@ type HeavyAgent interface {
 	Generate(ctx context.Context, t task.Task) (string, error)
 }
 
+type ResponseVerifier interface {
+	VerifyResponse(ctx context.Context, req appverification.Request) (appverification.Result, error)
+}
+
 // CoderAgentWithProposal はProposal生成機能を持つCoderAgent
 type CoderAgentWithProposal interface {
 	CoderAgent
@@ -98,6 +105,7 @@ type MessageOrchestrator struct {
 	idleNotifier    IdleNotifier
 	ttsBridge       TTSBridge
 	vtuberBridge    VTuberBridge
+	verifier        ResponseVerifier
 	maxRepair       int // 0以下は1とみなす
 
 	sessions             *messageSessionLifecycle
@@ -223,6 +231,10 @@ func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
 	}
 }
 
+func (o *MessageOrchestrator) SetVerificationPipeline(verifier ResponseVerifier) {
+	o.verifier = verifier
+}
+
 // SetIdleNotifier sets an optional notifier used to control idle chat.
 func (o *MessageOrchestrator) SetIdleNotifier(n IdleNotifier) {
 	o.idleNotifier = n
@@ -290,6 +302,25 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 	o.ttsLifecycle.EndSession(ctx, ttsSessionID)
 
+	var verificationReport *domainverification.VerificationReport
+	if o.verifier != nil {
+		verification, err := o.verifier.VerifyResponse(ctx, appverification.Request{
+			DraftResponse: response,
+			UserMessage:   req.UserMessage,
+			Route:         string(decision.Route),
+			SessionID:     req.SessionID,
+			Channel:       req.Channel,
+			ChatID:        req.ChatID,
+			JobID:         jobID.String(),
+		})
+		if err != nil {
+			return ProcessMessageResponse{}, fmt.Errorf("response verification failed: %w", err)
+		}
+		response = verification.Response
+		verificationReport = &verification.Report
+		o.events.Emit("verification.report", "verification", "viewer", string(verification.Report.Status), string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
+	}
+
 	if err := o.sessions.SaveCompletedTask(ctx, sess, t); err != nil {
 		return ProcessMessageResponse{}, err
 	}
@@ -297,5 +328,5 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	log.Printf("[MessageOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
 		jobID.String(), decision.Route, len(response))
 
-	return o.responses.Build(response, decision, jobID), nil
+	return o.responses.BuildWithVerification(response, decision, jobID, verificationReport), nil
 }

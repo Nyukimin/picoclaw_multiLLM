@@ -121,6 +121,15 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.viewerSourceRegistry != nil {
 		mux.HandleFunc("/viewer/source-registry", dependencies.viewerSourceRegistry)
 	}
+	if dependencies.verificationRecent != nil {
+		mux.HandleFunc("/viewer/verification/recent", dependencies.verificationRecent)
+	}
+	if dependencies.verificationDetail != nil {
+		mux.HandleFunc("/viewer/verification/detail", dependencies.verificationDetail)
+	}
+	if dependencies.verificationSummary != nil {
+		mux.HandleFunc("/viewer/verification/summary", dependencies.verificationSummary)
+	}
 }
 
 func registerEntryAndChromeRoutes(mux *http.ServeMux, dependencies *Dependencies) {

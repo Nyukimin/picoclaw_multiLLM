@@ -66,6 +66,9 @@ type Config struct {
 	// === Viewer persisted JSON operation log ===
 	ViewerLog ViewerLogConfig `yaml:"viewer_log"`
 
+	// === Response verification pipeline ===
+	Verification VerificationConfig `yaml:"verification"`
+
 	// === Viewer → MLX 管理デーモン プロキシ（stop / restart / status）===
 	// トークンは環境変数 LLM_OPS_TOKEN のみ（YAML に平文保存しないこと）。
 	LLMOps LLMOpsConfig `yaml:"llm_ops"`
@@ -312,6 +315,13 @@ type ViewerLogConfig struct {
 	Path              string `yaml:"path"`
 	RetentionDays     int    `yaml:"retention_days"`
 	GCIntervalMinutes int    `yaml:"gc_interval_minutes"`
+}
+
+type VerificationConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Mode         string `yaml:"mode"`          // dry_run|revise
+	DefaultLevel string `yaml:"default_level"` // low|medium|high
+	ReportPath   string `yaml:"report_path"`
 }
 
 // TTSConfig configures provider fallback and playback verification.
