@@ -198,8 +198,10 @@ function addMsgToTimeline(ev) {
   const t = ev.to ? ag(ev.to) : null;
   const dir = t && ev.to ? '<span class="dir">→ ' + t.e + ' ' + t.l + '</span>' : '';
   const displayContent = normalizeViewerDisplayText(ev.content);
+  const from = String(ev.from || '').toLowerCase();
+  const roleClass = from === 'user' ? ' user' : ' assistant';
   const el = document.createElement('div');
-  el.className = 'msg';
+  el.className = 'msg' + roleClass;
   el.innerHTML =
     '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
     '<div class="mb"><div class="mh">' +

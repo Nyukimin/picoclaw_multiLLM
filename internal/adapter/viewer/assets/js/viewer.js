@@ -539,6 +539,7 @@ const eviSort = document.getElementById('eviSort');
 function switchTab(tab) {
   if (!panels[tab]) return;
   activeViewerTab = tab;
+  document.body.dataset.viewerTab = tab;
   tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   Object.keys(panels).forEach((k) => panels[k].classList.toggle('active', k === tab));
   if (mobilePanelSelect && mobilePanelSelect.value !== tab) mobilePanelSelect.value = tab;
@@ -554,6 +555,7 @@ function switchTab(tab) {
   renderDeskViews();
 }
 tabs.forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+document.body.dataset.viewerTab = activeViewerTab;
 
 function switchAdjacentPanel(delta) {
   const names = tabs.map((btn) => btn.dataset.tab).filter((name) => panels[name]);
