@@ -119,6 +119,7 @@ prompt 本文は Go source へ埋め込まず、外部ファイルとして扱�
 | character prompts | `prompts/characters/*`, `prompts/*.md` | Mio / Shiro / Coder などの system / policy / routing / knowledge |
 | skill context loader | `internal/domain/context/skills_loader.go`, `internal/domain/context/builder.go`, `workspace/skills`, `prompts/skills` | SKILL.md の metadata / context summary を読む。workspace が prompts より優先され、同名 skill は先勝ち |
 | Persona registry | `internal/infrastructure/persona`, `workspace/` | persona / styleguide の保存と読み込み |
+| Mio persona self-edit | `internal/domain/agent/mio_persona.go`, `internal/infrastructure/persona/editor.go`, `cmd/picoclaw/runtime_agents.go` | Mio の persona edit intent を検出し、LLM による persona file 更新を行う。prompt bundle や runtime memory とは混同しない |
 
 prompt、persona、runtime memory は近いが、同じ state として扱わない。prompt は初期方針、persona は人格・文体設定、memory は runtime により増える観測データである。
 

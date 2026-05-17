@@ -50,6 +50,8 @@ Recall budget は context の一部に収める。現行実装は `ApplyRecallBu
 
 role-filtered retrieval は Chat / Worker / Wild で retrieval 候補を変える。Chat は会話記憶中心、Worker は KB/search 込み、Wild は記憶と KB を中心に扱う。
 
+Agent KPI / Level は AgentStatus として runtime state 側に保持する。現行実装は `internal/domain/conversation/agent_status.go` と `internal/infrastructure/persistence/conversation/real_manager_agent_status.go` で KPI 加算、Level 更新、RealConversationManager での保持を扱う。Viewer 表示や運用 UI は未接続のため、実装済み core と未接続 UI を分けて追跡する。
+
 ## OperationMemory
 
 OperationMemory は repo の `workspace/` ではなく、DB や runtime state と同じ永続領域に置く。
@@ -80,7 +82,7 @@ Web search result や外部ソースは、Source Registry / KB として保存�
 
 外部ソース、添付、channel message は、本文や memory と混ぜずに risk metadata を持つ。
 
-現行実装では `internal/domain/security.DetectPromptInjectionWarnings` が代表的な prompt injection pattern を検出し、attachment の `SecurityWarnings` に保存する。これは拒否判定そのものではなく、外部入力を扱う downstream が警告として参照するための metadata である。
+現行実装では `internal/domain/security.DetectPromptInjectionWarnings` が代表的な prompt injection pattern を検出し、attachment 抽出文の `SecurityWarnings` に保存する。これは拒否判定そのものではなく、外部入力を扱う downstream が警告として参照するための metadata である。Source Registry staging / source fetch result へ同等の warning metadata を付与し、Viewer で確認できる経路は未実装または要確認として扱う。
 
 検出対象の例:
 
