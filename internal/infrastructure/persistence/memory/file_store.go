@@ -22,6 +22,11 @@ type FileStore struct {
 // NewFileStore は新しいFileStoreを作成する
 func NewFileStore(workspaceDir string) *FileStore {
 	memoryDir := filepath.Join(workspaceDir, "memory")
+	return NewFileStoreAt(memoryDir)
+}
+
+// NewFileStoreAt は指定ディレクトリをメモリ永続化先としてFileStoreを作成する
+func NewFileStoreAt(memoryDir string) *FileStore {
 	memoryFile := filepath.Join(memoryDir, "MEMORY.md")
 
 	// メモリディレクトリを確保

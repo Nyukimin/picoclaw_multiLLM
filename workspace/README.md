@@ -36,8 +36,11 @@ LLMにコンテキストとして渡されます。
 
 | パス | 内容 |
 |-----|------|
-| `memory/MEMORY.md` | 長期記憶（セッション跨ぎで保持する情報） |
 | `skills/` | スキル定義（各サブディレクトリに `SKILL.md`） |
+
+運用記憶（OperationMemory）は `workspace/` ではなく、`operation_memory_dir`
+（未設定時は `~/.picoclaw/rencrow/memory/`）に保存します。
+DB や runtime state と同じ永続領域に置き、別 PC 起動時にも一緒に移せるようにします。
 
 ## skills/ 一覧
 
@@ -54,4 +57,4 @@ LLMにコンテキストとして渡されます。
 
 - `CHAT_PERSONA.md` の変更はMioの性格・口調に直接影響します
 - `PrimerMessage.md` は応答品質の根幹なので慎重に編集してください
-- `memory/MEMORY.md` はランタイムで自動更新される場合があります
+- `operation_memory_dir/MEMORY.md` はランタイムで自動更新される場合があります

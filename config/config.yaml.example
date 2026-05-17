@@ -121,6 +121,7 @@ security:
 # プロンプトファイルディレクトリ（未設定時はビルトインフォールバック）
 prompts_dir: "./prompts"       # デフォルトプロンプト（リポジトリ固定）
 workspace_dir: "./workspace"   # ユーザーカスタマイズ領域（オーバーライド）
+operation_memory_dir: "${HOME}/.picoclaw/rencrow/memory" # DB/ランタイム状態と一緒に持ち運ぶ運用記憶
 
 # ログ設定
 log:

@@ -286,6 +286,62 @@ conversation:
 	}
 }
 
+func TestLoadConfig_OperationMemoryDirDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "operation_memory_default.yaml")
+
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	want := filepath.Join(home, ".picoclaw", "rencrow", "memory")
+	if cfg.OperationMemoryDir != want {
+		t.Fatalf("unexpected operation memory dir: got %q want %q", cfg.OperationMemoryDir, want)
+	}
+}
+
+func TestLoadConfig_OperationMemoryDirOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "operation_memory_override.yaml")
+
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+operation_memory_dir: "/tmp/rencrow-operation-memory"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.OperationMemoryDir != "/tmp/rencrow-operation-memory" {
+		t.Fatalf("unexpected operation memory dir: %s", cfg.OperationMemoryDir)
+	}
+}
+
 func TestLoadConfig_LocalLLMDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "local_llm.yaml")

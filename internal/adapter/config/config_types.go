@@ -28,9 +28,10 @@ type Config struct {
 	LocalLLM LocalLLMConfig `yaml:"local_llm"`
 
 	// === v5.1 プロンプト外部ファイル ===
-	PromptsDir   string         `yaml:"prompts_dir"`   // プロンプトファイルのベースディレクトリ（デフォルト）
-	WorkspaceDir string         `yaml:"workspace_dir"` // ユーザーカスタマイズ領域（オーバーライド）
-	Prompts      *LoadedPrompts `yaml:"-"`             // 読み込み済みプロンプト（YAML非対象）
+	PromptsDir         string         `yaml:"prompts_dir"`          // プロンプトファイルのベースディレクトリ（デフォルト）
+	WorkspaceDir       string         `yaml:"workspace_dir"`        // ユーザーカスタマイズ領域（オーバーライド）
+	OperationMemoryDir string         `yaml:"operation_memory_dir"` // RenCrow operational memory の永続ディレクトリ
+	Prompts            *LoadedPrompts `yaml:"-"`                    // 読み込み済みプロンプト（YAML非対象）
 
 	// === Heartbeat ===
 	Heartbeat HeartbeatConfig `yaml:"heartbeat"`

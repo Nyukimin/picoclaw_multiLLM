@@ -14,6 +14,8 @@ Viewer と TTS を通じてリアルタイム表示・読み上げを行うが�
 | forecast | 未来展望・トピック探索 | `internal/application/idlechat/forecast_*.go` |
 | story | 物語・昔話の読み上げ | `internal/application/idlechat/story_mode*.go` |
 
+Viewer は IdleChat の Live Timeline、Summary Review、History を表示する。これらは raw response そのものではなく、表示用 state と診断情報の投影である。
+
 ## raw / view / audio 境界
 
 | 種別 | 役割 |
@@ -44,6 +46,15 @@ STT input は通常 chat に流す。IdleChat に直接流さない。
 | quality review | `internal/application/idlechat/quality_review.go` |
 | Viewer handlers | `cmd/picoclaw/runtime_idlechat_handlers.go`, `internal/adapter/viewer/*idlechat*` |
 | TTS bridge | `cmd/picoclaw/idlechat_tts*.go`, `internal/infrastructure/tts/rencrow_tts_*.go` |
+
+## raw response 診断
+
+IdleChat では、編集後の view data と LLM の素の raw response を分ける。
+
+- raw response は空応答、invalid response、generation error、provider 出力異常の診断に使う。
+- view data は Viewer 表示と会話注入に使う。
+- Summary Review / History は、表示状態、境界、終了状態を追うための観測面である。
+- fallback は成功扱いにしない。fallback に落ちた場合は失敗経路として記録する。
 
 ## event 契約
 

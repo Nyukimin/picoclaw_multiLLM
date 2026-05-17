@@ -35,6 +35,19 @@ Viewer では次を混同しない。
 | LLM Ops | `internal/adapter/viewer/llm_ops_handler.go` |
 | Source Registry | `internal/adapter/viewer/source_registry_handler.go` |
 | Memory API | `internal/adapter/viewer/memory_*_handler.go` |
+| Roles tab | `internal/adapter/viewer/assets/js/tabs/roles.js` |
+| News Pack | `internal/adapter/viewer/assets/js/tabs/news-pack.js` |
+| attachment / upload | `internal/domain/attachment`, `internal/application/attachment`, `internal/adapter/viewer/handler_send.go` |
+
+## 常用タブ / Inspector
+
+Viewer は運用・会話・記憶の観測 UI を持つ。
+
+- Roles tab: `mio/shiro/aka/ao/gin/kin`、Chat / Worker / Wild / Coder、model alias、route を表示・選択する。
+- Memory Inspector: L1 memory、News、Daily Digest、Knowledge、Search Cache、Event Log、L0/L1/L2/L3 layer を横断表示する。
+- News Pack: News、digest、出典詳細、関連 memory、Recall trace 利用履歴を表示する。
+- Source Registry 操作: source の登録、JSON/YAML import/export、個別 run、fetch / validate / promote を操作する。
+- Viewer upload / attachment: Viewer 入力に添付情報を付与し、routing classification と本文表示を混同しない。
 
 ## route / API
 
@@ -51,6 +64,7 @@ Viewer では次を混同しない。
 - `/viewer/evidence/*`
 - `/viewer/memory/*`
 - `/viewer/source-registry`
+- `/viewer/recall/traces`
 - `/viewer/idlechat/*`
 - `/viewer/tts/audio`
 - `/viewer/llm-ops/*`

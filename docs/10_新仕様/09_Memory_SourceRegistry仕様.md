@@ -16,6 +16,10 @@ Memory / Source Registry は、会話記憶、外部ソース、知識、検証�
 | DuckDB | archive、thread summary、parquet export | `internal/infrastructure/persistence/conversation/duckdb_*.go` |
 | RealConversationManager | recall、thread、archive、KB の統合 facade | `internal/infrastructure/persistence/conversation/real_manager_*.go` |
 | Source Registry | 外部ソース登録、sweep、stage、validate、promote | `internal/application/sourcefetcher`, `internal/adapter/viewer/source_registry_handler.go` |
+| OperationMemory | runtime-readable な運用記憶、日次ノート | `operation_memory_dir`（既定: `~/.picoclaw/rencrow/memory`）, `internal/infrastructure/persistence/memory` |
+| session repository | session state と distributed session の永続化 | `internal/domain/session`, `internal/infrastructure/persistence/session`, `cmd/picoclaw/runtime_sessions.go` |
+| Glossary / RSS | RSS/Atom 由来の topic / glossary 文脈 | `internal/glossary`, `cmd/glossary` |
+| Knowledge CLI / core importer | KB 初期投入、語彙更新、運用 CLI | `cmd/kb-admin`, `cmd/vocabulary`, `cmd/picoclaw/cli_knowledge.go`, `internal/application/knowledge` |
 
 ## 状態遷移
 
@@ -40,12 +44,55 @@ RecallPack はプロンプト注入用の文脈である。
 - token budget を守る。
 - rejected trace を残せるようにする。
 - prompt text だけを真実の保存先にしない。
+- L0/L1/L2/L3 の layer、score、採用理由、prompt 位置、採用/不採用 decision を trace できるようにする。
+
+Recall budget は context の一部に収める。現行実装は `ApplyRecallBudget()` と `RecallBudgetRatio` を持ち、精密 tokenizer に差し替えられる `TokenEstimator` 入口を持つ。
+
+role-filtered retrieval は Chat / Worker / Wild で retrieval 候補を変える。Chat は会話記憶中心、Worker は KB/search 込み、Wild は記憶と KB を中心に扱う。
+
+## OperationMemory
+
+OperationMemory は repo の `workspace/` ではなく、DB や runtime state と同じ永続領域に置く。
+既定の保存先は `~/.picoclaw/rencrow/memory/` で、設定 `operation_memory_dir` で上書きできる。
+
+- 長期記憶は `MEMORY.md` に保存する。
+- 日次ノートは `YYYYMM/YYYYMMDD.md` に保存する。
+- キャラクター設定やスキル定義を置く `workspace/` と混同しない。
+
+## session repository
+
+session repository は session state を保存する境界であり、RecallPack や OperationMemory と同じ memory 周辺にあるが責務は異なる。
+
+- `internal/domain/session` は session / distributed session の domain contract を持つ。
+- `internal/infrastructure/persistence/session` は JSON repository などの永続化を担当する。
+- `cmd/picoclaw/runtime_sessions.go` は session repository と OperationMemory の runtime wiring を担当する。
+- session_id は発話、応答、chunk、job_id と混同しない。
 
 ## KB / Source
 
 Web search result や外部ソースは、Source Registry / KB として保存される。
 
 保存、stage、validate、promote は別フェーズである。正式な memory / knowledge として扱うには検証済み状態が必要である。
+
+`cmd/kb-admin`、`cmd/vocabulary`、`cmd/picoclaw/cli_knowledge.go` は Knowledge DB の初期投入・確認・運用補助である。CLI から投入する場合も、未検証外部データを直接 confirmed memory として扱わない。
+
+## L1 SQLite
+
+L1SQLite は hot store として次を扱う。
+
+- memory event: `observed` / `candidate` / `confirmed` の状態を持つ会話・記憶 event。
+- event log: message saved、search cache、state update、promotion、recall trace などの追跡 event。
+- search cache: query 正規化、hash、TTL、source URL、fresh hit、類似 query hit、manual invalidate。
+- staging: external fetch、memory candidate、search result を raw_text / summary_draft / raw_hash / validation_status つきで保持する。
+- source registry: source_id、URL、kind、trust score、fetch interval、license note、enabled を持つ。
+- news: validated staging 由来の news item、category 別 recent、source metadata。
+- daily digest: day / morning / noon / evening slot の digest。
+- knowledge: `kb:<domain>` の汎用 knowledge item、lexical 検索入口、Qdrant KB 同期。
+
+## Archive
+
+DuckDB は thread summary と L1 memory / news / knowledge / staging archive を扱う。
+Parquet export は cold archive として使い、保存時または promotion 時に archive table へ同期する。
 
 ## Viewer との境界
 
@@ -64,6 +111,13 @@ Viewer で見えることは重要な観測だが、表示状態を直接正式 
 | VectorDB thread / KB | `internal/infrastructure/persistence/conversation/vectordb_thread_memory.go`, `vectordb_kb.go` |
 | DuckDB archive / export | `internal/infrastructure/persistence/conversation/duckdb_*.go` |
 | source sweep | `internal/application/sourcefetcher/registry_sweeper.go` |
+| search cache | `internal/infrastructure/persistence/conversation/l1_sqlite_search_cache.go` |
+| event log | `internal/infrastructure/persistence/conversation/l1_sqlite_events.go` |
+| news / digest | `internal/infrastructure/persistence/conversation/l1_sqlite_news_digest.go` |
+| knowledge DB | `internal/infrastructure/persistence/conversation/l1_sqlite_knowledge.go` |
+| knowledge CLI / importer | `cmd/kb-admin`, `cmd/vocabulary`, `cmd/picoclaw/cli_knowledge.go`, `internal/application/knowledge` |
+| session repository | `internal/domain/session`, `internal/infrastructure/persistence/session`, `cmd/picoclaw/runtime_sessions.go` |
+| archive job | `internal/application/archive`, `internal/infrastructure/persistence/conversation/duckdb_export.go` |
 | Viewer source API | `internal/adapter/viewer/source_registry_handler.go` |
 | Viewer memory API | `internal/adapter/viewer/memory_*_handler.go` |
 

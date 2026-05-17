@@ -23,8 +23,12 @@ func buildSessionRuntime(cfg *config.Config) sessionRuntime {
 	if err := os.MkdirAll(cfg.Session.StorageDir, 0755); err != nil {
 		log.Fatalf("Failed to create session directory: %v", err)
 	}
-	memStore := memorypersistence.NewFileStore(cfg.WorkspaceDir)
-	log.Printf("MemoryStore initialized (workspace: %s)", cfg.WorkspaceDir)
+	operationMemoryDir := cfg.OperationMemoryDir
+	if operationMemoryDir == "" {
+		operationMemoryDir = config.DefaultOperationMemoryDir()
+	}
+	memStore := memorypersistence.NewFileStoreAt(operationMemoryDir)
+	log.Printf("MemoryStore initialized (operation_memory_dir: %s)", operationMemoryDir)
 	return sessionRuntime{
 		SessionRepo:   sessionRepo,
 		CentralMemory: centralMemory,

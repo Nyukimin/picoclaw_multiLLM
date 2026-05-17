@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -193,6 +194,9 @@ func (c *Config) setDefaults() {
 	}
 	if c.WorkspaceDir == "" {
 		c.WorkspaceDir = "./workspace"
+	}
+	if c.OperationMemoryDir == "" {
+		c.OperationMemoryDir = DefaultOperationMemoryDir()
 	}
 	if c.Verification.ReportPath == "" {
 		c.Verification.ReportPath = c.WorkspaceDir + "/verification_report.jsonl"
@@ -387,4 +391,13 @@ func (c *Config) setDefaults() {
 	if c.Coder4.LightMemory.MaxTurns == 0 {
 		c.Coder4.LightMemory.MaxTurns = 3
 	}
+}
+
+// DefaultOperationMemoryDir returns the runtime-owned operation memory directory.
+func DefaultOperationMemoryDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return filepath.Join(".picoclaw", "rencrow", "memory")
+	}
+	return filepath.Join(homeDir, ".picoclaw", "rencrow", "memory")
 }

@@ -40,11 +40,19 @@ repo example と live runtime config を混同しない。
 - Viewer runtime config は表示用の投影である。
 - provider health は inference endpoint と management API を分けて見る。
 
+local OpenAI-compatible provider は Chat / Worker / Heavy / Wild の主経路になり得る。`local_llm.*` では role 別 base URL、model alias、timeout、warmup、global concurrency、model concurrency を扱う。
+
+`Chat` / `Worker` / `Wild` alias は runtime provider assembly で解決する。repo example の model 名と live runtime の model 名が違う場合は、live config と `/viewer/runtime-config` を優先して確認する。
+
+OpenAI-compatible embedding は conversation summarizer、profile extractor、Recall / KB の補助に使う。Embedding provider と Chat/Worker provider を混同しない。
+
 ## raw log / thinking bridge
 
 raw log は provider 応答の観測用である。Viewer 表示本文や会話注入本文とは別に扱う。
 
 OpenAI / OpenAI互換 provider の thinking bridge や reasoning sanitize は、内部推論漏れを表示本文へ混ぜないための境界である。
+
+raw log は `chat_raw.log`、`worker_raw.log`、`IdleChat_raw.log` など用途別に分ける。空 `content`、invalid response、finish reason、token usage は fallback ではなく原因切り分けの証拠として扱う。
 
 ## fallback
 
