@@ -106,6 +106,10 @@ func (h *Handler) SetChannelPolicy(policy domainsecurity.ChannelPolicy) {
 	h.channelPolicy = &policy
 }
 
+func (h *Handler) ChannelPolicyConfigured() bool {
+	return h.channelPolicy != nil
+}
+
 // ServeHTTP はHTTPリクエストを処理
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[HTTP] %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)

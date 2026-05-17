@@ -82,7 +82,7 @@ Web search result や外部ソースは、Source Registry / KB として保存�
 
 外部ソース、添付、channel message は、本文や memory と混ぜずに risk metadata を持つ。
 
-現行実装では `internal/domain/security.DetectPromptInjectionWarnings` が代表的な prompt injection pattern を検出し、attachment 抽出文の `SecurityWarnings` に保存する。これは拒否判定そのものではなく、外部入力を扱う downstream が警告として参照するための metadata である。Source Registry staging / source fetch result へ同等の warning metadata を付与し、Viewer で確認できる経路は未実装または要確認として扱う。
+現行実装では `internal/domain/security.DetectPromptInjectionWarnings` が代表的な prompt injection pattern を検出し、attachment 抽出文の `SecurityWarnings` に保存する。Source Registry fetch 由来テキストにも同じ検出器を適用し、`L1SourceFetchPayload.Meta` / `L1StagingItem.Meta` の `security_warnings` と `security_warning_source: source_registry` に保存する。これは拒否判定そのものではなく、外部入力を扱う downstream が警告として参照するための metadata である。Viewer は Source Registry run 結果の warning 件数を表示し、本文 / memory / prompt と混同しない。
 
 検出対象の例:
 

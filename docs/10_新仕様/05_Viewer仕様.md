@@ -61,7 +61,7 @@ Viewer 添付は `internal/domain/attachment` の contract に正規化してか
 - 抽出本文は routing classification の補助情報であり、Viewer 表示本文や正式 memory state と混同しない。
 - OCR、画像 PDF 高精度解析、外部クラウド抽出、添付本文の無審査 memory promote は現行範囲外である。
 
-外部チャネル添付は Viewer upload と同じ `Attachment` contract へ寄せる。現行実装では LINE の `image` / `file` message を media download して attachment pipeline へ渡す。Slack / Discord / Telegram の file payload 正規化は未実装であり、channel ごとの署名検証と download 失敗を Application attachment 境界へ混ぜない。
+外部チャネル添付は Viewer upload と同じ `Attachment` contract へ寄せる。現行実装では LINE の `image` / `file` message、Slack `files[]`、Discord relay `attachments[]`、Telegram `document` / `photo` を channel adapter 側で download し、`internal/application/attachment.IncomingFile` として共通 pipeline へ渡す。channel ごとの署名検証と download は Adapter の責務であり、Application attachment pipeline に channel 固有 API を混ぜない。download / 保存 / MIME / size 失敗は通常 chat 成功として隠さない。
 
 ## route / API
 

@@ -247,6 +247,25 @@ function renderSourceRegistry() {
   });
 }
 
+function renderSourceRegistryRunStatus() {
+  const el = document.getElementById('sourceRegistryRunStatus');
+  if (!el) return;
+  const run = state.memory.sourceRegistryLastRun || null;
+  if (!run || !run.result) {
+    el.innerHTML = '';
+    return;
+  }
+  const result = run.result;
+  const warnings = Number(result.Warnings ?? result.warnings ?? 0);
+  const parts = [
+    'staged=' + esc(String(result.Staged ?? result.staged ?? 0)),
+    'validated=' + esc(String(result.Validated ?? result.validated ?? 0)),
+    'warnings=' + esc(String(warnings)),
+  ];
+  const cls = warnings > 0 ? 'badge warn' : 'badge';
+  el.innerHTML = '<span class="' + cls + '">Source Registry run: ' + parts.join(' / ') + '</span>';
+}
+
 function runSourceRegistryEntry(sourceID) {
   const id = String(sourceID || '').trim();
   if (!id) return;
@@ -255,7 +274,9 @@ function runSourceRegistryEntry(sourceID) {
   }).then((r) => {
     if (!r.ok) throw new Error('source registry run failed');
     return r.json();
-  }).then(() => {
+  }).then((data) => {
+    state.memory.sourceRegistryLastRun = data;
+    renderSourceRegistryRunStatus();
     refreshSourceRegistry();
     refreshMemorySnapshot();
   }).catch((err) => console.error(err));

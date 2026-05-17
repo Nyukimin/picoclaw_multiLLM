@@ -126,9 +126,21 @@ func routeFromString(s string) routing.Route {
 		return routing.RouteANALYZE
 	case "RESEARCH":
 		return routing.RouteRESEARCH
+	case "WILD":
+		return routing.RouteWILD
 	default:
 		return routing.RouteCHAT
 	}
+}
+
+type distMockWildAgent struct {
+	response string
+	called   bool
+}
+
+func (m *distMockWildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
+	m.called = true
+	return m.response, nil
 }
 
 func proposalForTest(plan, patch string) *domaintransport.ProposalPayload {
@@ -169,6 +181,68 @@ func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 
 	if resp.Response != "Hello from Mio!" {
 		t.Errorf("Expected 'Hello from Mio!', got '%s'", resp.Response)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_WildRouteUsesWildAgentWithoutFallback(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "WILD"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	wild := &distMockWildAgent{response: "wild response"}
+	rec := &distRecordingEventListener{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetWildAgent(wild)
+	orch.SetEventListener(rec)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "wild-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "/wild make something",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !wild.called {
+		t.Fatal("wild agent should be called")
+	}
+	if mockMio.lastChatInput != "" {
+		t.Fatalf("wild route fell back to Mio chat: %q", mockMio.lastChatInput)
+	}
+	if resp.Route != routing.RouteWILD || resp.Response != "wild response" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if distIndexOfEvent(rec.events, "agent.response", "wild", "mio", "WILD") < 0 {
+		t.Fatalf("expected wild response evidence, got %+v", rec.events)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_WildRouteWithoutAgentFailsInsteadOfFallback(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "WILD"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "wild-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "/wild make something",
+	})
+	if err == nil {
+		t.Fatal("expected missing wild agent to fail")
+	}
+	if !strings.Contains(err.Error(), "no wild agent available") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mockMio.lastChatInput != "" {
+		t.Fatalf("wild route fell back to Mio chat: %q", mockMio.lastChatInput)
 	}
 }
 

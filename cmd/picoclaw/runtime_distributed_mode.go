@@ -142,19 +142,24 @@ func (d *Dependencies) buildDistributedMode(
 	}
 	lineHandler := line.NewHandler(distOrch, cfg.Line.ChannelSecret, cfg.Line.AccessToken)
 	lineHandler.SetAttachmentSaver(attachmentapp.NewStore(cfg.WorkspaceDir))
+	applyLineChannelPolicy(lineHandler, cfg.Line)
 	d.lineHandler = lineHandler
 	if strings.TrimSpace(cfg.Telegram.BotToken) != "" {
 		tg := telegramadapter.NewAdapter(cfg.Telegram.BotToken, distOrch)
 		tg.SetWebhookSecret(cfg.Telegram.WebhookSecret)
+		tg.SetAttachmentSaver(attachmentapp.NewStore(cfg.WorkspaceDir))
 		d.telegramHandler = tg
 	}
 	if strings.TrimSpace(cfg.Discord.BotToken) != "" {
 		dc := discordadapter.NewAdapter(cfg.Discord.BotToken, distOrch)
 		dc.SetPublicKeyHex(cfg.Discord.PublicKey)
+		dc.SetAttachmentSaver(attachmentapp.NewStore(cfg.WorkspaceDir))
 		d.discordHandler = dc
 	}
 	if strings.TrimSpace(cfg.Slack.BotToken) != "" {
-		d.slackHandler = slackadapter.NewAdapter(cfg.Slack.BotToken, cfg.Slack.SigningSecret, distOrch)
+		sl := slackadapter.NewAdapter(cfg.Slack.BotToken, cfg.Slack.SigningSecret, distOrch)
+		sl.SetAttachmentSaver(attachmentapp.NewStore(cfg.WorkspaceDir))
+		d.slackHandler = sl
 	}
 
 	// IdleChat統合（有効な場合）

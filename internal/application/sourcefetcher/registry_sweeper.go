@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	domainsecurity "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/security"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	"github.com/mmcdole/gofeed"
 )
@@ -36,6 +37,7 @@ type SweepOptions struct {
 type SweepResult struct {
 	Sources           int
 	Staged            int
+	Warnings          int
 	Validated         int
 	PromotedNews      int
 	PromotedKnowledge int
@@ -180,6 +182,8 @@ func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversati
 			meta["latest_version"] = parsed.LatestVersion
 		}
 	}
+	meta, warnings := sourceRegistryMetaWithWarnings(meta, raw)
+	result.Warnings += warnings
 	staged, err := store.StageSourceRegistryFetch(ctx, source.SourceID, conversationpersistence.L1SourceFetchPayload{
 		SourceURL:    source.URL,
 		FetchedAt:    now,
@@ -285,6 +289,12 @@ func sweepFeedSource(ctx context.Context, store RegistryStore, parser *gofeed.Pa
 		if item.PublishedParsed != nil {
 			publishedAt = item.PublishedParsed.UTC()
 		}
+		meta, warnings := sourceRegistryMetaWithWarnings(map[string]interface{}{
+			"fetcher":   "source_registry",
+			"category":  category,
+			"namespace": namespace,
+		}, raw)
+		result.Warnings += warnings
 		staged, err := store.StageSourceRegistryFetch(ctx, source.SourceID, conversationpersistence.L1SourceFetchPayload{
 			SourceURL:    firstNonEmpty(item.Link, source.URL),
 			FetchedAt:    now,
@@ -292,11 +302,7 @@ func sweepFeedSource(ctx context.Context, store RegistryStore, parser *gofeed.Pa
 			RawText:      raw,
 			SummaryDraft: strings.TrimSpace(item.Title),
 			Keywords:     []string{category},
-			Meta: map[string]interface{}{
-				"fetcher":   "source_registry",
-				"category":  category,
-				"namespace": namespace,
-			},
+			Meta:         meta,
 		})
 		if err != nil {
 			return err
@@ -349,4 +355,17 @@ func stringFromMeta(meta map[string]interface{}, key string, def string) string 
 		return strings.TrimSpace(value)
 	}
 	return def
+}
+
+func sourceRegistryMetaWithWarnings(meta map[string]interface{}, raw string) (map[string]interface{}, int) {
+	warnings := domainsecurity.DetectPromptInjectionWarnings(raw)
+	if len(warnings) == 0 {
+		return meta, 0
+	}
+	if meta == nil {
+		meta = map[string]interface{}{}
+	}
+	meta["security_warnings"] = warnings
+	meta["security_warning_source"] = "source_registry"
+	return meta, len(warnings)
 }

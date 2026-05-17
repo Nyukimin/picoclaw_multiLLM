@@ -61,6 +61,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="memoryPromoteKind"/);
   assert.match(html, /id="memoryPromoteID"/);
   assert.match(html, /id="sourceRegistryBody"/);
+  assert.match(html, /id="sourceRegistryRunStatus"/);
   assert.match(html, /id="sourceRegistryYAML"/);
   assert.match(html, /id="memoryBody"/);
   assert.match(html, /id="newsPackBody"/);
@@ -70,11 +71,6 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="llmMemoryRoles"/);
   assert.match(html, /id="llmRuntimeConfigCards"/);
   assert.match(html, /id="llmOpsConfigState"/);
-  assert.match(html, /class="memory-shelf"/);
-  assert.match(html, /Memory Desk/);
-  assert.match(html, /shelf-card-memory/);
-  assert.match(html, /shelf-card-recall/);
-  assert.match(html, /shelf-card-source/);
   assert.match(html, /data-tab="news-pack"/);
   assert.match(html, /id="panel-news-pack"/);
   assert.match(html, /id="newsPackDetail"/);
@@ -146,8 +142,6 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(css, /body::after/);
   assert.match(css, /repeating-linear-gradient/);
   assert.match(css, /backdrop-filter:blur/);
-  assert.match(css, /\.memory-shelf/);
-  assert.match(css, /\.shelf-card/);
   assert.match(css, /\.lipsync-stage\{/);
   assert.match(css, /main\{[^}]*max-width:100vw;[^}]*overflow-x:hidden/);
   assert.match(css, /\.panel\{[^}]*max-width:100%/);
@@ -162,6 +156,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(viewer, /memory\.llm_by_role/);
   assert.match(memoryJs, /function refreshSourceRegistry/);
   assert.match(memoryJs, /function runSourceRegistryEntry/);
+  assert.match(memoryJs, /function renderSourceRegistryRunStatus/);
+  assert.match(memoryJs, /sourceRegistryLastRun/);
+  assert.match(memoryJs, /warnings=/);
   assert.match(memoryJs, /function refreshRecallTraces/);
   assert.match(html, /data-tab="roles"/);
   assert.match(html, /id="panel-roles"/);
@@ -258,6 +255,30 @@ globalThis.__processes = document.getElementById('llmMemoryProcessLists').innerH
   assert.ok(context.__processes.includes('Model Processes'));
   assert.ok(context.__processes.includes('python'));
   assert.ok(context.__processes.includes('qwen'));
+});
+
+test('viewer renders source registry warning run status', () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+  };
+  const source = `
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const state = {memory: {sourceRegistryLastRun: {result: {Staged: 1, Validated: 1, Warnings: 2}}}};
+` + sourceBetween(memoryJs, 'function renderSourceRegistryRunStatus', 'function runSourceRegistryEntry') + `
+renderSourceRegistryRunStatus();
+globalThis.__status = document.getElementById('sourceRegistryRunStatus').innerHTML;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__status, /Source Registry run/);
+  assert.match(context.__status, /warnings=2/);
+  assert.match(context.__status, /badge warn/);
 });
 
 test('viewer runtime cards prefer live llm ops status over local config labels', () => {

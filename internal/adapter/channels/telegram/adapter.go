@@ -6,20 +6,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
+	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	channelapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/channel"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 )
+
+type AttachmentSaver interface {
+	SaveAll(ctx context.Context, files []appattachment.IncomingFile) ([]domainattachment.Attachment, error)
+}
 
 // Adapter handles Telegram webhook and outbound sends.
 type Adapter struct {
-	botToken      string
-	webhookSecret string
-	orchestrator  orchestrator.Orchestrator
-	httpClient    *http.Client
-	apiBaseURL    string
+	botToken        string
+	webhookSecret   string
+	orchestrator    orchestrator.Orchestrator
+	httpClient      *http.Client
+	apiBaseURL      string
+	attachmentSaver AttachmentSaver
 }
 
 func NewAdapter(botToken string, orch ...orchestrator.Orchestrator) *Adapter {
@@ -51,6 +60,10 @@ func (a *Adapter) SetAPIBaseURL(url string) {
 
 func (a *Adapter) SetWebhookSecret(secret string) {
 	a.webhookSecret = secret
+}
+
+func (a *Adapter) SetAttachmentSaver(saver AttachmentSaver) {
+	a.attachmentSaver = saver
 }
 
 func (a *Adapter) Send(ctx context.Context, chatID, text string) error {
@@ -122,17 +135,27 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if update.Message == nil || update.Message.Text == "" {
+	if update.Message == nil || (strings.TrimSpace(update.Message.Text) == "" && strings.TrimSpace(update.Message.Caption) == "" && !update.Message.hasFile()) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 		return
+	}
+	attachments, err := a.attachmentsForMessage(r.Context(), *update.Message)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	text := strings.TrimSpace(update.Message.Text)
+	if text == "" {
+		text = strings.TrimSpace(update.Message.Caption)
 	}
 
 	req := orchestrator.ProcessMessageRequest{
 		SessionID:   channelapp.BuildSessionID(time.Now().UTC(), "telegram", strconv.FormatInt(update.Message.Chat.ID, 10)),
 		Channel:     "telegram",
 		ChatID:      strconv.FormatInt(update.Message.Chat.ID, 10),
-		UserMessage: update.Message.Text,
+		UserMessage: text,
+		Attachments: attachments,
 	}
 	resp, err := a.orchestrator.ProcessMessage(r.Context(), req)
 	if err != nil {
@@ -154,10 +177,13 @@ type Update struct {
 }
 
 type UpdateMessage struct {
-	MessageID int64      `json:"message_id"`
-	Text      string     `json:"text"`
-	Chat      UpdateChat `json:"chat"`
-	From      UpdateUser `json:"from"`
+	MessageID int64       `json:"message_id"`
+	Text      string      `json:"text"`
+	Caption   string      `json:"caption,omitempty"`
+	Chat      UpdateChat  `json:"chat"`
+	From      UpdateUser  `json:"from"`
+	Document  *Document   `json:"document,omitempty"`
+	Photo     []PhotoSize `json:"photo,omitempty"`
 }
 
 type UpdateChat struct {
@@ -167,4 +193,133 @@ type UpdateChat struct {
 
 type UpdateUser struct {
 	ID int64 `json:"id"`
+}
+
+type Document struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id,omitempty"`
+	FileName     string `json:"file_name,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	FileSize     int64  `json:"file_size,omitempty"`
+}
+
+type PhotoSize struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id,omitempty"`
+	FileSize     int64  `json:"file_size,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Height       int    `json:"height,omitempty"`
+}
+
+func (m UpdateMessage) hasFile() bool {
+	return m.Document != nil || len(m.Photo) > 0
+}
+
+func (a *Adapter) attachmentsForMessage(ctx context.Context, message UpdateMessage) ([]domainattachment.Attachment, error) {
+	if !message.hasFile() {
+		return nil, nil
+	}
+	if a.attachmentSaver == nil {
+		return nil, fmt.Errorf("telegram attachment saver is nil")
+	}
+	files := make([]appattachment.IncomingFile, 0, 1+len(message.Photo))
+	if message.Document != nil {
+		file, err := a.downloadTelegramFile(ctx, message.Document.FileID, firstNonEmptyTelegram(message.Document.FileName, message.Document.FileUniqueID, message.Document.FileID), message.Document.MimeType, message.Document.FileSize)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	if len(message.Photo) > 0 {
+		photo := largestPhoto(message.Photo)
+		filename := firstNonEmptyTelegram(photo.FileUniqueID, photo.FileID) + ".jpg"
+		file, err := a.downloadTelegramFile(ctx, photo.FileID, filename, "image/jpeg", photo.FileSize)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return a.attachmentSaver.SaveAll(ctx, files)
+}
+
+func (a *Adapter) downloadTelegramFile(ctx context.Context, fileID, filename, contentType string, size int64) (appattachment.IncomingFile, error) {
+	fileID = strings.TrimSpace(fileID)
+	if fileID == "" {
+		return appattachment.IncomingFile{}, fmt.Errorf("telegram file_id is empty")
+	}
+	filePath, fileSize, err := a.getTelegramFilePath(ctx, fileID)
+	if err != nil {
+		return appattachment.IncomingFile{}, err
+	}
+	if size <= 0 {
+		size = fileSize
+	}
+	downloadURL := fmt.Sprintf("%s/file/bot%s/%s", strings.TrimRight(a.apiBaseURL, "/"), a.botToken, filePath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return appattachment.IncomingFile{}, err
+	}
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return appattachment.IncomingFile{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		return appattachment.IncomingFile{}, fmt.Errorf("telegram file download failed: status=%d", resp.StatusCode)
+	}
+	return appattachment.IncomingFile{
+		Filename:    filename,
+		ContentType: firstNonEmptyTelegram(contentType, resp.Header.Get("Content-Type")),
+		SizeBytes:   size,
+		Reader:      resp.Body,
+	}, nil
+}
+
+func (a *Adapter) getTelegramFilePath(ctx context.Context, fileID string) (string, int64, error) {
+	endpoint := fmt.Sprintf("%s/bot%s/getFile?file_id=%s", strings.TrimRight(a.apiBaseURL, "/"), a.botToken, url.QueryEscape(fileID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", 0, fmt.Errorf("telegram getFile failed: status=%d", resp.StatusCode)
+	}
+	var payload struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			FilePath string `json:"file_path"`
+			FileSize int64  `json:"file_size"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", 0, err
+	}
+	if !payload.OK || strings.TrimSpace(payload.Result.FilePath) == "" {
+		return "", 0, fmt.Errorf("telegram getFile did not return file_path")
+	}
+	return payload.Result.FilePath, payload.Result.FileSize, nil
+}
+
+func largestPhoto(photos []PhotoSize) PhotoSize {
+	best := photos[0]
+	for _, photo := range photos[1:] {
+		if photo.FileSize > best.FileSize || (photo.FileSize == best.FileSize && photo.Width*photo.Height > best.Width*best.Height) {
+			best = photo
+		}
+	}
+	return best
+}
+
+func firstNonEmptyTelegram(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

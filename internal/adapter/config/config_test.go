@@ -59,6 +59,86 @@ log:
 	}
 }
 
+func TestLoadConfig_LineChannelPolicy(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+line:
+  channel_secret: "secret"
+  access_token: "token"
+  channel_policy:
+    enabled: true
+    allow_dm: false
+    allow_groups: true
+    allowed_senders:
+      - "U-allowed"
+    paired_groups:
+      - "G-paired"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	policy, ok := ResolveChannelPolicyConfig(cfg.Line.ChannelPolicy)
+	if !ok {
+		t.Fatal("expected channel policy to be enabled")
+	}
+	if policy.AllowDM {
+		t.Fatal("expected allow_dm=false to be preserved")
+	}
+	if !policy.AllowGroups {
+		t.Fatal("expected allow_groups=true to be preserved")
+	}
+	if len(policy.AllowedSenders) != 1 || policy.AllowedSenders[0] != "U-allowed" {
+		t.Fatalf("unexpected allowed senders: %#v", policy.AllowedSenders)
+	}
+	if len(policy.PairedGroups) != 1 || policy.PairedGroups[0] != "G-paired" {
+		t.Fatalf("unexpected paired groups: %#v", policy.PairedGroups)
+	}
+}
+
+func TestResolveChannelPolicyConfigDefaultsAndTrim(t *testing.T) {
+	policy, ok := ResolveChannelPolicyConfig(ChannelPolicyConfig{
+		Enabled:        true,
+		AllowedSenders: []string{" U1 ", "", "U2"},
+		PairedGroups:   []string{" G1 ", "  "},
+	})
+	if !ok {
+		t.Fatal("expected policy to be enabled")
+	}
+	if !policy.AllowDM {
+		t.Fatal("default allow_dm should be true")
+	}
+	if policy.AllowGroups {
+		t.Fatal("default allow_groups should be false")
+	}
+	if got := strings.Join(policy.AllowedSenders, ","); got != "U1,U2" {
+		t.Fatalf("allowed senders = %q", got)
+	}
+	if got := strings.Join(policy.PairedGroups, ","); got != "G1" {
+		t.Fatalf("paired groups = %q", got)
+	}
+}
+
+func TestResolveChannelPolicyConfigDisabled(t *testing.T) {
+	_, ok := ResolveChannelPolicyConfig(ChannelPolicyConfig{})
+	if ok {
+		t.Fatal("disabled channel policy should not be resolved")
+	}
+}
+
 func TestLoadConfig_V3CompatModel(t *testing.T) {
 	// v3形式のchat_model/worker_modelでも動作することを確認
 	tmpDir := t.TempDir()

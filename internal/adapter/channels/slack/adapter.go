@@ -15,17 +15,24 @@ import (
 	"time"
 
 	adapterchannels "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels"
+	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	channelapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/channel"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 )
+
+type AttachmentSaver interface {
+	SaveAll(ctx context.Context, files []appattachment.IncomingFile) ([]domainattachment.Attachment, error)
+}
 
 // Adapter handles Slack Events API webhook and outbound sends.
 type Adapter struct {
-	botToken      string
-	signingSecret string
-	orchestrator  orchestrator.Orchestrator
-	httpClient    *http.Client
-	apiBaseURL    string
+	botToken        string
+	signingSecret   string
+	orchestrator    orchestrator.Orchestrator
+	httpClient      *http.Client
+	apiBaseURL      string
+	attachmentSaver AttachmentSaver
 }
 
 func NewAdapter(botToken, signingSecret string, orch ...orchestrator.Orchestrator) *Adapter {
@@ -54,6 +61,10 @@ func (a *Adapter) SetAPIBaseURL(url string) {
 	if url != "" {
 		a.apiBaseURL = url
 	}
+}
+
+func (a *Adapter) SetAttachmentSaver(saver AttachmentSaver) {
+	a.attachmentSaver = saver
 }
 
 func (a *Adapter) Send(ctx context.Context, chatID, text string) error {
@@ -143,12 +154,18 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 		return
 	}
+	attachments, err := a.attachmentsForEvent(r.Context(), ev.Event)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 
 	resp, err := a.orchestrator.ProcessMessage(r.Context(), orchestrator.ProcessMessageRequest{
 		SessionID:   channelapp.BuildSessionID(time.Now().UTC(), "slack", normalized.ChatID),
 		Channel:     "slack",
 		ChatID:      normalized.UserID,
 		UserMessage: normalized.Text,
+		Attachments: attachments,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -165,17 +182,17 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NormalizeEvent converts Slack event payload into channel-agnostic event.
 // It returns false when the event should be ignored.
 func (a *Adapter) NormalizeEvent(ev EventEnvelope, raw []byte) (adapterchannels.ChannelEvent, bool) {
-	if ev.Event.Channel == "" || ev.Event.Text == "" {
+	if ev.Event.Channel == "" {
 		return adapterchannels.ChannelEvent{}, false
 	}
-	if ev.Event.BotID != "" || ev.Event.Subtype != "" {
+	if ev.Event.BotID != "" || (ev.Event.Subtype != "" && ev.Event.Subtype != "file_share") {
 		return adapterchannels.ChannelEvent{}, false
 	}
 	if ev.Event.Type != "message" && ev.Event.Type != "app_mention" {
 		return adapterchannels.ChannelEvent{}, false
 	}
 	text := normalizeSlackText(ev.Event.Text)
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(text) == "" && len(ev.Event.Files) == 0 {
 		return adapterchannels.ChannelEvent{}, false
 	}
 	userID := ev.Event.User
@@ -191,6 +208,54 @@ func (a *Adapter) NormalizeEvent(ev EventEnvelope, raw []byte) (adapterchannels.
 		Timestamp: time.Now().UTC(),
 		Raw:       raw,
 	}, true
+}
+
+func (a *Adapter) attachmentsForEvent(ctx context.Context, event EventInner) ([]domainattachment.Attachment, error) {
+	if len(event.Files) == 0 {
+		return nil, nil
+	}
+	if a.attachmentSaver == nil {
+		return nil, fmt.Errorf("slack attachment saver is nil")
+	}
+	files := make([]appattachment.IncomingFile, 0, len(event.Files))
+	for _, file := range event.Files {
+		url := firstNonEmptySlack(file.URLPrivateDownload, file.URLPrivate)
+		if strings.TrimSpace(url) == "" {
+			return nil, fmt.Errorf("slack file download url is empty")
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		if a.botToken != "" {
+			req.Header.Set("Authorization", "Bearer "+a.botToken)
+		}
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("slack file download failed: status=%d", resp.StatusCode)
+		}
+		contentType := firstNonEmptySlack(file.MimeType, resp.Header.Get("Content-Type"))
+		files = append(files, appattachment.IncomingFile{
+			Filename:    firstNonEmptySlack(file.Name, file.Title, file.ID),
+			ContentType: contentType,
+			SizeBytes:   file.Size,
+			Reader:      resp.Body,
+		})
+	}
+	return a.attachmentSaver.SaveAll(ctx, files)
+}
+
+func firstNonEmptySlack(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func normalizeSlackText(text string) string {
@@ -240,4 +305,15 @@ type EventInner struct {
 	BotID       string `json:"bot_id,omitempty"`
 	Channel     string `json:"channel"`
 	ClientMsgID string `json:"client_msg_id,omitempty"`
+	Files       []File `json:"files,omitempty"`
+}
+
+type File struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Title              string `json:"title"`
+	MimeType           string `json:"mimetype"`
+	Size               int64  `json:"size"`
+	URLPrivate         string `json:"url_private"`
+	URLPrivateDownload string `json:"url_private_download"`
 }

@@ -89,7 +89,10 @@ func (d *distributedRouteDispatcher) ExecuteDirect(ctx context.Context, t task.T
 		}
 		return resp, err
 	}
-	if route == routing.RouteWILD && d.wild != nil {
+	if route == routing.RouteWILD {
+		if d.wild == nil {
+			return "", fmt.Errorf("no wild agent available")
+		}
 		d.emit("agent.start", "mio", "wild", "創作中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
 		streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
 		resp, err := d.wild.Generate(streamCtx, t)

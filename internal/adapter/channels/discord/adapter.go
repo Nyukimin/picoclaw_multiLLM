@@ -13,17 +13,24 @@ import (
 	"time"
 
 	adapterchannels "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/channels"
+	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	channelapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/channel"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 )
+
+type AttachmentSaver interface {
+	SaveAll(ctx context.Context, files []appattachment.IncomingFile) ([]domainattachment.Attachment, error)
+}
 
 // Adapter handles Discord relay webhook and outbound sends.
 type Adapter struct {
-	botToken     string
-	publicKeyHex string
-	orchestrator orchestrator.Orchestrator
-	httpClient   *http.Client
-	apiBaseURL   string
+	botToken        string
+	publicKeyHex    string
+	orchestrator    orchestrator.Orchestrator
+	httpClient      *http.Client
+	apiBaseURL      string
+	attachmentSaver AttachmentSaver
 }
 
 func NewAdapter(botToken string, orch ...orchestrator.Orchestrator) *Adapter {
@@ -55,6 +62,10 @@ func (a *Adapter) SetAPIBaseURL(url string) {
 
 func (a *Adapter) SetPublicKeyHex(publicKeyHex string) {
 	a.publicKeyHex = publicKeyHex
+}
+
+func (a *Adapter) SetAttachmentSaver(saver AttachmentSaver) {
+	a.attachmentSaver = saver
 }
 
 func (a *Adapter) Send(ctx context.Context, chatID, text string) error {
@@ -141,7 +152,7 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte(`{"ok":true}`))
 				return
 			}
-			resp, err := a.processChannelEvent(r.Context(), event)
+			resp, err := a.processChannelEvent(r.Context(), event, nil)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -169,7 +180,12 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 		return
 	}
-	resp, err := a.processChannelEvent(r.Context(), event)
+	attachments, err := a.attachmentsForRelayPayload(r.Context(), p)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	resp, err := a.processChannelEvent(r.Context(), event, attachments)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -200,25 +216,35 @@ func (a *Adapter) verifySignature(r *http.Request, body []byte) bool {
 	return ed25519.Verify(ed25519.PublicKey(pub), message, sig)
 }
 
-func (a *Adapter) processChannelEvent(ctx context.Context, event adapterchannels.ChannelEvent) (orchestrator.ProcessMessageResponse, error) {
+func (a *Adapter) processChannelEvent(ctx context.Context, event adapterchannels.ChannelEvent, attachments []domainattachment.Attachment) (orchestrator.ProcessMessageResponse, error) {
 	return a.orchestrator.ProcessMessage(ctx, orchestrator.ProcessMessageRequest{
 		SessionID:   channelapp.BuildSessionID(time.Now().UTC(), "discord", event.ChatID),
 		Channel:     "discord",
 		ChatID:      event.UserID,
 		UserMessage: event.Text,
+		Attachments: attachments,
 	})
 }
 
 // RelayPayload is a normalized Discord event payload for webhook relay.
 type RelayPayload struct {
-	ChannelID string `json:"channel_id"`
-	AuthorID  string `json:"author_id"`
-	Content   string `json:"content"`
+	ChannelID   string            `json:"channel_id"`
+	AuthorID    string            `json:"author_id"`
+	Content     string            `json:"content"`
+	Attachments []RelayAttachment `json:"attachments,omitempty"`
+}
+
+type RelayAttachment struct {
+	ID          string `json:"id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	URL         string `json:"url"`
 }
 
 // NormalizeRelayPayload converts relay payload into channel event.
 func (a *Adapter) NormalizeRelayPayload(p RelayPayload, raw []byte) (adapterchannels.ChannelEvent, bool) {
-	if strings.TrimSpace(p.ChannelID) == "" || strings.TrimSpace(p.Content) == "" {
+	if strings.TrimSpace(p.ChannelID) == "" || (strings.TrimSpace(p.Content) == "" && len(p.Attachments) == 0) {
 		return adapterchannels.ChannelEvent{}, false
 	}
 	userID := p.AuthorID
@@ -233,6 +259,53 @@ func (a *Adapter) NormalizeRelayPayload(p RelayPayload, raw []byte) (adapterchan
 		Timestamp: time.Now().UTC(),
 		Raw:       raw,
 	}, true
+}
+
+func (a *Adapter) attachmentsForRelayPayload(ctx context.Context, payload RelayPayload) ([]domainattachment.Attachment, error) {
+	if len(payload.Attachments) == 0 {
+		return nil, nil
+	}
+	if a.attachmentSaver == nil {
+		return nil, fmt.Errorf("discord attachment saver is nil")
+	}
+	files := make([]appattachment.IncomingFile, 0, len(payload.Attachments))
+	for _, attachment := range payload.Attachments {
+		if strings.TrimSpace(attachment.URL) == "" {
+			return nil, fmt.Errorf("discord attachment url is empty")
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, attachment.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("discord attachment download failed: status=%d", resp.StatusCode)
+		}
+		filename := strings.TrimSpace(attachment.Filename)
+		if filename == "" {
+			filename = strings.TrimSpace(attachment.ID)
+		}
+		files = append(files, appattachment.IncomingFile{
+			Filename:    filename,
+			ContentType: firstNonEmptyDiscord(attachment.ContentType, resp.Header.Get("Content-Type")),
+			SizeBytes:   attachment.Size,
+			Reader:      resp.Body,
+		})
+	}
+	return a.attachmentSaver.SaveAll(ctx, files)
+}
+
+func firstNonEmptyDiscord(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // Interaction is Discord interactions payload.

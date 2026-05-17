@@ -188,8 +188,17 @@ type WorkerConfig struct {
 
 // LineConfig はLINE Messaging API設定
 type LineConfig struct {
-	ChannelSecret string `yaml:"channel_secret"` // 環境変数 LINE_CHANNEL_SECRET 推奨
-	AccessToken   string `yaml:"access_token"`   // 環境変数 LINE_CHANNEL_TOKEN 推奨
+	ChannelSecret string              `yaml:"channel_secret"` // 環境変数 LINE_CHANNEL_SECRET 推奨
+	AccessToken   string              `yaml:"access_token"`   // 環境変数 LINE_CHANNEL_TOKEN 推奨
+	ChannelPolicy ChannelPolicyConfig `yaml:"channel_policy"`
+}
+
+type ChannelPolicyConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	AllowDM        *bool    `yaml:"allow_dm"`
+	AllowGroups    *bool    `yaml:"allow_groups"`
+	AllowedSenders []string `yaml:"allowed_senders"`
+	PairedGroups   []string `yaml:"paired_groups"`
 }
 
 type TelegramConfig struct {
