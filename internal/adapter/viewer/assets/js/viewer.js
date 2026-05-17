@@ -449,7 +449,7 @@ let timelineUserInteracting = false;
 let timelineInteractionTimer = null;
 let suppressTimelineScroll = false;
 let derivedDirty = false;
-let activeViewerTab = 'timeline';
+let activeViewerTab = 'home';
 let sttControlsReady = false;
 
 const tabs = Array.from(document.querySelectorAll('.tab-btn'));
@@ -458,6 +458,10 @@ const mobilePanelSelect = document.getElementById('mobilePanelSelect');
 const mobilePanelPrev = document.getElementById('mobilePanelPrev');
 const mobilePanelNext = document.getElementById('mobilePanelNext');
 const panels = {
+  home: document.getElementById('panel-home'),
+  develop: document.getElementById('panel-develop'),
+  instructions: document.getElementById('panel-instructions'),
+  reports: document.getElementById('panel-reports'),
   ops: document.getElementById('panel-ops'),
   overview: document.getElementById('panel-overview'),
   roles: document.getElementById('panel-roles'),
@@ -547,6 +551,7 @@ function switchTab(tab) {
     updateSTTInputIndicators();
   }
   if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
+  renderDeskViews();
 }
 tabs.forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 
@@ -1251,6 +1256,7 @@ function renderEvidenceSummary() {
 
 
 function refreshDerivedViews() {
+  renderDeskViews();
   renderOps();
   renderDebugPanels();
   renderOverview();
@@ -1263,6 +1269,13 @@ function refreshDerivedViews() {
   renderMemorySnapshot();
   renderMemoryEvents();
   renderRecallTraces();
+}
+
+function renderDeskViews() {
+  if (typeof renderHomeDesk === 'function') renderHomeDesk();
+  if (typeof renderDevelopDesk === 'function') renderDevelopDesk();
+  if (typeof renderInstructionsDesk === 'function') renderInstructionsDesk();
+  if (typeof renderReportsDesk === 'function') renderReportsDesk();
 }
 
 function refreshOpsData() {
@@ -1282,6 +1295,7 @@ function refreshOpsData() {
         return t === 'agent.error' || t === 'mailbox.error' || t === 'worker.classified_failure';
       }) || null;
       renderOps();
+      renderDeskViews();
     })
     .catch((err) => console.error(err));
 }
@@ -1295,6 +1309,7 @@ function refreshEvidence() {
     .then((data) => {
       state.evidence = Array.isArray(data.items) ? data.items : [];
       renderEvidence();
+      renderDeskViews();
       if (state.pendingEvidenceJobID) {
         const want = state.pendingEvidenceJobID;
         const found = state.evidence.some((r) => String(r.job_id || '') === want);
@@ -1324,6 +1339,7 @@ function refreshEvidenceSummary() {
     .then((data) => {
       state.evidenceSummary = data.summary || {status: {}, error_kind: {}};
       renderEvidenceSummary();
+      renderDeskViews();
     })
     .catch((err) => console.error(err));
 }
@@ -1338,6 +1354,7 @@ function refreshVerification() {
     .then((data) => {
       state.verificationReports = Array.isArray(data.items) ? data.items : [];
       renderEvidence();
+      renderDeskViews();
     })
     .catch((err) => console.error(err));
 }
@@ -1352,6 +1369,7 @@ function refreshVerificationSummary() {
     .then((data) => {
       state.verificationSummary = data.summary || {status: {}, trigger_level: {}};
       renderEvidenceSummary();
+      renderDeskViews();
     })
     .catch((err) => console.error(err));
 }
@@ -2500,6 +2518,10 @@ function connect() {
 }
 
 refreshDerivedViews();
+if (typeof bindHomeDeskControls === 'function') bindHomeDeskControls();
+if (typeof bindDevelopDeskControls === 'function') bindDevelopDeskControls();
+if (typeof bindInstructionsDeskControls === 'function') bindInstructionsDeskControls();
+if (typeof bindReportsDeskControls === 'function') bindReportsDeskControls();
 renderIdleChat();
 setIdleSelectedMode(state.idleChat.selectedMode);
 setIdleSelectedView(state.idleChat.selectedView);
