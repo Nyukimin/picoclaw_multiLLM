@@ -6,7 +6,7 @@
 <title>RenCrow Live</title>
 <link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260511-memory-desk">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/ops.css?v=20260511-memory-desk">
-<link rel="stylesheet" href="/viewer/assets/css/tabs/desk.css?v=20260517-daily-desk">
+<link rel="stylesheet" href="/viewer/assets/css/tabs/desk.css?v=20260517-desk-regenerated">
 </head>
 <body class="theme-modern">
 <header>
@@ -70,110 +70,131 @@
   </nav>
   <main>
   <section id="panel-home" class="panel active">
-    <div class="desk-screen">
-      <div class="desk-head">
-        <div>
+    <div class="desk-screen desk-workspace">
+      <aside class="desk-side">
+        <div class="desk-brand">
           <div class="desk-kicker">Home / Daily Desk</div>
           <h2 class="daily-desk-title">今日なにをする？</h2>
         </div>
+        <div class="desk-character">
+          <div class="desk-character-mark">R</div>
+          <div class="desk-character-name">RenCrow</div>
+          <div class="daily-desk-muted">会話、開発、調査、指示をここから始めます。</div>
+        </div>
         <div id="homeStateBadge" class="desk-status-pill">loading</div>
-      </div>
-      <div class="desk-layout">
-        <section class="desk-hero">
-          <div class="desk-character">
-            <div class="desk-character-mark">R</div>
-            <div>
-              <div class="desk-character-name">RenCrow</div>
-              <div class="daily-desk-muted">会話、開発、調査、指示をここから始めます。</div>
-            </div>
+        <div id="homeStatusCard" class="daily-desk-card"></div>
+      </aside>
+      <section class="desk-main">
+        <div class="desk-head compact">
+          <div>
+            <div class="desk-kicker">Today's focus</div>
+            <h3>必要なものだけを見る</h3>
           </div>
-          <div id="homeStatusCard" class="daily-desk-card"></div>
-        </section>
-        <section class="desk-card-list">
+        </div>
+        <section class="desk-card-list home-focus">
           <div id="homeLastConversation" class="daily-desk-card"></div>
           <div id="homeRunningWork" class="daily-desk-card"></div>
           <div id="homeUnreadReports" class="daily-desk-card"></div>
           <div id="homeOpenInstructions" class="daily-desk-card"></div>
           <div id="homeAgents" class="daily-desk-card"></div>
         </section>
-      </div>
-      <section class="daily-desk-card desk-compose">
-        <div class="desk-compose-row">
-          <select id="homeTargetAgent" class="desk-select" aria-label="Home target agent">
-            <option value="chat">Chat</option>
-            <option value="worker">Worker</option>
-            <option value="coder">Coder</option>
-            <option value="heavy">Heavy</option>
-            <option value="wild">Wild</option>
-          </select>
-          <textarea id="homeInput" class="daily-desk-input" rows="2" placeholder="今日なにをする？ 会話・開発・調査・指示をここから始める"></textarea>
-          <button id="homeSendBtn" class="desk-primary-btn" type="button">Send</button>
-        </div>
+        <section class="daily-desk-card desk-compose desk-dock">
+          <div class="desk-compose-row">
+            <select id="homeTargetAgent" class="desk-select" aria-label="Home target agent">
+              <option value="chat">Chat</option>
+              <option value="worker">Worker</option>
+              <option value="coder">Coder</option>
+              <option value="heavy">Heavy</option>
+              <option value="wild">Wild</option>
+            </select>
+            <textarea id="homeInput" class="daily-desk-input" rows="1" placeholder="会話・開発・調査・指示を入力"></textarea>
+            <button id="homeSendBtn" class="desk-primary-btn" type="button">Send</button>
+          </div>
+        </section>
       </section>
     </div>
   </section>
 
   <section id="panel-develop" class="panel">
-    <div class="desk-screen">
-      <div class="desk-head">
-        <div>
+    <div class="desk-screen desk-workspace">
+      <aside class="desk-side">
+        <div class="desk-brand">
           <div class="desk-kicker">Develop</div>
           <h2 class="daily-desk-title">開発タスクの現在地</h2>
         </div>
-        <button id="developRefreshBtn" class="ctl-btn" type="button">Refresh</button>
-      </div>
-      <div class="desk-two-col">
-        <div id="developCurrentTask" class="daily-desk-card"></div>
-        <div id="developAgentPhase" class="daily-desk-card"></div>
-      </div>
-      <div id="developLogSummary" class="daily-desk-card"></div>
-      <div class="desk-two-col">
-        <div id="developArtifacts" class="daily-desk-card"></div>
-        <div id="developNextActions" class="daily-desk-card"></div>
-      </div>
+        <div class="desk-character">
+          <div class="desk-character-mark">W</div>
+          <div class="desk-character-name">Worker / Coder</div>
+          <div class="daily-desk-muted">作業の状態、確認待ち、次の判断だけを表示します。</div>
+        </div>
+        <button id="developRefreshBtn" class="desk-primary-btn" type="button">Refresh</button>
+      </aside>
+      <section class="desk-main">
+        <div class="desk-two-col">
+          <div id="developCurrentTask" class="daily-desk-card"></div>
+          <div id="developAgentPhase" class="daily-desk-card"></div>
+        </div>
+        <div id="developLogSummary" class="daily-desk-card"></div>
+        <div class="desk-two-col">
+          <div id="developArtifacts" class="daily-desk-card"></div>
+          <div id="developNextActions" class="daily-desk-card"></div>
+        </div>
+      </section>
     </div>
   </section>
 
   <section id="panel-instructions" class="panel">
-    <div class="desk-screen">
-      <div class="desk-head">
-        <div>
+    <div class="desk-screen desk-workspace">
+      <aside class="desk-side">
+        <div class="desk-brand">
           <div class="desk-kicker">Instructions</div>
           <h2 class="daily-desk-title">指示キュー</h2>
         </div>
-        <button id="instructionClearDoneBtn" class="ctl-btn" type="button">Doneを整理</button>
-      </div>
-      <section class="daily-desk-card">
-        <div class="desk-form-grid">
-          <textarea id="instructionText" class="daily-desk-input" rows="2" placeholder="新しい指示を書く"></textarea>
-          <select id="instructionTarget" class="desk-select">
-            <option value="Chat">Chat</option>
-            <option value="Worker">Worker</option>
-            <option value="Coder">Coder</option>
-            <option value="Heavy">Heavy</option>
-            <option value="Wild">Wild</option>
-          </select>
-          <select id="instructionPriority" class="desk-select">
-            <option value="normal">normal</option>
-            <option value="high">high</option>
-            <option value="urgent">urgent</option>
-            <option value="low">low</option>
-          </select>
-          <button id="instructionAddBtn" class="desk-primary-btn" type="button">指示を追加</button>
+        <div class="desk-character">
+          <div class="desk-character-mark">I</div>
+          <div class="desk-character-name">Instruction Desk</div>
+          <div class="daily-desk-muted">やること、保留、完了だけを追います。</div>
         </div>
+        <section class="daily-desk-card desk-form-card">
+          <textarea id="instructionText" class="daily-desk-input" rows="1" placeholder="新しい指示を書く"></textarea>
+          <div class="desk-form-grid">
+            <select id="instructionTarget" class="desk-select">
+              <option value="Chat">Chat</option>
+              <option value="Worker">Worker</option>
+              <option value="Coder">Coder</option>
+              <option value="Heavy">Heavy</option>
+              <option value="Wild">Wild</option>
+            </select>
+            <select id="instructionPriority" class="desk-select">
+              <option value="normal">normal</option>
+              <option value="high">high</option>
+              <option value="urgent">urgent</option>
+              <option value="low">low</option>
+            </select>
+          </div>
+          <button id="instructionAddBtn" class="desk-primary-btn" type="button">指示を追加</button>
+          <button id="instructionClearDoneBtn" class="ctl-btn" type="button">Doneを整理</button>
+        </section>
+      </aside>
+      <section class="desk-main">
+        <div id="instructionColumns" class="instruction-columns"></div>
       </section>
-      <div id="instructionColumns" class="instruction-columns"></div>
     </div>
   </section>
 
   <section id="panel-reports" class="panel">
-    <div class="desk-screen">
-      <div class="desk-head">
-        <div>
+    <div class="desk-screen desk-workspace">
+      <aside class="desk-side">
+        <div class="desk-brand">
           <div class="desk-kicker">Reports</div>
           <h2 class="daily-desk-title">作業完了報告</h2>
         </div>
-        <div class="desk-action-row">
+        <div class="desk-character">
+          <div class="desk-character-mark">R</div>
+          <div class="desk-character-name">Report Desk</div>
+          <div class="daily-desk-muted">完了、失敗、未確認を人が読める形で確認します。</div>
+        </div>
+        <div class="desk-action-row report-actions">
           <select id="reportFilter" class="desk-select">
             <option value="">all</option>
             <option value="unread">unread</option>
@@ -185,11 +206,11 @@
           <button id="reportCopyMarkdownBtn" class="ctl-btn" type="button">Copy Markdown</button>
           <button id="reportMarkReadBtn" class="ctl-btn" type="button">Mark as Read</button>
         </div>
-      </div>
-      <div class="reports-layout">
         <div id="reportList" class="report-list"></div>
+      </aside>
+      <section class="desk-main">
         <div id="reportDetail" class="daily-desk-card report-detail">No report selected</div>
-      </div>
+      </section>
     </div>
   </section>
 
@@ -730,10 +751,10 @@
 <div class="toast" id="toast"></div>
 
 <script src="/viewer/assets/js/tabs/ops.js?v=20260510-tabs-ops" defer></script>
-<script src="/viewer/assets/js/tabs/home.js?v=20260517-daily-desk" defer></script>
-<script src="/viewer/assets/js/tabs/develop.js?v=20260517-daily-desk" defer></script>
-<script src="/viewer/assets/js/tabs/instructions.js?v=20260517-daily-desk" defer></script>
-<script src="/viewer/assets/js/tabs/reports.js?v=20260517-daily-desk" defer></script>
+<script src="/viewer/assets/js/tabs/home.js?v=20260517-desk-regenerated" defer></script>
+<script src="/viewer/assets/js/tabs/develop.js?v=20260517-desk-regenerated" defer></script>
+<script src="/viewer/assets/js/tabs/instructions.js?v=20260517-desk-regenerated" defer></script>
+<script src="/viewer/assets/js/tabs/reports.js?v=20260517-desk-regenerated" defer></script>
 <script src="/viewer/assets/js/tabs/overview.js?v=20260510-tabs-overview" defer></script>
 <script src="/viewer/assets/js/tabs/system.js?v=20260510-tabs-system" defer></script>
 <script src="/viewer/assets/js/tabs/memory.js?v=20260510-tabs-memory" defer></script>
