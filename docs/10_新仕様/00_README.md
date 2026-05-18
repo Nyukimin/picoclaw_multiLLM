@@ -47,6 +47,8 @@
 21. `25_Codebase_Complexity_Hotspot_Skill仕様.md`
 22. `26_Persona_Lore_and_Mutual_Observation仕様.md`
 23. `27_Browser_Trace_to_API_Discovery仕様.md`
+24. `28_SuperAgent_Harness_Reference_DeerFlow仕様.md`
+25. `29_Sandbox_Promotion_Gate仕様.md`
 
 ## 文書一覧
 
@@ -76,6 +78,8 @@
 | `25_Codebase_Complexity_Hotspot_Skill仕様.md` | コードベースの複雑性ホットスポットを Report-only で検出し、Evidence、リスク、必要テストを提示する Skill 仕様 |
 | `26_Persona_Lore_and_Mutual_Observation仕様.md` | lore / persona / trigger / canonical response / 相互観測を分離し、人格と成長ループを扱う仕様 |
 | `27_Browser_Trace_to_API_Discovery仕様.md` | Browser Trace から API candidate、OpenAPI draft、coverage report を作り、Source Registry / Fetcher へ接続する仕様 |
+| `28_SuperAgent_Harness_Reference_DeerFlow仕様.md` | DeerFlow を参考に、Lead Agent、Subagent、Sandbox、Skill、Context Engineering、Tracing を RenCrow の SuperAgent Harness として接続する仕様 |
+| `29_Sandbox_Promotion_Gate仕様.md` | Sandbox での試行錯誤と、正式環境へ昇格するための Promotion Gate、Human approval、rollback plan を扱う仕様 |
 
 ## 基本方針
 
