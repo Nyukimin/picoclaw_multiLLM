@@ -81,9 +81,98 @@ RenCrow の AI 開発運用では、以下を原則とする。
 11. CI/CD では AI に直接 merge させず、review / proposal に制限する。
 12. すべての作業単位に EventId を付与する。
 
-## 4. RenCrow 内の責務分担
+## 4. Agent Autonomy Principle
 
-### 4.1 Chat
+RenCrow では、AI エージェントの自律性を、モデル単体の性能だけで評価しない。
+
+十分に高性能なモデルであっても、必要なツール、文脈、権限、検証条件、安全柵が与えられていなければ、実作業では自律的に動けない。
+
+したがって、RenCrow におけるエージェント自律化の基本原則は以下とする。
+
+```text
+AI エージェントを自律化するとは、
+AI に自由を与えることではなく、
+仕事に必要な道具、文脈、判断基準、停止条件を渡すことである。
+```
+
+### 4.1 自律化に必要な 5 要素
+
+RenCrow では、エージェントが自律的に作業するために、少なくとも以下の 5 要素を必要とする。
+
+```text
+1. Tools
+   ファイル読取、検索、grep、テスト、diff 確認、ブラウザ確認、成果物生成など、
+   実作業に必要な操作手段。
+
+2. Context
+   プロジェクト目的、設計判断、過去の失敗、現在の優先順位、
+   ユーザーの意図、作業対象の背景。
+
+3. Authority
+   どこまで自動で実行してよいか。
+   どこから人間承認が必要か。
+
+4. Verification
+   作業が完了したと判断するための成功条件。
+   テスト、lint、仕様一致、レビュー、成果物確認など。
+
+5. Safety Boundary
+   破壊的操作、外部送信、公開、課金、削除、上書きなどを止める安全柵。
+```
+
+### 4.2 RenCrow での対応
+
+この原則は、以下の仕様にまたがって適用する。
+
+```text
+21_AI_Native_Engineering_Workflow仕様
+  AI が働く開発環境を整える。
+
+23_Workstream_Operating_Loop仕様
+  作業ごとに文脈、記憶、成果物、Goal を持たせる。
+
+24_Agent_Skill_Governance仕様
+  Skill を自動起動し、雑な PR や不適切な作業を止める。
+
+20_Tool_Harness_Contract_Mediation仕様
+  ツール呼び出しを検証、修復、安全実行する。
+
+19_DCI_直接コーパス探索仕様
+  必要なときに原文、ログ、仕様へ戻って確認する。
+```
+
+### 4.3 設計上の結論
+
+RenCrow では、エージェントがうまく動かない場合、最初にモデル変更を疑うのではなく、以下を確認する。
+
+```text
+- 必要なツールが渡されているか
+- 必要な文脈が渡されているか
+- 成功条件が明確か
+- 停止条件が明確か
+- 人間承認が必要な境界が定義されているか
+- 実行結果を検証する仕組みがあるか
+- 作業履歴が Workstream に残るか
+```
+
+モデル性能の不足に見える問題の多くは、実際にはエージェント環境の不足である可能性がある。
+
+そのため、RenCrow では次の順序で改善を検討する。
+
+```text
+1. 文脈を整える
+2. ツールを整える
+3. Goal Contract を整える
+4. Skill / Command を整える
+5. Tool Harness / Safety Gate を整える
+6. それでも不足する場合にモデル変更を検討する
+```
+
+この原則により、RenCrow は「賢いモデルを呼ぶシステム」ではなく、「AI エージェントが継続的に仕事を進められる環境」として設計される。
+
+## 5. RenCrow 内の責務分担
+
+### 5.1 Chat
 
 Chat はユーザーとの会話インタフェースである。
 
@@ -98,7 +187,7 @@ Chat はユーザーとの会話インタフェースである。
 
 Chat は原則として、コード修正や shell 実行を直接行わない。
 
-### 4.2 Worker
+### 5.2 Worker
 
 Worker は実行主体である。
 
@@ -116,7 +205,7 @@ Worker は実行主体である。
 
 Worker は Tool Harness と Command Gate を必ず通す。
 
-### 4.3 Coder
+### 5.3 Coder
 
 Coder は設計、実装案、patch proposal 生成を担当する。
 
@@ -132,7 +221,7 @@ Coder は設計、実装案、patch proposal 生成を担当する。
 
 Coder は破壊的操作を直接実行しない。
 
-### 4.4 Heavy Worker
+### 5.4 Heavy Worker
 
 Heavy Worker は高コスト、高文脈の作業専用である。
 
@@ -147,7 +236,7 @@ Heavy Worker は高コスト、高文脈の作業専用である。
 
 通常作業では起動しない。
 
-### 4.5 Subagent
+### 5.5 Subagent
 
 Subagent は文脈隔離用の一時エージェントである。
 
@@ -163,9 +252,9 @@ Subagent は文脈隔離用の一時エージェントである。
 
 Subagent は、調査結果だけをメイン文脈へ返す。
 
-## 5. Project Memory
+## 6. Project Memory
 
-### 5.1 目的
+### 6.1 目的
 
 Project Memory は、プロジェクト固有の知識を AI が毎回再学習しなくて済むようにするための永続ファイル群である。
 
@@ -182,7 +271,7 @@ recurring mistakes
 
 RenCrow では、これを単一ファイルに詰め込まず、役割ごとに分離する。
 
-### 5.2 推奨ファイル構成
+### 6.2 推奨ファイル構成
 
 ```text
 .ai/
@@ -205,7 +294,7 @@ CLAUDE.md
 
 ただし、RenCrow の正本は `.ai/` 配下の分割ファイルとする。
 
-### 5.3 PROJECT_MEMORY.md
+### 6.3 PROJECT_MEMORY.md
 
 ```markdown
 # PROJECT_MEMORY
@@ -229,7 +318,7 @@ CLAUDE.md
 現在の優先事項。
 ```
 
-### 5.4 RECURRING_MISTAKES.md
+### 6.4 RECURRING_MISTAKES.md
 
 ```markdown
 # RECURRING_MISTAKES
@@ -245,15 +334,15 @@ CLAUDE.md
 - テストせず完了報告する
 ```
 
-## 6. Project Init Pack
+## 7. Project Init Pack
 
-### 6.1 目的
+### 7.1 目的
 
 Project Init Pack は、新しいコードベースに入った時に、Worker / Coder が最初に作成するプロジェクト理解パックである。
 
 RenCrow では、これを明示的な初期化ワークフローとして実装する。
 
-### 6.2 実行タイミング
+### 7.2 実行タイミング
 
 以下の場合に実行する。
 
@@ -265,7 +354,7 @@ RenCrow では、これを明示的な初期化ワークフローとして実装
 - ユーザーが「初期スキャンして」と依頼した時
 ```
 
-### 6.3 生成物
+### 7.3 生成物
 
 ```text
 .ai/project_profile.md
@@ -277,7 +366,7 @@ RenCrow では、これを明示的な初期化ワークフローとして実装
 .ai/risk_notes.md
 ```
 
-### 6.4 Project Init Flow
+### 7.4 Project Init Flow
 
 ```text
 1. list root files
@@ -292,7 +381,7 @@ RenCrow では、これを明示的な初期化ワークフローとして実装
 10. register Source Registry entries
 ```
 
-### 6.5 project_profile.md 例
+### 7.5 project_profile.md 例
 
 ````markdown
 # Project Profile
@@ -336,15 +425,15 @@ pytest
 - .env は読み取り禁止
 ````
 
-## 7. Worktree 運用
+## 8. Worktree 運用
 
-### 7.1 目的
+### 8.1 目的
 
 AI による並列作業や実験を安全に行うため、main branch を直接変更しない。
 
 RenCrow では、Worker / Coder の実装作業は原則 worktree 上で行う。ただし、既存運用でユーザーが明示的に現在 worktree での docs 編集や軽微修正を許可した場合は、その指示を優先し、差分範囲を限定して扱う。
 
-### 7.2 基本ルール
+### 8.2 基本ルール
 
 ```text
 main:
@@ -363,7 +452,7 @@ hotfix worktree:
   緊急修正
 ```
 
-### 7.3 ディレクトリ例
+### 8.3 ディレクトリ例
 
 ```text
 repo/
@@ -376,13 +465,13 @@ repo/
   repo-review-pr-123/
 ```
 
-### 7.4 Worktree 作成コマンド例
+### 8.4 Worktree 作成コマンド例
 
 ```bash
 git worktree add ../worktrees/repo-feature-dci -b feature/dci
 ```
 
-### 7.5 Worktree メタ情報
+### 8.5 Worktree メタ情報
 
 RenCrow は worktree を登録する。
 
@@ -399,9 +488,9 @@ RenCrow は worktree を登録する。
 }
 ```
 
-## 8. 標準 CLI ツール
+## 9. 標準 CLI ツール
 
-### 8.1 目的
+### 9.1 目的
 
 AI がコードベースを効率よく探索、解析できるよう、標準 CLI ツールを整備する。
 
@@ -416,7 +505,7 @@ python3
 node
 ```
 
-### 8.2 必須ツール
+### 9.2 必須ツール
 
 ```text
 rg:
@@ -438,7 +527,7 @@ node:
   JS / TS 系プロジェクトで使用。
 ```
 
-### 8.3 Command Gate
+### 9.3 Command Gate
 
 CLI ツールは Tool Harness と Command Gate を必ず通す。
 
@@ -475,15 +564,15 @@ CLI ツールは Tool Harness と Command Gate を必ず通す。
   wget
 ```
 
-## 9. MCP / 外部接続
+## 10. MCP / 外部接続
 
-### 9.1 目的
+### 10.1 目的
 
 MCP や外部接続は、ライブドキュメント、ブラウザ、DB、API、デザインシステムなど、ローカルコーパス外の文脈を取得するために使う。
 
 RenCrow では、MCP は直接本番 DB へ接続しない。
 
-### 9.2 原則
+### 10.2 原則
 
 ```text
 MCP output
@@ -499,7 +588,7 @@ promoted DB
 
 MCP で得た情報を、そのまま正式記憶や Knowledge DB へ入れてはいけない。
 
-### 9.3 MCP 使用場面
+### 10.3 MCP 使用場面
 
 ```text
 - 公式ドキュメント確認
@@ -510,7 +599,7 @@ MCP で得た情報を、そのまま正式記憶や Knowledge DB へ入れて�
 - Notion / Docs / issue 参照
 ```
 
-### 9.4 禁止
+### 10.4 禁止
 
 ```text
 - MCP から本番 DB へ直接 write
@@ -519,15 +608,15 @@ MCP で得た情報を、そのまま正式記憶や Knowledge DB へ入れて�
 - secret / token の自動取得
 ```
 
-## 10. Skill / Plugin 設計
+## 11. Skill / Plugin 設計
 
-### 10.1 目的
+### 11.1 目的
 
 再利用可能な専門作業を Skill として定義する。
 
 RenCrow では、plugin という語より **Skill** を優先する。
 
-### 10.2 Skill 構成
+### 11.2 Skill 構成
 
 ```text
 skills/
@@ -552,7 +641,7 @@ skills/
     SKILL.md
 ```
 
-### 10.3 Skill 定義例
+### 11.3 Skill 定義例
 
 ```markdown
 # SKILL: architecture-review
@@ -579,15 +668,15 @@ skills/
 - 保留点
 ```
 
-## 11. Reusable Slash Commands
+## 12. Reusable Slash Commands
 
-### 11.1 目的
+### 12.1 目的
 
 毎回プロンプトを書き直さず、定型作業をコマンド化する。
 
 RenCrow では、slash command を `commands/*.md` として管理する。
 
-### 11.2 ディレクトリ構成
+### 12.2 ディレクトリ構成
 
 ```text
 commands/
@@ -600,7 +689,7 @@ commands/
   tool-harness-check.md
 ```
 
-### 11.3 command 定義例
+### 12.3 command 定義例
 
 ````markdown
 # /review-architecture
@@ -635,15 +724,15 @@ Coder + architecture-review skill
 ```
 ````
 
-## 12. Subagent Context Isolation
+## 13. Subagent Context Isolation
 
-### 12.1 目的
+### 13.1 目的
 
 メインエージェントの文脈汚染を防ぐ。
 
 長い調査、ログ解析、依存関係追跡などをメイン文脈で行うと、回答品質が落ちる。そのため、Subagent を一時的に起動し、結果だけを戻す。
 
-### 12.2 Subagent 種別
+### 13.2 Subagent 種別
 
 ```text
 ResearchAgent:
@@ -665,7 +754,7 @@ TestAgent:
   テスト失敗分析
 ```
 
-### 12.3 実行フロー
+### 13.3 実行フロー
 
 ```text
 Main Coder
@@ -681,7 +770,7 @@ Subagent Report
 Main Coder receives only summary
 ```
 
-### 12.4 Subagent Report 形式
+### 13.4 Subagent Report 形式
 
 ```markdown
 # Subagent Report
@@ -706,15 +795,15 @@ Main Coder receives only summary
 - 未確認範囲
 ```
 
-## 13. Token / Context Tracking
+## 14. Token / Context Tracking
 
-### 13.1 目的
+### 14.1 目的
 
 AI 作業のコスト、文脈肥大、不要な tool call を管理する。
 
 RenCrow では、課金だけでなく、ローカル LLM の context budget、KV cache 負荷、latency 管理にも使う。
 
-### 13.2 記録項目
+### 14.2 記録項目
 
 ```text
 session_id
@@ -732,7 +821,7 @@ estimated_cost
 kv_cache_estimate
 ```
 
-### 13.3 DB 案
+### 14.3 DB 案
 
 ```sql
 CREATE TABLE IF NOT EXISTS ai_context_usage (
@@ -753,7 +842,7 @@ CREATE TABLE IF NOT EXISTS ai_context_usage (
 );
 ```
 
-### 13.4 Context Budget
+### 14.4 Context Budget
 
 ```yaml
 context_budget:
@@ -770,15 +859,15 @@ context_budget:
     conversation_tokens: 8000
 ```
 
-## 14. Heavy Worker / High-token Provider Policy
+## 15. Heavy Worker / High-token Provider Policy
 
-### 14.1 目的
+### 15.1 目的
 
 高コスト、高文脈モデルを必要時のみ使う。
 
 RenCrow では、これを Heavy Worker 起動条件として扱う。
 
-### 14.2 起動条件
+### 15.2 起動条件
 
 ```text
 - 対象ファイル数が 20 を超える
@@ -789,7 +878,7 @@ RenCrow では、これを Heavy Worker 起動条件として扱う。
 - ユーザーが明示的に深掘りを依頼した
 ```
 
-### 14.3 起動しない条件
+### 15.3 起動しない条件
 
 ```text
 - 単純な文言修正
@@ -799,15 +888,15 @@ RenCrow では、これを Heavy Worker 起動条件として扱う。
 - 仕様書への軽微追記
 ```
 
-## 15. IDE / Editor Integration
+## 16. IDE / Editor Integration
 
-### 15.1 目的
+### 16.1 目的
 
 AI 作業の可視性を高める。
 
 RenCrow では、初期 MVP では必須にしない。
 
-### 15.2 方針
+### 16.2 方針
 
 ```text
 MVP:
@@ -823,15 +912,15 @@ MVP:
   RenCrow Viewer 内で patch proposal 表示
 ```
 
-## 16. CI/CD 連携
+## 17. CI/CD 連携
 
-### 16.1 目的
+### 17.1 目的
 
 AI を開発ライフサイクルに組み込む。
 
 RenCrow では、AI に直接 merge や push を許可しない。
 
-### 16.2 許可すること
+### 17.2 許可すること
 
 ```text
 - PR review comment 生成
@@ -843,7 +932,7 @@ RenCrow では、AI に直接 merge や push を許可しない。
 - fix proposal 生成
 ```
 
-### 16.3 禁止すること
+### 17.3 禁止すること
 
 ```text
 - 自動 merge
@@ -853,7 +942,7 @@ RenCrow では、AI に直接 merge や push を許可しない。
 - 破壊的修正の自動適用
 ```
 
-### 16.4 CI Bot Flow
+### 17.4 CI Bot Flow
 
 ```text
 PR opened
@@ -873,7 +962,7 @@ review comment / report
 human approval
 ```
 
-## 17. Source Registry との関係
+## 18. Source Registry との関係
 
 Project Init、DCI、MCP、CI で得た情報は、Source Registry に接続する。
 
@@ -897,7 +986,7 @@ promoted
 - DCI で見つけた未検証断片
 ```
 
-## 18. EventId
+## 19. EventId
 
 すべての作業単位に EventId を付与する。
 
@@ -920,9 +1009,9 @@ ci_review_started
 ci_review_completed
 ```
 
-## 19. DB 設計
+## 20. DB 設計
 
-### 19.1 ai_workflow_event
+### 20.1 ai_workflow_event
 
 ```sql
 CREATE TABLE IF NOT EXISTS ai_workflow_event (
@@ -941,7 +1030,7 @@ CREATE TABLE IF NOT EXISTS ai_workflow_event (
 );
 ```
 
-### 19.2 project_memory_index
+### 20.2 project_memory_index
 
 ```sql
 CREATE TABLE IF NOT EXISTS project_memory_index (
@@ -956,7 +1045,7 @@ CREATE TABLE IF NOT EXISTS project_memory_index (
 );
 ```
 
-### 19.3 worktree_registry
+### 20.3 worktree_registry
 
 ```sql
 CREATE TABLE IF NOT EXISTS worktree_registry (
@@ -972,7 +1061,7 @@ CREATE TABLE IF NOT EXISTS worktree_registry (
 );
 ```
 
-### 19.4 command_registry
+### 20.4 command_registry
 
 ```sql
 CREATE TABLE IF NOT EXISTS command_registry (
@@ -985,9 +1074,9 @@ CREATE TABLE IF NOT EXISTS command_registry (
 );
 ```
 
-## 20. 設定ファイル案
+## 21. 設定ファイル案
 
-### 20.1 configs/ai_workflow.yaml
+### 21.1 configs/ai_workflow.yaml
 
 ```yaml
 ai_workflow:
@@ -1049,7 +1138,7 @@ ai_workflow:
     allow_push: false
 ```
 
-## 21. 実装ファイル案
+## 22. 実装ファイル案
 
 RenCrow の現行 Go 構成に合わせ、実装候補は以下とする。
 
@@ -1083,9 +1172,9 @@ cmd/picoclaw/
   runtime_ai_workflow.go
 ```
 
-## 22. MVP 実装順
+## 23. MVP 実装順
 
-### Phase 1: Project Init
+### 23.1 Phase 1: Project Init
 
 - project scan
 - project_profile 生成
@@ -1093,21 +1182,21 @@ cmd/picoclaw/
 - build / test command 検出
 - Project Memory index 登録
 
-### Phase 2: Project Memory
+### 23.2 Phase 2: Project Memory
 
 - `.ai/` ファイル群作成
 - `PROJECT_MEMORY.md` 更新ルール
 - recurring mistakes 登録
 - architecture decisions 登録
 
-### Phase 3: Worktree
+### 23.3 Phase 3: Worktree
 
 - worktree 作成
 - worktree_registry
 - write 作業は worktree 必須
 - main 直接変更禁止
 
-### Phase 4: Commands / Skills
+### 23.4 Phase 4: Commands / Skills
 
 - `commands/*.md`
 - skill registry
@@ -1115,26 +1204,26 @@ cmd/picoclaw/
 - `/generate-tests`
 - `/dci-search`
 
-### Phase 5: Subagents
+### 23.5 Phase 5: Subagents
 
 - isolated context 実行
 - Subagent Report
 - メイン文脈への要約返却
 
-### Phase 6: Context Tracking
+### 23.6 Phase 6: Context Tracking
 
 - token / context / tool call 記録
 - context budget 警告
 - Heavy Worker 起動判定
 
-### Phase 7: CI Review
+### 23.7 Phase 7: CI Review
 
 - PR diff 読み取り
 - architecture rule check
 - review report 生成
 - human approval 前提
 
-## 23. 成功指標
+## 24. 成功指標
 
 ```text
 project_init_coverage
@@ -1158,7 +1247,7 @@ project init 未実行での write = 0
 Coder task completion rate の向上
 ```
 
-## 24. 設計上の結論
+## 25. 設計上の結論
 
 AI コーディングの品質は、モデル単体では決まらない。
 
@@ -1179,7 +1268,7 @@ RenCrow では、AI を単なるチャットボットとして扱わない。
 
 Worker / Coder / Heavy Worker が、整備された開発環境の中で、調査、提案、検証、実行を分担する。そのために、本仕様を Worker / Coder 実行基盤の中核仕様として採用する。
 
-## 25. まとめ
+## 26. まとめ
 
 本仕様は、RenCrow の AI 開発環境運用を定義する。
 
@@ -1202,4 +1291,3 @@ CI/CD review
 この仕様により、RenCrow は「AI に作業を頼む」段階から、「AI が働ける開発環境を運用する」段階へ進む。
 
 これは、Coder / Worker / DCI / Tool Harness の効果を最大化するための土台である。
-

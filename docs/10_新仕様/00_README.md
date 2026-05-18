@@ -41,6 +41,12 @@
 15. `19_DCI_直接コーパス探索仕様.md`
 16. `20_Tool_Harness_Contract_Mediation仕様.md`
 17. `21_AI_Native_Engineering_Workflow仕様.md`
+18. `22_Revenue_Operating_Principles仕様.md`
+19. `23_Workstream_Operating_Loop仕様.md`
+20. `24_Agent_Skill_Governance仕様.md`
+21. `25_Codebase_Complexity_Hotspot_Skill仕様.md`
+22. `26_Persona_Lore_and_Mutual_Observation仕様.md`
+23. `27_Browser_Trace_to_API_Discovery仕様.md`
 
 ## 文書一覧
 
@@ -64,6 +70,12 @@
 | `19_DCI_直接コーパス探索仕様.md` | RAG / VectorDB だけではなく、原文コーパスへ戻って証拠を調べ直す DCI 仕様 |
 | `20_Tool_Harness_Contract_Mediation仕様.md` | Worker / Coder / DCI の tool call を validate-then-repair で調停し、Command Gate へ渡す共通 Tool Harness 仕様 |
 | `21_AI_Native_Engineering_Workflow仕様.md` | Project Memory、Project Init、worktree、Skill、Subagent、Context tracking など AI が働く開発環境運用仕様 |
+| `22_Revenue_Operating_Principles仕様.md` | 市場調査、商品設計、投稿、導線、顧客の声、Human Decision Gate を扱う収益化行動原則 |
+| `23_Workstream_Operating_Loop仕様.md` | Workstream、Vault、Goal、Artifact、Heartbeat、Steering、Remote Control を扱う継続作業ループ仕様 |
+| `24_Agent_Skill_Governance仕様.md` | Skill Registry、Bootstrap、Auto-trigger、PR Gate、Core / Plugin / Project 分離を扱う Agent 行動規律仕様 |
+| `25_Codebase_Complexity_Hotspot_Skill仕様.md` | コードベースの複雑性ホットスポットを Report-only で検出し、Evidence、リスク、必要テストを提示する Skill 仕様 |
+| `26_Persona_Lore_and_Mutual_Observation仕様.md` | lore / persona / trigger / canonical response / 相互観測を分離し、人格と成長ループを扱う仕様 |
+| `27_Browser_Trace_to_API_Discovery仕様.md` | Browser Trace から API candidate、OpenAPI draft、coverage report を作り、Source Registry / Fetcher へ接続する仕様 |
 
 ## 基本方針
 
