@@ -39,6 +39,8 @@
 13. `13_実装項目インベントリ.md`
 14. `18_知識記憶システム構想.md`
 15. `19_DCI_直接コーパス探索仕様.md`
+16. `20_Tool_Harness_Contract_Mediation仕様.md`
+17. `21_AI_Native_Engineering_Workflow仕様.md`
 
 ## 文書一覧
 
@@ -60,6 +62,8 @@
 | `13_実装項目インベントリ.md` | 現行実装項目の実装済み / 部分実装 / 未実装 / 移行対象外一覧 |
 | `18_知識記憶システム構想.md` | Personal Archive、Creative Knowledge、News、Daily Intake、Dream Consolidation など知識・記憶の入口構想 |
 | `19_DCI_直接コーパス探索仕様.md` | RAG / VectorDB だけではなく、原文コーパスへ戻って証拠を調べ直す DCI 仕様 |
+| `20_Tool_Harness_Contract_Mediation仕様.md` | Worker / Coder / DCI の tool call を validate-then-repair で調停し、Command Gate へ渡す共通 Tool Harness 仕様 |
+| `21_AI_Native_Engineering_Workflow仕様.md` | Project Memory、Project Init、worktree、Skill、Subagent、Context tracking など AI が働く開発環境運用仕様 |
 
 ## 基本方針
 
