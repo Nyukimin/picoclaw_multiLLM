@@ -69,6 +69,15 @@ func buildHeartbeatRuntime(
 	)
 	heartbeatSvc.WithMemoryStore(memStore)
 	heartbeatSvc.WithEventListener(deps.eventRelay)
+	if deps.workstreamStore != nil {
+		heartbeatSvc.WithWorkstreamStore(deps.workstreamStore)
+	}
+	if deps.revenueStore != nil {
+		heartbeatSvc.WithRevenueDailyRoutineStore(deps.revenueStore)
+	}
+	if deps.skillBootstrap != nil {
+		heartbeatSvc.WithSkillBootstrap(deps.skillBootstrap)
+	}
 	heartbeatSvc.Start()
 	deps.heartbeatSvc = heartbeatSvc
 	log.Printf("HeartbeatService enabled (interval: %dm, workspace: %s)", cfg.Heartbeat.Interval, cfg.WorkspaceDir)

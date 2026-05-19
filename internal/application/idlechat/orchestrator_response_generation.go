@@ -216,6 +216,9 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 				log.Printf("[IdleChat] retryAttribution unusable (%s turn=%d): raw=%q sanitized=%q", speaker, turn, truncate(candidateRaw, 180), truncate(candidate, 180))
 				return "", candidateRaw, fmt.Errorf("idlechat dialogue retry_attribution unusable: speaker=%s turn=%d", speaker, turn)
 			}
+			if canonical := o.applyPersonaCanonicalResponse(speaker, sessionID, candidate); canonical != "" {
+				return canonical, candidateRaw, nil
+			}
 			return candidate, candidateRaw, nil
 		}
 	}
@@ -225,5 +228,8 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		return "", firstRaw, fmt.Errorf("idlechat dialogue response unusable: speaker=%s turn=%d truncated=%t", speaker, turn, firstTruncated)
 	}
 
+	if canonical := o.applyPersonaCanonicalResponse(speaker, sessionID, first); canonical != "" {
+		return canonical, firstRaw, nil
+	}
 	return first, firstRaw, nil
 }

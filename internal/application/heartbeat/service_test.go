@@ -9,7 +9,11 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	skillbootstrap "github.com/Nyukimin/picoclaw_multiLLM/internal/application/skillgovernance"
+	domainrevenue "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/revenue"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	domainworkstream "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/workstream"
 )
 
 // mockChatAgent はテスト用のChatAgentモック
@@ -43,6 +47,95 @@ type recordingEventListener struct {
 
 func (r *recordingEventListener) OnEvent(ev orchestrator.OrchestratorEvent) {
 	r.events = append(r.events, ev)
+}
+
+type memoryWorkstreamHeartbeatStore struct {
+	schedules     []domainworkstream.HeartbeatSchedule
+	saved         []domainworkstream.HeartbeatSchedule
+	steering      []domainworkstream.SteeringItem
+	savedSteering []domainworkstream.SteeringItem
+	vaultUpdates  []domainworkstream.VaultUpdateLog
+}
+
+type heartbeatSkillStore struct {
+	manifests []domainskill.SkillManifest
+	logs      []domainskill.SkillTriggerLog
+}
+
+type memoryRevenueDailyRoutineStore struct {
+	market    []domainrevenue.MarketResearchItem
+	posts     []domainrevenue.SNSPostMetric
+	products  []domainrevenue.Product
+	voices    []domainrevenue.CustomerVoice
+	events    []domainrevenue.RevenueEvent
+	decisions []domainrevenue.HumanDecisionGateRecord
+	reports   []domainrevenue.DailyRoutineReport
+}
+
+func (s *heartbeatSkillStore) ListSkillManifests(_ context.Context, _ int) ([]domainskill.SkillManifest, error) {
+	return append([]domainskill.SkillManifest(nil), s.manifests...), nil
+}
+
+func (s *heartbeatSkillStore) SaveSkillTriggerLog(_ context.Context, log domainskill.SkillTriggerLog) error {
+	s.logs = append(s.logs, log)
+	return nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) ListMarketResearchItems(_ context.Context, _ int) ([]domainrevenue.MarketResearchItem, error) {
+	return append([]domainrevenue.MarketResearchItem(nil), s.market...), nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) ListSNSPostMetrics(_ context.Context, _ int) ([]domainrevenue.SNSPostMetric, error) {
+	return append([]domainrevenue.SNSPostMetric(nil), s.posts...), nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) ListProducts(_ context.Context, _ int) ([]domainrevenue.Product, error) {
+	return append([]domainrevenue.Product(nil), s.products...), nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) ListCustomerVoices(_ context.Context, _ int) ([]domainrevenue.CustomerVoice, error) {
+	return append([]domainrevenue.CustomerVoice(nil), s.voices...), nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) ListRevenueEvents(_ context.Context, _ int) ([]domainrevenue.RevenueEvent, error) {
+	return append([]domainrevenue.RevenueEvent(nil), s.events...), nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) ListHumanDecisionGateRecords(_ context.Context, _ int) ([]domainrevenue.HumanDecisionGateRecord, error) {
+	return append([]domainrevenue.HumanDecisionGateRecord(nil), s.decisions...), nil
+}
+
+func (s *memoryRevenueDailyRoutineStore) SaveDailyRoutineReport(_ context.Context, item domainrevenue.DailyRoutineReport) error {
+	if err := domainrevenue.ValidateDailyRoutineReport(item); err != nil {
+		return err
+	}
+	s.reports = append(s.reports, item)
+	return nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) ListHeartbeatSchedules(_ context.Context, _ int) ([]domainworkstream.HeartbeatSchedule, error) {
+	return append([]domainworkstream.HeartbeatSchedule(nil), m.schedules...), nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) SaveHeartbeatSchedule(_ context.Context, item domainworkstream.HeartbeatSchedule) error {
+	m.saved = append(m.saved, item)
+	m.schedules = append([]domainworkstream.HeartbeatSchedule{item}, m.schedules...)
+	return nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) ListSteeringItems(_ context.Context, _ int) ([]domainworkstream.SteeringItem, error) {
+	return append([]domainworkstream.SteeringItem(nil), m.steering...), nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) SaveSteeringItem(_ context.Context, item domainworkstream.SteeringItem) error {
+	m.savedSteering = append(m.savedSteering, item)
+	m.steering = append([]domainworkstream.SteeringItem{item}, m.steering...)
+	return nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) SaveVaultUpdateLog(_ context.Context, item domainworkstream.VaultUpdateLog) error {
+	m.vaultUpdates = append(m.vaultUpdates, item)
+	return nil
 }
 
 func TestNewHeartbeatService(t *testing.T) {
@@ -219,6 +312,242 @@ func TestTick_ChatError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "chat failed") {
 		t.Errorf("expected 'chat failed' error, got: %v", err)
+	}
+}
+
+func TestRunDueWorkstreamHeartbeatsCreatesDraftReportAndPendingVaultUpdate(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	store := &memoryWorkstreamHeartbeatStore{
+		schedules: []domainworkstream.HeartbeatSchedule{{
+			HeartbeatID:  "hb_revenue_daily",
+			WorkstreamID: "ws_revenue",
+			ScheduleText: "daily 08:00",
+			Task:         "昨日の投稿反応を確認する",
+			Status:       domainworkstream.StatusActive,
+			NextRunAt:    now.Add(-time.Minute),
+			CreatedAt:    now.Add(-24 * time.Hour),
+		}},
+	}
+	listener := &recordingEventListener{}
+	agent := &mockChatAgent{response: "draft report body"}
+	sender := &mockSender{}
+	svc := NewHeartbeatService(agent, sender, dir, 30).
+		WithWorkstreamStore(store).
+		WithEventListener(listener)
+
+	report, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now)
+	if err != nil {
+		t.Fatalf("RunDueWorkstreamHeartbeats failed: %v", err)
+	}
+	if report.Checked != 1 || report.Run != 1 || report.Failed != 0 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatalf("workstream heartbeat must be draft-only, sent notifications: %#v", sender.messages)
+	}
+	if len(store.vaultUpdates) != 1 {
+		t.Fatalf("expected pending vault update, got %#v", store.vaultUpdates)
+	}
+	if store.vaultUpdates[0].ReviewStatus != "pending" || store.vaultUpdates[0].UpdateType != "heartbeat_draft_report" {
+		t.Fatalf("unexpected vault update: %#v", store.vaultUpdates[0])
+	}
+	body, err := os.ReadFile(store.vaultUpdates[0].FilePath)
+	if err != nil {
+		t.Fatalf("read draft report: %v", err)
+	}
+	if !strings.Contains(string(body), "draft report body") || !strings.Contains(string(body), "昨日の投稿反応を確認する") {
+		t.Fatalf("unexpected draft report body: %s", string(body))
+	}
+	if len(store.saved) != 1 || store.saved[0].LastRunAt.IsZero() || !store.saved[0].NextRunAt.After(now) {
+		t.Fatalf("expected updated schedule with next run, got %#v", store.saved)
+	}
+	if !agent.called || !strings.Contains(agent.lastMsg, "draft report only") {
+		t.Fatalf("expected draft-only task sent to chat agent, got called=%v msg=%q", agent.called, agent.lastMsg)
+	}
+}
+
+func TestRunDueWorkstreamHeartbeatsCreatesRevenueDailyRoutineDraftReport(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	workstreamStore := &memoryWorkstreamHeartbeatStore{
+		schedules: []domainworkstream.HeartbeatSchedule{{
+			HeartbeatID:  "hb_revenue_daily",
+			WorkstreamID: "ws_revenue",
+			ScheduleText: "daily 08:00",
+			Task:         "収益化の日次ルーチンとして市場調査と顧客の声を確認する",
+			Status:       domainworkstream.StatusActive,
+			NextRunAt:    now.Add(-time.Minute),
+			CreatedAt:    now.Add(-24 * time.Hour),
+		}},
+	}
+	revenueStore := &memoryRevenueDailyRoutineStore{
+		market: []domainrevenue.MarketResearchItem{{ItemID: "mkt_1", SourcePlatform: "note"}},
+		posts:  []domainrevenue.SNSPostMetric{{PostID: "post_1", Platform: "x"}},
+		products: []domainrevenue.Product{{
+			ProductID:   "prod_1",
+			ProductName: "商品設計シート",
+			Status:      "draft",
+		}},
+		voices:    []domainrevenue.CustomerVoice{{VoiceID: "voice_1", RawText: "ここがわからない", PermissionStatus: "unknown"}},
+		events:    []domainrevenue.RevenueEvent{{EventID: "rev_1", EventType: "purchase", Amount: 980, CustomerID: "cust_1"}},
+		decisions: []domainrevenue.HumanDecisionGateRecord{{DecisionID: "dec_1", DecisionType: "external_publish", ApprovalStatus: "pending", GateStatus: "needs_review"}},
+	}
+	sender := &mockSender{}
+	svc := NewHeartbeatService(&mockChatAgent{response: "revenue draft"}, sender, dir, 30).
+		WithWorkstreamStore(workstreamStore).
+		WithRevenueDailyRoutineStore(revenueStore)
+
+	report, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now)
+	if err != nil {
+		t.Fatalf("RunDueWorkstreamHeartbeats failed: %v", err)
+	}
+	if report.Run != 1 {
+		t.Fatalf("unexpected run report: %+v", report)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatalf("revenue heartbeat must not send external notifications: %#v", sender.messages)
+	}
+	if len(revenueStore.reports) != 1 {
+		t.Fatalf("expected revenue daily routine report, got %#v", revenueStore.reports)
+	}
+	daily := revenueStore.reports[0]
+	if daily.Status != "draft_report" || daily.ExternalSendApplied {
+		t.Fatalf("expected draft-only revenue report: %#v", daily)
+	}
+	if daily.WorkstreamID != "ws_revenue" || daily.MarketResearch != 1 || daily.SNSPosts != 1 || daily.Products != 1 || daily.CustomerVoices != 1 || daily.RevenueEvents != 1 || daily.PaidCustomers != 1 || daily.PendingDecisions != 1 {
+		t.Fatalf("unexpected revenue daily routine report: %#v", daily)
+	}
+}
+
+func TestRunDueWorkstreamHeartbeatsRecordsSkillBootstrap(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	workstreamStore := &memoryWorkstreamHeartbeatStore{
+		schedules: []domainworkstream.HeartbeatSchedule{{
+			HeartbeatID:  "hb_1",
+			WorkstreamID: "ws_1",
+			ScheduleText: "daily 08:00",
+			Task:         "作業ログを確認する",
+			Status:       domainworkstream.StatusActive,
+			NextRunAt:    now.Add(-time.Minute),
+			CreatedAt:    now,
+		}},
+	}
+	skillStore := &heartbeatSkillStore{
+		manifests: []domainskill.SkillManifest{{
+			SkillID:        "core.workstream-heartbeat",
+			Enabled:        true,
+			IntentTriggers: []string{"workstream_heartbeat"},
+		}},
+	}
+	skills := skillbootstrap.NewBootstrapService(skillStore).WithNow(func() time.Time { return now })
+	svc := NewHeartbeatService(&mockChatAgent{response: "draft"}, &mockSender{}, dir, 30).
+		WithWorkstreamStore(workstreamStore).
+		WithSkillBootstrap(skills)
+
+	if _, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now); err != nil {
+		t.Fatalf("RunDueWorkstreamHeartbeats failed: %v", err)
+	}
+	if len(skillStore.logs) != 1 {
+		t.Fatalf("expected skill bootstrap log, got %#v", skillStore.logs)
+	}
+	if skillStore.logs[0].SkillID != "core.workstream-heartbeat" || skillStore.logs[0].Status != domainskill.TriggerStatusTriggered {
+		t.Fatalf("unexpected skill log: %#v", skillStore.logs[0])
+	}
+	if skillStore.logs[0].WorkstreamID != "ws_1" {
+		t.Fatalf("expected workstream id in skill log, got %#v", skillStore.logs[0])
+	}
+}
+
+func TestRunDueWorkstreamHeartbeatsAppliesPendingSteeringAtSafeCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	store := &memoryWorkstreamHeartbeatStore{
+		schedules: []domainworkstream.HeartbeatSchedule{{
+			HeartbeatID:  "hb_1",
+			WorkstreamID: "ws_1",
+			ScheduleText: "daily 08:00",
+			Task:         "作業ログを確認する",
+			Status:       domainworkstream.StatusActive,
+			NextRunAt:    now.Add(-time.Minute),
+			CreatedAt:    now,
+		}},
+		steering: []domainworkstream.SteeringItem{
+			{
+				SteeringID:       "stq_1",
+				WorkstreamID:     "ws_1",
+				TargetArtifactID: "art_1",
+				Instruction:      "見出しを具体化する",
+				Status:           "pending",
+				CreatedAt:        now.Add(-time.Hour),
+			},
+			{
+				SteeringID:   "stq_other",
+				WorkstreamID: "ws_other",
+				Instruction:  "別workstream",
+				Status:       "pending",
+				CreatedAt:    now.Add(-time.Hour),
+			},
+		},
+	}
+	agent := &mockChatAgent{response: "draft"}
+	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30).WithWorkstreamStore(store)
+
+	if _, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now); err != nil {
+		t.Fatalf("RunDueWorkstreamHeartbeats failed: %v", err)
+	}
+	if !strings.Contains(agent.lastMsg, "stq_1 [art_1]: 見出しを具体化する") {
+		t.Fatalf("expected pending steering in prompt, got %q", agent.lastMsg)
+	}
+	if strings.Contains(agent.lastMsg, "stq_other") {
+		t.Fatalf("other workstream steering leaked into prompt: %q", agent.lastMsg)
+	}
+	if len(store.savedSteering) != 1 {
+		t.Fatalf("expected one applied steering, got %#v", store.savedSteering)
+	}
+	applied := store.savedSteering[0]
+	if applied.SteeringID != "stq_1" || applied.Status != "applied" || applied.AppliedAt.IsZero() {
+		t.Fatalf("unexpected applied steering: %#v", applied)
+	}
+}
+
+func TestRunDueWorkstreamHeartbeatsSkipsInactiveOrFutureSchedules(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	store := &memoryWorkstreamHeartbeatStore{
+		schedules: []domainworkstream.HeartbeatSchedule{
+			{
+				HeartbeatID:  "hb_paused",
+				WorkstreamID: "ws_1",
+				ScheduleText: "daily 08:00",
+				Task:         "paused",
+				Status:       domainworkstream.StatusPaused,
+				NextRunAt:    now.Add(-time.Minute),
+				CreatedAt:    now,
+			},
+			{
+				HeartbeatID:  "hb_future",
+				WorkstreamID: "ws_1",
+				ScheduleText: "daily 08:00",
+				Task:         "future",
+				Status:       domainworkstream.StatusActive,
+				NextRunAt:    now.Add(time.Hour),
+				CreatedAt:    now,
+			},
+		},
+	}
+	agent := &mockChatAgent{response: "should not run"}
+	svc := NewHeartbeatService(agent, &mockSender{}, t.TempDir(), 30).WithWorkstreamStore(store)
+
+	report, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now)
+	if err != nil {
+		t.Fatalf("RunDueWorkstreamHeartbeats failed: %v", err)
+	}
+	if report.Checked != 2 || report.Run != 0 || report.Skipped != 2 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if agent.called {
+		t.Fatal("expected no chat call for skipped schedules")
 	}
 }
 

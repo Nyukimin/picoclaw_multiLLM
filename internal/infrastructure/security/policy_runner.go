@@ -43,8 +43,7 @@ func NewPolicyRunner(inner tool.RunnerV2, engine *PolicyEngine, repo domainexecu
 }
 
 func (r *PolicyRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
-	_, exists := r.toolMetaByID[toolName]
-	if !exists {
+	if !r.hasTool(ctx, toolName) {
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
 
@@ -74,4 +73,19 @@ func (r *PolicyRunner) ExecuteV2(ctx context.Context, toolName string, args map[
 
 func (r *PolicyRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error) {
 	return r.inner.ListTools(ctx)
+}
+
+func (r *PolicyRunner) hasTool(ctx context.Context, toolName string) bool {
+	if _, exists := r.toolMetaByID[toolName]; exists {
+		return true
+	}
+	metas, err := r.inner.ListTools(ctx)
+	if err != nil {
+		return false
+	}
+	for _, m := range metas {
+		r.toolMetaByID[m.ToolID] = m
+	}
+	_, exists := r.toolMetaByID[toolName]
+	return exists
 }

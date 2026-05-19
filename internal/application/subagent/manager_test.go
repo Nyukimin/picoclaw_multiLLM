@@ -11,6 +11,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domainsuperagent "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/superagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 )
 
@@ -51,6 +52,27 @@ func (m *mockRunner) ExecuteV2(ctx context.Context, toolName string, args map[st
 
 func (m *mockRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error) {
 	return nil, nil
+}
+
+type mockSuperAgentRecorder struct {
+	tasks  []domainsuperagent.SubagentTask
+	events []domainsuperagent.TraceEvent
+}
+
+func (m *mockSuperAgentRecorder) SaveSubagentTask(_ context.Context, item domainsuperagent.SubagentTask) error {
+	if err := domainsuperagent.ValidateSubagentTask(item); err != nil {
+		return err
+	}
+	m.tasks = append(m.tasks, item)
+	return nil
+}
+
+func (m *mockSuperAgentRecorder) SaveTraceEvent(_ context.Context, item domainsuperagent.TraceEvent) error {
+	if err := domainsuperagent.ValidateTraceEvent(item); err != nil {
+		return err
+	}
+	m.events = append(m.events, item)
+	return nil
 }
 
 // --- テスト ---
@@ -124,6 +146,61 @@ func TestRunSync_WithSystemPrompt(t *testing.T) {
 	}
 	if provider.lastReq.Messages[0].Content != "You are a custom agent." {
 		t.Errorf("expected custom system prompt, got '%s'", provider.lastReq.Messages[0].Content)
+	}
+}
+
+func TestRunSync_RecordsSuperAgentSubagentTask(t *testing.T) {
+	provider := &mockProvider{
+		responses: []llm.ChatResponse{
+			{
+				Message:      llm.ChatMessage{Role: "assistant", Content: "done"},
+				FinishReason: "stop",
+			},
+		},
+	}
+	recorder := &mockSuperAgentRecorder{}
+	mgr := NewManager(provider, &mockRunner{}, nil, toolloop.Config{MaxIterations: 10}, WithSuperAgentRecorder(recorder))
+	ctx := WithSuperAgentRuntime(context.Background(), "run_lead_1", []string{"session:s1", "route:CHAT"}, []string{"readFile"}, "return summary")
+	result, err := mgr.RunSync(ctx, agent.SubagentTask{
+		AgentName:   "worker",
+		Instruction: "do something",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Output != "done" {
+		t.Fatalf("RunSync() output = %q", result.Output)
+	}
+	if len(recorder.tasks) != 2 {
+		t.Fatalf("expected start and completed tasks, got %#v", recorder.tasks)
+	}
+	if recorder.tasks[0].Status != "running" || recorder.tasks[1].Status != "completed" {
+		t.Fatalf("unexpected task statuses: %#v", recorder.tasks)
+	}
+	if recorder.tasks[0].ParentRunID != "run_lead_1" || recorder.tasks[0].Scope[0] != "session:s1" {
+		t.Fatalf("unexpected task linkage: %#v", recorder.tasks[0])
+	}
+	if len(recorder.events) != 2 || recorder.events[0].EventType != "subagent_started" || recorder.events[1].EventType != "subagent_completed" {
+		t.Fatalf("unexpected trace events: %#v", recorder.events)
+	}
+}
+
+func TestRunSync_SuperAgentRecorderWithoutParentRunDoesNothing(t *testing.T) {
+	provider := &mockProvider{
+		responses: []llm.ChatResponse{
+			{
+				Message:      llm.ChatMessage{Role: "assistant", Content: "done"},
+				FinishReason: "stop",
+			},
+		},
+	}
+	recorder := &mockSuperAgentRecorder{}
+	mgr := NewManager(provider, &mockRunner{}, nil, toolloop.Config{MaxIterations: 10}, WithSuperAgentRecorder(recorder))
+	if _, err := mgr.RunSync(context.Background(), agent.SubagentTask{AgentName: "worker", Instruction: "do something"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.tasks) != 0 || len(recorder.events) != 0 {
+		t.Fatalf("expected no superagent records without parent run, got tasks=%#v events=%#v", recorder.tasks, recorder.events)
 	}
 }
 

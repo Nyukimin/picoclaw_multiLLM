@@ -987,6 +987,50 @@ heartbeat_success_rate
 human_approval_turnaround_time
 ```
 
+## 23.1 実装状況
+
+2026-05-18 時点で、MVP のうち以下は production code へ着手済みである。
+
+```text
+実装済み:
+  - Workstream / Goal / Artifact / SteeringItem domain model
+  - ArtifactAnnotation domain model
+  - HeartbeatSchedule domain model
+  - VaultUpdateLog domain model
+  - Goal Contract validation
+  - workstream JSONL / SQLite
+  - workstream_goal JSONL / SQLite
+  - artifact JSONL / SQLite
+  - artifact_annotation JSONL / SQLite
+  - steering_queue JSONL / SQLite
+  - heartbeat_schedule JSONL / SQLite
+  - vault_update_log JSONL / SQLite
+  - Workstream Vault initial files
+  - workstream.storage / sqlite_path runtime切替を含む workstream.* config
+  - /viewer/workstreams GET / POST API
+  - /viewer/workstreams/goals POST API
+  - /viewer/workstreams/artifacts POST API
+  - /viewer/workstreams/annotations POST API
+  - /viewer/workstreams/steering POST API
+  - /viewer/workstreams/heartbeats POST API
+  - /viewer/workstreams/vault-updates POST API
+  - /viewer/workstreams/vault-updates/review POST API
+  - Annotation から Steering Queue への pending item 自動作成
+  - HeartbeatService から Workstream HeartbeatSchedule を draft report only で実行
+  - Workstream Heartbeat draft report を workspace/workstream_heartbeats/{workstream_id}/ に保存
+  - Workstream Heartbeat 結果を VaultUpdateLog review_status=pending として記録
+  - VaultUpdateLog の Human Review 結果を approved / rejected として追記保存
+  - VaultUpdateLog review API は proposed_content 付き approved review の場合に vault_root 配下へ実ファイル適用
+  - Viewer Ops で pending VaultUpdateLog の proposed_content preview と approve / reject 操作を表示
+  - Workstream Heartbeat 開始時を safe checkpoint とし、同一 Workstream の pending Steering を draft prompt に反映したうえで `applied` として追記保存
+  - Vault update の review pending 件数を Viewer Ops に表示
+  - `append_status` / `append_todo` / `append_open_loop` / `append_decision` / `append_note` / `append_artifact` / `append_section` の update_type は、既存 Vault ファイルを保持したまま見出し付きで構造化追記する
+  - Viewer Ops Workstream summary
+
+残作業:
+  - Vault diff review の詳細差分比較UI
+```
+
 特に重要な指標は以下である。
 
 ```text

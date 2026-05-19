@@ -1,6 +1,9 @@
 package orchestrator
 
-import domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+import (
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+)
 
 // SetEventListener sets an optional listener for monitoring events.
 func (o *DistributedOrchestrator) SetEventListener(l EventListener) {
@@ -18,6 +21,39 @@ func (o *DistributedOrchestrator) SetReportStore(store ReportStore) {
 	if o.autonomous != nil {
 		o.autonomous.SetReportStore(store)
 	}
+}
+
+func (o *DistributedOrchestrator) SetSkillBootstrapRecorder(recorder SkillBootstrapRecorder) {
+	o.skillBootstrap = recorder
+}
+
+func (o *DistributedOrchestrator) SetCoderProposalEvidenceRecorder(recorder CoderProposalEvidenceRecorder) {
+	if o.codeExecution != nil {
+		o.codeExecution.SetCoderProposalEvidenceRecorder(recorder)
+	}
+}
+
+func (o *DistributedOrchestrator) SetWorkflowEventRecorder(recorder WorkflowEventRecorder) {
+	o.workflowEvents = recorder
+	if o.routes != nil {
+		o.routes.SetWorkflowEventRecorder(recorder)
+	}
+}
+
+func (o *DistributedOrchestrator) SetCommandRegistry(registry CommandRegistryLister) {
+	o.commandRegistry = registry
+}
+
+func (o *DistributedOrchestrator) SetSuperAgentRuntimeRecorder(recorder SuperAgentRuntimeRecorder) {
+	o.superAgentRuns = recorder
+}
+
+func (o *DistributedOrchestrator) SetSuperAgentRunController(controller SuperAgentRunController) {
+	o.superAgentRunController = controller
+}
+
+func (o *DistributedOrchestrator) SetHeavyWorkerPolicy(policy domainai.HeavyWorkerPolicy) {
+	o.heavyPolicy = policy
 }
 
 // SetIdleNotifier sets an optional notifier used to control idle chat.

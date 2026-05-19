@@ -54,6 +54,24 @@ func (g *SandboxGuard) IsPathWithinWorkspace(path, workspace string) bool {
 	return !strings.HasPrefix(rel, "..")
 }
 
+func (g *SandboxGuard) IsSafeSandboxWritePath(path, sandboxRoot string) bool {
+	if !g.IsPathWithinWorkspace(path, sandboxRoot) {
+		return false
+	}
+	clean := filepath.Clean(path)
+	base := filepath.Base(clean)
+	if base == ".env" || strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") {
+		return false
+	}
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		switch part {
+		case "secrets", "private", ".git":
+			return false
+		}
+	}
+	return true
+}
+
 // IsHostAllowed checks if host is in allowlist (exact or suffix ".example.com").
 func (g *SandboxGuard) IsHostAllowed(host string, allowlist []string) bool {
 	host = strings.TrimSpace(strings.ToLower(host))

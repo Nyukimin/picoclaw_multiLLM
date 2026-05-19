@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
@@ -25,7 +26,7 @@ const (
 	localLLMHeavyTimeout   = 30 * time.Second
 )
 
-func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
+func buildPrimaryLLMProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) primaryLLMProviders {
 	if cfg.LocalLLM.Enabled {
 		global := make(chan struct{}, cfg.LocalLLM.GlobalConcurrency)
 		chatTimeout := localLLMTimeoutForAlias(cfg, "Chat")
@@ -45,10 +46,10 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 			}, maxDuration(chatTimeout, workerTimeout, heavyTimeout, wildTimeout))
 		}
 		return primaryLLMProviders{
-			Chat:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(chat), "chat"),
-			Worker: llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(worker), "worker"),
-			Heavy:  llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(heavy), "heavy"),
-			Wild:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(wild), "wild"),
+			Chat:   wrapPrimaryLLMProvider(cfg, "chat", chat, contextBudgetRecorder),
+			Worker: wrapPrimaryLLMProvider(cfg, "worker", worker, contextBudgetRecorder),
+			Heavy:  wrapPrimaryLLMProvider(cfg, "heavy", heavy, contextBudgetRecorder),
+			Wild:   wrapPrimaryLLMProvider(cfg, "wild", wild, contextBudgetRecorder),
 		}
 	}
 
@@ -59,11 +60,24 @@ func buildPrimaryLLMProviders(cfg *config.Config) primaryLLMProviders {
 	}
 	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
 	return primaryLLMProviders{
-		Chat:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(chatRawProvider), "chat"),
-		Worker: llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(workerRawProvider), "worker"),
-		Heavy:  llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(workerRawProvider), "heavy"),
-		Wild:   llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(workerRawProvider), "wild"),
+		Chat:   wrapPrimaryLLMProvider(cfg, "chat", chatRawProvider, contextBudgetRecorder),
+		Worker: wrapPrimaryLLMProvider(cfg, "worker", workerRawProvider, contextBudgetRecorder),
+		Heavy:  wrapPrimaryLLMProvider(cfg, "heavy", workerRawProvider, contextBudgetRecorder),
+		Wild:   wrapPrimaryLLMProvider(cfg, "wild", workerRawProvider, contextBudgetRecorder),
 	}
+}
+
+func wrapPrimaryLLMProvider(cfg *config.Config, name string, provider llm.LLMProvider, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) llm.LLMProvider {
+	policy := domainai.ContextBudgetPolicy{}
+	if cfg != nil {
+		policy = domainai.ContextBudgetPolicy{
+			MaxContextTokens: cfg.AIWorkflow.ContextBudgetTokens,
+			WarnAtRatio:      cfg.AIWorkflow.ContextBudgetWarnRatio,
+			StopAtRatio:      cfg.AIWorkflow.ContextBudgetStopRatio,
+		}
+	}
+	budgeted := llmmiddleware.NewContextBudgetProvider(provider, name, policy, contextBudgetRecorder)
+	return llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(budgeted), name)
 }
 
 func localLLMTimeoutForAlias(cfg *config.Config, alias string) time.Duration {

@@ -703,6 +703,110 @@ browser_trace_to_api:
     require_validator_before_promoted: true
 ```
 
+## 20.1 実装状況
+
+2026-05 時点で、Browser Trace to API Discovery は offline post-process の最小基盤まで部分実装済みである。
+
+実装済み。
+
+```text
+Domain:
+  internal/domain/browsertrace
+  trace run
+  api candidate
+  api candidate schema
+  api coverage report
+  api artifact
+
+Application:
+  internal/application/browsertrace
+  requests.jsonl / responses.jsonl reader
+  request / response pairing
+  URL templatization
+  query parameter extraction
+  response JSON schema inference
+  write method filtering
+  credential value non-persistence
+  API candidate validation result generation
+  observed OpenAPI draft artifact generation
+  coverage report artifact generation
+  endpoint inventory artifact generation
+  risk assessment artifact generation
+  fetcher plan artifact generation
+  client draft artifact generation
+  optional live policy check
+  robots.txt read-only check
+  HEAD response rate-limit header check
+
+Persistence:
+  internal/infrastructure/persistence/browsertrace
+  JSONL store
+  SQLite store
+  api_artifact.jsonl
+  api_candidate_validation.jsonl
+  L1 staging candidate store
+
+Config:
+  browser_trace_to_api.enabled
+  browser_trace_to_api.storage
+  browser_trace_to_api.log_path
+  browser_trace_to_api.sqlite_path
+  browser_trace_to_api.read_only_only
+  browser_trace_to_api.require_terms_review
+  browser_trace_to_api.require_human_approval_for_promote
+  browser_trace_to_api.generate_openapi
+  browser_trace_to_api.generate_coverage_report
+  browser_trace_to_api.accepted_paths
+  browser_trace_to_api.deny_methods
+  browser_trace_to_api.deny_sensitive_flows
+
+Viewer / API:
+  GET  /viewer/browser-trace-api
+  POST /viewer/browser-trace-api/discover
+  `browser_trace_to_api.accepted_paths` 外の trace / requests / responses path は拒否
+  `live_policy_check=true` 指定時だけ robots / rate-limit の read-only live check
+  api_validations response
+  api_artifacts response
+  Workstream Artifact pending_review registration
+  Ops summary card
+
+Source Registry / L1:
+  discovery result の api candidate を `kb:browser_trace_api` namespace の
+  `L1StagingKindSearchResult` pending candidate として保存する。
+  meta には `source_kind=browser_trace_api`, `review_required=true`,
+  `promote_requires_validator=true`, `risk_level`, `auth_required`,
+  `contains_personal_data` を残す。
+```
+
+残作業。
+
+```text
+Artifact:
+  Workstream Artifact Review Surface への pending_review 登録はある。
+  client draft artifact はある。未検証 candidate では実行時に error になる review-only draft とする。
+
+Source Registry:
+  L1 staging candidate はある。次は Source Registry entry / validator / promote UI の状態遷移へ接続する。
+
+Validator:
+  terms / official API / auth / PII / risk の未確認は `needs_review` として保存する。
+  `browser_trace_to_api.deny_sensitive_flows` に一致する endpoint は
+  `sensitive_flow_review_required` として保存する。
+  `live_policy_check=true` 指定時は robots.txt と HEAD response の rate-limit header を確認し、
+  未確認の場合は `robots_review_required` / `rate_limit_review_required` として保存する。
+  通常の offline post-process では外部アクセスしない。
+
+Fetcher:
+  validation result を反映した fetcher_plan artifact はある。
+  validation result を反映した client draft artifact はある。
+  blocked candidate は validator issue 解消まで実装提案不可として表示する。
+  次は Human approval 後の proposal / 実装接続を行う。
+
+Storage:
+  JSONL store と互換の SQLite tables はある。
+  `browser_trace_to_api.storage: sqlite` の場合は runtime で SQLite store を使う。
+```
+
 ## 21. EventId
 
 ```text
@@ -748,6 +852,8 @@ fetcher_proposal_created
 - `coverage.md`
 - `endpoint_inventory.json`
 - `risk_assessment.md`
+- `fetcher_plan.md`
+- `client.mjs`
 
 ### 22.5 Phase 5: Source Registry 連携
 
@@ -758,9 +864,10 @@ fetcher_proposal_created
 
 ### 22.6 Phase 6: Fetcher proposal
 
-- client draft
+- client draft は review-only artifact として生成済み。未検証 candidate は実行時に error とする。
 - `fetcher_plan.md`
-- Human approval 後に実装提案
+- `/viewer/browser-trace-api/fetcher-proposals` で validated candidate + Human approval から review-only `fetcher_proposal` artifact を生成する。
+- Fetcher proposal は正式 Fetcher 実装や promoted DB write を行わない。実装する場合は別 Goal / Promotion Gate で扱う。
 
 ## 23. 成功指標
 
@@ -845,4 +952,3 @@ Safety Gate
 安定取得のために API 化する。
 安全確認なしに自動取得しない。
 ```
-

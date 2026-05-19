@@ -1223,7 +1223,92 @@ cmd/picoclaw/
 - review report 生成
 - human approval 前提
 
-## 24. 成功指標
+## 24. 現行実装状態
+
+2026-05-18 時点の MVP production code では、AI Native Engineering Workflow の運用台帳として、以下の入口を実装済みとする。
+
+```text
+domain:
+  ai_workflow_event
+  project_memory_index
+  worktree_registry
+  command_registry
+  ai_context_usage
+
+persistence:
+  JSONL store
+  SQLite store
+
+config:
+  ai_workflow.enabled
+  ai_workflow.storage
+  ai_workflow.log_path
+  ai_workflow.sqlite_path
+  ai_workflow.project_memory_root
+  ai_workflow.worktree_base_dir
+  ai_workflow.required_before_modify
+  ai_workflow.worktree_required_for_write
+  ai_workflow.required_cli_tools
+  ai_workflow.context_tracking_enabled
+  ai_workflow.context_budget_tokens
+  ai_workflow.context_budget_warn_ratio
+  ai_workflow.context_budget_stop_ratio
+  ai_workflow.heavy_worker_enabled
+  ai_workflow.heavy_worker_require_reason
+  ai_workflow.heavy_worker_file_threshold
+  ai_workflow.heavy_worker_spec_threshold
+  ai_workflow.heavy_worker_retry_threshold
+
+runtime / Viewer API:
+  /viewer/ai-workflow
+  /viewer/ai-workflow/events
+  /viewer/ai-workflow/project-init
+  /viewer/ai-workflow/project-memory
+  /viewer/ai-workflow/worktrees
+  /viewer/ai-workflow/worktrees/create
+  /viewer/ai-workflow/commands
+  /viewer/ai-workflow/context-usages
+  /viewer/ai-workflow/context-budget/check
+  /viewer/ai-workflow/heavy-worker/evaluate
+```
+
+`/viewer/ai-workflow/project-init` は repo root を read-only scan し、`.ai/project_profile.md`、`source_map.md`、`test_commands.md`、`build_commands.md`、`coding_conventions.md`、`risk_notes.md` を生成し、`project_memory_index` と `ai_workflow_event` に記録する。
+
+`/viewer/ai-workflow/worktrees/create` は `human_approved=true` を必須とし、`main` / `master` / `develop` / `production` への worktree 作成を拒否し、`ai_workflow.worktree_base_dir` 配下へ `git worktree add -b` した結果を `worktree_registry` と `ai_workflow_event` に記録する。`/viewer/ai-workflow/worktrees/close` も `human_approved=true` を必須とし、同じ base dir 配下の worktree だけを `git worktree remove` で閉じ、closed registry と workflow event を残す。
+
+`/viewer/ai-workflow/context-budget/check` は `ai_workflow.context_budget_tokens`、`context_budget_warn_ratio`、`context_budget_stop_ratio` から作った policy で `ai_context_usage.context_tokens` を判定し、warning / stop 閾値に達した場合は `context_budget_warning` または `context_budget_exceeded` の `ai_workflow_event` を残す。budget 未設定時は disabled として usage のみ保存し、成功扱いではなく「制限未設定」として返す。
+
+primary LLM provider の runtime factory では、Chat / Worker / Heavy / Wild に `ContextBudgetProvider` middleware を挿入する。`ai_workflow.context_budget_tokens` が設定され、推定 context tokens が stop 閾値に達した場合は LLM provider 呼び出し前に失敗させる。warning 閾値では warning log を残して実行を継続する。AI Workflow store が runtime で有効な場合、provider 呼び出し前の `ai_context_usage` を自動保存し、warning / stop 閾値では `context_budget_warning` / `context_budget_exceeded` の `ai_workflow_event` も同じ store に保存する。
+
+ToolRunner の runtime 経路では、Chat / Worker の RunnerV2 に `ContextBudgetRunner` を挿入する。tool result は次の LLM tool-loop context に追加されるため、`ai_workflow.context_budget_tokens` が設定されている場合は tool result 文字列を概算 token 化して budget 判定する。warning 閾値では response metadata に `context_budget_*` を付与して実行を継続し、stop 閾値では大きな tool result を context へ戻さず `tool result exceeds context budget` の error response にする。stop 時は raw tool result を `workspace/logs/tool_results/` へ file offload し、error metadata に `context_budget_offload_path` / `context_budget_offload_bytes` を付与する。AI Workflow store が runtime で有効な場合、tool result の `ai_context_usage` を自動保存し、warning / stop 閾値では `context_budget_warning` / `context_budget_exceeded` の `ai_workflow_event` も同じ store に保存する。
+
+`/viewer/ai-workflow/heavy-worker/evaluate` は対象ファイル数、関連仕様数、architecture boundary、通常 Coder の不確実性、失敗回数、ユーザーの深掘り依頼から Heavy Worker 起動条件を判定する。`ai_workflow.heavy_worker_require_reason=true` の場合は reason なしの起動要求を blocked とし、requested の場合だけ `heavy_worker_requested` event を残す。
+
+local / distributed orchestrator の `RouteANALYZE` は HeavyAgent に接続済みである。HeavyAgent が設定されている場合だけ Heavy 経路を実行し、HeavyAgent 未設定時は Mio Chat へ fallback せず `no heavy agent available` として失敗扱いにする。これにより、Heavy Worker route が意図せず通常 Chat provider で成功扱いになることを防ぐ。
+
+AI Workflow store が runtime で有効な場合、local / distributed の Heavy Worker 実行開始、完了、失敗は `heavy_worker_started` / `heavy_worker_completed` / `heavy_worker_failed` の `ai_workflow_event` として自動保存する。
+
+`/viewer/ai-workflow/heavy-worker/runtime-diagnostics` は Heavy provider の実効 config、`RouteANALYZE` / `/analyze` の route 情報、llm-ops live status から見た Heavy role state / memory を返す。llm-ops が未設定、token missing、または未到達の場合も diagnostics API 自体は 200 で返し、live unavailable と error reason を表示する。Ops Viewer では Heavy Runtime card として model / pid / effective URL / live 状態を確認できる。
+
+local / distributed orchestrator は、Mio の通常 routing 判定後、`ai_workflow.heavy_worker_*` policy を routing 前 evidence として評価する。ユーザーが明示的に深掘りを求めた場合だけ `RouteANALYZE` へ自動昇格し、`heavy_worker_requested` と Heavy 実行 lifecycle event を残す。CODE / OPS / WILD などの実作業 route は policy が奪わない。
+
+起動時に `commands/*.md` を scan し、`# /command-name`、`## Purpose`、`## Agent`、`## Required Skill` から `command_registry` を自動登録する。`/viewer/ai-workflow/commands/run` は、登録済み `command_registry` の command invocation を `command_invoked` event として保存し、`required_skill` を Skill Bootstrap の used skill として記録する。これは command / skill の安全な接続であり、shell や外部送信を直接実行しない。
+
+外部 control Go client は、正式環境変更を直接 apply する高水準 workflow として扱わない。`SubmitPromotionWorkflow` は、まず `/viewer/sandbox/promotions` で Promotion Request を作成し、Promotion Gate が `approve` を返し、`apply_after_approval=true`、`human_approved=true`、promotion 側の `human_approval_status=granted`、`post_apply_verification_path` がすべて揃った場合だけ `/viewer/sandbox/promotions/apply` へ進む。Gate 未承認、Human approval 不足、post-apply 証跡 path 不足の場合は promotion request の保存だけで停止し、正式環境変更を成功扱いしない。
+
+`/viewer/ai-workflow/external-control/check` は、external control の actor / channel / action を `ai_workflow.external_control_*` policy で判定する。許可外 actor、許可外 channel、許可外 action は `blocked`、Human approval が必要な action は承認前に `needs_approval` とし、`external_control_policy_checked` event を保存する。`pkg/rencrowclient.SubmitPromotionWorkflow` は `external_control` が指定された場合、この policy check が `allowed` を返すまで promotion request / apply へ進まない。
+
+local / distributed orchestrator は、登録済み slash command を受け取った場合、`commands/*.md` の本文、metadata、user input を Chat runtime prompt へ展開し、`command_invoked` event と required skill bootstrap を残す。command file が欠落している場合は通常 Chat へ fallback せず失敗扱いにする。
+
+SuperAgent Harness store が runtime で有効な場合、local / distributed orchestrator は Lead Agent の `agent_run`、`trace_event`、最小 `context_pack` を開始 / 完了 / 失敗で自動保存する。これにより、通常 Chat / Worker routing の実行も SuperAgent timeline へ接続される。
+
+さらに、SuperAgent Harness store と既存 `subagent.Manager` が runtime で同時に有効な場合、local / distributed orchestrator は親 Lead Agent run ID を context に載せ、`subagent.Manager` は `subagent_task` と `trace_event` を開始 / 完了 / 失敗で自動保存する。Subagent結果は既存 manager の戻り値として Lead Agent 側へ summary-only で戻す。
+
+`pkg/rencrowclient` は、外部スクリプトやCLIから既存 Viewer API を呼ぶ最小 Go client として提供する。MVPでは `/viewer/superagent` の status取得、`/viewer/superagent/runs` の agent run 作成、`/viewer/superagent/trace-events` の trace event 作成、`/viewer/superagent/runs/pause` / `resume` の状態変更と runtime control request、`/viewer/ai-workflow/commands/run` の command invocation 記録、`/viewer/workstreams/artifacts` の artifact 登録、`/viewer/sandbox` の status取得、`/viewer/sandbox/promotions` と `/viewer/sandbox/promotions/apply` の promotion checkpoint 記録を扱う。
+
+pause は run 台帳を `paused` に更新し、runtime に登録済みの Lead Agent run context があれば cancellation を要求する。resume は停止済み処理を自動再開せず、pause marker を解除する bookkeeping として扱う。Command から shell 実行、外部送信、正式環境変更を直接行う拡張は、Tool Harness / Sandbox Promotion Gate / Human approval を通す別Phaseとする。
+
+## 25. 成功指標
 
 ```text
 project_init_coverage
@@ -1247,7 +1332,7 @@ project init 未実行での write = 0
 Coder task completion rate の向上
 ```
 
-## 25. 設計上の結論
+## 26. 設計上の結論
 
 AI コーディングの品質は、モデル単体では決まらない。
 
@@ -1268,7 +1353,7 @@ RenCrow では、AI を単なるチャットボットとして扱わない。
 
 Worker / Coder / Heavy Worker が、整備された開発環境の中で、調査、提案、検証、実行を分担する。そのために、本仕様を Worker / Coder 実行基盤の中核仕様として採用する。
 
-## 26. まとめ
+## 27. まとめ
 
 本仕様は、RenCrow の AI 開発環境運用を定義する。
 

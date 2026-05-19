@@ -3,11 +3,14 @@ package idlechat
 import (
 	"context"
 	"errors"
+	"log"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domainpersona "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 )
 
@@ -72,6 +75,15 @@ type TimelineEvent struct {
 	SessionID  string
 }
 
+type PersonaRuntimeRecorder interface {
+	SaveTriggerLog(ctx context.Context, item domainpersona.TriggerLog) error
+	SaveCanonicalResponseLog(ctx context.Context, item domainpersona.CanonicalResponseLog) error
+	ListCanonicalResponseLogs(ctx context.Context, limit int) ([]domainpersona.CanonicalResponseLog, error)
+	SaveObservationLog(ctx context.Context, item domainpersona.ObservationLog) error
+	SaveMetaProfileUpdate(ctx context.Context, item domainpersona.MetaProfileUpdate) error
+	SaveInterfaceSession(ctx context.Context, item domainpersona.InterfaceSession) error
+}
+
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 
 type IdleChatOrchestrator struct {
@@ -87,22 +99,25 @@ type IdleChatOrchestrator struct {
 	temperature      float64
 	personalities    map[string]string
 
-	lastActivity  time.Time
-	chatActive    bool
-	chatBusy      bool
-	workerBusy    bool
-	manualMode    bool
-	sessionMode   string
-	currentTopic  string
-	promptGuides  []string
-	autoStep      int
-	forecastStep  int
-	nextTopicAt   time.Time
-	history       []SessionSummary
-	emitEvent     func(TimelineEvent) <-chan struct{}
-	topicStore    *TopicStore
-	topicStockBuf *forecastTopicStock // 未来展望お題ストック
-	recentTopics  func(context.Context, int) ([]string, error)
+	lastActivity              time.Time
+	chatActive                bool
+	chatBusy                  bool
+	workerBusy                bool
+	manualMode                bool
+	sessionMode               string
+	currentTopic              string
+	promptGuides              []string
+	autoStep                  int
+	forecastStep              int
+	nextTopicAt               time.Time
+	history                   []SessionSummary
+	emitEvent                 func(TimelineEvent) <-chan struct{}
+	topicStore                *TopicStore
+	topicStockBuf             *forecastTopicStock // 未来展望お題ストック
+	recentTopics              func(context.Context, int) ([]string, error)
+	personaRuntime            PersonaRuntimeRecorder
+	personaTriggers           []domainpersona.TriggerDefinition
+	personaCanonicalResponses []domainpersona.CanonicalResponseDefinition
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -114,6 +129,250 @@ type idleSessionPlan struct {
 	mode     string
 	strategy TopicStrategy
 	domain   *ForecastDomain
+}
+
+func (o *IdleChatOrchestrator) SetPersonaRuntimeRecorder(recorder PersonaRuntimeRecorder, triggers []domainpersona.TriggerDefinition) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.personaRuntime = recorder
+	o.personaTriggers = append([]domainpersona.TriggerDefinition(nil), triggers...)
+}
+
+func (o *IdleChatOrchestrator) SetPersonaCanonicalResponses(definitions []domainpersona.CanonicalResponseDefinition) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.personaCanonicalResponses = append([]domainpersona.CanonicalResponseDefinition(nil), definitions...)
+}
+
+func (o *IdleChatOrchestrator) recordPersonaTimelineEvent(ev TimelineEvent) {
+	if o == nil || !shouldRecordPersonaTimelineEvent(ev) {
+		return
+	}
+	o.mu.Lock()
+	recorder := o.personaRuntime
+	triggers := append([]domainpersona.TriggerDefinition(nil), o.personaTriggers...)
+	o.mu.Unlock()
+	if recorder == nil {
+		return
+	}
+	now := time.Now().UTC()
+	sessionKey := idlePersonaSessionKey(ev)
+	characterID := idlePersonaCharacterID(ev)
+	if err := recorder.SaveInterfaceSession(o.ctx, domainpersona.InterfaceSession{
+		SessionID:     "persona_session:" + sessionKey,
+		CharacterID:   characterID,
+		InterfaceType: "idlechat",
+		SessionKey:    sessionKey,
+		CreatedAt:     now,
+		LastUsedAt:    now,
+	}); err != nil {
+		log.Printf("[IdleChat] persona interface session record failed: %v", err)
+		return
+	}
+	if err := recorder.SaveObservationLog(o.ctx, domainpersona.ObservationLog{
+		EventID:         "evt_persona_idlechat_observation_" + formatPersonaEventTime(now),
+		ObserverID:      characterID,
+		TargetID:        idlePersonaTargetID(ev),
+		ObservationType: idlePersonaObservationType(ev),
+		Summary:         "IdleChat runtime observed a timeline event; review is required before memory promotion.",
+		EvidenceRefs:    idlePersonaEvidenceRefs(ev),
+		Sensitivity:     "normal",
+		ReviewStatus:    "pending",
+		CreatedAt:       now,
+	}); err != nil {
+		log.Printf("[IdleChat] persona observation record failed: %v", err)
+		return
+	}
+	if candidate, ok := buildIdlePersonaMetaProfileUpdateCandidate(ev, characterID, now); ok {
+		if err := recorder.SaveMetaProfileUpdate(o.ctx, candidate); err != nil {
+			log.Printf("[IdleChat] persona meta profile update candidate record failed: %v", err)
+		}
+	}
+	if match, ok := domainpersona.MatchTrigger(ev.Content, triggers); ok {
+		if err := recorder.SaveTriggerLog(o.ctx, domainpersona.TriggerLog{
+			EventID:         "evt_persona_idlechat_trigger_" + formatPersonaEventTime(now),
+			CharacterID:     match.CharacterID,
+			TriggerID:       match.TriggerID,
+			TriggerCategory: match.Category,
+			Activated:       true,
+			Confidence:      match.Confidence,
+			CreatedAt:       now,
+		}); err != nil {
+			log.Printf("[IdleChat] persona trigger record failed: %v", err)
+		}
+	}
+}
+
+func buildIdlePersonaMetaProfileUpdateCandidate(ev TimelineEvent, observerID string, now time.Time) (domainpersona.MetaProfileUpdate, bool) {
+	if !shouldRecordPersonaTimelineEvent(ev) || !shouldProposeIdlePersonaMetaUpdateFromText(ev.Content) {
+		return domainpersona.MetaProfileUpdate{}, false
+	}
+	return domainpersona.MetaProfileUpdate{
+		UpdateID:        "meta_persona_idlechat_" + formatPersonaEventTime(now),
+		ObserverID:      observerID,
+		TargetID:        idlePersonaTargetID(ev),
+		Section:         "flow_observation",
+		ProposedContent: "Runtime candidate from IdleChat timeline event. Human review is required before treating this as stable memory.\n\n" + strings.TrimSpace(ev.Content),
+		EvidenceRefs:    idlePersonaEvidenceRefs(ev),
+		Sensitivity:     "normal",
+		ReviewStatus:    "pending",
+		CreatedAt:       now,
+	}, true
+}
+
+func shouldProposeIdlePersonaMetaUpdateFromText(message string) bool {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return false
+	}
+	markers := []string{"私は", "私の", "自分は", "自分の", "覚えて", "覚えといて", "記憶して"}
+	for _, marker := range markers {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (o *IdleChatOrchestrator) applyPersonaCanonicalResponse(speaker, sessionID, candidate string) string {
+	candidate = strings.TrimSpace(candidate)
+	if o == nil || candidate == "" {
+		return ""
+	}
+	o.mu.Lock()
+	recorder := o.personaRuntime
+	triggers := append([]domainpersona.TriggerDefinition(nil), o.personaTriggers...)
+	definitions := append([]domainpersona.CanonicalResponseDefinition(nil), o.personaCanonicalResponses...)
+	o.mu.Unlock()
+	if recorder == nil || len(triggers) == 0 || len(definitions) == 0 {
+		return ""
+	}
+	match, ok := domainpersona.MatchTrigger(candidate, triggers)
+	if !ok || !strings.EqualFold(strings.TrimSpace(match.CharacterID), strings.TrimSpace(speaker)) {
+		return ""
+	}
+	def, ok := selectIdlePersonaCanonicalResponse(match, definitions)
+	if !ok || strings.TrimSpace(def.Response) == "" {
+		return ""
+	}
+	recent, err := recorder.ListCanonicalResponseLogs(o.ctx, 50)
+	if err != nil {
+		log.Printf("[IdleChat] persona canonical response list failed: %v", err)
+		return ""
+	}
+	policy := domainpersona.CanonicalResponsePolicy{
+		ResponseID:       def.ResponseID,
+		CooldownTurns:    def.CooldownTurns,
+		MaxPerSession:    def.MaxPerSession,
+		RequiredContexts: def.RequiredContexts,
+	}
+	contexts := []string{match.Category, match.TriggerID, "idlechat"}
+	if !domainpersona.CanUseCanonicalResponse(policy, recent, contexts) {
+		return ""
+	}
+	now := time.Now().UTC()
+	if err := recorder.SaveCanonicalResponseLog(o.ctx, domainpersona.CanonicalResponseLog{
+		EventID:     "evt_persona_idlechat_canonical_" + formatPersonaEventTime(now),
+		CharacterID: def.CharacterID,
+		ResponseID:  def.ResponseID,
+		MessageID:   strings.TrimSpace(sessionID),
+		Used:        true,
+		Rewritten:   false,
+		CreatedAt:   now,
+	}); err != nil {
+		log.Printf("[IdleChat] persona canonical response record failed: %v", err)
+		return ""
+	}
+	return def.Response
+}
+
+func selectIdlePersonaCanonicalResponse(match domainpersona.TriggerMatch, definitions []domainpersona.CanonicalResponseDefinition) (domainpersona.CanonicalResponseDefinition, bool) {
+	var selected domainpersona.CanonicalResponseDefinition
+	found := false
+	for _, def := range definitions {
+		if strings.TrimSpace(def.ResponseID) == "" || strings.TrimSpace(def.CharacterID) == "" {
+			continue
+		}
+		if !strings.EqualFold(def.CharacterID, match.CharacterID) {
+			continue
+		}
+		if strings.TrimSpace(def.Category) != "" && def.Category != match.Category {
+			continue
+		}
+		if !found || def.Priority > selected.Priority {
+			selected = def
+			found = true
+		}
+	}
+	return selected, found
+}
+
+func shouldRecordPersonaTimelineEvent(ev TimelineEvent) bool {
+	switch strings.TrimSpace(ev.Type) {
+	case "idlechat.message", "idlechat.viewer", "idlechat.summary":
+		return strings.TrimSpace(ev.Content) != ""
+	default:
+		return false
+	}
+}
+
+func idlePersonaSessionKey(ev TimelineEvent) string {
+	sessionID := strings.TrimSpace(ev.SessionID)
+	if sessionID == "" {
+		sessionID = "unknown"
+	}
+	return "idlechat:" + sessionID
+}
+
+func idlePersonaCharacterID(ev TimelineEvent) string {
+	from := strings.ToLower(strings.TrimSpace(ev.From))
+	switch from {
+	case "mio", "shiro", "kuro", "midori", "wild":
+		return from
+	default:
+		return "mio"
+	}
+}
+
+func idlePersonaTargetID(ev TimelineEvent) string {
+	to := strings.ToLower(strings.TrimSpace(ev.To))
+	switch to {
+	case "mio", "shiro", "kuro", "midori", "wild":
+		return to
+	case "user":
+		return "ren"
+	default:
+		return "idlechat"
+	}
+}
+
+func idlePersonaObservationType(ev TimelineEvent) string {
+	switch strings.TrimSpace(ev.Type) {
+	case "idlechat.summary":
+		return "idlechat_summary"
+	case "idlechat.viewer":
+		return "idlechat_viewer_message"
+	default:
+		return "idlechat_message"
+	}
+}
+
+func idlePersonaEvidenceRefs(ev TimelineEvent) []string {
+	refs := []string{"session:" + strings.TrimSpace(ev.SessionID), "channel:idlechat"}
+	if strings.TrimSpace(ev.Type) != "" {
+		refs = append(refs, "event_type:"+strings.TrimSpace(ev.Type))
+	}
+	if strings.TrimSpace(ev.From) != "" {
+		refs = append(refs, "from:"+strings.TrimSpace(ev.From))
+	}
+	if strings.TrimSpace(ev.To) != "" {
+		refs = append(refs, "to:"+strings.TrimSpace(ev.To))
+	}
+	return refs
+}
+
+func formatPersonaEventTime(t time.Time) string {
+	return strings.ReplaceAll(t.Format("20060102150405.000000000"), ".", "")
 }
 
 // SetEventEmitter sets an optional timeline event emitter used by viewer SSE.

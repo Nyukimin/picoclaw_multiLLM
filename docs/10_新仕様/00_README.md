@@ -49,6 +49,9 @@
 23. `27_Browser_Trace_to_API_Discovery仕様.md`
 24. `28_SuperAgent_Harness_Reference_DeerFlow仕様.md`
 25. `29_Sandbox_Promotion_Gate仕様.md`
+26. `30_未実装項目実装仕様作成プロンプト.md`
+27. `31_未実装項目実装仕様.md`
+28. `32_E2E_runtime確認チェックリスト.md`
 
 ## 文書一覧
 
@@ -80,6 +83,9 @@
 | `27_Browser_Trace_to_API_Discovery仕様.md` | Browser Trace から API candidate、OpenAPI draft、coverage report を作り、Source Registry / Fetcher へ接続する仕様 |
 | `28_SuperAgent_Harness_Reference_DeerFlow仕様.md` | DeerFlow を参考に、Lead Agent、Subagent、Sandbox、Skill、Context Engineering、Tracing を RenCrow の SuperAgent Harness として接続する仕様 |
 | `29_Sandbox_Promotion_Gate仕様.md` | Sandbox での試行錯誤と、正式環境へ昇格するための Promotion Gate、Human approval、rollback plan を扱う仕様 |
+| `30_未実装項目実装仕様作成プロンプト.md` | docs/10 内の未実装項目を洗い出し、重複仕様・対立仕様を整理して実装仕様化するための作業プロンプト |
+| `31_未実装項目実装仕様.md` | docs/10 内の未実装 / 部分実装 / 要確認項目を整理し、参考仕様番号付きの段階的な実装 Phase へ落とした実装仕様 |
+| `32_E2E_runtime確認チェックリスト.md` | `31` Phase 12 の E2E / runtime 要確認項目について、実機・browser・外部チャネル確認時の証跡、成功条件、失敗条件を定義するチェックリスト |
 
 ## 基本方針
 

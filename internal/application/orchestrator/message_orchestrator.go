@@ -6,13 +6,20 @@ import (
 	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	appsubagent "github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
 	appverification "github.com/Nyukimin/picoclaw_multiLLM/internal/application/verification"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	domainconversation "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
+	domaindci "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/dci"
+	domainpersona "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
+	domainsuperagent "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/superagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domainverification "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/verification"
 )
@@ -80,6 +87,52 @@ type ResponseVerifier interface {
 	VerifyResponse(ctx context.Context, req appverification.Request) (appverification.Result, error)
 }
 
+// DCISearcher は明示的な直接コーパス探索を担当する。
+type DCISearcher interface {
+	ShouldTrigger(query string) bool
+	Search(ctx context.Context, query string) (domaindci.SearchResult, error)
+}
+
+type RecallTraceStore interface {
+	SaveRecallTrace(ctx context.Context, trace domainconversation.RecallTrace) error
+}
+
+type SkillBootstrapRecorder interface {
+	Record(ctx context.Context, task domainskill.TaskContext, usedSkillIDs []string) ([]domainskill.SkillTriggerLog, error)
+}
+
+type CoderProposalEvidenceRecorder interface {
+	SaveCoderProposalEvidence(ctx context.Context, evidence domainskill.CoderProposalEvidence) (domainskill.CoderProposalEvidencePaths, error)
+}
+
+type WorkflowEventRecorder interface {
+	SaveWorkflowEvent(ctx context.Context, item domainai.WorkflowEvent) error
+}
+
+type CommandRegistryLister interface {
+	ListCommandRegistries(ctx context.Context, limit int) ([]domainai.CommandRegistry, error)
+}
+
+type SuperAgentRuntimeRecorder interface {
+	SaveAgentRun(ctx context.Context, item domainsuperagent.AgentRun) error
+	SaveContextPack(ctx context.Context, item domainsuperagent.ContextPack) error
+	SaveTraceEvent(ctx context.Context, item domainsuperagent.TraceEvent) error
+}
+
+type SuperAgentRunController interface {
+	RegisterRun(ctx context.Context, runID string) (context.Context, func())
+	IsPauseRequested(runID string) bool
+}
+
+type PersonaRuntimeRecorder interface {
+	SaveTriggerLog(ctx context.Context, item domainpersona.TriggerLog) error
+	SaveCanonicalResponseLog(ctx context.Context, item domainpersona.CanonicalResponseLog) error
+	ListCanonicalResponseLogs(ctx context.Context, limit int) ([]domainpersona.CanonicalResponseLog, error)
+	SaveObservationLog(ctx context.Context, item domainpersona.ObservationLog) error
+	SaveMetaProfileUpdate(ctx context.Context, item domainpersona.MetaProfileUpdate) error
+	SaveInterfaceSession(ctx context.Context, item domainpersona.InterfaceSession) error
+}
+
 // CoderAgentWithProposal はProposal生成機能を持つCoderAgent
 type CoderAgentWithProposal interface {
 	CoderAgent
@@ -88,25 +141,36 @@ type CoderAgentWithProposal interface {
 
 // MessageOrchestrator はメッセージ処理を統括
 type MessageOrchestrator struct {
-	sessionRepo     SessionRepository
-	mio             MioAgent
-	shiro           ShiroAgent
-	coder1          CoderAgent // Slot 1
-	coder2          CoderAgent // Slot 2
-	coder3          CoderAgent // Slot 3
-	coder4          CoderAgent // Slot 4 (v4.1)
-	wild            WildAgent
-	heavy           HeavyAgent
-	workerExecution service.WorkerExecutionService
-	coderStatus     *CoderStatus
-	codeExecutor    CodeExecutor // Phase 1リファクタリング: コード実行を委譲
-	listener        EventListener
-	reporter        ReportStore
-	idleNotifier    IdleNotifier
-	ttsBridge       TTSBridge
-	vtuberBridge    VTuberBridge
-	verifier        ResponseVerifier
-	maxRepair       int // 0以下は1とみなす
+	sessionRepo               SessionRepository
+	mio                       MioAgent
+	shiro                     ShiroAgent
+	coder1                    CoderAgent // Slot 1
+	coder2                    CoderAgent // Slot 2
+	coder3                    CoderAgent // Slot 3
+	coder4                    CoderAgent // Slot 4 (v4.1)
+	wild                      WildAgent
+	heavy                     HeavyAgent
+	workerExecution           service.WorkerExecutionService
+	coderStatus               *CoderStatus
+	codeExecutor              CodeExecutor // Phase 1リファクタリング: コード実行を委譲
+	listener                  EventListener
+	reporter                  ReportStore
+	idleNotifier              IdleNotifier
+	ttsBridge                 TTSBridge
+	vtuberBridge              VTuberBridge
+	verifier                  ResponseVerifier
+	dciSearcher               DCISearcher
+	recallTrace               RecallTraceStore
+	skillBootstrap            SkillBootstrapRecorder
+	coderProposalEvidence     CoderProposalEvidenceRecorder
+	workflowEvents            WorkflowEventRecorder
+	commandRegistry           CommandRegistryLister
+	superAgentRuns            SuperAgentRuntimeRecorder
+	superAgentRunController   SuperAgentRunController
+	personaRuntime            PersonaRuntimeRecorder
+	personaTriggers           []domainpersona.TriggerDefinition
+	personaCanonicalResponses []domainpersona.CanonicalResponseDefinition
+	maxRepair                 int // 0以下は1とみなす
 
 	sessions             *messageSessionLifecycle
 	responses            messageResponseAssembler
@@ -224,6 +288,12 @@ func (o *MessageOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
 	}
 }
 
+func (o *MessageOrchestrator) SetHeavyWorkerPolicy(policy domainai.HeavyWorkerPolicy) {
+	if o.routeDecisions != nil {
+		o.routeDecisions.SetHeavyWorkerPolicy(policy)
+	}
+}
+
 func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
 	o.reporter = store
 	if o.autonomousExecutions != nil {
@@ -233,6 +303,56 @@ func (o *MessageOrchestrator) SetReportStore(store ReportStore) {
 
 func (o *MessageOrchestrator) SetVerificationPipeline(verifier ResponseVerifier) {
 	o.verifier = verifier
+}
+
+func (o *MessageOrchestrator) SetDCISearcher(searcher DCISearcher) {
+	o.dciSearcher = searcher
+}
+
+func (o *MessageOrchestrator) SetRecallTraceStore(store RecallTraceStore) {
+	o.recallTrace = store
+}
+
+func (o *MessageOrchestrator) SetSkillBootstrapRecorder(recorder SkillBootstrapRecorder) {
+	o.skillBootstrap = recorder
+}
+
+func (o *MessageOrchestrator) SetCoderProposalEvidenceRecorder(recorder CoderProposalEvidenceRecorder) {
+	o.coderProposalEvidence = recorder
+	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
+		executor.WithCoderProposalEvidenceRecorder(recorder)
+	}
+}
+
+func (o *MessageOrchestrator) SetWorkflowEventRecorder(recorder WorkflowEventRecorder) {
+	o.workflowEvents = recorder
+	if o.routeDecisions != nil {
+		o.routeDecisions.SetWorkflowEventRecorder(recorder)
+	}
+	if o.routeDispatcher != nil {
+		o.routeDispatcher.SetWorkflowEventRecorder(recorder)
+	}
+}
+
+func (o *MessageOrchestrator) SetCommandRegistry(registry CommandRegistryLister) {
+	o.commandRegistry = registry
+}
+
+func (o *MessageOrchestrator) SetSuperAgentRuntimeRecorder(recorder SuperAgentRuntimeRecorder) {
+	o.superAgentRuns = recorder
+}
+
+func (o *MessageOrchestrator) SetSuperAgentRunController(controller SuperAgentRunController) {
+	o.superAgentRunController = controller
+}
+
+func (o *MessageOrchestrator) SetPersonaRuntimeRecorder(recorder PersonaRuntimeRecorder, triggers []domainpersona.TriggerDefinition) {
+	o.personaRuntime = recorder
+	o.personaTriggers = append([]domainpersona.TriggerDefinition(nil), triggers...)
+}
+
+func (o *MessageOrchestrator) SetPersonaCanonicalResponses(definitions []domainpersona.CanonicalResponseDefinition) {
+	o.personaCanonicalResponses = append([]domainpersona.CanonicalResponseDefinition(nil), definitions...)
 }
 
 // SetIdleNotifier sets an optional notifier used to control idle chat.
@@ -277,27 +397,61 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 
 	o.events.EmitMessageReceived(req)
+	if err := o.recordPersonaRuntimeObservation(ctx, req); err != nil {
+		return ProcessMessageResponse{}, err
+	}
 	if resp, handled, err := o.preRoutingCommands.Handle(ctx, req); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {
 		return resp, nil
 	}
+	if expandedReq, handled, err := o.expandRegisteredSlashCommand(ctx, req); err != nil {
+		return ProcessMessageResponse{}, err
+	} else if handled {
+		req = expandedReq
+	}
 
 	t, jobID, ttsSessionID := o.taskContexts.Build(req)
+	if resp, handled, err := o.handleExplicitDCI(ctx, req, sess, t.WithRoute(routing.RouteRESEARCH), jobID); err != nil {
+		return ProcessMessageResponse{}, err
+	} else if handled {
+		return resp, nil
+	}
+
 	decision, err := o.routeDecisions.Decide(ctx, t, req, jobID)
 	if err != nil {
 		return ProcessMessageResponse{}, err
 	}
 
 	t = t.WithRoute(decision.Route)
+	if err := o.recordRouteSkillBootstrap(ctx, req, decision.Route); err != nil {
+		return ProcessMessageResponse{}, err
+	}
 	o.ttsLifecycle.StartSessionForRoute(ctx, req, jobID, decision, ttsSessionID)
 
 	endWorkerBusy := o.idleBusyGuards.BeginWorker(decision.Route)
 	defer endWorkerBusy()
 
+	runStartedAt, err := recordLeadAgentRunStarted(ctx, o.superAgentRuns, req, jobID, decision.Route)
+	if err != nil {
+		return ProcessMessageResponse{}, err
+	}
+	leadRunID := leadAgentRunID(jobID)
+	if o.superAgentRunController != nil {
+		var unregister func()
+		ctx, unregister = o.superAgentRunController.RegisterRun(ctx, leadRunID)
+		defer unregister()
+	}
+	ctx = appsubagent.WithSuperAgentRuntime(ctx, leadRunID, []string{"session:" + req.SessionID, "route:" + string(decision.Route)}, nil, "return summary-only subagent result to Lead Agent")
+
 	// 4. ルートに応じて実行
 	response, err := o.routeDispatcher.ExecuteTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
 	if err != nil {
+		if o.superAgentRunController != nil && o.superAgentRunController.IsPauseRequested(leadRunID) {
+			_ = recordLeadAgentRunFinished(context.Background(), o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "paused", "pause requested; task execution canceled")
+		} else {
+			_ = recordLeadAgentRunFinished(ctx, o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "failed", err.Error())
+		}
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
 	}
 	o.ttsLifecycle.EndSession(ctx, ttsSessionID)
@@ -314,6 +468,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 			JobID:         jobID.String(),
 		})
 		if err != nil {
+			_ = recordLeadAgentRunFinished(ctx, o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "failed", err.Error())
 			return ProcessMessageResponse{}, fmt.Errorf("response verification failed: %w", err)
 		}
 		response = verification.Response
@@ -321,7 +476,18 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		o.events.Emit("verification.report", "verification", "viewer", string(verification.Report.Status), string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 	}
 
+	if applied, err := o.applyPersonaCanonicalResponse(ctx, req, response); err != nil {
+		_ = recordLeadAgentRunFinished(ctx, o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "failed", err.Error())
+		return ProcessMessageResponse{}, err
+	} else if applied != "" {
+		response = applied
+	}
+
 	if err := o.sessions.SaveCompletedTask(ctx, sess, t); err != nil {
+		_ = recordLeadAgentRunFinished(ctx, o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "failed", err.Error())
+		return ProcessMessageResponse{}, err
+	}
+	if err := recordLeadAgentRunFinished(ctx, o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "completed", "Lead Agent completed"); err != nil {
 		return ProcessMessageResponse{}, err
 	}
 

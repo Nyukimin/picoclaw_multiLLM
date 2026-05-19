@@ -7,6 +7,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
@@ -18,14 +19,15 @@ type distributedMailboxExecutor func(ctx context.Context, targetAgent string, ms
 type distributedAgentExecutor func(ctx context.Context, targetAgent string, msg domaintransport.Message) (domaintransport.Message, error)
 
 type distributedCodeExecutionCoordinator struct {
-	memory         *session.CentralMemory
-	emit           messageEventEmitter
-	emitNote       distributedNoteEmitter
-	selectCoder    distributedCoderSelector
-	coderConfigs   distributedCoderConfigProvider
-	coderRetryMax  distributedRetryMaxResolver
-	executeMailbox distributedMailboxExecutor
-	executeToAgent distributedAgentExecutor
+	memory           *session.CentralMemory
+	emit             messageEventEmitter
+	emitNote         distributedNoteEmitter
+	selectCoder      distributedCoderSelector
+	coderConfigs     distributedCoderConfigProvider
+	coderRetryMax    distributedRetryMaxResolver
+	executeMailbox   distributedMailboxExecutor
+	executeToAgent   distributedAgentExecutor
+	proposalEvidence CoderProposalEvidenceRecorder
 }
 
 func newDistributedCodeExecutionCoordinator(
@@ -48,6 +50,10 @@ func newDistributedCodeExecutionCoordinator(
 		executeMailbox: executeMailbox,
 		executeToAgent: executeToAgent,
 	}
+}
+
+func (c *distributedCodeExecutionCoordinator) SetCoderProposalEvidenceRecorder(recorder CoderProposalEvidenceRecorder) {
+	c.proposalEvidence = recorder
 }
 
 func (c *distributedCodeExecutionCoordinator) Execute(ctx context.Context, t task.Task, route routing.Route, sessionID, jid string) (string, error) {
@@ -160,15 +166,70 @@ func (c *distributedCodeExecutionCoordinator) executeProposal(ctx context.Contex
 		failureKind, reason, retryableFailure := classifyDistributedExecutionError(err)
 		if retryableFailure && attempt < c.coderRetryMax() {
 			c.emit("worker.classified_failure", "shiro", coderAgent, fmt.Sprintf("%s: %s", failureKind, reason), string(route), jid, sessionID, t.Channel(), t.ChatID())
+			c.recordCoderProposalEvidence(ctx, t, route, sessionID, jid, coderAgent, coderResult.Proposal, domaintransport.Message{}, err)
 			return "", buildCoderRetryInstruction(t.UserMessage(), coderResult.Proposal, failureKind, reason, attempt+1), true, nil
 		}
+		c.recordCoderProposalEvidence(ctx, t, route, sessionID, jid, coderAgent, coderResult.Proposal, domaintransport.Message{}, err)
 		return "", "", false, err
 	}
 	c.emit("agent.response", "shiro", "mio", shiroResult.Content, string(route), jid, sessionID, t.Channel(), t.ChatID())
 	c.emitNote("shiro", "mio", fmt.Sprintf("%sの作業が終わりました。", displayAgentName(coderAgent)), string(route), jid, sessionID, t.Channel(), t.ChatID())
+	c.recordCoderProposalEvidence(ctx, t, route, sessionID, jid, coderAgent, coderResult.Proposal, shiroResult, nil)
 
 	if retryReq, ok := nextCoderRetryRequest(t.UserMessage(), coderResult.Proposal, shiroResult, attempt); ok {
 		return "", retryReq, true, nil
 	}
 	return shiroResult.Content, "", false, nil
+}
+
+func (c *distributedCodeExecutionCoordinator) recordCoderProposalEvidence(
+	ctx context.Context,
+	t task.Task,
+	route routing.Route,
+	sessionID, jid, coderAgent string,
+	p *domaintransport.ProposalPayload,
+	shiroResult domaintransport.Message,
+	runErr error,
+) {
+	if c.proposalEvidence == nil || p == nil {
+		return
+	}
+	evidence := domainskill.CoderProposalEvidence{
+		JobID:            jid,
+		SessionID:        sessionID,
+		Route:            string(route),
+		Agent:            coderAgent,
+		TaskText:         t.UserMessage(),
+		Plan:             p.Plan,
+		Patch:            p.Patch,
+		Risk:             p.Risk,
+		CostHint:         p.CostHint,
+		FormattedResult:  shiroResult.Content,
+		ExecutionSummary: distributedResultSummary(shiroResult),
+		Success:          runErr == nil,
+	}
+	if shiroResult.Result != nil {
+		evidence.Success = shiroResult.Result.Success
+	}
+	if runErr != nil {
+		evidence.ExecutionError = runErr.Error()
+	}
+	paths, err := c.proposalEvidence.SaveCoderProposalEvidence(ctx, evidence)
+	if err != nil {
+		log.Printf("WARN: failed to save distributed coder proposal evidence job=%s route=%s: %v", jid, route, err)
+		return
+	}
+	if paths.SkillDiffPath != "" || paths.AgentTranscriptPath != "" {
+		log.Printf("Distributed coder proposal evidence saved job=%s skill_diff=%s agent_transcript=%s", jid, paths.SkillDiffPath, paths.AgentTranscriptPath)
+	}
+}
+
+func distributedResultSummary(msg domaintransport.Message) string {
+	if msg.Result == nil {
+		return ""
+	}
+	if msg.Result.Summary != "" {
+		return msg.Result.Summary
+	}
+	return fmt.Sprintf("実行: %d 件, 成功: %d 件, 失敗: %d 件", msg.Result.ExecutedCmds, msg.Result.ExecutedCmds-msg.Result.FailedCmds, msg.Result.FailedCmds)
 }

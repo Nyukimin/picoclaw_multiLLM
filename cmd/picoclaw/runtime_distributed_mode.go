@@ -13,6 +13,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
@@ -113,6 +114,39 @@ func (d *Dependencies) buildDistributedMode(
 	d.distOrch = distOrch
 	distOrch.SetHeavyAgent(heavyAgent)
 	distOrch.SetWildAgent(wildAgent)
+	distOrch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{
+		Enabled:                 cfg.AIWorkflow.HeavyWorkerEnabled,
+		RequireReason:           cfg.AIWorkflow.HeavyWorkerRequireReason,
+		FileCountThreshold:      cfg.AIWorkflow.HeavyWorkerFileThreshold,
+		SpecCountThreshold:      cfg.AIWorkflow.HeavyWorkerSpecThreshold,
+		FailedAttemptsThreshold: cfg.AIWorkflow.HeavyWorkerRetryThreshold,
+	})
+	if d.dciSearcher != nil {
+		distOrch.SetDCISearcher(d.dciSearcher)
+		log.Println("DCI explicit trigger integrated with DistributedOrchestrator")
+	}
+	if d.recallTraceStore != nil {
+		distOrch.SetRecallTraceStore(d.recallTraceStore)
+		log.Println("Recall trace store integrated with DistributedOrchestrator")
+	}
+	if d.skillBootstrap != nil {
+		distOrch.SetSkillBootstrapRecorder(d.skillBootstrap)
+		log.Println("Skill Bootstrap integrated with DistributedOrchestrator")
+	}
+	if d.coderProposalEvidence != nil {
+		distOrch.SetCoderProposalEvidenceRecorder(d.coderProposalEvidence)
+		log.Println("Coder proposal evidence recorder integrated with DistributedOrchestrator")
+	}
+	if d.aiWorkflowStore != nil {
+		distOrch.SetWorkflowEventRecorder(d.aiWorkflowStore)
+		distOrch.SetCommandRegistry(d.aiWorkflowStore)
+		log.Println("AI Workflow event recorder integrated with DistributedOrchestrator")
+	}
+	if d.superAgentStore != nil {
+		distOrch.SetSuperAgentRuntimeRecorder(d.superAgentStore)
+		distOrch.SetSuperAgentRunController(d.superAgentRunController)
+		log.Println("SuperAgent runtime recorder integrated with DistributedOrchestrator")
+	}
 
 	// v4.1: SSH 経由で CoderConfig を送信するための設定
 	coderConfigs := make(map[string]interface{})

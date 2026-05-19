@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -10,9 +11,15 @@ import (
 	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	appverification "github.com/Nyukimin/picoclaw_multiLLM/internal/application/verification"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	domainconversation "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
+	domaindci "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/dci"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domainpersona "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
+	domainsuperagent "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/superagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domainverification "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/verification"
 )
@@ -22,6 +29,77 @@ type mockSessionRepository struct {
 	sessions map[string]*session.Session
 	loadErr  error // non-nil ならLoad時にこのエラーを返す
 	saveErr  error // non-nil ならSave時にこのエラーを返す
+}
+
+type mockSkillBootstrapRecorder struct {
+	tasks []domainskill.TaskContext
+	used  [][]string
+	err   error
+}
+
+type mockPersonaRuntimeRecorder struct {
+	triggers     []domainpersona.TriggerLog
+	canonical    []domainpersona.CanonicalResponseLog
+	observations []domainpersona.ObservationLog
+	metaUpdates  []domainpersona.MetaProfileUpdate
+	sessions     []domainpersona.InterfaceSession
+	err          error
+}
+
+func (m *mockPersonaRuntimeRecorder) SaveTriggerLog(_ context.Context, item domainpersona.TriggerLog) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.triggers = append(m.triggers, item)
+	return nil
+}
+
+func (m *mockPersonaRuntimeRecorder) SaveCanonicalResponseLog(_ context.Context, item domainpersona.CanonicalResponseLog) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.canonical = append(m.canonical, item)
+	return nil
+}
+
+func (m *mockPersonaRuntimeRecorder) ListCanonicalResponseLogs(_ context.Context, _ int) ([]domainpersona.CanonicalResponseLog, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return append([]domainpersona.CanonicalResponseLog(nil), m.canonical...), nil
+}
+
+func (m *mockPersonaRuntimeRecorder) SaveObservationLog(_ context.Context, item domainpersona.ObservationLog) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.observations = append(m.observations, item)
+	return nil
+}
+
+func (m *mockPersonaRuntimeRecorder) SaveMetaProfileUpdate(_ context.Context, item domainpersona.MetaProfileUpdate) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.metaUpdates = append(m.metaUpdates, item)
+	return nil
+}
+
+func (m *mockPersonaRuntimeRecorder) SaveInterfaceSession(_ context.Context, item domainpersona.InterfaceSession) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.sessions = append(m.sessions, item)
+	return nil
+}
+
+func (m *mockSkillBootstrapRecorder) Record(_ context.Context, task domainskill.TaskContext, usedSkillIDs []string) ([]domainskill.SkillTriggerLog, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	m.tasks = append(m.tasks, task)
+	m.used = append(m.used, append([]string(nil), usedSkillIDs...))
+	return nil, nil
 }
 
 func newMockSessionRepository() *mockSessionRepository {
@@ -119,6 +197,89 @@ type mockWildAgent struct {
 func (m *mockWildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
 	m.called = true
 	return m.response, nil
+}
+
+type mockDCISearcher struct {
+	trigger bool
+	result  domaindci.SearchResult
+	err     error
+	query   string
+	calls   int
+}
+
+func (m *mockDCISearcher) ShouldTrigger(query string) bool {
+	return m.trigger
+}
+
+func (m *mockDCISearcher) Search(ctx context.Context, query string) (domaindci.SearchResult, error) {
+	m.calls++
+	m.query = query
+	return m.result, m.err
+}
+
+type mockRecallTraceStore struct {
+	traces []domainconversation.RecallTrace
+	err    error
+}
+
+func (m *mockRecallTraceStore) SaveRecallTrace(ctx context.Context, trace domainconversation.RecallTrace) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.traces = append(m.traces, trace)
+	return nil
+}
+
+type mockWorkflowEventRecorder struct {
+	events []domainai.WorkflowEvent
+}
+
+func (m *mockWorkflowEventRecorder) SaveWorkflowEvent(ctx context.Context, item domainai.WorkflowEvent) error {
+	m.events = append(m.events, item)
+	return nil
+}
+
+type mockCommandRegistryStore struct {
+	commands []domainai.CommandRegistry
+	err      error
+}
+
+func (m *mockCommandRegistryStore) ListCommandRegistries(_ context.Context, _ int) ([]domainai.CommandRegistry, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return append([]domainai.CommandRegistry(nil), m.commands...), nil
+}
+
+type mockSuperAgentRuntimeRecorder struct {
+	runs         []domainsuperagent.AgentRun
+	contextPacks []domainsuperagent.ContextPack
+	traces       []domainsuperagent.TraceEvent
+	err          error
+}
+
+func (m *mockSuperAgentRuntimeRecorder) SaveAgentRun(_ context.Context, item domainsuperagent.AgentRun) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.runs = append(m.runs, item)
+	return nil
+}
+
+func (m *mockSuperAgentRuntimeRecorder) SaveContextPack(_ context.Context, item domainsuperagent.ContextPack) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.contextPacks = append(m.contextPacks, item)
+	return nil
+}
+
+func (m *mockSuperAgentRuntimeRecorder) SaveTraceEvent(_ context.Context, item domainsuperagent.TraceEvent) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.traces = append(m.traces, item)
+	return nil
 }
 
 type mockHeavyAgent struct {
@@ -224,6 +385,170 @@ func TestMessageOrchestrator_ProcessMessage_NewSession(t *testing.T) {
 	exists, _ := repo.Exists(context.Background(), "20260302-line-U123")
 	if !exists {
 		t.Error("Session should be saved")
+	}
+}
+
+func TestMessageOrchestrator_RecordsPersonaRuntimeObservation(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		response: "少し分けて考えます。",
+	}
+	recorder := &mockPersonaRuntimeRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetPersonaRuntimeRecorder(recorder, []domainpersona.TriggerDefinition{{
+		TriggerID:   "mio_tired",
+		CharacterID: "mio",
+		Category:    "tiredness",
+		Keywords:    []string{"疲れた"},
+		Priority:    1,
+	}})
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "session-1",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "今日は疲れた",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if len(recorder.sessions) != 1 || recorder.sessions[0].SessionKey != "line:U123" {
+		t.Fatalf("sessions = %#v", recorder.sessions)
+	}
+	if len(recorder.observations) != 1 || recorder.observations[0].ReviewStatus != "pending" || recorder.observations[0].ObservationType != "chat_message" {
+		t.Fatalf("observations = %#v", recorder.observations)
+	}
+	if len(recorder.triggers) != 1 || recorder.triggers[0].TriggerID != "mio_tired" || recorder.triggers[0].TriggerCategory != "tiredness" {
+		t.Fatalf("triggers = %#v", recorder.triggers)
+	}
+}
+
+func TestMessageOrchestrator_CreatesPendingMetaUpdateCandidateFromUserStatement(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		response: "記録候補にします。",
+	}
+	recorder := &mockPersonaRuntimeRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetPersonaRuntimeRecorder(recorder, nil)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "session-1",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "私は映画の話題をよくアイデア源にします",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if len(recorder.metaUpdates) != 1 {
+		t.Fatalf("metaUpdates = %#v", recorder.metaUpdates)
+	}
+	got := recorder.metaUpdates[0]
+	if got.TargetID != "ren" || got.ReviewStatus != "pending" || got.Section != "flow_observation" {
+		t.Fatalf("unexpected meta update = %#v", got)
+	}
+	if !strings.Contains(got.ProposedContent, "Human review is required") || !strings.Contains(got.ProposedContent, "映画の話題") {
+		t.Fatalf("proposed content = %q", got.ProposedContent)
+	}
+	if len(got.EvidenceRefs) == 0 {
+		t.Fatalf("evidence refs missing: %#v", got)
+	}
+}
+
+func TestMessageOrchestrator_AppliesPersonaCanonicalResponse(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		response: "元の応答",
+	}
+	recorder := &mockPersonaRuntimeRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetPersonaRuntimeRecorder(recorder, []domainpersona.TriggerDefinition{{
+		TriggerID:   "kuro_destructive",
+		CharacterID: "kuro",
+		Category:    "danger",
+		Keywords:    []string{"削除"},
+		Priority:    1,
+	}})
+	orch.SetPersonaCanonicalResponses([]domainpersona.CanonicalResponseDefinition{{
+		ResponseID:       "kuro_destructive_block",
+		CharacterID:      "kuro",
+		Category:         "danger",
+		Response:         "その操作は止めます。",
+		RequiredContexts: []string{"danger"},
+		CooldownTurns:    5,
+		MaxPerSession:    3,
+		Priority:         10,
+	}})
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "session-1",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "このファイルを削除して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if resp.Response != "その操作は止めます。" {
+		t.Fatalf("response = %q", resp.Response)
+	}
+	if len(recorder.canonical) != 1 || recorder.canonical[0].ResponseID != "kuro_destructive_block" || !recorder.canonical[0].Used || recorder.canonical[0].Rewritten {
+		t.Fatalf("canonical logs = %#v", recorder.canonical)
+	}
+}
+
+func TestMessageOrchestrator_CanonicalResponseHonorsCooldown(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1.0, "Chat route"),
+		response: "元の応答",
+	}
+	recorder := &mockPersonaRuntimeRecorder{
+		canonical: []domainpersona.CanonicalResponseLog{{
+			EventID:     "evt_recent",
+			CharacterID: "kuro",
+			ResponseID:  "kuro_destructive_block",
+			Used:        true,
+			CreatedAt:   time.Now().UTC(),
+		}},
+	}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetPersonaRuntimeRecorder(recorder, []domainpersona.TriggerDefinition{{
+		TriggerID:   "kuro_destructive",
+		CharacterID: "kuro",
+		Category:    "danger",
+		Keywords:    []string{"削除"},
+		Priority:    1,
+	}})
+	orch.SetPersonaCanonicalResponses([]domainpersona.CanonicalResponseDefinition{{
+		ResponseID:       "kuro_destructive_block",
+		CharacterID:      "kuro",
+		Category:         "danger",
+		Response:         "その操作は止めます。",
+		RequiredContexts: []string{"danger"},
+		CooldownTurns:    5,
+		MaxPerSession:    3,
+		Priority:         10,
+	}})
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "session-1",
+		Channel:     "line",
+		ChatID:      "U123",
+		UserMessage: "このファイルを削除して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if resp.Response != "元の応答" {
+		t.Fatalf("response = %q", resp.Response)
+	}
+	if len(recorder.canonical) != 1 {
+		t.Fatalf("canonical logs = %#v", recorder.canonical)
 	}
 }
 
@@ -515,6 +840,60 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute(t *testing.T) {
 	}
 }
 
+func TestMessageOrchestrator_ProcessMessage_CodeRouteRecordsSkillBootstrap(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route")}
+	shiro := &mockShiroAgent{response: "executed"}
+	coder := &mockCoderAgent{response: "```go\nfunc main() {}\n```"}
+	recorder := &mockSkillBootstrapRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil, nil, nil)
+	orch.SetSkillBootstrapRecorder(recorder)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-code",
+		Channel:     "viewer",
+		ChatID:      "chat",
+		UserMessage: "実装して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteCODE {
+		t.Fatalf("route=%s", resp.Route)
+	}
+	if len(recorder.tasks) != 1 {
+		t.Fatalf("skill bootstrap tasks=%#v", recorder.tasks)
+	}
+	if recorder.tasks[0].Agent != "Coder" || recorder.tasks[0].Intent != "code" || recorder.tasks[0].WorkstreamID != "sess-code" {
+		t.Fatalf("unexpected bootstrap task=%#v", recorder.tasks[0])
+	}
+	if len(recorder.used) != 1 || len(recorder.used[0]) != 1 || recorder.used[0][0] != "core.coder" {
+		t.Fatalf("unexpected used skills=%#v", recorder.used)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_SkillBootstrapFailureStopsRoute(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route")}
+	shiro := &mockShiroAgent{response: "executed"}
+	coder := &mockCoderAgent{response: "proposal"}
+	orch := NewMessageOrchestrator(repo, mio, shiro, coder, nil, nil, nil, nil)
+	orch.SetSkillBootstrapRecorder(&mockSkillBootstrapRecorder{err: fmt.Errorf("skill store failed")})
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-code",
+		Channel:     "viewer",
+		ChatID:      "chat",
+		UserMessage: "実装して",
+	})
+	if err == nil {
+		t.Fatal("expected skill bootstrap failure")
+	}
+	if !strings.Contains(err.Error(), "skill bootstrap failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T) {
 	t.Run("Coder1利用可能_Coder1を使用", func(t *testing.T) {
 		repo := newMockSessionRepository()
@@ -778,7 +1157,6 @@ func TestMessageOrchestrator_ProcessMessage_FallbackToChat(t *testing.T) {
 		route routing.Route
 	}{
 		{"PLAN", routing.RoutePLAN},
-		{"ANALYZE", routing.RouteANALYZE},
 		{"RESEARCH", routing.RouteRESEARCH},
 	}
 	for _, tc := range cases {
@@ -796,6 +1174,25 @@ func TestMessageOrchestrator_ProcessMessage_FallbackToChat(t *testing.T) {
 				t.Errorf("route: want %s, got %s", tc.route, resp.Route)
 			}
 		})
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_AnalyzeWithoutHeavyFailsInsteadOfFallback(t *testing.T) {
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteANALYZE, 1.0, "explicit analyze"),
+		chatFunc: func(ctx context.Context, tk task.Task) (string, error) {
+			t.Fatal("ANALYZE must not fall back to Mio chat when heavy agent is unavailable")
+			return "", nil
+		},
+	}
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil {
+		t.Fatal("expected missing heavy agent to fail")
+	}
+	if !strings.Contains(err.Error(), "no heavy agent available") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -851,6 +1248,168 @@ func TestMessageOrchestrator_ProcessMessage_ChatCommand_Error(t *testing.T) {
 	}
 }
 
+func TestMessageOrchestrator_ProcessMessage_ExplicitDCIBypassesRouting(t *testing.T) {
+	decideCalled := false
+	mio := &mockMioAgent{
+		decideFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
+			decideCalled = true
+			return routing.NewDecision(routing.RouteCHAT, 1.0, "should not run"), nil
+		},
+		response: "chat fallback",
+	}
+	searcher := &mockDCISearcher{
+		trigger: true,
+		result: domaindci.SearchResult{
+			Pack: domaindci.EvidencePack{
+				EventID:     "evt_dci_test",
+				Query:       "docs から DCI を探して",
+				CorpusScope: []string{"docs/10_新仕様"},
+				Evidence: []domaindci.Evidence{{
+					FilePath:  "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md",
+					LineStart: 12,
+					Snippet:   "DCIは原文確認能力である",
+				}},
+			},
+			Trace: domaindci.SearchTrace{
+				EventID: "evt_dci_test",
+				Status:  "completed",
+			},
+		},
+	}
+	req := defaultReq()
+	req.UserMessage = "docs から DCI を探して"
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetDCISearcher(searcher)
+
+	resp, err := orch.ProcessMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if decideCalled {
+		t.Fatal("explicit DCI trigger should bypass route decision")
+	}
+	if searcher.calls != 1 || searcher.query != req.UserMessage {
+		t.Fatalf("DCI search call mismatch: calls=%d query=%q", searcher.calls, searcher.query)
+	}
+	if resp.Route != routing.RouteRESEARCH {
+		t.Fatalf("route: want RESEARCH, got %s", resp.Route)
+	}
+	if !strings.Contains(resp.Response, "DCI探索結果") || !strings.Contains(resp.Response, "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md:12") {
+		t.Fatalf("DCI response should include evidence location, got %q", resp.Response)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ExplicitDCISavesRecallTrace(t *testing.T) {
+	mio := &mockMioAgent{response: "chat fallback"}
+	searcher := &mockDCISearcher{
+		trigger: true,
+		result: domaindci.SearchResult{
+			Pack: domaindci.EvidencePack{
+				EventID:     "evt_dci_recall",
+				Query:       "DCI を探して",
+				CorpusScope: []string{"docs/10_新仕様"},
+				Evidence: []domaindci.Evidence{{
+					FilePath:   "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md",
+					LineStart:  30,
+					Snippet:    "Evidence Pack",
+					Confidence: 0.8,
+				}},
+			},
+			Trace: domaindci.SearchTrace{EventID: "evt_dci_recall", Status: "completed", EndedAt: time.Date(2026, 5, 18, 1, 2, 3, 0, time.UTC)},
+		},
+	}
+	recall := &mockRecallTraceStore{}
+	req := defaultReq()
+	req.UserMessage = "DCI を探して"
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetDCISearcher(searcher)
+	orch.SetRecallTraceStore(recall)
+
+	resp, err := orch.ProcessMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.JobID == "" {
+		t.Fatal("response should include job id")
+	}
+	if len(recall.traces) != 1 {
+		t.Fatalf("expected one recall trace, got %d", len(recall.traces))
+	}
+	trace := recall.traces[0]
+	if trace.SessionID != req.SessionID || trace.ResponseID != resp.JobID || trace.Role != "dci" {
+		t.Fatalf("unexpected recall trace identity: %+v", trace)
+	}
+	if len(trace.Items) != 1 {
+		t.Fatalf("expected one recall trace item, got %+v", trace.Items)
+	}
+	item := trace.Items[0]
+	if item.Layer != "DCI" || item.Kind != "evidence" || item.Provider != "dci" || item.Query != req.UserMessage {
+		t.Fatalf("unexpected recall trace item: %+v", item)
+	}
+	if !strings.Contains(item.Summary, "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md:30") {
+		t.Fatalf("recall trace item should include evidence location: %+v", item)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ExplicitDCIErrorDoesNotFallback(t *testing.T) {
+	decideCalled := false
+	mio := &mockMioAgent{
+		decideFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
+			decideCalled = true
+			return routing.NewDecision(routing.RouteCHAT, 1.0, "fallback"), nil
+		},
+		response: "chat fallback",
+	}
+	searcher := &mockDCISearcher{trigger: true, err: fmt.Errorf("trace store failed")}
+	req := defaultReq()
+	req.UserMessage = "ログを探して"
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetDCISearcher(searcher)
+
+	_, err := orch.ProcessMessage(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected explicit DCI search failure")
+	}
+	if decideCalled {
+		t.Fatal("failed DCI trigger should not fall back to route decision")
+	}
+	if !strings.Contains(err.Error(), "dci search failed") || !strings.Contains(err.Error(), "trace store failed") {
+		t.Fatalf("error should preserve DCI failure, got %v", err)
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_ExplicitDCIRecallTraceErrorFails(t *testing.T) {
+	mio := &mockMioAgent{response: "chat fallback"}
+	searcher := &mockDCISearcher{
+		trigger: true,
+		result: domaindci.SearchResult{
+			Pack: domaindci.EvidencePack{
+				EventID: "evt_dci_recall_fail",
+				Query:   "DCI を探して",
+				Evidence: []domaindci.Evidence{{
+					FilePath:  "docs/spec.md",
+					LineStart: 1,
+					Snippet:   "DCI",
+				}},
+			},
+			Trace: domaindci.SearchTrace{EventID: "evt_dci_recall_fail", Status: "completed"},
+		},
+	}
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetDCISearcher(searcher)
+	orch.SetRecallTraceStore(&mockRecallTraceStore{err: fmt.Errorf("l1 unavailable")})
+
+	req := defaultReq()
+	req.UserMessage = "DCI を探して"
+	_, err := orch.ProcessMessage(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected recall trace save error")
+	}
+	if !strings.Contains(err.Error(), "failed to save dci recall trace") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMessageOrchestrator_ProcessMessage_SessionSaveError(t *testing.T) {
 	repo := newMockSessionRepository()
 	repo.saveErr = fmt.Errorf("disk full")
@@ -896,8 +1455,10 @@ func TestProcessMessage_RouteAnalyzeUsesHeavyAgent(t *testing.T) {
 	repo := newMockSessionRepository()
 	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteANALYZE, 1.0, "explicit analyze")}
 	heavy := &mockHeavyAgent{response: "heavy response"}
+	workflowEvents := &mockWorkflowEventRecorder{}
 	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	orch.SetHeavyAgent(heavy)
+	orch.SetWorkflowEventRecorder(workflowEvents)
 
 	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
 	if err != nil {
@@ -911,5 +1472,172 @@ func TestProcessMessage_RouteAnalyzeUsesHeavyAgent(t *testing.T) {
 	}
 	if resp.Response != "heavy response" {
 		t.Fatalf("response: want heavy response, got %q", resp.Response)
+	}
+	if len(workflowEvents.events) != 2 {
+		t.Fatalf("expected heavy lifecycle events, got %#v", workflowEvents.events)
+	}
+	if workflowEvents.events[0].EventType != "heavy_worker_started" || workflowEvents.events[1].EventType != "heavy_worker_completed" {
+		t.Fatalf("unexpected heavy lifecycle events: %#v", workflowEvents.events)
+	}
+}
+
+func TestProcessMessage_HeavyWorkerPolicyElevatesDeepDiveToAnalyze(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteCHAT, 0.7, "default chat")}
+	heavy := &mockHeavyAgent{response: "heavy deep dive"}
+	workflowEvents := &mockWorkflowEventRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetHeavyAgent(heavy)
+	orch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{
+		Enabled:       true,
+		RequireReason: true,
+	})
+	orch.SetWorkflowEventRecorder(workflowEvents)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "deep-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "この件を深掘りして",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !heavy.called {
+		t.Fatal("heavy agent should be called after policy elevation")
+	}
+	if resp.Route != routing.RouteANALYZE || resp.Response != "heavy deep dive" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(workflowEvents.events) != 3 {
+		t.Fatalf("expected requested + lifecycle events, got %#v", workflowEvents.events)
+	}
+	if workflowEvents.events[0].EventType != "heavy_worker_requested" ||
+		workflowEvents.events[1].EventType != "heavy_worker_started" ||
+		workflowEvents.events[2].EventType != "heavy_worker_completed" {
+		t.Fatalf("unexpected heavy events: %#v", workflowEvents.events)
+	}
+}
+
+func TestProcessMessage_RegisteredSlashCommandExpandsRuntimePrompt(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.MkdirAll("commands", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("commands/review-architecture.md", []byte("# /review-architecture\n\n## Steps\n1. 正本仕様を読む\n2. 差分を見る\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	repo := newMockSessionRepository()
+	var routedMessage string
+	var chatMessage string
+	mio := &mockMioAgent{
+		response: "review result",
+		decideFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
+			routedMessage = t.UserMessage()
+			return routing.NewDecision(routing.RouteCHAT, 0.9, "command expanded"), nil
+		},
+		chatFunc: func(ctx context.Context, t task.Task) (string, error) {
+			chatMessage = t.UserMessage()
+			return "review result", nil
+		},
+	}
+	events := &mockWorkflowEventRecorder{}
+	skills := &mockSkillBootstrapRecorder{}
+	commands := &mockCommandRegistryStore{commands: []domainai.CommandRegistry{{
+		CommandName:   "/review-architecture",
+		FilePath:      "commands/review-architecture.md",
+		Description:   "architecture review",
+		DefaultAgent:  "Coder",
+		RequiredSkill: "core.architecture-review",
+		UpdatedAt:     time.Now().UTC(),
+	}}}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetWorkflowEventRecorder(events)
+	orch.SetSkillBootstrapRecorder(skills)
+	orch.SetCommandRegistry(commands)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-command",
+		Channel:     "viewer",
+		ChatID:      "chat-command",
+		UserMessage: "/review-architecture docs/10_新仕様/31_未実装項目実装仕様.md を確認",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Response != "review result" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	for _, got := range []string{routedMessage, chatMessage} {
+		if !strings.Contains(got, "Slash command runtime expansion") ||
+			!strings.Contains(got, "# /review-architecture") ||
+			!strings.Contains(got, "User input:\ndocs/10_新仕様/31_未実装項目実装仕様.md を確認") {
+			t.Fatalf("command prompt was not expanded:\n%s", got)
+		}
+	}
+	if len(events.events) != 1 || events.events[0].EventType != "command_invoked" || events.events[0].CommandName != "/review-architecture" {
+		t.Fatalf("expected command_invoked event, got %+v", events.events)
+	}
+	if len(skills.used) != 1 || len(skills.used[0]) != 1 || skills.used[0][0] != "core.architecture-review" {
+		t.Fatalf("expected required skill bootstrap, got %+v", skills.used)
+	}
+}
+
+func TestProcessMessage_RegisteredSlashCommandMissingFileFails(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1, "chat"),
+		response: "should not run",
+	}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetCommandRegistry(&mockCommandRegistryStore{commands: []domainai.CommandRegistry{{
+		CommandName: "/review-architecture",
+		FilePath:    "commands/missing.md",
+		UpdatedAt:   time.Now().UTC(),
+	}}})
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-command-missing",
+		Channel:     "viewer",
+		ChatID:      "chat-command-missing",
+		UserMessage: "/review-architecture target",
+	})
+	if err == nil || !strings.Contains(err.Error(), "slash command expansion failed") {
+		t.Fatalf("expected slash command expansion failure, got %v", err)
+	}
+}
+
+func TestProcessMessage_RecordsLeadAgentRun(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1, "chat"),
+		response: "hello",
+	}
+	super := &mockSuperAgentRuntimeRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetSuperAgentRuntimeRecorder(super)
+
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteCHAT {
+		t.Fatalf("route=%s", resp.Route)
+	}
+	if len(super.runs) != 2 {
+		t.Fatalf("expected running and completed agent_run records, got %+v", super.runs)
+	}
+	if super.runs[0].Status != "running" || super.runs[1].Status != "completed" {
+		t.Fatalf("unexpected agent_run statuses: %+v", super.runs)
+	}
+	if super.runs[0].RunID != super.runs[1].RunID || super.runs[0].WorkstreamID != defaultReq().SessionID {
+		t.Fatalf("unexpected agent_run identity: %+v", super.runs)
+	}
+	if len(super.contextPacks) != 1 || super.contextPacks[0].RunID != super.runs[0].RunID {
+		t.Fatalf("unexpected context pack: %+v", super.contextPacks)
+	}
+	if len(super.traces) != 2 || super.traces[0].EventType != "lead_agent_started" || super.traces[1].EventType != "lead_agent_completed" {
+		t.Fatalf("unexpected trace events: %+v", super.traces)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,14 @@ import (
 type SourceRegistryStore interface {
 	SaveSourceRegistryEntry(ctx context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error)
 	ListSourceRegistryEntries(ctx context.Context, enabledOnly bool) ([]conversationpersistence.L1SourceRegistryEntry, error)
+}
+
+type SourceRegistryStagingStore interface {
+	RecentStagingItems(ctx context.Context, validationStatus string, limit int) ([]conversationpersistence.L1StagingItem, error)
+	ValidateStagingItem(ctx context.Context, id string, policy conversationpersistence.L1StagingValidationPolicy) (*conversationpersistence.L1StagingValidationResult, error)
+	PromoteValidatedStagingItemToMemory(ctx context.Context, id string, targetNamespace string, promotedBy string) (*conversationpersistence.L1MemoryEvent, error)
+	PromoteValidatedStagingItemToNews(ctx context.Context, id string, category string) (*conversationpersistence.L1NewsItem, error)
+	PromoteValidatedStagingItemToKnowledge(ctx context.Context, id string, domain string) (*conversationpersistence.L1KnowledgeItem, error)
 }
 
 type sourceRegistryEntryDTO struct {
@@ -36,6 +45,25 @@ type sourceRegistryPayload struct {
 	Entries []sourceRegistryEntryDTO `json:"entries" yaml:"entries"`
 }
 
+type sourceRegistryStagingItemDTO struct {
+	ID               string         `json:"id"`
+	Kind             string         `json:"kind"`
+	Namespace        string         `json:"namespace"`
+	EventID          string         `json:"event_id"`
+	SourceID         string         `json:"source_id"`
+	SourceURL        string         `json:"source_url"`
+	FetchedAt        string         `json:"fetched_at,omitempty"`
+	PublishedAt      string         `json:"published_at,omitempty"`
+	RawText          string         `json:"raw_text"`
+	SummaryDraft     string         `json:"summary_draft"`
+	Keywords         []string       `json:"keywords"`
+	LicenseNote      string         `json:"license_note"`
+	ValidationStatus string         `json:"validation_status"`
+	Meta             map[string]any `json:"meta,omitempty"`
+	CreatedAt        string         `json:"created_at,omitempty"`
+	UpdatedAt        string         `json:"updated_at,omitempty"`
+}
+
 func HandleSourceRegistry(store SourceRegistryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
@@ -44,10 +72,21 @@ func HandleSourceRegistry(store SourceRegistryStore) http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
+			if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("action")), "staging") {
+				handleSourceRegistryStagingList(w, r, store)
+				return
+			}
 			handleSourceRegistryList(w, r, store)
 		case http.MethodPost:
-			if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("action")), "run") {
+			switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("action"))) {
+			case "run":
 				handleSourceRegistryRun(w, r, store)
+				return
+			case "validate":
+				handleSourceRegistryStagingValidate(w, r, store)
+				return
+			case "promote":
+				handleSourceRegistryStagingPromote(w, r, store)
 				return
 			}
 			handleSourceRegistrySave(w, r, store)
@@ -55,6 +94,34 @@ func HandleSourceRegistry(store SourceRegistryStore) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
+}
+
+func handleSourceRegistryStagingList(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {
+	stagingStore, ok := store.(SourceRegistryStagingStore)
+	if !ok {
+		http.Error(w, "source registry staging unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status == "" {
+		status = conversationpersistence.L1StagingStatusPending
+	}
+	limit := 20
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "invalid source registry staging limit", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+	items, err := stagingStore.RecentStagingItems(r.Context(), status, limit)
+	if err != nil {
+		http.Error(w, "failed to list source registry staging", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"items": sourceRegistryStagingItemsToDTO(items)})
 }
 
 func handleSourceRegistryRun(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {
@@ -84,6 +151,129 @@ func handleSourceRegistryRun(w http.ResponseWriter, r *http.Request, store Sourc
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"result": result})
+}
+
+func handleSourceRegistryStagingValidate(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {
+	stagingStore, ok := store.(SourceRegistryStagingStore)
+	if !ok {
+		http.Error(w, "source registry staging validator unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var payload struct {
+		ID                         string   `json:"id"`
+		MinimumTrustScore          *float64 `json:"minimum_trust_score"`
+		AutoPromoteMemoryCandidate bool     `json:"auto_promote_memory_candidate"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid source registry staging validation payload", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(payload.ID)
+	if id == "" {
+		http.Error(w, "staging id is required", http.StatusBadRequest)
+		return
+	}
+	minTrust := 0.5
+	if payload.MinimumTrustScore != nil {
+		minTrust = *payload.MinimumTrustScore
+	}
+	trustScores := map[string]float64{}
+	if scorer, ok := store.(interface {
+		SourceTrustScores(ctx context.Context) (map[string]float64, error)
+	}); ok {
+		scores, err := scorer.SourceTrustScores(r.Context())
+		if err != nil {
+			http.Error(w, "failed to read source trust scores", http.StatusInternalServerError)
+			return
+		}
+		trustScores = scores
+	}
+	result, err := stagingStore.ValidateStagingItem(r.Context(), id, conversationpersistence.L1StagingValidationPolicy{
+		SourceTrustScores:          trustScores,
+		MinimumTrustScore:          minTrust,
+		Now:                        time.Now().UTC(),
+		AutoPromoteMemoryCandidate: payload.AutoPromoteMemoryCandidate,
+	})
+	if err != nil {
+		http.Error(w, "failed to validate source registry staging item", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"result": result})
+}
+
+func handleSourceRegistryStagingPromote(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {
+	stagingStore, ok := store.(SourceRegistryStagingStore)
+	if !ok {
+		http.Error(w, "source registry staging promoter unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var payload struct {
+		ID              string `json:"id"`
+		Target          string `json:"target"`
+		Category        string `json:"category"`
+		Domain          string `json:"domain"`
+		TargetNamespace string `json:"target_namespace"`
+		PromotedBy      string `json:"promoted_by"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid source registry staging promotion payload", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(payload.ID)
+	if id == "" {
+		http.Error(w, "staging id is required", http.StatusBadRequest)
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(payload.Target)) {
+	case "news":
+		category := strings.TrimSpace(payload.Category)
+		if category == "" {
+			http.Error(w, "news category is required", http.StatusBadRequest)
+			return
+		}
+		item, err := stagingStore.PromoteValidatedStagingItemToNews(r.Context(), id, category)
+		if err != nil {
+			http.Error(w, "failed to promote source registry staging item to news", http.StatusBadRequest)
+			return
+		}
+		writeSourceRegistryPromotionResponse(w, "news", item)
+	case "knowledge":
+		domain := strings.TrimSpace(payload.Domain)
+		if domain == "" {
+			http.Error(w, "knowledge domain is required", http.StatusBadRequest)
+			return
+		}
+		item, err := stagingStore.PromoteValidatedStagingItemToKnowledge(r.Context(), id, domain)
+		if err != nil {
+			http.Error(w, "failed to promote source registry staging item to knowledge", http.StatusBadRequest)
+			return
+		}
+		writeSourceRegistryPromotionResponse(w, "knowledge", item)
+	case "memory":
+		namespace := strings.TrimSpace(payload.TargetNamespace)
+		if namespace == "" {
+			http.Error(w, "memory target_namespace is required", http.StatusBadRequest)
+			return
+		}
+		promotedBy := strings.TrimSpace(payload.PromotedBy)
+		if promotedBy == "" {
+			promotedBy = "viewer"
+		}
+		item, err := stagingStore.PromoteValidatedStagingItemToMemory(r.Context(), id, namespace, promotedBy)
+		if err != nil {
+			http.Error(w, "failed to promote source registry staging item to memory", http.StatusBadRequest)
+			return
+		}
+		writeSourceRegistryPromotionResponse(w, "memory", item)
+	default:
+		http.Error(w, "promotion target must be news, knowledge, or memory", http.StatusBadRequest)
+	}
+}
+
+func writeSourceRegistryPromotionResponse(w http.ResponseWriter, target string, item interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"target": target, "item": item})
 }
 
 func handleSourceRegistryList(w http.ResponseWriter, r *http.Request, store SourceRegistryStore) {
@@ -160,6 +350,44 @@ func sourceRegistryEntriesToDTO(entries []conversationpersistence.L1SourceRegist
 		out = append(out, sourceRegistryEntryToDTO(entry))
 	}
 	return out
+}
+
+func sourceRegistryStagingItemsToDTO(items []conversationpersistence.L1StagingItem) []sourceRegistryStagingItemDTO {
+	out := make([]sourceRegistryStagingItemDTO, 0, len(items))
+	for _, item := range items {
+		out = append(out, sourceRegistryStagingItemToDTO(item))
+	}
+	return out
+}
+
+func sourceRegistryStagingItemToDTO(item conversationpersistence.L1StagingItem) sourceRegistryStagingItemDTO {
+	dto := sourceRegistryStagingItemDTO{
+		ID:               item.ID,
+		Kind:             item.Kind,
+		Namespace:        item.Namespace,
+		EventID:          item.EventID,
+		SourceID:         item.SourceID,
+		SourceURL:        item.SourceURL,
+		RawText:          item.RawText,
+		SummaryDraft:     item.SummaryDraft,
+		Keywords:         item.Keywords,
+		LicenseNote:      item.LicenseNote,
+		ValidationStatus: item.ValidationStatus,
+		Meta:             item.Meta,
+	}
+	if !item.FetchedAt.IsZero() {
+		dto.FetchedAt = item.FetchedAt.UTC().Format(time.RFC3339)
+	}
+	if !item.PublishedAt.IsZero() {
+		dto.PublishedAt = item.PublishedAt.UTC().Format(time.RFC3339)
+	}
+	if !item.CreatedAt.IsZero() {
+		dto.CreatedAt = item.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if !item.UpdatedAt.IsZero() {
+		dto.UpdatedAt = item.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	return dto
 }
 
 func sourceRegistryEntryToDTO(entry conversationpersistence.L1SourceRegistryEntry) sourceRegistryEntryDTO {

@@ -16,6 +16,20 @@ func (r *ToolRunner) executeShell(ctx context.Context, args map[string]interface
 		return "", fmt.Errorf("'command' argument is required and must be a string")
 	}
 
+	// dry-run: コマンド表示のみ（実行しない）
+	mode, _ := args["mode"].(string)
+	if mode == "plan" {
+		return fmt.Sprintf("[DRY-RUN] shell\ncommand: %s\naction: would execute via sh -c", command), nil
+	}
+
+	if blocked, reason := registeredToolBlockedLine(command); blocked {
+		return "", &tool.ToolError{
+			Code:    tool.ErrPermissionDenied,
+			Message: "command blocked by shell command gate: " + reason,
+			Details: map[string]any{"command": command},
+		}
+	}
+
 	// 許可コマンドリストチェック
 	if len(r.config.AllowedShellCommands) > 0 {
 		if !r.isShellCommandAllowed(command) {
@@ -25,12 +39,6 @@ func (r *ToolRunner) executeShell(ctx context.Context, args map[string]interface
 				Details: map[string]any{"command": command},
 			}
 		}
-	}
-
-	// dry-run: コマンド表示のみ（実行しない）
-	mode, _ := args["mode"].(string)
-	if mode == "plan" {
-		return fmt.Sprintf("[DRY-RUN] shell\ncommand: %s\naction: would execute via sh -c", command), nil
 	}
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)

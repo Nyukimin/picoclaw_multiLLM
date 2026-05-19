@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/toolharness"
 )
 
 func TestToolRunner_ExecuteV2_Shell_Success(t *testing.T) {
@@ -68,6 +69,117 @@ func TestToolRunner_ExecuteV2_FileRead_Success(t *testing.T) {
 	}
 	if resp.String() != "hello v2" {
 		t.Errorf("result = %q, want %q", resp.String(), "hello v2")
+	}
+}
+
+func TestToolRunner_ExecuteV2_FileRead_MediatesPlaceholderArgs(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("hello mediated"), 0644)
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_read", map[string]any{
+		"args": map[string]any{"path": testFile},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got error: %s", resp.Error.Message)
+	}
+	if resp.String() != "hello mediated" {
+		t.Errorf("result = %q", resp.String())
+	}
+	if resp.Metadata["tool_harness_status"] != "repaired" {
+		t.Fatalf("expected repaired metadata, got: %#v", resp.Metadata)
+	}
+}
+
+func TestToolRunner_ExecuteV2_RecordsMediationEvent(t *testing.T) {
+	recorder := &mockToolHarnessRecorder{}
+	runner := NewToolRunner(ToolRunnerConfig{ToolHarnessRecorder: recorder})
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("hello event"), 0644)
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_read", map[string]any{
+		"args": map[string]any{"path": testFile},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got error: %s", resp.Error.Message)
+	}
+	if len(recorder.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(recorder.events))
+	}
+	event := recorder.events[0]
+	if event.ToolName != "file_read" {
+		t.Fatalf("tool = %s", event.ToolName)
+	}
+	if event.ValidationStatus != toolharness.ValidationStatusRepaired {
+		t.Fatalf("status = %s", event.ValidationStatus)
+	}
+	if event.RawInputHash == "" {
+		t.Fatal("raw input hash should be set")
+	}
+}
+
+func TestToolRunner_ExecuteV2_FileRead_RelationDefaultMetadata(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("a\nb\nc\n"), 0644)
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_read", map[string]any{
+		"path":  testFile,
+		"limit": 2,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got error: %s", resp.Error.Message)
+	}
+	if resp.Metadata["tool_harness_status"] != "repaired" {
+		t.Fatalf("expected repaired metadata, got: %#v", resp.Metadata)
+	}
+	defaults, ok := resp.Metadata["relation_defaults_applied"].([]map[string]any)
+	if !ok || len(defaults) != 1 {
+		t.Fatalf("relation defaults metadata = %#v", resp.Metadata["relation_defaults_applied"])
+	}
+	if defaults[0]["field"] != "offset" || defaults[0]["value"] != 0 {
+		t.Fatalf("unexpected relation default: %#v", defaults[0])
+	}
+}
+
+func TestToolRunner_ExecuteV2_FileWrite_DoesNotRepairContentMarkdown(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "out.txt")
+	content := "[click](https://example.com)"
+
+	resp, err := runner.ExecuteV2(context.Background(), "file_write", map[string]any{
+		"path":    testFile,
+		"content": content,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got error: %s", resp.Error.Message)
+	}
+	got, err := os.ReadFile(testFile)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(got) != content {
+		t.Fatalf("content changed: got %q want %q", string(got), content)
 	}
 }
 
@@ -252,6 +364,15 @@ func TestToolRunner_FileWrite_DryRun_NewFile(t *testing.T) {
 	}
 }
 
+type mockToolHarnessRecorder struct {
+	events []toolharness.Event
+}
+
+func (m *mockToolHarnessRecorder) RecordToolMediationEvent(event toolharness.Event) error {
+	m.events = append(m.events, event)
+	return nil
+}
+
 func TestToolRunner_FileWrite_DryRun_ExistingFile(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{})
 
@@ -295,6 +416,23 @@ func TestToolRunner_Shell_DryRun(t *testing.T) {
 	}
 	if !strings.Contains(result, "rm -rf /") {
 		t.Error("expected command in dry-run output")
+	}
+}
+
+func TestToolRunner_Shell_BlocksDangerousCommandWithoutAllowlist(t *testing.T) {
+	runner := NewToolRunner(ToolRunnerConfig{})
+
+	resp, err := runner.ExecuteV2(context.Background(), "shell", map[string]any{
+		"command": "rm -rf /tmp/rencrow-danger",
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !resp.IsError() {
+		t.Fatal("expected dangerous shell command to be blocked")
+	}
+	if resp.Error.Code != tool.ErrPermissionDenied {
+		t.Fatalf("error code = %s, want PERMISSION_DENIED", resp.Error.Code)
 	}
 }
 

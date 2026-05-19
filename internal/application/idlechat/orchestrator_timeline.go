@@ -7,6 +7,7 @@ import (
 )
 
 func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) <-chan struct{} {
+	o.recordPersonaTimelineEvent(ev)
 	o.mu.Lock()
 	emit := o.emitEvent
 	o.mu.Unlock()

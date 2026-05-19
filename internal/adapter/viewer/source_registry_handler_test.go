@@ -109,6 +109,106 @@ func TestHandleSourceRegistry_RunReturnsWarningCount(t *testing.T) {
 	}
 }
 
+func TestHandleSourceRegistry_StagingListValidateAndPromote(t *testing.T) {
+	ctx := context.Background()
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "rss:viewer-staging",
+		URL:           "https://example.com/feed.xml",
+		Kind:          conversationpersistence.L1SourceKindRSS,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "rss",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"namespace": "kb:ai"},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	staged, err := store.SaveStagingItem(ctx, conversationpersistence.L1StagingItem{
+		Kind:         conversationpersistence.L1StagingKindExternalFetch,
+		Namespace:    "kb:ai",
+		EventID:      "evt-viewer-staging",
+		SourceID:     "rss:viewer-staging",
+		SourceURL:    "https://example.com/item",
+		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		PublishedAt:  time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC),
+		RawText:      "source registry staging text",
+		SummaryDraft: "Source registry staging summary",
+		Keywords:     []string{"source", "registry"},
+		LicenseNote:  "rss",
+		Meta:         map[string]interface{}{"title": "Viewer Staging"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	h := HandleSourceRegistry(store)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/source-registry?action=staging&status=pending&limit=5", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected staging list 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var listOut struct {
+		Items []sourceRegistryStagingItemDTO `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listOut); err != nil {
+		t.Fatalf("invalid staging list json: %v", err)
+	}
+	if len(listOut.Items) != 1 || listOut.Items[0].ID != staged.ID || listOut.Items[0].RawText == "" {
+		t.Fatalf("unexpected staging list: %+v", listOut.Items)
+	}
+
+	pendingPromote := fmt.Sprintf(`{"id":%q,"target":"news","category":"ai"}`, staged.ID)
+	req = httptest.NewRequest(http.MethodPost, "/viewer/source-registry?action=promote", strings.NewReader(pendingPromote))
+	rec = httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected pending promotion to fail, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	validateBody := fmt.Sprintf(`{"id":%q,"minimum_trust_score":0.5}`, staged.ID)
+	req = httptest.NewRequest(http.MethodPost, "/viewer/source-registry?action=validate", strings.NewReader(validateBody))
+	rec = httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected validation 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var validateOut struct {
+		Result conversationpersistence.L1StagingValidationResult `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &validateOut); err != nil {
+		t.Fatalf("invalid validation json: %v", err)
+	}
+	if !validateOut.Result.Passed || validateOut.Result.Status != conversationpersistence.L1StagingStatusValidated {
+		t.Fatalf("expected validated result, got %+v", validateOut.Result)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/viewer/source-registry?action=promote", strings.NewReader(pendingPromote))
+	rec = httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected promotion 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var promoteOut struct {
+		Target string `json:"target"`
+		Item   struct {
+			StagingID string `json:"StagingID"`
+			Category  string `json:"Category"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &promoteOut); err != nil {
+		t.Fatalf("invalid promotion json: %v", err)
+	}
+	if promoteOut.Target != "news" || promoteOut.Item.StagingID != staged.ID || promoteOut.Item.Category != "ai" {
+		t.Fatalf("unexpected promotion response: %+v", promoteOut)
+	}
+}
+
 func (s *sourceRegistryStoreStub) SaveSourceRegistryEntry(_ context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error) {
 	s.saved = append(s.saved, entry)
 	return &entry, nil

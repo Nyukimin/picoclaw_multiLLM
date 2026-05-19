@@ -29,6 +29,26 @@ func TestSandboxGuard_IsPathWithinWorkspace(t *testing.T) {
 	}
 }
 
+func TestSandboxGuard_IsSafeSandboxWritePath(t *testing.T) {
+	g := NewSandboxGuard()
+	root := t.TempDir()
+	inside := filepath.Join(root, "workspace", "draft.md")
+	outside := filepath.Join(filepath.Dir(root), "outside.md")
+
+	if !g.IsSafeSandboxWritePath(inside, root) {
+		t.Fatal("expected sandbox write path to be allowed")
+	}
+	if g.IsSafeSandboxWritePath(outside, root) {
+		t.Fatal("expected outside sandbox path to be denied")
+	}
+	if g.IsSafeSandboxWritePath(filepath.Join(root, ".env"), root) {
+		t.Fatal("expected secret-like sandbox path to be denied")
+	}
+	if g.IsSafeSandboxWritePath(filepath.Join(root, "..", "escape.md"), root) {
+		t.Fatal("expected traversal escape to be denied")
+	}
+}
+
 func TestSandboxGuard_IsHostAllowed(t *testing.T) {
 	g := NewSandboxGuard()
 	if !g.IsHostAllowed("api.openai.com", []string{"api.openai.com"}) {

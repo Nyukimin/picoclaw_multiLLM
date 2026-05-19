@@ -10,6 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
@@ -131,6 +132,52 @@ func TestCodeExecutor_CODE2_WithProposal_ExecutesPatch(t *testing.T) {
 	}
 	if workerService.calls != 1 {
 		t.Fatalf("worker ExecuteProposal calls=%d, want 1", workerService.calls)
+	}
+}
+
+func TestCodeExecutor_CODE3_WithProposalRecordsSkillChangeEvidence(t *testing.T) {
+	testProposal := proposal.NewProposal(
+		"Update Skill manifest",
+		`diff --git a/skills/core/example/SKILL.md b/skills/core/example/SKILL.md`,
+		"Low risk",
+		"Low cost",
+	)
+
+	coder3 := &mockCoderAgentWithProposal{
+		response: "plain response should not be used",
+		proposal: testProposal,
+	}
+	workerService := &recordingCodeWorkerExecutionService{}
+	evidence := &recordingCoderProposalEvidenceRecorder{}
+	executor := NewDefaultCodeExecutor(nil, nil, coder3, nil, workerService, nil, noopEventEmitter).
+		WithCoderProposalEvidenceRecorder(evidence)
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "Skillの挙動を変更して", "test", "chat-1"),
+		Route:     routing.RouteCODE3,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	_, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ExecuteCode failed: %v", err)
+	}
+	if len(evidence.items) != 1 {
+		t.Fatalf("recorded evidence count=%d, want 1", len(evidence.items))
+	}
+	got := evidence.items[0]
+	if got.JobID != jobID.String() || got.SessionID != "sess-1" || got.Route != "CODE3" || got.Agent != "coder3" {
+		t.Fatalf("unexpected evidence metadata: %#v", got)
+	}
+	if got.Patch != testProposal.Patch() || got.Plan != testProposal.Plan() {
+		t.Fatalf("proposal evidence did not preserve patch/plan: %#v", got)
+	}
+	if !got.Success || !strings.Contains(got.ExecutionSummary, "成功: 1 件") {
+		t.Fatalf("expected successful execution evidence, got %#v", got)
 	}
 }
 
@@ -470,4 +517,21 @@ func (s *recordingCodeWorkerExecutionService) ExecuteProposal(ctx context.Contex
 	result := patch.NewPatchExecutionResult()
 	result.AddResult(patch.CommandResult{Success: true, Output: "ok"})
 	return result.WithSummary("実行: 1 件, 成功: 1 件, 失敗: 0 件"), nil
+}
+
+type recordingCoderProposalEvidenceRecorder struct {
+	items []domainskill.CoderProposalEvidence
+	err   error
+}
+
+func (r *recordingCoderProposalEvidenceRecorder) SaveCoderProposalEvidence(_ context.Context, item domainskill.CoderProposalEvidence) (domainskill.CoderProposalEvidencePaths, error) {
+	r.items = append(r.items, item)
+	if r.err != nil {
+		return domainskill.CoderProposalEvidencePaths{}, r.err
+	}
+	return domainskill.CoderProposalEvidencePaths{
+		RootPath:            "workspace/logs/skill_governance/coder_evidence/job",
+		SkillDiffPath:       "workspace/logs/skill_governance/coder_evidence/job/skill_diff.md",
+		AgentTranscriptPath: "workspace/logs/skill_governance/coder_evidence/job/agent_transcript.md",
+	}, nil
 }

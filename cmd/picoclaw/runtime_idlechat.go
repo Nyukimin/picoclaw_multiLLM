@@ -56,6 +56,11 @@ func buildIdleChatRuntime(
 		idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
 		log.Printf("IdleChat: Glossary topics injected")
 	}
+	if deps.personaRuntimeStore != nil {
+		idleChatOrch.SetPersonaRuntimeRecorder(deps.personaRuntimeStore, deps.personaTriggerDefinitions)
+		idleChatOrch.SetPersonaCanonicalResponses(deps.personaCanonicalResponses)
+		log.Printf("Persona runtime recorder integrated with IdleChat (%d trigger definitions, %d canonical responses)", len(deps.personaTriggerDefinitions), len(deps.personaCanonicalResponses))
+	}
 	topicStorePath := filepath.Join(cfg.Session.StorageDir, "idlechat_topics.jsonl")
 	if err := idleChatOrch.SetTopicStore(topicStorePath); err != nil {
 		log.Printf("WARN: idleChat topic store disabled: %v", err)

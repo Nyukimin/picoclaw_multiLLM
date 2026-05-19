@@ -821,6 +821,22 @@ CREATE TABLE IF NOT EXISTS revenue_event (
 );
 ```
 
+### 21.6 channel_draft
+
+```sql
+CREATE TABLE IF NOT EXISTS channel_draft (
+  draft_id TEXT PRIMARY KEY,
+  workstream_id TEXT,
+  channel TEXT NOT NULL,
+  subject TEXT,
+  body TEXT NOT NULL,
+  source_report_id TEXT,
+  approval_status TEXT DEFAULT 'pending',
+  external_send_applied INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+```
+
 ## 22. 設定ファイル案
 
 ### 22.1 configs/revenue_operating.yaml
@@ -936,6 +952,110 @@ human_gate_required
 - プロモーション日程を作成する。
 - 高単価商品を設計する。
 
+## 24.1 実装状況
+
+2026-05 時点で、Revenue Operating Workflow は最小の記録基盤まで部分実装済みである。
+
+実装済み。
+
+```text
+Domain:
+  internal/domain/revenue
+  market research / SNS post metric / product / customer voice / revenue event / human decision gate record / daily routine report / channel draft
+
+Validation:
+  成功保証表現の拒否
+  顧客の声をmarketing usableにする場合のpermission確認
+  Human Decision Gate の required / needs_review / blocked 判定
+  Daily Routine Report は draft_report のみ許可し、外部送信済み状態を拒否
+  Channel Draft は external_send_applied=false の下書きのみ許可し、外部送信済み状態を拒否
+
+Persistence:
+  internal/infrastructure/persistence/revenue
+  JSONL store
+  SQLite store
+  human_decision_gate 台帳
+  daily_routine_report 台帳
+  channel_draft 台帳
+
+Config:
+  revenue.enabled
+  revenue.storage
+  revenue.log_path
+  revenue.sqlite_path
+  revenue.prohibit_success_guarantee
+  revenue.require_customer_voice_permission
+  revenue.external_publish_requires_approval
+  revenue.high_ticket_offer_requires_approval
+
+Viewer / API:
+  GET  /viewer/revenue
+    includes dashboard summary:
+      total_revenue_amount
+      paid_customer_count
+      paid_event_count
+      purchase_count
+      usable_voice_count
+      pending_decision_count
+      latest_daily_report_id
+      channel_draft_count
+      latest_channel_draft_id
+      kpi_trend
+      product_sales
+      customer_voice_types
+  POST /viewer/revenue/market-research
+  POST /viewer/revenue/sns-posts
+  POST /viewer/revenue/products
+  POST /viewer/revenue/customer-voices
+  POST /viewer/revenue/events
+  POST /viewer/revenue/daily-routine
+  POST /viewer/revenue/channel-drafts
+  POST /viewer/revenue/human-decision-gate
+  POST /viewer/revenue/human-decision-gate/review
+  Ops summary card
+  total revenue / paid customers
+  daily report count
+  pending decision count
+  channel draft count
+  trend days / latest revenue
+  top product / top voice type
+  Channel Drafts 専用 panel
+  Human Decision Gate approve / reject controls
+
+External Client:
+  pkg/rencrowclient.EvaluateRevenueHumanDecision
+  pkg/rencrowclient.ReviewRevenueHumanDecision
+  pkg/rencrowclient.CreateRevenueDailyRoutineReport
+```
+
+残作業。
+
+```text
+Workstream / RevenueAgent:
+  daily routine draft report API はある。
+  RevenueAgent 専用 DailyRoutineService はある。
+  Revenue系 Workstream Heartbeat から RevenueAgent の Daily Routine Report を draft_report として自動保存する経路はある。
+  残る作業は、market research、SNS analysis、customer voice loop の高度化と、Human Decision Gate 承認後の外部送信適用。
+
+Human Decision Gate:
+  外部公開、高単価 offer、顧客の声公開、広告、返金などを
+  pending / approved / rejected として保存する台帳。
+  現状は判定・保存 API、approved / rejected review API、
+  Viewer Ops pending count 表示、承認 / 却下 UI までで、
+  外部送信や投稿実行には接続していない。
+
+Viewer:
+  dashboard summary はある。
+  summary 内に KPI推移、customer voice分類、商品別売上、channel draft countを含む。
+  Ops summary card は trend days / latest revenue / top product / top voice type / channel drafts を表示する。
+  Channel Drafts 専用 panel は draft only / external_send_applied 状態を表示し、外部送信ボタンは持たない。
+  Revenue Drilldown panel として KPI推移、商品別売上、customer voice分類、Human Decision Gate のテキストグラフを表示する。
+
+Closed Channel:
+  LINE / email / Discord などへの外部送信は下書きまでに制限し、
+  Human approval なしに送信しない接続。`/viewer/revenue/channel-drafts` は下書き保存のみで、送信は行わない。
+```
+
 ## 25. 成功指標
 
 ```text
@@ -1017,4 +1137,3 @@ RenCrow では、お金を稼ぐことを重要な使命として扱う。
 ```
 
 この方針を、今後の Revenue Engine 実装仕様の上位原則とする。
-

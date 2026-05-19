@@ -10,6 +10,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/toolharness"
 )
 
 var validToolName = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
@@ -31,6 +32,7 @@ type ToolRunner struct {
 	toolsV2  map[string]ToolFuncV2
 	metadata map[string]tool.ToolMetadata
 	config   ToolRunnerConfig
+	harness  *toolharness.Harness
 }
 
 // ToolRunnerConfig はToolRunnerの設定
@@ -43,6 +45,8 @@ type ToolRunnerConfig struct {
 	AllowedWritePaths    []string                // file_write 許可パス（空=全許可）
 	DisableWebSearch     bool                    // web_search を登録しない（会話モード安全ポリシー）
 	WebSearchCache       WebSearchCache          // nil = web_search cache 無効
+	ToolHarnessRecorder  toolharness.Recorder    // nil = mediation event 永続化なし
+	DisableToolHarness   bool                    // true = ToolRunner内の入力調停を無効化する
 
 	// Phase 4: Shiro ツール共有
 	ToolRegistry capability.ToolRegistry // nil = register_tool 無効
@@ -59,6 +63,7 @@ func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 		toolsV2:  make(map[string]ToolFuncV2),
 		metadata: make(map[string]tool.ToolMetadata),
 		config:   config,
+		harness:  toolharness.New(),
 	}
 
 	// ツール登録
@@ -79,7 +84,8 @@ func (r *ToolRunner) Execute(ctx context.Context, toolName string, args map[stri
 		return "", fmt.Errorf("unknown tool: %s: %w", toolName, ErrUnknownTool)
 	}
 
-	return toolFunc(ctx, args)
+	mediated := r.mediateToolInput(toolName, args)
+	return toolFunc(ctx, mediated.Input)
 }
 
 // List は利用可能なツール一覧を返す
@@ -97,7 +103,18 @@ func (r *ToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[st
 	if !exists {
 		return nil, fmt.Errorf("unknown tool: %s: %w", toolName, ErrUnknownTool)
 	}
-	return v2Func(ctx, args)
+	mediated := r.mediateToolInput(toolName, args)
+	resp, err := v2Func(ctx, mediated.Input)
+	if err != nil || resp == nil || !mediated.Repaired() {
+		return resp, err
+	}
+	if resp.Metadata == nil {
+		resp.Metadata = map[string]any{}
+	}
+	for k, v := range mediated.Metadata() {
+		resp.Metadata[k] = v
+	}
+	return resp, nil
 }
 
 // ListTools はツールのメタデータ一覧を返す
@@ -111,3 +128,26 @@ func (r *ToolRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error)
 
 // shellMetachars はコマンドチェーニングや注入に使われるシェルメタ文字列
 var shellMetachars = []string{";", "&&", "||", "|", "`", "$(", "\n"}
+
+func (r *ToolRunner) mediateToolInput(toolName string, args map[string]any) toolharness.Result {
+	if r.harness == nil || r.config.DisableToolHarness {
+		return toolharness.Result{Input: args}
+	}
+	result := r.harness.Mediate(toolName, args)
+	r.recordToolMediation(toolName, args, result)
+	return result
+}
+
+func (r *ToolRunner) recordToolMediation(toolName string, args map[string]any, result toolharness.Result) {
+	if r.config.ToolHarnessRecorder == nil {
+		return
+	}
+	event := toolharness.NewEvent(
+		fmt.Sprintf("evt_tool_%d", time.Now().UTC().UnixNano()),
+		toolName,
+		args,
+		result,
+		time.Now().UTC(),
+	)
+	_ = r.config.ToolHarnessRecorder.RecordToolMediationEvent(event)
+}

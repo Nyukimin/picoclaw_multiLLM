@@ -328,11 +328,386 @@ session:
 	if cfg.Security.NetworkScope != "" {
 		t.Errorf("Expected Security NetworkScope '', got '%s'", cfg.Security.NetworkScope)
 	}
+	if cfg.Sandbox.Root != "sandbox" {
+		t.Errorf("Expected Sandbox Root 'sandbox', got '%s'", cfg.Sandbox.Root)
+	}
+	if cfg.Sandbox.Storage != "jsonl" {
+		t.Errorf("Expected Sandbox Storage jsonl, got '%s'", cfg.Sandbox.Storage)
+	}
+	if cfg.Sandbox.SQLitePath != cfg.WorkspaceDir+"/logs/sandbox.db" {
+		t.Errorf("Expected Sandbox SQLitePath under workspace, got '%s'", cfg.Sandbox.SQLitePath)
+	}
+	if !cfg.Sandbox.Promotion.RequireDiff || !cfg.Sandbox.Promotion.RequireHumanApproval || !cfg.Sandbox.Promotion.RequireRollbackPlan {
+		t.Errorf("Expected Sandbox promotion gate defaults to require diff, approval, and rollback: %+v", cfg.Sandbox.Promotion)
+	}
+	if !cfg.ToolHarness.IsEnabled() {
+		t.Error("ToolHarness should be enabled by default")
+	}
+	if cfg.ToolHarness.Mode != "validate_then_repair" {
+		t.Errorf("Expected ToolHarness Mode 'validate_then_repair', got '%s'", cfg.ToolHarness.Mode)
+	}
+	if !cfg.ToolHarness.ShouldRecordEvents() {
+		t.Error("ToolHarness record_events should be enabled by default")
+	}
+	if cfg.ToolHarness.LogPath != cfg.WorkspaceDir+"/logs/tool_mediation.jsonl" {
+		t.Errorf("Expected ToolHarness LogPath under workspace, got '%s'", cfg.ToolHarness.LogPath)
+	}
+	if !cfg.DCI.IsEnabled() {
+		t.Error("DCI should be enabled by default")
+	}
+	if cfg.DCI.TracePath != cfg.WorkspaceDir+"/logs/dci_search_trace.jsonl" {
+		t.Errorf("Expected DCI TracePath under workspace, got '%s'", cfg.DCI.TracePath)
+	}
+	if cfg.DCI.Storage != "jsonl" {
+		t.Errorf("Expected DCI Storage 'jsonl', got '%s'", cfg.DCI.Storage)
+	}
+	if cfg.DCI.SQLitePath != cfg.WorkspaceDir+"/dci.db" {
+		t.Errorf("Expected DCI SQLitePath under workspace, got '%s'", cfg.DCI.SQLitePath)
+	}
+	if cfg.DCI.MaxSeconds != 10 || cfg.DCI.MaxSteps != 8 || cfg.DCI.MaxCandidateFiles != 50 || cfg.DCI.MaxFilesRead != 10 || cfg.DCI.MaxEvidence != 6 || cfg.DCI.MaxSnippetChars != 800 {
+		t.Errorf("unexpected DCI limits: %+v", cfg.DCI)
+	}
+	if len(cfg.DCI.KnowledgeFTSDomains) != 3 || cfg.DCI.KnowledgeFTSDomains[0] != "general" || cfg.DCI.KnowledgeFTSDomains[1] != "creative" || cfg.DCI.KnowledgeFTSDomains[2] != "news" {
+		t.Errorf("unexpected DCI knowledge FTS domains: %+v", cfg.DCI.KnowledgeFTSDomains)
+	}
+	if !cfg.SkillGovernance.IsEnabled() {
+		t.Error("SkillGovernance should be enabled by default")
+	}
+	if cfg.SkillGovernance.RegistryPath != cfg.WorkspaceDir+"/logs/skill_governance" {
+		t.Errorf("Expected SkillGovernance RegistryPath under workspace, got '%s'", cfg.SkillGovernance.RegistryPath)
+	}
+	if cfg.SkillGovernance.Storage != "jsonl" {
+		t.Errorf("Expected SkillGovernance Storage jsonl, got '%s'", cfg.SkillGovernance.Storage)
+	}
+	if cfg.SkillGovernance.SQLitePath != cfg.WorkspaceDir+"/logs/skill_governance.db" {
+		t.Errorf("Expected SkillGovernance SQLitePath under workspace, got '%s'", cfg.SkillGovernance.SQLitePath)
+	}
+	if len(cfg.SkillGovernance.SkillRoots) != 3 {
+		t.Errorf("Expected 3 SkillGovernance roots, got %+v", cfg.SkillGovernance.SkillRoots)
+	}
+	if !cfg.SkillGovernance.RequiredForCoder || !cfg.SkillGovernance.RequiredForWorker || !cfg.SkillGovernance.WarnIfSkillNotUsed {
+		t.Errorf("unexpected SkillGovernance bootstrap defaults: %+v", cfg.SkillGovernance)
+	}
+	if !cfg.SkillGovernance.ContributionGate.Enabled || !cfg.SkillGovernance.ContributionGate.RequireHumanApproval {
+		t.Errorf("unexpected SkillGovernance contribution defaults: %+v", cfg.SkillGovernance.ContributionGate)
+	}
+	if !cfg.Workstream.IsEnabled() {
+		t.Error("Workstream should be enabled by default")
+	}
+	if cfg.Workstream.LogPath != cfg.WorkspaceDir+"/logs/workstream" {
+		t.Errorf("Expected Workstream LogPath under workspace, got '%s'", cfg.Workstream.LogPath)
+	}
+	if cfg.Workstream.Storage != "jsonl" {
+		t.Errorf("Expected Workstream Storage jsonl, got '%s'", cfg.Workstream.Storage)
+	}
+	if cfg.Workstream.SQLitePath != cfg.WorkspaceDir+"/logs/workstream.db" {
+		t.Errorf("Expected Workstream SQLitePath under workspace, got '%s'", cfg.Workstream.SQLitePath)
+	}
+	if cfg.Workstream.VaultRoot != "vault/workstreams" {
+		t.Errorf("Expected Workstream VaultRoot 'vault/workstreams', got '%s'", cfg.Workstream.VaultRoot)
+	}
+	if !cfg.Workstream.RequireSuccessCriteria || !cfg.Workstream.RequireVerification || !cfg.Workstream.DraftReportOnlyHeartbeat {
+		t.Errorf("unexpected Workstream defaults: %+v", cfg.Workstream)
+	}
+	if !cfg.Revenue.IsEnabled() {
+		t.Error("Revenue should be enabled by default")
+	}
+	if cfg.Revenue.LogPath != cfg.WorkspaceDir+"/logs/revenue" {
+		t.Errorf("Expected Revenue LogPath under workspace, got '%s'", cfg.Revenue.LogPath)
+	}
+	if cfg.Revenue.Storage != "jsonl" {
+		t.Errorf("Expected Revenue Storage jsonl, got '%s'", cfg.Revenue.Storage)
+	}
+	if cfg.Revenue.SQLitePath != cfg.WorkspaceDir+"/logs/revenue.db" {
+		t.Errorf("Expected Revenue SQLitePath under workspace, got '%s'", cfg.Revenue.SQLitePath)
+	}
+	if !cfg.Revenue.ProhibitSuccessGuarantee || !cfg.Revenue.RequireCustomerVoicePermission || !cfg.Revenue.ExternalPublishRequiresApproval {
+		t.Errorf("unexpected Revenue defaults: %+v", cfg.Revenue)
+	}
+	if !cfg.PersonaArchitecture.IsEnabled() {
+		t.Error("PersonaArchitecture should be enabled by default")
+	}
+	if cfg.PersonaArchitecture.LogPath != cfg.WorkspaceDir+"/logs/persona" {
+		t.Errorf("Expected PersonaArchitecture LogPath under workspace, got '%s'", cfg.PersonaArchitecture.LogPath)
+	}
+	if cfg.PersonaArchitecture.CharacterRoot != cfg.WorkspaceDir {
+		t.Errorf("Expected PersonaArchitecture CharacterRoot workspace, got '%s'", cfg.PersonaArchitecture.CharacterRoot)
+	}
+	if cfg.PersonaArchitecture.Storage != "jsonl" {
+		t.Errorf("Expected PersonaArchitecture Storage jsonl, got '%s'", cfg.PersonaArchitecture.Storage)
+	}
+	if cfg.PersonaArchitecture.SQLitePath != cfg.WorkspaceDir+"/logs/persona.db" {
+		t.Errorf("Expected PersonaArchitecture SQLitePath under workspace, got '%s'", cfg.PersonaArchitecture.SQLitePath)
+	}
+	if !cfg.PersonaArchitecture.RequireLorePersonaSplit ||
+		!cfg.PersonaArchitecture.RequireTriggerCategories ||
+		!cfg.PersonaArchitecture.HumanReviewRequiredForMeta ||
+		!cfg.PersonaArchitecture.RequireSessionKeying ||
+		cfg.PersonaArchitecture.MaxTriggerCandidates != 15 {
+		t.Errorf("unexpected PersonaArchitecture defaults: %+v", cfg.PersonaArchitecture)
+	}
+	if !cfg.BrowserTraceToAPI.IsEnabled() {
+		t.Error("BrowserTraceToAPI should be enabled by default")
+	}
+	if cfg.BrowserTraceToAPI.LogPath != cfg.WorkspaceDir+"/logs/browser_trace_to_api" {
+		t.Errorf("Expected BrowserTraceToAPI LogPath under workspace, got '%s'", cfg.BrowserTraceToAPI.LogPath)
+	}
+	if cfg.BrowserTraceToAPI.Storage != "jsonl" {
+		t.Errorf("Expected BrowserTraceToAPI Storage 'jsonl', got '%s'", cfg.BrowserTraceToAPI.Storage)
+	}
+	if cfg.BrowserTraceToAPI.SQLitePath != cfg.WorkspaceDir+"/browser_trace_to_api.db" {
+		t.Errorf("Expected BrowserTraceToAPI SQLitePath under workspace, got '%s'", cfg.BrowserTraceToAPI.SQLitePath)
+	}
+	if !cfg.BrowserTraceToAPI.ReadOnlyOnly ||
+		!cfg.BrowserTraceToAPI.RequireTermsReview ||
+		!cfg.BrowserTraceToAPI.RequireHumanApprovalPromote ||
+		len(cfg.BrowserTraceToAPI.DenyMethods) != 3 {
+		t.Errorf("unexpected BrowserTraceToAPI defaults: %+v", cfg.BrowserTraceToAPI)
+	}
+	if !cfg.ComplexityHotspot.IsEnabled() {
+		t.Error("ComplexityHotspot should be enabled by default")
+	}
+	if cfg.ComplexityHotspot.LogPath != cfg.WorkspaceDir+"/logs/complexity_hotspot" {
+		t.Errorf("Expected ComplexityHotspot LogPath under workspace, got '%s'", cfg.ComplexityHotspot.LogPath)
+	}
+	if cfg.ComplexityHotspot.Storage != "jsonl" {
+		t.Errorf("Expected ComplexityHotspot Storage 'jsonl', got '%s'", cfg.ComplexityHotspot.Storage)
+	}
+	if cfg.ComplexityHotspot.SQLitePath != cfg.WorkspaceDir+"/logs/complexity_hotspot.db" {
+		t.Errorf("Expected ComplexityHotspot SQLitePath under workspace, got '%s'", cfg.ComplexityHotspot.SQLitePath)
+	}
+	if cfg.ComplexityHotspot.DefaultMode != "report_only" ||
+		cfg.ComplexityHotspot.MaxHotspots != 20 ||
+		cfg.ComplexityHotspot.AutoApply ||
+		!cfg.ComplexityHotspot.RequireHumanApprovalForPatch ||
+		!cfg.ComplexityHotspot.OneHotspotPerPR {
+		t.Errorf("unexpected ComplexityHotspot defaults: %+v", cfg.ComplexityHotspot)
+	}
+	if !cfg.SuperAgentHarness.IsEnabled() {
+		t.Error("SuperAgentHarness should be enabled by default")
+	}
+	if cfg.SuperAgentHarness.LogPath != cfg.WorkspaceDir+"/logs/superagent_harness" {
+		t.Errorf("Expected SuperAgentHarness LogPath under workspace, got '%s'", cfg.SuperAgentHarness.LogPath)
+	}
+	if cfg.SuperAgentHarness.Storage != "jsonl" {
+		t.Errorf("Expected SuperAgentHarness Storage 'jsonl', got '%s'", cfg.SuperAgentHarness.Storage)
+	}
+	if cfg.SuperAgentHarness.SQLitePath != cfg.WorkspaceDir+"/logs/superagent_harness.db" {
+		t.Errorf("Expected SuperAgentHarness SQLitePath under workspace, got '%s'", cfg.SuperAgentHarness.SQLitePath)
+	}
+	if cfg.SuperAgentHarness.MaxParallelSubagents != 4 ||
+		cfg.SuperAgentHarness.MaxContextPackTokens != 3000 ||
+		cfg.SuperAgentHarness.RunQueueSchedulerEnabled ||
+		cfg.SuperAgentHarness.RunQueueSchedulerIntervalSec != 60 ||
+		cfg.SuperAgentHarness.RunQueueSchedulerClaimLimit != 1 ||
+		!cfg.SuperAgentHarness.RequireScope ||
+		!cfg.SuperAgentHarness.RequireTerminationCondition ||
+		!cfg.SuperAgentHarness.ReturnSummaryOnly ||
+		!cfg.SuperAgentHarness.PromotionGateRequired ||
+		!cfg.SuperAgentHarness.ExternalSendRequiresApproval ||
+		!cfg.SuperAgentHarness.TraceAgentRun {
+		t.Errorf("unexpected SuperAgentHarness defaults: %+v", cfg.SuperAgentHarness)
+	}
+	if !cfg.AIWorkflow.IsEnabled() {
+		t.Error("AIWorkflow should be enabled by default")
+	}
+	if cfg.AIWorkflow.LogPath != cfg.WorkspaceDir+"/logs/ai_workflow" {
+		t.Errorf("Expected AIWorkflow LogPath under workspace, got '%s'", cfg.AIWorkflow.LogPath)
+	}
+	if cfg.AIWorkflow.Storage != "jsonl" {
+		t.Errorf("Expected AIWorkflow Storage 'jsonl', got '%s'", cfg.AIWorkflow.Storage)
+	}
+	if cfg.AIWorkflow.SQLitePath != cfg.WorkspaceDir+"/logs/ai_workflow.db" {
+		t.Errorf("Expected AIWorkflow SQLitePath under workspace, got '%s'", cfg.AIWorkflow.SQLitePath)
+	}
+	if cfg.AIWorkflow.ProjectMemoryRoot != ".ai" {
+		t.Errorf("Expected AIWorkflow ProjectMemoryRoot '.ai', got '%s'", cfg.AIWorkflow.ProjectMemoryRoot)
+	}
+	if cfg.AIWorkflow.WorktreeBaseDir != "../worktrees" {
+		t.Errorf("Expected AIWorkflow WorktreeBaseDir '../worktrees', got '%s'", cfg.AIWorkflow.WorktreeBaseDir)
+	}
+	if len(cfg.AIWorkflow.RequiredCLITools) != 4 {
+		t.Errorf("Expected 4 AIWorkflow required CLI tools, got %+v", cfg.AIWorkflow.RequiredCLITools)
+	}
+	if !cfg.AIWorkflow.RequiredBeforeModify ||
+		!cfg.AIWorkflow.WorktreeRequiredForWrite ||
+		!cfg.AIWorkflow.ContextTrackingEnabled {
+		t.Errorf("unexpected AIWorkflow defaults: %+v", cfg.AIWorkflow)
+	}
+	if !cfg.KnowledgeMemory.IsEnabled() {
+		t.Error("KnowledgeMemory should be enabled by default")
+	}
+	if cfg.KnowledgeMemory.LogPath != cfg.WorkspaceDir+"/logs/knowledge_memory" {
+		t.Errorf("Expected KnowledgeMemory LogPath under workspace, got '%s'", cfg.KnowledgeMemory.LogPath)
+	}
+	if cfg.KnowledgeMemory.Storage != "jsonl" {
+		t.Errorf("Expected KnowledgeMemory Storage jsonl, got '%s'", cfg.KnowledgeMemory.Storage)
+	}
+	if cfg.KnowledgeMemory.SQLitePath != cfg.WorkspaceDir+"/logs/knowledge_memory.db" {
+		t.Errorf("Expected KnowledgeMemory SQLitePath under workspace, got '%s'", cfg.KnowledgeMemory.SQLitePath)
+	}
+	if !cfg.KnowledgeMemory.ProtectPersonalArchive ||
+		!cfg.KnowledgeMemory.DreamRequiresHumanReview ||
+		!cfg.KnowledgeMemory.DailyIntakePromoteToStaging {
+		t.Errorf("unexpected KnowledgeMemory defaults: %+v", cfg.KnowledgeMemory)
+	}
 	if cfg.AudioRouter.ConnectTimeoutMS != 5000 {
 		t.Errorf("Expected AudioRouter ConnectTimeoutMS 5000, got %d", cfg.AudioRouter.ConnectTimeoutMS)
 	}
 	if cfg.AudioRouter.BufferMS != 120 {
 		t.Errorf("Expected AudioRouter BufferMS 120, got %d", cfg.AudioRouter.BufferMS)
+	}
+}
+
+func TestLoadConfig_ToolHarnessOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "tool_harness.yaml")
+
+	content := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+
+session:
+  storage_dir: "./data/sessions"
+
+workspace_dir: "./workspace"
+
+tool_harness:
+  enabled: false
+  mode: strict
+  record_events: false
+  log_path: "./logs/custom_tool_mediation.jsonl"
+`
+
+	os.WriteFile(configPath, []byte(content), 0644)
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.ToolHarness.IsEnabled() {
+		t.Fatal("ToolHarness should be disabled by explicit config")
+	}
+	if cfg.ToolHarness.ShouldRecordEvents() {
+		t.Fatal("ToolHarness record_events should be disabled by explicit config")
+	}
+	if cfg.ToolHarness.Mode != "strict" {
+		t.Fatalf("unexpected ToolHarness Mode: %s", cfg.ToolHarness.Mode)
+	}
+	if cfg.ToolHarness.LogPath != "./logs/custom_tool_mediation.jsonl" {
+		t.Fatalf("unexpected ToolHarness LogPath: %s", cfg.ToolHarness.LogPath)
+	}
+}
+
+func TestLoadConfig_ToolHarnessInvalidMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "tool_harness_invalid.yaml")
+
+	content := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+
+session:
+  storage_dir: "./data/sessions"
+
+tool_harness:
+  mode: unsafe
+`
+
+	os.WriteFile(configPath, []byte(content), 0644)
+
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("expected invalid tool_harness.mode error")
+	}
+}
+
+func TestLoadConfig_DCIOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "dci.yaml")
+
+	content := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+
+session:
+  storage_dir: "./data/sessions"
+
+dci:
+  enabled: false
+  storage: sqlite
+  trace_path: "./logs/custom_dci.jsonl"
+  sqlite_path: "./data/custom_dci.db"
+  corpus_allowlist:
+    - "docs/10_新仕様"
+  corpus_denylist:
+    - ".env"
+  knowledge_fts_domains:
+    - "general"
+    - "movie"
+  explicit_keywords:
+    - "原文確認"
+  max_seconds: 9
+  max_steps: 7
+  max_candidate_files: 11
+  max_files_read: 4
+  max_evidence: 3
+  max_snippet_chars: 120
+`
+
+	os.WriteFile(configPath, []byte(content), 0644)
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.DCI.IsEnabled() {
+		t.Fatal("DCI should be disabled by explicit config")
+	}
+	if cfg.DCI.TracePath != "./logs/custom_dci.jsonl" {
+		t.Fatalf("unexpected DCI TracePath: %s", cfg.DCI.TracePath)
+	}
+	if cfg.DCI.Storage != "sqlite" {
+		t.Fatalf("unexpected DCI Storage: %s", cfg.DCI.Storage)
+	}
+	if cfg.DCI.SQLitePath != "./data/custom_dci.db" {
+		t.Fatalf("unexpected DCI SQLitePath: %s", cfg.DCI.SQLitePath)
+	}
+	if cfg.DCI.MaxSeconds != 9 || cfg.DCI.MaxSteps != 7 || cfg.DCI.MaxCandidateFiles != 11 || cfg.DCI.MaxFilesRead != 4 || cfg.DCI.MaxEvidence != 3 || cfg.DCI.MaxSnippetChars != 120 {
+		t.Fatalf("unexpected DCI limits: %+v", cfg.DCI)
+	}
+	if len(cfg.DCI.KnowledgeFTSDomains) != 2 || cfg.DCI.KnowledgeFTSDomains[0] != "general" || cfg.DCI.KnowledgeFTSDomains[1] != "movie" {
+		t.Fatalf("unexpected DCI knowledge FTS domains: %+v", cfg.DCI.KnowledgeFTSDomains)
+	}
+}
+
+func TestLoadConfig_DCIInvalidStorage(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "dci_invalid_storage.yaml")
+
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+session:
+  storage_dir: "./data/sessions"
+dci:
+  storage: memory
+`
+
+	os.WriteFile(configPath, []byte(content), 0644)
+
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("expected invalid dci.storage error")
 	}
 }
 
@@ -527,6 +902,846 @@ security:
 	}
 	if len(cfg.Security.NetworkAllowlist) != 1 || cfg.Security.NetworkAllowlist[0] != "api.openai.com" {
 		t.Fatalf("unexpected network_allowlist: %+v", cfg.Security.NetworkAllowlist)
+	}
+}
+
+func TestLoadConfig_SandboxSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "sandbox.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+security:
+  enabled: true
+sandbox:
+  enabled: true
+  storage: "sqlite"
+  root: "sandbox/workstreams"
+  sqlite_path: "./logs/sandbox.db"
+  deny_outside_sandbox_write: true
+  promotion:
+    require_diff: true
+    require_reason: true
+    require_test_result: true
+    require_rollback_plan: true
+    require_human_approval: true
+    require_post_apply_verification: true
+    apply_root: "../worktrees/rencrow-feature"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.Sandbox.Enabled {
+		t.Fatal("expected sandbox enabled")
+	}
+	if cfg.Sandbox.Root != "sandbox/workstreams" {
+		t.Fatalf("sandbox root = %s", cfg.Sandbox.Root)
+	}
+	if cfg.Sandbox.Storage != "sqlite" || cfg.Sandbox.SQLitePath != "./logs/sandbox.db" {
+		t.Fatalf("unexpected sandbox storage config: %+v", cfg.Sandbox)
+	}
+	if !cfg.Sandbox.DenyOutsideSandboxWrite {
+		t.Fatal("expected deny_outside_sandbox_write")
+	}
+	if !cfg.Sandbox.Promotion.RequirePostApplyVerification {
+		t.Fatalf("unexpected promotion config: %+v", cfg.Sandbox.Promotion)
+	}
+	if cfg.Sandbox.Promotion.ApplyRoot != "../worktrees/rencrow-feature" {
+		t.Fatalf("promotion apply root = %s", cfg.Sandbox.Promotion.ApplyRoot)
+	}
+}
+
+func TestLoadConfig_SkillGovernanceSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "skill_governance.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+skill_governance:
+  enabled: true
+  storage: "sqlite"
+  registry_path: "./logs/skills"
+  sqlite_path: "./logs/skills.db"
+  skill_roots:
+    - "skills"
+    - "workspace/skills"
+  required_for_coder: true
+  required_for_worker: true
+  warn_if_skill_not_used: true
+  contribution_gate:
+    enabled: true
+    require_open_closed_pr_search: true
+    require_real_problem: true
+    require_complete_diff_review: true
+    require_human_approval: true
+    one_problem_per_pr: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.SkillGovernance.IsEnabled() {
+		t.Fatal("expected skill governance enabled")
+	}
+	if cfg.SkillGovernance.Storage != "sqlite" || cfg.SkillGovernance.RegistryPath != "./logs/skills" || cfg.SkillGovernance.SQLitePath != "./logs/skills.db" {
+		t.Fatalf("unexpected skill governance config: %+v", cfg.SkillGovernance)
+	}
+	if len(cfg.SkillGovernance.SkillRoots) != 2 || cfg.SkillGovernance.SkillRoots[1] != "workspace/skills" {
+		t.Fatalf("skill roots = %+v", cfg.SkillGovernance.SkillRoots)
+	}
+	if !cfg.SkillGovernance.ContributionGate.OneProblemPerPR {
+		t.Fatalf("unexpected contribution gate: %+v", cfg.SkillGovernance.ContributionGate)
+	}
+}
+
+func TestConfigValidation_SkillGovernanceRequiresRegistryAndRoots(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		SkillGovernance: SkillGovernanceConfig{
+			Enabled:      &enabled,
+			Storage:      "jsonl",
+			RegistryPath: "",
+			SkillRoots:   nil,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing skill governance registry to fail")
+	}
+	cfg.SkillGovernance.RegistryPath = "logs/skills"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing skill roots to fail")
+	}
+}
+
+func TestConfigValidation_SkillGovernanceRejectsInvalidStorage(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		SkillGovernance: SkillGovernanceConfig{
+			Enabled:      &enabled,
+			Storage:      "memory",
+			RegistryPath: "logs/skills",
+			SkillRoots:   []string{"skills"},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid skill_governance.storage to fail")
+	}
+}
+
+func TestLoadConfig_WorkstreamSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "workstream.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+workstream:
+  enabled: true
+  storage: "sqlite"
+  log_path: "./logs/workstream"
+  sqlite_path: "./logs/workstream.db"
+  vault_root: "./vault/workstreams"
+  require_success_criteria: true
+  require_verification: true
+  draft_report_only_heartbeat: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.Workstream.IsEnabled() {
+		t.Fatal("expected workstream enabled")
+	}
+	if cfg.Workstream.Storage != "sqlite" || cfg.Workstream.LogPath != "./logs/workstream" || cfg.Workstream.SQLitePath != "./logs/workstream.db" || cfg.Workstream.VaultRoot != "./vault/workstreams" {
+		t.Fatalf("unexpected workstream config: %+v", cfg.Workstream)
+	}
+}
+
+func TestConfigValidation_WorkstreamRequiresLogAndVault(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		Workstream: WorkstreamConfig{
+			Enabled:   &enabled,
+			Storage:   "jsonl",
+			LogPath:   "",
+			VaultRoot: "",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing workstream log path to fail")
+	}
+	cfg.Workstream.LogPath = "logs/workstream"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing workstream vault root to fail")
+	}
+}
+
+func TestConfigValidation_WorkstreamRejectsInvalidStorage(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		Workstream: WorkstreamConfig{
+			Enabled:   &enabled,
+			Storage:   "memory",
+			LogPath:   "logs/workstream",
+			VaultRoot: "vault/workstreams",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid workstream.storage to fail")
+	}
+}
+
+func TestLoadConfig_RevenueSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "revenue.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+revenue:
+  enabled: true
+  storage: "sqlite"
+  log_path: "./logs/revenue"
+  sqlite_path: "./logs/revenue.db"
+  prohibit_success_guarantee: true
+  require_customer_voice_permission: true
+  external_publish_requires_approval: true
+  high_ticket_offer_requires_approval: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.Revenue.IsEnabled() {
+		t.Fatal("expected revenue enabled")
+	}
+	if cfg.Revenue.Storage != "sqlite" || cfg.Revenue.LogPath != "./logs/revenue" || cfg.Revenue.SQLitePath != "./logs/revenue.db" {
+		t.Fatalf("unexpected revenue config: %+v", cfg.Revenue)
+	}
+	if !cfg.Revenue.RequireCustomerVoicePermission || !cfg.Revenue.HighTicketOfferRequiresApproval {
+		t.Fatalf("unexpected revenue gates: %+v", cfg.Revenue)
+	}
+}
+
+func TestConfigValidation_RevenueRequiresLogPath(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		Revenue: RevenueConfig{
+			Enabled: &enabled,
+			Storage: "jsonl",
+			LogPath: "",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing revenue log path to fail")
+	}
+}
+
+func TestConfigValidation_RevenueRejectsInvalidStorage(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		Revenue: RevenueConfig{
+			Enabled: &enabled,
+			Storage: "memory",
+			LogPath: "logs/revenue",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid revenue.storage to fail")
+	}
+}
+
+func TestLoadConfig_PersonaArchitectureSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "persona.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+persona_architecture:
+  enabled: true
+  storage: "sqlite"
+  log_path: "./logs/persona"
+  sqlite_path: "./logs/persona.db"
+  character_root: "./persona"
+  trigger_category_path: "persona_triggers"
+  canonical_response_path: "persona_canonicals"
+  canonical_response_cooldown_turns: 7
+  canonical_response_max_per_session: 2
+  require_lore_persona_split: true
+  require_trigger_categories: true
+  human_review_required_for_meta: true
+  require_session_keying: true
+  max_trigger_candidates: 12
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.PersonaArchitecture.IsEnabled() {
+		t.Fatal("expected persona architecture enabled")
+	}
+	if cfg.PersonaArchitecture.Storage != "sqlite" ||
+		cfg.PersonaArchitecture.LogPath != "./logs/persona" ||
+		cfg.PersonaArchitecture.SQLitePath != "./logs/persona.db" ||
+		cfg.PersonaArchitecture.CharacterRoot != "./persona" ||
+		cfg.PersonaArchitecture.TriggerCategoryPath != "persona_triggers" ||
+		cfg.PersonaArchitecture.CanonicalResponsePath != "persona_canonicals" ||
+		cfg.PersonaArchitecture.CanonicalResponseCooldownTurns != 7 ||
+		cfg.PersonaArchitecture.CanonicalResponseMaxPerSession != 2 ||
+		cfg.PersonaArchitecture.MaxTriggerCandidates != 12 {
+		t.Fatalf("unexpected persona architecture config: %+v", cfg.PersonaArchitecture)
+	}
+}
+
+func TestConfigValidation_PersonaArchitectureRequiresLogPath(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		PersonaArchitecture: PersonaArchitectureConfig{
+			Enabled: &enabled,
+			Storage: "jsonl",
+			LogPath: "",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing persona_architecture log path to fail")
+	}
+}
+
+func TestConfigValidation_PersonaArchitectureRejectsInvalidStorage(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		PersonaArchitecture: PersonaArchitectureConfig{
+			Enabled: &enabled,
+			Storage: "memory",
+			LogPath: "logs/persona",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid persona_architecture.storage to fail")
+	}
+}
+
+func TestConfigValidation_PersonaArchitectureRejectsInvalidCanonicalPolicy(t *testing.T) {
+	enabled := true
+	cfg := &Config{
+		PersonaArchitecture: PersonaArchitectureConfig{
+			Enabled:                        &enabled,
+			Storage:                        "jsonl",
+			LogPath:                        "logs/persona",
+			CharacterRoot:                  "workspace",
+			CanonicalResponseCooldownTurns: -1,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid persona_architecture.canonical_response_cooldown_turns to fail")
+	}
+
+	cfg.PersonaArchitecture.CanonicalResponseCooldownTurns = 0
+	cfg.PersonaArchitecture.CanonicalResponseMaxPerSession = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid persona_architecture.canonical_response_max_per_session to fail")
+	}
+}
+
+func TestLoadConfig_BrowserTraceToAPISettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "browser_trace.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+browser_trace_to_api:
+  enabled: true
+  storage: sqlite
+  log_path: "./logs/browser_trace_to_api"
+  sqlite_path: "./data/browser_trace_to_api.db"
+  read_only_only: true
+  require_terms_review: true
+  require_human_approval_for_promote: true
+  generate_openapi: true
+  generate_coverage_report: true
+  accepted_paths:
+    - ".o11y/"
+    - "traces/"
+  deny_methods:
+    - PUT
+    - PATCH
+    - DELETE
+  deny_sensitive_flows:
+    - payment
+    - purchase
+    - refund
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.BrowserTraceToAPI.IsEnabled() {
+		t.Fatal("expected browser trace to api enabled")
+	}
+	if cfg.BrowserTraceToAPI.LogPath != "./logs/browser_trace_to_api" ||
+		cfg.BrowserTraceToAPI.Storage != "sqlite" ||
+		cfg.BrowserTraceToAPI.SQLitePath != "./data/browser_trace_to_api.db" ||
+		len(cfg.BrowserTraceToAPI.AcceptedPaths) != 2 ||
+		len(cfg.BrowserTraceToAPI.DenyMethods) != 3 ||
+		len(cfg.BrowserTraceToAPI.DenySensitiveFlows) != 3 {
+		t.Fatalf("unexpected browser trace config: %+v", cfg.BrowserTraceToAPI)
+	}
+}
+
+func TestConfigValidation_BrowserTraceToAPIRejectsSafeDenyMethod(t *testing.T) {
+	cfg := &Config{
+		BrowserTraceToAPI: BrowserTraceToAPIConfig{
+			LogPath:     "logs/browser_trace_to_api",
+			DenyMethods: []string{"GET"},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected safe deny method to fail")
+	}
+}
+
+func TestConfigValidation_BrowserTraceToAPIRejectsInvalidStorage(t *testing.T) {
+	cfg := &Config{
+		BrowserTraceToAPI: BrowserTraceToAPIConfig{
+			Storage: "bad",
+			LogPath: "logs/browser_trace_to_api",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid browser trace storage to fail")
+	}
+}
+
+func TestConfigValidation_BrowserTraceToAPIRejectsUnsafeAcceptedPath(t *testing.T) {
+	cfg := &Config{
+		BrowserTraceToAPI: BrowserTraceToAPIConfig{
+			LogPath:       "logs/browser_trace_to_api",
+			AcceptedPaths: []string{"../secrets"},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected unsafe accepted trace path to fail")
+	}
+}
+
+func TestConfigValidation_BrowserTraceToAPIRejectsEmptySensitiveFlow(t *testing.T) {
+	cfg := &Config{
+		BrowserTraceToAPI: BrowserTraceToAPIConfig{
+			LogPath:            "logs/browser_trace_to_api",
+			DenySensitiveFlows: []string{""},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected empty sensitive flow to fail")
+	}
+}
+
+func TestLoadConfig_ComplexityHotspotSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "complexity.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+complexity_hotspot:
+  enabled: true
+  storage: "sqlite"
+  log_path: "./logs/complexity"
+  sqlite_path: "./data/complexity.db"
+  default_mode: "report_only"
+  max_hotspots: 12
+  exclude_dirs:
+    - node_modules
+    - dist
+  auto_apply: false
+  require_human_approval_for_patch: true
+  one_hotspot_per_pr: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.ComplexityHotspot.IsEnabled() {
+		t.Fatal("expected complexity hotspot enabled")
+	}
+	if cfg.ComplexityHotspot.Storage != "sqlite" ||
+		cfg.ComplexityHotspot.LogPath != "./logs/complexity" ||
+		cfg.ComplexityHotspot.SQLitePath != "./data/complexity.db" ||
+		cfg.ComplexityHotspot.MaxHotspots != 12 {
+		t.Fatalf("unexpected complexity config: %+v", cfg.ComplexityHotspot)
+	}
+}
+
+func TestConfigValidation_ComplexityHotspotRejectsInvalidStorage(t *testing.T) {
+	cfg := &Config{
+		ComplexityHotspot: ComplexityHotspotConfig{
+			Storage:     "bad",
+			LogPath:     "logs/complexity",
+			DefaultMode: "report_only",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid complexity hotspot storage error")
+	}
+}
+
+func TestConfigValidation_ComplexityHotspotRejectsAutoApply(t *testing.T) {
+	cfg := &Config{
+		ComplexityHotspot: ComplexityHotspotConfig{
+			LogPath:     "logs/complexity",
+			DefaultMode: "report_only",
+			AutoApply:   true,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected auto_apply to fail")
+	}
+}
+
+func TestLoadConfig_SuperAgentHarnessSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "superagent.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+superagent_harness:
+  enabled: true
+  storage: "sqlite"
+  log_path: "./logs/superagent"
+  sqlite_path: "./data/superagent.db"
+  max_parallel_subagents: 3
+  max_context_pack_tokens: 2500
+  run_queue_scheduler_enabled: true
+  run_queue_scheduler_interval_sec: 30
+  run_queue_scheduler_claim_limit: 2
+  require_scope: true
+  require_termination_condition: true
+  return_summary_only: true
+  promotion_gate_required: true
+  external_send_requires_approval: true
+  trace_agent_run: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.SuperAgentHarness.IsEnabled() {
+		t.Fatal("expected superagent enabled")
+	}
+	if cfg.SuperAgentHarness.Storage != "sqlite" ||
+		cfg.SuperAgentHarness.LogPath != "./logs/superagent" ||
+		cfg.SuperAgentHarness.SQLitePath != "./data/superagent.db" ||
+		cfg.SuperAgentHarness.MaxContextPackTokens != 2500 ||
+		!cfg.SuperAgentHarness.RunQueueSchedulerEnabled ||
+		cfg.SuperAgentHarness.RunQueueSchedulerIntervalSec != 30 ||
+		cfg.SuperAgentHarness.RunQueueSchedulerClaimLimit != 2 {
+		t.Fatalf("unexpected superagent config: %+v", cfg.SuperAgentHarness)
+	}
+}
+
+func TestConfigValidation_SuperAgentHarnessRejectsInvalidStorage(t *testing.T) {
+	cfg := &Config{
+		SuperAgentHarness: SuperAgentHarnessConfig{
+			Storage:              "bad",
+			LogPath:              "logs/superagent",
+			ReturnSummaryOnly:    true,
+			TraceAgentRun:        true,
+			MaxContextPackTokens: 3000,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid superagent storage error")
+	}
+}
+
+func TestConfigValidation_SuperAgentHarnessRequiresTrace(t *testing.T) {
+	cfg := &Config{
+		SuperAgentHarness: SuperAgentHarnessConfig{
+			LogPath:              "logs/superagent",
+			ReturnSummaryOnly:    true,
+			MaxContextPackTokens: 3000,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected missing trace_agent_run to fail")
+	}
+}
+
+func TestLoadConfig_AIWorkflowSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "ai_workflow.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+ai_workflow:
+  enabled: true
+  storage: "sqlite"
+  log_path: "./logs/ai_workflow"
+  sqlite_path: "./data/ai_workflow.db"
+  project_memory_root: ".project-ai"
+  worktree_base_dir: "../ai-worktrees"
+  required_before_modify: true
+  worktree_required_for_write: true
+  required_cli_tools:
+    - "rg"
+    - "git"
+  context_tracking_enabled: true
+  context_budget_tokens: 12000
+  context_budget_warn_ratio: 0.7
+  context_budget_stop_ratio: 0.9
+  heavy_worker_enabled: true
+  heavy_worker_require_reason: true
+  heavy_worker_file_threshold: 25
+  heavy_worker_spec_threshold: 2
+  heavy_worker_retry_threshold: 3
+  external_control_allowed_actors:
+    - "Worker"
+  external_control_allowed_channels:
+    - "viewer"
+  external_control_allowed_actions:
+    - "promotion_apply"
+  external_control_approval_required:
+    - "promotion_apply"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.AIWorkflow.IsEnabled() {
+		t.Fatal("expected ai workflow enabled")
+	}
+	if cfg.AIWorkflow.Storage != "sqlite" ||
+		cfg.AIWorkflow.LogPath != "./logs/ai_workflow" ||
+		cfg.AIWorkflow.SQLitePath != "./data/ai_workflow.db" ||
+		cfg.AIWorkflow.ProjectMemoryRoot != ".project-ai" ||
+		cfg.AIWorkflow.WorktreeBaseDir != "../ai-worktrees" {
+		t.Fatalf("unexpected ai workflow config: %+v", cfg.AIWorkflow)
+	}
+	if len(cfg.AIWorkflow.RequiredCLITools) != 2 || cfg.AIWorkflow.RequiredCLITools[1] != "git" {
+		t.Fatalf("unexpected required cli tools: %+v", cfg.AIWorkflow.RequiredCLITools)
+	}
+	if !cfg.AIWorkflow.RequiredBeforeModify || !cfg.AIWorkflow.WorktreeRequiredForWrite || !cfg.AIWorkflow.ContextTrackingEnabled {
+		t.Fatalf("unexpected ai workflow gates: %+v", cfg.AIWorkflow)
+	}
+	if cfg.AIWorkflow.ContextBudgetTokens != 12000 ||
+		cfg.AIWorkflow.ContextBudgetWarnRatio != 0.7 ||
+		cfg.AIWorkflow.ContextBudgetStopRatio != 0.9 {
+		t.Fatalf("unexpected ai workflow context budget config: %+v", cfg.AIWorkflow)
+	}
+	if !cfg.AIWorkflow.HeavyWorkerEnabled ||
+		!cfg.AIWorkflow.HeavyWorkerRequireReason ||
+		cfg.AIWorkflow.HeavyWorkerFileThreshold != 25 ||
+		cfg.AIWorkflow.HeavyWorkerSpecThreshold != 2 ||
+		cfg.AIWorkflow.HeavyWorkerRetryThreshold != 3 {
+		t.Fatalf("unexpected ai workflow heavy worker config: %+v", cfg.AIWorkflow)
+	}
+	if len(cfg.AIWorkflow.ExternalControlAllowedActors) != 1 || cfg.AIWorkflow.ExternalControlAllowedActors[0] != "Worker" ||
+		len(cfg.AIWorkflow.ExternalControlAllowedChannels) != 1 || cfg.AIWorkflow.ExternalControlAllowedChannels[0] != "viewer" ||
+		len(cfg.AIWorkflow.ExternalControlAllowedActions) != 1 || cfg.AIWorkflow.ExternalControlAllowedActions[0] != "promotion_apply" ||
+		len(cfg.AIWorkflow.ExternalControlApprovalRequired) != 1 || cfg.AIWorkflow.ExternalControlApprovalRequired[0] != "promotion_apply" {
+		t.Fatalf("unexpected ai workflow external control config: %+v", cfg.AIWorkflow)
+	}
+}
+
+func TestConfigValidation_AIWorkflowRejectsInvalidStorage(t *testing.T) {
+	cfg := &Config{
+		AIWorkflow: AIWorkflowConfig{
+			Storage:           "memory",
+			LogPath:           "logs/ai_workflow",
+			ProjectMemoryRoot: ".ai",
+			WorktreeBaseDir:   "../worktrees",
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid ai_workflow.storage to fail")
+	}
+}
+
+func TestConfigValidation_AIWorkflowRejectsInvalidContextBudget(t *testing.T) {
+	cfg := &Config{
+		AIWorkflow: AIWorkflowConfig{
+			Storage:                "jsonl",
+			LogPath:                "logs/ai_workflow",
+			ProjectMemoryRoot:      ".ai",
+			WorktreeBaseDir:        "../worktrees",
+			ContextBudgetTokens:    1000,
+			ContextBudgetWarnRatio: 0.95,
+			ContextBudgetStopRatio: 0.8,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid ai_workflow context budget to fail")
+	}
+}
+
+func TestConfigValidation_AIWorkflowRejectsInvalidHeavyWorkerPolicy(t *testing.T) {
+	cfg := &Config{
+		AIWorkflow: AIWorkflowConfig{
+			Storage:                  "jsonl",
+			LogPath:                  "logs/ai_workflow",
+			ProjectMemoryRoot:        ".ai",
+			WorktreeBaseDir:          "../worktrees",
+			HeavyWorkerFileThreshold: -1,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid ai_workflow heavy worker policy to fail")
+	}
+}
+
+func TestConfigValidation_AIWorkflowRejectsEmptyExternalControlPolicyValue(t *testing.T) {
+	cfg := &Config{
+		AIWorkflow: AIWorkflowConfig{
+			Storage:                       "jsonl",
+			LogPath:                       "logs/ai_workflow",
+			ProjectMemoryRoot:             ".ai",
+			WorktreeBaseDir:               "../worktrees",
+			ExternalControlAllowedActions: []string{""},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid ai_workflow external control policy to fail")
+	}
+}
+
+func TestConfigValidation_KnowledgeMemoryRequiresProtectedArchive(t *testing.T) {
+	cfg := &Config{
+		KnowledgeMemory: KnowledgeMemoryConfig{
+			Storage:                  "jsonl",
+			LogPath:                  "logs/knowledge_memory",
+			DreamRequiresHumanReview: true,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected protect_personal_archive to fail")
+	}
+}
+
+func TestConfigValidation_KnowledgeMemoryRejectsInvalidStorage(t *testing.T) {
+	cfg := &Config{
+		KnowledgeMemory: KnowledgeMemoryConfig{
+			Storage:                  "memory",
+			LogPath:                  "logs/knowledge_memory",
+			ProtectPersonalArchive:   true,
+			DreamRequiresHumanReview: true,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid knowledge_memory.storage to fail")
+	}
+}
+
+func TestConfigValidation_SandboxWriteGateRequiresSecurity(t *testing.T) {
+	cfg := &Config{
+		Sandbox: SandboxConfig{
+			Enabled:                 true,
+			Storage:                 "jsonl",
+			Root:                    "sandbox",
+			DenyOutsideSandboxWrite: true,
+		},
+		Security: SecurityConfig{
+			Enabled: false,
+		},
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected sandbox write gate to require security.enabled")
+	}
+}
+
+func TestConfigValidation_SandboxRejectsInvalidStorage(t *testing.T) {
+	cfg := &Config{
+		Sandbox: SandboxConfig{
+			Enabled: true,
+			Storage: "memory",
+			Root:    "sandbox",
+		},
+		Security: SecurityConfig{
+			Enabled: true,
+		},
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected invalid sandbox.storage to fail")
 	}
 }
 

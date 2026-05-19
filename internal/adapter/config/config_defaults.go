@@ -172,6 +172,34 @@ func (c *Config) setDefaults() {
 	if c.Security.Audit.Path == "" {
 		c.Security.Audit.Path = "logs/execution_audit.jsonl"
 	}
+	if c.Sandbox.Root == "" {
+		c.Sandbox.Root = "sandbox"
+	}
+	if c.Sandbox.Storage == "" {
+		c.Sandbox.Storage = "jsonl"
+	}
+	if c.Sandbox.SQLitePath == "" {
+		workspaceDir := c.WorkspaceDir
+		if workspaceDir == "" {
+			workspaceDir = "./workspace"
+		}
+		c.Sandbox.SQLitePath = workspaceDir + "/logs/sandbox.db"
+	}
+	if !c.Sandbox.Promotion.RequireDiff &&
+		!c.Sandbox.Promotion.RequireReason &&
+		!c.Sandbox.Promotion.RequireTestResult &&
+		!c.Sandbox.Promotion.RequireRollbackPlan &&
+		!c.Sandbox.Promotion.RequireHumanApproval &&
+		!c.Sandbox.Promotion.RequirePostApplyVerification {
+		c.Sandbox.Promotion = SandboxPromotionConfig{
+			RequireDiff:                  true,
+			RequireReason:                true,
+			RequireTestResult:            true,
+			RequireRollbackPlan:          true,
+			RequireHumanApproval:         true,
+			RequirePostApplyVerification: true,
+		}
+	}
 	if c.ViewerLog.Path == "" {
 		c.ViewerLog.Path = "./workspace/orchestrator_event_log.jsonl"
 	}
@@ -194,6 +222,309 @@ func (c *Config) setDefaults() {
 	}
 	if c.WorkspaceDir == "" {
 		c.WorkspaceDir = "./workspace"
+	}
+	if c.ToolHarness.Mode == "" {
+		c.ToolHarness.Mode = "validate_then_repair"
+	}
+	if c.ToolHarness.LogPath == "" {
+		c.ToolHarness.LogPath = c.WorkspaceDir + "/logs/tool_mediation.jsonl"
+	}
+	if c.DCI.Storage == "" {
+		c.DCI.Storage = "jsonl"
+	}
+	if c.DCI.TracePath == "" {
+		c.DCI.TracePath = c.WorkspaceDir + "/logs/dci_search_trace.jsonl"
+	}
+	if c.DCI.SQLitePath == "" {
+		c.DCI.SQLitePath = c.WorkspaceDir + "/dci.db"
+	}
+	if len(c.DCI.CorpusAllowlist) == 0 {
+		c.DCI.CorpusAllowlist = []string{"docs/"}
+	}
+	if len(c.DCI.CorpusDenylist) == 0 {
+		c.DCI.CorpusDenylist = []string{".env", "*.pem", "*.key", "id_rsa", "credentials.json", "token.json", "cookies.sqlite", ".git", "node_modules", "venv", ".venv", "secrets", "private"}
+	}
+	if len(c.DCI.KnowledgeFTSDomains) == 0 {
+		c.DCI.KnowledgeFTSDomains = []string{"general", "creative", "news"}
+	}
+	if len(c.DCI.ExplicitKeywords) == 0 {
+		c.DCI.ExplicitKeywords = []string{"探して", "grep", "仕様書", "ログ", "原文", "どこに書いてある", "矛盾", "前に話した"}
+	}
+	if c.DCI.MaxSeconds <= 0 {
+		c.DCI.MaxSeconds = 10
+	}
+	if c.DCI.MaxSteps <= 0 {
+		c.DCI.MaxSteps = 8
+	}
+	if c.DCI.MaxCandidateFiles <= 0 {
+		c.DCI.MaxCandidateFiles = 50
+	}
+	if c.DCI.MaxFilesRead <= 0 {
+		c.DCI.MaxFilesRead = 10
+	}
+	if c.DCI.MaxEvidence <= 0 {
+		c.DCI.MaxEvidence = 6
+	}
+	if c.DCI.MaxSnippetChars <= 0 {
+		c.DCI.MaxSnippetChars = 800
+	}
+	if c.SkillGovernance.RegistryPath == "" {
+		c.SkillGovernance.RegistryPath = c.WorkspaceDir + "/logs/skill_governance"
+	}
+	if c.SkillGovernance.Storage == "" {
+		c.SkillGovernance.Storage = "jsonl"
+	}
+	if c.SkillGovernance.SQLitePath == "" {
+		c.SkillGovernance.SQLitePath = c.WorkspaceDir + "/logs/skill_governance.db"
+	}
+	if len(c.SkillGovernance.SkillRoots) == 0 {
+		c.SkillGovernance.SkillRoots = []string{"skills", "prompts/skills", "workspace/skills"}
+	}
+	if !c.SkillGovernance.RequiredForCoder &&
+		!c.SkillGovernance.RequiredForWorker &&
+		!c.SkillGovernance.WarnIfSkillNotUsed {
+		c.SkillGovernance.RequiredForCoder = true
+		c.SkillGovernance.RequiredForWorker = true
+		c.SkillGovernance.WarnIfSkillNotUsed = true
+	}
+	if !c.SkillGovernance.ContributionGate.Enabled &&
+		!c.SkillGovernance.ContributionGate.RequireOpenClosedPRSearch &&
+		!c.SkillGovernance.ContributionGate.RequireRealProblem &&
+		!c.SkillGovernance.ContributionGate.RequireCompleteDiffReview &&
+		!c.SkillGovernance.ContributionGate.RequireHumanApproval &&
+		!c.SkillGovernance.ContributionGate.OneProblemPerPR {
+		c.SkillGovernance.ContributionGate = SkillContributionGateConfig{
+			Enabled:                   true,
+			RequireOpenClosedPRSearch: true,
+			RequireRealProblem:        true,
+			RequireCompleteDiffReview: true,
+			RequireHumanApproval:      true,
+			OneProblemPerPR:           true,
+		}
+	}
+	if c.Workstream.LogPath == "" {
+		c.Workstream.LogPath = c.WorkspaceDir + "/logs/workstream"
+	}
+	if c.Workstream.Storage == "" {
+		c.Workstream.Storage = "jsonl"
+	}
+	if c.Workstream.SQLitePath == "" {
+		c.Workstream.SQLitePath = c.WorkspaceDir + "/logs/workstream.db"
+	}
+	if c.Workstream.VaultRoot == "" {
+		c.Workstream.VaultRoot = "vault/workstreams"
+	}
+	if !c.Workstream.RequireSuccessCriteria && !c.Workstream.RequireVerification && !c.Workstream.DraftReportOnlyHeartbeat {
+		c.Workstream.RequireSuccessCriteria = true
+		c.Workstream.RequireVerification = true
+		c.Workstream.DraftReportOnlyHeartbeat = true
+	}
+	if c.Revenue.LogPath == "" {
+		c.Revenue.LogPath = c.WorkspaceDir + "/logs/revenue"
+	}
+	if c.Revenue.Storage == "" {
+		c.Revenue.Storage = "jsonl"
+	}
+	if c.Revenue.SQLitePath == "" {
+		c.Revenue.SQLitePath = c.WorkspaceDir + "/logs/revenue.db"
+	}
+	if !c.Revenue.ProhibitSuccessGuarantee &&
+		!c.Revenue.RequireCustomerVoicePermission &&
+		!c.Revenue.ExternalPublishRequiresApproval &&
+		!c.Revenue.HighTicketOfferRequiresApproval {
+		c.Revenue.ProhibitSuccessGuarantee = true
+		c.Revenue.RequireCustomerVoicePermission = true
+		c.Revenue.ExternalPublishRequiresApproval = true
+		c.Revenue.HighTicketOfferRequiresApproval = true
+	}
+	if c.PersonaArchitecture.LogPath == "" {
+		c.PersonaArchitecture.LogPath = c.WorkspaceDir + "/logs/persona"
+	}
+	if c.PersonaArchitecture.Storage == "" {
+		c.PersonaArchitecture.Storage = "jsonl"
+	}
+	if c.PersonaArchitecture.SQLitePath == "" {
+		c.PersonaArchitecture.SQLitePath = c.WorkspaceDir + "/logs/persona.db"
+	}
+	if c.PersonaArchitecture.CharacterRoot == "" {
+		c.PersonaArchitecture.CharacterRoot = c.WorkspaceDir
+	}
+	if c.PersonaArchitecture.TriggerCategoryPath == "" {
+		c.PersonaArchitecture.TriggerCategoryPath = "triggers"
+	}
+	if c.PersonaArchitecture.CanonicalResponsePath == "" {
+		c.PersonaArchitecture.CanonicalResponsePath = "canonical_responses"
+	}
+	if c.PersonaArchitecture.CanonicalResponseCooldownTurns <= 0 {
+		c.PersonaArchitecture.CanonicalResponseCooldownTurns = 5
+	}
+	if c.PersonaArchitecture.CanonicalResponseMaxPerSession <= 0 {
+		c.PersonaArchitecture.CanonicalResponseMaxPerSession = 3
+	}
+	if c.PersonaArchitecture.MaxTriggerCandidates <= 0 {
+		c.PersonaArchitecture.MaxTriggerCandidates = 15
+	}
+	if !c.PersonaArchitecture.RequireLorePersonaSplit &&
+		!c.PersonaArchitecture.RequireTriggerCategories &&
+		!c.PersonaArchitecture.HumanReviewRequiredForMeta &&
+		!c.PersonaArchitecture.RequireSessionKeying {
+		c.PersonaArchitecture.RequireLorePersonaSplit = true
+		c.PersonaArchitecture.RequireTriggerCategories = true
+		c.PersonaArchitecture.HumanReviewRequiredForMeta = true
+		c.PersonaArchitecture.RequireSessionKeying = true
+	}
+	if c.BrowserTraceToAPI.LogPath == "" {
+		c.BrowserTraceToAPI.LogPath = c.WorkspaceDir + "/logs/browser_trace_to_api"
+	}
+	if c.BrowserTraceToAPI.Storage == "" {
+		c.BrowserTraceToAPI.Storage = "jsonl"
+	}
+	if c.BrowserTraceToAPI.SQLitePath == "" {
+		c.BrowserTraceToAPI.SQLitePath = c.WorkspaceDir + "/browser_trace_to_api.db"
+	}
+	if len(c.BrowserTraceToAPI.AcceptedPaths) == 0 {
+		c.BrowserTraceToAPI.AcceptedPaths = []string{".o11y/", "traces/"}
+	}
+	if len(c.BrowserTraceToAPI.DenyMethods) == 0 {
+		c.BrowserTraceToAPI.DenyMethods = []string{"PUT", "PATCH", "DELETE"}
+	}
+	if len(c.BrowserTraceToAPI.DenySensitiveFlows) == 0 {
+		c.BrowserTraceToAPI.DenySensitiveFlows = []string{"payment", "purchase", "refund", "account_update", "message_send"}
+	}
+	if !c.BrowserTraceToAPI.ReadOnlyOnly &&
+		!c.BrowserTraceToAPI.RequireTermsReview &&
+		!c.BrowserTraceToAPI.RequireHumanApprovalPromote &&
+		!c.BrowserTraceToAPI.GenerateOpenAPI &&
+		!c.BrowserTraceToAPI.GenerateCoverageReport {
+		c.BrowserTraceToAPI.ReadOnlyOnly = true
+		c.BrowserTraceToAPI.RequireTermsReview = true
+		c.BrowserTraceToAPI.RequireHumanApprovalPromote = true
+		c.BrowserTraceToAPI.GenerateOpenAPI = true
+		c.BrowserTraceToAPI.GenerateCoverageReport = true
+	}
+	if c.ComplexityHotspot.LogPath == "" {
+		c.ComplexityHotspot.LogPath = c.WorkspaceDir + "/logs/complexity_hotspot"
+	}
+	if c.ComplexityHotspot.Storage == "" {
+		c.ComplexityHotspot.Storage = "jsonl"
+	}
+	if c.ComplexityHotspot.SQLitePath == "" {
+		c.ComplexityHotspot.SQLitePath = c.WorkspaceDir + "/logs/complexity_hotspot.db"
+	}
+	if c.ComplexityHotspot.DefaultMode == "" {
+		c.ComplexityHotspot.DefaultMode = "report_only"
+	}
+	if c.ComplexityHotspot.MaxHotspots <= 0 {
+		c.ComplexityHotspot.MaxHotspots = 20
+	}
+	if len(c.ComplexityHotspot.ExcludeDirs) == 0 {
+		c.ComplexityHotspot.ExcludeDirs = []string{"node_modules", ".venv", "venv", "dist", "build", "coverage", ".git"}
+	}
+	if !c.ComplexityHotspot.RequireHumanApprovalForPatch && !c.ComplexityHotspot.OneHotspotPerPR {
+		c.ComplexityHotspot.RequireHumanApprovalForPatch = true
+		c.ComplexityHotspot.OneHotspotPerPR = true
+	}
+	if c.SuperAgentHarness.LogPath == "" {
+		c.SuperAgentHarness.LogPath = c.WorkspaceDir + "/logs/superagent_harness"
+	}
+	if c.SuperAgentHarness.Storage == "" {
+		c.SuperAgentHarness.Storage = "jsonl"
+	}
+	if c.SuperAgentHarness.SQLitePath == "" {
+		c.SuperAgentHarness.SQLitePath = c.WorkspaceDir + "/logs/superagent_harness.db"
+	}
+	if c.SuperAgentHarness.MaxParallelSubagents <= 0 {
+		c.SuperAgentHarness.MaxParallelSubagents = 4
+	}
+	if c.SuperAgentHarness.MaxContextPackTokens <= 0 {
+		c.SuperAgentHarness.MaxContextPackTokens = 3000
+	}
+	if c.SuperAgentHarness.RunQueueSchedulerIntervalSec <= 0 {
+		c.SuperAgentHarness.RunQueueSchedulerIntervalSec = 60
+	}
+	if c.SuperAgentHarness.RunQueueSchedulerClaimLimit <= 0 {
+		c.SuperAgentHarness.RunQueueSchedulerClaimLimit = 1
+	}
+	if !c.SuperAgentHarness.RequireScope &&
+		!c.SuperAgentHarness.RequireTerminationCondition &&
+		!c.SuperAgentHarness.ReturnSummaryOnly &&
+		!c.SuperAgentHarness.PromotionGateRequired &&
+		!c.SuperAgentHarness.ExternalSendRequiresApproval &&
+		!c.SuperAgentHarness.TraceAgentRun {
+		c.SuperAgentHarness.RequireScope = true
+		c.SuperAgentHarness.RequireTerminationCondition = true
+		c.SuperAgentHarness.ReturnSummaryOnly = true
+		c.SuperAgentHarness.PromotionGateRequired = true
+		c.SuperAgentHarness.ExternalSendRequiresApproval = true
+		c.SuperAgentHarness.TraceAgentRun = true
+	}
+	if c.AIWorkflow.LogPath == "" {
+		c.AIWorkflow.LogPath = c.WorkspaceDir + "/logs/ai_workflow"
+	}
+	if c.AIWorkflow.Storage == "" {
+		c.AIWorkflow.Storage = "jsonl"
+	}
+	if c.AIWorkflow.SQLitePath == "" {
+		c.AIWorkflow.SQLitePath = c.WorkspaceDir + "/logs/ai_workflow.db"
+	}
+	if c.AIWorkflow.ProjectMemoryRoot == "" {
+		c.AIWorkflow.ProjectMemoryRoot = ".ai"
+	}
+	if c.AIWorkflow.WorktreeBaseDir == "" {
+		c.AIWorkflow.WorktreeBaseDir = "../worktrees"
+	}
+	if len(c.AIWorkflow.RequiredCLITools) == 0 {
+		c.AIWorkflow.RequiredCLITools = []string{"rg", "fd", "jq", "git"}
+	}
+	if len(c.AIWorkflow.ExternalControlAllowedActors) == 0 {
+		c.AIWorkflow.ExternalControlAllowedActors = []string{"Worker", "Coder", "external-client"}
+	}
+	if len(c.AIWorkflow.ExternalControlAllowedChannels) == 0 {
+		c.AIWorkflow.ExternalControlAllowedChannels = []string{"local", "viewer", "mobile"}
+	}
+	if len(c.AIWorkflow.ExternalControlAllowedActions) == 0 {
+		c.AIWorkflow.ExternalControlAllowedActions = []string{"promotion_request", "promotion_apply", "promotion_rollback", "artifact_review", "status_read"}
+	}
+	if len(c.AIWorkflow.ExternalControlApprovalRequired) == 0 {
+		c.AIWorkflow.ExternalControlApprovalRequired = []string{"promotion_apply", "promotion_rollback", "external_send"}
+	}
+	if c.AIWorkflow.ContextBudgetWarnRatio <= 0 {
+		c.AIWorkflow.ContextBudgetWarnRatio = 0.8
+	}
+	if c.AIWorkflow.ContextBudgetStopRatio <= 0 {
+		c.AIWorkflow.ContextBudgetStopRatio = 0.95
+	}
+	if c.AIWorkflow.HeavyWorkerFileThreshold <= 0 {
+		c.AIWorkflow.HeavyWorkerFileThreshold = 20
+	}
+	if c.AIWorkflow.HeavyWorkerSpecThreshold <= 0 {
+		c.AIWorkflow.HeavyWorkerSpecThreshold = 1
+	}
+	if c.AIWorkflow.HeavyWorkerRetryThreshold <= 0 {
+		c.AIWorkflow.HeavyWorkerRetryThreshold = 2
+	}
+	if !c.AIWorkflow.RequiredBeforeModify &&
+		!c.AIWorkflow.WorktreeRequiredForWrite &&
+		!c.AIWorkflow.ContextTrackingEnabled {
+		c.AIWorkflow.RequiredBeforeModify = true
+		c.AIWorkflow.WorktreeRequiredForWrite = true
+		c.AIWorkflow.ContextTrackingEnabled = true
+	}
+	if c.KnowledgeMemory.LogPath == "" {
+		c.KnowledgeMemory.LogPath = c.WorkspaceDir + "/logs/knowledge_memory"
+	}
+	if c.KnowledgeMemory.Storage == "" {
+		c.KnowledgeMemory.Storage = "jsonl"
+	}
+	if c.KnowledgeMemory.SQLitePath == "" {
+		c.KnowledgeMemory.SQLitePath = c.WorkspaceDir + "/logs/knowledge_memory.db"
+	}
+	if !c.KnowledgeMemory.ProtectPersonalArchive &&
+		!c.KnowledgeMemory.DreamRequiresHumanReview &&
+		!c.KnowledgeMemory.DailyIntakePromoteToStaging {
+		c.KnowledgeMemory.ProtectPersonalArchive = true
+		c.KnowledgeMemory.DreamRequiresHumanReview = true
+		c.KnowledgeMemory.DailyIntakePromoteToStaging = true
 	}
 	if c.OperationMemoryDir == "" {
 		c.OperationMemoryDir = DefaultOperationMemoryDir()

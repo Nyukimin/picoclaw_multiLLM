@@ -3,11 +3,14 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	domaindci "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/dci"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
@@ -40,10 +43,12 @@ type distMockMioAgent struct {
 	chatResponse  string
 	routeResponse string // "CHAT", "OPS", etc.
 	lastChatInput string
+	decideCalls   int
 	chatFunc      func(ctx context.Context, t task.Task) (string, error)
 }
 
 func (m *distMockMioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
+	m.decideCalls++
 	route := routing.RouteCHAT
 	if m.routeResponse != "" {
 		route = routeFromString(m.routeResponse)
@@ -184,6 +189,133 @@ func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 	}
 }
 
+func TestDistributedOrchestrator_ProcessMessage_ExplicitDCIBypassesRouting(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	searcher := &mockDCISearcher{
+		trigger: true,
+		result: domaindci.SearchResult{
+			Pack: domaindci.EvidencePack{
+				EventID:     "evt_dist_dci_test",
+				Query:       "docs から DCI を探して",
+				CorpusScope: []string{"docs/10_新仕様"},
+				Evidence: []domaindci.Evidence{{
+					FilePath:  "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md",
+					LineStart: 22,
+					Snippet:   "DCIは通常RAGの代替ではない",
+				}},
+			},
+			Trace: domaindci.SearchTrace{EventID: "evt_dist_dci_test", Status: "completed"},
+		},
+	}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetDCISearcher(searcher)
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-dci",
+		Channel:     "line",
+		ChatID:      "chat-dci",
+		UserMessage: "docs から DCI を探して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if mockMio.decideCalls != 0 {
+		t.Fatal("explicit DCI trigger should bypass distributed route decision")
+	}
+	if searcher.calls != 1 {
+		t.Fatalf("DCI search should be called once, got %d", searcher.calls)
+	}
+	if resp.Route != routing.RouteRESEARCH {
+		t.Fatalf("route: want RESEARCH, got %s", resp.Route)
+	}
+	if !strings.Contains(resp.Response, "DCI探索結果") || !strings.Contains(resp.Response, "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md:22") {
+		t.Fatalf("DCI response should include evidence location, got %q", resp.Response)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_ExplicitDCISavesRecallTrace(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	searcher := &mockDCISearcher{
+		trigger: true,
+		result: domaindci.SearchResult{
+			Pack: domaindci.EvidencePack{
+				EventID:     "evt_dist_dci_recall",
+				Query:       "DCI を探して",
+				CorpusScope: []string{"docs/10_新仕様"},
+				Evidence: []domaindci.Evidence{{
+					FilePath:   "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md",
+					LineStart:  44,
+					Snippet:    "Search Trace",
+					Confidence: 0.75,
+				}},
+			},
+			Trace: domaindci.SearchTrace{EventID: "evt_dist_dci_recall", Status: "completed", EndedAt: time.Date(2026, 5, 18, 1, 2, 3, 0, time.UTC)},
+		},
+	}
+	recall := &mockRecallTraceStore{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetDCISearcher(searcher)
+	orch.SetRecallTraceStore(recall)
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-dci-recall",
+		Channel:     "line",
+		ChatID:      "chat-dci-recall",
+		UserMessage: "DCI を探して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if len(recall.traces) != 1 {
+		t.Fatalf("expected one recall trace, got %d", len(recall.traces))
+	}
+	trace := recall.traces[0]
+	if trace.SessionID != "sess-dci-recall" || trace.ResponseID != resp.JobID || trace.Role != "dci" {
+		t.Fatalf("unexpected recall trace identity: %+v", trace)
+	}
+	if len(trace.Items) != 1 || trace.Items[0].Layer != "DCI" || trace.Items[0].Kind != "evidence" {
+		t.Fatalf("unexpected recall trace items: %+v", trace.Items)
+	}
+	if !strings.Contains(trace.Items[0].Summary, "docs/10_新仕様/19_DCI_直接コーパス探索仕様.md:44") {
+		t.Fatalf("recall trace item should include evidence location: %+v", trace.Items[0])
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_ExplicitDCIErrorDoesNotFallback(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	searcher := &mockDCISearcher{trigger: true, err: errors.New("dci trace unavailable")}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetDCISearcher(searcher)
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "sess-dci-fail",
+		Channel:     "line",
+		ChatID:      "chat-dci-fail",
+		UserMessage: "ログを探して",
+	})
+	if err == nil {
+		t.Fatal("expected explicit DCI search failure")
+	}
+	if mockMio.decideCalls != 0 {
+		t.Fatal("failed DCI trigger should not fall back to distributed route decision")
+	}
+	if !strings.Contains(err.Error(), "dci search failed") || !strings.Contains(err.Error(), "dci trace unavailable") {
+		t.Fatalf("error should preserve DCI failure, got %v", err)
+	}
+}
+
 func TestDistributedOrchestrator_ProcessMessage_WildRouteUsesWildAgentWithoutFallback(t *testing.T) {
 	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "WILD"}
 	mockRepo := &distMockSessionRepo{}
@@ -220,6 +352,159 @@ func TestDistributedOrchestrator_ProcessMessage_WildRouteUsesWildAgentWithoutFal
 	}
 }
 
+func TestDistributedOrchestrator_ProcessMessage_WildRouteRecordsSkillBootstrap(t *testing.T) {
+	mockMio := &distMockMioAgent{routeResponse: "WILD"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	wild := &distMockWildAgent{response: "wild response"}
+	recorder := &mockSkillBootstrapRecorder{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetWildAgent(wild)
+	orch.SetSkillBootstrapRecorder(recorder)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "wild-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "/wild make something",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteWILD {
+		t.Fatalf("route=%s", resp.Route)
+	}
+	if len(recorder.tasks) != 1 {
+		t.Fatalf("skill bootstrap calls = %d", len(recorder.tasks))
+	}
+	if recorder.tasks[0].Intent != "wild" || recorder.tasks[0].Agent != "Worker" || recorder.tasks[0].WorkstreamID != "wild-session" {
+		t.Fatalf("task context = %#v", recorder.tasks[0])
+	}
+	if !containsString(recorder.used[0], "core.worker") || !containsString(recorder.used[0], "core.wild") {
+		t.Fatalf("used skills = %#v", recorder.used[0])
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_SkillBootstrapFailureStopsRoute(t *testing.T) {
+	mockMio := &distMockMioAgent{routeResponse: "WILD"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	wild := &distMockWildAgent{response: "wild response"}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetWildAgent(wild)
+	orch.SetSkillBootstrapRecorder(&mockSkillBootstrapRecorder{err: errors.New("skill store failed")})
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "wild-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "/wild make something",
+	})
+	if err == nil {
+		t.Fatal("expected skill bootstrap failure")
+	}
+	if !strings.Contains(err.Error(), "route WILD skill bootstrap failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wild.called {
+		t.Fatal("wild agent should not run after skill bootstrap failure")
+	}
+}
+
+func TestDistributedOrchestrator_RegisteredSlashCommandExpandsRuntimePrompt(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.MkdirAll("commands", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("commands/review-architecture.md", []byte("# /review-architecture\n\n## Steps\n1. 正本仕様を読む\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mockMio := &distMockMioAgent{chatResponse: "review result", routeResponse: "CHAT"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	events := &mockWorkflowEventRecorder{}
+	skills := &mockSkillBootstrapRecorder{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetWorkflowEventRecorder(events)
+	orch.SetSkillBootstrapRecorder(skills)
+	orch.SetCommandRegistry(&mockCommandRegistryStore{commands: []domainai.CommandRegistry{{
+		CommandName:   "/review-architecture",
+		FilePath:      "commands/review-architecture.md",
+		Description:   "architecture review",
+		DefaultAgent:  "Coder",
+		RequiredSkill: "core.architecture-review",
+		UpdatedAt:     time.Now().UTC(),
+	}}})
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "dist-command-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "/review-architecture docs を確認",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Response != "review result" || resp.Route != routing.RouteCHAT {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if !strings.Contains(mockMio.lastChatInput, "Slash command runtime expansion") ||
+		!strings.Contains(mockMio.lastChatInput, "# /review-architecture") ||
+		!strings.Contains(mockMio.lastChatInput, "User input:\ndocs を確認") {
+		t.Fatalf("command prompt was not expanded:\n%s", mockMio.lastChatInput)
+	}
+	if len(events.events) != 1 || events.events[0].EventType != "command_invoked" {
+		t.Fatalf("expected command_invoked event, got %+v", events.events)
+	}
+	if len(skills.used) != 1 || !containsString(skills.used[0], "core.architecture-review") {
+		t.Fatalf("expected required skill bootstrap, got %+v", skills.used)
+	}
+}
+
+func TestDistributedOrchestrator_RecordsLeadAgentRun(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat response", routeResponse: "CHAT"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	super := &mockSuperAgentRuntimeRecorder{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetSuperAgentRuntimeRecorder(super)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "dist-lead-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteCHAT {
+		t.Fatalf("route=%s", resp.Route)
+	}
+	if len(super.runs) != 2 {
+		t.Fatalf("expected running and completed agent_run records, got %+v", super.runs)
+	}
+	if super.runs[0].Status != "running" || super.runs[1].Status != "completed" {
+		t.Fatalf("unexpected agent_run statuses: %+v", super.runs)
+	}
+	if len(super.traces) != 2 || super.traces[0].EventType != "lead_agent_started" || super.traces[1].EventType != "lead_agent_completed" {
+		t.Fatalf("unexpected trace events: %+v", super.traces)
+	}
+}
+
 func TestDistributedOrchestrator_ProcessMessage_WildRouteWithoutAgentFailsInsteadOfFallback(t *testing.T) {
 	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "WILD"}
 	mockRepo := &distMockSessionRepo{}
@@ -243,6 +528,121 @@ func TestDistributedOrchestrator_ProcessMessage_WildRouteWithoutAgentFailsInstea
 	}
 	if mockMio.lastChatInput != "" {
 		t.Fatalf("wild route fell back to Mio chat: %q", mockMio.lastChatInput)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_AnalyzeRouteUsesHeavyAgentWithoutFallback(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "ANALYZE"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	heavy := &mockHeavyAgent{response: "heavy response"}
+	rec := &distRecordingEventListener{}
+	workflowEvents := &mockWorkflowEventRecorder{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetHeavyAgent(heavy)
+	orch.SetEventListener(rec)
+	orch.SetWorkflowEventRecorder(workflowEvents)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "analyze-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "分析して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !heavy.called {
+		t.Fatal("heavy agent should be called")
+	}
+	if mockMio.lastChatInput != "" {
+		t.Fatalf("analyze route fell back to Mio chat: %q", mockMio.lastChatInput)
+	}
+	if resp.Route != routing.RouteANALYZE || resp.Response != "heavy response" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if distIndexOfEvent(rec.events, "agent.response", "heavy", "mio", "ANALYZE") < 0 {
+		t.Fatalf("expected heavy response evidence, got %+v", rec.events)
+	}
+	if len(workflowEvents.events) != 2 {
+		t.Fatalf("expected heavy lifecycle events, got %#v", workflowEvents.events)
+	}
+	if workflowEvents.events[0].EventType != "heavy_worker_started" || workflowEvents.events[1].EventType != "heavy_worker_completed" {
+		t.Fatalf("unexpected heavy lifecycle events: %#v", workflowEvents.events)
+	}
+}
+
+func TestDistributedOrchestrator_HeavyWorkerPolicyElevatesDeepDiveToAnalyze(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "CHAT"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	heavy := &mockHeavyAgent{response: "heavy deep dive"}
+	workflowEvents := &mockWorkflowEventRecorder{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetHeavyAgent(heavy)
+	orch.SetWorkflowEventRecorder(workflowEvents)
+	orch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{
+		Enabled:       true,
+		RequireReason: true,
+	})
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "deep-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "この件を深掘りして",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !heavy.called {
+		t.Fatal("heavy agent should be called after policy elevation")
+	}
+	if mockMio.lastChatInput != "" {
+		t.Fatalf("policy-elevated analyze route fell back to Mio chat: %q", mockMio.lastChatInput)
+	}
+	if resp.Route != routing.RouteANALYZE || resp.Response != "heavy deep dive" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(workflowEvents.events) != 3 {
+		t.Fatalf("expected requested + lifecycle events, got %#v", workflowEvents.events)
+	}
+	if workflowEvents.events[0].EventType != "heavy_worker_requested" ||
+		workflowEvents.events[1].EventType != "heavy_worker_started" ||
+		workflowEvents.events[2].EventType != "heavy_worker_completed" {
+		t.Fatalf("unexpected heavy events: %#v", workflowEvents.events)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_AnalyzeRouteWithoutHeavyFailsInsteadOfFallback(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "ANALYZE"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+
+	_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "analyze-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "分析して",
+	})
+	if err == nil {
+		t.Fatal("expected missing heavy agent to fail")
+	}
+	if !strings.Contains(err.Error(), "no heavy agent available") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mockMio.lastChatInput != "" {
+		t.Fatalf("analyze route fell back to Mio chat: %q", mockMio.lastChatInput)
 	}
 }
 

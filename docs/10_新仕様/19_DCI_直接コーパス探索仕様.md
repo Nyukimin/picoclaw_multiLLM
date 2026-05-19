@@ -851,6 +851,9 @@ Python 実装案が必要な場合は別仕様に分離する。現行本線で�
 ```yaml
 dci:
   enabled: true
+  storage: "sqlite" # "jsonl" も選択可能。未指定時は現行互換で jsonl。
+  trace_path: "./workspace/logs/dci_search_trace.jsonl"
+  sqlite_path: "./workspace/dci.db"
   mode: "read_only"
 
   limits:
@@ -969,9 +972,34 @@ denylist:
 ### Phase 2: Recall Orchestrator 統合
 
 - DCI trigger 判定。
-- Recall Pack への Evidence 統合。
+- 既存 Recall Trace への Evidence 統合。
 - 回答フォーマット適用。
 - Viewer への簡易表示。
+
+2026-05-18 時点の実装状況:
+
+- MessageOrchestrator に明示 DCI trigger runtime wiring を追加済み。
+- DistributedOrchestrator にも明示 DCI trigger runtime wiring を追加済み。
+- `dci.explicit_keywords` に一致した場合、通常の routing / LLM / distributed execution 経路へ流さず `RouteRESEARCH` として DCI Evidence Pack の要約を返す。
+- DCI search 失敗時は Chat への fallback 成功扱いにせず、失敗として返す。
+- Conversation L1 が有効な場合、DCI evidence / limitation を既存 `RecallTrace` に `Layer=DCI` として保存する。
+- RecallTrace 保存に失敗した場合は trace 欠落を成功扱いにせず、失敗として返す。
+- Conversation L1 が有効な場合、DCI evidence を `L1StagingKindSearchResult` の `pending` candidate として保存し、validator / promote 前提の `review_required=true` metadata を付与する。
+- DCI evidence に file path がある場合は、対応するローカル corpus source を `search_fallback` の disabled Source Registry candidate として自動登録する。Source Registry candidate は `https://local.rencrow.invalid/dci/...` の synthetic URL を使い、`auto_fetch=false` / `review_required=true` metadata を持つ。これは自動 fetch 対象ではなく、staging review / validator の入口として扱う。
+- Source Registry Viewer API は staging candidate の一覧、validator 実行、validated staging の news / knowledge / memory promote を扱う。Viewer Memory panel では staging review table から warning 件数と審査状態を確認できる。
+- `internal/infrastructure/persistence/dci` に SQLite store を追加済み。`dci_search_trace`, `dci_search_step`, `dci_evidence`, `dci_query_terms` を初期化し、`dci.storage: sqlite` の場合に runtime で使用できる。
+- 未指定時は現行互換として JSONL store を使う。
+- `dci.max_seconds` と `dci.max_steps` を追加し、探索が巨大 corpus で無制限に進まないようにした。`max_steps` 到達時は Search Trace に `limit` step を残し、Evidence Pack の `limitations` に `max search steps reached` を記録する。
+- `dci.max_candidate_files` を追加し、allowlist から読み取り候補を先に収集した上で、query term が path / filename に含まれるファイルを優先して読む最小 ranking を追加した。これにより `max_files_read` が小さい場合でも、walk 順の先頭ファイルだけに偏りにくくする。
+- `SourceMetadataRanker` を追加し、Conversation L1 Source Registry の enabled entry に `local_path` / `file_path` / synthetic DCI URL がある場合は、Source Registry metadata を candidate file ranking と Evidence `source_id` に反映できるようにした。ranker が失敗した場合は DCI 自体を Chat fallback 成功扱いにせず、Evidence Pack の `limitations` に `source registry metadata ranking unavailable: ...` を残して通常の allowlist 探索を継続する。
+- runtime では Conversation L1 が有効な場合、DCI Explorer に `L1SourceMetadataRanker` を注入する。
+- DCI Explorer は候補収集後、読み取り上限で切り捨てる前に候補本文を軽く採点し、query term の本文一致数と複数語一致を使って BM25 相当の content ranking を行う。Tool Harness が設定されている場合、この ranking 用の読み取りも `file_read` tool 経由で行う。
+- Conversation L1 が有効な場合、DCI Explorer に `L1KnowledgeFTSCandidateProvider` を注入し、L1 Knowledge FTS から `local_path` / `file_path` / `path` / synthetic DCI URL を持つ knowledge item を candidate file として先に取り込めるようにした。
+- `dci.knowledge_fts_domains` で、DCI の local path candidate 注入に使う L1 Knowledge domain を設定できる。未指定時は `general` / `creative` / `news` を使う。
+- `VectorKBCandidateProvider` を追加し、Conversation VectorDB KB の semantic search 結果から `local_path` / `file_path` / `path` metadata、または DCI synthetic URL を持つ Document を candidate file として取り込めるようにした。
+- DCI Explorer は FTS と VectorDB semantic の複数 candidate provider を併用でき、provider 由来の seed rank を file ranking と Evidence `source_id` に反映する。
+- runtime では Conversation Manager が有効な場合、DCI Explorer に `VectorKBCandidateProvider` を注入する。
+- MVPとしての DCI 直接コーパス探索は実装済み。今後は実機 VectorDB / Qdrant E2E、ranking weight 調整、大規模 corpus での provider tuning を拡張候補として扱う。
 
 ### Phase 3: Source Registry 統合
 

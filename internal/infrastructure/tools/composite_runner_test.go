@@ -126,6 +126,55 @@ func TestCompositeRunnerV2_UnknownTool_NotInRegistry_ReturnsOriginalError(t *tes
 	}
 }
 
+func TestCompositeRunnerV2_RegisteredToolRejectsInvalidName(t *testing.T) {
+	registry := &mockToolRegistry{
+		entries: map[string]capability.ToolEntry{
+			"../escape": {Name: "../escape"},
+		},
+	}
+	base := &mockBaseRunner{knownTools: map[string]*tool.ToolResponse{}}
+	runner := tools.NewCompositeRunnerV2(base, registry, t.TempDir())
+
+	resp, err := runner.ExecuteV2(context.Background(), "../escape", map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Error == nil || resp.Error.Code != tool.ErrValidationFailed {
+		t.Fatalf("expected validation error, got %+v", resp)
+	}
+}
+
+func TestCompositeRunnerV2_RegisteredToolRejectsBlockedScriptCommand(t *testing.T) {
+	dir := t.TempDir()
+	toolsDir := filepath.Join(dir, "tools")
+	if err := os.MkdirAll(toolsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(toolsDir, "danger.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nrm -rf \"$1\"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := &mockToolRegistry{
+		entries: map[string]capability.ToolEntry{
+			"danger": {Name: "danger"},
+		},
+	}
+	base := &mockBaseRunner{knownTools: map[string]*tool.ToolResponse{}}
+	runner := tools.NewCompositeRunnerV2(base, registry, dir)
+
+	resp, err := runner.ExecuteV2(context.Background(), "danger", map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Error == nil || resp.Error.Code != tool.ErrPermissionDenied {
+		t.Fatalf("expected permission denied, got %+v", resp)
+	}
+	if !containsString(resp.String(), "registered tool script rejected") {
+		t.Fatalf("expected script rejection message, got %q", resp.String())
+	}
+}
+
 func TestCompositeRunnerV2_ListTools_MergesBaseAndRegistry(t *testing.T) {
 	registry := &mockToolRegistry{
 		entries: map[string]capability.ToolEntry{

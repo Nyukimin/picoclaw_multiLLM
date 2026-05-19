@@ -22,6 +22,7 @@ type messageRouteDispatcher struct {
 	withStreamHooks   messageStreamHook
 	pushTTS           messageTTSPusher
 	executeAutonomous autonomousRouteExecutor
+	workflowEvents    WorkflowEventRecorder
 }
 
 func newMessageRouteDispatcher(
@@ -52,6 +53,10 @@ func (d *messageRouteDispatcher) SetHeavyAgent(heavy HeavyAgent) {
 
 func (d *messageRouteDispatcher) SetAutonomousExecutor(execute autonomousRouteExecutor) {
 	d.executeAutonomous = execute
+}
+
+func (d *messageRouteDispatcher) SetWorkflowEventRecorder(recorder WorkflowEventRecorder) {
+	d.workflowEvents = recorder
 }
 
 func (d *messageRouteDispatcher) ExecuteTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
@@ -142,21 +147,18 @@ func (d *messageRouteDispatcher) executePlanRoute(ctx context.Context, t task.Ta
 func (d *messageRouteDispatcher) executeAnalyzeRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
 	if d.heavy == nil {
-		d.emit("agent.start", "mio", "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
-		analyzeCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteANALYZE, jid, sessionID, channel, chatID, ttsSessionID)
-		resp, err := d.mio.Chat(analyzeCtx, t)
-		if err == nil {
-			d.emit("agent.response", "mio", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
-			ttsStream.Finalize(ctx, resp)
-		}
-		return resp, err
+		return "", fmt.Errorf("no heavy agent available")
 	}
 	d.emit("agent.start", "mio", "heavy", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+	recordHeavyWorkflowEvent(ctx, d.workflowEvents, "started", "Heavy Worker started", jid)
 	analyzeCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteANALYZE, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.heavy.Generate(analyzeCtx, t)
 	if err == nil {
 		d.emit("agent.response", "heavy", "mio", resp, "ANALYZE", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
+		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "completed", "Heavy Worker completed", jid)
+	} else {
+		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "failed", err.Error(), jid)
 	}
 	return resp, err
 }

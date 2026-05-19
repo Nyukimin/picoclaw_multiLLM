@@ -6,6 +6,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
 	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 )
@@ -46,6 +47,7 @@ func buildOrchestratorRuntime(
 		deps.viewerSend = bridges.ViewerSendFromOrch(deps.distOrch)
 		deps.entryHandler = bridges.EntryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = bridges.ChromeBridgeFromOrch(deps.distOrch)
+		startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, deps.distOrch)
 		return
 	}
 
@@ -71,6 +73,44 @@ func buildOrchestratorRuntime(
 	orch.SetMaxRepair(cfg.Worker.MaxRepair)
 	orch.SetWildAgent(agents.Wild)
 	orch.SetHeavyAgent(agents.Heavy)
+	orch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{
+		Enabled:                 cfg.AIWorkflow.HeavyWorkerEnabled,
+		RequireReason:           cfg.AIWorkflow.HeavyWorkerRequireReason,
+		FileCountThreshold:      cfg.AIWorkflow.HeavyWorkerFileThreshold,
+		SpecCountThreshold:      cfg.AIWorkflow.HeavyWorkerSpecThreshold,
+		FailedAttemptsThreshold: cfg.AIWorkflow.HeavyWorkerRetryThreshold,
+	})
+	if deps.dciSearcher != nil {
+		orch.SetDCISearcher(deps.dciSearcher)
+		log.Println("DCI explicit trigger integrated with MessageOrchestrator")
+	}
+	if deps.recallTraceStore != nil {
+		orch.SetRecallTraceStore(deps.recallTraceStore)
+		log.Println("Recall trace store integrated with MessageOrchestrator")
+	}
+	if deps.skillBootstrap != nil {
+		orch.SetSkillBootstrapRecorder(deps.skillBootstrap)
+		log.Println("Skill bootstrap integrated with MessageOrchestrator routes")
+	}
+	if deps.coderProposalEvidence != nil {
+		orch.SetCoderProposalEvidenceRecorder(deps.coderProposalEvidence)
+		log.Println("Coder proposal evidence recorder integrated with MessageOrchestrator")
+	}
+	if deps.aiWorkflowStore != nil {
+		orch.SetWorkflowEventRecorder(deps.aiWorkflowStore)
+		orch.SetCommandRegistry(deps.aiWorkflowStore)
+		log.Println("AI Workflow event recorder integrated with MessageOrchestrator")
+	}
+	if deps.superAgentStore != nil {
+		orch.SetSuperAgentRuntimeRecorder(deps.superAgentStore)
+		orch.SetSuperAgentRunController(deps.superAgentRunController)
+		log.Println("SuperAgent runtime recorder integrated with MessageOrchestrator")
+	}
+	if deps.personaRuntimeStore != nil {
+		orch.SetPersonaRuntimeRecorder(deps.personaRuntimeStore, deps.personaTriggerDefinitions)
+		orch.SetPersonaCanonicalResponses(deps.personaCanonicalResponses)
+		log.Printf("Persona runtime recorder integrated with MessageOrchestrator (%d trigger definitions, %d canonical responses)", len(deps.personaTriggerDefinitions), len(deps.personaCanonicalResponses))
+	}
 	orch.SetTTSBridge(ttsBridge)
 	orch.SetVTuberBridge(vtuberBridge)
 	if verificationRuntime.Pipeline != nil {
@@ -85,4 +125,5 @@ func buildOrchestratorRuntime(
 	deps.viewerSend = bridges.ViewerSendFromOrch(orch)
 	deps.entryHandler = bridges.EntryFromOrch(orch)
 	deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = bridges.ChromeBridgeFromOrch(orch)
+	startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, orch)
 }

@@ -39,12 +39,25 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 }
 
 func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts *viewer.DebugSystemOptions) {
-	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsEnabled {
-		return
-	}
 	llmOpsOpts := viewer.LLMOpsProxyOptions{
 		BaseURL: cfg.LLMOps.BaseURL,
 		Token:   strings.TrimSpace(os.Getenv("LLM_OPS_TOKEN")),
+	}
+	if debugSystemOpts != nil {
+		dependencies.aiWorkflowHeavyRuntime = viewer.HandleAIWorkflowHeavyWorkerRuntimeDiagnostics(viewer.HeavyWorkerRuntimeDiagnosticsOptions{
+			LocalLLMEnabled:  debugSystemOpts.LocalLLM.Enabled,
+			Provider:         debugSystemOpts.LocalLLM.Provider,
+			EffectiveBaseURL: debugSystemOpts.LocalLLM.HeavyBaseURL,
+			EffectiveModel:   debugSystemOpts.LocalLLM.HeavyModel,
+			TimeoutSec:       debugSystemOpts.LocalLLM.TimeoutSec,
+			LLMOpsConfigured: debugSystemOpts.LLMOpsConfigured,
+			LLMOpsEnabled:    debugSystemOpts.LLMOpsEnabled,
+			LLMOpsBaseURL:    debugSystemOpts.LLMOpsBaseURL,
+			LLMOps:           llmOpsOpts,
+		})
+	}
+	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsEnabled {
+		return
 	}
 	dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)
 	mux.HandleFunc("/viewer/llm-ops/health", viewer.HandleLLMOpsHealth(llmOpsOpts))
@@ -129,6 +142,267 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	}
 	if dependencies.verificationSummary != nil {
 		mux.HandleFunc("/viewer/verification/summary", dependencies.verificationSummary)
+	}
+	if dependencies.toolHarnessRecent != nil {
+		mux.HandleFunc("/viewer/tool-harness/recent", dependencies.toolHarnessRecent)
+	}
+	if dependencies.dciRecent != nil {
+		mux.HandleFunc("/viewer/dci/recent", dependencies.dciRecent)
+	}
+	if dependencies.dciSearch != nil {
+		mux.HandleFunc("/viewer/dci/search", dependencies.dciSearch)
+	}
+	if dependencies.sandboxStatus != nil {
+		mux.HandleFunc("/viewer/sandbox", dependencies.sandboxStatus)
+	}
+	if dependencies.sandboxPromotion != nil {
+		mux.HandleFunc("/viewer/sandbox/promotions", dependencies.sandboxPromotion)
+	}
+	if dependencies.sandboxPromotionApply != nil {
+		mux.HandleFunc("/viewer/sandbox/promotions/apply", dependencies.sandboxPromotionApply)
+	}
+	if dependencies.sandboxPromotionRollback != nil {
+		mux.HandleFunc("/viewer/sandbox/promotions/rollback", dependencies.sandboxPromotionRollback)
+	}
+	if dependencies.sandboxPromotionPreview != nil {
+		mux.HandleFunc("/viewer/sandbox/promotions/preview", dependencies.sandboxPromotionPreview)
+	}
+	if dependencies.sandboxPromotionManualReview != nil {
+		mux.HandleFunc("/viewer/sandbox/promotions/manual-review", dependencies.sandboxPromotionManualReview)
+	}
+	if dependencies.sandboxWorktreeCreate != nil {
+		mux.HandleFunc("/viewer/sandbox/worktrees/create", dependencies.sandboxWorktreeCreate)
+	}
+	if dependencies.sandboxWorktreeClose != nil {
+		mux.HandleFunc("/viewer/sandbox/worktrees/close", dependencies.sandboxWorktreeClose)
+	}
+	if dependencies.skillGovernanceRecent != nil {
+		mux.HandleFunc("/viewer/skill-governance/recent", dependencies.skillGovernanceRecent)
+	}
+	if dependencies.skillGovernanceBoot != nil {
+		mux.HandleFunc("/viewer/skill-governance/bootstrap", dependencies.skillGovernanceBoot)
+	}
+	if dependencies.skillContributionGate != nil {
+		mux.HandleFunc("/viewer/skill-governance/contribution-gate", dependencies.skillContributionGate)
+	}
+	if dependencies.skillChangeGate != nil {
+		mux.HandleFunc("/viewer/skill-governance/skill-changes", dependencies.skillChangeGate)
+	}
+	if dependencies.skillChangeEval != nil {
+		mux.HandleFunc("/viewer/skill-governance/skill-change-evals", dependencies.skillChangeEval)
+	}
+	if dependencies.workstreamStatus != nil {
+		mux.HandleFunc("/viewer/workstreams", dependencies.workstreamStatus)
+	}
+	if dependencies.workstreamGoal != nil {
+		mux.HandleFunc("/viewer/workstreams/goals", dependencies.workstreamGoal)
+	}
+	if dependencies.workstreamArtifact != nil {
+		mux.HandleFunc("/viewer/workstreams/artifacts", dependencies.workstreamArtifact)
+	}
+	if dependencies.workstreamAnnotation != nil {
+		mux.HandleFunc("/viewer/workstreams/annotations", dependencies.workstreamAnnotation)
+	}
+	if dependencies.workstreamSteering != nil {
+		mux.HandleFunc("/viewer/workstreams/steering", dependencies.workstreamSteering)
+	}
+	if dependencies.workstreamHeartbeat != nil {
+		mux.HandleFunc("/viewer/workstreams/heartbeats", dependencies.workstreamHeartbeat)
+	}
+	if dependencies.workstreamVaultUpdate != nil {
+		mux.HandleFunc("/viewer/workstreams/vault-updates", dependencies.workstreamVaultUpdate)
+	}
+	if dependencies.workstreamVaultReview != nil {
+		mux.HandleFunc("/viewer/workstreams/vault-updates/review", dependencies.workstreamVaultReview)
+	}
+	if dependencies.workstreamVaultPreview != nil {
+		mux.HandleFunc("/viewer/workstreams/vault-updates/preview", dependencies.workstreamVaultPreview)
+	}
+	if dependencies.revenueStatus != nil {
+		mux.HandleFunc("/viewer/revenue", dependencies.revenueStatus)
+	}
+	if dependencies.revenueMarket != nil {
+		mux.HandleFunc("/viewer/revenue/market-research", dependencies.revenueMarket)
+	}
+	if dependencies.revenueSNSPost != nil {
+		mux.HandleFunc("/viewer/revenue/sns-posts", dependencies.revenueSNSPost)
+	}
+	if dependencies.revenueProduct != nil {
+		mux.HandleFunc("/viewer/revenue/products", dependencies.revenueProduct)
+	}
+	if dependencies.revenueCustomerVoice != nil {
+		mux.HandleFunc("/viewer/revenue/customer-voices", dependencies.revenueCustomerVoice)
+	}
+	if dependencies.revenueEvent != nil {
+		mux.HandleFunc("/viewer/revenue/events", dependencies.revenueEvent)
+	}
+	if dependencies.revenueHumanDecisionGate != nil {
+		mux.HandleFunc("/viewer/revenue/human-decision-gate", dependencies.revenueHumanDecisionGate)
+	}
+	if dependencies.revenueHumanDecisionReview != nil {
+		mux.HandleFunc("/viewer/revenue/human-decision-gate/review", dependencies.revenueHumanDecisionReview)
+	}
+	if dependencies.revenueDailyRoutine != nil {
+		mux.HandleFunc("/viewer/revenue/daily-routine", dependencies.revenueDailyRoutine)
+	}
+	if dependencies.revenueChannelDraft != nil {
+		mux.HandleFunc("/viewer/revenue/channel-drafts", dependencies.revenueChannelDraft)
+	}
+	if dependencies.personaObservation != nil {
+		mux.HandleFunc("/viewer/persona-observation", dependencies.personaObservation)
+	}
+	if dependencies.personaDiscomfort != nil {
+		mux.HandleFunc("/viewer/persona-observation/discomforts", dependencies.personaDiscomfort)
+	}
+	if dependencies.personaTrigger != nil {
+		mux.HandleFunc("/viewer/persona-observation/triggers", dependencies.personaTrigger)
+	}
+	if dependencies.personaCanonical != nil {
+		mux.HandleFunc("/viewer/persona-observation/canonical-responses", dependencies.personaCanonical)
+	}
+	if dependencies.personaObservationLog != nil {
+		mux.HandleFunc("/viewer/persona-observation/observations", dependencies.personaObservationLog)
+	}
+	if dependencies.personaObservationAggregate != nil {
+		mux.HandleFunc("/viewer/persona-observation/aggregate", dependencies.personaObservationAggregate)
+	}
+	if dependencies.personaMetaUpdate != nil {
+		mux.HandleFunc("/viewer/persona-observation/meta-updates", dependencies.personaMetaUpdate)
+	}
+	if dependencies.personaMetaUpdateReview != nil {
+		mux.HandleFunc("/viewer/persona-observation/meta-updates/review", dependencies.personaMetaUpdateReview)
+	}
+	if dependencies.personaSession != nil {
+		mux.HandleFunc("/viewer/persona-observation/sessions", dependencies.personaSession)
+	}
+	if dependencies.browserTraceAPIStatus != nil {
+		mux.HandleFunc("/viewer/browser-trace-api", dependencies.browserTraceAPIStatus)
+	}
+	if dependencies.browserTraceAPIDiscover != nil {
+		mux.HandleFunc("/viewer/browser-trace-api/discover", dependencies.browserTraceAPIDiscover)
+	}
+	if dependencies.browserTraceAPIFetcherProposal != nil {
+		mux.HandleFunc("/viewer/browser-trace-api/fetcher-proposals", dependencies.browserTraceAPIFetcherProposal)
+	}
+	if dependencies.complexityHotspotStatus != nil {
+		mux.HandleFunc("/viewer/complexity-hotspots", dependencies.complexityHotspotStatus)
+	}
+	if dependencies.complexityHotspotScan != nil {
+		mux.HandleFunc("/viewer/complexity-hotspots/scan", dependencies.complexityHotspotScan)
+	}
+	if dependencies.complexityHotspotProposal != nil {
+		mux.HandleFunc("/viewer/complexity-hotspots/proposals", dependencies.complexityHotspotProposal)
+	}
+	if dependencies.complexityHotspotConcreteDiff != nil {
+		mux.HandleFunc("/viewer/complexity-hotspots/concrete-diffs", dependencies.complexityHotspotConcreteDiff)
+	}
+	if dependencies.complexityHotspotCoderDiff != nil {
+		mux.HandleFunc("/viewer/complexity-hotspots/coder-diffs", dependencies.complexityHotspotCoderDiff)
+	}
+	if dependencies.superAgentStatus != nil {
+		mux.HandleFunc("/viewer/superagent", dependencies.superAgentStatus)
+	}
+	if dependencies.superAgentRun != nil {
+		mux.HandleFunc("/viewer/superagent/runs", dependencies.superAgentRun)
+	}
+	if dependencies.superAgentRunPause != nil {
+		mux.HandleFunc("/viewer/superagent/runs/pause", dependencies.superAgentRunPause)
+	}
+	if dependencies.superAgentRunResume != nil {
+		mux.HandleFunc("/viewer/superagent/runs/resume", dependencies.superAgentRunResume)
+	}
+	if dependencies.superAgentRunQueue != nil {
+		mux.HandleFunc("/viewer/superagent/run-queue", dependencies.superAgentRunQueue)
+	}
+	if dependencies.superAgentRunQueueClaim != nil {
+		mux.HandleFunc("/viewer/superagent/run-queue/claim", dependencies.superAgentRunQueueClaim)
+	}
+	if dependencies.superAgentRunQueueComplete != nil {
+		mux.HandleFunc("/viewer/superagent/run-queue/complete", dependencies.superAgentRunQueueComplete)
+	}
+	if dependencies.superAgentSubagentTask != nil {
+		mux.HandleFunc("/viewer/superagent/subagent-tasks", dependencies.superAgentSubagentTask)
+	}
+	if dependencies.superAgentContextPack != nil {
+		mux.HandleFunc("/viewer/superagent/context-packs", dependencies.superAgentContextPack)
+	}
+	if dependencies.superAgentMessageChannel != nil {
+		mux.HandleFunc("/viewer/superagent/message-channels", dependencies.superAgentMessageChannel)
+	}
+	if dependencies.superAgentTraceEvent != nil {
+		mux.HandleFunc("/viewer/superagent/trace-events", dependencies.superAgentTraceEvent)
+	}
+	if dependencies.aiWorkflowStatus != nil {
+		mux.HandleFunc("/viewer/ai-workflow", dependencies.aiWorkflowStatus)
+	}
+	if dependencies.aiWorkflowEvent != nil {
+		mux.HandleFunc("/viewer/ai-workflow/events", dependencies.aiWorkflowEvent)
+	}
+	if dependencies.aiWorkflowProjectMemory != nil {
+		mux.HandleFunc("/viewer/ai-workflow/project-memory", dependencies.aiWorkflowProjectMemory)
+	}
+	if dependencies.aiWorkflowWorktree != nil {
+		mux.HandleFunc("/viewer/ai-workflow/worktrees", dependencies.aiWorkflowWorktree)
+	}
+	if dependencies.aiWorkflowCommand != nil {
+		mux.HandleFunc("/viewer/ai-workflow/commands", dependencies.aiWorkflowCommand)
+	}
+	if dependencies.aiWorkflowCommandRun != nil {
+		mux.HandleFunc("/viewer/ai-workflow/commands/run", dependencies.aiWorkflowCommandRun)
+	}
+	if dependencies.aiWorkflowContextUsage != nil {
+		mux.HandleFunc("/viewer/ai-workflow/context-usages", dependencies.aiWorkflowContextUsage)
+	}
+	if dependencies.aiWorkflowContextBudget != nil {
+		mux.HandleFunc("/viewer/ai-workflow/context-budget/check", dependencies.aiWorkflowContextBudget)
+	}
+	if dependencies.aiWorkflowExternalControl != nil {
+		mux.HandleFunc("/viewer/ai-workflow/external-control/check", dependencies.aiWorkflowExternalControl)
+	}
+	if dependencies.aiWorkflowHeavyWorker != nil {
+		mux.HandleFunc("/viewer/ai-workflow/heavy-worker/evaluate", dependencies.aiWorkflowHeavyWorker)
+	}
+	if dependencies.aiWorkflowHeavyRuntime != nil {
+		mux.HandleFunc("/viewer/ai-workflow/heavy-worker/runtime-diagnostics", dependencies.aiWorkflowHeavyRuntime)
+	}
+	if dependencies.aiWorkflowProjectInit != nil {
+		mux.HandleFunc("/viewer/ai-workflow/project-init", dependencies.aiWorkflowProjectInit)
+	}
+	if dependencies.aiWorkflowWorktreeCreate != nil {
+		mux.HandleFunc("/viewer/ai-workflow/worktrees/create", dependencies.aiWorkflowWorktreeCreate)
+	}
+	if dependencies.aiWorkflowWorktreeClose != nil {
+		mux.HandleFunc("/viewer/ai-workflow/worktrees/close", dependencies.aiWorkflowWorktreeClose)
+	}
+	if dependencies.knowledgeMemoryStatus != nil {
+		mux.HandleFunc("/viewer/knowledge-memory", dependencies.knowledgeMemoryStatus)
+	}
+	if dependencies.personalArchiveCreate != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/personal-archive", dependencies.personalArchiveCreate)
+	}
+	if dependencies.creativeKnowledgeCreate != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/creative-knowledge", dependencies.creativeKnowledgeCreate)
+	}
+	if dependencies.newsKnowledgeCreate != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/news-knowledge", dependencies.newsKnowledgeCreate)
+	}
+	if dependencies.dailyIntakeRuleCreate != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/daily-intake-rules", dependencies.dailyIntakeRuleCreate)
+	}
+	if dependencies.temporalMemoryCreate != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/temporal-markers", dependencies.temporalMemoryCreate)
+	}
+	if dependencies.knowledgeMemoryReview != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/review", dependencies.knowledgeMemoryReview)
+	}
+	if dependencies.dreamConsolidationCreate != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/dream-runs", dependencies.dreamConsolidationCreate)
+	}
+	if dependencies.dreamConsolidationProposal != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/dream-runs/propose", dependencies.dreamConsolidationProposal)
+	}
+	if dependencies.dreamConsolidationReview != nil {
+		mux.HandleFunc("/viewer/knowledge-memory/dream-runs/review", dependencies.dreamConsolidationReview)
 	}
 }
 

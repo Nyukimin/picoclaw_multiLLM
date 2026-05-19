@@ -103,14 +103,23 @@ func (c *CompositeRunnerV2) executeRegistered(ctx context.Context, toolName stri
 	if c.registry == nil {
 		return nil, origErr
 	}
+	if !validToolName.MatchString(toolName) {
+		return tool.NewError(tool.ErrValidationFailed, fmt.Sprintf("registered tool name %q is invalid", toolName), nil), nil
+	}
 
 	if _, err := c.registry.Get(ctx, toolName); err != nil {
 		return nil, origErr // registry にも存在しない
 	}
 
-	scriptPath := filepath.Join(c.workspaceDir, "tools", toolName+".sh")
+	scriptPath, err := c.registeredToolScriptPath(toolName)
+	if err != nil {
+		return tool.NewError(tool.ErrPermissionDenied, err.Error(), nil), nil
+	}
 	if _, err := os.Stat(scriptPath); err != nil {
 		return nil, fmt.Errorf("registered tool %q: script not found at %s", toolName, scriptPath)
+	}
+	if err := validateRegisteredToolScript(scriptPath); err != nil {
+		return tool.NewError(tool.ErrPermissionDenied, err.Error(), map[string]any{"rule": "registered_tool_script_gate"}), nil
 	}
 
 	// args を JSON 化して引数として渡す
@@ -133,4 +142,88 @@ func (c *CompositeRunnerV2) executeRegistered(ctx context.Context, toolName stri
 	}
 
 	return tool.NewSuccess(string(output)), nil
+}
+
+func (c *CompositeRunnerV2) registeredToolScriptPath(toolName string) (string, error) {
+	toolsDir := filepath.Join(c.workspaceDir, "tools")
+	scriptPath := filepath.Join(toolsDir, toolName+".sh")
+
+	toolsAbs, err := filepath.Abs(filepath.Clean(toolsDir))
+	if err != nil {
+		return "", fmt.Errorf("resolve registered tool directory: %w", err)
+	}
+	scriptAbs, err := filepath.Abs(filepath.Clean(scriptPath))
+	if err != nil {
+		return "", fmt.Errorf("resolve registered tool path: %w", err)
+	}
+	rel, err := filepath.Rel(toolsAbs, scriptAbs)
+	if err != nil {
+		return "", fmt.Errorf("check registered tool path: %w", err)
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("registered tool script outside workspace tools dir: %s", scriptAbs)
+	}
+	return scriptAbs, nil
+}
+
+func validateRegisteredToolScript(scriptPath string) error {
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return fmt.Errorf("read registered tool script: %w", err)
+	}
+	for lineNo, line := range strings.Split(string(data), "\n") {
+		if blocked, reason := registeredToolBlockedLine(line); blocked {
+			return fmt.Errorf("registered tool script rejected at line %d: %s", lineNo+1, reason)
+		}
+	}
+	return nil
+}
+
+func registeredToolBlockedLine(line string) (bool, string) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return false, ""
+	}
+	if idx := strings.Index(trimmed, "#"); idx >= 0 {
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	}
+	for _, segment := range splitShellSegments(trimmed) {
+		fields := strings.Fields(segment)
+		if len(fields) == 0 {
+			continue
+		}
+		cmd := strings.Trim(fields[0], "()")
+		switch cmd {
+		case "rm", "mv", "chmod", "chown", "sudo", "curl", "wget", "dd":
+			return true, "blocked command " + cmd
+		case "git":
+			if len(fields) > 1 && (fields[1] == "push" || fields[1] == "reset") {
+				return true, "blocked command git " + fields[1]
+			}
+		case "npm", "pnpm", "yarn":
+			if len(fields) > 1 && fields[1] == "install" {
+				return true, "blocked command " + cmd + " install"
+			}
+		case "pip", "pip3":
+			if len(fields) > 1 && fields[1] == "install" {
+				return true, "blocked command " + cmd + " install"
+			}
+		}
+	}
+	return false, ""
+}
+
+func splitShellSegments(line string) []string {
+	segments := []string{line}
+	for _, sep := range []string{"&&", "||", ";"} {
+		var next []string
+		for _, segment := range segments {
+			next = append(next, strings.Split(segment, sep)...)
+		}
+		segments = next
+	}
+	for i := range segments {
+		segments[i] = strings.TrimSpace(segments[i])
+	}
+	return segments
 }

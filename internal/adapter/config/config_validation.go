@@ -196,6 +196,292 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("security.audit.backend must be 'jsonl' or 'sqlite'")
 		}
 	}
+	if c.ToolHarness.Mode != "" &&
+		c.ToolHarness.Mode != "validate_then_repair" &&
+		c.ToolHarness.Mode != "log_only" &&
+		c.ToolHarness.Mode != "strict" {
+		return fmt.Errorf("tool_harness.mode must be 'validate_then_repair', 'log_only', or 'strict'")
+	}
+	if c.Sandbox.Enabled || c.Sandbox.DenyOutsideSandboxWrite {
+		if strings.TrimSpace(c.Sandbox.Root) == "" {
+			return fmt.Errorf("sandbox.root is required when sandbox is enabled")
+		}
+		if c.Sandbox.Storage != "jsonl" && c.Sandbox.Storage != "sqlite" {
+			return fmt.Errorf("sandbox.storage must be jsonl or sqlite")
+		}
+		if c.Sandbox.Storage == "sqlite" && strings.TrimSpace(c.Sandbox.SQLitePath) == "" {
+			return fmt.Errorf("sandbox.sqlite_path is required when sandbox.storage is sqlite")
+		}
+		if c.Sandbox.DenyOutsideSandboxWrite && !c.Security.Enabled {
+			return fmt.Errorf("security.enabled is required when sandbox.deny_outside_sandbox_write=true")
+		}
+	}
+	if c.DCI.IsEnabled() {
+		if c.DCI.Storage != "" && c.DCI.Storage != "jsonl" && c.DCI.Storage != "sqlite" {
+			return fmt.Errorf("dci.storage must be jsonl or sqlite")
+		}
+		if c.DCI.MaxFilesRead < 0 {
+			return fmt.Errorf("dci.max_files_read must be >= 1")
+		}
+		if c.DCI.MaxEvidence < 0 {
+			return fmt.Errorf("dci.max_evidence must be >= 1")
+		}
+		if c.DCI.MaxSeconds < 0 {
+			return fmt.Errorf("dci.max_seconds must be >= 1")
+		}
+		if c.DCI.MaxSteps < 0 {
+			return fmt.Errorf("dci.max_steps must be >= 1")
+		}
+		if c.DCI.MaxCandidateFiles < 0 {
+			return fmt.Errorf("dci.max_candidate_files must be >= 1")
+		}
+		if c.DCI.MaxSnippetChars < 0 {
+			return fmt.Errorf("dci.max_snippet_chars must be >= 1")
+		}
+		for _, domain := range c.DCI.KnowledgeFTSDomains {
+			domain = strings.TrimSpace(domain)
+			if domain == "" {
+				continue
+			}
+			if strings.ContainsAny(domain, " \t\r\n:") {
+				return fmt.Errorf("invalid dci.knowledge_fts_domains value: %s", domain)
+			}
+		}
+		if c.DCI.Storage != "sqlite" && c.DCI.Enabled != nil && *c.DCI.Enabled && strings.TrimSpace(c.DCI.TracePath) == "" {
+			return fmt.Errorf("dci.trace_path is required when dci.enabled=true")
+		}
+		if c.DCI.Storage == "sqlite" && strings.TrimSpace(c.DCI.SQLitePath) == "" {
+			return fmt.Errorf("dci.sqlite_path is required when dci.storage=sqlite")
+		}
+	}
+	if (c.SkillGovernance.Enabled != nil && *c.SkillGovernance.Enabled) ||
+		strings.TrimSpace(c.SkillGovernance.RegistryPath) != "" ||
+		len(c.SkillGovernance.SkillRoots) > 0 {
+		if strings.TrimSpace(c.SkillGovernance.RegistryPath) == "" {
+			return fmt.Errorf("skill_governance.registry_path is required when skill_governance is enabled")
+		}
+		if c.SkillGovernance.Storage != "jsonl" && c.SkillGovernance.Storage != "sqlite" {
+			return fmt.Errorf("skill_governance.storage must be jsonl or sqlite")
+		}
+		if c.SkillGovernance.Storage == "sqlite" && strings.TrimSpace(c.SkillGovernance.SQLitePath) == "" {
+			return fmt.Errorf("skill_governance.sqlite_path is required when skill_governance.storage is sqlite")
+		}
+		if len(c.SkillGovernance.SkillRoots) == 0 {
+			return fmt.Errorf("skill_governance.skill_roots is required when skill_governance is enabled")
+		}
+	}
+	if (c.Workstream.Enabled != nil && *c.Workstream.Enabled) ||
+		strings.TrimSpace(c.Workstream.LogPath) != "" ||
+		strings.TrimSpace(c.Workstream.VaultRoot) != "" {
+		if strings.TrimSpace(c.Workstream.LogPath) == "" {
+			return fmt.Errorf("workstream.log_path is required when workstream is enabled")
+		}
+		if c.Workstream.Storage != "jsonl" && c.Workstream.Storage != "sqlite" {
+			return fmt.Errorf("workstream.storage must be jsonl or sqlite")
+		}
+		if c.Workstream.Storage == "sqlite" && strings.TrimSpace(c.Workstream.SQLitePath) == "" {
+			return fmt.Errorf("workstream.sqlite_path is required when workstream.storage is sqlite")
+		}
+		if strings.TrimSpace(c.Workstream.VaultRoot) == "" {
+			return fmt.Errorf("workstream.vault_root is required when workstream is enabled")
+		}
+	}
+	if (c.Revenue.Enabled != nil && *c.Revenue.Enabled) ||
+		strings.TrimSpace(c.Revenue.LogPath) != "" {
+		if strings.TrimSpace(c.Revenue.LogPath) == "" {
+			return fmt.Errorf("revenue.log_path is required when revenue is enabled")
+		}
+		if c.Revenue.Storage != "jsonl" && c.Revenue.Storage != "sqlite" {
+			return fmt.Errorf("revenue.storage must be jsonl or sqlite")
+		}
+		if c.Revenue.Storage == "sqlite" && strings.TrimSpace(c.Revenue.SQLitePath) == "" {
+			return fmt.Errorf("revenue.sqlite_path is required when revenue.storage is sqlite")
+		}
+	}
+	if (c.PersonaArchitecture.Enabled != nil && *c.PersonaArchitecture.Enabled) ||
+		strings.TrimSpace(c.PersonaArchitecture.LogPath) != "" {
+		if strings.TrimSpace(c.PersonaArchitecture.LogPath) == "" {
+			return fmt.Errorf("persona_architecture.log_path is required when persona_architecture is enabled")
+		}
+		if c.PersonaArchitecture.Storage != "jsonl" && c.PersonaArchitecture.Storage != "sqlite" {
+			return fmt.Errorf("persona_architecture.storage must be jsonl or sqlite")
+		}
+		if c.PersonaArchitecture.Storage == "sqlite" && strings.TrimSpace(c.PersonaArchitecture.SQLitePath) == "" {
+			return fmt.Errorf("persona_architecture.sqlite_path is required when persona_architecture.storage is sqlite")
+		}
+		if strings.TrimSpace(c.PersonaArchitecture.CharacterRoot) == "" {
+			return fmt.Errorf("persona_architecture.character_root is required when persona_architecture is enabled")
+		}
+	}
+	if c.PersonaArchitecture.MaxTriggerCandidates < 0 {
+		return fmt.Errorf("persona_architecture.max_trigger_candidates must be >= 0")
+	}
+	if c.PersonaArchitecture.CanonicalResponseCooldownTurns < 0 {
+		return fmt.Errorf("persona_architecture.canonical_response_cooldown_turns must be >= 0")
+	}
+	if c.PersonaArchitecture.CanonicalResponseMaxPerSession < 0 {
+		return fmt.Errorf("persona_architecture.canonical_response_max_per_session must be >= 0")
+	}
+	if (c.BrowserTraceToAPI.Enabled != nil && *c.BrowserTraceToAPI.Enabled) ||
+		strings.TrimSpace(c.BrowserTraceToAPI.LogPath) != "" {
+		if c.BrowserTraceToAPI.Storage != "" && c.BrowserTraceToAPI.Storage != "jsonl" && c.BrowserTraceToAPI.Storage != "sqlite" {
+			return fmt.Errorf("browser_trace_to_api.storage must be jsonl or sqlite")
+		}
+		if strings.TrimSpace(c.BrowserTraceToAPI.LogPath) == "" {
+			return fmt.Errorf("browser_trace_to_api.log_path is required when browser_trace_to_api is enabled")
+		}
+		if c.BrowserTraceToAPI.Storage == "sqlite" && strings.TrimSpace(c.BrowserTraceToAPI.SQLitePath) == "" {
+			return fmt.Errorf("browser_trace_to_api.sqlite_path is required when browser_trace_to_api.storage=sqlite")
+		}
+	}
+	for _, method := range c.BrowserTraceToAPI.DenyMethods {
+		switch strings.ToUpper(strings.TrimSpace(method)) {
+		case "", "GET", "HEAD", "OPTIONS":
+			return fmt.Errorf("browser_trace_to_api.deny_methods must not include safe or empty method")
+		}
+	}
+	for _, path := range c.BrowserTraceToAPI.AcceptedPaths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return fmt.Errorf("browser_trace_to_api.accepted_paths must not include empty path")
+		}
+		if strings.Contains(path, "..") || strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") {
+			return fmt.Errorf("browser_trace_to_api.accepted_paths must be relative safe paths")
+		}
+	}
+	for _, flow := range c.BrowserTraceToAPI.DenySensitiveFlows {
+		if strings.TrimSpace(flow) == "" {
+			return fmt.Errorf("browser_trace_to_api.deny_sensitive_flows must not include empty flow")
+		}
+	}
+	if (c.ComplexityHotspot.Enabled != nil && *c.ComplexityHotspot.Enabled) ||
+		strings.TrimSpace(c.ComplexityHotspot.LogPath) != "" {
+		if strings.TrimSpace(c.ComplexityHotspot.LogPath) == "" {
+			return fmt.Errorf("complexity_hotspot.log_path is required when complexity_hotspot is enabled")
+		}
+	}
+	if c.ComplexityHotspot.Storage != "" && c.ComplexityHotspot.Storage != "jsonl" && c.ComplexityHotspot.Storage != "sqlite" {
+		return fmt.Errorf("complexity_hotspot.storage must be jsonl or sqlite")
+	}
+	if c.ComplexityHotspot.Storage == "sqlite" && strings.TrimSpace(c.ComplexityHotspot.SQLitePath) == "" {
+		return fmt.Errorf("complexity_hotspot.sqlite_path is required when complexity_hotspot.storage=sqlite")
+	}
+	switch strings.TrimSpace(c.ComplexityHotspot.DefaultMode) {
+	case "", "report_only":
+	default:
+		return fmt.Errorf("complexity_hotspot.default_mode must be report_only")
+	}
+	if c.ComplexityHotspot.MaxHotspots < 0 {
+		return fmt.Errorf("complexity_hotspot.max_hotspots must be >= 0")
+	}
+	if c.ComplexityHotspot.AutoApply {
+		return fmt.Errorf("complexity_hotspot.auto_apply must be false")
+	}
+	superAgentConfigured := (c.SuperAgentHarness.Enabled != nil && *c.SuperAgentHarness.Enabled) ||
+		strings.TrimSpace(c.SuperAgentHarness.LogPath) != ""
+	if superAgentConfigured {
+		if strings.TrimSpace(c.SuperAgentHarness.LogPath) == "" {
+			return fmt.Errorf("superagent_harness.log_path is required when superagent_harness is enabled")
+		}
+	}
+	if c.SuperAgentHarness.Storage != "" && c.SuperAgentHarness.Storage != "jsonl" && c.SuperAgentHarness.Storage != "sqlite" {
+		return fmt.Errorf("superagent_harness.storage must be jsonl or sqlite")
+	}
+	if c.SuperAgentHarness.Storage == "sqlite" && strings.TrimSpace(c.SuperAgentHarness.SQLitePath) == "" {
+		return fmt.Errorf("superagent_harness.sqlite_path is required when superagent_harness.storage=sqlite")
+	}
+	if c.SuperAgentHarness.MaxParallelSubagents < 0 {
+		return fmt.Errorf("superagent_harness.max_parallel_subagents must be >= 0")
+	}
+	if c.SuperAgentHarness.MaxContextPackTokens < 0 {
+		return fmt.Errorf("superagent_harness.max_context_pack_tokens must be >= 0")
+	}
+	if c.SuperAgentHarness.RunQueueSchedulerIntervalSec < 0 {
+		return fmt.Errorf("superagent_harness.run_queue_scheduler_interval_sec must be >= 0")
+	}
+	if c.SuperAgentHarness.RunQueueSchedulerClaimLimit < 0 {
+		return fmt.Errorf("superagent_harness.run_queue_scheduler_claim_limit must be >= 0")
+	}
+	if superAgentConfigured && !c.SuperAgentHarness.TraceAgentRun {
+		return fmt.Errorf("superagent_harness.trace_agent_run must be true when superagent_harness is enabled")
+	}
+	if superAgentConfigured && !c.SuperAgentHarness.ReturnSummaryOnly {
+		return fmt.Errorf("superagent_harness.return_summary_only must be true when superagent_harness is enabled")
+	}
+	aiWorkflowConfigured := (c.AIWorkflow.Enabled != nil && *c.AIWorkflow.Enabled) ||
+		strings.TrimSpace(c.AIWorkflow.LogPath) != "" ||
+		strings.TrimSpace(c.AIWorkflow.SQLitePath) != ""
+	if aiWorkflowConfigured {
+		if strings.TrimSpace(c.AIWorkflow.LogPath) == "" {
+			return fmt.Errorf("ai_workflow.log_path is required when ai_workflow is enabled")
+		}
+		if strings.TrimSpace(c.AIWorkflow.ProjectMemoryRoot) == "" {
+			return fmt.Errorf("ai_workflow.project_memory_root is required when ai_workflow is enabled")
+		}
+		if strings.TrimSpace(c.AIWorkflow.WorktreeBaseDir) == "" {
+			return fmt.Errorf("ai_workflow.worktree_base_dir is required when ai_workflow is enabled")
+		}
+	}
+	if c.AIWorkflow.Storage != "" && c.AIWorkflow.Storage != "jsonl" && c.AIWorkflow.Storage != "sqlite" {
+		return fmt.Errorf("ai_workflow.storage must be jsonl or sqlite")
+	}
+	if c.AIWorkflow.Storage == "sqlite" && strings.TrimSpace(c.AIWorkflow.SQLitePath) == "" {
+		return fmt.Errorf("ai_workflow.sqlite_path is required when ai_workflow.storage=sqlite")
+	}
+	if c.AIWorkflow.ContextBudgetTokens < 0 {
+		return fmt.Errorf("ai_workflow.context_budget_tokens must be >= 0")
+	}
+	if c.AIWorkflow.ContextBudgetWarnRatio < 0 || c.AIWorkflow.ContextBudgetWarnRatio > 1 {
+		return fmt.Errorf("ai_workflow.context_budget_warn_ratio must be between 0 and 1")
+	}
+	if c.AIWorkflow.ContextBudgetStopRatio < 0 || c.AIWorkflow.ContextBudgetStopRatio > 1 {
+		return fmt.Errorf("ai_workflow.context_budget_stop_ratio must be between 0 and 1")
+	}
+	if c.AIWorkflow.ContextBudgetWarnRatio > 0 &&
+		c.AIWorkflow.ContextBudgetStopRatio > 0 &&
+		c.AIWorkflow.ContextBudgetStopRatio < c.AIWorkflow.ContextBudgetWarnRatio {
+		return fmt.Errorf("ai_workflow.context_budget_stop_ratio must be >= context_budget_warn_ratio")
+	}
+	if c.AIWorkflow.HeavyWorkerFileThreshold < 0 {
+		return fmt.Errorf("ai_workflow.heavy_worker_file_threshold must be >= 0")
+	}
+	if c.AIWorkflow.HeavyWorkerSpecThreshold < 0 {
+		return fmt.Errorf("ai_workflow.heavy_worker_spec_threshold must be >= 0")
+	}
+	if c.AIWorkflow.HeavyWorkerRetryThreshold < 0 {
+		return fmt.Errorf("ai_workflow.heavy_worker_retry_threshold must be >= 0")
+	}
+	if err := validateNonEmptyList("ai_workflow.external_control_allowed_actors", c.AIWorkflow.ExternalControlAllowedActors); err != nil {
+		return err
+	}
+	if err := validateNonEmptyList("ai_workflow.external_control_allowed_channels", c.AIWorkflow.ExternalControlAllowedChannels); err != nil {
+		return err
+	}
+	if err := validateNonEmptyList("ai_workflow.external_control_allowed_actions", c.AIWorkflow.ExternalControlAllowedActions); err != nil {
+		return err
+	}
+	if err := validateNonEmptyList("ai_workflow.external_control_approval_required", c.AIWorkflow.ExternalControlApprovalRequired); err != nil {
+		return err
+	}
+	knowledgeMemoryConfigured := (c.KnowledgeMemory.Enabled != nil && *c.KnowledgeMemory.Enabled) ||
+		strings.TrimSpace(c.KnowledgeMemory.LogPath) != ""
+	if knowledgeMemoryConfigured {
+		if strings.TrimSpace(c.KnowledgeMemory.LogPath) == "" {
+			return fmt.Errorf("knowledge_memory.log_path is required when knowledge_memory is enabled")
+		}
+		if c.KnowledgeMemory.Storage != "jsonl" && c.KnowledgeMemory.Storage != "sqlite" {
+			return fmt.Errorf("knowledge_memory.storage must be jsonl or sqlite")
+		}
+		if c.KnowledgeMemory.Storage == "sqlite" && strings.TrimSpace(c.KnowledgeMemory.SQLitePath) == "" {
+			return fmt.Errorf("knowledge_memory.sqlite_path is required when knowledge_memory.storage is sqlite")
+		}
+		if !c.KnowledgeMemory.ProtectPersonalArchive {
+			return fmt.Errorf("knowledge_memory.protect_personal_archive must be true when knowledge_memory is enabled")
+		}
+		if !c.KnowledgeMemory.DreamRequiresHumanReview {
+			return fmt.Errorf("knowledge_memory.dream_requires_human_review must be true when knowledge_memory is enabled")
+		}
+	}
 	if c.ViewerLog.Enabled {
 		if c.ViewerLog.RetentionDays < 1 {
 			return fmt.Errorf("viewer_log.retention_days must be >= 1")
@@ -277,5 +563,14 @@ func validateCoderConfig(name string, cc *CoderConfig) error {
 		}
 	}
 
+	return nil
+}
+
+func validateNonEmptyList(name string, values []string) error {
+	for i, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s[%d] must not be empty", name, i)
+		}
+	}
 	return nil
 }

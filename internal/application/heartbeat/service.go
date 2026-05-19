@@ -11,9 +11,13 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	revenueapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/revenue"
+	skillbootstrap "github.com/Nyukimin/picoclaw_multiLLM/internal/application/skillgovernance"
 	ctxbuilder "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/context"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	domainworkstream "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/workstream"
 )
 
 // ChatAgent はHeartbeatが会話処理を委譲するインターフェース
@@ -26,18 +30,32 @@ type NotificationSender interface {
 	SendNotification(ctx context.Context, message string) error
 }
 
+type WorkstreamHeartbeatStore interface {
+	ListHeartbeatSchedules(ctx context.Context, limit int) ([]domainworkstream.HeartbeatSchedule, error)
+	SaveHeartbeatSchedule(ctx context.Context, item domainworkstream.HeartbeatSchedule) error
+	ListSteeringItems(ctx context.Context, limit int) ([]domainworkstream.SteeringItem, error)
+	SaveSteeringItem(ctx context.Context, item domainworkstream.SteeringItem) error
+	SaveVaultUpdateLog(ctx context.Context, item domainworkstream.VaultUpdateLog) error
+}
+
+type RevenueDailyRoutineStore = revenueapp.DailyRoutineStore
+
 // HeartbeatService はHEARTBEAT.mdを定期的に読み込み、エージェントに処理させるサービス
 type HeartbeatService struct {
-	chatAgent      ChatAgent
-	sender         NotificationSender
-	workspaceDir   string
-	contextBuilder *ctxbuilder.Builder
-	listener       orchestrator.EventListener
-	interval       time.Duration
-	stopCh         chan struct{}
-	done           chan struct{}
-	mu             sync.Mutex
-	running        bool
+	chatAgent       ChatAgent
+	sender          NotificationSender
+	workspaceDir    string
+	contextBuilder  *ctxbuilder.Builder
+	listener        orchestrator.EventListener
+	workstreamStore WorkstreamHeartbeatStore
+	revenueStore    RevenueDailyRoutineStore
+	revenueRoutine  *revenueapp.DailyRoutineService
+	skills          *skillbootstrap.BootstrapService
+	interval        time.Duration
+	stopCh          chan struct{}
+	done            chan struct{}
+	mu              sync.Mutex
+	running         bool
 }
 
 // NewHeartbeatService は新しいHeartbeatServiceを作成
@@ -70,6 +88,24 @@ func (s *HeartbeatService) WithMemoryStore(store memory.Store) *HeartbeatService
 // WithEventListener sends Heartbeat results to external monitors such as Viewer SSE.
 func (s *HeartbeatService) WithEventListener(listener orchestrator.EventListener) *HeartbeatService {
 	s.listener = listener
+	return s
+}
+
+// WithWorkstreamStore enables draft-only Workstream heartbeat execution.
+func (s *HeartbeatService) WithWorkstreamStore(store WorkstreamHeartbeatStore) *HeartbeatService {
+	s.workstreamStore = store
+	return s
+}
+
+// WithRevenueDailyRoutineStore enables draft-only Revenue daily routine recording for revenue Workstream heartbeats.
+func (s *HeartbeatService) WithRevenueDailyRoutineStore(store RevenueDailyRoutineStore) *HeartbeatService {
+	s.revenueStore = store
+	s.revenueRoutine = revenueapp.NewDailyRoutineService(store)
+	return s
+}
+
+func (s *HeartbeatService) WithSkillBootstrap(service *skillbootstrap.BootstrapService) *HeartbeatService {
+	s.skills = service
 	return s
 }
 
@@ -114,8 +150,12 @@ func (s *HeartbeatService) loop() {
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
-			if err := s.tick(context.Background()); err != nil {
+			ctx := context.Background()
+			if err := s.tick(ctx); err != nil {
 				log.Printf("[Heartbeat] tick error: %v", err)
+			}
+			if _, err := s.RunDueWorkstreamHeartbeats(ctx, time.Now().UTC()); err != nil {
+				log.Printf("[Heartbeat] workstream tick error: %v", err)
 			}
 		}
 	}
@@ -176,6 +216,269 @@ func (s *HeartbeatService) tick(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+type WorkstreamHeartbeatRunReport struct {
+	Checked int
+	Run     int
+	Skipped int
+	Failed  int
+}
+
+func (s *HeartbeatService) RunDueWorkstreamHeartbeats(ctx context.Context, now time.Time) (WorkstreamHeartbeatRunReport, error) {
+	var report WorkstreamHeartbeatRunReport
+	if s.workstreamStore == nil {
+		return report, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	schedules, err := s.workstreamStore.ListHeartbeatSchedules(ctx, 1000)
+	if err != nil {
+		s.emitEvent("workstream.heartbeat.error", fmt.Sprintf("failed to list schedules: %v", err))
+		return report, err
+	}
+	seen := map[string]struct{}{}
+	for _, schedule := range schedules {
+		if _, ok := seen[schedule.HeartbeatID]; ok {
+			continue
+		}
+		seen[schedule.HeartbeatID] = struct{}{}
+		report.Checked++
+		if schedule.Status != domainworkstream.StatusActive || !heartbeatDue(schedule, now) {
+			report.Skipped++
+			continue
+		}
+		if err := s.runWorkstreamHeartbeat(ctx, schedule, now); err != nil {
+			report.Failed++
+			s.emitEvent("workstream.heartbeat.error", err.Error())
+			return report, err
+		}
+		report.Run++
+	}
+	if report.Run > 0 {
+		s.emitEvent("workstream.heartbeat.completed", fmt.Sprintf("run=%d skipped=%d", report.Run, report.Skipped))
+	}
+	return report, nil
+}
+
+func (s *HeartbeatService) runWorkstreamHeartbeat(ctx context.Context, schedule domainworkstream.HeartbeatSchedule, now time.Time) error {
+	if s.skills != nil {
+		if _, err := s.skills.Record(ctx, domainskill.TaskContext{
+			Text:         schedule.Task,
+			Intent:       "workstream_heartbeat",
+			Agent:        "Worker",
+			WorkstreamID: schedule.WorkstreamID,
+		}, []string{"core.workstream-heartbeat", "core.workstream"}); err != nil {
+			return fmt.Errorf("workstream heartbeat %s skill bootstrap failed: %w", schedule.HeartbeatID, err)
+		}
+	}
+	pendingSteering, err := s.pendingSteeringForWorkstream(ctx, schedule.WorkstreamID)
+	if err != nil {
+		return fmt.Errorf("workstream heartbeat %s steering checkpoint failed: %w", schedule.HeartbeatID, err)
+	}
+	message := s.contextBuilder.BuildMessageWithTask(
+		"CHAT",
+		"WORKSTREAM HEARTBEAT DRAFT",
+		fmt.Sprintf("workstream_id: %s\nheartbeat_id: %s\nschedule: %s\ntask: %s\n\nsafe_checkpoint_steering:\n%s\n\n制約: draft report only。投稿、送信、販売、外部書き込みは行わない。",
+			schedule.WorkstreamID,
+			schedule.HeartbeatID,
+			schedule.ScheduleText,
+			schedule.Task,
+			formatSteeringForPrompt(pendingSteering),
+		),
+	)
+	jobID := task.NewJobID()
+	t := task.NewTask(jobID, message, "workstream-heartbeat", "heartbeat")
+	response, err := s.chatAgent.Chat(ctx, t)
+	if err != nil {
+		return fmt.Errorf("workstream heartbeat %s chat failed: %w", schedule.HeartbeatID, err)
+	}
+	reportPath, err := s.writeWorkstreamHeartbeatReport(schedule, now, response)
+	if err != nil {
+		return fmt.Errorf("workstream heartbeat %s report failed: %w", schedule.HeartbeatID, err)
+	}
+	update := domainworkstream.VaultUpdateLog{
+		UpdateID:     fmt.Sprintf("vul_%s_%d", schedule.HeartbeatID, now.UnixNano()),
+		WorkstreamID: schedule.WorkstreamID,
+		FilePath:     reportPath,
+		UpdateType:   "heartbeat_draft_report",
+		ReviewStatus: "pending",
+		CreatedAt:    now.UTC(),
+	}
+	if err := s.workstreamStore.SaveVaultUpdateLog(ctx, update); err != nil {
+		return fmt.Errorf("workstream heartbeat %s vault update log failed: %w", schedule.HeartbeatID, err)
+	}
+	if shouldRunRevenueDailyRoutine(schedule) {
+		if err := s.runRevenueDailyRoutine(ctx, schedule, now); err != nil {
+			return fmt.Errorf("workstream heartbeat %s revenue daily routine failed: %w", schedule.HeartbeatID, err)
+		}
+	}
+	if err := s.markSteeringApplied(ctx, pendingSteering, now); err != nil {
+		return fmt.Errorf("workstream heartbeat %s steering apply failed: %w", schedule.HeartbeatID, err)
+	}
+	schedule.LastRunAt = now.UTC()
+	schedule.NextRunAt = nextHeartbeatRun(schedule, now)
+	if err := s.workstreamStore.SaveHeartbeatSchedule(ctx, schedule); err != nil {
+		return fmt.Errorf("workstream heartbeat %s schedule update failed: %w", schedule.HeartbeatID, err)
+	}
+	s.emitEvent("workstream.heartbeat.draft_report", reportPath)
+	return nil
+}
+
+func shouldRunRevenueDailyRoutine(schedule domainworkstream.HeartbeatSchedule) bool {
+	text := strings.ToLower(strings.Join([]string{schedule.HeartbeatID, schedule.WorkstreamID, schedule.Task}, "\n"))
+	keywords := []string{
+		"revenue",
+		"収益",
+		"売上",
+		"市場調査",
+		"sns",
+		"商品",
+		"顧客の声",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *HeartbeatService) runRevenueDailyRoutine(ctx context.Context, schedule domainworkstream.HeartbeatSchedule, now time.Time) error {
+	if s.revenueRoutine == nil {
+		return nil
+	}
+	result, err := s.revenueRoutine.RunDailyRoutine(ctx, revenueapp.DailyRoutineRequest{
+		ReportID:     fmt.Sprintf("rev_daily_%s_%d", safePathSegment(schedule.HeartbeatID), now.UnixNano()),
+		WorkstreamID: schedule.WorkstreamID,
+		Date:         now.UTC().Format("2006-01-02"),
+		Now:          now.UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	s.emitEvent("revenue.daily_routine.draft_report", fmt.Sprintf("%s:%s", result.Agent, result.Report.ReportID))
+	return nil
+}
+
+func (s *HeartbeatService) pendingSteeringForWorkstream(ctx context.Context, workstreamID string) ([]domainworkstream.SteeringItem, error) {
+	if s.workstreamStore == nil {
+		return nil, nil
+	}
+	items, err := s.workstreamStore.ListSteeringItems(ctx, 1000)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]struct{}{}
+	var pending []domainworkstream.SteeringItem
+	for _, item := range items {
+		if item.WorkstreamID != workstreamID {
+			continue
+		}
+		if _, ok := seen[item.SteeringID]; ok {
+			continue
+		}
+		seen[item.SteeringID] = struct{}{}
+		if strings.TrimSpace(item.Status) == "pending" {
+			pending = append(pending, item)
+		}
+	}
+	return pending, nil
+}
+
+func (s *HeartbeatService) markSteeringApplied(ctx context.Context, items []domainworkstream.SteeringItem, now time.Time) error {
+	for _, item := range items {
+		item.Status = "applied"
+		item.AppliedAt = now.UTC()
+		if err := s.workstreamStore.SaveSteeringItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func formatSteeringForPrompt(items []domainworkstream.SteeringItem) string {
+	if len(items) == 0 {
+		return "- none"
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		target := strings.TrimSpace(item.TargetArtifactID)
+		if target == "" {
+			target = "workstream"
+		}
+		lines = append(lines, fmt.Sprintf("- %s [%s]: %s", item.SteeringID, target, strings.TrimSpace(item.Instruction)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *HeartbeatService) writeWorkstreamHeartbeatReport(schedule domainworkstream.HeartbeatSchedule, now time.Time, body string) (string, error) {
+	dir := filepath.Join(s.workspaceDir, "workstream_heartbeats", safePathSegment(schedule.WorkstreamID))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("%s-%s.md", safePathSegment(schedule.HeartbeatID), now.UTC().Format("20060102T150405Z"))
+	path := filepath.Join(dir, name)
+	content := fmt.Sprintf("# Workstream Heartbeat Draft\n\n- workstream_id: %s\n- heartbeat_id: %s\n- schedule: %s\n- created_at: %s\n\n## Task\n\n%s\n\n## Draft Report\n\n%s\n",
+		schedule.WorkstreamID,
+		schedule.HeartbeatID,
+		schedule.ScheduleText,
+		now.UTC().Format(time.RFC3339),
+		schedule.Task,
+		strings.TrimSpace(body),
+	)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func heartbeatDue(schedule domainworkstream.HeartbeatSchedule, now time.Time) bool {
+	return schedule.NextRunAt.IsZero() || !schedule.NextRunAt.After(now.UTC())
+}
+
+func nextHeartbeatRun(schedule domainworkstream.HeartbeatSchedule, now time.Time) time.Time {
+	text := strings.TrimSpace(strings.ToLower(schedule.ScheduleText))
+	if strings.HasPrefix(text, "daily ") {
+		clock := strings.TrimSpace(strings.TrimPrefix(text, "daily "))
+		parts := strings.Split(clock, ":")
+		if len(parts) == 2 {
+			hour, hourErr := parseTwoDigitInt(parts[0])
+			minute, minuteErr := parseTwoDigitInt(parts[1])
+			if hourErr == nil && minuteErr == nil && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 {
+				next := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), hour, minute, 0, 0, time.UTC)
+				if !next.After(now.UTC()) {
+					next = next.Add(24 * time.Hour)
+				}
+				return next
+			}
+		}
+	}
+	return now.UTC().Add(24 * time.Hour)
+}
+
+func parseTwoDigitInt(raw string) (int, error) {
+	if len(raw) == 0 || len(raw) > 2 {
+		return 0, fmt.Errorf("invalid number")
+	}
+	value := 0
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return 0, fmt.Errorf("invalid number")
+		}
+		value = value*10 + int(r-'0')
+	}
+	return value, nil
+}
+
+func safePathSegment(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "unknown"
+	}
+	replacer := strings.NewReplacer("/", "_", "\\", "_", "..", "_", " ", "_")
+	return replacer.Replace(raw)
 }
 
 // logHeartbeat はHeartbeat結果をheartbeat.logに記録

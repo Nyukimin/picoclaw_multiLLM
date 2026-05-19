@@ -207,6 +207,399 @@ function renderMemoryEvents() {
   }
 }
 
+function knowledgeMemoryID(type, item) {
+  if (!item) return '';
+  if (type === 'personal_archive') return item.entry_id || item.EntryID || '';
+  if (type === 'creative_knowledge' || type === 'news_knowledge') return item.item_id || item.ItemID || '';
+  if (type === 'daily_intake_rule') return item.rule_id || item.RuleID || '';
+  if (type === 'temporal_marker') return item.marker_id || item.MarkerID || '';
+  if (type === 'dream_run') return item.run_id || item.RunID || '';
+  return item.id || item.ID || '';
+}
+
+function knowledgeMemoryTitle(type, item) {
+  if (!item) return '-';
+  return item.title || item.Title || item.topic || item.Topic || item.summary || item.Summary ||
+    item.summary_draft || item.SummaryDraft || item.raw_text || item.RawText || type;
+}
+
+function knowledgeMemorySource(item) {
+  if (!item) return '-';
+  return item.source_url || item.SourceURL || item.source_id || item.SourceID || item.user_id || item.UserID || item.namespace || item.Namespace || '-';
+}
+
+function knowledgeMemoryStatus(type, item) {
+  if (!item) return '-';
+  const status = item.status || item.Status || item.review_status || item.ReviewStatus || item.memory_state || item.MemoryState || item.validation_status || item.ValidationStatus;
+  if (status) return status;
+  if (type === 'daily_intake_rule') return item.enabled || item.Enabled ? 'enabled' : 'disabled';
+  return '-';
+}
+
+function knowledgeMemoryUpdated(item) {
+  if (!item) return '';
+  return item.updated_at || item.UpdatedAt || item.created_at || item.CreatedAt || item.fetched_at || item.FetchedAt || '';
+}
+
+function knowledgeMemoryWarningCount(item) {
+  if (!item) return 0;
+  const meta = item.meta || item.Meta || {};
+  const warnings = item.security_warnings || item.SecurityWarnings || item.prompt_injection_warnings || item.PromptInjectionWarnings ||
+    meta.security_warnings || meta.prompt_injection_warnings || meta.warnings || item.warnings || item.Warnings;
+  if (Array.isArray(warnings)) return warnings.length;
+  if (typeof warnings === 'number') return warnings;
+  return warnings ? 1 : 0;
+}
+
+function knowledgeMemoryWarningList(item) {
+  if (!item) return [];
+  const meta = item.meta || item.Meta || {};
+  const warnings = item.security_warnings || item.SecurityWarnings || item.prompt_injection_warnings || item.PromptInjectionWarnings ||
+    meta.security_warnings || meta.prompt_injection_warnings || meta.warnings || item.warnings || item.Warnings;
+  if (Array.isArray(warnings)) return warnings.map((warning) => String(warning || '').trim()).filter(Boolean);
+  if (typeof warnings === 'number') return warnings > 0 ? ['warning_count=' + warnings] : [];
+  return warnings ? [String(warnings)] : [];
+}
+
+function knowledgeMemoryCompressedText(item) {
+  if (!item) return '';
+  return item.compressed_text || item.CompressedText || item.compressed_summary || item.CompressedSummary ||
+    item.summary_draft || item.SummaryDraft || item.summary || item.Summary || '';
+}
+
+function knowledgeMemoryOriginalText(item) {
+  if (!item) return '';
+  return item.original_text || item.OriginalText || item.raw_text || item.RawText || item.body || item.Body || '';
+}
+
+function knowledgeMemoryFlags(type, item) {
+  const flags = [];
+  if (knowledgeMemoryOriginalText(item)) flags.push('original');
+  if (Boolean(item && (item.protected || item.Protected))) flags.push('protected');
+  if (knowledgeMemoryCompressedText(item)) flags.push('compressed');
+  if (knowledgeMemoryWarningCount(item) > 0) flags.push('warning');
+  if (type === 'dream_run') flags.push('review');
+  return flags;
+}
+
+function knowledgeMemoryRelationKeys(item) {
+  if (!item) return [];
+  const keys = [
+    item.staging_id, item.StagingID,
+    item.source_ref, item.SourceRef,
+    item.source_id, item.SourceID,
+    item.source_url, item.SourceURL,
+    item.url, item.URL,
+    item.event_id, item.EventID,
+  ];
+  return keys.map((v) => String(v || '').trim()).filter(Boolean);
+}
+
+function sourceRegistryStagingRelationKeys(item) {
+  if (!item) return [];
+  const keys = [
+    item.id, item.ID,
+    item.source_id, item.SourceID,
+    item.source_url, item.SourceURL,
+    item.event_id, item.EventID,
+  ];
+  return keys.map((v) => String(v || '').trim()).filter(Boolean);
+}
+
+function relationIntersects(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length === 0 || right.length === 0) return false;
+  const set = new Set(left);
+  return right.some((key) => set.has(key));
+}
+
+function relatedSourceRegistryStagingItems(item) {
+  const keys = knowledgeMemoryRelationKeys(item);
+  const staging = Array.isArray(state.memory.sourceRegistryStaging) ? state.memory.sourceRegistryStaging : [];
+  return staging.filter((candidate) => relationIntersects(keys, sourceRegistryStagingRelationKeys(candidate)));
+}
+
+function relatedKnowledgeMemoryRows(stagingItem) {
+  const keys = sourceRegistryStagingRelationKeys(stagingItem);
+  return knowledgeMemoryRows(state.memory.knowledgeMemory || {}).filter((row) => relationIntersects(keys, knowledgeMemoryRelationKeys(row.item)));
+}
+
+function sourceRegistryWarningCount(item) {
+  const meta = item && item.meta ? item.meta : {};
+  const warnings = meta.prompt_injection_warnings || meta.security_warnings || meta.warnings || [];
+  if (Array.isArray(warnings)) return warnings.length;
+  if (typeof warnings === 'number') return warnings;
+  return warnings ? 1 : 0;
+}
+
+function sourceRegistryStagingReviewSummary(item) {
+  if (!item) return '-';
+  const warnings = sourceRegistryWarningCount(item);
+  const status = item.validation_status || item.ValidationStatus || '-';
+  const kind = item.kind || item.Kind || '-';
+  const id = item.id || item.ID || '-';
+  const source = item.source_id || item.SourceID || item.source_url || item.SourceURL || '-';
+  return [
+    'id=' + id,
+    'status=' + status,
+    'kind=' + kind,
+    'warnings=' + warnings,
+    'source=' + source,
+  ].join(' / ');
+}
+
+function knowledgeMemoryPromoteState(type, item, relatedStaging) {
+  const status = knowledgeMemoryStatus(type, item);
+  const warningCount = knowledgeMemoryWarningCount(item);
+  const protectedOriginal = Boolean(item && (item.protected || item.Protected));
+  const related = Array.isArray(relatedStaging) ? relatedStaging : [];
+  const validatedRelated = related.filter((staging) => String(staging.validation_status || staging.ValidationStatus || '') === 'validated').length;
+  const blocked = [];
+  if (warningCount > 0) blocked.push('warnings');
+  if (protectedOriginal && type === 'personal_archive') blocked.push('protected_original');
+  if (related.length > 0 && validatedRelated === 0) blocked.push('related_staging_not_validated');
+  if (String(status || '') === 'rejected') blocked.push('rejected');
+  return {
+    status,
+    warningCount,
+    protectedOriginal,
+    relatedCount: related.length,
+    validatedRelated,
+    blocked,
+  };
+}
+
+function renderKnowledgeMemoryReviewComparison(type, item, relatedStaging) {
+  const stateLine = knowledgeMemoryPromoteState(type, item, relatedStaging);
+  const warnings = knowledgeMemoryWarningList(item);
+  const relatedLines = Array.isArray(relatedStaging) && relatedStaging.length ?
+    relatedStaging.map((staging) => sourceRegistryStagingReviewSummary(staging)) :
+    ['-'];
+  const blocked = stateLine.blocked.length ? stateLine.blocked.join(', ') : 'none';
+  return [
+    'knowledge_status=' + (stateLine.status || '-'),
+    'warning_count=' + stateLine.warningCount,
+    'protected_original=' + String(stateLine.protectedOriginal),
+    'related_staging=' + stateLine.relatedCount,
+    'related_validated=' + stateLine.validatedRelated,
+    'promote_blockers=' + blocked,
+    '',
+    'warnings:',
+    warnings.length ? warnings.map((warning) => '- ' + warning).join('\n') : '-',
+    '',
+    'related staging:',
+    relatedLines.join('\n'),
+  ].join('\n');
+}
+
+function knowledgeMemoryReviewActions(type, id, status) {
+  if (!['creative_knowledge', 'news_knowledge', 'daily_intake_rule'].includes(String(type || ''))) return '';
+  if (!id) return '';
+  const payload = encodeURIComponent(JSON.stringify({detail_type: type, id}));
+  const current = String(status || '');
+  if (current === 'promoted' || current === 'enabled' || current === 'rejected') {
+    return '<button class="ctl-btn" onclick="fetchMemoryKnowledgeDetail(&quot;' + esc(type) + '&quot;,&quot;' + esc(id) + '&quot;)">Detail</button>';
+  }
+  return [
+    '<button class="ctl-btn" onclick="fetchMemoryKnowledgeDetail(&quot;' + esc(type) + '&quot;,&quot;' + esc(id) + '&quot;)">Detail</button>',
+    '<button class="ctl-btn" onclick="reviewKnowledgeMemoryItem(&quot;' + payload + '&quot;,&quot;approved&quot;,false)">Review</button>',
+    '<button class="ctl-btn" onclick="reviewKnowledgeMemoryItem(&quot;' + payload + '&quot;,&quot;approved&quot;,true)">Promote</button>',
+    '<button class="ctl-btn" onclick="reviewKnowledgeMemoryItem(&quot;' + payload + '&quot;,&quot;rejected&quot;,false)">Reject</button>',
+  ].join(' ');
+}
+
+function knowledgeMemoryCurrentFilters() {
+  const type = document.getElementById('knowledgeMemoryTypeFilter');
+  const review = document.getElementById('knowledgeMemoryReviewFilter');
+  const flag = document.getElementById('knowledgeMemoryFlagFilter');
+  return {
+    type: type ? String(type.value || '') : '',
+    review: review ? String(review.value || '') : '',
+    flag: flag ? String(flag.value || '') : '',
+  };
+}
+
+function knowledgeMemoryRows(data) {
+  const km = data || {};
+  const groups = [
+    ['personal_archive', km.personal_archive || []],
+    ['creative_knowledge', km.creative_knowledge || []],
+    ['news_knowledge', km.news_knowledge || []],
+    ['daily_intake_rule', km.daily_intake_rules || []],
+    ['temporal_marker', km.temporal_markers || []],
+    ['dream_run', km.dream_runs || []],
+  ];
+  const rows = [];
+  groups.forEach(([type, items]) => {
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      rows.push({
+        type,
+        id: knowledgeMemoryID(type, item),
+        title: knowledgeMemoryTitle(type, item),
+        source: knowledgeMemorySource(item),
+        status: knowledgeMemoryStatus(type, item),
+        flags: knowledgeMemoryFlags(type, item),
+        relatedStaging: relatedSourceRegistryStagingItems(item),
+        updated: knowledgeMemoryUpdated(item),
+        item,
+      });
+    });
+  });
+  return rows;
+}
+
+function renderKnowledgeMemoryLedger() {
+  const km = state.memory.knowledgeMemory || {};
+  ['knowledgeMemoryTypeFilter', 'knowledgeMemoryReviewFilter', 'knowledgeMemoryFlagFilter'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.onchange = renderKnowledgeMemoryLedger;
+  });
+  const personal = Array.isArray(km.personal_archive) ? km.personal_archive : [];
+  const creative = Array.isArray(km.creative_knowledge) ? km.creative_knowledge : [];
+  const news = Array.isArray(km.news_knowledge) ? km.news_knowledge : [];
+  const intake = Array.isArray(km.daily_intake_rules) ? km.daily_intake_rules : [];
+  const temporal = Array.isArray(km.temporal_markers) ? km.temporal_markers : [];
+  const dreams = Array.isArray(km.dream_runs) ? km.dream_runs : [];
+  const personalCount = document.getElementById('knowledgePersonalCount');
+  const sourceCount = document.getElementById('knowledgeSourceCount');
+  const dreamCount = document.getElementById('knowledgeDreamCount');
+  if (personalCount) personalCount.textContent = String(personal.length);
+  if (sourceCount) sourceCount.textContent = String(creative.length + news.length + intake.length + temporal.length);
+  if (dreamCount) dreamCount.textContent = String(dreams.length);
+  const body = document.getElementById('knowledgeMemoryBody');
+  if (body) {
+    const filters = knowledgeMemoryCurrentFilters();
+    const rows = knowledgeMemoryRows(km).filter((row) => {
+      if (filters.type && row.type !== filters.type) return false;
+      if (filters.review && String(row.status || '') !== filters.review) return false;
+      if (filters.flag && !(Array.isArray(row.flags) && row.flags.includes(filters.flag))) return false;
+      return true;
+    });
+    body.innerHTML = '';
+    if (rows.length === 0) {
+      body.innerHTML = '<tr><td colspan="9" class="small">No knowledge memory ledger items</td></tr>';
+    } else {
+      rows.forEach((row) => {
+        const flags = Array.isArray(row.flags) && row.flags.length ? row.flags.map((flag) => '<span class="badge ' + (flag === 'warning' ? 'warn' : '') + '">' + esc(flag) + '</span>').join(' ') : '<span class="badge">-</span>';
+        const related = Array.isArray(row.relatedStaging) && row.relatedStaging.length ? row.relatedStaging.map((item) => '<span class="badge">' + esc(short(item.id || item.ID || item.source_id || item.SourceID || '-', 26)) + '</span>').join(' ') : '<span class="badge">-</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(row.type) + '</td>' +
+          '<td class="code">' + esc(short(row.id || '-', 48)) + '</td>' +
+          '<td>' + esc(short(row.title || '-', 140)) + '</td>' +
+          '<td class="code">' + esc(short(row.source || '-', 90)) + '</td>' +
+          '<td>' + esc(row.status || '-') + '</td>' +
+          '<td>' + flags + '</td>' +
+          '<td>' + related + '</td>' +
+          '<td>' + esc(fdt(row.updated)) + '</td>' +
+          '<td>' + knowledgeMemoryReviewActions(row.type, row.id, row.status) + '</td>';
+        body.appendChild(tr);
+      });
+    }
+  }
+  renderKnowledgeMemoryDetail();
+}
+
+function renderKnowledgeMemoryDetail() {
+  const el = document.getElementById('knowledgeMemoryDetail');
+  if (!el) return;
+  const detail = state.memory.knowledgeMemoryDetail || null;
+  if (!detail) {
+    el.innerHTML = '';
+    return;
+  }
+  if (detail.error) {
+    el.innerHTML = '<span class="badge warn">' + esc(detail.error) + '</span>';
+    return;
+  }
+  const item = detail.item || {};
+  const original = knowledgeMemoryOriginalText(item);
+  const compressed = knowledgeMemoryCompressedText(item);
+  const warnings = knowledgeMemoryWarningCount(item);
+  const review = knowledgeMemoryStatus(detail.detail_type || '', item);
+  const related = relatedSourceRegistryStagingItems(item);
+  const relatedText = related.length ? related.map((staging) => String(staging.id || staging.ID || '-') + ' / ' + String(staging.validation_status || staging.ValidationStatus || '-')).join('\n') : '-';
+  const reviewComparison = renderKnowledgeMemoryReviewComparison(detail.detail_type || '', item, related);
+  const reviewResult = state.memory.knowledgeMemoryReviewResult || null;
+  el.innerHTML =
+    '<div><span class="badge">detail</span> ' +
+    '<span class="code">' + esc(detail.detail_type || '-') + ':' + esc(detail.id || '-') + '</span></div>' +
+    '<div class="grid" style="margin-top:8px">' +
+      '<div class="card"><h4>Original / Protected</h4><div class="small">protected=' + esc(String(Boolean(item.protected || item.Protected))) + '</div><pre style="white-space:pre-wrap;max-height:160px;overflow:auto">' + esc(original || '-') + '</pre></div>' +
+      '<div class="card"><h4>Compressed / Summary</h4><pre style="white-space:pre-wrap;max-height:160px;overflow:auto">' + esc(compressed || '-') + '</pre></div>' +
+      '<div class="card"><h4>Warning / Review</h4><div class="small">warnings=' + esc(String(warnings)) + '</div><div class="small">review_status=' + esc(review || '-') + '</div></div>' +
+      '<div class="card"><h4>Review / Promote Comparison</h4><pre style="white-space:pre-wrap;max-height:180px;overflow:auto">' + esc(reviewComparison) + '</pre></div>' +
+      '<div class="card"><h4>Review Result</h4><pre style="white-space:pre-wrap;max-height:180px;overflow:auto">' + esc(reviewResult ? JSON.stringify(reviewResult, null, 2) : '-') + '</pre></div>' +
+      '<div class="card"><h4>Related Source Registry Staging</h4><pre style="white-space:pre-wrap;max-height:160px;overflow:auto">' + esc(relatedText) + '</pre></div>' +
+    '</div>' +
+    '<pre style="white-space:pre-wrap;max-height:220px;overflow:auto">' + esc(JSON.stringify(item, null, 2)) + '</pre>';
+}
+
+function reviewKnowledgeMemoryItem(encodedPayload, reviewStatus, promote) {
+  let payload;
+  try {
+    payload = JSON.parse(decodeURIComponent(encodedPayload || '{}'));
+  } catch (err) {
+    state.memory.knowledgeMemoryReviewResult = {status: 'failed', error: 'invalid knowledge memory review payload'};
+    renderKnowledgeMemoryDetail();
+    return;
+  }
+  payload.review_status = reviewStatus;
+  payload.promote = Boolean(promote);
+  payload.reviewed_by = 'viewer';
+  fetch('/viewer/knowledge-memory/review', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  })
+    .then((r) => r.json().then((data) => ({ok: r.ok, status: r.status, data})).catch(() => ({ok: r.ok, status: r.status, data: {}})))
+    .then(({ok, status, data}) => {
+      state.memory.knowledgeMemoryReviewResult = ok ? data : {status: 'failed', http_status: status, response: data};
+      refreshKnowledgeMemoryLedger();
+      if (payload.detail_type && payload.id) fetchMemoryKnowledgeDetail(payload.detail_type, payload.id);
+    })
+    .catch((err) => {
+      state.memory.knowledgeMemoryReviewResult = {status: 'failed', error: String(err && err.message ? err.message : err)};
+      renderKnowledgeMemoryDetail();
+    });
+}
+
+function refreshKnowledgeMemoryLedger() {
+  fetch('/viewer/knowledge-memory?limit=20')
+    .then((r) => {
+      if (!r.ok) throw new Error('knowledge memory fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.knowledgeMemory = data || {};
+      renderKnowledgeMemoryLedger();
+    })
+    .catch((err) => {
+      state.memory.knowledgeMemoryDetail = {error: String(err && err.message ? err.message : err)};
+      renderKnowledgeMemoryDetail();
+      console.error(err);
+    });
+}
+
+function fetchMemoryKnowledgeDetail(detailType, id) {
+  const type = String(detailType || '').trim();
+  const detailID = String(id || '').trim();
+  if (!type || !detailID) return;
+  fetch('/viewer/knowledge-memory?detail_type=' + encodeURIComponent(type) + '&id=' + encodeURIComponent(detailID) + '&limit=100')
+    .then((r) => {
+      if (!r.ok) throw new Error('knowledge memory detail fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.knowledgeMemoryDetail = data;
+      renderKnowledgeMemoryDetail();
+    })
+    .catch((err) => {
+      state.memory.knowledgeMemoryDetail = {error: String(err && err.message ? err.message : err), detail_type: type, id: detailID};
+      renderKnowledgeMemoryDetail();
+      console.error(err);
+    });
+}
+
 function refreshMemoryEvents() {
   const params = new URLSearchParams();
   params.set('limit', '20');
@@ -266,6 +659,122 @@ function renderSourceRegistryRunStatus() {
   el.innerHTML = '<span class="' + cls + '">Source Registry run: ' + parts.join(' / ') + '</span>';
 }
 
+function renderSourceRegistryStaging() {
+  const body = document.getElementById('sourceRegistryStagingBody');
+  if (!body) return;
+  const items = Array.isArray(state.memory.sourceRegistryStaging) ? state.memory.sourceRegistryStaging : [];
+  body.innerHTML = '';
+  if (items.length === 0) {
+    body.innerHTML = '<tr><td colspan="9" class="small">No source registry staging items</td></tr>';
+    return;
+  }
+  items.forEach((item) => {
+    const warnings = sourceRegistryWarningCount(item);
+    const warningLabel = warnings > 0 ? '<span class="badge warn">' + esc(String(warnings)) + '</span>' : '<span class="badge">0</span>';
+    const relatedKnowledge = relatedKnowledgeMemoryRows(item);
+    const relatedKnowledgeLabel = relatedKnowledge.length ? relatedKnowledge.map((row) => '<span class="badge">' + esc(short(row.type + ':' + row.id, 30)) + '</span>').join(' ') : '<span class="badge">-</span>';
+    const id = esc(item.id || '');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="code">' + esc(short(item.id || '-', 46)) + '</td>' +
+      '<td>' + esc(item.validation_status || '-') + '</td>' +
+      '<td>' + esc(item.kind || '-') + '</td>' +
+      '<td class="code">' + esc(item.namespace || '-') + '</td>' +
+      '<td class="code">' + esc(short(item.source_id || item.source_url || '-', 50)) + '</td>' +
+      '<td>' + esc(short(item.summary_draft || item.raw_text || '-', 90)) + '</td>' +
+      '<td>' + warningLabel + '</td>' +
+      '<td>' + relatedKnowledgeLabel + '</td>' +
+      '<td>' +
+        '<button class="ctl-btn" onclick="validateSourceRegistryStaging(&quot;' + id + '&quot;)">Validate</button> ' +
+        '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;news&quot;)">News</button> ' +
+        '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;knowledge&quot;)">Knowledge</button> ' +
+        '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;memory&quot;)">Memory</button>' +
+      '</td>';
+    body.appendChild(tr);
+  });
+}
+
+function setSourceRegistryStagingStatus(message, warn) {
+  const el = document.getElementById('sourceRegistryStagingStatusLine');
+  if (!el) return;
+  el.innerHTML = message ? '<span class="' + (warn ? 'badge warn' : 'badge') + '">' + esc(message) + '</span>' : '';
+}
+
+function refreshSourceRegistryStaging() {
+  const statusEl = document.getElementById('sourceRegistryStagingStatus');
+  const status = statusEl && statusEl.value ? statusEl.value : 'pending';
+  fetch('/viewer/source-registry?action=staging&status=' + encodeURIComponent(status) + '&limit=20')
+    .then((r) => {
+      if (!r.ok) throw new Error('source registry staging fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.sourceRegistryStaging = Array.isArray(data.items) ? data.items : [];
+      renderSourceRegistryStaging();
+      setSourceRegistryStagingStatus('staging=' + state.memory.sourceRegistryStaging.length, false);
+    })
+    .catch((err) => {
+      setSourceRegistryStagingStatus(err.message || String(err), true);
+      console.error(err);
+    });
+}
+
+function validateSourceRegistryStaging(id) {
+  const stagingID = String(id || '').trim();
+  if (!stagingID) return;
+  const trustEl = document.getElementById('sourceRegistryStagingTrust');
+  const trustRaw = trustEl ? trustEl.value.trim() : '';
+  const minTrust = trustRaw ? Number(trustRaw) : 0.5;
+  fetch('/viewer/source-registry?action=validate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: stagingID, minimum_trust_score: Number.isFinite(minTrust) ? minTrust : 0.5}),
+  }).then((r) => {
+    if (!r.ok) throw new Error('source registry staging validation failed');
+    return r.json();
+  }).then((data) => {
+    const result = data && data.result ? data.result : {};
+    setSourceRegistryStagingStatus('validated=' + (result.Status || result.status || '-'), !(result.Passed || result.passed));
+    refreshSourceRegistryStaging();
+    refreshMemorySnapshot();
+  }).catch((err) => {
+    setSourceRegistryStagingStatus(err.message || String(err), true);
+    console.error(err);
+  });
+}
+
+function promoteSourceRegistryStaging(id, target) {
+  const stagingID = String(id || '').trim();
+  const promotionTarget = String(target || '').trim();
+  if (!stagingID || !promotionTarget) return;
+  const payload = {id: stagingID, target: promotionTarget};
+  if (promotionTarget === 'news') {
+    const category = document.getElementById('sourceRegistryStagingCategory');
+    payload.category = category && category.value.trim() ? category.value.trim() : 'general';
+  } else if (promotionTarget === 'knowledge') {
+    const domain = document.getElementById('sourceRegistryStagingDomain');
+    payload.domain = domain && domain.value.trim() ? domain.value.trim() : 'general';
+  } else if (promotionTarget === 'memory') {
+    const namespace = document.getElementById('sourceRegistryStagingNamespace');
+    payload.target_namespace = namespace ? namespace.value.trim() : '';
+  }
+  fetch('/viewer/source-registry?action=promote', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then((r) => {
+    if (!r.ok) throw new Error('source registry staging promotion failed');
+    return r.json();
+  }).then((data) => {
+    setSourceRegistryStagingStatus('promoted=' + (data.target || promotionTarget), false);
+    refreshSourceRegistryStaging();
+    refreshMemorySnapshot();
+  }).catch((err) => {
+    setSourceRegistryStagingStatus(err.message || String(err), true);
+    console.error(err);
+  });
+}
+
 function runSourceRegistryEntry(sourceID) {
   const id = String(sourceID || '').trim();
   if (!id) return;
@@ -278,6 +787,7 @@ function runSourceRegistryEntry(sourceID) {
     state.memory.sourceRegistryLastRun = data;
     renderSourceRegistryRunStatus();
     refreshSourceRegistry();
+    refreshSourceRegistryStaging();
     refreshMemorySnapshot();
   }).catch((err) => console.error(err));
 }
@@ -291,6 +801,7 @@ function refreshSourceRegistry() {
     .then((data) => {
       state.memory.sourceRegistry = Array.isArray(data.entries) ? data.entries : [];
       renderSourceRegistry();
+      refreshSourceRegistryStaging();
     })
     .catch((err) => console.error(err));
 }
@@ -360,6 +871,7 @@ function refreshMemorySnapshot() {
       renderMemorySnapshot();
       refreshMemoryLayers();
       refreshMemoryEvents();
+      refreshKnowledgeMemoryLedger();
       refreshSourceRegistry();
     })
     .catch((err) => console.error(err));

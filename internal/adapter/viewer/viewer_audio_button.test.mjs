@@ -127,14 +127,17 @@ globalThis.__viewerAudioHarness = {
 `;
 
   const elements = new Map();
+  const body = new FakeElement('body');
+  const main = new FakeElement('main');
   const document = {
+    body,
     createElement: (tag) => new FakeElement(tag),
     addEventListener: () => {},
     getElementById: (id) => {
       if (!elements.has(id)) elements.set(id, new FakeElement(id));
       return elements.get(id);
     },
-    querySelector: () => new FakeElement('main'),
+    querySelector: (selector) => selector === 'main' ? main : new FakeElement(selector),
     querySelectorAll: () => [],
   };
   const timers = [];
@@ -173,6 +176,7 @@ globalThis.__viewerAudioHarness = {
     saveSourceRegistryEntry() {},
     exportSourceRegistryYAML() {},
     importSourceRegistryYAML() {},
+    refreshSourceRegistryStaging() {},
     refreshNewsPack() {},
     renderRoleSelector() {},
     renderSystem() {},

@@ -117,6 +117,17 @@ const state = {
     events: [],
     searchCache: [],
     sourceRegistry: [],
+    sourceRegistryStaging: [],
+    knowledgeMemory: {
+      personal_archive: [],
+      creative_knowledge: [],
+      news_knowledge: [],
+      daily_intake_rules: [],
+      temporal_markers: [],
+      dream_runs: [],
+    },
+    knowledgeMemoryDetail: null,
+    knowledgeMemoryReviewResult: null,
     traces: [],
     selectedNewsIndex: 0,
   },
@@ -136,6 +147,68 @@ const state = {
   progressOpenJobs: {},
   ops: {
     persistedLogs: [],
+    toolHarnessEvents: [],
+    dciTraces: [],
+    dciLastResult: null,
+    sandboxes: [],
+    sandboxArtifacts: [],
+    sandboxPromotions: [],
+    sandboxDecisions: [],
+    sandboxGateLogs: [],
+    sandboxPromotionPreviewResult: null,
+    skillManifests: [],
+    skillTriggerLogs: [],
+    skillChangeLogs: [],
+    contributionGateLogs: [],
+    workstreams: [],
+    workstreamGoals: [],
+    workstreamArtifacts: [],
+    workstreamAnnotations: [],
+    workstreamSteering: [],
+    workstreamHeartbeats: [],
+    workstreamVaultUpdates: [],
+    workstreamVaultPreviewResult: null,
+    workstreamVaultReviewResult: null,
+    revenueMarketResearch: [],
+    revenueSNSPostMetrics: [],
+    revenueProducts: [],
+    revenueCustomerVoices: [],
+    revenueEvents: [],
+    revenueHumanDecisions: [],
+    revenueDailyRoutineReports: [],
+    revenueChannelDrafts: [],
+    revenueSummary: null,
+    revenueDecisionReviewResult: null,
+    personaDiscomfortLogs: [],
+    personaTriggerLogs: [],
+    personaCanonicalResponseLogs: [],
+    personaObservationLogs: [],
+    personaMetaProfileUpdates: [],
+    personaMetaReviewResult: null,
+    personaInterfaceSessions: [],
+    browserTraceRuns: [],
+    browserTraceAPICandidates: [],
+    browserTraceAPISchemas: [],
+    browserTraceAPICoverageReports: [],
+    browserTraceAPIArtifacts: [],
+    browserTraceAPIFetcherProposalResult: null,
+    complexityScans: [],
+    complexityHotspots: [],
+    complexityEvidence: [],
+    superAgentRuns: [],
+    superAgentSubagentTasks: [],
+    superAgentContextPacks: [],
+    superAgentMessageChannels: [],
+    superAgentTraceEvents: [],
+    superAgentRunQueue: [],
+    heavyWorkerRuntimeDiagnostics: null,
+    knowledgePersonalArchive: [],
+    knowledgeCreativeItems: [],
+    knowledgeNewsItems: [],
+    knowledgeDailyIntakeRules: [],
+    knowledgeTemporalMarkers: [],
+    knowledgeDreamRuns: [],
+    knowledgeMemoryDetail: null,
     lastMioReport: null,
     latestJobID: '',
     latestRoute: '',
@@ -514,6 +587,7 @@ const roleFilter = document.getElementById('roleFilter');
 const sourceRegistrySaveBtn = document.getElementById('sourceRegistrySaveBtn');
 const sourceRegistryExportBtn = document.getElementById('sourceRegistryExportBtn');
 const sourceRegistryImportBtn = document.getElementById('sourceRegistryImportBtn');
+const sourceRegistryStagingRefreshBtn = document.getElementById('sourceRegistryStagingRefreshBtn');
 const sourceRegistryYAML = document.getElementById('sourceRegistryYAML');
 const newsPackCategory = document.getElementById('newsPackCategory');
 const newsPackRefreshBtn = document.getElementById('newsPackRefreshBtn');
@@ -627,6 +701,7 @@ if (memoryEventNamespace) memoryEventNamespace.addEventListener('keydown', (e) =
 if (sourceRegistrySaveBtn) sourceRegistrySaveBtn.addEventListener('click', saveSourceRegistryEntry);
 if (sourceRegistryExportBtn) sourceRegistryExportBtn.addEventListener('click', exportSourceRegistryYAML);
 if (sourceRegistryImportBtn) sourceRegistryImportBtn.addEventListener('click', importSourceRegistryYAML);
+if (sourceRegistryStagingRefreshBtn) sourceRegistryStagingRefreshBtn.addEventListener('click', refreshSourceRegistryStaging);
 if (newsPackRefreshBtn) newsPackRefreshBtn.addEventListener('click', refreshNewsPack);
 if (newsPackCategory) newsPackCategory.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshNewsPack(); });
 
@@ -1260,6 +1335,8 @@ function renderEvidenceSummary() {
 function refreshDerivedViews() {
   renderDeskViews();
   renderOps();
+  if (typeof renderToolHarnessEvents === 'function') renderToolHarnessEvents();
+  if (typeof renderDCITraces === 'function') renderDCITraces();
   renderDebugPanels();
   renderOverview();
   renderRoleSelector();
@@ -1298,6 +1375,208 @@ function refreshOpsData() {
       }) || null;
       renderOps();
       renderDeskViews();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshToolHarnessData() {
+  fetch('/viewer/tool-harness/recent?limit=30')
+    .then((r) => {
+      if (!r.ok) throw new Error('tool harness fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.toolHarnessEvents = Array.isArray(data.items) ? data.items : [];
+      if (typeof renderToolHarnessEvents === 'function') renderToolHarnessEvents();
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshDCIData() {
+  fetch('/viewer/dci/recent?limit=20')
+    .then((r) => {
+      if (!r.ok) throw new Error('dci trace fetch failed');
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.dciTraces = Array.isArray(data.items) ? data.items : [];
+      if (typeof renderDCITraces === 'function') renderDCITraces();
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshSandboxData() {
+  fetch('/viewer/sandbox?limit=20')
+    .then((r) => {
+      if (!r.ok) return {sandboxes: [], artifacts: [], promotions: [], decisions: [], gate_logs: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.sandboxes = Array.isArray(data.sandboxes) ? data.sandboxes : [];
+      state.ops.sandboxArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      state.ops.sandboxPromotions = Array.isArray(data.promotions) ? data.promotions : [];
+      state.ops.sandboxDecisions = Array.isArray(data.decisions) ? data.decisions : [];
+      state.ops.sandboxGateLogs = Array.isArray(data.gate_logs) ? data.gate_logs : [];
+      if (typeof renderSandboxStatus === 'function') renderSandboxStatus();
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshSkillGovernanceData() {
+  fetch('/viewer/skill-governance/recent?limit=20')
+    .then((r) => {
+      if (!r.ok) return {manifests: [], trigger_logs: [], change_logs: [], contributions: [], coder_transcripts: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.skillManifests = Array.isArray(data.manifests) ? data.manifests : [];
+      state.ops.skillTriggerLogs = Array.isArray(data.trigger_logs) ? data.trigger_logs : [];
+      state.ops.skillChangeLogs = Array.isArray(data.change_logs) ? data.change_logs : [];
+      state.ops.contributionGateLogs = Array.isArray(data.contributions) ? data.contributions : [];
+      state.ops.coderTranscripts = Array.isArray(data.coder_transcripts) ? data.coder_transcripts : [];
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshWorkstreamData() {
+  fetch('/viewer/workstreams?limit=20')
+    .then((r) => {
+      if (!r.ok) return {workstreams: [], goals: [], artifacts: [], annotations: [], steering: [], heartbeats: [], vault_updates: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.workstreams = Array.isArray(data.workstreams) ? data.workstreams : [];
+      state.ops.workstreamGoals = Array.isArray(data.goals) ? data.goals : [];
+      state.ops.workstreamArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      state.ops.workstreamAnnotations = Array.isArray(data.annotations) ? data.annotations : [];
+      state.ops.workstreamSteering = Array.isArray(data.steering) ? data.steering : [];
+      state.ops.workstreamHeartbeats = Array.isArray(data.heartbeats) ? data.heartbeats : [];
+      state.ops.workstreamVaultUpdates = Array.isArray(data.vault_updates) ? data.vault_updates : [];
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshRevenueData() {
+  fetch('/viewer/revenue?limit=20')
+    .then((r) => {
+      if (!r.ok) return {market_research: [], sns_post_metrics: [], products: [], customer_voices: [], revenue_events: [], human_decisions: [], daily_routine_reports: [], channel_drafts: [], summary: null};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.revenueMarketResearch = Array.isArray(data.market_research) ? data.market_research : [];
+      state.ops.revenueSNSPostMetrics = Array.isArray(data.sns_post_metrics) ? data.sns_post_metrics : [];
+      state.ops.revenueProducts = Array.isArray(data.products) ? data.products : [];
+      state.ops.revenueCustomerVoices = Array.isArray(data.customer_voices) ? data.customer_voices : [];
+      state.ops.revenueEvents = Array.isArray(data.revenue_events) ? data.revenue_events : [];
+      state.ops.revenueHumanDecisions = Array.isArray(data.human_decisions) ? data.human_decisions : [];
+      state.ops.revenueDailyRoutineReports = Array.isArray(data.daily_routine_reports) ? data.daily_routine_reports : [];
+      state.ops.revenueChannelDrafts = Array.isArray(data.channel_drafts) ? data.channel_drafts : [];
+      state.ops.revenueSummary = data && data.summary && typeof data.summary === 'object' ? data.summary : null;
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshPersonaObservationData() {
+  fetch('/viewer/persona-observation?limit=20')
+    .then((r) => {
+      if (!r.ok) return {discomfort_logs: [], trigger_logs: [], canonical_response_logs: [], observation_logs: [], meta_profile_updates: [], interface_sessions: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.personaDiscomfortLogs = Array.isArray(data.discomfort_logs) ? data.discomfort_logs : [];
+      state.ops.personaTriggerLogs = Array.isArray(data.trigger_logs) ? data.trigger_logs : [];
+      state.ops.personaCanonicalResponseLogs = Array.isArray(data.canonical_response_logs) ? data.canonical_response_logs : [];
+      state.ops.personaObservationLogs = Array.isArray(data.observation_logs) ? data.observation_logs : [];
+      state.ops.personaMetaProfileUpdates = Array.isArray(data.meta_profile_updates) ? data.meta_profile_updates : [];
+      state.ops.personaInterfaceSessions = Array.isArray(data.interface_sessions) ? data.interface_sessions : [];
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshBrowserTraceAPIData() {
+  fetch('/viewer/browser-trace-api?limit=20')
+    .then((r) => {
+      if (!r.ok) return {trace_runs: [], api_candidates: [], api_schemas: [], coverage_reports: [], api_artifacts: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.browserTraceRuns = Array.isArray(data.trace_runs) ? data.trace_runs : [];
+      state.ops.browserTraceAPICandidates = Array.isArray(data.api_candidates) ? data.api_candidates : [];
+      state.ops.browserTraceAPISchemas = Array.isArray(data.api_schemas) ? data.api_schemas : [];
+      state.ops.browserTraceAPICoverageReports = Array.isArray(data.coverage_reports) ? data.coverage_reports : [];
+      state.ops.browserTraceAPIArtifacts = Array.isArray(data.api_artifacts) ? data.api_artifacts : [];
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshComplexityHotspotData() {
+  fetch('/viewer/complexity-hotspots?limit=20')
+    .then((r) => {
+      if (!r.ok) return {scans: [], hotspots: [], evidence: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.complexityScans = Array.isArray(data.scans) ? data.scans : [];
+      state.ops.complexityHotspots = Array.isArray(data.hotspots) ? data.hotspots : [];
+      state.ops.complexityEvidence = Array.isArray(data.evidence) ? data.evidence : [];
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshSuperAgentData() {
+  fetch('/viewer/superagent?limit=20')
+    .then((r) => {
+      if (!r.ok) return {agent_runs: [], subagent_tasks: [], context_packs: [], message_channels: [], trace_events: [], run_queue: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.superAgentRuns = Array.isArray(data.agent_runs) ? data.agent_runs : [];
+      state.ops.superAgentSubagentTasks = Array.isArray(data.subagent_tasks) ? data.subagent_tasks : [];
+      state.ops.superAgentContextPacks = Array.isArray(data.context_packs) ? data.context_packs : [];
+      state.ops.superAgentMessageChannels = Array.isArray(data.message_channels) ? data.message_channels : [];
+      state.ops.superAgentTraceEvents = Array.isArray(data.trace_events) ? data.trace_events : [];
+      state.ops.superAgentRunQueue = Array.isArray(data.run_queue) ? data.run_queue : [];
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshHeavyWorkerRuntimeDiagnostics() {
+  fetch('/viewer/ai-workflow/heavy-worker/runtime-diagnostics', { cache: 'no-store' })
+    .then((r) => {
+      if (!r.ok) return null;
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.heavyWorkerRuntimeDiagnostics = data || null;
+      renderOps();
+    })
+    .catch((err) => console.error(err));
+}
+
+function refreshKnowledgeMemoryData() {
+  fetch('/viewer/knowledge-memory?limit=20')
+    .then((r) => {
+      if (!r.ok) return {personal_archive: [], creative_knowledge: [], news_knowledge: [], daily_intake_rules: [], temporal_markers: [], dream_runs: []};
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.knowledgePersonalArchive = Array.isArray(data.personal_archive) ? data.personal_archive : [];
+      state.ops.knowledgeCreativeItems = Array.isArray(data.creative_knowledge) ? data.creative_knowledge : [];
+      state.ops.knowledgeNewsItems = Array.isArray(data.news_knowledge) ? data.news_knowledge : [];
+      state.ops.knowledgeDailyIntakeRules = Array.isArray(data.daily_intake_rules) ? data.daily_intake_rules : [];
+      state.ops.knowledgeTemporalMarkers = Array.isArray(data.temporal_markers) ? data.temporal_markers : [];
+      state.ops.knowledgeDreamRuns = Array.isArray(data.dream_runs) ? data.dream_runs : [];
+      renderOps();
     })
     .catch((err) => console.error(err));
 }
@@ -2534,6 +2813,18 @@ if (!initLiveMode()) {
 }
 initEvidenceFromQuery();
 refreshOpsData();
+refreshToolHarnessData();
+refreshDCIData();
+refreshSandboxData();
+refreshSkillGovernanceData();
+refreshWorkstreamData();
+refreshRevenueData();
+refreshPersonaObservationData();
+refreshBrowserTraceAPIData();
+refreshComplexityHotspotData();
+refreshSuperAgentData();
+refreshHeavyWorkerRuntimeDiagnostics();
+refreshKnowledgeMemoryData();
 refreshEvidence();
 refreshEvidenceSummary();
 refreshVerification();
@@ -2550,6 +2841,18 @@ setInterval(refreshViewerStatus, 5000);
 setInterval(refreshIdleStatus, 3000);
 setInterval(refreshIdleLogs, 5000);
 setInterval(refreshOpsData, 5000);
+setInterval(refreshToolHarnessData, 5000);
+setInterval(refreshDCIData, 5000);
+setInterval(refreshSandboxData, 5000);
+setInterval(refreshSkillGovernanceData, 5000);
+setInterval(refreshWorkstreamData, 5000);
+setInterval(refreshRevenueData, 5000);
+setInterval(refreshPersonaObservationData, 5000);
+setInterval(refreshBrowserTraceAPIData, 5000);
+setInterval(refreshComplexityHotspotData, 5000);
+setInterval(refreshSuperAgentData, 5000);
+setInterval(refreshHeavyWorkerRuntimeDiagnostics, 5000);
+setInterval(refreshKnowledgeMemoryData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
 setInterval(refreshVerification, 5000);

@@ -746,6 +746,14 @@ dependency install
 
 モデルには、次回の tool call を修正できる情報を返す。ログには `repair_type`、`issue_path`、`before_type`、`after_type`、`tool_name`、`model_name`、`actor`、`event_id` を保存する。
 
+MVPでは、Tool Harness mediation event を JSONL に保存し、Viewer API から recent event を確認できるようにする。
+
+```text
+GET /viewer/tool-harness/recent?limit=50
+```
+
+この API は diagnostics 用であり、tool call の raw input 本文は返さない。`raw_input_hash`、`validation_status`、`repairs_applied`、`relation_defaults_applied` を中心に表示する。
+
 ## 23. セキュリティ
 
 基本原則:
@@ -782,6 +790,8 @@ dependency install
 tool_harness:
   enabled: true
   mode: validate_then_repair
+  record_events: true
+  log_path: "./workspace/logs/tool_mediation.jsonl"
 
   default_limits:
     max_repair_attempts: 1
@@ -1024,6 +1034,8 @@ destructive command 修復実行件数 = 0
 - EventId logging
 - model-readable retry message
 
+2026-05-18 時点のMVP実装では、`internal/domain/toolharness` に code-based `ToolSpec` registry を置く。これは `required`, `optional`, `path`, `array<string>` field を tool ごとに宣言する最小 registry である。また、既存 `internal/domain/tool.ToolManifest` の `input_schema` から `ToolSpec` を導出する入口も追加し、manifest / JSON Schema driven registry の最小経路を確保する。
+
 ### Phase 2: Shape repair 4 種
 
 - optional null omission
@@ -1095,4 +1107,3 @@ RenCrow では、以下を原則とする。
 ```
 
 この設計により、RenCrow はローカル LLM をより安定して Worker / Coder として使えるようになる。
-

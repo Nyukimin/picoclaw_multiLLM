@@ -16,6 +16,8 @@ type PolicyConfig struct {
 	DenyCommands      []string
 	Workspace         string
 	WorkspaceEnforced bool
+	SandboxRoot       string
+	SandboxWriteOnly  bool
 }
 
 // PolicyEngine は実行可否判定を行う
@@ -57,6 +59,17 @@ func (e *PolicyEngine) evaluateShellPolicy(action execution.Action) (execution.P
 }
 
 func (e *PolicyEngine) evaluateWorkspacePolicy(action execution.Action) (execution.PolicyDecision, bool) {
+	if e.cfg.SandboxWriteOnly && action.Tool == "file_write" {
+		p, ok := action.Arguments["path"].(string)
+		if ok && e.guard.IsSafeSandboxWritePath(p, e.cfg.SandboxRoot) {
+			return execution.PolicyDecision{}, false
+		}
+		return execution.PolicyDecision{
+			Decision:      execution.DecisionDeny,
+			Reason:        fmt.Sprintf("path outside sandbox: %v", action.Arguments["path"]),
+			MatchedRuleID: "deny.sandbox.outside",
+		}, true
+	}
 	if !e.cfg.WorkspaceEnforced || action.Tool != "file_write" {
 		return execution.PolicyDecision{}, false
 	}

@@ -27,14 +27,15 @@ type CodeExecutionRequest struct {
 
 // DefaultCodeExecutor は標準的なCodeExecutor実装
 type DefaultCodeExecutor struct {
-	coder1          CoderAgent
-	coder2          CoderAgent
-	coder3          CoderAgent
-	coder4          CoderAgent // v4.1: 4th coder slot
-	workerExecution service.WorkerExecutionService
-	coderStatus     *CoderStatus // optional: coder busy state management
-	eventEmitter    func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
-	coderCaps       []capability.CoderCapability // Phase 3: nil = 静的チェーン（後方互換）
+	coder1           CoderAgent
+	coder2           CoderAgent
+	coder3           CoderAgent
+	coder4           CoderAgent // v4.1: 4th coder slot
+	workerExecution  service.WorkerExecutionService
+	coderStatus      *CoderStatus // optional: coder busy state management
+	eventEmitter     func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
+	coderCaps        []capability.CoderCapability // Phase 3: nil = 静的チェーン（後方互換）
+	proposalEvidence CoderProposalEvidenceRecorder
 }
 
 // NewDefaultCodeExecutor は新しいDefaultCodeExecutorを作成
@@ -58,6 +59,11 @@ func NewDefaultCodeExecutor(
 // WithCapabilities は動的コーダー選択に使う能力情報を設定する（Phase 3）
 func (e *DefaultCodeExecutor) WithCapabilities(caps []capability.CoderCapability) *DefaultCodeExecutor {
 	e.coderCaps = caps
+	return e
+}
+
+func (e *DefaultCodeExecutor) WithCoderProposalEvidenceRecorder(recorder CoderProposalEvidenceRecorder) *DefaultCodeExecutor {
+	e.proposalEvidence = recorder
 	return e
 }
 

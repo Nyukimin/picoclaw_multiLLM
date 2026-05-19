@@ -67,6 +67,33 @@ func TestPolicyEngine_Evaluate_StrictNetworkAllowlist(t *testing.T) {
 	}
 }
 
+func TestPolicyEngine_Evaluate_SandboxWriteOnly(t *testing.T) {
+	engine := NewPolicyEngine(PolicyConfig{
+		SandboxRoot:      "/workspace/sandbox",
+		SandboxWriteOnly: true,
+	})
+
+	allow := execution.Action{
+		Tool:      "file_write",
+		Arguments: map[string]any{"path": "/workspace/sandbox/sbx_1/output.md", "content": "x"},
+	}
+	if d := engine.Evaluate(allow); d.Decision != execution.DecisionAllow {
+		t.Fatalf("expected sandbox write allow, got %s reason=%s", d.Decision, d.Reason)
+	}
+
+	deny := execution.Action{
+		Tool:      "file_write",
+		Arguments: map[string]any{"path": "/workspace/docs/spec.md", "content": "x"},
+	}
+	d := engine.Evaluate(deny)
+	if d.Decision != execution.DecisionDeny {
+		t.Fatalf("expected non-sandbox write deny, got %s", d.Decision)
+	}
+	if d.MatchedRuleID != "deny.sandbox.outside" {
+		t.Fatalf("rule = %s", d.MatchedRuleID)
+	}
+}
+
 func TestPolicyEngine_Evaluate_DevModeAllowsRiskyProcess(t *testing.T) {
 	engine := NewPolicyEngine(PolicyConfig{
 		Mode: "dev",

@@ -685,6 +685,7 @@ CREATE TABLE IF NOT EXISTS skill_change_log (
   change_reason TEXT,
   expected_behavior_change TEXT,
   eval_result TEXT,
+  evidence_summary TEXT,
   human_approval_status TEXT,
   created_at TEXT NOT NULL
 );
@@ -822,6 +823,48 @@ human_diff_approval_rejected
 - 問題文の証拠要求
 - テスト結果の真偽記録
 - 実行していないことを報告しないルール
+
+## 23.7 実装状況
+
+2026-05-18 時点で、MVP のうち以下は production code へ着手済みである。
+
+```text
+実装済み:
+  - skill_manifest.yaml parser
+  - SkillManifest / SkillTriggerLog / SkillChangeLog / ContributionGateLog domain model
+  - keyword / intent trigger 判定
+  - skill_registry JSONL / SQLite persistence
+  - skill_trigger_log JSONL / SQLite persistence
+  - skill_change_log JSONL / SQLite persistence
+  - contribution_gate_log JSONL / SQLite persistence
+  - skill_governance.* config
+  - skill_governance.storage / sqlite_path による runtime store 切替
+  - 起動時 manifest registry 記録
+  - BootstrapService
+  - /viewer/skill-governance/recent API
+  - /viewer/skill-governance/bootstrap API
+  - /viewer/skill-governance/contribution-gate API
+  - /viewer/skill-governance/skill-changes API
+  - /viewer/skill-governance/skill-change-evals API
+  - bootstrap判定による triggered / missed trigger log
+  - DCI 明示検索開始時の Skill Bootstrap trigger log 保存
+  - Workstream Heartbeat draft runner 開始時の Skill Bootstrap trigger log 保存
+  - local MessageOrchestrator の non-CHAT route 開始時の Skill Bootstrap trigger log 保存
+  - DistributedOrchestrator の non-CHAT route 開始時の Skill Bootstrap trigger log 保存
+  - Contribution Gate の pass / blocked 判定と停止理由
+  - Skill Change Gate の pass / blocked 判定と停止理由
+  - 3件以上の before / after fixture を評価する Skill Change Evaluation runner
+  - Skill Change Evaluation request に実 Skill diff / agent transcript 証跡を添付し、diff / transcript evidence case へ自動展開する API
+  - Skill Change Evaluation request の `skill_diff_path` / `agent_transcript_path` から、安全な相対パス上の証跡ファイルを読み込む API
+  - SkillChangeLog へ raw diff / transcript 全文ではなく evidence_summary を保存する
+  - Viewer Ops Skill Governance summary と missed triggers 件数表示
+
+残作業:
+  - DCI / Workstream のうち、明示検索と Heartbeat 以外の起動点への展開
+  - skill_trigger_missed の運用警告
+  - External Contribution Gate と外部PR実作成フローの接続
+  - Skill diff / agent transcript の取得元を Coder runtime / transcript store へ直結すること。現時点では API request に添付された証跡、または `skills/`, `commands/`, `docs/`, `vault/`, `workspace/`, `sandbox/`, `tmp/`, `logs/`, `.o11y/` 配下の安全な相対パスで渡された証跡を評価ケースへ自動展開する段階までとする。
+```
 
 ## 24. 成功指標
 

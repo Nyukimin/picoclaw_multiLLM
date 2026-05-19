@@ -218,6 +218,47 @@
     <div class="ops-grid" id="opsCards"></div>
     <div class="debug-panels">
       <div class="debug-box">
+        <h4>Revenue Human Decision Gate</h4>
+        <div class="small" style="margin-bottom:8px">外部公開、高単価 offer、顧客の声利用などはここで承認・却下を記録します。承認は送信や公開の実行ではありません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>decision</th><th>type</th><th>status</th><th>description</th><th>action</th></tr></thead>
+          <tbody id="revenueDecisionBody"></tbody>
+        </table>
+        <pre id="revenueDecisionResult" class="small llm-ops-raw">revenue decision review: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Revenue Channel Drafts</h4>
+        <div class="small" style="margin-bottom:8px">LINE / email / Discord などの closed channel 向け下書きを確認します。ここでは外部送信を実行しません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>draft</th><th>channel</th><th>status</th><th>source</th><th>body</th><th>send</th></tr></thead>
+          <tbody id="revenueChannelDraftBody"></tbody>
+        </table>
+        <pre id="revenueChannelDraftResult" class="small llm-ops-raw">revenue channel drafts: draft only / external send requires human approval</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Revenue Drilldown</h4>
+        <div class="small" style="margin-bottom:8px">KPI 推移、商品別売上、顧客の声分類を確認します。これは分析表示であり、外部送信や販売操作は行いません。</div>
+        <pre id="revenueDrilldownResult" class="small llm-ops-raw">revenue drilldown: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Workstream Vault Review</h4>
+        <div class="small" style="margin-bottom:8px">Vault update の承認・却下を記録します。proposed_content 付き承認は vault_root 配下の対象ファイルへ適用されます。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>update</th><th>file</th><th>status</th><th>proposal</th><th>action</th></tr></thead>
+          <tbody id="workstreamVaultReviewBody"></tbody>
+        </table>
+        <pre id="workstreamVaultReviewResult" class="small llm-ops-raw">workstream vault review: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Persona Meta Review</h4>
+        <div class="small" style="margin-bottom:8px">Meta profile update の承認・却下を記録します。承認は character_root 配下の observers/{observer}/meta/{target}.md へ追記します。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>update</th><th>target</th><th>status</th><th>proposal</th><th>action</th></tr></thead>
+          <tbody id="personaMetaReviewBody"></tbody>
+        </table>
+        <pre id="personaMetaReviewResult" class="small llm-ops-raw">persona meta review: -</pre>
+      </div>
+      <div class="debug-box">
         <h4>GPU メモリ占有（LLM/STT/TTS）</h4>
         <div id="debugGpuSummary" class="small">loading...</div>
       </div>
@@ -263,6 +304,30 @@
           <thead><tr><th>Current Focus</th><th>Value</th></tr></thead>
           <tbody id="opsFocusBody"></tbody>
         </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Tool</th><th>Status</th><th>Repairs</th><th>Defaults</th><th>Input Hash</th></tr></thead>
+          <tbody id="toolHarnessBody"></tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <div class="debug-actions">
+          <input id="dciSearchInput" type="text" placeholder="DCI query (docs/10_新仕様 など)" />
+          <button id="dciSearchBtn" type="button">DCI Search</button>
+        </div>
+        <pre id="dciSearchResult" class="small llm-ops-raw">DCI manual search result: -</pre>
+        <table>
+          <thead><tr><th>Time</th><th>Event</th><th>Query</th><th>Evidence</th><th>Status</th><th>Scope</th></tr></thead>
+          <tbody id="dciTraceBody"></tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Sandbox</th><th>Type</th><th>Status</th><th>Path</th><th>Promotion</th><th>Gate</th><th>Action</th></tr></thead>
+          <tbody id="sandboxBody"></tbody>
+        </table>
+        <pre id="sandboxPromotionPreviewResult" class="small llm-ops-raw">sandbox promotion diff preview: -</pre>
       </div>
       <div class="table-wrap">
         <table>
@@ -462,6 +527,48 @@
       <div class="card"><h4>L3</h4><div id="memoryL3Count" class="ops-big">0</div><div class="ops-sub">confirmed memory</div></div>
       <div class="card"><h4>Events</h4><div id="memoryEventCount" class="ops-big">0</div><div class="ops-sub">L1 event log</div></div>
       <div class="card"><h4>Search Cache</h4><div id="searchCacheCount" class="ops-big">0</div><div class="ops-sub">fresh/recent cache</div></div>
+      <div class="card"><h4>Personal Archive</h4><div id="knowledgePersonalCount" class="ops-big">0</div><div class="ops-sub">protected originals</div></div>
+      <div class="card"><h4>Knowledge Sources</h4><div id="knowledgeSourceCount" class="ops-big">0</div><div class="ops-sub">creative / news / intake</div></div>
+      <div class="card"><h4>Dream Runs</h4><div id="knowledgeDreamCount" class="ops-big">0</div><div class="ops-sub">reviewed consolidation</div></div>
+    </div>
+    <div class="panel-head" style="margin-top:12px">
+      <h3>Knowledge Memory Ledger</h3>
+      <div class="sub">Personal originals / creative knowledge / news sources / intake rules / temporal markers / dream consolidation</div>
+    </div>
+    <div class="filters" style="margin-bottom:8px">
+      <select id="knowledgeMemoryTypeFilter">
+        <option value="">all types</option>
+        <option value="personal_archive">personal archive</option>
+        <option value="creative_knowledge">creative knowledge</option>
+        <option value="news_knowledge">news knowledge</option>
+        <option value="daily_intake_rule">daily intake rule</option>
+        <option value="temporal_marker">temporal marker</option>
+        <option value="dream_run">dream run</option>
+      </select>
+      <select id="knowledgeMemoryReviewFilter">
+        <option value="">all review states</option>
+        <option value="pending">pending</option>
+        <option value="approved">approved</option>
+        <option value="rejected">rejected</option>
+        <option value="promoted">promoted</option>
+        <option value="protected">protected</option>
+        <option value="enabled">enabled</option>
+        <option value="disabled">disabled</option>
+      </select>
+      <select id="knowledgeMemoryFlagFilter">
+        <option value="">all flags</option>
+        <option value="original">original</option>
+        <option value="protected">protected</option>
+        <option value="compressed">compressed</option>
+        <option value="warning">warning</option>
+      </select>
+    </div>
+    <div id="knowledgeMemoryDetail" class="small" style="margin-bottom:8px"></div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Type</th><th>ID</th><th>Title / Topic</th><th>Source</th><th>Status</th><th>Flags</th><th>Related Staging</th><th>Updated</th><th>Action</th></tr></thead>
+        <tbody id="knowledgeMemoryBody"></tbody>
+      </table>
     </div>
     <div class="table-wrap" style="margin-bottom:12px">
       <table>
@@ -509,6 +616,25 @@
       <table>
         <thead><tr><th>ID</th><th>Kind</th><th>Trust</th><th>Interval</th><th>Status</th><th>URL</th><th>Run</th></tr></thead>
         <tbody id="sourceRegistryBody"></tbody>
+      </table>
+    </div>
+    <div class="filters">
+      <select id="sourceRegistryStagingStatus">
+        <option value="pending">pending</option>
+        <option value="validated">validated</option>
+        <option value="rejected">rejected</option>
+      </select>
+      <input id="sourceRegistryStagingTrust" placeholder="min trust 0.5">
+      <input id="sourceRegistryStagingCategory" placeholder="news category">
+      <input id="sourceRegistryStagingDomain" placeholder="knowledge domain">
+      <input id="sourceRegistryStagingNamespace" placeholder="memory namespace">
+      <button id="sourceRegistryStagingRefreshBtn" class="ctl-btn" type="button">Refresh Staging</button>
+    </div>
+    <div id="sourceRegistryStagingStatusLine" class="small" style="margin-bottom:8px"></div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>ID</th><th>Status</th><th>Kind</th><th>Namespace</th><th>Source</th><th>Summary</th><th>Warnings</th><th>Knowledge</th><th>Action</th></tr></thead>
+        <tbody id="sourceRegistryStagingBody"></tbody>
       </table>
     </div>
     <div class="table-wrap" style="margin-bottom:12px">
@@ -758,7 +884,7 @@
 <script src="/viewer/assets/js/tabs/reports.js?v=20260517-desk-regenerated" defer></script>
 <script src="/viewer/assets/js/tabs/overview.js?v=20260510-tabs-overview" defer></script>
 <script src="/viewer/assets/js/tabs/system.js?v=20260510-tabs-system" defer></script>
-<script src="/viewer/assets/js/tabs/memory.js?v=20260510-tabs-memory" defer></script>
+<script src="/viewer/assets/js/tabs/memory.js?v=20260518-knowledge-relations" defer></script>
 <script src="/viewer/assets/js/tabs/news-pack.js?v=20260510-tabs-memory" defer></script>
 <script src="/viewer/assets/js/tabs/roles.js?v=20260510-tabs-roles" defer></script>
 <script src="/viewer/assets/js/tabs/progress.js?v=20260510-tabs-progress" defer></script>

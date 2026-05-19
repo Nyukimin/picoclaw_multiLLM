@@ -31,6 +31,7 @@ type distributedRouteDispatcher struct {
 	routeToAgent        distributedRouteToAgent
 	withAttribution     distributedAttributionGuardFunc
 	executeToAgent      distributedAgentTransportExecutor
+	workflowEvents      WorkflowEventRecorder
 }
 
 func newDistributedRouteDispatcher(
@@ -71,6 +72,10 @@ func (d *distributedRouteDispatcher) SetAutonomousExecutor(execute distributedAu
 	d.executeAutonomous = execute
 }
 
+func (d *distributedRouteDispatcher) SetWorkflowEventRecorder(recorder WorkflowEventRecorder) {
+	d.workflowEvents = recorder
+}
+
 func (d *distributedRouteDispatcher) ExecuteTask(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID string) (string, error) {
 	if route != routing.RouteCHAT {
 		return d.executeAutonomous(ctx, t, route, sessionID, ttsSessionID)
@@ -103,14 +108,21 @@ func (d *distributedRouteDispatcher) ExecuteDirect(ctx context.Context, t task.T
 		}
 		return resp, err
 	}
-	if route == routing.RouteANALYZE && d.heavy != nil {
+	if route == routing.RouteANALYZE {
+		if d.heavy == nil {
+			return "", fmt.Errorf("no heavy agent available")
+		}
 		d.emit("agent.start", "mio", "heavy", "分析中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "started", "Heavy Worker started", jid)
 		streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
 		resp, err := d.heavy.Generate(streamCtx, t)
 		if err == nil {
 			d.emit("agent.response", "heavy", "mio", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 			d.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 			ttsStream.Finalize(ctx, resp)
+			recordHeavyWorkflowEvent(ctx, d.workflowEvents, "completed", "Heavy Worker completed", jid)
+		} else {
+			recordHeavyWorkflowEvent(ctx, d.workflowEvents, "failed", err.Error(), jid)
 		}
 		return resp, err
 	}

@@ -835,6 +835,36 @@ tool_sequence_recovered
 
 ---
 
+## 21.1 実装状況
+
+MVP として、SuperAgent Harness の運用台帳は実装済み。
+
+実装済み:
+
+- `internal/domain/superagent` に `AgentRun` / `SubagentTask` / `ContextPack` / `MessageChannel` / `TraceEvent` と validation を追加。
+- `SubagentTask` は `scope` と `termination_condition` を必須化。
+- `ContextPack` は `max_context_pack_tokens` を超える記録を拒否。
+- `internal/infrastructure/persistence/superagent` に JSONL store と SQLite store を追加。
+- `superagent_harness.*` config を追加し、`return_summary_only` と `trace_agent_run` を有効時の必須条件にした。
+- `superagent_harness.storage` / `sqlite_path` により、runtime で JSONL / SQLite store を切り替えられる。
+- `/viewer/superagent` と各作成 API を追加。
+- Viewer Ops に `SuperAgent Harness` summary を追加。
+- external control Go client は SuperAgent / AI Workflow / Workstream Artifact / Sandbox / Promotion API に接続済み。
+- external control から正式環境変更を行う場合は `SubmitPromotionWorkflow` を使い、Promotion Gate approve、明示 apply intent、Human approval、post-apply verification path が揃う場合だけ apply へ進む。
+- `/viewer/ai-workflow/external-control/check` と `ai_workflow.external_control_*` policy により、actor / channel / action 単位で external control を判定できる。
+- `SubmitPromotionWorkflow` は `external_control` 指定時、policy が `allowed` を返さない限り promotion request / apply へ進まない。
+- `internal/application/superagent.RunController` により、local / distributed Lead Agent run の context を `run_id` ごとに登録できる。
+- `/viewer/superagent/runs/pause` は台帳状態を `paused` に更新し、実行中 run がある場合は context cancellation を要求する。
+- `/viewer/superagent/runs/resume` は pause marker を解除する bookkeeping として扱い、停止済み goroutine を自動再起動しない。
+
+未実装 / 残作業:
+
+- queue / scheduler レベルでの高度な再開制御。
+- completed subtask のさらなる context offload / summary-only 圧縮。
+- Worktree / Project Init Pack / Project Memory index との追加的な統合改善。
+
+---
+
 ## 22. 成功指標
 
 ```text

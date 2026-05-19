@@ -846,6 +846,42 @@ complexity_patch_rejected
 - Goal Contract 生成
 - Human approval 必須
 - test 追加提案
+- sandbox metadata がある場合は Sandbox Promotion Request を作成
+- diff / test / rollback / approval が不足する場合は Promotion Gate で approve しない
+
+## 22.6 実装状況
+
+MVP として、Report-only の静的検出基盤は実装済み。
+
+実装済み:
+
+- `internal/domain/complexity` に `ScanEvent` / `Hotspot` / `HotspotEvidence` と validation を追加。
+- `internal/application/complexity` に report-only analyzer を追加。
+- nested loop、repeated lookup、N+1 候補、render hotspot 候補の簡易検出。
+- hotspot に `estimated_complexity`、`estimated_after`、`risk_level`、`priority_score`、`confidence`、`required_tests` を付与。
+- `internal/infrastructure/persistence/complexity` に JSONL store と SQLite store を追加。
+- `complexity_hotspot.*` config を追加し、`storage` / `sqlite_path` runtime 切替、`default_mode=report_only` と `auto_apply=false` を validation で強制。
+- `/viewer/complexity-hotspots` と `/viewer/complexity-hotspots/scan` を追加。
+- Viewer Ops に `Complexity Hotspots` summary を追加。
+- `skills/core/codebase-complexity-hotspot/` に `skill_manifest.yaml`、`SKILL.md`、checklist、report template、patterns、risk matrix、evals を配置。
+- `/viewer/complexity-hotspots/scan` 実行時に Skill Bootstrap へ `complexity_hotspot_scan` と `core.codebase-complexity-hotspot` を記録する。
+- `candidate_patterns` による候補ファイル事前抽出を scan API / analyzer で利用できる。
+- `/viewer/complexity-hotspots/scan` の結果から Markdown の `complexity_hotspot_report` artifact を生成し、JSONL / SQLite に保存する。
+- `workstream_id` がある scan report は Workstream Artifact に `pending_review` として登録する。
+- `auto_candidate_patterns=true` の scan API で、直近 DCI trace / rg command 由来の語を `candidate_patterns` へ自動マージできる。
+- `/viewer/complexity-hotspots/proposals` で選択 hotspot を Workstream Goal Contract と `pending_review` Artifact へ接続し、patch は未適用のまま Human approval 待ちにできる。
+- `/viewer/complexity-hotspots/proposals` で選択 hotspot の `complexity_patch_proposal` Markdown artifact を生成し、必要テスト・risk・Human approval 必須条件を表示できる。
+- `/viewer/complexity-hotspots/proposals` で選択 hotspot の `complexity_coder_diff_request` Markdown artifact を生成し、Coder が具体 diff を作るための境界、必要テスト、Promotion Gate 条件を review-only で残せる。
+- risk が `high` の hotspot は、通常 proposal とは別に `High-risk complexity review` Goal と `complexity_high_risk_review_request` Artifact へ分岐し、別 Goal / PR / migration review checklist 前提にできる。
+- `/viewer/complexity-hotspots/proposals` に `sandbox_id` と diff / test / rollback / approval metadata が渡された場合、Sandbox Promotion Request と Gate Log を作成し、`sandbox_promotion` / `sandbox_decision` / `sandbox_gate_log` を返す。
+- 具体 diff、test result、rollback plan、human approval が揃わない場合、Sandbox Promotion Gate は `approve` せず `needs_review` / `needs_more_tests` として残す。
+- `complexity_patch_proposal` と `complexity_coder_diff_request` Markdown artifact に External PR Review Checklist と Migration / High-risk Review Checklist を追加し、外部 PR 自動作成禁止、実在問題確認、既存 issue / PR 確認、1 hotspot = 1 PR / 1 intent、完全 diff / test / rollback / risk 説明 / Human review 必須を明記できる。
+- `/viewer/complexity-hotspots/concrete-diffs` で Coder runtime から渡された unified diff を対象 hotspot file scoped として検証し、`complexity_concrete_diff_proposal` Markdown artifact と Workstream `pending_review` Artifact に保存できる。
+- concrete diff API に `sandbox_id` と diff / test / rollback / approval metadata が渡された場合、Sandbox Promotion Request と Gate Log を作成する。証跡不足なら `approve` せず `needs_review` / `needs_more_tests` として残す。
+
+未実装 / 残作業:
+
+- Coder model が `complexity_coder_diff_request` を受けて自律的に具体 diff を生成し、`/viewer/complexity-hotspots/concrete-diffs` へ投入する orchestration。
 
 ## 23. 成功指標
 
@@ -912,4 +948,3 @@ Human Decision Gate
 まず発見し、証拠を出し、リスクを分類し、必要テストを定義する。
 修正はその後に行う。
 ```
-

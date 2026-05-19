@@ -17,6 +17,11 @@ class FakeElement {
     if (!this.children.length) this.children.push(new FakeElement('span'));
     return this.children[0];
   }
+  appendChild(child) {
+    this.children.push(child);
+    this.innerHTML += child.innerHTML || child.textContent || '';
+    return child;
+  }
 }
 
 function sourceBetween(source, startNeedle, endNeedle) {
@@ -58,6 +63,14 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="memoryLayerBody"/);
   assert.match(html, /id="memoryEventBody"/);
   assert.match(html, /id="searchCacheBody"/);
+  assert.match(html, /id="knowledgeMemoryBody"/);
+  assert.match(html, /id="knowledgeMemoryDetail"/);
+  assert.match(html, /id="knowledgeMemoryTypeFilter"/);
+  assert.match(html, /id="knowledgeMemoryReviewFilter"/);
+  assert.match(html, /id="knowledgeMemoryFlagFilter"/);
+  assert.match(html, /id="knowledgePersonalCount"/);
+  assert.match(html, /id="knowledgeSourceCount"/);
+  assert.match(html, /id="knowledgeDreamCount"/);
   assert.match(html, /id="memoryPromoteKind"/);
   assert.match(html, /id="memoryPromoteID"/);
   assert.match(html, /id="sourceRegistryBody"/);
@@ -71,6 +84,12 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="llmMemoryRoles"/);
   assert.match(html, /id="llmRuntimeConfigCards"/);
   assert.match(html, /id="llmOpsConfigState"/);
+  assert.match(html, /id="toolHarnessBody"/);
+  assert.match(html, /id="dciTraceBody"/);
+  assert.match(html, /id="dciSearchInput"/);
+  assert.match(html, /id="dciSearchBtn"/);
+  assert.match(html, /id="dciSearchResult"/);
+  assert.match(html, /id="sandboxBody"/);
   assert.match(html, /data-tab="news-pack"/);
   assert.match(html, /id="panel-news-pack"/);
   assert.match(html, /id="newsPackDetail"/);
@@ -81,6 +100,12 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(memoryJs, /item\.Decision/);
   assert.match(memoryJs, /item\.Reason/);
   assert.match(memoryJs, /function refreshMemorySnapshot/);
+  assert.match(memoryJs, /function refreshKnowledgeMemoryLedger/);
+  assert.match(memoryJs, /function fetchMemoryKnowledgeDetail/);
+  assert.match(memoryJs, /function relatedSourceRegistryStagingItems/);
+  assert.match(memoryJs, /function relatedKnowledgeMemoryRows/);
+  assert.match(html, /Related Staging/);
+  assert.match(html, /<th>Knowledge<\/th>/);
   assert.match(newsPackJs, /function refreshNewsPack/);
   assert.match(newsPackJs, /function renderNewsPackPanel/);
   assert.match(newsPackJs, /function newsUsageCount/);
@@ -137,6 +162,45 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(opsJs, /function memoryGiB/);
   assert.match(opsJs, /function renderMemoryProcessList/);
   assert.match(opsJs, /function renderLocalLLMRuntimeConfig/);
+  assert.match(opsJs, /function renderToolHarnessEvents/);
+  assert.match(opsJs, /function toolHarnessOpsCard/);
+  assert.match(opsJs, /function renderDCITraces/);
+  assert.match(opsJs, /function dciOpsCard/);
+  assert.match(opsJs, /function bindDCISearchControls/);
+  assert.match(opsJs, /\/viewer\/dci\/search/);
+  assert.match(opsJs, /function renderSandboxStatus/);
+  assert.match(opsJs, /function sandboxOpsCard/);
+  assert.match(opsJs, /sandboxArtifacts/);
+  assert.match(opsJs, /sandboxGateLogs/);
+  assert.match(opsJs, /function previewSandboxPromotion/);
+  assert.match(opsJs, /sandbox promotion diff preview/);
+  assert.match(opsJs, /function sandboxDiffRiskFlags/);
+  assert.match(opsJs, /risk flags/);
+  assert.match(opsJs, /manual review/);
+  assert.ok(viewer.includes('/viewer/sandbox/promotions/preview'));
+  assert.match(opsJs, /function skillGovernanceOpsCard/);
+  assert.match(opsJs, /skillManifests/);
+  assert.match(opsJs, /coderTranscripts/);
+  assert.match(opsJs, /skill_trigger_missed requires review/);
+  assert.match(opsJs, /function workstreamOpsCard/);
+  assert.match(opsJs, /function latestWorkstreamVaultUpdates/);
+  assert.match(opsJs, /function renderWorkstreamVaultReviews/);
+  assert.match(opsJs, /function reviewWorkstreamVaultUpdate/);
+  assert.match(opsJs, /function formatWorkstreamVaultPreview/);
+  assert.match(opsJs, /preview side-by-side/);
+  assert.match(opsJs, /function revenueOpsCard/);
+  assert.match(opsJs, /function latestPersonaMetaProfileUpdates/);
+  assert.match(opsJs, /function renderPersonaMetaReviews/);
+  assert.match(opsJs, /function reviewPersonaMetaUpdate/);
+  assert.match(opsJs, /function complexityHotspotOpsCard/);
+  assert.match(opsJs, /function superAgentOpsCard/);
+  assert.match(opsJs, /function heavyWorkerRuntimeOpsCard/);
+  assert.match(opsJs, /function knowledgeMemoryOpsCard/);
+  assert.match(opsJs, /function fetchKnowledgeMemoryDetail/);
+  assert.match(opsJs, /Knowledge Memory Detail/);
+  assert.match(viewer, /refreshHeavyWorkerRuntimeDiagnostics/);
+  assert.match(viewer, /\/viewer\/ai-workflow\/heavy-worker\/runtime-diagnostics/);
+  assert.match(opsJs, /workstreamGoals/);
   assert.match(css, /html\{width:100%;max-width:100vw;overflow-x:hidden\}/);
   assert.match(css, /linear-gradient\(135deg,#050713/);
   assert.match(css, /body::after/);
@@ -157,6 +221,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(memoryJs, /function refreshSourceRegistry/);
   assert.match(memoryJs, /function runSourceRegistryEntry/);
   assert.match(memoryJs, /function renderSourceRegistryRunStatus/);
+  assert.match(memoryJs, /function refreshSourceRegistryStaging/);
+  assert.match(memoryJs, /function validateSourceRegistryStaging/);
+  assert.match(memoryJs, /function promoteSourceRegistryStaging/);
+  assert.match(html, /id="sourceRegistryStagingBody"/);
   assert.match(memoryJs, /sourceRegistryLastRun/);
   assert.match(memoryJs, /warnings=/);
   assert.match(memoryJs, /function refreshRecallTraces/);
@@ -181,6 +249,85 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(viewer.includes('/viewer/memory/events'));
   assert.ok(viewer.includes('/viewer/source-registry'));
   assert.ok(viewer.includes('/viewer/recall/traces'));
+  assert.ok(viewer.includes('/viewer/tool-harness/recent'));
+  assert.ok(viewer.includes('/viewer/dci/recent'));
+  assert.ok(viewer.includes('/viewer/sandbox'));
+  assert.ok(viewer.includes('/viewer/skill-governance/recent'));
+  assert.ok(viewer.includes('missed triggers'));
+  assert.ok(viewer.includes('coder_transcripts'));
+  assert.ok(viewer.includes('/viewer/workstreams'));
+  assert.ok(viewer.includes('workstreamGoals'));
+  assert.ok(viewer.includes('workstreamArtifacts'));
+  assert.ok(viewer.includes('workstreamSteering'));
+  assert.ok(viewer.includes('workstreamHeartbeats'));
+  assert.ok(viewer.includes('workstreamVaultUpdates'));
+  assert.ok(viewer.includes('workstreamVaultReviewResult'));
+  assert.ok(viewer.includes('workstreamVaultPreviewResult'));
+  assert.ok(viewer.includes('/viewer/workstreams/vault-updates/review'));
+  assert.ok(viewer.includes('/viewer/workstreams/vault-updates/preview'));
+  assert.ok(viewer.includes('Workstream Vault Review'));
+  assert.ok(viewer.includes('function previewWorkstreamVaultUpdate'));
+  assert.ok(viewer.includes('/viewer/revenue'));
+  assert.ok(viewer.includes('/viewer/revenue/human-decision-gate/review'));
+  assert.ok(viewer.includes('revenueProducts'));
+  assert.ok(viewer.includes('revenueSummary'));
+  assert.ok(viewer.includes('kpi_trend'));
+  assert.ok(viewer.includes('product_sales'));
+  assert.ok(viewer.includes('customer_voice_types'));
+  assert.ok(viewer.includes('revenueChannelDrafts'));
+  assert.ok(viewer.includes('channel_drafts'));
+  assert.ok(viewer.includes('channel drafts'));
+  assert.ok(viewer.includes('Revenue Channel Drafts'));
+  assert.ok(viewer.includes('revenueChannelDraftBody'));
+  assert.ok(viewer.includes('function renderRevenueChannelDrafts'));
+  assert.ok(viewer.includes('external_send_applied'));
+  assert.ok(viewer.includes('draft only'));
+  assert.ok(viewer.includes('Revenue Drilldown'));
+  assert.ok(viewer.includes('revenueDrilldownResult'));
+  assert.ok(viewer.includes('function renderRevenueDrilldown'));
+  assert.ok(viewer.includes('function revenueDrilldownLines'));
+  assert.ok(viewer.includes('KPI trend graph'));
+  assert.ok(viewer.includes('Product sales graph'));
+  assert.ok(viewer.includes('Customer voice graph'));
+  assert.ok(viewer.includes('revenueHumanDecisions'));
+  assert.ok(viewer.includes('revenueDecisionReviewResult'));
+  assert.ok(viewer.includes('function reviewRevenueHumanDecision'));
+  assert.ok(viewer.includes('paid events'));
+  assert.ok(viewer.includes('human decisions pending'));
+  assert.ok(viewer.includes('Revenue Human Decision Gate'));
+  assert.ok(viewer.includes('/viewer/persona-observation'));
+  assert.ok(viewer.includes('personaObservationLogs'));
+  assert.ok(viewer.includes('personaMetaProfileUpdates'));
+  assert.ok(viewer.includes('personaMetaReviewResult'));
+  assert.ok(viewer.includes('/viewer/persona-observation/meta-updates/review'));
+  assert.ok(viewer.includes('Persona Meta Review'));
+  assert.ok(viewer.includes('Persona Observation'));
+  assert.ok(viewer.includes('/viewer/browser-trace-api'));
+  assert.ok(viewer.includes('/viewer/browser-trace-api/fetcher-proposals'));
+  assert.ok(viewer.includes('browserTraceAPICandidates'));
+  assert.ok(viewer.includes('browserTraceAPIArtifacts'));
+  assert.ok(viewer.includes('Browser Trace API'));
+  assert.ok(viewer.includes('fetcher proposals'));
+  assert.ok(viewer.includes('/viewer/complexity-hotspots'));
+  assert.ok(viewer.includes('complexityHotspots'));
+  assert.ok(viewer.includes('Complexity Hotspots'));
+  assert.ok(viewer.includes('/viewer/superagent'));
+  assert.ok(viewer.includes('superAgentRuns'));
+  assert.ok(viewer.includes('superAgentRunQueue'));
+  assert.ok(viewer.includes('SuperAgent Harness'));
+  assert.ok(opsJs.includes('run queue'));
+  assert.ok(viewer.includes('/viewer/knowledge-memory'));
+  assert.ok(viewer.includes('/viewer/knowledge-memory/review'));
+  assert.ok(viewer.includes('detail_type'));
+  assert.ok(viewer.includes('reviewKnowledgeMemoryItem'));
+  assert.ok(viewer.includes('Review / Promote Comparison'));
+  assert.ok(viewer.includes('Review Result'));
+  assert.ok(viewer.includes('knowledgePersonalArchive'));
+  assert.ok(viewer.includes('Knowledge Memory'));
+  assert.ok(viewer.includes('vault updates'));
+  assert.ok(viewer.includes('approval pending'));
+  assert.ok(viewer.includes('artifacts'));
+  assert.ok(viewer.includes('gate_logs'));
   assert.ok(viewer.includes('/viewer/memory/state'));
   assert.ok(viewer.includes('/viewer/memory/promote'));
   assert.ok(viewer.includes('target_kind'));
@@ -257,6 +404,107 @@ globalThis.__processes = document.getElementById('llmMemoryProcessLists').innerH
   assert.ok(context.__processes.includes('qwen'));
 });
 
+test('viewer renders knowledge memory ledger inside memory tab', () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {knowledgeMemory: {
+  personal_archive: [{entry_id: 'pa_1', title: 'BIO original', user_id: 'ren', source_ref: 'stg_personal', original_text: 'raw bio', compressed_summary: 'bio digest', protected: true, review_status: 'protected', security_warnings: ['prompt-like text']}],
+  creative_knowledge: [{item_id: 'ck_1', title: '映画知識', source_id: 'src_movie', summary: 'movie digest'}],
+  news_knowledge: [{item_id: 'news_1', topic: 'tech news', source_url: 'https://example.com/news', meta: {security_warnings: ['warn']}}],
+  daily_intake_rules: [{rule_id: 'rule_1', title: 'daily tech', enabled: true}],
+  temporal_markers: [{marker_id: 'tm_1', summary: 'one week memory'}],
+  dream_runs: [{run_id: 'dream_1', topic: 'dream consolidation', review_status: 'pending'}],
+}, sourceRegistryStaging: [
+  {id: 'stg_personal', validation_status: 'pending'},
+  {id: 'stg_movie', source_id: 'src_movie', validation_status: 'pending'},
+], knowledgeMemoryDetail: {detail_type: 'personal_archive', id: 'pa_1', item: {entry_id: 'pa_1', source_ref: 'stg_personal', original_text: 'raw bio', compressed_summary: 'bio digest', protected: true, review_status: 'protected', security_warnings: ['prompt-like text']}}}};
+` + sourceBetween(memoryJs, 'function knowledgeMemoryID', 'function refreshMemoryEvents') + `
+renderKnowledgeMemoryLedger();
+globalThis.__body = document.getElementById('knowledgeMemoryBody').innerHTML;
+globalThis.__detail = document.getElementById('knowledgeMemoryDetail').innerHTML;
+globalThis.__personal = document.getElementById('knowledgePersonalCount').textContent;
+globalThis.__source = document.getElementById('knowledgeSourceCount').textContent;
+globalThis.__dream = document.getElementById('knowledgeDreamCount').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__personal, '1');
+  assert.equal(context.__source, '4');
+  assert.equal(context.__dream, '1');
+  assert.match(context.__body, /personal_archive/);
+  assert.match(context.__body, /creative_knowledge/);
+  assert.match(context.__body, /daily_intake_rule/);
+  assert.match(context.__body, /original/);
+  assert.match(context.__body, /protected/);
+  assert.match(context.__body, /compressed/);
+  assert.match(context.__body, /warning/);
+  assert.match(context.__body, /stg_movie/);
+  assert.match(context.__body, /Detail/);
+  assert.match(context.__detail, /Original \/ Protected/);
+  assert.match(context.__detail, /Compressed \/ Summary/);
+  assert.match(context.__detail, /Warning \/ Review/);
+  assert.match(context.__detail, /Review \/ Promote Comparison/);
+  assert.match(context.__detail, /raw bio/);
+  assert.match(context.__detail, /bio digest/);
+  assert.match(context.__detail, /warnings=1/);
+  assert.match(context.__detail, /promote_blockers=warnings, protected_original, related_staging_not_validated/);
+  assert.match(context.__detail, /related_validated=0/);
+  assert.match(context.__detail, /prompt-like text/);
+  assert.match(context.__detail, /Related Source Registry Staging/);
+  assert.match(context.__detail, /stg_personal/);
+});
+
+test('viewer renders source registry staging related knowledge column', () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  knowledgeMemory: {
+    creative_knowledge: [{item_id: 'ck_1', title: '映画知識', source_id: 'src_movie', summary: 'movie digest'}],
+    news_knowledge: [{item_id: 'news_1', topic: 'tech news', source_url: 'https://example.com/news'}],
+  },
+  sourceRegistryStaging: [
+    {id: 'stg_movie', source_id: 'src_movie', validation_status: 'pending', kind: 'external_fetch', namespace: 'kb:creative', summary_draft: 'movie source'},
+    {id: 'stg_news', source_url: 'https://example.com/news', validation_status: 'pending', kind: 'external_fetch', namespace: 'kb:news', summary_draft: 'news source'},
+  ],
+}};
+` + sourceBetween(memoryJs, 'function knowledgeMemoryID', 'function setSourceRegistryStagingStatus') + `
+renderSourceRegistryStaging();
+globalThis.__body = document.getElementById('sourceRegistryStagingBody').innerHTML;
+`;
+  const context = vm.createContext({document, validateSourceRegistryStaging() {}, promoteSourceRegistryStaging() {}});
+  vm.runInContext(source, context);
+
+  assert.match(context.__body, /creative_knowledge:ck_1/);
+  assert.match(context.__body, /news_knowledge:news_1/);
+});
+
 test('viewer renders source registry warning run status', () => {
   const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
   const elements = new Map();
@@ -279,6 +527,61 @@ globalThis.__status = document.getElementById('sourceRegistryRunStatus').innerHT
   assert.match(context.__status, /Source Registry run/);
   assert.match(context.__status, /warnings=2/);
   assert.match(context.__status, /badge warn/);
+});
+
+test('viewer renders revenue drilldown graph lines from dashboard summary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function escAttr(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  revenueSummary: {
+    total_revenue_amount: 3000,
+    paid_customer_count: 2,
+    pending_decision_count: 1,
+    channel_draft_count: 1,
+    kpi_trend: [
+      {date: '2026-05-17', revenue_amount: 1000, post_count: 2, voice_count: 1},
+      {date: '2026-05-18', revenue_amount: 3000, post_count: 3, voice_count: 2},
+    ],
+    product_sales: [{product_id: 'prod_1', product_name: '低単価商品', revenue_amount: 3000, sales_count: 2}],
+    customer_voice_types: [{voice_type: 'blocker', count: 3}],
+  },
+  revenueHumanDecisions: [{decision_id: 'dec_1', decision_type: 'external_publish', approval_status: 'pending', gate_status: 'needs_review'}],
+  revenueChannelDrafts: [{draft_id: 'draft_1', approval_status: 'pending'}],
+}};
+` + sourceBetween(opsJs, 'function revenueOpsCard', 'async function reviewRevenueHumanDecision') + `
+renderRevenueDrilldown();
+globalThis.__drilldown = document.getElementById('revenueDrilldownResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__drilldown, /Revenue Drilldown/);
+  assert.match(context.__drilldown, /KPI trend graph/);
+  assert.match(context.__drilldown, /2026-05-18/);
+  assert.match(context.__drilldown, /Product sales graph/);
+  assert.match(context.__drilldown, /低単価商品/);
+  assert.match(context.__drilldown, /Customer voice graph/);
+  assert.match(context.__drilldown, /blocker/);
+  assert.match(context.__drilldown, /Decision drilldown/);
+  assert.match(context.__drilldown, /dec_1/);
 });
 
 test('viewer runtime cards prefer live llm ops status over local config labels', () => {

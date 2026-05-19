@@ -5,6 +5,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
 )
 
 type llmRuntimeProviders struct {
@@ -20,8 +21,8 @@ type llmRuntimeProviders struct {
 	Coder4             *coderAdapter
 }
 
-func buildLLMRuntimeProviders(cfg *config.Config) llmRuntimeProviders {
-	primaryProviders := buildPrimaryLLMProviders(cfg)
+func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) llmRuntimeProviders {
+	primaryProviders := buildPrimaryLLMProviders(cfg, contextBudgetRecorder)
 	workerToolProvider, ok := primaryProviders.Worker.(llm.ToolCallingProvider)
 	if !ok {
 		log.Fatalf("worker provider %s does not support tool calling", primaryProviders.Worker.Name())

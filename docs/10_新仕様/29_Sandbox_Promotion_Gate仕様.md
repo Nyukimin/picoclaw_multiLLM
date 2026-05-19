@@ -413,6 +413,40 @@ Sandbox 外へ適用するには、以下を満たす必要がある。
 適用後に行う確認。
 ```
 
+### 16.1 Promotion diff 実適用
+
+Promotion diff の実適用は、`sandbox.promotion.apply_root` が明示されている場合に限り有効とする。
+
+```text
+条件:
+- Promotion Gate が approve
+- human_approved=true
+- post_apply_verification_path がある
+- diff_path が Sandbox root 配下にある
+- apply_root が明示されている
+- patch 対象が apply_root 配下の既存ファイルである
+```
+
+MVP で実適用してよい diff は、既存テキストファイルへの unified diff に限定する。
+
+以下は拒否する。
+
+```text
+- absolute path
+- path traversal
+- .env / *.pem / *.key
+- .git / secrets / private
+- rename
+- new file
+- delete
+- binary diff
+- hunk の context / delete が一致しない diff
+```
+
+post-apply verification が失敗した場合、`promotion_applied` gate log と completed artifact を保存してはいけない。
+
+`sandbox.promotion.apply_root` 未設定時の `/viewer/sandbox/promotions/apply` は checkpoint-only とし、正式適用完了とは扱わない。
+
 ## 17. Human Approval
 
 正式環境への昇格は Human approval を必要とする。
@@ -705,6 +739,7 @@ sandbox:
     require_test_result: true
     require_human_approval: true
     require_post_apply_verification: true
+    apply_root: "../worktrees/rencrow-feature"
 ```
 
 ## 29. EventId
@@ -765,6 +800,59 @@ rollback_executed
 - diff 確認
 - rollback plan 確認
 
+## 30.7 実装状況
+
+2026-05-18 時点で、MVP のうち以下は production code へ着手済みである。
+
+```text
+実装済み:
+  - PromotionRequest / PromotionGateDecision domain model
+  - 必須項目不足 / human rejected / human approval granted の Gate 判定
+  - sandbox root path guard
+  - sandbox root 外 file_write 拒否
+  - sandbox.* config
+  - sandbox.storage / sqlite_path による runtime store 切替
+  - sandbox registry JSONL / SQLite persistence
+  - sandbox artifact JSONL / SQLite persistence
+  - sandbox promotion request JSONL / SQLite persistence
+  - promotion gate log JSONL / SQLite persistence
+  - /viewer/sandbox API
+  - /viewer/sandbox/promotions API
+  - /viewer/sandbox/promotions/apply API
+  - promotion request 作成時の rollback plan sandbox artifact 登録
+  - promotion request 作成時の post-apply verification sandbox artifact 登録
+  - promotion_gate_log.post_apply_verification の保存
+  - 承認済み promotion の apply checkpoint 記録
+  - apply checkpoint 記録時の completed post-apply verification artifact 登録
+  - post_apply_verification_command 指定時の Worker ToolRunner 経由 verification 実行
+  - verification command 結果の sandbox root 配下証跡ファイル保存
+  - verification command 失敗時の apply checkpoint 成功扱い禁止
+  - sandbox.promotion.apply_root 明示時の unified diff 実適用
+  - promotion diff 実適用時の secret / path traversal / .git / rename / new / delete / binary diff 拒否
+  - diff context mismatch 時の部分 write 防止
+  - sandbox.promotion.apply_root 明示時の unified diff reverse rollback 実行
+  - /viewer/sandbox/promotions/rollback API
+  - /viewer/sandbox/promotions/preview API
+  - promotion diff の file / hunk / row 単位 preview
+  - Viewer Ops での side-by-side diff preview 表示
+  - promotion diff preview での risk_flags / requires_manual_review 表示
+  - 依存ファイル / DB migration diff の自動 apply / rollback 拒否
+  - rename / new / delete / binary diff の preview 時 manual review 判定
+  - /viewer/sandbox/promotions/manual-review API
+  - high-risk promotion の Workstream Goal / pending_review Artifact / needs_review gate log への分岐
+  - Viewer Ops の Manual Review 操作
+  - rollback 実行時の Human approval / 証跡 path 必須化
+  - rollback_executed gate log と rollback_execution artifact 保存
+  - pkg/rencrowclient からの promotion apply / rollback 呼び出し
+  - AI Workflow WorktreeManager と連携した code worktree sandbox 作成
+  - /viewer/sandbox/worktrees/create API
+  - /viewer/sandbox/worktrees/close API
+  - Viewer Ops Sandbox Gate 表示
+
+残作業:
+  - Sandbox Promotion Gate MVP としての高リスク promotion 分岐は実装済み。外部 PR 実作成や migration 専用レビュー様式の詳細化は、Skill Governance / PR workflow 側の後続作業で扱う。
+```
+
 ## 31. 成功指標
 
 ```text
@@ -820,4 +908,3 @@ AI は Sandbox で自由に試してよい。
 ```
 
 この仕様により、RenCrow は AI の探索力と安全な本番運用を両立する。
-

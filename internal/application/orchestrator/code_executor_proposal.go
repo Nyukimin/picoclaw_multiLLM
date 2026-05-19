@@ -3,10 +3,12 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 )
 
 func shouldUseProposalPath(route routing.Route, target codeTarget) bool {
@@ -40,10 +42,12 @@ func (e *DefaultCodeExecutor) tryExecuteProposalPath(
 	e.emitProposalPlan(req, target, p)
 	result, err := e.executeProposalWithWorker(ctx, req, p)
 	if err != nil {
+		e.recordCoderProposalEvidence(ctx, req, target, p, nil, "", err)
 		return CodeExecutionResponse{}, true, err
 	}
 
 	formatted := formatExecutionResult(p, result)
+	e.recordCoderProposalEvidence(ctx, req, target, p, result, formatted, nil)
 	e.emitProposalExecutionResult(req, formatted)
 
 	return buildProposalHandledResponse(formatted), true, nil
@@ -101,4 +105,46 @@ func (e *DefaultCodeExecutor) executeProposalWithWorker(
 
 func (e *DefaultCodeExecutor) emitProposalExecutionResult(req CodeExecutionRequest, formatted string) {
 	e.emit("agent.response", "shiro", "mio", formatted, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+}
+
+func (e *DefaultCodeExecutor) recordCoderProposalEvidence(
+	ctx context.Context,
+	req CodeExecutionRequest,
+	target codeTarget,
+	p *proposal.Proposal,
+	result *patch.PatchExecutionResult,
+	formatted string,
+	runErr error,
+) {
+	if e.proposalEvidence == nil || p == nil {
+		return
+	}
+	evidence := domainskill.CoderProposalEvidence{
+		JobID:           req.JobID,
+		SessionID:       req.SessionID,
+		Route:           req.Route.String(),
+		Agent:           target.name,
+		TaskText:        req.Task.UserMessage(),
+		Plan:            p.Plan(),
+		Patch:           p.Patch(),
+		Risk:            p.Risk(),
+		CostHint:        p.CostHint(),
+		FormattedResult: formatted,
+		Success:         runErr == nil,
+	}
+	if result != nil {
+		evidence.ExecutionSummary = result.Summary
+		evidence.Success = result.Success
+	}
+	if runErr != nil {
+		evidence.ExecutionError = runErr.Error()
+	}
+	paths, err := e.proposalEvidence.SaveCoderProposalEvidence(ctx, evidence)
+	if err != nil {
+		log.Printf("WARN: failed to save coder proposal evidence job=%s route=%s: %v", req.JobID, req.Route, err)
+		return
+	}
+	if paths.SkillDiffPath != "" || paths.AgentTranscriptPath != "" {
+		log.Printf("Coder proposal evidence saved job=%s skill_diff=%s agent_transcript=%s", req.JobID, paths.SkillDiffPath, paths.AgentTranscriptPath)
+	}
 }

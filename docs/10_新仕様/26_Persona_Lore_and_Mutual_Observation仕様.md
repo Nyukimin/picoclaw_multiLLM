@@ -1002,6 +1002,121 @@ persona_architecture:
     require_session_keying: true
 ```
 
+## 24.1 実装状況
+
+2026-05 時点で、Persona Lore / Mutual Observation は観測ログの最小基盤まで部分実装済みである。
+
+実装済み。
+
+```text
+Existing Persona:
+  internal/infrastructure/persona
+  internal/domain/agent/mio_persona.go
+  persona registry / styleguide / Mio persona self-edit
+  characters/{name}/lore / persona / modes loader
+
+Domain:
+  internal/domain/persona
+  discomfort log
+  trigger log
+  trigger definition / matcher
+  canonical response log
+  canonical response policy
+  observation log
+  meta profile update
+  interface session
+
+Validation:
+  required id / character / trigger / session key
+  confidence 0.0-1.0
+  trigger confidence / priority selection
+  canonical response cooldown / max-per-session / required context 判定
+  sensitive observation の auto-approved 拒否
+  meta profile update review は approved / rejected のみ許可
+
+Persistence:
+  internal/infrastructure/persistence/persona
+  JSONL / SQLite store
+  meta_profile_update 台帳
+  approved meta profile update の character_root/observers/{observer}/meta/{target}.md 追記適用
+
+Config:
+  persona_architecture.enabled
+  persona_architecture.storage
+  persona_architecture.log_path
+  persona_architecture.sqlite_path
+  persona_architecture.character_root
+  persona_architecture.trigger_category_path
+  persona_architecture.canonical_response_path
+  persona_architecture.canonical_response_cooldown_turns
+  persona_architecture.canonical_response_max_per_session
+  persona_architecture.require_lore_persona_split
+  persona_architecture.require_trigger_categories
+  persona_architecture.human_review_required_for_meta
+  persona_architecture.require_session_keying
+  persona_architecture.max_trigger_candidates
+
+Viewer / API:
+  GET  /viewer/persona-observation
+    includes loaded characters
+  POST /viewer/persona-observation/discomforts
+  POST /viewer/persona-observation/triggers
+  POST /viewer/persona-observation/canonical-responses
+  POST /viewer/persona-observation/observations
+  POST /viewer/persona-observation/aggregate
+  POST /viewer/persona-observation/meta-updates
+  POST /viewer/persona-observation/meta-updates/review
+  POST /viewer/persona-observation/sessions
+  Ops summary card
+  Persona Meta Review approve / reject UI
+
+Runtime wiring:
+  persona_architecture.storage に応じて JSONL / SQLite store を切り替える
+  persona_architecture.character_root から characters/{name}/lore / persona / modes を起動時に読み込む
+  persona_architecture.trigger_category_path / canonical_response_path で trigger / canonical response の persona key root を変更できる
+  persona_architecture.canonical_response_cooldown_turns / canonical_response_max_per_session で canonical response の既定発火制限を変更できる
+  approved meta profile update を persona_architecture.character_root 配下へ適用する
+  Chat runtime は message.received 後に interface session / pending observation / trigger log を自動保存する
+  Chat runtime は characters/{name}/persona/canonical_responses/* を canonical response definition として読み、trigger category / cooldown / max-per-session / required context を満たす場合だけ canonical response を応答へ適用し、canonical response log を保存する
+  Chat runtime はユーザー発話に明示的な自己情報 marker がある場合だけ pending Meta 更新候補を作成し、Human Review なしに stable trait へ昇格しない
+  IdleChat runtime は idlechat.message / idlechat.viewer / idlechat.summary から interface session / pending observation / trigger log を自動保存する
+  IdleChat runtime は生成本文が trigger category / cooldown / max-per-session / required context を満たす場合だけ canonical response を表示本文へ適用し、RawContent には未編集の model output を残す
+  IdleChat runtime は timeline event に明示的な自己情報 marker がある場合だけ pending Meta 更新候補を作成する
+  idlechat.tts は音声再生用チャンクとして扱い、persona observation の根拠にはしない
+  /viewer/persona-observation/aggregate は daily / weekly / monthly summary observation と pending Meta 更新候補を作成する
+  weekly / monthly aggregate は Stable Traits 候補を作るが、Human Review なしに確定しない
+```
+
+残作業。
+
+```text
+File layout:
+  characters/{name}/lore / persona / modes loader はある。
+  character_root config と runtime 読込、Viewer status 表示はある。
+  残りは正本配置。
+
+Trigger:
+  characters/{name}/persona/triggers 由来定義の loader。
+  domain matcher の Chat / IdleChat runtime 接続はある。
+  canonical response policy の Chat / IdleChat runtime 接続はある。
+
+Runtime:
+  Chat / IdleChat から character_id / session_key を渡し、
+  observation / interface session を自動記録する経路はある。
+  Chat / IdleChat から pending Meta 更新候補を自動生成する経路はある。
+  daily / weekly / monthly 集約 API はある。
+  stable traits は pending Meta 更新候補として保存し、Human Review なしに確定しない。
+
+Human Review:
+  Meta更新候補を pending / approved / rejected として保存する API と Viewer UI。
+  approved review は character_root/observers/{observer}/meta/{target}.md へ追記適用できる。
+  stable traits 更新も同じ pending / approved / rejected workflow に乗せる。
+
+Mutual Observation:
+  /viewer/persona-observation/aggregate で daily / weekly / monthly observation と Meta 更新候補を生成できる。
+  残りは、日次・週次・月次を自動実行する scheduler / heartbeat 側の運用接続。
+```
+
 ## 25. EventId
 
 主なイベント種別は以下である。
@@ -1160,4 +1275,3 @@ Interface Separation
 AI は作って終わりではない。
 ユーザーが AI を観測し、AI がユーザーを観測することで、双方が育つ。
 ```
-
