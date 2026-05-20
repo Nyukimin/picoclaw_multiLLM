@@ -123,7 +123,16 @@ func startSuperAgentRunQueueScheduler(cfg *config.Config, store superagentapp.Ru
 	}
 	interval := time.Duration(cfg.SuperAgentHarness.RunQueueSchedulerIntervalSec) * time.Second
 	claimLimit := cfg.SuperAgentHarness.RunQueueSchedulerClaimLimit
-	scheduler := superagentapp.NewRunQueueScheduler(store, superagentapp.RunQueueProcessorFunc(func(ctx context.Context, item domainsuperagent.RunQueueItem) (string, error) {
+	scheduler := superagentapp.NewRunQueueScheduler(store, newSuperAgentRunQueueProcessor(processor), superagentapp.RunQueueSchedulerOptions{
+		Interval:   interval,
+		ClaimLimit: claimLimit,
+	})
+	scheduler.Start(context.Background())
+	log.Printf("SuperAgent run queue scheduler enabled: interval=%s claim_limit=%d", interval, claimLimit)
+}
+
+func newSuperAgentRunQueueProcessor(processor superAgentRunQueueMessageProcessor) superagentapp.RunQueueProcessorFunc {
+	return superagentapp.RunQueueProcessorFunc(func(ctx context.Context, item domainsuperagent.RunQueueItem) (string, error) {
 		action := strings.TrimSpace(item.Action)
 		if action != "resume" && action != "process_message" && action != "chat" {
 			return "", fmt.Errorf("unsupported run queue action: %s", action)
@@ -144,11 +153,15 @@ func startSuperAgentRunQueueScheduler(cfg *config.Config, store superagentapp.Ru
 		if err != nil {
 			return "", err
 		}
+		if resp.Route == "" {
+			return "", fmt.Errorf("run queue item did not produce a route")
+		}
+		if action != "chat" && resp.Route == "CHAT" {
+			return "", fmt.Errorf("run queue item fell back to CHAT route")
+		}
+		if strings.TrimSpace(resp.JobID) == "" {
+			return "", fmt.Errorf("run queue item did not produce a job_id")
+		}
 		return fmt.Sprintf("route=%s job_id=%s", resp.Route, resp.JobID), nil
-	}), superagentapp.RunQueueSchedulerOptions{
-		Interval:   interval,
-		ClaimLimit: claimLimit,
 	})
-	scheduler.Start(context.Background())
-	log.Printf("SuperAgent run queue scheduler enabled: interval=%s claim_limit=%d", interval, claimLimit)
 }
