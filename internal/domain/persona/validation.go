@@ -18,6 +18,9 @@ func ValidateDiscomfortLog(item DiscomfortLog) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -34,6 +37,9 @@ func ValidateTriggerLog(item TriggerLog) error {
 	if item.Confidence < 0 || item.Confidence > 1 {
 		return errors.New("confidence must be between 0 and 1")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -46,6 +52,9 @@ func ValidateCanonicalResponseLog(item CanonicalResponseLog) error {
 	}
 	if strings.TrimSpace(item.ResponseID) == "" {
 		return errors.New("response_id is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
@@ -72,6 +81,9 @@ func ValidateObservationLog(item ObservationLog) error {
 	if item.Sensitivity != "normal" && item.ReviewStatus == "approved" {
 		return errors.New("sensitive observation cannot be auto-approved")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -96,6 +108,9 @@ func ValidateMetaProfileUpdate(item MetaProfileUpdate) error {
 	}
 	switch strings.TrimSpace(item.ReviewStatus) {
 	case "pending", "approved", "rejected":
+		if item.CreatedAt.IsZero() {
+			return errors.New("created_at is required")
+		}
 		return nil
 	default:
 		return errors.New("review_status must be pending, approved, or rejected")
@@ -126,6 +141,9 @@ func ValidateInterfaceSession(item InterfaceSession) error {
 	}
 	if strings.TrimSpace(item.SessionKey) == "" {
 		return errors.New("session_key is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
