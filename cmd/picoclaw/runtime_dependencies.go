@@ -133,6 +133,7 @@ type Dependencies struct {
 	personaCanonicalResponses      []domainpersona.CanonicalResponseDefinition // Chat runtime canonical response definitions
 	browserTraceAPIStatus          http.HandlerFunc                            // viewer browser trace to API status API
 	browserTraceAPIDiscover        http.HandlerFunc                            // viewer browser trace to API discover API
+	browserTraceAPIValidation      http.HandlerFunc                            // viewer browser trace API validation review API
 	browserTraceAPIFetcherProposal http.HandlerFunc                            // viewer browser trace to API fetcher proposal API
 	complexityHotspotStatus        http.HandlerFunc                            // viewer complexity hotspot status API
 	complexityHotspotScan          http.HandlerFunc                            // viewer complexity hotspot scan API
@@ -485,6 +486,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		validationPolicy.RequireTermsReview = cfg.BrowserTraceToAPI.RequireTermsReview
 		validationPolicy.DenySensitiveFlows = append([]string(nil), cfg.BrowserTraceToAPI.DenySensitiveFlows...)
 		deps.browserTraceAPIDiscover = viewer.HandleBrowserTraceAPIDiscoverWithPolicy(browserTraceStore, browsertraceapp.NewDiscovererWithAcceptedPaths(cfg.BrowserTraceToAPI.AcceptedPaths), candidateSink, workstreamArtifactSink, validationPolicy)
+		deps.browserTraceAPIValidation = viewer.HandleBrowserTraceAPIValidationReview(browserTraceStore)
 		deps.browserTraceAPIFetcherProposal = viewer.HandleBrowserTraceAPIFetcherProposal(browserTraceStore, workstreamArtifactSink)
 	}
 	if cfg.ComplexityHotspot.IsEnabled() {

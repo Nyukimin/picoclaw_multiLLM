@@ -281,6 +281,9 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.browserTraceAPIDiscover != nil {
 		mux.HandleFunc("/viewer/browser-trace-api/discover", dependencies.browserTraceAPIDiscover)
 	}
+	if dependencies.browserTraceAPIValidation != nil {
+		mux.HandleFunc("/viewer/browser-trace-api/validations", dependencies.browserTraceAPIValidation)
+	}
 	if dependencies.browserTraceAPIFetcherProposal != nil {
 		mux.HandleFunc("/viewer/browser-trace-api/fetcher-proposals", dependencies.browserTraceAPIFetcherProposal)
 	}

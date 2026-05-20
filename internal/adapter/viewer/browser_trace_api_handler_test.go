@@ -362,6 +362,79 @@ func TestHandleBrowserTraceAPIFetcherProposalCreatesReviewArtifactForValidatedCa
 	}
 }
 
+func TestHandleBrowserTraceAPIValidationReviewMarksCandidateValidated(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	store := &stubBrowserTraceAPIStore{
+		candidates: []domaintrace.APICandidate{{
+			CandidateID:          "api_cand_1",
+			TraceRunID:           "trace_1",
+			Method:               "GET",
+			ObservedURL:          "https://example.com/api/items",
+			ContainsPersonalData: "unknown",
+			RiskLevel:            "low",
+			Status:               "candidate",
+			CreatedAt:            now,
+		}},
+	}
+	body := []byte(`{"candidate_id":"api_cand_1","reviewer":"live-e2e","human_approved":true,"terms_reviewed":true,"official_api_reviewed":true,"pii_reviewed":true,"schema_reviewed":true,"risk_reviewed":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/browser-trace-api/validations", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	HandleBrowserTraceAPIValidationReview(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.validations) != 1 {
+		t.Fatalf("validations=%#v", store.validations)
+	}
+	validation := store.validations[0]
+	if !validation.Passed || validation.Status != "validated" || validation.CandidateID != "api_cand_1" {
+		t.Fatalf("validation=%#v", validation)
+	}
+	var response struct {
+		OfficialPromotion   bool `json:"official_promotion"`
+		ImplementationApply bool `json:"implementation_apply"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.OfficialPromotion || response.ImplementationApply {
+		t.Fatalf("response must remain review-only: %#v", response)
+	}
+}
+
+func TestHandleBrowserTraceAPIValidationReviewRecordsMissingEvidenceAsNeedsReview(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	store := &stubBrowserTraceAPIStore{
+		candidates: []domaintrace.APICandidate{{
+			CandidateID:          "api_cand_1",
+			TraceRunID:           "trace_1",
+			Method:               "GET",
+			ObservedURL:          "https://example.com/api/items",
+			ContainsPersonalData: "unknown",
+			Status:               "candidate",
+			CreatedAt:            now,
+		}},
+	}
+	body := []byte(`{"candidate_id":"api_cand_1","reviewer":"reviewer","human_approved":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/browser-trace-api/validations", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	HandleBrowserTraceAPIValidationReview(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.validations) != 1 {
+		t.Fatalf("validations=%#v", store.validations)
+	}
+	validation := store.validations[0]
+	if validation.Passed || validation.Status != "needs_review" || len(validation.Issues) == 0 {
+		t.Fatalf("validation=%#v", validation)
+	}
+}
+
 func TestHandleBrowserTraceAPIFetcherProposalRejectsUnvalidatedCandidate(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	store := &stubBrowserTraceAPIStore{
