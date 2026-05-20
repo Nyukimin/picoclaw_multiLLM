@@ -282,6 +282,18 @@ func (m *mockSuperAgentRuntimeRecorder) SaveTraceEvent(_ context.Context, item d
 	return nil
 }
 
+type pauseRequestedRunController struct{}
+
+func (pauseRequestedRunController) RegisterRun(ctx context.Context, _ string) (context.Context, func()) {
+	runCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	return runCtx, func() {}
+}
+
+func (pauseRequestedRunController) IsPauseRequested(_ string) bool {
+	return true
+}
+
 type mockHeavyAgent struct {
 	response string
 	called   bool
@@ -1638,6 +1650,38 @@ func TestProcessMessage_RecordsLeadAgentRun(t *testing.T) {
 		t.Fatalf("unexpected context pack: %+v", super.contextPacks)
 	}
 	if len(super.traces) != 2 || super.traces[0].EventType != "lead_agent_started" || super.traces[1].EventType != "lead_agent_completed" {
+		t.Fatalf("unexpected trace events: %+v", super.traces)
+	}
+}
+
+func TestProcessMessage_RecordsPausedLeadAgentRunWhenRuntimePauseCancelsContext(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCHAT, 1, "chat"),
+		chatFunc: func(ctx context.Context, _ task.Task) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	}
+	super := &mockSuperAgentRuntimeRecorder{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetSuperAgentRuntimeRecorder(super)
+	orch.SetSuperAgentRunController(pauseRequestedRunController{})
+
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err == nil || !strings.Contains(err.Error(), "task execution failed") {
+		t.Fatalf("expected task execution failure after pause cancellation, got %v", err)
+	}
+	if len(super.runs) != 2 {
+		t.Fatalf("expected running and paused agent_run records, got %+v", super.runs)
+	}
+	if super.runs[0].Status != "running" || super.runs[1].Status != "paused" {
+		t.Fatalf("unexpected agent_run statuses: %+v", super.runs)
+	}
+	if !strings.Contains(super.runs[1].Summary, "pause requested") {
+		t.Fatalf("paused run summary did not record pause reason: %+v", super.runs[1])
+	}
+	if len(super.traces) != 2 || super.traces[0].EventType != "lead_agent_started" || super.traces[1].EventType != "lead_agent_paused" {
 		t.Fatalf("unexpected trace events: %+v", super.traces)
 	}
 }

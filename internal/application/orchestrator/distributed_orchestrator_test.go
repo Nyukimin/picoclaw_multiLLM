@@ -347,8 +347,13 @@ func TestDistributedOrchestrator_ProcessMessage_WildRouteUsesWildAgentWithoutFal
 	if resp.Route != routing.RouteWILD || resp.Response != "wild response" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
-	if distIndexOfEvent(rec.events, "agent.response", "wild", "mio", "WILD") < 0 {
+	eventIndex := distIndexOfEvent(rec.events, "agent.response", "wild", "mio", "WILD")
+	if eventIndex < 0 {
 		t.Fatalf("expected wild response evidence, got %+v", rec.events)
+	}
+	responseEvent := rec.events[eventIndex]
+	if responseEvent.SessionID != "wild-session" || responseEvent.JobID != resp.JobID {
+		t.Fatalf("wild response evidence is not tied to the same flow: event=%+v response=%+v", responseEvent, resp)
 	}
 }
 
