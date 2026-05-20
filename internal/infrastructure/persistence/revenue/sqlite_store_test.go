@@ -86,6 +86,21 @@ func TestSQLiteStoreSaveAndListRevenueRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveChannelDraft failed: %v", err)
 	}
+	if err := store.SaveExternalSendApplyRecord(ctx, domainrevenue.ExternalSendApplyRecord{
+		ApplyID:             "apply_1",
+		DraftID:             "draft_1",
+		DecisionID:          "dec_1",
+		Channel:             "email",
+		ApprovalStatus:      "approved",
+		HumanApproved:       true,
+		ApplyStatus:         "blocked",
+		SendResult:          "not_sent",
+		FailureReason:       "external channel adapter is not configured",
+		ExternalSendApplied: false,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("SaveExternalSendApplyRecord failed: %v", err)
+	}
 	assertOne := func(name string, err error, got int) {
 		t.Helper()
 		if err != nil || got != 1 {
@@ -108,6 +123,8 @@ func TestSQLiteStoreSaveAndListRevenueRecords(t *testing.T) {
 	assertOne("daily routine reports", err, len(daily))
 	drafts, err := store.ListChannelDrafts(ctx, 10)
 	assertOne("channel drafts", err, len(drafts))
+	applies, err := store.ListExternalSendApplyRecords(ctx, 10)
+	assertOne("external send applies", err, len(applies))
 }
 
 func TestSQLiteStoreRejectsSuccessGuaranteeProduct(t *testing.T) {

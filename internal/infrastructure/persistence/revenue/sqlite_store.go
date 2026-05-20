@@ -84,6 +84,11 @@ func (s *SQLiteStore) migrate() error {
 			created_at TEXT,
 			payload TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS external_send_apply (
+			apply_id TEXT PRIMARY KEY,
+			created_at TEXT,
+			payload TEXT NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -179,6 +184,17 @@ func (s *SQLiteStore) SaveChannelDraft(ctx context.Context, item domainrevenue.C
 
 func (s *SQLiteStore) ListChannelDrafts(ctx context.Context, limit int) ([]domainrevenue.ChannelDraft, error) {
 	return listSQLiteItems[domainrevenue.ChannelDraft](ctx, s, "channel_draft", limit)
+}
+
+func (s *SQLiteStore) SaveExternalSendApplyRecord(ctx context.Context, item domainrevenue.ExternalSendApplyRecord) error {
+	if err := domainrevenue.ValidateExternalSendApplyRecord(item); err != nil {
+		return err
+	}
+	return s.save(ctx, "external_send_apply", "apply_id", item.ApplyID, item.CreatedAt.Format(timeFormatRFC3339Nano), item)
+}
+
+func (s *SQLiteStore) ListExternalSendApplyRecords(ctx context.Context, limit int) ([]domainrevenue.ExternalSendApplyRecord, error) {
+	return listSQLiteItems[domainrevenue.ExternalSendApplyRecord](ctx, s, "external_send_apply", limit)
 }
 
 func (s *SQLiteStore) save(ctx context.Context, table string, idColumn string, id string, createdAt string, item any) error {

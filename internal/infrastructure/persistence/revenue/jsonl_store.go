@@ -20,6 +20,7 @@ type JSONLStore struct {
 	humanDecisionPath string
 	dailyRoutinePath  string
 	channelDraftPath  string
+	externalSendPath  string
 }
 
 func NewJSONLStore(root string) *JSONLStore {
@@ -35,6 +36,7 @@ func NewJSONLStore(root string) *JSONLStore {
 		humanDecisionPath: filepath.Join(root, "human_decision_gate.jsonl"),
 		dailyRoutinePath:  filepath.Join(root, "daily_routine_report.jsonl"),
 		channelDraftPath:  filepath.Join(root, "channel_draft.jsonl"),
+		externalSendPath:  filepath.Join(root, "external_send_apply.jsonl"),
 	}
 }
 
@@ -185,7 +187,24 @@ func (s *JSONLStore) ListHumanDecisionGateRecords(_ context.Context, limit int) 
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(items, limit), nil
+	return latestHumanDecisionRecords(items, limit), nil
+}
+
+func latestHumanDecisionRecords(items []domainrevenue.HumanDecisionGateRecord, limit int) []domainrevenue.HumanDecisionGateRecord {
+	if limit <= 0 {
+		limit = len(items)
+	}
+	seen := map[string]struct{}{}
+	out := make([]domainrevenue.HumanDecisionGateRecord, 0, minRevenueLimit(limit, len(items)))
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		item := items[i]
+		if _, ok := seen[item.DecisionID]; ok {
+			continue
+		}
+		seen[item.DecisionID] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *JSONLStore) SaveDailyRoutineReport(_ context.Context, item domainrevenue.DailyRoutineReport) error {
@@ -227,6 +246,31 @@ func (s *JSONLStore) ListChannelDrafts(_ context.Context, limit int) ([]domainre
 	var items []domainrevenue.ChannelDraft
 	if err := readJSONL(s.channelDraftPath, func(line []byte) error {
 		var item domainrevenue.ChannelDraft
+		if err := json.Unmarshal(line, &item); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return reverseLimit(items, limit), nil
+}
+
+func (s *JSONLStore) SaveExternalSendApplyRecord(_ context.Context, item domainrevenue.ExternalSendApplyRecord) error {
+	if err := domainrevenue.ValidateExternalSendApplyRecord(item); err != nil {
+		return err
+	}
+	return appendJSONL(s.externalSendPath, item)
+}
+
+func (s *JSONLStore) ListExternalSendApplyRecords(_ context.Context, limit int) ([]domainrevenue.ExternalSendApplyRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var items []domainrevenue.ExternalSendApplyRecord
+	if err := readJSONL(s.externalSendPath, func(line []byte) error {
+		var item domainrevenue.ExternalSendApplyRecord
 		if err := json.Unmarshal(line, &item); err != nil {
 			return err
 		}
@@ -282,4 +326,11 @@ func reverseLimit[T any](items []T, limit int) []T {
 		out = append(out, items[i])
 	}
 	return out
+}
+
+func minRevenueLimit(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

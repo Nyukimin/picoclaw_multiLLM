@@ -82,6 +82,21 @@ func TestJSONLStoreSaveAndListRevenueRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveChannelDraft failed: %v", err)
 	}
+	if err := store.SaveExternalSendApplyRecord(ctx, domainrevenue.ExternalSendApplyRecord{
+		ApplyID:             "apply_1",
+		DraftID:             "draft_1",
+		DecisionID:          "dec_1",
+		Channel:             "email",
+		ApprovalStatus:      "approved",
+		HumanApproved:       true,
+		ApplyStatus:         "blocked",
+		SendResult:          "not_sent",
+		FailureReason:       "external channel adapter is not configured",
+		ExternalSendApplied: false,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("SaveExternalSendApplyRecord failed: %v", err)
+	}
 
 	markets, err := store.ListMarketResearchItems(ctx, 10)
 	if err != nil || len(markets) != 1 || markets[0].ItemID != "mkt_1" {
@@ -115,6 +130,10 @@ func TestJSONLStoreSaveAndListRevenueRecords(t *testing.T) {
 	if err != nil || len(drafts) != 1 || drafts[0].DraftID != "draft_1" {
 		t.Fatalf("drafts=%#v err=%v", drafts, err)
 	}
+	applies, err := store.ListExternalSendApplyRecords(ctx, 10)
+	if err != nil || len(applies) != 1 || applies[0].ApplyID != "apply_1" {
+		t.Fatalf("applies=%#v err=%v", applies, err)
+	}
 }
 
 func TestJSONLStoreRejectsInvalidRevenueRecords(t *testing.T) {
@@ -137,5 +156,40 @@ func TestJSONLStoreRejectsInvalidRevenueRecords(t *testing.T) {
 	}
 	if err := store.SaveChannelDraft(ctx, domainrevenue.ChannelDraft{DraftID: "draft_1", Channel: "email", Body: "送信済み", ApprovalStatus: "approved", ExternalSendApplied: true}); err == nil {
 		t.Fatal("expected externally applied channel draft to fail")
+	}
+	if err := store.SaveExternalSendApplyRecord(ctx, domainrevenue.ExternalSendApplyRecord{ApplyID: "apply_1", DraftID: "draft_1", DecisionID: "dec_1", Channel: "email", ApprovalStatus: "pending", HumanApproved: true, ApplyStatus: "blocked", SendResult: "not_sent", FailureReason: "no adapter"}); err == nil {
+		t.Fatal("expected unapproved external send apply to fail")
+	}
+}
+
+func TestJSONLStoreListHumanDecisionGateRecordsReturnsLatestStatePerDecision(t *testing.T) {
+	store := NewJSONLStore(t.TempDir())
+	ctx := context.Background()
+	now := time.Date(2026, 5, 19, 8, 47, 0, 0, time.UTC)
+	pending := domainrevenue.HumanDecisionGateRecord{
+		DecisionID:       "dec_1",
+		DecisionType:     "closed_channel_send",
+		ApprovalStatus:   "pending",
+		GateStatus:       "needs_review",
+		RequiresApproval: true,
+		CreatedAt:        now,
+	}
+	approved := pending
+	approved.ApprovalStatus = "approved"
+	approved.GateStatus = "approved"
+	approved.Reasons = nil
+	if err := store.SaveHumanDecisionGateRecord(ctx, pending); err != nil {
+		t.Fatalf("SaveHumanDecisionGateRecord(pending) failed: %v", err)
+	}
+	if err := store.SaveHumanDecisionGateRecord(ctx, approved); err != nil {
+		t.Fatalf("SaveHumanDecisionGateRecord(approved) failed: %v", err)
+	}
+
+	decisions, err := store.ListHumanDecisionGateRecords(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListHumanDecisionGateRecords failed: %v", err)
+	}
+	if len(decisions) != 1 || decisions[0].DecisionID != "dec_1" || decisions[0].ApprovalStatus != "approved" || decisions[0].GateStatus != "approved" {
+		t.Fatalf("decisions=%#v", decisions)
 	}
 }
