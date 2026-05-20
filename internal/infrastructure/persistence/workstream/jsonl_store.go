@@ -226,7 +226,24 @@ func (s *JSONLStore) ListVaultUpdateLogs(_ context.Context, limit int) ([]domain
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(items, limit), nil
+	return latestVaultUpdateLogs(items, limit), nil
+}
+
+func latestVaultUpdateLogs(items []domainworkstream.VaultUpdateLog, limit int) []domainworkstream.VaultUpdateLog {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	seen := map[string]struct{}{}
+	out := make([]domainworkstream.VaultUpdateLog, 0, limit)
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		id := items[i].UpdateID
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, items[i])
+	}
+	return out
 }
 
 func appendJSONL(path string, value any) error {

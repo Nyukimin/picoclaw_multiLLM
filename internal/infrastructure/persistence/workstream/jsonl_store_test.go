@@ -114,6 +114,41 @@ func TestJSONLStoreSaveAndListWorkstreamRecords(t *testing.T) {
 	}
 }
 
+func TestJSONLStoreListsLatestVaultUpdatePerID(t *testing.T) {
+	ctx := context.Background()
+	store := NewJSONLStore(t.TempDir())
+	now := time.Date(2026, 5, 20, 0, 20, 0, 0, time.UTC)
+	for _, item := range []domainworkstream.VaultUpdateLog{
+		{
+			UpdateID:        "upd_1",
+			WorkstreamID:    "ws_1",
+			FilePath:        "vault/workstreams/ws_1/STATUS.md",
+			ProposedContent: "draft",
+			ReviewStatus:    "pending",
+			CreatedAt:       now,
+		},
+		{
+			UpdateID:        "upd_1",
+			WorkstreamID:    "ws_1",
+			FilePath:        "vault/workstreams/ws_1/STATUS.md",
+			ProposedContent: "approved",
+			ReviewStatus:    "approved",
+			CreatedAt:       now.Add(time.Second),
+		},
+	} {
+		if err := store.SaveVaultUpdateLog(ctx, item); err != nil {
+			t.Fatalf("SaveVaultUpdateLog failed: %v", err)
+		}
+	}
+	vaultUpdates, err := store.ListVaultUpdateLogs(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListVaultUpdateLogs failed: %v", err)
+	}
+	if len(vaultUpdates) != 1 || vaultUpdates[0].UpdateID != "upd_1" || vaultUpdates[0].ReviewStatus != "approved" {
+		t.Fatalf("vaultUpdates=%#v, want latest approved state only", vaultUpdates)
+	}
+}
+
 func TestJSONLStoreRejectsGoalWithoutContract(t *testing.T) {
 	store := NewJSONLStore(t.TempDir())
 	err := store.SaveGoal(context.Background(), domainworkstream.Goal{
@@ -221,6 +256,7 @@ func TestJSONLStoreWithVaultRejectsUnsafeWorkstreamID(t *testing.T) {
 		WorkstreamID: "../escape",
 		Name:         "escape",
 		Status:       domainworkstream.StatusActive,
+		CreatedAt:    time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid workstream_id") {
 		t.Fatalf("expected unsafe workstream id to fail, got %v", err)
