@@ -39,6 +39,8 @@ type sourceRegistryEntryDTO struct {
 	LastFetchedAt    string         `json:"last_fetched_at,omitempty" yaml:"last_fetched_at,omitempty"`
 	LastStatus       string         `json:"last_status,omitempty" yaml:"last_status,omitempty"`
 	LastError        string         `json:"last_error,omitempty" yaml:"last_error,omitempty"`
+	CreatedAt        string         `json:"created_at,omitempty" yaml:"created_at,omitempty"`
+	UpdatedAt        string         `json:"updated_at,omitempty" yaml:"updated_at,omitempty"`
 }
 
 type sourceRegistryPayload struct {
@@ -405,6 +407,12 @@ func sourceRegistryEntryToDTO(entry conversationpersistence.L1SourceRegistryEntr
 	}
 	if !entry.LastFetchedAt.IsZero() {
 		dto.LastFetchedAt = entry.LastFetchedAt.UTC().Format(time.RFC3339)
+	}
+	if !entry.CreatedAt.IsZero() {
+		dto.CreatedAt = entry.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if !entry.UpdatedAt.IsZero() {
+		dto.UpdatedAt = entry.UpdatedAt.UTC().Format(time.RFC3339)
 	}
 	return dto
 }
