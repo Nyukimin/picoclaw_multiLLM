@@ -18,16 +18,25 @@ type CheckRunner interface {
 // Handler はヘルスチェック HTTP ハンドラ
 type Handler struct {
 	service CheckRunner
+	timeout time.Duration
 }
 
 // NewHandler は新しい Handler を作成
 func NewHandler(service CheckRunner) *Handler {
-	return &Handler{service: service}
+	return NewHandlerWithTimeout(service, 3*time.Second)
+}
+
+// NewHandlerWithTimeout は request 単位の timeout を指定して Handler を作成する
+func NewHandlerWithTimeout(service CheckRunner, timeout time.Duration) *Handler {
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	return &Handler{service: service, timeout: timeout}
 }
 
 // HandleHealth は /health エンドポイント（全チェック結果を返す）
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
 
 	report := h.service.RunChecks(ctx)
@@ -41,8 +50,8 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	type reportJSON struct {
 		Status    string      `json:"status"`
-		Checks   []checkJSON `json:"checks"`
-		Timestamp string     `json:"timestamp"`
+		Checks    []checkJSON `json:"checks"`
+		Timestamp string      `json:"timestamp"`
 	}
 
 	out := reportJSON{
@@ -69,7 +78,7 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 // HandleReady は /ready エンドポイント（200 or 503）
 func (h *Handler) HandleReady(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
 
 	if h.service.IsReady(ctx) {

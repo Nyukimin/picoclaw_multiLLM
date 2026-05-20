@@ -23,6 +23,20 @@ func (s *stubCheckRunner) IsReady(_ context.Context) bool {
 	return s.report.Status == domainhealth.StatusOK
 }
 
+type contextAwareSlowRunner struct {
+	report domainhealth.HealthReport
+}
+
+func (s *contextAwareSlowRunner) RunChecks(ctx context.Context) domainhealth.HealthReport {
+	<-ctx.Done()
+	return s.report
+}
+
+func (s *contextAwareSlowRunner) IsReady(ctx context.Context) bool {
+	<-ctx.Done()
+	return false
+}
+
 func newStubOK() *stubCheckRunner {
 	return &stubCheckRunner{
 		report: domainhealth.HealthReport{
@@ -77,6 +91,23 @@ func TestHandleHealth_Down(t *testing.T) {
 	}
 }
 
+func TestHandleHealth_UsesRequestTimeout(t *testing.T) {
+	h := NewHandlerWithTimeout(&contextAwareSlowRunner{report: newStubDown().report}, 20*time.Millisecond)
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	start := time.Now()
+	h.HandleHealth(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("health handler took %s, want bounded timeout", elapsed)
+	}
+}
+
 func TestHandleReady_True(t *testing.T) {
 	h := NewHandler(newStubOK())
 	req := httptest.NewRequest("GET", "/ready", nil)
@@ -96,6 +127,23 @@ func TestHandleReady_False(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", w.Code)
+	}
+}
+
+func TestHandleReady_UsesRequestTimeout(t *testing.T) {
+	h := NewHandlerWithTimeout(&contextAwareSlowRunner{report: newStubDown().report}, 20*time.Millisecond)
+	req := httptest.NewRequest("GET", "/ready", nil)
+	w := httptest.NewRecorder()
+
+	start := time.Now()
+	h.HandleReady(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("ready handler took %s, want bounded timeout", elapsed)
 	}
 }
 
