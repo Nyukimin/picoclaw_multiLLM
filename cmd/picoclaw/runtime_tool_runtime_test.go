@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	aiworkflowpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/aiworkflow"
 )
 
 type runtimeContextBudgetRecorderStub struct {
@@ -143,5 +144,82 @@ func TestBuildToolRuntimeRecordsToolContextBudgetUsage(t *testing.T) {
 	}
 	if recorder.events[0].ParentEventID != recorder.usages[0].EventID {
 		t.Fatalf("event should link to usage: event=%#v usage=%#v", recorder.events[0], recorder.usages[0])
+	}
+}
+
+func TestBuildToolRuntimePersistsToolContextBudgetToAIWorkflowStore(t *testing.T) {
+	recordEvents := false
+	ctx := context.Background()
+	workspace := t.TempDir()
+	warnPath := filepath.Join(workspace, "warn.txt")
+	stopPath := filepath.Join(workspace, "stop.txt")
+	if err := os.WriteFile(warnPath, []byte(strings.Repeat("w", 340)), 0644); err != nil {
+		t.Fatalf("write warning fixture: %v", err)
+	}
+	if err := os.WriteFile(stopPath, []byte(strings.Repeat("s", 520)), 0644); err != nil {
+		t.Fatalf("write stop fixture: %v", err)
+	}
+	store := aiworkflowpersistence.NewJSONLStore(filepath.Join(workspace, "logs", "ai_workflow"))
+	cfg := &config.Config{
+		WorkspaceDir: workspace,
+		ToolHarness: config.ToolHarnessConfig{
+			RecordEvents: &recordEvents,
+		},
+		AIWorkflow: config.AIWorkflowConfig{
+			ContextBudgetTokens:    100,
+			ContextBudgetWarnRatio: 0.8,
+			ContextBudgetStopRatio: 0.95,
+		},
+	}
+
+	runtime := buildToolRuntime(cfg, nil, nil, store)
+	warnResp, err := runtime.WorkerRuntimeRunnerV2.ExecuteV2(ctx, "file_read", map[string]any{"path": warnPath})
+	if err != nil {
+		t.Fatalf("warning ExecuteV2 returned err: %v", err)
+	}
+	if warnResp == nil || warnResp.IsError() {
+		t.Fatalf("expected warning success response, got %#v", warnResp)
+	}
+	if warnResp.Metadata["context_budget_status"] != domainai.ContextBudgetStatusWarn {
+		t.Fatalf("expected warning metadata, got %#v", warnResp.Metadata)
+	}
+
+	stopResp, err := runtime.WorkerRuntimeRunnerV2.ExecuteV2(ctx, "file_read", map[string]any{"path": stopPath})
+	if err != nil {
+		t.Fatalf("stop ExecuteV2 returned err: %v", err)
+	}
+	if stopResp == nil || !stopResp.IsError() {
+		t.Fatalf("expected stop error response, got %#v", stopResp)
+	}
+	if stopResp.Error.Details["context_budget_status"] != domainai.ContextBudgetStatusStop {
+		t.Fatalf("expected stop metadata, got %#v", stopResp.Error.Details)
+	}
+	if offloaded, _ := stopResp.Error.Details["context_budget_offloaded"].(bool); !offloaded {
+		t.Fatalf("expected stopped tool result to be offloaded, got %#v", stopResp.Error.Details)
+	}
+
+	usages, err := store.ListContextUsages(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListContextUsages() error = %v", err)
+	}
+	events, err := store.ListWorkflowEvents(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListWorkflowEvents() error = %v", err)
+	}
+	if len(usages) != 2 {
+		t.Fatalf("expected two persisted context usages, got %#v", usages)
+	}
+	byType := map[string]domainai.WorkflowEvent{}
+	for _, event := range events {
+		byType[event.EventType] = event
+	}
+	for _, want := range []string{"context_budget_warning", "context_budget_exceeded"} {
+		event, ok := byType[want]
+		if !ok {
+			t.Fatalf("expected persisted %s event, got %#v", want, events)
+		}
+		if event.CommandName != "file_read" || event.Agent != "Worker" || event.ParentEventID == "" {
+			t.Fatalf("unexpected persisted event for %s: %#v", want, event)
+		}
 	}
 }
