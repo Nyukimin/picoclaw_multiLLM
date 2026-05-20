@@ -57,6 +57,31 @@ func TestStoreSaveAllRejectsUnsupportedContentType(t *testing.T) {
 	}
 }
 
+func TestStoreSaveAllRejectsMaxFileSizeExceeded(t *testing.T) {
+	store := NewStore(t.TempDir())
+	store.Limits = domainattachment.Limits{MaxFileBytes: 3, MaxTotalBytes: 100}
+
+	_, err := store.SaveAll(context.Background(), []IncomingFile{
+		{Filename: "memo.txt", ContentType: "text/plain", Reader: strings.NewReader("abcd")},
+	})
+	if err == nil {
+		t.Fatal("SaveAll returned nil error for oversized attachment")
+	}
+}
+
+func TestStoreSaveAllRejectsMaxTotalSizeExceeded(t *testing.T) {
+	store := NewStore(t.TempDir())
+	store.Limits = domainattachment.Limits{MaxFileBytes: 100, MaxTotalBytes: 6}
+
+	_, err := store.SaveAll(context.Background(), []IncomingFile{
+		{Filename: "a.txt", ContentType: "text/plain", Reader: strings.NewReader("abc")},
+		{Filename: "b.txt", ContentType: "text/plain", Reader: strings.NewReader("defg")},
+	})
+	if err == nil {
+		t.Fatal("SaveAll returned nil error for oversized attachment total")
+	}
+}
+
 func TestStoreSaveAllAcceptsKnownExtensionWhenContentTypeIsOctetStream(t *testing.T) {
 	store := NewStore(t.TempDir())
 	store.NewID = func() string { return "att-1" }
