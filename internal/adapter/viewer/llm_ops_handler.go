@@ -21,6 +21,7 @@ type LLMOpsProxyOptions struct {
 }
 
 const llmOpsProxyTimeout = 650 * time.Second
+const llmOpsReadProxyTimeout = 3 * time.Second
 
 func (o LLMOpsProxyOptions) ready() bool {
 	return strings.TrimSpace(o.BaseURL) != "" && strings.TrimSpace(o.Token) != ""
@@ -51,8 +52,7 @@ func (e *LLMOpsIdleChatBusyError) Error() string {
 // NewLLMOpsIdleChatGate creates an IdleChat start gate backed by llm-ops.
 func NewLLMOpsIdleChatGate(opts LLMOpsProxyOptions) *LLMOpsIdleChatGate {
 	return &LLMOpsIdleChatGate{
-		opts:   opts,
-		client: &http.Client{Timeout: llmOpsProxyTimeout},
+		opts: opts,
 	}
 }
 
@@ -127,7 +127,7 @@ func (g *LLMOpsIdleChatGate) do(ctx context.Context, method, path string, body [
 	}
 	client := g.client
 	if client == nil {
-		client = &http.Client{Timeout: llmOpsProxyTimeout}
+		client = &http.Client{Timeout: llmOpsProxyTimeoutFor(method, path)}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -272,7 +272,7 @@ func proxyLLMOps(w http.ResponseWriter, r *http.Request, opts LLMOpsProxyOptions
 	if body != nil {
 		upReq.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: llmOpsProxyTimeout}
+	client := &http.Client{Timeout: llmOpsProxyTimeoutFor(method, path)}
 	resp, err := client.Do(upReq)
 	if err != nil {
 		log.Printf("[viewer] llm-ops %s %s: %v", method, path, err)
@@ -290,4 +290,11 @@ func proxyLLMOps(w http.ResponseWriter, r *http.Request, opts LLMOpsProxyOptions
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		log.Printf("[viewer] llm-ops response copy: %v", err)
 	}
+}
+
+func llmOpsProxyTimeoutFor(method, path string) time.Duration {
+	if method == http.MethodGet && (path == "/health" || path == "/v1/status") {
+		return llmOpsReadProxyTimeout
+	}
+	return llmOpsProxyTimeout
 }

@@ -45,6 +45,21 @@ func TestLLMOpsProxyTimeoutCoversModelStartupWait(t *testing.T) {
 	if llmOpsProxyTimeout < 10*time.Minute {
 		t.Fatalf("llm ops proxy timeout should cover 600s startup wait, got %s", llmOpsProxyTimeout)
 	}
+	if llmOpsProxyTimeoutFor(http.MethodPost, "/v1/control/start") != llmOpsProxyTimeout {
+		t.Fatalf("llm ops control timeout should keep startup wait")
+	}
+}
+
+func TestLLMOpsReadProxyTimeoutIsShort(t *testing.T) {
+	if llmOpsReadProxyTimeout > 5*time.Second {
+		t.Fatalf("llm ops read timeout should be short enough for Viewer readiness, got %s", llmOpsReadProxyTimeout)
+	}
+	if llmOpsProxyTimeoutFor(http.MethodGet, "/v1/status") != llmOpsReadProxyTimeout {
+		t.Fatalf("status timeout should use short read timeout")
+	}
+	if llmOpsProxyTimeoutFor(http.MethodGet, "/health") != llmOpsReadProxyTimeout {
+		t.Fatalf("health timeout should use short read timeout")
+	}
 }
 
 func TestHandleLLMOpsHealth_ProxiesWithoutBearerRequirement(t *testing.T) {
@@ -70,6 +85,28 @@ func TestHandleLLMOpsHealth_ProxiesWithoutBearerRequirement(t *testing.T) {
 	}
 	if m["daemon"] != "llm-mgmt" {
 		t.Fatalf("body: %+v", m)
+	}
+}
+
+func TestHandleLLMOpsStatus_TimesOutReadOnlyProxy(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(upstream.Close)
+
+	h := HandleLLMOpsStatus(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "testtok"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/viewer/llm-ops/status", nil)
+	start := time.Now()
+	h(rec, req)
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("status proxy took too long: %s", time.Since(start))
+	}
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "upstream unreachable") {
+		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
 
@@ -187,6 +224,29 @@ func TestLLMOpsIdleChatGate_BlocksWhenHeavyOrWildRunning(t *testing.T) {
 	}
 	if strings.Join(requests, ",") != "GET /v1/status" {
 		t.Fatalf("requests: %+v", requests)
+	}
+}
+
+func TestLLMOpsIdleChatGate_StatusTimesOutQuickly(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/status" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(upstream.Close)
+
+	gate := NewLLMOpsIdleChatGate(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "tok"})
+	start := time.Now()
+	err := gate.PrepareIdleChatStart(context.Background())
+	if err == nil {
+		t.Fatal("PrepareIdleChatStart returned nil, want timeout error")
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("PrepareIdleChatStart took too long: %s", time.Since(start))
+	}
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("error=%v", err)
 	}
 }
 
