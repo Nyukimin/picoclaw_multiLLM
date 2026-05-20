@@ -15,6 +15,9 @@ func ValidateWorkflowEvent(item WorkflowEvent) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -30,6 +33,9 @@ func ValidateProjectMemoryIndex(item ProjectMemoryIndex) error {
 	}
 	if strings.TrimSpace(item.MemoryType) == "" {
 		return errors.New("memory_type is required")
+	}
+	if item.UpdatedAt.IsZero() {
+		return errors.New("updated_at is required")
 	}
 	return nil
 }
@@ -50,6 +56,9 @@ func ValidateWorktreeRegistry(item WorktreeRegistry) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -59,6 +68,9 @@ func ValidateCommandRegistry(item CommandRegistry) error {
 	}
 	if strings.TrimSpace(item.FilePath) == "" {
 		return errors.New("file_path is required")
+	}
+	if item.UpdatedAt.IsZero() {
+		return errors.New("updated_at is required")
 	}
 	return nil
 }
@@ -73,6 +85,9 @@ func ValidateContextUsage(item ContextUsage) error {
 	if item.InputTokens < 0 || item.OutputTokens < 0 || item.ContextTokens < 0 ||
 		item.ToolCallCount < 0 || item.DCICallCount < 0 || item.RepairCount < 0 || item.LatencyMS < 0 {
 		return errors.New("counts must be >= 0")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }

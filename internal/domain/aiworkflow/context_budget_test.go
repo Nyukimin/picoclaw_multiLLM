@@ -1,9 +1,13 @@
 package aiworkflow
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestEvaluateContextBudgetDisabled(t *testing.T) {
-	decision, err := EvaluateContextBudget(ContextUsage{EventID: "ctx_1", Agent: "Coder", ContextTokens: 9000}, ContextBudgetPolicy{})
+	now := time.Date(2026, 5, 20, 7, 15, 0, 0, time.UTC)
+	decision, err := EvaluateContextBudget(ContextUsage{EventID: "ctx_1", Agent: "Coder", ContextTokens: 9000, CreatedAt: now}, ContextBudgetPolicy{})
 	if err != nil {
 		t.Fatalf("EvaluateContextBudget failed: %v", err)
 	}
@@ -13,15 +17,16 @@ func TestEvaluateContextBudgetDisabled(t *testing.T) {
 }
 
 func TestEvaluateContextBudgetWarnsAndStops(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 15, 0, 0, time.UTC)
 	policy := ContextBudgetPolicy{MaxContextTokens: 1000, WarnAtRatio: 0.8, StopAtRatio: 0.95}
-	warn, err := EvaluateContextBudget(ContextUsage{EventID: "ctx_warn", Agent: "Coder", ContextTokens: 850}, policy)
+	warn, err := EvaluateContextBudget(ContextUsage{EventID: "ctx_warn", Agent: "Coder", ContextTokens: 850, CreatedAt: now}, policy)
 	if err != nil {
 		t.Fatalf("warn failed: %v", err)
 	}
 	if warn.Status != ContextBudgetStatusWarn {
 		t.Fatalf("warn decision = %#v", warn)
 	}
-	stop, err := EvaluateContextBudget(ContextUsage{EventID: "ctx_stop", Agent: "Coder", ContextTokens: 950}, policy)
+	stop, err := EvaluateContextBudget(ContextUsage{EventID: "ctx_stop", Agent: "Coder", ContextTokens: 950, CreatedAt: now}, policy)
 	if err != nil {
 		t.Fatalf("stop failed: %v", err)
 	}
