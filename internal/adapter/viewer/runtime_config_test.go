@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
-		STTBaseURL:   "https://192.168.1.31:8443/",
-		STTStreamURL: "wss://192.168.1.31:8443/stt/stream",
+		STTBaseURL:    "https://192.168.1.31:8443/",
+		STTStreamURL:  "wss://192.168.1.31:8443/stt/stream",
+		TTSBaseURL:    "http://127.0.0.1:7860/",
+		TTSHealthPath: "/gradio_api/info",
 	})
 	req := httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil)
 	rec := httptest.NewRecorder()
@@ -29,6 +32,9 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	}
 	if body.STTBaseURL != "https://192.168.1.31:8443" {
 		t.Fatalf("unexpected stt base url: %+v", body)
+	}
+	if body.TTSBaseURL != "http://127.0.0.1:7860" || body.TTSHealthPath != "/gradio_api/info" {
+		t.Fatalf("unexpected tts runtime config: %+v", body)
 	}
 }
 
@@ -73,5 +79,59 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" {
 		t.Fatalf("unexpected local llm runtime config: %+v", body.LocalLLM)
+	}
+}
+
+func TestHandleRuntimeConfig_ReturnsRuntimeReadinessWithoutSecretValues(t *testing.T) {
+	handler := HandleRuntimeConfig(DebugSystemOptions{
+		STTBaseURL:   "http://127.0.0.1:8766",
+		TTSBaseURL:   "http://127.0.0.1:7870",
+		STTStreamURL: "wss://127.0.0.1/stt",
+		RuntimeReadiness: RuntimeDependencyReadiness{
+			SlackCredentialsPresent:      true,
+			SlackWebhookRegistered:       true,
+			SlackFilePayloadPipeline:     true,
+			DiscordCredentialsPresent:    false,
+			DiscordWebhookRegistered:     false,
+			DiscordFilePayloadPipeline:   false,
+			TelegramCredentialsPresent:   true,
+			TelegramWebhookRegistered:    true,
+			TelegramFilePayloadPipeline:  true,
+			STTGatewayEnvPresent:         true,
+			TTSProviderEnvPresent:        false,
+			DistributedEnabled:           true,
+			DistributedTransportsPresent: true,
+			DistributedSSHConfigured:     true,
+			DistributedSSHConnected:      false,
+			DistributedLocalTransport:    true,
+			ConversationEnabled:          true,
+			L1SQLiteConfigPresent:        true,
+			MemoryLayersAvailable:        true,
+			MemoryLayersStatus:           true,
+			SourceRegistryAvailable:      true,
+			SourceRegistryStatus:         true,
+			KnowledgeMemoryEnabled:       true,
+			KnowledgeMemoryStatus:        true,
+			BrowserTraceAPIEnabled:       true,
+			BrowserTraceAPIStatus:        true,
+			BrowserTraceAPIFetcher:       true,
+			SandboxEnabled:               false,
+			SandboxStatusAvailable:       true,
+		},
+	})
+	rec := httptest.NewRecorder()
+	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	var body RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.RuntimeReadiness.SlackCredentialsPresent || !body.RuntimeReadiness.SlackWebhookRegistered || !body.RuntimeReadiness.SlackFilePayloadPipeline || body.RuntimeReadiness.DiscordCredentialsPresent || body.RuntimeReadiness.DiscordWebhookRegistered || body.RuntimeReadiness.DiscordFilePayloadPipeline || !body.RuntimeReadiness.TelegramCredentialsPresent || !body.RuntimeReadiness.TelegramWebhookRegistered || !body.RuntimeReadiness.TelegramFilePayloadPipeline || !body.RuntimeReadiness.STTGatewayEnvPresent || !body.RuntimeReadiness.STTGatewayConfigPresent || body.RuntimeReadiness.TTSProviderEnvPresent || !body.RuntimeReadiness.TTSProviderConfigPresent || !body.RuntimeReadiness.DistributedEnabled || !body.RuntimeReadiness.DistributedTransportsPresent || !body.RuntimeReadiness.DistributedSSHConfigured || body.RuntimeReadiness.DistributedSSHConnected || !body.RuntimeReadiness.DistributedLocalTransport || !body.RuntimeReadiness.ConversationEnabled || !body.RuntimeReadiness.L1SQLiteConfigPresent || !body.RuntimeReadiness.MemoryLayersAvailable || !body.RuntimeReadiness.MemoryLayersStatus || !body.RuntimeReadiness.SourceRegistryAvailable || !body.RuntimeReadiness.SourceRegistryStatus || !body.RuntimeReadiness.KnowledgeMemoryEnabled || !body.RuntimeReadiness.KnowledgeMemoryStatus || !body.RuntimeReadiness.BrowserTraceAPIEnabled || !body.RuntimeReadiness.BrowserTraceAPIStatus || !body.RuntimeReadiness.BrowserTraceAPIFetcher || body.RuntimeReadiness.SandboxEnabled || !body.RuntimeReadiness.SandboxStatusAvailable {
+		t.Fatalf("unexpected runtime readiness: %+v", body.RuntimeReadiness)
+	}
+	if strings.Contains(rec.Body.String(), "SLACK_BOT_TOKEN") || strings.Contains(rec.Body.String(), "TELEGRAM_BOT_TOKEN") {
+		t.Fatalf("runtime config leaked env names or secrets: %s", rec.Body.String())
 	}
 }

@@ -49,15 +49,53 @@ type DebugSystemOptions struct {
 	LLMOpsEnabled    bool
 	LLMOpsBaseURL    string
 	LocalLLM         LocalLLMRuntimeConfig
+	RuntimeReadiness RuntimeDependencyReadiness
 }
 
 type RuntimeConfig struct {
-	STTStreamURL     string                `json:"stt_stream_url,omitempty"`
-	STTBaseURL       string                `json:"stt_base_url,omitempty"`
-	LLMOpsConfigured bool                  `json:"llm_ops_configured"`
-	LLMOpsEnabled    bool                  `json:"llm_ops_enabled"`
-	LLMOpsBaseURL    string                `json:"llm_ops_base_url,omitempty"`
-	LocalLLM         LocalLLMRuntimeConfig `json:"local_llm,omitempty"`
+	STTStreamURL     string                     `json:"stt_stream_url,omitempty"`
+	STTBaseURL       string                     `json:"stt_base_url,omitempty"`
+	TTSBaseURL       string                     `json:"tts_base_url,omitempty"`
+	TTSHealthPath    string                     `json:"tts_health_path,omitempty"`
+	LLMOpsConfigured bool                       `json:"llm_ops_configured"`
+	LLMOpsEnabled    bool                       `json:"llm_ops_enabled"`
+	LLMOpsBaseURL    string                     `json:"llm_ops_base_url,omitempty"`
+	LocalLLM         LocalLLMRuntimeConfig      `json:"local_llm,omitempty"`
+	RuntimeReadiness RuntimeDependencyReadiness `json:"runtime_readiness,omitempty"`
+}
+
+type RuntimeDependencyReadiness struct {
+	SlackCredentialsPresent      bool `json:"slack_credentials_present"`
+	SlackWebhookRegistered       bool `json:"slack_webhook_registered"`
+	SlackFilePayloadPipeline     bool `json:"slack_file_payload_pipeline"`
+	DiscordCredentialsPresent    bool `json:"discord_credentials_present"`
+	DiscordWebhookRegistered     bool `json:"discord_webhook_registered"`
+	DiscordFilePayloadPipeline   bool `json:"discord_file_payload_pipeline"`
+	TelegramCredentialsPresent   bool `json:"telegram_credentials_present"`
+	TelegramWebhookRegistered    bool `json:"telegram_webhook_registered"`
+	TelegramFilePayloadPipeline  bool `json:"telegram_file_payload_pipeline"`
+	STTGatewayEnvPresent         bool `json:"stt_gateway_env_present"`
+	STTGatewayConfigPresent      bool `json:"stt_gateway_config_present"`
+	TTSProviderEnvPresent        bool `json:"tts_provider_env_present"`
+	TTSProviderConfigPresent     bool `json:"tts_provider_config_present"`
+	DistributedEnabled           bool `json:"distributed_enabled"`
+	DistributedTransportsPresent bool `json:"distributed_transports_present"`
+	DistributedSSHConfigured     bool `json:"distributed_ssh_configured"`
+	DistributedSSHConnected      bool `json:"distributed_ssh_connected"`
+	DistributedLocalTransport    bool `json:"distributed_local_transport"`
+	ConversationEnabled          bool `json:"conversation_enabled"`
+	L1SQLiteConfigPresent        bool `json:"l1_sqlite_config_present"`
+	MemoryLayersAvailable        bool `json:"memory_layers_available"`
+	MemoryLayersStatus           bool `json:"memory_layers_status_available"`
+	SourceRegistryAvailable      bool `json:"source_registry_available"`
+	SourceRegistryStatus         bool `json:"source_registry_status_available"`
+	KnowledgeMemoryEnabled       bool `json:"knowledge_memory_enabled"`
+	KnowledgeMemoryStatus        bool `json:"knowledge_memory_status_available"`
+	BrowserTraceAPIEnabled       bool `json:"browser_trace_api_enabled"`
+	BrowserTraceAPIStatus        bool `json:"browser_trace_api_status_available"`
+	BrowserTraceAPIFetcher       bool `json:"browser_trace_api_fetcher_available"`
+	SandboxEnabled               bool `json:"sandbox_enabled"`
+	SandboxStatusAvailable       bool `json:"sandbox_status_available"`
 }
 
 type LocalLLMRuntimeConfig struct {
@@ -86,12 +124,22 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(RuntimeConfig{
 			STTStreamURL:     strings.TrimSpace(opts.STTStreamURL),
 			STTBaseURL:       strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+			TTSBaseURL:       strings.TrimRight(strings.TrimSpace(opts.TTSBaseURL), "/"),
+			TTSHealthPath:    strings.TrimSpace(opts.TTSHealthPath),
 			LLMOpsConfigured: opts.LLMOpsConfigured,
 			LLMOpsEnabled:    opts.LLMOpsEnabled,
 			LLMOpsBaseURL:    strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
 			LocalLLM:         normalizeLocalLLMRuntimeConfig(opts.LocalLLM),
+			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
 		})
 	}
+}
+
+func normalizeRuntimeDependencyReadiness(opts DebugSystemOptions) RuntimeDependencyReadiness {
+	readiness := opts.RuntimeReadiness
+	readiness.STTGatewayConfigPresent = strings.TrimSpace(opts.STTBaseURL) != "" || strings.TrimSpace(opts.STTStreamURL) != ""
+	readiness.TTSProviderConfigPresent = strings.TrimSpace(opts.TTSBaseURL) != ""
+	return readiness
 }
 
 func normalizeLocalLLMRuntimeConfig(in LocalLLMRuntimeConfig) LocalLLMRuntimeConfig {
@@ -140,40 +188,54 @@ func collectAudioSnapshot(opts DebugSystemOptions) DebugAudioSnapshot {
 		STTBaseURL: strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
 		TTSBaseURL: strings.TrimRight(strings.TrimSpace(opts.TTSBaseURL), "/"),
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 1200 * time.Millisecond}
 
+	type probeResult struct {
+		name string
+		body string
+		ok   bool
+		err  error
+	}
+	probes := map[string]string{}
 	if out.STTBaseURL != "" {
-		if body, ok, err := fetchEndpoint(client, out.STTBaseURL+"/health"); err != nil {
-			out.LastError = appendError(out.LastError, "stt:"+err.Error())
-		} else {
-			out.STTHealth = body
-			out.STTOK = ok
-		}
+		probes["stt"] = out.STTBaseURL + "/health"
 	}
 	if out.TTSBaseURL != "" {
 		if strings.TrimSpace(opts.TTSHealthPath) != "" {
-			body, ok, err := fetchEndpoint(client, out.TTSBaseURL+"/"+strings.TrimLeft(strings.TrimSpace(opts.TTSHealthPath), "/"))
-			if err != nil {
-				out.LastError = appendError(out.LastError, "tts:"+err.Error())
-			} else {
-				out.TTSLive = body
-				out.TTSReady = body
-				out.TTSLiveOK = ok
-				out.TTSReadyOK = ok
-			}
-			return out
-		}
-		if body, ok, err := fetchEndpoint(client, out.TTSBaseURL+"/health/live"); err != nil {
-			out.LastError = appendError(out.LastError, "tts_live:"+err.Error())
+			probes["tts"] = out.TTSBaseURL + "/" + strings.TrimLeft(strings.TrimSpace(opts.TTSHealthPath), "/")
 		} else {
-			out.TTSLive = body
-			out.TTSLiveOK = ok
+			probes["tts_live"] = out.TTSBaseURL + "/health/live"
+			probes["tts_ready"] = out.TTSBaseURL + "/health/ready"
 		}
-		if body, ok, err := fetchEndpoint(client, out.TTSBaseURL+"/health/ready"); err != nil {
-			out.LastError = appendError(out.LastError, "tts_ready:"+err.Error())
-		} else {
-			out.TTSReady = body
-			out.TTSReadyOK = ok
+	}
+	results := make(chan probeResult, len(probes))
+	for name, endpoint := range probes {
+		go func(name, endpoint string) {
+			body, ok, err := fetchEndpoint(client, endpoint)
+			results <- probeResult{name: name, body: body, ok: ok, err: err}
+		}(name, endpoint)
+	}
+	for range probes {
+		result := <-results
+		if result.err != nil {
+			out.LastError = appendError(out.LastError, result.name+":"+result.err.Error())
+			continue
+		}
+		switch result.name {
+		case "stt":
+			out.STTHealth = result.body
+			out.STTOK = result.ok
+		case "tts":
+			out.TTSLive = result.body
+			out.TTSReady = result.body
+			out.TTSLiveOK = result.ok
+			out.TTSReadyOK = result.ok
+		case "tts_live":
+			out.TTSLive = result.body
+			out.TTSLiveOK = result.ok
+		case "tts_ready":
+			out.TTSReady = result.body
+			out.TTSReadyOK = result.ok
 		}
 	}
 	return out
