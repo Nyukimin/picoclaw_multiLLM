@@ -53,7 +53,24 @@ func (s *JSONLStore) ListAgentRuns(_ context.Context, limit int) ([]domainsupera
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestAgentRuns(items, normalizedLimit(limit)), err
+}
+
+func latestAgentRuns(items []domainsuperagent.AgentRun, limit int) []domainsuperagent.AgentRun {
+	if limit <= 0 {
+		limit = len(items)
+	}
+	seen := map[string]struct{}{}
+	out := make([]domainsuperagent.AgentRun, 0, minRunQueueLimit(limit, len(items)))
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		item := items[i]
+		if _, ok := seen[item.RunID]; ok {
+			continue
+		}
+		seen[item.RunID] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *JSONLStore) SaveSubagentTask(_ context.Context, item domainsuperagent.SubagentTask) error {
@@ -153,7 +170,31 @@ func (s *JSONLStore) ListRunQueueItems(_ context.Context, limit int) ([]domainsu
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestRunQueueItems(items, normalizedLimit(limit)), err
+}
+
+func latestRunQueueItems(items []domainsuperagent.RunQueueItem, limit int) []domainsuperagent.RunQueueItem {
+	if limit <= 0 {
+		limit = len(items)
+	}
+	seen := map[string]struct{}{}
+	out := make([]domainsuperagent.RunQueueItem, 0, minRunQueueLimit(limit, len(items)))
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		item := items[i]
+		if _, ok := seen[item.QueueID]; ok {
+			continue
+		}
+		seen[item.QueueID] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func minRunQueueLimit(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func appendJSONL(path string, value any) error {

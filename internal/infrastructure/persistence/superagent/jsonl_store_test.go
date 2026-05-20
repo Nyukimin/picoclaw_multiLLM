@@ -94,3 +94,68 @@ func TestJSONLStoreRejectsOversizedContextPack(t *testing.T) {
 		t.Fatal("expected oversized context pack to fail")
 	}
 }
+
+func TestJSONLStoreListRunQueueItemsReturnsLatestStatePerQueue(t *testing.T) {
+	store := NewJSONLStore(t.TempDir(), 3000)
+	now := time.Date(2026, 5, 19, 8, 40, 0, 0, time.UTC)
+	for _, status := range []string{"queued", "claimed", "completed"} {
+		item := domainsuperagent.RunQueueItem{
+			QueueID:   "queue_1",
+			RunID:     "run_1",
+			Goal:      "resume run",
+			Action:    "resume",
+			Status:    status,
+			CreatedAt: now,
+		}
+		if status == "claimed" {
+			item.ClaimedAt = now.Add(time.Second)
+		}
+		if status == "completed" {
+			item.ClaimedAt = now.Add(time.Second)
+			item.CompletedAt = now.Add(2 * time.Second)
+		}
+		if err := store.SaveRunQueueItem(context.Background(), item); err != nil {
+			t.Fatalf("SaveRunQueueItem(%s) error = %v", status, err)
+		}
+	}
+
+	queue, err := store.ListRunQueueItems(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListRunQueueItems() error = %v", err)
+	}
+	if len(queue) != 1 || queue[0].QueueID != "queue_1" || queue[0].Status != "completed" {
+		t.Fatalf("queue=%#v", queue)
+	}
+}
+
+func TestJSONLStoreListAgentRunsReturnsLatestStatePerRun(t *testing.T) {
+	store := NewJSONLStore(t.TempDir(), 3000)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 19, 9, 28, 0, 0, time.UTC)
+	running := domainsuperagent.AgentRun{
+		RunID:     "run_1",
+		AgentType: "LeadAgent",
+		Goal:      "scheduler E2E",
+		Status:    "running",
+		StartedAt: now,
+		Summary:   "route=CHAT",
+	}
+	failed := running
+	failed.Status = "failed"
+	failed.CompletedAt = now.Add(5 * time.Second)
+	failed.Summary = "failed to execute request"
+	if err := store.SaveAgentRun(ctx, running); err != nil {
+		t.Fatalf("SaveAgentRun(running) error = %v", err)
+	}
+	if err := store.SaveAgentRun(ctx, failed); err != nil {
+		t.Fatalf("SaveAgentRun(failed) error = %v", err)
+	}
+
+	runs, err := store.ListAgentRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListAgentRuns() error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].RunID != "run_1" || runs[0].Status != "failed" || runs[0].CompletedAt.IsZero() {
+		t.Fatalf("runs=%#v", runs)
+	}
+}
