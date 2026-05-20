@@ -137,6 +137,12 @@ func (s *L1SQLiteStore) MarkSourceRegistryFetched(ctx context.Context, sourceID 
 	if sourceID == "" {
 		return errors.New("l1 source registry source_id is required")
 	}
+	if err := validateL1SourceFetchStatus(status); err != nil {
+		return err
+	}
+	if status == L1SourceFetchStatusError && lastError == "" {
+		return errors.New("l1 source registry last_error is required when fetch status is error")
+	}
 	if fetchedAt.IsZero() {
 		fetchedAt = time.Now().UTC()
 	}

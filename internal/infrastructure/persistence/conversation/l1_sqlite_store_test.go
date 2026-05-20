@@ -173,6 +173,87 @@ func TestL1SQLiteStore_RejectsInvalidMemoryState(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SaveMessageRejectsMalformedMemoryEvent(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	valid := domconv.NewMessage(domconv.SpeakerUser, "valid memory", nil)
+	tests := []struct {
+		name      string
+		sessionID string
+		threadID  int64
+		msg       domconv.Message
+		want      string
+	}{
+		{
+			name:      "missing session",
+			sessionID: "",
+			threadID:  1,
+			msg:       valid,
+			want:      "session_id is required",
+		},
+		{
+			name:      "missing thread",
+			sessionID: "session-1",
+			threadID:  0,
+			msg:       valid,
+			want:      "thread_id must be > 0",
+		},
+		{
+			name:      "missing speaker",
+			sessionID: "session-1",
+			threadID:  1,
+			msg:       domconv.Message{Msg: "valid memory", Timestamp: time.Now().UTC()},
+			want:      "speaker is required",
+		},
+		{
+			name:      "missing message",
+			sessionID: "session-1",
+			threadID:  1,
+			msg:       domconv.NewMessage(domconv.SpeakerUser, "   ", nil),
+			want:      "message is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := store.SaveMessage(ctx, tt.sessionID, tt.threadID, "", tt.msg, MemoryStateObserved)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("SaveMessage() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestL1SQLiteStore_RecentMemoryRejectsMalformedRows(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 5, 20, 8, 50, 0, 0, time.UTC)
+	_, err = store.db.ExecContext(ctx, `
+INSERT INTO l1_memory_event (
+	id, namespace, session_id, thread_id, speaker, message, meta_json,
+	memory_state, layer, source, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, "bad-memory-1", "conv:850", "session-850", int64(850), string(domconv.SpeakerUser), "", `{}`,
+		MemoryStateObserved, MemoryLayerL1, "manual", now, now)
+	if err != nil {
+		t.Fatalf("insert malformed memory row: %v", err)
+	}
+
+	_, err = store.RecentByNamespace(ctx, "conv:850", 10)
+	if err == nil || !strings.Contains(err.Error(), "message is required") {
+		t.Fatalf("RecentByNamespace() error = %v, want message validation", err)
+	}
+}
+
 func TestL1SQLiteStore_SearchCacheFreshHit(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
@@ -1152,6 +1233,12 @@ func TestL1SQLiteStore_DueSourceRegistryEntriesAndFetchStatus(t *testing.T) {
 	}
 	if len(due) != 1 || due[0].SourceID != "rss:due" {
 		t.Fatalf("expected source to be due before first fetch, got %+v", due)
+	}
+	if err := store.MarkSourceRegistryFetched(ctx, "rss:due", now, "done", ""); err == nil {
+		t.Fatal("expected invalid fetch status to fail")
+	}
+	if err := store.MarkSourceRegistryFetched(ctx, "rss:due", now, L1SourceFetchStatusError, ""); err == nil {
+		t.Fatal("expected error status without last_error to fail")
 	}
 	if err := store.MarkSourceRegistryFetched(ctx, "rss:due", now, "ok", ""); err != nil {
 		t.Fatalf("MarkSourceRegistryFetched failed: %v", err)

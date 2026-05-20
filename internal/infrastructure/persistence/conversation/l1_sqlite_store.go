@@ -34,6 +34,9 @@ const (
 	L1SourceKindPyPI           = "pypi"
 	L1SourceKindMediaWiki      = "mediawiki"
 	L1SourceKindSearchFallback = "search_fallback"
+
+	L1SourceFetchStatusOK    = "ok"
+	L1SourceFetchStatusError = "error"
 )
 
 const (

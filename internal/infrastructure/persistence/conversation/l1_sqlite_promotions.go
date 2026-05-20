@@ -69,6 +69,9 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToMemory(ctx context.Context,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	if err := validateL1MemoryEvent(*promoted); err != nil {
+		return nil, err
+	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO l1_memory_event (
 	id, namespace, session_id, thread_id, speaker, message, meta_json,

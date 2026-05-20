@@ -14,6 +14,9 @@ import (
 )
 
 func (s *L1SQLiteStore) SaveMessage(ctx context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
+	if err := validateL1MessageSaveInput(sessionID, threadID, msg); err != nil {
+		return err
+	}
 	if namespace == "" {
 		var err error
 		namespace, err = BuildL1Namespace(NamespaceKindConversation, fmt.Sprintf("%d", threadID))
@@ -46,6 +49,23 @@ func (s *L1SQLiteStore) SaveMessage(ctx context.Context, sessionID string, threa
 		return fmt.Errorf("failed to marshal l1 memory meta: %w", err)
 	}
 	id := fmt.Sprintf("%s:%d:%d:%s", sessionID, threadID, createdAt.UnixNano(), msg.Speaker)
+	event := L1MemoryEvent{
+		ID:          id,
+		Namespace:   namespace,
+		SessionID:   sessionID,
+		ThreadID:    threadID,
+		Speaker:     msg.Speaker,
+		Message:     msg.Msg,
+		Meta:        meta,
+		MemoryState: memoryState,
+		Layer:       layer,
+		Source:      "conversation",
+		CreatedAt:   createdAt,
+		UpdatedAt:   now,
+	}
+	if err := validateL1MemoryEvent(event); err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO l1_memory_event (
 	id, namespace, session_id, thread_id, speaker, message, meta_json,
@@ -56,8 +76,8 @@ ON CONFLICT(id) DO UPDATE SET
 	meta_json = excluded.meta_json,
 	memory_state = excluded.memory_state,
 	updated_at = excluded.updated_at
-`, id, namespace, sessionID, threadID, string(msg.Speaker), msg.Msg, string(metaJSON),
-		memoryState, layer, "conversation", createdAt, now)
+`, event.ID, event.Namespace, event.SessionID, event.ThreadID, string(event.Speaker), event.Message, string(metaJSON),
+		event.MemoryState, event.Layer, event.Source, event.CreatedAt, event.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to save l1 memory event: %w", err)
 	}
@@ -153,6 +173,9 @@ func (s *L1SQLiteStore) PromoteMemoryToNamespace(ctx context.Context, id string,
 		Source:      "promoter",
 		CreatedAt:   now,
 		UpdatedAt:   now,
+	}
+	if err := validateL1MemoryEvent(*promoted); err != nil {
+		return nil, err
 	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO l1_memory_event (

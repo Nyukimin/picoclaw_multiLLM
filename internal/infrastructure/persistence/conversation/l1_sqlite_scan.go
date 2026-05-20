@@ -310,5 +310,8 @@ func scanL1EventRows(row l1MemoryRow) ([]L1MemoryEvent, error) {
 	if err := json.Unmarshal([]byte(metaJSON), &ev.Meta); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal l1 memory meta: %w", err)
 	}
+	if err := validateL1MemoryEvent(ev); err != nil {
+		return nil, err
+	}
 	return []L1MemoryEvent{ev}, nil
 }
