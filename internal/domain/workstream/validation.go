@@ -21,6 +21,12 @@ func ValidateGoal(goal Goal) error {
 	if len(goal.Verification) == 0 {
 		return errors.New("verification is required")
 	}
+	if goal.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
+	if strings.TrimSpace(goal.Status) == StatusCompleted && goal.CompletedAt.IsZero() {
+		return errors.New("completed_at is required for completed goal")
+	}
 	return nil
 }
 
@@ -33,6 +39,9 @@ func ValidateWorkstream(item Workstream) error {
 	}
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
@@ -50,6 +59,9 @@ func ValidateArtifact(item Artifact) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -66,6 +78,9 @@ func ValidateArtifactAnnotation(item ArtifactAnnotation) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -81,6 +96,9 @@ func ValidateSteeringItem(item SteeringItem) error {
 	}
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
@@ -101,6 +119,9 @@ func ValidateHeartbeatSchedule(item HeartbeatSchedule) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return errors.New("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -116,6 +137,9 @@ func ValidateVaultUpdateLog(item VaultUpdateLog) error {
 	}
 	if strings.TrimSpace(item.ReviewStatus) == "" {
 		return errors.New("review_status is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }

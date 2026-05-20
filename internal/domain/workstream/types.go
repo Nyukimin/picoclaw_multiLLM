@@ -92,6 +92,8 @@ type VaultUpdateLog struct {
 	ContentHashBefore string    `json:"content_hash_before,omitempty"`
 	ContentHashAfter  string    `json:"content_hash_after,omitempty"`
 	ReviewStatus      string    `json:"review_status"`
+	Applied           bool      `json:"applied,omitempty"`
+	AppliedPath       string    `json:"applied_path,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
