@@ -24,6 +24,25 @@ func (s *fakeL1KnowledgeMemoryStore) SaveSourceRegistryEntry(_ context.Context, 
 	return &entry, nil
 }
 
+func TestWithL1ConnectionIgnoresTypedNilL1Store(t *testing.T) {
+	base := NewJSONLStore(t.TempDir())
+	var l1 *fakeL1KnowledgeMemoryStore
+	store := WithL1Connection(base, l1)
+	if store != base {
+		t.Fatalf("typed nil L1 store should not wrap base store")
+	}
+	err := store.SaveNewsKnowledgeItem(context.Background(), domainkm.NewsKnowledgeItem{
+		ItemID:    "news_1",
+		Source:    "example",
+		Topic:     "AI policy",
+		Status:    "candidate",
+		CreatedAt: fixedKnowledgeMemoryTime(),
+	})
+	if err != nil {
+		t.Fatalf("SaveNewsKnowledgeItem() error = %v", err)
+	}
+}
+
 func TestL1ConnectedStoreStagesPersonalArchiveWithoutPromote(t *testing.T) {
 	base := NewJSONLStore(t.TempDir())
 	l1 := &fakeL1KnowledgeMemoryStore{}

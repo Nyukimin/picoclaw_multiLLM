@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ type L1ConnectedStore struct {
 }
 
 func WithL1Connection(base Store, l1 any) Store {
-	if base == nil || l1 == nil {
+	if base == nil || isNilL1Store(l1) {
 		return base
 	}
 	staging, ok := l1.(L1StagingStore)
@@ -55,6 +56,19 @@ func WithL1Connection(base Store, l1 any) Store {
 		staging:  staging,
 		registry: registry,
 		now:      time.Now,
+	}
+}
+
+func isNilL1Store(l1 any) bool {
+	if l1 == nil {
+		return true
+	}
+	v := reflect.ValueOf(l1)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
 	}
 }
 
