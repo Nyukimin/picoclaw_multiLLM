@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -55,8 +56,8 @@ func (v *VectorDBStore) initKBCollection(ctx context.Context, domain string) err
 
 // SaveKB はKnowledge BaseにDocumentを保存
 func (v *VectorDBStore) SaveKB(ctx context.Context, doc *conversation.Document) error {
-	if !doc.IsValid() {
-		return fmt.Errorf("invalid document: missing required fields")
+	if err := validateKBDocumentForSave(doc); err != nil {
+		return err
 	}
 
 	// KBコレクション初期化
@@ -231,6 +232,9 @@ func pointToDocument(point *qdrant.ScoredPoint, domain string) (*conversation.Do
 		}
 	}
 
+	if err := validateKBDocumentForRead(doc); err != nil {
+		return nil, err
+	}
 	return doc, nil
 }
 
@@ -332,7 +336,45 @@ func retrievedPointToDocument(point *qdrant.RetrievedPoint, domain string) (*con
 		}
 	}
 
+	if err := validateKBDocumentForRead(doc); err != nil {
+		return nil, err
+	}
 	return doc, nil
+}
+
+func validateKBDocumentForSave(doc *conversation.Document) error {
+	if doc == nil {
+		return fmt.Errorf("kb document is required")
+	}
+	if err := validateKBDocumentForRead(doc); err != nil {
+		return err
+	}
+	if len(doc.Embedding) == 0 {
+		return fmt.Errorf("kb document embedding is required")
+	}
+	return nil
+}
+
+func validateKBDocumentForRead(doc *conversation.Document) error {
+	if doc == nil {
+		return fmt.Errorf("kb document is required")
+	}
+	if strings.TrimSpace(doc.ID) == "" {
+		return fmt.Errorf("kb document id is required")
+	}
+	if strings.TrimSpace(doc.Domain) == "" {
+		return fmt.Errorf("kb document domain is required")
+	}
+	if strings.TrimSpace(doc.Content) == "" {
+		return fmt.Errorf("kb document content is required")
+	}
+	if doc.CreatedAt.IsZero() {
+		return fmt.Errorf("kb document created_at is required")
+	}
+	if doc.UpdatedAt.IsZero() {
+		return fmt.Errorf("kb document updated_at is required")
+	}
+	return nil
 }
 
 // GetKBCollections は存在するKBコレクション一覧を取得
