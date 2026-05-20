@@ -24,6 +24,7 @@ func TestSQLiteStoreSavesAndListsComplexityRecords(t *testing.T) {
 		HotspotsFound: 1,
 		Status:        "completed",
 		CreatedAt:     now,
+		CompletedAt:   now,
 	}
 	hotspot := domaincomplexity.Hotspot{
 		HotspotID:           "hot_1",

@@ -19,6 +19,7 @@ func TestJSONLStoreSavesAndListsComplexityRecords(t *testing.T) {
 		HotspotsFound: 1,
 		Status:        "completed",
 		CreatedAt:     now,
+		CompletedAt:   now,
 	}
 	hotspot := domaincomplexity.Hotspot{
 		HotspotID:           "hot_1",
@@ -57,6 +58,18 @@ func TestJSONLStoreSavesAndListsComplexityRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveReportArtifact() error = %v", err)
 	}
+	updatedReport := domaincomplexity.ReportArtifact{
+		ArtifactID: "art_1",
+		ScanID:     "scan_1",
+		Type:       "complexity_hotspot_report",
+		Title:      "Complexity Hotspot Report",
+		Status:     "pending_review",
+		Content:    "# Updated Complexity Hotspot Report",
+		CreatedAt:  now.Add(time.Second),
+	}
+	if err := store.SaveReportArtifact(context.Background(), updatedReport); err != nil {
+		t.Fatalf("SaveReportArtifact(updated) error = %v", err)
+	}
 	scans, err := store.ListScanEvents(context.Background(), 10)
 	if err != nil || len(scans) != 1 {
 		t.Fatalf("ListScanEvents() = %#v, %v", scans, err)
@@ -70,7 +83,7 @@ func TestJSONLStoreSavesAndListsComplexityRecords(t *testing.T) {
 		t.Fatalf("ListHotspotEvidence() = %#v, %v", evidenceItems, err)
 	}
 	reports, err := store.ListReportArtifacts(context.Background(), 10)
-	if err != nil || len(reports) != 1 {
+	if err != nil || len(reports) != 1 || reports[0].Status != "pending_review" {
 		t.Fatalf("ListReportArtifacts() = %#v, %v", reports, err)
 	}
 }

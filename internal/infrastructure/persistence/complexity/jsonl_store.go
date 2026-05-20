@@ -52,7 +52,7 @@ func (s *JSONLStore) ListScanEvents(_ context.Context, limit int) ([]domaincompl
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(items, limit), nil
+	return reverseUniqueLimit(items, limit, func(item domaincomplexity.ScanEvent) string { return item.ScanID }), nil
 }
 
 func (s *JSONLStore) SaveHotspot(_ context.Context, item domaincomplexity.Hotspot) error {
@@ -77,7 +77,7 @@ func (s *JSONLStore) ListHotspots(_ context.Context, limit int) ([]domaincomplex
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(items, limit), nil
+	return reverseUniqueLimit(items, limit, func(item domaincomplexity.Hotspot) string { return item.HotspotID }), nil
 }
 
 func (s *JSONLStore) SaveHotspotEvidence(_ context.Context, item domaincomplexity.HotspotEvidence) error {
@@ -102,7 +102,7 @@ func (s *JSONLStore) ListHotspotEvidence(_ context.Context, limit int) ([]domain
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(items, limit), nil
+	return reverseUniqueLimit(items, limit, func(item domaincomplexity.HotspotEvidence) string { return item.EvidenceID }), nil
 }
 
 func (s *JSONLStore) SaveReportArtifact(_ context.Context, item domaincomplexity.ReportArtifact) error {
@@ -127,7 +127,7 @@ func (s *JSONLStore) ListReportArtifacts(_ context.Context, limit int) ([]domain
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(items, limit), nil
+	return reverseUniqueLimit(items, limit, func(item domaincomplexity.ReportArtifact) string { return item.ArtifactID }), nil
 }
 
 func appendJSONL(path string, value any) error {
@@ -171,6 +171,25 @@ func reverseLimit[T any](items []T, limit int) []T {
 	}
 	out := make([]T, 0, limit)
 	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		out = append(out, items[i])
+	}
+	return out
+}
+
+func reverseUniqueLimit[T any](items []T, limit int, key func(T) string) []T {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	seen := map[string]struct{}{}
+	out := make([]T, 0, limit)
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		id := key(items[i])
+		if id != "" {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+		}
 		out = append(out, items[i])
 	}
 	return out
