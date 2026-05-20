@@ -248,6 +248,9 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.revenueChannelDraft != nil {
 		mux.HandleFunc("/viewer/revenue/channel-drafts", dependencies.revenueChannelDraft)
 	}
+	if dependencies.revenueExternalSendApply != nil {
+		mux.HandleFunc("/viewer/revenue/channel-drafts/external-send-apply", dependencies.revenueExternalSendApply)
+	}
 	if dependencies.personaObservation != nil {
 		mux.HandleFunc("/viewer/persona-observation", dependencies.personaObservation)
 	}

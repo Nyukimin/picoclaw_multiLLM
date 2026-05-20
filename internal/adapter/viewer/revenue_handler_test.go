@@ -21,6 +21,7 @@ type stubRevenueStore struct {
 	decisions []domainrevenue.HumanDecisionGateRecord
 	daily     []domainrevenue.DailyRoutineReport
 	drafts    []domainrevenue.ChannelDraft
+	applies   []domainrevenue.ExternalSendApplyRecord
 	limit     int
 }
 
@@ -62,6 +63,11 @@ func (s *stubRevenueStore) ListDailyRoutineReports(_ context.Context, limit int)
 func (s *stubRevenueStore) ListChannelDrafts(_ context.Context, limit int) ([]domainrevenue.ChannelDraft, error) {
 	s.limit = limit
 	return s.drafts, nil
+}
+
+func (s *stubRevenueStore) ListExternalSendApplyRecords(_ context.Context, limit int) ([]domainrevenue.ExternalSendApplyRecord, error) {
+	s.limit = limit
+	return s.applies, nil
 }
 
 func (s *stubRevenueStore) SaveMarketResearchItem(_ context.Context, item domainrevenue.MarketResearchItem) error {
@@ -128,6 +134,14 @@ func (s *stubRevenueStore) SaveChannelDraft(_ context.Context, item domainrevenu
 	return nil
 }
 
+func (s *stubRevenueStore) SaveExternalSendApplyRecord(_ context.Context, item domainrevenue.ExternalSendApplyRecord) error {
+	if err := domainrevenue.ValidateExternalSendApplyRecord(item); err != nil {
+		return err
+	}
+	s.applies = append(s.applies, item)
+	return nil
+}
+
 func TestHandleRevenueStatus(t *testing.T) {
 	day := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	store := &stubRevenueStore{
@@ -139,6 +153,7 @@ func TestHandleRevenueStatus(t *testing.T) {
 		decisions: []domainrevenue.HumanDecisionGateRecord{{DecisionID: "dec_1", DecisionType: "external_publish", ApprovalStatus: "pending", GateStatus: "needs_review"}},
 		daily:     []domainrevenue.DailyRoutineReport{{ReportID: "daily_1", Date: "2026-05-18", Status: "draft_report"}},
 		drafts:    []domainrevenue.ChannelDraft{{DraftID: "draft_1", Channel: "email", Body: "本文", ApprovalStatus: "pending", CreatedAt: day}},
+		applies:   []domainrevenue.ExternalSendApplyRecord{{ApplyID: "apply_1", DraftID: "draft_1", DecisionID: "dec_2", Channel: "email", ApprovalStatus: "approved", HumanApproved: true, ApplyStatus: "blocked", SendResult: "not_sent", FailureReason: "external channel adapter is not configured", CreatedAt: day}},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/viewer/revenue?limit=5", nil)
 	rec := httptest.NewRecorder()
@@ -152,14 +167,18 @@ func TestHandleRevenueStatus(t *testing.T) {
 		t.Fatalf("limit=%d", store.limit)
 	}
 	var body struct {
-		MarketResearch []domainrevenue.MarketResearchItem      `json:"market_research"`
-		Products       []domainrevenue.Product                 `json:"products"`
-		Voices         []domainrevenue.CustomerVoice           `json:"customer_voices"`
-		Events         []domainrevenue.RevenueEvent            `json:"revenue_events"`
-		Decisions      []domainrevenue.HumanDecisionGateRecord `json:"human_decisions"`
-		DailyReports   []domainrevenue.DailyRoutineReport      `json:"daily_routine_reports"`
-		ChannelDrafts  []domainrevenue.ChannelDraft            `json:"channel_drafts"`
-		Summary        RevenueDashboardSummary                 `json:"summary"`
+		MarketResearch                       []domainrevenue.MarketResearchItem      `json:"market_research"`
+		Products                             []domainrevenue.Product                 `json:"products"`
+		Voices                               []domainrevenue.CustomerVoice           `json:"customer_voices"`
+		Events                               []domainrevenue.RevenueEvent            `json:"revenue_events"`
+		Decisions                            []domainrevenue.HumanDecisionGateRecord `json:"human_decisions"`
+		DailyReports                         []domainrevenue.DailyRoutineReport      `json:"daily_routine_reports"`
+		ChannelDrafts                        []domainrevenue.ChannelDraft            `json:"channel_drafts"`
+		Applies                              []domainrevenue.ExternalSendApplyRecord `json:"external_send_apply_records"`
+		ExternalChannelAdapter               string                                  `json:"external_channel_adapter"`
+		ExternalChannelAdapterConfigured     bool                                    `json:"external_channel_adapter_configured"`
+		HumanApprovalRequiredForExternalSend bool                                    `json:"human_approval_required_for_external_send"`
+		Summary                              RevenueDashboardSummary                 `json:"summary"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -176,6 +195,12 @@ func TestHandleRevenueStatus(t *testing.T) {
 	if len(body.ChannelDrafts) != 1 || body.ChannelDrafts[0].DraftID != "draft_1" {
 		t.Fatalf("channel drafts=%#v", body.ChannelDrafts)
 	}
+	if len(body.Applies) != 1 || body.Applies[0].ApplyID != "apply_1" {
+		t.Fatalf("external send applies=%#v", body.Applies)
+	}
+	if body.ExternalChannelAdapter != "unconfigured" || body.ExternalChannelAdapterConfigured || !body.HumanApprovalRequiredForExternalSend {
+		t.Fatalf("external channel readiness=%#v", body)
+	}
 	if body.Summary.MarketResearchCount != 1 ||
 		body.Summary.SNSPostCount != 1 ||
 		body.Summary.UsableVoiceCount != 1 ||
@@ -185,7 +210,8 @@ func TestHandleRevenueStatus(t *testing.T) {
 		body.Summary.PendingDecisionCount != 1 ||
 		body.Summary.LatestDailyReportID != "daily_1" ||
 		body.Summary.ChannelDraftCount != 1 ||
-		body.Summary.LatestChannelDraftID != "draft_1" {
+		body.Summary.LatestChannelDraftID != "draft_1" ||
+		body.Summary.ExternalSendApplyCount != 1 {
 		t.Fatalf("summary=%#v", body.Summary)
 	}
 	if len(body.Summary.KPITrend) != 1 ||
@@ -385,6 +411,7 @@ func TestHandleRevenueHumanDecisionGateRejectsMissingDecisionID(t *testing.T) {
 }
 
 func TestHandleRevenueHumanDecisionGateReviewApprovesExistingDecision(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 30, 0, 0, time.UTC)
 	store := &stubRevenueStore{
 		decisions: []domainrevenue.HumanDecisionGateRecord{{
 			DecisionID:       "dec_1",
@@ -393,6 +420,7 @@ func TestHandleRevenueHumanDecisionGateReviewApprovesExistingDecision(t *testing
 			ApprovalStatus:   "pending",
 			GateStatus:       "needs_review",
 			RequiresApproval: true,
+			CreatedAt:        now,
 		}},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/viewer/revenue/human-decision-gate/review", bytes.NewBufferString(`{
@@ -422,6 +450,7 @@ func TestHandleRevenueHumanDecisionGateReviewApprovesExistingDecision(t *testing
 }
 
 func TestHandleRevenueHumanDecisionGateReviewRejectsExistingDecision(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 30, 0, 0, time.UTC)
 	store := &stubRevenueStore{
 		decisions: []domainrevenue.HumanDecisionGateRecord{{
 			DecisionID:       "dec_1",
@@ -430,6 +459,7 @@ func TestHandleRevenueHumanDecisionGateReviewRejectsExistingDecision(t *testing.
 			ApprovalStatus:   "pending",
 			GateStatus:       "needs_review",
 			RequiresApproval: true,
+			CreatedAt:        now,
 		}},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/viewer/revenue/human-decision-gate/review", bytes.NewBufferString(`{
@@ -526,5 +556,142 @@ func TestHandleRevenueHumanDecisionGateReviewRejectsInvalidApprovalStatus(t *tes
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleRevenueExternalSendApplyRequiresHumanApproval(t *testing.T) {
+	store := &stubRevenueStore{
+		drafts: []domainrevenue.ChannelDraft{{DraftID: "draft_1", Channel: "email", Body: "下書き本文", ApprovalStatus: "pending"}},
+		decisions: []domainrevenue.HumanDecisionGateRecord{{
+			DecisionID:       "dec_1",
+			DecisionType:     "closed_channel_send",
+			SubjectID:        "draft_1",
+			ApprovalStatus:   "approved",
+			GateStatus:       "approved",
+			RequiresApproval: true,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/revenue/channel-drafts/external-send-apply", bytes.NewBufferString(`{
+		"apply_id":"apply_1",
+		"draft_id":"draft_1",
+		"decision_id":"dec_1"
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleRevenueExternalSendApply(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.applies) != 0 {
+		t.Fatalf("applies=%#v", store.applies)
+	}
+}
+
+func TestHandleRevenueExternalSendApplyRecordsBlockedAuditWhenAdapterUnavailable(t *testing.T) {
+	store := &stubRevenueStore{
+		drafts: []domainrevenue.ChannelDraft{{DraftID: "draft_1", Channel: "email", Body: "下書き本文", ApprovalStatus: "pending"}},
+		decisions: []domainrevenue.HumanDecisionGateRecord{{
+			DecisionID:       "dec_1",
+			DecisionType:     "closed_channel_send",
+			SubjectID:        "draft_1",
+			ApprovalStatus:   "approved",
+			GateStatus:       "approved",
+			RequiresApproval: true,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/revenue/channel-drafts/external-send-apply", bytes.NewBufferString(`{
+		"apply_id":"apply_1",
+		"draft_id":"draft_1",
+		"decision_id":"dec_1",
+		"destination":"customer@example.test",
+		"channel_adapter":"slack",
+		"human_approved":true
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleRevenueExternalSendApply(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.applies) != 1 {
+		t.Fatalf("applies=%#v", store.applies)
+	}
+	record := store.applies[0]
+	if record.ApplyStatus != "blocked" || record.SendResult != "not_sent" || record.ExternalSendApplied || record.PostSendVerified || record.ChannelAdapter != "unconfigured" {
+		t.Fatalf("unexpected apply record: %#v", record)
+	}
+	var body struct {
+		Record                 domainrevenue.ExternalSendApplyRecord `json:"external_send_apply_record"`
+		ExternalActionsApplied bool                                  `json:"external_actions_applied"`
+		PostSendVerified       bool                                  `json:"post_send_verified"`
+		FailureReason          string                                `json:"failure_reason"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Record.ApplyID != "apply_1" || body.ExternalActionsApplied || body.PostSendVerified || body.FailureReason == "" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
+
+func TestHandleRevenueExternalSendApplyRejectsUnapprovedDecision(t *testing.T) {
+	store := &stubRevenueStore{
+		drafts: []domainrevenue.ChannelDraft{{DraftID: "draft_1", Channel: "email", Body: "下書き本文", ApprovalStatus: "pending"}},
+		decisions: []domainrevenue.HumanDecisionGateRecord{{
+			DecisionID:       "dec_1",
+			DecisionType:     "closed_channel_send",
+			SubjectID:        "draft_1",
+			ApprovalStatus:   "pending",
+			GateStatus:       "needs_review",
+			RequiresApproval: true,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/revenue/channel-drafts/external-send-apply", bytes.NewBufferString(`{
+		"apply_id":"apply_1",
+		"draft_id":"draft_1",
+		"decision_id":"dec_1",
+		"human_approved":true
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleRevenueExternalSendApply(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.applies) != 0 {
+		t.Fatalf("applies=%#v", store.applies)
+	}
+}
+
+func TestHandleRevenueExternalSendApplyRejectsDecisionSubjectMismatch(t *testing.T) {
+	store := &stubRevenueStore{
+		drafts: []domainrevenue.ChannelDraft{{DraftID: "draft_1", Channel: "email", Body: "下書き本文", ApprovalStatus: "pending"}},
+		decisions: []domainrevenue.HumanDecisionGateRecord{{
+			DecisionID:       "dec_1",
+			DecisionType:     "closed_channel_send",
+			SubjectID:        "draft_2",
+			ApprovalStatus:   "approved",
+			GateStatus:       "approved",
+			RequiresApproval: true,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/revenue/channel-drafts/external-send-apply", bytes.NewBufferString(`{
+		"apply_id":"apply_1",
+		"draft_id":"draft_1",
+		"decision_id":"dec_1",
+		"human_approved":true
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleRevenueExternalSendApply(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.applies) != 0 {
+		t.Fatalf("applies=%#v", store.applies)
 	}
 }

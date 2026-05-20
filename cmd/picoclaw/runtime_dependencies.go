@@ -119,6 +119,7 @@ type Dependencies struct {
 	revenueHumanDecisionReview     http.HandlerFunc                            // viewer revenue human decision gate review API
 	revenueDailyRoutine            http.HandlerFunc                            // viewer revenue daily routine draft report API
 	revenueChannelDraft            http.HandlerFunc                            // viewer revenue channel draft API
+	revenueExternalSendApply       http.HandlerFunc                            // viewer revenue external send apply audit API
 	personaObservation             http.HandlerFunc                            // viewer persona observation status API
 	personaDiscomfort              http.HandlerFunc                            // viewer persona discomfort log API
 	personaTrigger                 http.HandlerFunc                            // viewer persona trigger log API
@@ -431,6 +432,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		deps.revenueHumanDecisionReview = viewer.HandleRevenueHumanDecisionGateReview(revenueStore)
 		deps.revenueDailyRoutine = viewer.HandleRevenueDailyRoutineReportCreate(revenueStore)
 		deps.revenueChannelDraft = viewer.HandleRevenueChannelDraftCreate(revenueStore)
+		deps.revenueExternalSendApply = viewer.HandleRevenueExternalSendApply(revenueStore)
 	}
 	if cfg.PersonaArchitecture.IsEnabled() {
 		var personaStore viewer.PersonaObservationStore
