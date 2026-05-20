@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,29 @@ func TestHandleSuperAgentStatus(t *testing.T) {
 	}
 	if body["run_queue"] == nil {
 		t.Fatalf("missing run_queue: %#v", body)
+	}
+	if body["runtime_config"] == nil {
+		t.Fatalf("missing runtime_config: %#v", body)
+	}
+}
+
+func TestHandleSuperAgentStatusWithRuntimeConfigShowsSchedulerConfig(t *testing.T) {
+	store := &stubSuperAgentStore{}
+	req := httptest.NewRequest(http.MethodGet, "/viewer/superagent", nil)
+	rec := httptest.NewRecorder()
+	HandleSuperAgentStatusWithRuntimeConfig(store, SuperAgentRuntimeConfig{
+		RunQueueSchedulerEnabled:     true,
+		RunQueueSchedulerIntervalSec: 3,
+		RunQueueSchedulerClaimLimit:  2,
+	}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"runtime_config"`, `"run_queue_scheduler_enabled":true`, `"run_queue_scheduler_interval_sec":3`, `"run_queue_scheduler_claim_limit":2`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %s: %s", want, body)
+		}
 	}
 }
 

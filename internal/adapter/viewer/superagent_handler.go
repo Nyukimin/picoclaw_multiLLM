@@ -36,7 +36,17 @@ type SuperAgentRunController interface {
 	ResumeRun(runID string, reason string) appsuperagent.RuntimeControlResult
 }
 
+type SuperAgentRuntimeConfig struct {
+	RunQueueSchedulerEnabled     bool `json:"run_queue_scheduler_enabled"`
+	RunQueueSchedulerIntervalSec int  `json:"run_queue_scheduler_interval_sec"`
+	RunQueueSchedulerClaimLimit  int  `json:"run_queue_scheduler_claim_limit"`
+}
+
 func HandleSuperAgentStatus(store SuperAgentLister) http.HandlerFunc {
+	return HandleSuperAgentStatusWithRuntimeConfig(store, SuperAgentRuntimeConfig{})
+}
+
+func HandleSuperAgentStatusWithRuntimeConfig(store SuperAgentLister, runtimeConfig SuperAgentRuntimeConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -88,6 +98,7 @@ func HandleSuperAgentStatus(store SuperAgentLister) http.HandlerFunc {
 			"message_channels": nonNilMessageChannels(channels),
 			"trace_events":     nonNilTraceEvents(events),
 			"run_queue":        nonNilRunQueueItems(queue),
+			"runtime_config":   runtimeConfig,
 		})
 	}
 }

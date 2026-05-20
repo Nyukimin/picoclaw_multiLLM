@@ -532,7 +532,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if toolRuntime.SubagentMgr != nil {
 			toolRuntime.SubagentMgr.SetSuperAgentRecorder(superAgentStore)
 		}
-		deps.superAgentStatus = viewer.HandleSuperAgentStatus(superAgentStore)
+		deps.superAgentStatus = viewer.HandleSuperAgentStatusWithRuntimeConfig(superAgentStore, viewer.SuperAgentRuntimeConfig{
+			RunQueueSchedulerEnabled:     cfg.SuperAgentHarness.RunQueueSchedulerEnabled,
+			RunQueueSchedulerIntervalSec: cfg.SuperAgentHarness.RunQueueSchedulerIntervalSec,
+			RunQueueSchedulerClaimLimit:  cfg.SuperAgentHarness.RunQueueSchedulerClaimLimit,
+		})
 		deps.superAgentRun = viewer.HandleSuperAgentAgentRunCreate(superAgentStore)
 		deps.superAgentRunPause = viewer.HandleSuperAgentRunPauseWithController(superAgentStore, deps.superAgentRunController)
 		deps.superAgentRunResume = viewer.HandleSuperAgentRunResumeWithController(superAgentStore, deps.superAgentRunController)
