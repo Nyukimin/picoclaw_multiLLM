@@ -57,6 +57,19 @@ func TestSQLiteStoreSaveAndListSkillGovernanceRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveContributionGateLog failed: %v", err)
 	}
+	if err := store.SaveExternalPRSubmitRecord(ctx, domainskill.ExternalPRSubmitRecord{
+		SubmitID:            "submit_1",
+		ContributionEventID: "evt_contrib_1",
+		Repo:                "example/repo",
+		Title:               "Fix bug",
+		ApprovalStatus:      "approved",
+		HumanApproved:       true,
+		SubmitStatus:        domainskill.ExternalPRSubmitStatusBlocked,
+		FailureReason:       "external PR adapter is not configured",
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("SaveExternalPRSubmitRecord failed: %v", err)
+	}
 	if err := store.SaveCoderTranscriptEntry(ctx, domainskill.CoderTranscriptEntry{
 		EventID:   "evt_coder_transcript_1",
 		JobID:     "job-1",
@@ -85,6 +98,10 @@ func TestSQLiteStoreSaveAndListSkillGovernanceRecords(t *testing.T) {
 	if err != nil || len(gates) != 1 || gates[0].EventID != "evt_contrib_1" {
 		t.Fatalf("gates=%#v err=%v", gates, err)
 	}
+	submits, err := store.ListExternalPRSubmitRecords(ctx, 10)
+	if err != nil || len(submits) != 1 || submits[0].SubmitID != "submit_1" {
+		t.Fatalf("submits=%#v err=%v", submits, err)
+	}
 	transcripts, err := store.ListCoderTranscriptEntries(ctx, 10)
 	if err != nil || len(transcripts) != 1 || transcripts[0].EventID != "evt_coder_transcript_1" {
 		t.Fatalf("transcripts=%#v err=%v", transcripts, err)
@@ -109,6 +126,9 @@ func TestSQLiteStoreMissingRowsReturnEmptyLists(t *testing.T) {
 	}
 	if items, err := store.ListContributionGateLogs(ctx, 10); err != nil || len(items) != 0 {
 		t.Fatalf("gates=%#v err=%v", items, err)
+	}
+	if items, err := store.ListExternalPRSubmitRecords(ctx, 10); err != nil || len(items) != 0 {
+		t.Fatalf("submits=%#v err=%v", items, err)
 	}
 	if items, err := store.ListCoderTranscriptEntries(ctx, 10); err != nil || len(items) != 0 {
 		t.Fatalf("transcripts=%#v err=%v", items, err)

@@ -67,6 +67,12 @@ func (s *SQLiteStore) migrate() error {
 			created_at TEXT,
 			payload TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS external_pr_submit_log (
+			submit_id TEXT PRIMARY KEY,
+			repo TEXT,
+			created_at TEXT,
+			payload TEXT NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS coder_transcript_log (
 			event_id TEXT PRIMARY KEY,
 			job_id TEXT,
@@ -83,6 +89,9 @@ func (s *SQLiteStore) migrate() error {
 }
 
 func (s *SQLiteStore) SaveSkillManifest(ctx context.Context, item domainskill.SkillManifest) error {
+	if err := domainskill.ValidateSkillManifest(item); err != nil {
+		return err
+	}
 	return s.save(ctx, "skill_registry", "skill_id", item.SkillID, "", "", "updated_at", item.UpdatedAt.Format(timeFormatRFC3339Nano), item)
 }
 
@@ -91,6 +100,9 @@ func (s *SQLiteStore) ListSkillManifests(ctx context.Context, limit int) ([]doma
 }
 
 func (s *SQLiteStore) SaveSkillTriggerLog(ctx context.Context, item domainskill.SkillTriggerLog) error {
+	if err := domainskill.ValidateSkillTriggerLog(item); err != nil {
+		return err
+	}
 	return s.save(ctx, "skill_trigger_log", "event_id", item.EventID, "skill_id", item.SkillID, "created_at", item.CreatedAt.Format(timeFormatRFC3339Nano), item)
 }
 
@@ -99,6 +111,9 @@ func (s *SQLiteStore) ListSkillTriggerLogs(ctx context.Context, limit int) ([]do
 }
 
 func (s *SQLiteStore) SaveSkillChangeLog(ctx context.Context, item domainskill.SkillChangeLog) error {
+	if err := domainskill.ValidateSkillChangeLog(item); err != nil {
+		return err
+	}
 	return s.save(ctx, "skill_change_log", "change_id", item.ChangeID, "skill_id", item.SkillID, "created_at", item.CreatedAt.Format(timeFormatRFC3339Nano), item)
 }
 
@@ -107,6 +122,9 @@ func (s *SQLiteStore) ListSkillChangeLogs(ctx context.Context, limit int) ([]dom
 }
 
 func (s *SQLiteStore) SaveContributionGateLog(ctx context.Context, item domainskill.ContributionGateLog) error {
+	if err := domainskill.ValidateContributionGateLog(item); err != nil {
+		return err
+	}
 	return s.save(ctx, "contribution_gate_log", "event_id", item.EventID, "repo", item.Repo, "created_at", item.CreatedAt.Format(timeFormatRFC3339Nano), item)
 }
 
@@ -114,7 +132,21 @@ func (s *SQLiteStore) ListContributionGateLogs(ctx context.Context, limit int) (
 	return listSQLiteItems[domainskill.ContributionGateLog](ctx, s, "contribution_gate_log", limit)
 }
 
+func (s *SQLiteStore) SaveExternalPRSubmitRecord(ctx context.Context, item domainskill.ExternalPRSubmitRecord) error {
+	if err := domainskill.ValidateExternalPRSubmitRecord(item); err != nil {
+		return err
+	}
+	return s.save(ctx, "external_pr_submit_log", "submit_id", item.SubmitID, "repo", item.Repo, "created_at", item.CreatedAt.Format(timeFormatRFC3339Nano), item)
+}
+
+func (s *SQLiteStore) ListExternalPRSubmitRecords(ctx context.Context, limit int) ([]domainskill.ExternalPRSubmitRecord, error) {
+	return listSQLiteItems[domainskill.ExternalPRSubmitRecord](ctx, s, "external_pr_submit_log", limit)
+}
+
 func (s *SQLiteStore) SaveCoderTranscriptEntry(ctx context.Context, item domainskill.CoderTranscriptEntry) error {
+	if err := domainskill.ValidateCoderTranscriptEntry(item); err != nil {
+		return err
+	}
 	return s.save(ctx, "coder_transcript_log", "event_id", item.EventID, "job_id", item.JobID, "created_at", item.CreatedAt.Format(timeFormatRFC3339Nano), item)
 }
 

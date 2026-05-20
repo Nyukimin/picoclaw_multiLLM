@@ -16,6 +16,7 @@ type JSONLStore struct {
 	triggerLogPath       string
 	changeLogPath        string
 	contributionGatePath string
+	externalPRSubmitPath string
 	coderTranscriptPath  string
 }
 
@@ -28,11 +29,15 @@ func NewJSONLStore(root string) *JSONLStore {
 		triggerLogPath:       filepath.Join(root, "skill_trigger_log.jsonl"),
 		changeLogPath:        filepath.Join(root, "skill_change_log.jsonl"),
 		contributionGatePath: filepath.Join(root, "contribution_gate_log.jsonl"),
+		externalPRSubmitPath: filepath.Join(root, "external_pr_submit_log.jsonl"),
 		coderTranscriptPath:  filepath.Join(root, "coder_transcript_log.jsonl"),
 	}
 }
 
 func (s *JSONLStore) SaveSkillManifest(_ context.Context, manifest domainskill.SkillManifest) error {
+	if err := domainskill.ValidateSkillManifest(manifest); err != nil {
+		return err
+	}
 	return appendJSONL(s.registryPath, manifest)
 }
 
@@ -51,10 +56,13 @@ func (s *JSONLStore) ListSkillManifests(_ context.Context, limit int) ([]domains
 	}); err != nil {
 		return nil, err
 	}
-	return reverseLimit(manifests, limit), nil
+	return reverseUniqueSkillManifests(manifests, limit), nil
 }
 
 func (s *JSONLStore) SaveSkillTriggerLog(_ context.Context, log domainskill.SkillTriggerLog) error {
+	if err := domainskill.ValidateSkillTriggerLog(log); err != nil {
+		return err
+	}
 	return appendJSONL(s.triggerLogPath, log)
 }
 
@@ -77,6 +85,9 @@ func (s *JSONLStore) ListSkillTriggerLogs(_ context.Context, limit int) ([]domai
 }
 
 func (s *JSONLStore) SaveSkillChangeLog(_ context.Context, log domainskill.SkillChangeLog) error {
+	if err := domainskill.ValidateSkillChangeLog(log); err != nil {
+		return err
+	}
 	return appendJSONL(s.changeLogPath, log)
 }
 
@@ -99,6 +110,9 @@ func (s *JSONLStore) ListSkillChangeLogs(_ context.Context, limit int) ([]domain
 }
 
 func (s *JSONLStore) SaveContributionGateLog(_ context.Context, log domainskill.ContributionGateLog) error {
+	if err := domainskill.ValidateContributionGateLog(log); err != nil {
+		return err
+	}
 	return appendJSONL(s.contributionGatePath, log)
 }
 
@@ -120,7 +134,35 @@ func (s *JSONLStore) ListContributionGateLogs(_ context.Context, limit int) ([]d
 	return reverseLimit(logs, limit), nil
 }
 
+func (s *JSONLStore) SaveExternalPRSubmitRecord(_ context.Context, record domainskill.ExternalPRSubmitRecord) error {
+	if err := domainskill.ValidateExternalPRSubmitRecord(record); err != nil {
+		return err
+	}
+	return appendJSONL(s.externalPRSubmitPath, record)
+}
+
+func (s *JSONLStore) ListExternalPRSubmitRecords(_ context.Context, limit int) ([]domainskill.ExternalPRSubmitRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var records []domainskill.ExternalPRSubmitRecord
+	if err := readJSONL(s.externalPRSubmitPath, func(line []byte) error {
+		var record domainskill.ExternalPRSubmitRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			return err
+		}
+		records = append(records, record)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return reverseLimit(records, limit), nil
+}
+
 func (s *JSONLStore) SaveCoderTranscriptEntry(_ context.Context, entry domainskill.CoderTranscriptEntry) error {
+	if err := domainskill.ValidateCoderTranscriptEntry(entry); err != nil {
+		return err
+	}
 	return appendJSONL(s.coderTranscriptPath, entry)
 }
 
@@ -184,6 +226,23 @@ func reverseLimit[T any](items []T, limit int) []T {
 	out := make([]T, 0, min(limit, len(items)))
 	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
 		out = append(out, items[i])
+	}
+	return out
+}
+
+func reverseUniqueSkillManifests(items []domainskill.SkillManifest, limit int) []domainskill.SkillManifest {
+	if len(items) == 0 {
+		return []domainskill.SkillManifest{}
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]domainskill.SkillManifest, 0, min(limit, len(items)))
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		manifest := items[i]
+		if _, ok := seen[manifest.SkillID]; ok {
+			continue
+		}
+		seen[manifest.SkillID] = struct{}{}
+		out = append(out, manifest)
 	}
 	return out
 }
