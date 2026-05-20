@@ -32,6 +32,9 @@ func NewJSONLRecorder(path string) (*JSONLRecorder, error) {
 }
 
 func (r *JSONLRecorder) RecordToolMediationEvent(event domain.Event) error {
+	if err := domain.ValidateEvent(event); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
