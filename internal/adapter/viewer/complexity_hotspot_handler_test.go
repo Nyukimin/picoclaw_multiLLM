@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -77,12 +78,26 @@ func (s *stubComplexityAnalyzer) Scan(req complexityapp.ScanRequest) (domaincomp
 
 type stubComplexityCoderDiffGenerator struct {
 	result   complexityapp.CoderDiffResult
+	err      error
 	requests []complexityapp.CoderDiffRequest
 }
 
 func (s *stubComplexityCoderDiffGenerator) GenerateConcreteDiff(_ context.Context, req complexityapp.CoderDiffRequest) (complexityapp.CoderDiffResult, error) {
 	s.requests = append(s.requests, req)
+	if s.err != nil {
+		return complexityapp.CoderDiffResult{}, s.err
+	}
 	return s.result, nil
+}
+
+type blockingComplexityCoderDiffGenerator struct {
+	requests []complexityapp.CoderDiffRequest
+}
+
+func (s *blockingComplexityCoderDiffGenerator) GenerateConcreteDiff(ctx context.Context, req complexityapp.CoderDiffRequest) (complexityapp.CoderDiffResult, error) {
+	s.requests = append(s.requests, req)
+	<-ctx.Done()
+	return complexityapp.CoderDiffResult{}, ctx.Err()
 }
 
 type stubComplexityDCITraceStore struct {
@@ -588,6 +603,30 @@ func TestHandleComplexityHotspotProposalCreatesNeedsReviewSandboxPromotionWhenDi
 	}
 }
 
+func TestHandleComplexityHotspotProposalWithSandboxStoreUnavailableHasNoPartialWrites(t *testing.T) {
+	store := &stubComplexityHotspotStore{hotspots: []domaincomplexity.Hotspot{{
+		HotspotID:           "hot_1",
+		ScanID:              "scan_1",
+		FilePath:            "internal/application/example.go",
+		HotspotType:         "nested_lookup",
+		EstimatedComplexity: "O(n*m)",
+		RiskLevel:           "medium",
+		Summary:             "map path contains find lookup",
+		CreatedAt:           time.Now().UTC(),
+	}}}
+	workstreamSink := &stubComplexityWorkstreamArtifactSink{}
+	payload := []byte(`{"hotspot_id":"hot_1","workstream_id":"ws_1","sandbox_id":"sbx_1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/complexity-hotspots/proposals", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	HandleComplexityHotspotProposalWithSandbox(store, workstreamSink, nil).ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.reports) != 0 || len(workstreamSink.goals) != 0 || len(workstreamSink.artifacts) != 0 {
+		t.Fatalf("unexpected partial writes reports=%#v goals=%#v artifacts=%#v", store.reports, workstreamSink.goals, workstreamSink.artifacts)
+	}
+}
+
 func TestHandleComplexityHotspotConcreteDiffStoresReviewOnlyArtifact(t *testing.T) {
 	store := &stubComplexityHotspotStore{hotspots: []domaincomplexity.Hotspot{{
 		HotspotID:           "hot_1",
@@ -634,6 +673,35 @@ func TestHandleComplexityHotspotConcreteDiffStoresReviewOnlyArtifact(t *testing.
 	}
 	if body["patch_applied"] != false || body["human_approval_required"] != true || body["concrete_diff_artifact"] == nil {
 		t.Fatalf("body=%#v", body)
+	}
+}
+
+func TestHandleComplexityHotspotConcreteDiffWithSandboxStoreUnavailableHasNoPartialWrites(t *testing.T) {
+	store := &stubComplexityHotspotStore{hotspots: []domaincomplexity.Hotspot{{
+		HotspotID:           "hot_1",
+		ScanID:              "scan_1",
+		FilePath:            "internal/application/example.go",
+		HotspotType:         "nested_lookup",
+		EstimatedComplexity: "O(n*m)",
+		RiskLevel:           "medium",
+		Summary:             "map path contains find lookup",
+		CreatedAt:           time.Now().UTC(),
+	}}}
+	workstreamSink := &stubComplexityWorkstreamArtifactSink{}
+	payload := []byte(`{
+		"hotspot_id":"hot_1",
+		"workstream_id":"ws_1",
+		"sandbox_id":"sbx_1",
+		"concrete_diff":"diff --git a/internal/application/example.go b/internal/application/example.go\n--- a/internal/application/example.go\n+++ b/internal/application/example.go\n@@ -1 +1 @@\n-old\n+new"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/complexity-hotspots/concrete-diffs", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	HandleComplexityHotspotConcreteDiffWithSandbox(store, workstreamSink, nil).ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.reports) != 0 || len(workstreamSink.artifacts) != 0 {
+		t.Fatalf("unexpected partial writes reports=%#v artifacts=%#v", store.reports, workstreamSink.artifacts)
 	}
 }
 
@@ -714,6 +782,14 @@ func TestHandleComplexityHotspotCoderDiffGeneratesReviewOnlyArtifact(t *testing.
 		EstimatedComplexity: "O(n*m)",
 		RiskLevel:           "medium",
 		Summary:             "repeated lookup",
+	}}, evidence: []domaincomplexity.HotspotEvidence{{
+		EvidenceID: "ev_1",
+		HotspotID:  "hot_1",
+		FilePath:   "internal/application/example.go",
+		LineStart:  1,
+		LineEnd:    3,
+		Snippet:    "for _, item := range items {\n\t_ = item\n}",
+		Reason:     "loop evidence",
 	}}}
 	workstreamSink := &stubComplexityWorkstreamArtifactSink{}
 	sandboxSink := &stubComplexitySandboxPromotionSink{}
@@ -739,6 +815,9 @@ func TestHandleComplexityHotspotCoderDiffGeneratesReviewOnlyArtifact(t *testing.
 	if len(generator.requests) != 1 || generator.requests[0].Hotspot.HotspotID != "hot_1" {
 		t.Fatalf("generator requests=%#v", generator.requests)
 	}
+	if len(generator.requests[0].Evidence) != 1 || generator.requests[0].Evidence[0].EvidenceID != "ev_1" {
+		t.Fatalf("generator evidence=%#v", generator.requests[0].Evidence)
+	}
 	if len(store.reports) != 1 || store.reports[0].Type != "complexity_concrete_diff_proposal" {
 		t.Fatalf("reports=%#v", store.reports)
 	}
@@ -754,6 +833,110 @@ func TestHandleComplexityHotspotCoderDiffGeneratesReviewOnlyArtifact(t *testing.
 	}
 	if body["patch_applied"] != false || body["human_approval_required"] != true || body["coder_result"] == nil {
 		t.Fatalf("unexpected response=%#v", body)
+	}
+}
+
+func TestHandleComplexityHotspotCoderDiffRejectsUnavailableGeneratorBeforeSaving(t *testing.T) {
+	store := &stubComplexityHotspotStore{hotspots: []domaincomplexity.Hotspot{{
+		HotspotID:   "hot_1",
+		ScanID:      "scan_1",
+		FilePath:    "internal/application/example.go",
+		HotspotType: "repeated_lookup",
+		RiskLevel:   "medium",
+		Summary:     "repeated lookup",
+	}}}
+	workstreamSink := &stubComplexityWorkstreamArtifactSink{}
+	sandboxSink := &stubComplexitySandboxPromotionSink{}
+	payload := []byte(`{"hotspot_id":"hot_1","workstream_id":"ws_1","sandbox_id":"sbx_1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/complexity-hotspots/coder-diffs", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	HandleComplexityHotspotCoderDiffWithSandbox(store, nil, workstreamSink, sandboxSink).ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.reports) != 0 || len(workstreamSink.artifacts) != 0 || len(sandboxSink.promotions) != 0 {
+		t.Fatalf("unexpected partial save reports=%#v artifacts=%#v promotions=%#v", store.reports, workstreamSink.artifacts, sandboxSink.promotions)
+	}
+}
+
+func TestHandleComplexityHotspotCoderDiffRecordsGeneratorErrorAuditWithoutReviewApplyArtifacts(t *testing.T) {
+	store := &stubComplexityHotspotStore{hotspots: []domaincomplexity.Hotspot{{
+		HotspotID:   "hot_1",
+		ScanID:      "scan_1",
+		FilePath:    "internal/application/example.go",
+		HotspotType: "repeated_lookup",
+		RiskLevel:   "medium",
+		Summary:     "repeated lookup",
+	}}}
+	generator := &stubComplexityCoderDiffGenerator{err: errors.New("coder output did not contain unified diff")}
+	workstreamSink := &stubComplexityWorkstreamArtifactSink{}
+	sandboxSink := &stubComplexitySandboxPromotionSink{}
+	payload := []byte(`{"hotspot_id":"hot_1","workstream_id":"ws_1","sandbox_id":"sbx_1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/complexity-hotspots/coder-diffs", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	HandleComplexityHotspotCoderDiffWithSandbox(store, generator, workstreamSink, sandboxSink).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(generator.requests) != 1 {
+		t.Fatalf("generator requests=%d", len(generator.requests))
+	}
+	if len(store.reports) != 1 {
+		t.Fatalf("reports=%#v", store.reports)
+	}
+	report := store.reports[0]
+	if report.Type != "complexity_coder_diff_failure" || report.Status != "failed" {
+		t.Fatalf("failure report=%#v", report)
+	}
+	if !bytes.Contains([]byte(report.Content), []byte("coder output did not contain unified diff")) || !bytes.Contains([]byte(report.Content), []byte("Patch applied: `false`")) {
+		t.Fatalf("failure report content=%s", report.Content)
+	}
+	if len(workstreamSink.artifacts) != 0 || len(sandboxSink.promotions) != 0 {
+		t.Fatalf("unexpected apply artifacts=%#v promotions=%#v", workstreamSink.artifacts, sandboxSink.promotions)
+	}
+}
+
+func TestHandleComplexityHotspotCoderDiffRecordsTimeoutAuditWithoutReviewApplyArtifacts(t *testing.T) {
+	oldTimeout := complexityCoderDiffGenerationTimeout
+	complexityCoderDiffGenerationTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { complexityCoderDiffGenerationTimeout = oldTimeout })
+
+	store := &stubComplexityHotspotStore{hotspots: []domaincomplexity.Hotspot{{
+		HotspotID:   "hot_1",
+		ScanID:      "scan_1",
+		FilePath:    "internal/application/example.go",
+		HotspotType: "repeated_lookup",
+		RiskLevel:   "medium",
+		Summary:     "repeated lookup",
+	}}}
+	generator := &blockingComplexityCoderDiffGenerator{}
+	workstreamSink := &stubComplexityWorkstreamArtifactSink{}
+	sandboxSink := &stubComplexitySandboxPromotionSink{}
+	payload := []byte(`{"hotspot_id":"hot_1","workstream_id":"ws_1","sandbox_id":"sbx_1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/complexity-hotspots/coder-diffs", bytes.NewReader(payload))
+	rec := httptest.NewRecorder()
+	HandleComplexityHotspotCoderDiffWithSandbox(store, generator, workstreamSink, sandboxSink).ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("complexity coder diff generation timed out")) {
+		t.Fatalf("body=%q", rec.Body.String())
+	}
+	if len(generator.requests) != 1 {
+		t.Fatalf("generator requests=%d", len(generator.requests))
+	}
+	if len(store.reports) != 1 {
+		t.Fatalf("reports=%#v", store.reports)
+	}
+	report := store.reports[0]
+	if report.Type != "complexity_coder_diff_failure" || report.Status != "failed" {
+		t.Fatalf("failure report=%#v", report)
+	}
+	if !bytes.Contains([]byte(report.Content), []byte("complexity coder diff generation timed out")) || !bytes.Contains([]byte(report.Content), []byte("Patch applied: `false`")) {
+		t.Fatalf("failure report content=%s", report.Content)
+	}
+	if len(workstreamSink.artifacts) != 0 || len(sandboxSink.promotions) != 0 {
+		t.Fatalf("unexpected apply artifacts=%#v promotions=%#v", workstreamSink.artifacts, sandboxSink.promotions)
 	}
 }
 

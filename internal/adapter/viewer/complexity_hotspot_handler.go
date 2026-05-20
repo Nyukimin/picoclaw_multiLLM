@@ -3,6 +3,7 @@ package viewer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -41,6 +42,8 @@ type ComplexityHotspotAnalyzer interface {
 type ComplexityCoderDiffGenerator interface {
 	GenerateConcreteDiff(ctx context.Context, req complexityapp.CoderDiffRequest) (complexityapp.CoderDiffResult, error)
 }
+
+var complexityCoderDiffGenerationTimeout = 10 * time.Second
 
 type ComplexitySkillBootstrap interface {
 	Record(ctx context.Context, task domainskill.TaskContext, usedSkillIDs []string) ([]domainskill.SkillTriggerLog, error)
@@ -222,6 +225,9 @@ func HandleComplexityHotspotScan(store ComplexityHotspotStore, analyzer Complexi
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if result.Scan.Status == "completed" && result.Scan.CompletedAt.IsZero() {
+			result.Scan.CompletedAt = time.Now().UTC()
+		}
 		if err := store.SaveScanEvent(r.Context(), result.Scan); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -310,6 +316,10 @@ func HandleComplexityHotspotProposalWithSandbox(store ComplexityHotspotLister, w
 		}
 		if !ok {
 			http.Error(w, "complexity hotspot not found", http.StatusNotFound)
+			return
+		}
+		if strings.TrimSpace(req.SandboxID) != "" && sandboxSink == nil {
+			http.Error(w, "sandbox promotion store unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		now := time.Now().UTC()
@@ -471,6 +481,10 @@ func HandleComplexityHotspotConcreteDiffWithSandbox(store ComplexityHotspotStore
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if strings.TrimSpace(req.SandboxID) != "" && sandboxSink == nil {
+			http.Error(w, "sandbox promotion store unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		now := time.Now().UTC()
 		artifactID := strings.TrimSpace(req.ArtifactID)
 		if artifactID == "" {
@@ -575,12 +589,31 @@ func HandleComplexityHotspotCoderDiffWithSandbox(store ComplexityHotspotStore, g
 			http.Error(w, "complexity hotspot not found", http.StatusNotFound)
 			return
 		}
-		result, err := generator.GenerateConcreteDiff(r.Context(), complexityapp.CoderDiffRequest{
+		generationCtx := r.Context()
+		var cancel context.CancelFunc
+		if complexityCoderDiffGenerationTimeout > 0 {
+			generationCtx, cancel = context.WithTimeout(r.Context(), complexityCoderDiffGenerationTimeout)
+			defer cancel()
+		}
+		result, err := generator.GenerateConcreteDiff(generationCtx, complexityapp.CoderDiffRequest{
 			Hotspot:      hotspot,
+			Evidence:     findComplexityEvidenceForHotspot(r.Context(), store, hotspot.HotspotID),
 			WorkstreamID: strings.TrimSpace(req.WorkstreamID),
 			JobID:        strings.TrimSpace(req.JobID),
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(generationCtx.Err(), context.DeadlineExceeded) {
+				if saveErr := saveComplexityCoderDiffFailure(r.Context(), store, req, hotspot, "complexity coder diff generation timed out", time.Now().UTC()); saveErr != nil {
+					http.Error(w, "failed to save complexity coder diff failure artifact", http.StatusInternalServerError)
+					return
+				}
+				http.Error(w, "complexity coder diff generation timed out", http.StatusServiceUnavailable)
+				return
+			}
+			if saveErr := saveComplexityCoderDiffFailure(r.Context(), store, req, hotspot, err.Error(), time.Now().UTC()); saveErr != nil {
+				http.Error(w, "failed to save complexity coder diff failure artifact", http.StatusInternalServerError)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -618,6 +651,74 @@ func HandleComplexityHotspotCoderDiffWithSandbox(store ComplexityHotspotStore, g
 		}
 		writeJSON(w, http.StatusCreated, response)
 	}
+}
+
+func saveComplexityCoderDiffFailure(ctx context.Context, store ComplexityHotspotStore, req ComplexityCoderDiffRequest, hotspot domaincomplexity.Hotspot, reason string, now time.Time) error {
+	if store == nil {
+		return nil
+	}
+	report := buildComplexityCoderDiffFailureArtifact(req, hotspot, reason, now)
+	return store.SaveReportArtifact(ctx, report)
+}
+
+func buildComplexityCoderDiffFailureArtifact(req ComplexityCoderDiffRequest, hotspot domaincomplexity.Hotspot, reason string, now time.Time) domaincomplexity.ReportArtifact {
+	jobID := strings.TrimSpace(req.JobID)
+	idPart := jobID
+	if idPart == "" {
+		idPart = strings.TrimSpace(req.ArtifactID)
+	}
+	if idPart == "" {
+		idPart = hotspot.HotspotID
+	}
+	artifactID := "art_complexity_coder_diff_failure_" + safeIDPart(idPart)
+	if jobID == "" && strings.TrimSpace(req.ArtifactID) == "" {
+		artifactID = fmt.Sprintf("%s_%d", artifactID, now.UnixNano())
+	}
+	content := strings.Join([]string{
+		"# Complexity Coder Diff Failure",
+		"",
+		"Hotspot ID: `" + hotspot.HotspotID + "`",
+		"Job ID: `" + nonEmptyOr(strings.TrimSpace(req.JobID), "(not provided)") + "`",
+		"Workstream ID: `" + nonEmptyOr(strings.TrimSpace(req.WorkstreamID), "(not provided)") + "`",
+		"Failure reason: `" + strings.TrimSpace(reason) + "`",
+		"",
+		"Patch applied: `false`",
+		"Human approval required: `true` before any generated diff can be applied.",
+		"",
+		"This is a failure audit only. No review diff, Workstream apply artifact, Sandbox Promotion Request, or external PR was created.",
+	}, "\n")
+	return domaincomplexity.ReportArtifact{
+		ArtifactID:   artifactID,
+		ScanID:       hotspot.ScanID,
+		WorkstreamID: strings.TrimSpace(req.WorkstreamID),
+		Type:         "complexity_coder_diff_failure",
+		Title:        "Complexity Coder Diff Failure: " + hotspot.FilePath,
+		Status:       "failed",
+		Content:      content,
+		CreatedAt:    now,
+	}
+}
+
+func nonEmptyOr(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func findComplexityEvidenceForHotspot(ctx context.Context, store ComplexityHotspotLister, hotspotID string) []domaincomplexity.HotspotEvidence {
+	evidence, err := store.ListHotspotEvidence(ctx, 500)
+	if err != nil {
+		return nil
+	}
+	hotspotID = strings.TrimSpace(hotspotID)
+	out := []domaincomplexity.HotspotEvidence{}
+	for _, item := range evidence {
+		if strings.TrimSpace(item.HotspotID) == hotspotID {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func saveComplexityConcreteDiffReview(ctx context.Context, store ComplexityHotspotStore, workstreamSink ComplexityWorkstreamArtifactSink, sandboxSink SandboxPromotionStore, req ComplexityConcreteDiffRequest, hotspot domaincomplexity.Hotspot, now time.Time) (domaincomplexity.ReportArtifact, *domainworkstream.Artifact, map[string]any, error) {

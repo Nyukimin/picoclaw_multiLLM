@@ -17,6 +17,7 @@ type CoderDiffGenerator interface {
 
 type CoderDiffRequest struct {
 	Hotspot      domaincomplexity.Hotspot
+	Evidence     []domaincomplexity.HotspotEvidence
 	WorkstreamID string
 	JobID        string
 	SystemPrompt string
@@ -33,6 +34,11 @@ type CoderDiffService struct {
 	coder CoderDiffGenerator
 }
 
+const defaultCoderDiffSystemPrompt = `You are a code patch generator for RenCrow Complexity Hotspot review.
+Return only a minimal unified diff for the requested target file when it is safe.
+Do not apply changes, do not include prose outside the diff, and do not touch unrelated files.
+If a safe behavior-compatible diff cannot be generated from the provided evidence, explain briefly without a diff.`
+
 func NewCoderDiffService(coder CoderDiffGenerator) *CoderDiffService {
 	return &CoderDiffService{coder: coder}
 }
@@ -44,7 +50,7 @@ func (s *CoderDiffService) GenerateConcreteDiff(ctx context.Context, req CoderDi
 	if strings.TrimSpace(req.Hotspot.HotspotID) == "" {
 		return CoderDiffResult{}, fmt.Errorf("hotspot is required")
 	}
-	prompt := BuildCoderDiffGenerationPrompt(req.Hotspot)
+	prompt := BuildCoderDiffGenerationPrompt(req.Hotspot, req.Evidence)
 	jobID := strings.TrimSpace(req.JobID)
 	var jid task.JobID
 	if jobID == "" {
@@ -54,7 +60,11 @@ func (s *CoderDiffService) GenerateConcreteDiff(ctx context.Context, req CoderDi
 		jid = task.JobIDFromString(jobID)
 	}
 	t := task.NewTask(jid, prompt, "viewer", strings.TrimSpace(req.WorkstreamID)).WithRoute(routing.RouteCODE)
-	raw, err := s.coder.Generate(ctx, t, req.SystemPrompt)
+	systemPrompt := strings.TrimSpace(req.SystemPrompt)
+	if systemPrompt == "" {
+		systemPrompt = defaultCoderDiffSystemPrompt
+	}
+	raw, err := s.coder.Generate(ctx, t, systemPrompt)
 	if err != nil {
 		return CoderDiffResult{}, err
 	}
@@ -73,12 +83,45 @@ func (s *CoderDiffService) GenerateConcreteDiff(ctx context.Context, req CoderDi
 	}, nil
 }
 
-func BuildCoderDiffGenerationPrompt(hotspot domaincomplexity.Hotspot) string {
+func BuildCoderDiffGenerationPrompt(hotspot domaincomplexity.Hotspot, evidence []domaincomplexity.HotspotEvidence) string {
 	var b strings.Builder
 	b.WriteString(BuildCoderDiffRequestMarkdown(hotspot))
+	writeCoderDiffEvidence(&b, hotspot, evidence)
 	b.WriteString("\n## Output Contract\n\n")
 	b.WriteString("Return exactly one unified diff for the target file. Do not apply it. Do not include unrelated files. Prefer a ```diff fenced block. If you cannot produce a safe behavior-compatible diff, return no diff and explain why.\n")
 	return b.String()
+}
+
+func writeCoderDiffEvidence(b *strings.Builder, hotspot domaincomplexity.Hotspot, evidence []domaincomplexity.HotspotEvidence) {
+	if len(evidence) == 0 {
+		return
+	}
+	wroteHeader := false
+	for _, item := range evidence {
+		if strings.TrimSpace(item.HotspotID) != strings.TrimSpace(hotspot.HotspotID) {
+			continue
+		}
+		snippet := strings.TrimSpace(item.Snippet)
+		if snippet == "" {
+			continue
+		}
+		if !wroteHeader {
+			b.WriteString("\n## Observed Evidence Snippets\n\n")
+			wroteHeader = true
+		}
+		fmt.Fprintf(b, "### Evidence `%s`\n\n", fallbackText(item.EvidenceID, "unknown"))
+		if item.LineStart > 0 {
+			if item.LineEnd > item.LineStart {
+				fmt.Fprintf(b, "- Lines: %d-%d\n", item.LineStart, item.LineEnd)
+			} else {
+				fmt.Fprintf(b, "- Line: %d\n", item.LineStart)
+			}
+		}
+		if strings.TrimSpace(item.Reason) != "" {
+			fmt.Fprintf(b, "- Reason: %s\n", strings.TrimSpace(item.Reason))
+		}
+		fmt.Fprintf(b, "\n```go\n%s\n```\n\n", snippet)
+	}
 }
 
 func ExtractUnifiedDiff(raw string) (string, error) {

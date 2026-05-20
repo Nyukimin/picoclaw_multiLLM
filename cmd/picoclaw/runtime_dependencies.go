@@ -514,9 +514,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			deps.complexityHotspotProposal = viewer.HandleComplexityHotspotProposalWithSandbox(complexityStore, ws, sandboxStore)
 		}
 		deps.complexityHotspotConcreteDiff = viewer.HandleComplexityHotspotConcreteDiffWithSandbox(complexityStore, workstreamArtifactSink, sandboxStore)
-		if coder := selectComplexityCoder(llmRuntime); coder != nil {
-			deps.complexityHotspotCoderDiff = viewer.HandleComplexityHotspotCoderDiffWithSandbox(complexityStore, complexityapp.NewCoderDiffService(coder), workstreamArtifactSink, sandboxStore)
-		}
+		deps.complexityHotspotCoderDiff = buildComplexityHotspotCoderDiffHandler(complexityStore, llmRuntime, workstreamArtifactSink, sandboxStore)
 	}
 	if cfg.SuperAgentHarness.IsEnabled() {
 		var superAgentStore viewer.SuperAgentStore
@@ -695,6 +693,14 @@ func selectComplexityCoder(runtime llmRuntimeProviders) *coderAdapter {
 		return runtime.Coder1
 	}
 	return runtime.Coder4
+}
+
+func buildComplexityHotspotCoderDiffHandler(store viewer.ComplexityHotspotStore, runtime llmRuntimeProviders, workstreamSink viewer.ComplexityWorkstreamArtifactSink, sandboxStore viewer.SandboxPromotionStore) http.HandlerFunc {
+	coder := selectComplexityCoder(runtime)
+	if coder == nil {
+		return viewer.HandleComplexityHotspotCoderDiffWithSandbox(store, nil, workstreamSink, sandboxStore)
+	}
+	return viewer.HandleComplexityHotspotCoderDiffWithSandbox(store, complexityapp.NewCoderDiffService(coder), workstreamSink, sandboxStore)
 }
 
 func buildAIWorkflowStore(cfg *config.Config) viewer.AIWorkflowStore {
