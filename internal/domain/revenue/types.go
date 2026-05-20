@@ -100,6 +100,24 @@ type ChannelDraft struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+type ExternalSendApplyRecord struct {
+	ApplyID             string    `json:"apply_id"`
+	DraftID             string    `json:"draft_id"`
+	DecisionID          string    `json:"decision_id"`
+	Channel             string    `json:"channel"`
+	Destination         string    `json:"destination,omitempty"`
+	ChannelAdapter      string    `json:"channel_adapter,omitempty"`
+	ApprovalStatus      string    `json:"approval_status"`
+	HumanApproved       bool      `json:"human_approved"`
+	ApplyStatus         string    `json:"apply_status"`
+	SendResult          string    `json:"send_result"`
+	FailureReason       string    `json:"failure_reason,omitempty"`
+	PostSendVerified    bool      `json:"post_send_verified"`
+	PostSendEvidence    string    `json:"post_send_evidence,omitempty"`
+	ExternalSendApplied bool      `json:"external_send_applied"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
 type EthicsCheck struct {
 	Allowed  bool     `json:"allowed"`
 	Reasons  []string `json:"reasons,omitempty"`

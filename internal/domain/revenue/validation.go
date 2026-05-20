@@ -44,6 +44,9 @@ func ValidateMarketResearchItem(item MarketResearchItem) error {
 	if item.Price < 0 {
 		return errors.New("price must be >= 0")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -56,6 +59,9 @@ func ValidateSNSPostMetric(item SNSPostMetric) error {
 	}
 	if item.Impressions < 0 || item.Likes < 0 || item.Reposts < 0 || item.Comments < 0 || item.Saves < 0 || item.ProfileClicks < 0 || item.LinkClicks < 0 || item.SalesCount < 0 {
 		return errors.New("metrics must be >= 0")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
@@ -76,6 +82,9 @@ func ValidateProduct(item Product) error {
 	if check := CheckEthics(strings.Join([]string{item.ProductName, item.Target, item.Pain, item.Promise, item.Deliverables}, "\n")); !check.Allowed {
 		return errors.New(strings.Join(check.Reasons, "; "))
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -92,6 +101,9 @@ func ValidateCustomerVoice(item CustomerVoice) error {
 	if item.UsableForMarketing && item.PermissionStatus != "granted" {
 		return errors.New("customer voice requires permission_status=granted when usable_for_marketing=true")
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -104,6 +116,9 @@ func ValidateRevenueEvent(item RevenueEvent) error {
 	}
 	if item.Amount < 0 {
 		return errors.New("amount must be >= 0")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
@@ -123,6 +138,9 @@ func ValidateDailyRoutineReport(item DailyRoutineReport) error {
 	}
 	if item.MarketResearch < 0 || item.SNSPosts < 0 || item.Products < 0 || item.CustomerVoices < 0 || item.RevenueEvents < 0 || item.PaidCustomers < 0 || item.PendingDecisions < 0 {
 		return errors.New("daily routine counts must be >= 0")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
@@ -148,6 +166,63 @@ func ValidateChannelDraft(item ChannelDraft) error {
 	if check := CheckEthics(strings.Join([]string{item.Subject, item.Body}, "\n")); !check.Allowed {
 		return errors.New(strings.Join(check.Reasons, "; "))
 	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
+	return nil
+}
+
+func ValidateExternalSendApplyRecord(item ExternalSendApplyRecord) error {
+	if strings.TrimSpace(item.ApplyID) == "" {
+		return errors.New("apply_id is required")
+	}
+	if strings.TrimSpace(item.DraftID) == "" {
+		return errors.New("draft_id is required")
+	}
+	if strings.TrimSpace(item.DecisionID) == "" {
+		return errors.New("decision_id is required")
+	}
+	if strings.TrimSpace(item.Channel) == "" {
+		return errors.New("channel is required")
+	}
+	if strings.TrimSpace(item.ApprovalStatus) != "approved" {
+		return errors.New("approval_status must be approved")
+	}
+	if !item.HumanApproved {
+		return errors.New("human_approved is required")
+	}
+	switch strings.TrimSpace(item.ApplyStatus) {
+	case "blocked", "failed", "sent":
+	default:
+		return errors.New("apply_status must be blocked, failed, or sent")
+	}
+	if strings.TrimSpace(item.SendResult) == "" {
+		return errors.New("send_result is required")
+	}
+	if item.ApplyStatus != "sent" && strings.TrimSpace(item.SendResult) == "sent" {
+		return errors.New("send_result=sent requires apply_status=sent")
+	}
+	if item.ExternalSendApplied && item.ApplyStatus != "sent" {
+		return errors.New("external_send_applied requires apply_status=sent")
+	}
+	if item.ApplyStatus == "sent" && !item.ExternalSendApplied {
+		return errors.New("apply_status=sent requires external_send_applied=true")
+	}
+	if item.ApplyStatus == "sent" && !item.PostSendVerified {
+		return errors.New("apply_status=sent requires post_send_verified=true")
+	}
+	if item.ApplyStatus != "sent" && item.PostSendVerified {
+		return errors.New("post_send_verified requires apply_status=sent")
+	}
+	if item.PostSendVerified && strings.TrimSpace(item.PostSendEvidence) == "" {
+		return errors.New("post_send_evidence is required when post_send_verified is true")
+	}
+	if item.ApplyStatus != "sent" && strings.TrimSpace(item.FailureReason) == "" {
+		return errors.New("failure_reason is required unless apply_status=sent")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
+	}
 	return nil
 }
 
@@ -165,6 +240,9 @@ func ValidateHumanDecisionGateRecord(item HumanDecisionGateRecord) error {
 	}
 	if strings.TrimSpace(item.GateStatus) == "" {
 		return errors.New("gate_status is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return errors.New("created_at is required")
 	}
 	return nil
 }
