@@ -24,6 +24,12 @@ func ValidateScanEvent(item ScanEvent) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
+	if item.Status == "completed" && item.CompletedAt.IsZero() {
+		return fmt.Errorf("completed_at is required for completed scan")
+	}
 	return nil
 }
 
@@ -61,6 +67,9 @@ func ValidateHotspot(item Hotspot) error {
 	if strings.TrimSpace(item.Summary) == "" {
 		return fmt.Errorf("summary is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -79,6 +88,9 @@ func ValidateHotspotEvidence(item HotspotEvidence) error {
 	}
 	if item.LineStart > 0 && item.LineEnd > 0 && item.LineEnd < item.LineStart {
 		return fmt.Errorf("line_end must be >= line_start")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
 	}
 	return nil
 }
@@ -101,6 +113,9 @@ func ValidateReportArtifact(item ReportArtifact) error {
 	}
 	if strings.TrimSpace(item.Content) == "" {
 		return fmt.Errorf("content is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
 	}
 	return nil
 }
