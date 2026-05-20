@@ -15,6 +15,12 @@ func ValidateAgentRun(item AgentRun) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
 	}
+	if item.StartedAt.IsZero() {
+		return fmt.Errorf("started_at is required")
+	}
+	if isAgentRunTerminalStatus(item.Status) && item.CompletedAt.IsZero() {
+		return fmt.Errorf("completed_at is required for terminal agent run")
+	}
 	return nil
 }
 
@@ -40,6 +46,9 @@ func ValidateSubagentTask(item SubagentTask) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -59,6 +68,9 @@ func ValidateContextPack(item ContextPack, maxTokens int) error {
 	if maxTokens > 0 && item.TokenEstimate > maxTokens {
 		return fmt.Errorf("token_estimate exceeds max_context_pack_tokens")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -72,6 +84,9 @@ func ValidateMessageChannel(item MessageChannel) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -84,6 +99,9 @@ func ValidateTraceEvent(item TraceEvent) error {
 	}
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
 	}
 	return nil
 }
@@ -101,5 +119,29 @@ func ValidateRunQueueItem(item RunQueueItem) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
+	if isRunQueueTerminalStatus(item.Status) && item.CompletedAt.IsZero() {
+		return fmt.Errorf("completed_at is required for terminal run queue item")
+	}
 	return nil
+}
+
+func isAgentRunTerminalStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "completed", "failed", "cancelled", "paused":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRunQueueTerminalStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "completed", "failed", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
