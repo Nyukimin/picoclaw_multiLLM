@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	kmapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/knowledgememory"
 	domainkm "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/knowledgememory"
@@ -318,6 +319,9 @@ func HandlePersonalArchiveCreate(store KnowledgeMemoryStore) http.HandlerFunc {
 		if err := dec.Decode(&item); err != nil {
 			return err
 		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
+		}
 		return store.SavePersonalArchiveEntry(ctx, item)
 	})
 }
@@ -327,6 +331,9 @@ func HandleCreativeKnowledgeCreate(store KnowledgeMemoryStore) http.HandlerFunc 
 		var item domainkm.CreativeKnowledgeItem
 		if err := dec.Decode(&item); err != nil {
 			return err
+		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
 		}
 		return store.SaveCreativeKnowledgeItem(ctx, item)
 	})
@@ -338,6 +345,9 @@ func HandleNewsKnowledgeCreate(store KnowledgeMemoryStore) http.HandlerFunc {
 		if err := dec.Decode(&item); err != nil {
 			return err
 		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
+		}
 		return store.SaveNewsKnowledgeItem(ctx, item)
 	})
 }
@@ -348,6 +358,9 @@ func HandleDailyIntakeRuleCreate(store KnowledgeMemoryStore) http.HandlerFunc {
 		if err := dec.Decode(&item); err != nil {
 			return err
 		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
+		}
 		return store.SaveDailyIntakeRule(ctx, item)
 	})
 }
@@ -357,6 +370,9 @@ func HandleTemporalMemoryMarkerCreate(store KnowledgeMemoryStore) http.HandlerFu
 		var item domainkm.TemporalMemoryMarker
 		if err := dec.Decode(&item); err != nil {
 			return err
+		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
 		}
 		return store.SaveTemporalMemoryMarker(ctx, item)
 	})
@@ -370,6 +386,9 @@ func HandleDreamConsolidationRunCreate(store KnowledgeMemoryStore) http.HandlerF
 		}
 		if item.ReviewStatus == "approved" {
 			return fmt.Errorf("dream consolidation cannot be created with approved review_status; use review API")
+		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
 		}
 		return store.SaveDreamConsolidationRun(ctx, item)
 	})

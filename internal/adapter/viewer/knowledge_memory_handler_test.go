@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	domainkm "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/knowledgememory"
 )
@@ -101,6 +102,26 @@ func TestKnowledgeMemoryCreateHandlers(t *testing.T) {
 		assertion func(*testing.T, *stubKnowledgeMemoryStore)
 	}{
 		{
+			name:    "personal archive",
+			path:    "/viewer/knowledge-memory/personal-archive",
+			handler: HandlePersonalArchiveCreate,
+			body: `{
+				"entry_id":"pa_1",
+				"user_id":"ren",
+				"original_text":"protected original",
+				"protected":true
+			}`,
+			assertion: func(t *testing.T, store *stubKnowledgeMemoryStore) {
+				t.Helper()
+				if len(store.personal) != 1 || store.personal[0].EntryID != "pa_1" {
+					t.Fatalf("personal=%#v", store.personal)
+				}
+				if store.personal[0].CreatedAt.IsZero() {
+					t.Fatalf("personal created_at was not assigned: %#v", store.personal[0])
+				}
+			},
+		},
+		{
 			name:    "creative knowledge",
 			path:    "/viewer/knowledge-memory/creative-knowledge",
 			handler: HandleCreativeKnowledgeCreate,
@@ -114,6 +135,9 @@ func TestKnowledgeMemoryCreateHandlers(t *testing.T) {
 				t.Helper()
 				if len(store.creative) != 1 || store.creative[0].Title != "作品A" {
 					t.Fatalf("creative=%#v", store.creative)
+				}
+				if store.creative[0].CreatedAt.IsZero() {
+					t.Fatalf("creative created_at was not assigned: %#v", store.creative[0])
 				}
 			},
 		},
@@ -132,6 +156,30 @@ func TestKnowledgeMemoryCreateHandlers(t *testing.T) {
 				if len(store.news) != 1 || store.news[0].Topic != "tech" {
 					t.Fatalf("news=%#v", store.news)
 				}
+				if store.news[0].CreatedAt.IsZero() {
+					t.Fatalf("news created_at was not assigned: %#v", store.news[0])
+				}
+			},
+		},
+		{
+			name:    "daily intake rule",
+			path:    "/viewer/knowledge-memory/daily-intake-rules",
+			handler: HandleDailyIntakeRuleCreate,
+			body: `{
+				"rule_id":"rule_1",
+				"user_id":"ren",
+				"topic":"AI",
+				"cadence":"daily",
+				"status":"candidate"
+			}`,
+			assertion: func(t *testing.T, store *stubKnowledgeMemoryStore) {
+				t.Helper()
+				if len(store.intake) != 1 || store.intake[0].RuleID != "rule_1" {
+					t.Fatalf("intake=%#v", store.intake)
+				}
+				if store.intake[0].CreatedAt.IsZero() {
+					t.Fatalf("intake created_at was not assigned: %#v", store.intake[0])
+				}
 			},
 		},
 		{
@@ -149,6 +197,9 @@ func TestKnowledgeMemoryCreateHandlers(t *testing.T) {
 				if len(store.temporal) != 1 || store.temporal[0].Layer != "week" {
 					t.Fatalf("temporal=%#v", store.temporal)
 				}
+				if store.temporal[0].CreatedAt.IsZero() {
+					t.Fatalf("temporal created_at was not assigned: %#v", store.temporal[0])
+				}
 			},
 		},
 		{
@@ -165,6 +216,9 @@ func TestKnowledgeMemoryCreateHandlers(t *testing.T) {
 				t.Helper()
 				if len(store.dream) != 1 || store.dream[0].ReviewStatus != "pending" {
 					t.Fatalf("dream=%#v", store.dream)
+				}
+				if store.dream[0].CreatedAt.IsZero() {
+					t.Fatalf("dream created_at was not assigned: %#v", store.dream[0])
 				}
 			},
 		},
@@ -234,6 +288,7 @@ func TestDreamConsolidationProposalCreateBuildsPendingProposal(t *testing.T) {
 }
 
 func TestDreamConsolidationReviewApprovesWithoutAutoPromote(t *testing.T) {
+	now := fixedViewerKnowledgeMemoryTime()
 	store := &stubKnowledgeMemoryStore{
 		dream: []domainkm.DreamConsolidationRun{{
 			RunID:        "dream_1",
@@ -241,6 +296,7 @@ func TestDreamConsolidationReviewApprovesWithoutAutoPromote(t *testing.T) {
 			IdeaSeeds:    []string{"seed"},
 			Status:       "proposal",
 			ReviewStatus: "pending",
+			CreatedAt:    now,
 		}},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/viewer/knowledge-memory/dream-runs/review", bytes.NewBufferString(`{
@@ -271,12 +327,14 @@ func TestDreamConsolidationReviewApprovesWithoutAutoPromote(t *testing.T) {
 }
 
 func TestDreamConsolidationReviewPromotesOnlyApproved(t *testing.T) {
+	now := fixedViewerKnowledgeMemoryTime()
 	store := &stubKnowledgeMemoryStore{
 		dream: []domainkm.DreamConsolidationRun{{
 			RunID:        "dream_1",
 			IdeaSeeds:    []string{"seed"},
 			Status:       "proposal",
 			ReviewStatus: "pending",
+			CreatedAt:    now,
 		}},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/viewer/knowledge-memory/dream-runs/review", bytes.NewBufferString(`{
@@ -330,12 +388,14 @@ func TestDreamConsolidationReviewRejectsPromoteWithoutApproval(t *testing.T) {
 }
 
 func TestKnowledgeMemoryReviewPromotesNewsWithComparison(t *testing.T) {
+	now := fixedViewerKnowledgeMemoryTime()
 	store := &stubKnowledgeMemoryStore{
 		news: []domainkm.NewsKnowledgeItem{{
-			ItemID: "news_1",
-			Source: "example",
-			Topic:  "tech",
-			Status: "candidate",
+			ItemID:    "news_1",
+			Source:    "example",
+			Topic:     "tech",
+			Status:    "candidate",
+			CreatedAt: now,
 		}},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/viewer/knowledge-memory/review", bytes.NewBufferString(`{
@@ -382,13 +442,15 @@ func TestKnowledgeMemoryReviewPromotesNewsWithComparison(t *testing.T) {
 }
 
 func TestKnowledgeMemoryReviewEnablesDailyIntakeRuleAfterApproval(t *testing.T) {
+	now := fixedViewerKnowledgeMemoryTime()
 	store := &stubKnowledgeMemoryStore{
 		intake: []domainkm.DailyIntakeRule{{
-			RuleID:  "rule_1",
-			UserID:  "ren",
-			Topic:   "AI news",
-			Cadence: "daily",
-			Status:  "candidate",
+			RuleID:    "rule_1",
+			UserID:    "ren",
+			Topic:     "AI news",
+			Cadence:   "daily",
+			Status:    "candidate",
+			CreatedAt: now,
 		}},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/viewer/knowledge-memory/review", bytes.NewBufferString(`{
@@ -419,6 +481,10 @@ func TestKnowledgeMemoryReviewEnablesDailyIntakeRuleAfterApproval(t *testing.T) 
 	if body.Comparison.TargetStatus != "enabled" || body.Comparison.FormalTarget != "source_registry.daily_intake_rule:enabled" {
 		t.Fatalf("comparison=%#v", body.Comparison)
 	}
+}
+
+func fixedViewerKnowledgeMemoryTime() time.Time {
+	return time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 }
 
 func TestKnowledgeMemoryReviewRejectsPromoteWithoutApproval(t *testing.T) {
