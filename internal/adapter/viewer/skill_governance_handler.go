@@ -21,6 +21,7 @@ type SkillGovernanceLister interface {
 	ListSkillTriggerLogs(ctx context.Context, limit int) ([]domainskill.SkillTriggerLog, error)
 	ListSkillChangeLogs(ctx context.Context, limit int) ([]domainskill.SkillChangeLog, error)
 	ListContributionGateLogs(ctx context.Context, limit int) ([]domainskill.ContributionGateLog, error)
+	ListExternalPRSubmitRecords(ctx context.Context, limit int) ([]domainskill.ExternalPRSubmitRecord, error)
 	ListCoderTranscriptEntries(ctx context.Context, limit int) ([]domainskill.CoderTranscriptEntry, error)
 }
 
@@ -36,11 +37,16 @@ type SkillChangeLogSaver interface {
 	SaveSkillChangeLog(ctx context.Context, log domainskill.SkillChangeLog) error
 }
 
+type ExternalPRSubmitRecordSaver interface {
+	SaveExternalPRSubmitRecord(ctx context.Context, record domainskill.ExternalPRSubmitRecord) error
+}
+
 type SkillGovernanceStore interface {
 	SkillGovernanceLister
 	SkillTriggerLogSaver
 	ContributionGateLogSaver
 	SkillChangeLogSaver
+	ExternalPRSubmitRecordSaver
 }
 
 func HandleSkillGovernanceRecent(store SkillGovernanceLister) http.HandlerFunc {
@@ -85,17 +91,29 @@ func HandleSkillGovernanceRecent(store SkillGovernanceLister) http.HandlerFunc {
 			http.Error(w, "failed to load contribution gate logs", http.StatusInternalServerError)
 			return
 		}
+		externalPRSubmits, err := store.ListExternalPRSubmitRecords(r.Context(), limit)
+		if err != nil {
+			http.Error(w, "failed to load external PR submit records", http.StatusInternalServerError)
+			return
+		}
 		transcripts, err := store.ListCoderTranscriptEntries(r.Context(), limit)
 		if err != nil {
 			http.Error(w, "failed to load coder transcript logs", http.StatusInternalServerError)
 			return
 		}
+		if externalPRSubmits == nil {
+			externalPRSubmits = []domainskill.ExternalPRSubmitRecord{}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"manifests":         manifests,
-			"trigger_logs":      triggers,
-			"change_logs":       changes,
-			"contributions":     contributions,
-			"coder_transcripts": transcripts,
+			"manifests":                      manifests,
+			"trigger_logs":                   triggers,
+			"change_logs":                    changes,
+			"contributions":                  contributions,
+			"external_pr_submit_records":     externalPRSubmits,
+			"external_pr_adapter":            "unconfigured",
+			"external_pr_adapter_configured": false,
+			"human_approval_required_for_pr": true,
+			"coder_transcripts":              transcripts,
 		})
 	}
 }
@@ -223,6 +241,78 @@ func HandleSkillGovernanceSkillChange(store SkillGovernanceStore) http.HandlerFu
 			"decision":   decision,
 		})
 	}
+}
+
+func HandleSkillGovernanceExternalPRSubmit(store SkillGovernanceStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if store == nil {
+			http.Error(w, "skill governance store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req domainskill.ExternalPRSubmitRecord
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid external PR submit payload", http.StatusBadRequest)
+			return
+		}
+		if !req.HumanApproved {
+			http.Error(w, "human approval is required before external PR submit", http.StatusForbidden)
+			return
+		}
+		gate, ok, err := findPassedContributionGate(r.Context(), store, req.ContributionEventID, req.Repo)
+		if err != nil {
+			http.Error(w, "failed to load contribution gate logs", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "passed contribution gate is required before external PR submit", http.StatusConflict)
+			return
+		}
+		now := time.Now().UTC()
+		if req.TargetBranch == "" {
+			req.TargetBranch = gate.TargetBranch
+		}
+		record, err := domainskill.NewBlockedExternalPRSubmitRecord(req, now)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := store.SaveExternalPRSubmitRecord(r.Context(), record); err != nil {
+			http.Error(w, "failed to save external PR submit record", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"external_pr_submit_record":         record,
+			"external_pr_created":               false,
+			"post_submit_verified":              false,
+			"human_approval_required_for_pr":    true,
+			"external_pr_adapter_configuration": "required",
+			"message":                           "external PR adapter is not configured; no PR was created",
+		})
+	}
+}
+
+func findPassedContributionGate(ctx context.Context, store SkillGovernanceLister, eventID string, repo string) (domainskill.ContributionGateLog, bool, error) {
+	gates, err := store.ListContributionGateLogs(ctx, 1000)
+	if err != nil {
+		return domainskill.ContributionGateLog{}, false, err
+	}
+	for _, gate := range gates {
+		if strings.TrimSpace(eventID) != "" && gate.EventID != eventID {
+			continue
+		}
+		if strings.TrimSpace(repo) != "" && gate.Repo != repo {
+			continue
+		}
+		if gate.GateStatus != domainskill.GateStatusPassed {
+			continue
+		}
+		return gate, true, nil
+	}
+	return domainskill.ContributionGateLog{}, false, nil
 }
 
 func HandleSkillGovernanceSkillChangeEval(store SkillGovernanceStore) http.HandlerFunc {

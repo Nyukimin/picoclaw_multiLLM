@@ -191,6 +191,9 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.skillChangeEval != nil {
 		mux.HandleFunc("/viewer/skill-governance/skill-change-evals", dependencies.skillChangeEval)
 	}
+	if dependencies.skillExternalPRSubmit != nil {
+		mux.HandleFunc("/viewer/skill-governance/external-pr-submit", dependencies.skillExternalPRSubmit)
+	}
 	if dependencies.workstreamStatus != nil {
 		mux.HandleFunc("/viewer/workstreams", dependencies.workstreamStatus)
 	}

@@ -98,6 +98,7 @@ type Dependencies struct {
 	skillContributionGate          http.HandlerFunc                            // viewer contribution gate API
 	skillChangeGate                http.HandlerFunc                            // viewer skill change gate API
 	skillChangeEval                http.HandlerFunc                            // viewer skill change eval runner API
+	skillExternalPRSubmit          http.HandlerFunc                            // viewer external PR submit audit API
 	skillBootstrap                 *skillapp.BootstrapService                  // runtime skill bootstrap logger
 	coderProposalEvidence          orchestrator.CoderProposalEvidenceRecorder  // Coder proposal evidence files for Skill Change Eval
 	workstreamStatus               http.HandlerFunc                            // viewer workstream status API
@@ -301,6 +302,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		deps.skillContributionGate = viewer.HandleSkillGovernanceContributionGate(skillStore)
 		deps.skillChangeGate = viewer.HandleSkillGovernanceSkillChange(skillStore)
 		deps.skillChangeEval = viewer.HandleSkillGovernanceSkillChangeEval(skillStore)
+		deps.skillExternalPRSubmit = viewer.HandleSkillGovernanceExternalPRSubmit(skillStore)
 	}
 	if cfg.DCI.IsEnabled() {
 		var dciStore interface {

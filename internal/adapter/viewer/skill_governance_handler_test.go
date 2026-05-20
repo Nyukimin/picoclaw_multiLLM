@@ -18,6 +18,7 @@ type stubSkillGovernanceLister struct {
 	triggers      []domainskill.SkillTriggerLog
 	changes       []domainskill.SkillChangeLog
 	contributions []domainskill.ContributionGateLog
+	prSubmits     []domainskill.ExternalPRSubmitRecord
 	transcripts   []domainskill.CoderTranscriptEntry
 	limit         int
 }
@@ -42,6 +43,11 @@ func (s *stubSkillGovernanceLister) ListContributionGateLogs(_ context.Context, 
 	return s.contributions, nil
 }
 
+func (s *stubSkillGovernanceLister) ListExternalPRSubmitRecords(_ context.Context, limit int) ([]domainskill.ExternalPRSubmitRecord, error) {
+	s.limit = limit
+	return s.prSubmits, nil
+}
+
 func (s *stubSkillGovernanceLister) ListCoderTranscriptEntries(_ context.Context, limit int) ([]domainskill.CoderTranscriptEntry, error) {
 	s.limit = limit
 	return s.transcripts, nil
@@ -59,6 +65,11 @@ func (s *stubSkillGovernanceLister) SaveContributionGateLog(_ context.Context, l
 
 func (s *stubSkillGovernanceLister) SaveSkillChangeLog(_ context.Context, log domainskill.SkillChangeLog) error {
 	s.changes = append(s.changes, log)
+	return nil
+}
+
+func (s *stubSkillGovernanceLister) SaveExternalPRSubmitRecord(_ context.Context, record domainskill.ExternalPRSubmitRecord) error {
+	s.prSubmits = append(s.prSubmits, record)
 	return nil
 }
 
@@ -109,9 +120,13 @@ func TestHandleSkillGovernanceRecent(t *testing.T) {
 		t.Fatalf("limit=%d", store.limit)
 	}
 	var body struct {
-		Manifests   []domainskill.SkillManifest        `json:"manifests"`
-		Triggers    []domainskill.SkillTriggerLog      `json:"trigger_logs"`
-		Transcripts []domainskill.CoderTranscriptEntry `json:"coder_transcripts"`
+		Manifests    []domainskill.SkillManifest          `json:"manifests"`
+		Triggers     []domainskill.SkillTriggerLog        `json:"trigger_logs"`
+		PRSubmits    []domainskill.ExternalPRSubmitRecord `json:"external_pr_submit_records"`
+		PRAdapter    string                               `json:"external_pr_adapter"`
+		PRConfigured bool                                 `json:"external_pr_adapter_configured"`
+		PRApproval   bool                                 `json:"human_approval_required_for_pr"`
+		Transcripts  []domainskill.CoderTranscriptEntry   `json:"coder_transcripts"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -124,6 +139,9 @@ func TestHandleSkillGovernanceRecent(t *testing.T) {
 	}
 	if len(body.Transcripts) != 1 || body.Transcripts[0].EventID != "evt_coder_transcript_1" {
 		t.Fatalf("transcripts=%#v", body.Transcripts)
+	}
+	if body.PRAdapter != "unconfigured" || body.PRConfigured || !body.PRApproval {
+		t.Fatalf("external PR readiness adapter=%q configured=%t approval=%t", body.PRAdapter, body.PRConfigured, body.PRApproval)
 	}
 }
 
@@ -525,5 +543,159 @@ func TestHandleSkillGovernanceSkillChangeEvalRejectsUnsafeEvidencePath(t *testin
 	}
 	if len(store.changes) != 0 {
 		t.Fatalf("unsafe evidence path should not save changes=%#v", store.changes)
+	}
+}
+
+func TestHandleSkillGovernanceExternalPRSubmitRequiresHumanApproval(t *testing.T) {
+	store := &stubSkillGovernanceLister{
+		contributions: []domainskill.ContributionGateLog{{
+			EventID:             "evt_contrib_1",
+			Repo:                "example/repo",
+			TargetBranch:        "main",
+			ProblemStatement:    "real bug",
+			ExistingPRsChecked:  true,
+			RealProblemVerified: true,
+			CoreChangeVerified:  true,
+			DiffHumanApproved:   true,
+			TestResult:          "go test ./...",
+			GateStatus:          domainskill.GateStatusPassed,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/skill-governance/external-pr-submit", bytes.NewBufferString(`{
+		"submit_id":"submit_1",
+		"contribution_event_id":"evt_contrib_1",
+		"repo":"example/repo",
+		"title":"Fix bug",
+		"human_approved":false
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleSkillGovernanceExternalPRSubmit(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.prSubmits) != 0 {
+		t.Fatalf("pr submits should not be saved=%#v", store.prSubmits)
+	}
+}
+
+func TestHandleSkillGovernanceExternalPRSubmitSavesBlockedAudit(t *testing.T) {
+	store := &stubSkillGovernanceLister{
+		contributions: []domainskill.ContributionGateLog{{
+			EventID:             "evt_contrib_1",
+			Repo:                "example/repo",
+			TargetBranch:        "main",
+			ProblemStatement:    "real bug",
+			ExistingPRsChecked:  true,
+			RealProblemVerified: true,
+			CoreChangeVerified:  true,
+			DiffHumanApproved:   true,
+			TestResult:          "go test ./...",
+			GateStatus:          domainskill.GateStatusPassed,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/skill-governance/external-pr-submit", bytes.NewBufferString(`{
+		"submit_id":"submit_1",
+		"contribution_event_id":"evt_contrib_1",
+		"repo":"example/repo",
+		"title":"Fix bug",
+		"diff_path":"workspace/logs/skill_governance/coder_evidence/job-1/skill_diff.md",
+		"test_result":"go test ./internal/domain/skillgovernance",
+		"submit_status":"created",
+		"pr_url":"https://github.com/example/repo/pull/1",
+		"external_pr_created":true,
+		"post_submit_verified":true,
+		"post_submit_evidence":"pretend checks passed",
+		"pr_adapter":"github",
+		"human_approved":true
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleSkillGovernanceExternalPRSubmit(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.prSubmits) != 1 {
+		t.Fatalf("pr submits=%#v", store.prSubmits)
+	}
+	record := store.prSubmits[0]
+	if record.SubmitStatus != domainskill.ExternalPRSubmitStatusBlocked || record.ExternalPRCreated || record.PostSubmitVerified || record.PRURL != "" || record.PostSubmitEvidence != "" {
+		t.Fatalf("record=%#v", record)
+	}
+	if record.TargetBranch != "main" || record.FailureReason != "external PR adapter is not configured" || record.PRAdapter != "unconfigured" {
+		t.Fatalf("record=%#v", record)
+	}
+	var body struct {
+		Record            domainskill.ExternalPRSubmitRecord `json:"external_pr_submit_record"`
+		ExternalPRCreated bool                               `json:"external_pr_created"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Record.SubmitID != "submit_1" || body.ExternalPRCreated {
+		t.Fatalf("body=%#v", body)
+	}
+}
+
+func TestHandleSkillGovernanceExternalPRSubmitRequiresPassedGate(t *testing.T) {
+	store := &stubSkillGovernanceLister{
+		contributions: []domainskill.ContributionGateLog{{
+			EventID:    "evt_contrib_1",
+			Repo:       "example/repo",
+			GateStatus: domainskill.GateStatusBlocked,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/skill-governance/external-pr-submit", bytes.NewBufferString(`{
+		"submit_id":"submit_1",
+		"contribution_event_id":"evt_contrib_1",
+		"repo":"example/repo",
+		"title":"Fix bug",
+		"human_approved":true
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleSkillGovernanceExternalPRSubmit(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.prSubmits) != 0 {
+		t.Fatalf("pr submits should not be saved=%#v", store.prSubmits)
+	}
+}
+
+func TestHandleSkillGovernanceExternalPRSubmitRejectsGateRepoMismatch(t *testing.T) {
+	store := &stubSkillGovernanceLister{
+		contributions: []domainskill.ContributionGateLog{{
+			EventID:             "evt_contrib_1",
+			Repo:                "example/repo-a",
+			TargetBranch:        "main",
+			ProblemStatement:    "real bug",
+			ExistingPRsChecked:  true,
+			RealProblemVerified: true,
+			CoreChangeVerified:  true,
+			DiffHumanApproved:   true,
+			TestResult:          "go test ./...",
+			GateStatus:          domainskill.GateStatusPassed,
+		}},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/viewer/skill-governance/external-pr-submit", bytes.NewBufferString(`{
+		"submit_id":"submit_1",
+		"contribution_event_id":"evt_contrib_1",
+		"repo":"example/repo-b",
+		"title":"Fix bug",
+		"human_approved":true
+	}`))
+	rec := httptest.NewRecorder()
+
+	HandleSkillGovernanceExternalPRSubmit(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.prSubmits) != 0 {
+		t.Fatalf("pr submits should not be saved=%#v", store.prSubmits)
 	}
 }
