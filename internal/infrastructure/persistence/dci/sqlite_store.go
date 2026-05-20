@@ -104,8 +104,8 @@ func (s *SQLiteStore) SaveSearchTrace(ctx context.Context, trace domaindci.Searc
 
 func (s *SQLiteStore) SaveSearchResult(ctx context.Context, result domaindci.SearchResult) error {
 	trace := result.Trace
-	if trace.EventID == "" {
-		return fmt.Errorf("dci search trace event_id is required")
+	if err := domaindci.ValidateSearchTrace(trace); err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -21,6 +21,9 @@ func NewJSONLStore(path string) *JSONLStore {
 }
 
 func (s *JSONLStore) SaveSearchTrace(_ context.Context, trace domaindci.SearchTrace) error {
+	if err := domaindci.ValidateSearchTrace(trace); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := os.MkdirAll(filepath.Dir(s.path), 0755); err != nil {
