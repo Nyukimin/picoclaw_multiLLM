@@ -17,6 +17,10 @@ func buildViewerRuntimeHandlers(
 	realMgr *conversationpersistence.RealConversationManager,
 	reportPath string,
 ) {
+	if l1Store == nil {
+		deps.viewerMemoryLayers = viewer.HandleMemoryLayers(nil, nil)
+		deps.viewerSourceRegistry = viewer.HandleSourceRegistry(nil)
+	}
 	if l1Store != nil {
 		deps.viewerMemorySnapshot = viewer.HandleMemorySnapshot(l1Store)
 		deps.viewerMemoryLayers = viewer.HandleMemoryLayers(l1Store, realMgr)
