@@ -245,6 +245,16 @@ function renderIdleChat() {
   body.innerHTML = '';
   const rows = state.idleChat.history || [];
   renderIdleSummaryReview(rows);
+  const idleErrors = [
+    state.idleChat.statusError,
+    state.idleChat.logsError,
+    state.idleChat.controlError,
+  ].map((err) => String(err || '').trim()).filter(Boolean);
+  idleErrors.forEach((err) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="small">' + esc(err) + '</td>';
+    body.appendChild(tr);
+  });
   if (rows.length === 0) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="7" class="small">No idleChat summaries yet</td>';
@@ -421,6 +431,7 @@ async function refreshIdleStatus() {
   try {
     const r = await fetch('/viewer/idlechat/status');
     if (!r.ok) {
+      const text = await r.text();
       idleStartBtn.disabled = true;
       if (idleModeNormalBtn) idleModeNormalBtn.disabled = true;
       if (idleModeForecastBtn) idleModeForecastBtn.disabled = true;
@@ -431,10 +442,13 @@ async function refreshIdleStatus() {
       state.idleChat.manualMode = false;
       state.idleChat.chatActive = false;
       state.idleChat.currentTopic = '';
+      state.idleChat.history = [];
+      state.idleChat.statusError = 'IdleChat status unavailable: HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'idlechat status unavailable');
       renderIdleChat();
       return;
     }
     const d = await r.json();
+    state.idleChat.statusError = '';
     setIdleState(d.mode || '', !!d.manual_mode, !!d.chat_active);
     idleStartBtn.disabled = !!d.manual_mode || !!d.chat_active;
     if (idleModeNormalBtn) idleModeNormalBtn.disabled = !!d.chat_active;
@@ -457,6 +471,8 @@ async function refreshIdleStatus() {
     state.idleChat.manualMode = false;
     state.idleChat.chatActive = false;
     state.idleChat.currentTopic = '';
+    state.idleChat.history = [];
+    state.idleChat.statusError = 'IdleChat status unavailable: ' + String(_ && _.message ? _.message : _);
     renderIdleChat();
   }
 }
@@ -464,15 +480,25 @@ async function refreshIdleStatus() {
 async function refreshIdleLogs() {
   try {
     const r = await fetch('/viewer/idlechat/logs?limit=20');
-    if (!r.ok) return;
+    if (!r.ok) {
+      const text = await r.text();
+      state.idleChat.history = [];
+      state.idleChat.logsError = 'IdleChat logs unavailable: HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'idlechat logs unavailable');
+      renderIdleChat();
+      return;
+    }
     const d = await r.json();
+    state.idleChat.logsError = '';
     state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
     state.idleChat.chatActive = !!d.chat_active;
     state.idleChat.currentTopic = d.current_topic || '';
     state.idleChat.history = Array.isArray(d.history) ? d.history : [];
     renderIdleChat();
-  } catch (_) {
+  } catch (err) {
+    state.idleChat.history = [];
+    state.idleChat.logsError = 'IdleChat logs unavailable: ' + String(err && err.message ? err.message : err);
+    renderIdleChat();
   }
 }
 
@@ -481,8 +507,13 @@ async function controlIdle(path) {
   btns.forEach((b) => { b.disabled = true; });
   try {
     const r = await fetch(path, {method: 'POST'});
-    if (!r.ok) throw new Error('idlechat control failed');
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'idlechat control failed'));
+    }
+    state.idleChat.controlError = '';
   } catch (err) {
+    state.idleChat.controlError = 'IdleChat control unavailable: ' + String(err && err.message ? err.message : err);
     console.error(err);
   } finally {
     await refreshIdleStatus();

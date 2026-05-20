@@ -69,6 +69,7 @@ function newsRelatedMemoryMatches(item) {
 }
 
 function renderNewsPackPanel() {
+  const fetchError = String(state.memory.newsPackFetchError || '');
   const news = newsItems();
   const digests = newsDigests();
   const body = document.getElementById('newsPackPanelBody');
@@ -83,6 +84,19 @@ function renderNewsPackPanel() {
   if (digestCount) digestCount.textContent = String(digests.length);
   const totalUsage = news.reduce((sum, item) => sum + newsUsageCount(item), 0);
   if (usageCountEl) usageCountEl.textContent = String(totalUsage);
+
+  if (fetchError) {
+    if (newsCount) newsCount.textContent = '0';
+    if (digestCount) digestCount.textContent = '0';
+    if (usageCountEl) usageCountEl.textContent = '0';
+    state.memory.selectedNewsIndex = 0;
+    if (body) body.innerHTML = '<tr><td colspan="5" class="small">News Pack unavailable: ' + esc(fetchError) + '</td></tr>';
+    if (digestBody) digestBody.innerHTML = '<tr><td colspan="5" class="small">News digests unavailable: ' + esc(fetchError) + '</td></tr>';
+    if (detail) detail.innerHTML = '<h4>Source Detail</h4><div class="small">News Pack unavailable: ' + esc(fetchError) + '</div>';
+    if (usageBody) usageBody.innerHTML = '<tr><td colspan="4" class="small">News recall usage unavailable: ' + esc(fetchError) + '</td></tr>';
+    if (relatedBody) relatedBody.innerHTML = '<tr><td colspan="4" class="small">News related memory unavailable: ' + esc(fetchError) + '</td></tr>';
+    return;
+  }
 
   if (state.memory.selectedNewsIndex < 0 || state.memory.selectedNewsIndex >= news.length) {
     state.memory.selectedNewsIndex = 0;
@@ -201,14 +215,24 @@ function refreshNewsPack() {
   if (newsPackCategory && newsPackCategory.value.trim()) params.set('category', newsPackCategory.value.trim());
   fetch('/viewer/memory/snapshot?' + params.toString())
     .then((r) => {
-      if (!r.ok) throw new Error('news pack fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'news pack unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.newsPackFetchError = '';
       state.memory.snapshot = data || {};
       renderMemorySnapshot();
       renderNewsPackPanel();
       refreshRecallTraces();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.memory.newsPackFetchError = String(err && err.message ? err.message : err);
+      state.memory.snapshot = Object.assign({}, state.memory.snapshot || {}, {news: [], digests: []});
+      renderNewsPackPanel();
+      console.error(err);
+    });
 }

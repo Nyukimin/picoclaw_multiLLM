@@ -218,6 +218,69 @@
     <div class="ops-grid" id="opsCards"></div>
     <div class="debug-panels">
       <div class="debug-box">
+        <h4>Skill Governance External PR Submit Audits</h4>
+        <div class="small" style="margin-bottom:8px">Contribution Gate 通過後の外部 PR submit audit を確認します。adapter 未接続や送信失敗を PR 作成成功として扱いません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>submit</th><th>gate</th><th>repo</th><th>branch</th><th>status</th><th>adapter</th><th>PR</th><th>evidence</th></tr></thead>
+          <tbody id="skillExternalPRAuditBody"></tbody>
+        </table>
+        <pre id="skillExternalPRAuditResult" class="small llm-ops-raw">skill external PR submit audits: not created</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Skill Evidence Audits</h4>
+        <div class="small" style="margin-bottom:8px">skill trigger / Contribution Gate / Coder transcript の証跡を照合します。外部 PR audit だけでは Coder evidence 保存確認として扱いません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>kind</th><th>id</th><th>skill/repo</th><th>status</th><th>evidence</th></tr></thead>
+          <tbody id="skillEvidenceAuditBody"></tbody>
+        </table>
+        <pre id="skillEvidenceAuditResult" class="small llm-ops-raw">skill evidence audits: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>SuperAgent Terminal Audits</h4>
+        <div class="small" style="margin-bottom:8px">LeadAgent run と run queue の terminal state を確認します。failed terminal は summary / reason を持つ場合だけ証跡として扱います。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>kind</th><th>id</th><th>run</th><th>status</th><th>evidence</th></tr></thead>
+          <tbody id="superAgentTerminalAuditBody"></tbody>
+        </table>
+        <pre id="superAgentTerminalAuditResult" class="small llm-ops-raw">superagent terminal audits: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>SuperAgent Resume Audits</h4>
+        <div class="small" style="margin-bottom:8px">resume queue と pause/resume trace を照合します。手動台帳 reentry は真の長時間再開 E2E として扱いません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>queue</th><th>run</th><th>status</th><th>trace</th><th>runtime control</th><th>evidence</th></tr></thead>
+          <tbody id="superAgentResumeAuditBody"></tbody>
+        </table>
+        <pre id="superAgentResumeAuditResult" class="small llm-ops-raw">superagent resume audits: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>AI Workflow Run Evidence</h4>
+        <div class="small" style="margin-bottom:8px">command / context usage / SuperAgent trace を run_id 単位で照合します。scheduler 起点の正常完了証跡ではありません。</div>
+        <table class="debug-table">
+          <thead><tr><th>run</th><th>workstream</th><th>command</th><th>context</th><th>trace</th><th>status</th></tr></thead>
+          <tbody id="aiWorkflowRunEvidenceBody"></tbody>
+        </table>
+        <pre id="aiWorkflowRunEvidenceResult" class="small llm-ops-raw">ai workflow run evidence: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Complexity Review Artifacts</h4>
+        <div class="small" style="margin-bottom:8px">report-only / review-only artifact を確認します。patch 適用、Sandbox apply、外部 PR 作成の成功証跡ではありません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>artifact</th><th>type</th><th>status</th><th>patch</th><th>approval</th></tr></thead>
+          <tbody id="complexityReviewArtifactBody"></tbody>
+        </table>
+        <pre id="complexityReviewArtifactResult" class="small llm-ops-raw">complexity review artifacts: -</pre>
+      </div>
+      <div class="debug-box">
+        <h4>Runtime Blocked Route Audits</h4>
+        <div class="small" style="margin-bottom:8px">依存不足で 503 を返す route を確認します。route 登録や readiness 表示だけでは機能成功扱いにしません。</div>
+        <table class="debug-table">
+          <thead><tr><th>route</th><th>status</th><th>result</th><th>body</th></tr></thead>
+          <tbody id="runtimeBlockedRouteAuditBody"></tbody>
+        </table>
+        <pre id="runtimeBlockedRouteAuditResult" class="small llm-ops-raw">runtime blocked route audits: -</pre>
+      </div>
+      <div class="debug-box">
         <h4>Revenue Human Decision Gate</h4>
         <div class="small" style="margin-bottom:8px">外部公開、高単価 offer、顧客の声利用などはここで承認・却下を記録します。承認は送信や公開の実行ではありません。</div>
         <table class="debug-table">
@@ -236,6 +299,15 @@
         <pre id="revenueChannelDraftResult" class="small llm-ops-raw">revenue channel drafts: draft only / external send requires human approval</pre>
       </div>
       <div class="debug-box">
+        <h4>Revenue External Send Apply Audits</h4>
+        <div class="small" style="margin-bottom:8px">Human approval 後の外部送信 apply audit を確認します。adapter 未接続や送信失敗を送信成功として扱いません。</div>
+        <table class="debug-table">
+          <thead><tr><th>time</th><th>apply</th><th>draft</th><th>decision</th><th>channel</th><th>status</th><th>result</th><th>adapter</th><th>evidence</th></tr></thead>
+          <tbody id="revenueExternalSendAuditBody"></tbody>
+        </table>
+        <pre id="revenueExternalSendAuditResult" class="small llm-ops-raw">revenue external send apply audits: not sent</pre>
+      </div>
+      <div class="debug-box">
         <h4>Revenue Drilldown</h4>
         <div class="small" style="margin-bottom:8px">KPI 推移、商品別売上、顧客の声分類を確認します。これは分析表示であり、外部送信や販売操作は行いません。</div>
         <pre id="revenueDrilldownResult" class="small llm-ops-raw">revenue drilldown: -</pre>
@@ -244,7 +316,7 @@
         <h4>Workstream Vault Review</h4>
         <div class="small" style="margin-bottom:8px">Vault update の承認・却下を記録します。proposed_content 付き承認は vault_root 配下の対象ファイルへ適用されます。</div>
         <table class="debug-table">
-          <thead><tr><th>time</th><th>update</th><th>file</th><th>status</th><th>proposal</th><th>action</th></tr></thead>
+          <thead><tr><th>time</th><th>update</th><th>file</th><th>status</th><th>applied</th><th>applied path</th><th>proposal</th><th>action</th></tr></thead>
           <tbody id="workstreamVaultReviewBody"></tbody>
         </table>
         <pre id="workstreamVaultReviewResult" class="small llm-ops-raw">workstream vault review: -</pre>
@@ -283,6 +355,7 @@
         </div>
         <div id="llmOpsConfigState" class="small" style="margin-bottom:8px">checking...</div>
         <div id="llmRuntimeConfigCards" class="llm-runtime-grid"></div>
+        <div id="runtimeReadinessCards" class="llm-runtime-grid"></div>
         <div class="llm-memory-grid" id="llmMemoryCards">
           <div class="llm-memory-card"><div class="ops-card-title">Total RAM</div><div class="ops-big">-</div></div>
           <div class="llm-memory-card"><div class="ops-card-title">Used RAM</div><div class="ops-big">-</div></div>
@@ -328,6 +401,13 @@
           <tbody id="sandboxBody"></tbody>
         </table>
         <pre id="sandboxPromotionPreviewResult" class="small llm-ops-raw">sandbox promotion diff preview: -</pre>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Event</th><th>Promotion</th><th>Gate</th><th>Human</th><th>Post Apply</th><th>Reason</th></tr></thead>
+          <tbody id="sandboxGateLogBody"></tbody>
+        </table>
+        <pre id="sandboxGateLogResult" class="small llm-ops-raw">sandbox promotion gate logs: no apply evidence</pre>
       </div>
       <div class="table-wrap">
         <table>

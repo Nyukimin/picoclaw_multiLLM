@@ -141,8 +141,13 @@ async function stopViewerLLMRolesBeforeStart(selection) {
   });
   const body = await stopRes.text();
   if (!stopRes.ok) {
-    throw new Error('llm ops stop failed: HTTP ' + stopRes.status + (body ? ' ' + body : ''));
+    throw new Error(formatViewerLLMOpsHTTPError('llm ops stop failed', stopRes.status, body));
   }
+}
+
+function formatViewerLLMOpsHTTPError(prefix, status, body) {
+  const text = String(body || '').trim();
+  return prefix + ': HTTP ' + String(status) + (text ? ': ' + text : '');
 }
 
 async function ensureViewerLLMReadyForRequest(req) {
@@ -151,12 +156,14 @@ async function ensureViewerLLMReadyForRequest(req) {
 
   const healthRes = await fetch('/viewer/llm-ops/health', {cache: 'no-store'});
   if (!healthRes.ok) {
-    throw new Error('llm ops health failed: HTTP ' + healthRes.status);
+    const body = await healthRes.text();
+    throw new Error(formatViewerLLMOpsHTTPError('llm ops health failed', healthRes.status, body));
   }
 
   const statusRes = await fetch('/viewer/llm-ops/status', {cache: 'no-store'});
   if (!statusRes.ok) {
-    throw new Error('llm ops status failed: HTTP ' + statusRes.status);
+    const body = await statusRes.text();
+    throw new Error(formatViewerLLMOpsHTTPError('llm ops status failed', statusRes.status, body));
   }
   const status = await statusRes.json();
   if (viewerLLMSelectionReady(status, selection)) return;
@@ -170,7 +177,7 @@ async function ensureViewerLLMReadyForRequest(req) {
   });
   const body = await startRes.text();
   if (!startRes.ok) {
-    throw new Error('llm ops start failed: HTTP ' + startRes.status + (body ? ' ' + body : ''));
+    throw new Error(formatViewerLLMOpsHTTPError('llm ops start failed', startRes.status, body));
   }
   if (typeof refreshLlmOpsStatus === 'function') refreshLlmOpsStatus();
 }
@@ -189,7 +196,7 @@ function addMsgToTimeline(ev) {
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.response') { removeThinking(ev.job_id); }
   if (ev.type === 'agent.response' && (ev.to || '').toLowerCase() !== 'user') return;
-  if (ev.type === 'agent.response' && isTTSSyncedSpeaker(ev.from)) return;
+  if (ev.type === 'agent.response' && isTTSSyncedSpeaker(ev.from) && !isViewerLocalFailureMessage(ev)) return;
   if (ev.type === 'idlechat.message' && isTTSSyncedSpeaker(ev.from)) return;
   if (ev.type === 'agent.note' && (ev.to || '').toLowerCase() !== 'user') return;
   if (ev.type === 'message.received' && (ev.from || '').toLowerCase() !== 'user') return;
@@ -213,6 +220,10 @@ function addMsgToTimeline(ev) {
   chat.appendChild(el);
   trimTimelineNodes();
   bump();
+}
+
+function isViewerLocalFailureMessage(ev) {
+  return String(ev && ev.content ? ev.content : '').startsWith('Viewer send unavailable:');
 }
 
 bindChatRouteAliasButtons();

@@ -169,7 +169,8 @@ function renderHomeDesk() {
     '<div class="desk-row"><span>Active Agents</span><span>' + esc(String(deskAgentList().filter((a) => a.item.state && a.item.state !== 'offline').length)) + '</span></div>' +
     '<div class="desk-row"><span>進行中Job</span><span>' + esc(String(running.length)) + '</span></div>' +
     '<div class="desk-row"><span>未読Report</span><span>' + esc(String(reports.length)) + '</span></div>' +
-    '<div class="desk-row"><span>未完了Instruction</span><span>' + esc(String(instructions.length)) + '</span></div>';
+    '<div class="desk-row"><span>未完了Instruction</span><span>' + esc(String(instructions.length)) + '</span></div>' +
+    (state.homeSendError ? '<div class="desk-row"><span>送信失敗</span><span class="desk-pill danger">' + esc(state.homeSendError) + '</span></div>' : '');
 
   const latest = deskLatestConversation();
   lastCard.innerHTML =
@@ -215,10 +216,12 @@ function bindHomeDeskControls() {
     if (!text) return;
     send.disabled = true;
     const prefix = homeRoutePrefix(target ? target.value : '');
+    state.homeSendError = '';
     sendViewerMessage(prefix + text).then(() => {
       input.value = '';
       switchTab('timeline');
     }).catch((err) => {
+      state.homeSendError = 'Home send unavailable: ' + String(err && err.message ? err.message : err);
       console.error(err);
       showToast('Home send failed', 'error');
     }).finally(() => {

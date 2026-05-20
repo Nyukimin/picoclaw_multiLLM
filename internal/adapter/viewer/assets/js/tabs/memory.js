@@ -1,6 +1,8 @@
 // Memory tab module: memory snapshots, layers, source registry, and recall traces.
 function renderMemorySnapshot() {
   const snap = state.memory.snapshot || {};
+  const fetchError = String(state.memory.memorySnapshotFetchError || '');
+  const actionError = String(state.memory.memoryActionError || '');
   const memory = Array.isArray(snap.memory) ? snap.memory : [];
   const news = Array.isArray(snap.news) ? snap.news : [];
   const digests = Array.isArray(snap.digests) ? snap.digests : [];
@@ -12,13 +14,17 @@ function renderMemorySnapshot() {
   const newsPackCount = document.getElementById('newsPackCount');
   const digestCount = document.getElementById('digestCount');
   const knowledgeCount = document.getElementById('knowledgeCount');
-  if (memoryCount) memoryCount.textContent = String(memory.length);
-  if (newsPackCount) newsPackCount.textContent = String(news.length);
-  if (digestCount) digestCount.textContent = String(digests.length);
-  if (knowledgeCount) knowledgeCount.textContent = String(knowledge.length);
+  if (memoryCount) memoryCount.textContent = fetchError ? '0' : String(memory.length);
+  if (newsPackCount) newsPackCount.textContent = fetchError ? '0' : String(news.length);
+  if (digestCount) digestCount.textContent = fetchError ? '0' : String(digests.length);
+  if (knowledgeCount) knowledgeCount.textContent = fetchError ? '0' : String(knowledge.length);
   if (memoryBody) {
     memoryBody.innerHTML = '';
-    if (memory.length === 0) {
+    if (fetchError) {
+      memoryBody.innerHTML = '<tr><td colspan="7" class="small">Memory snapshot unavailable: ' + esc(fetchError) + '</td></tr>';
+    } else if (actionError) {
+      memoryBody.innerHTML = '<tr><td colspan="7" class="small">Memory action unavailable: ' + esc(actionError) + '</td></tr>';
+    } else if (memory.length === 0) {
       memoryBody.innerHTML = '<tr><td colspan="7" class="small">No memory for selected namespace</td></tr>';
     } else {
       memory.forEach((m) => {
@@ -42,7 +48,9 @@ function renderMemorySnapshot() {
   }
   if (newsBody) {
     newsBody.innerHTML = '';
-    if (news.length === 0) {
+    if (fetchError) {
+      newsBody.innerHTML = '<tr><td colspan="5" class="small">Memory snapshot news unavailable: ' + esc(fetchError) + '</td></tr>';
+    } else if (news.length === 0) {
       newsBody.innerHTML = '<tr><td colspan="5" class="small">No news pack items</td></tr>';
     } else {
       news.forEach((n) => {
@@ -60,7 +68,9 @@ function renderMemorySnapshot() {
   }
   if (digestBody) {
     digestBody.innerHTML = '';
-    if (digests.length === 0) {
+    if (fetchError) {
+      digestBody.innerHTML = '<tr><td colspan="4" class="small">Memory snapshot digests unavailable: ' + esc(fetchError) + '</td></tr>';
+    } else if (digests.length === 0) {
       digestBody.innerHTML = '<tr><td colspan="4" class="small">No daily digests</td></tr>';
     } else {
       digests.forEach((d) => {
@@ -79,6 +89,7 @@ function renderMemorySnapshot() {
 
 function renderMemoryLayers() {
   const layers = state.memory.layers || {};
+  const error = layers._error || '';
   const l0 = Array.isArray(layers.l0) ? layers.l0 : [];
   const l1 = Array.isArray(layers.l1) ? layers.l1 : [];
   const l2 = Array.isArray(layers.l2) ? layers.l2 : [];
@@ -92,6 +103,10 @@ function renderMemoryLayers() {
   if (l3Count) l3Count.textContent = String(l3.length);
   if (!body) return;
   body.innerHTML = '';
+  if (error) {
+    body.innerHTML = '<tr><td colspan="5" class="small">Memory Layers unavailable: ' + esc(error) + '</td></tr>';
+    return;
+  }
   const rows = [];
   const pushMemory = (layer, item) => {
     rows.push({
@@ -136,14 +151,22 @@ function refreshMemoryLayers() {
   if (memoryDomain && memoryDomain.value.trim()) params.set('domain', memoryDomain.value.trim());
   fetch('/viewer/memory/layers?' + params.toString())
     .then((r) => {
-      if (!r.ok) throw new Error('memory layers fetch failed');
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error(body || ('memory layers fetch failed: HTTP ' + r.status));
+        });
+      }
       return r.json();
     })
     .then((data) => {
       state.memory.layers = data || {l0: [], l1: [], l2: [], l3: []};
       renderMemoryLayers();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.memory.layers = {l0: [], l1: [], l2: [], l3: [], l3_qdrant: [], _error: err && err.message ? err.message : String(err)};
+      renderMemoryLayers();
+      console.error(err);
+    });
 }
 
 function memoryEventNamespaceValue() {
@@ -166,13 +189,16 @@ function renderMemoryEvents() {
   const cacheBody = document.getElementById('searchCacheBody');
   const eventCount = document.getElementById('memoryEventCount');
   const cacheCount = document.getElementById('searchCacheCount');
+  const fetchError = String(state.memory.memoryEventsFetchError || '');
   const events = Array.isArray(state.memory.events) ? state.memory.events : [];
   const searchCache = Array.isArray(state.memory.searchCache) ? state.memory.searchCache : [];
-  if (eventCount) eventCount.textContent = String(events.length);
-  if (cacheCount) cacheCount.textContent = String(searchCache.length);
+  if (eventCount) eventCount.textContent = fetchError ? '0' : String(events.length);
+  if (cacheCount) cacheCount.textContent = fetchError ? '0' : String(searchCache.length);
   if (eventBody) {
     eventBody.innerHTML = '';
-    if (events.length === 0) {
+    if (fetchError) {
+      eventBody.innerHTML = '<tr><td colspan="5" class="small">Memory events unavailable: ' + esc(fetchError) + '</td></tr>';
+    } else if (events.length === 0) {
       eventBody.innerHTML = '<tr><td colspan="5" class="small">No L1 event log entries</td></tr>';
     } else {
       events.forEach((ev) => {
@@ -189,7 +215,9 @@ function renderMemoryEvents() {
   }
   if (cacheBody) {
     cacheBody.innerHTML = '';
-    if (searchCache.length === 0) {
+    if (fetchError) {
+      cacheBody.innerHTML = '<tr><td colspan="5" class="small">Search cache unavailable: ' + esc(fetchError) + '</td></tr>';
+    } else if (searchCache.length === 0) {
       cacheBody.innerHTML = '<tr><td colspan="5" class="small">No search cache entries</td></tr>';
     } else {
       searchCache.forEach((entry) => {
@@ -448,17 +476,18 @@ function knowledgeMemoryRows(data) {
 }
 
 function renderKnowledgeMemoryLedger() {
+  const fetchError = String(state.memory.knowledgeMemoryFetchError || '');
   const km = state.memory.knowledgeMemory || {};
   ['knowledgeMemoryTypeFilter', 'knowledgeMemoryReviewFilter', 'knowledgeMemoryFlagFilter'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.onchange = renderKnowledgeMemoryLedger;
   });
-  const personal = Array.isArray(km.personal_archive) ? km.personal_archive : [];
-  const creative = Array.isArray(km.creative_knowledge) ? km.creative_knowledge : [];
-  const news = Array.isArray(km.news_knowledge) ? km.news_knowledge : [];
-  const intake = Array.isArray(km.daily_intake_rules) ? km.daily_intake_rules : [];
-  const temporal = Array.isArray(km.temporal_markers) ? km.temporal_markers : [];
-  const dreams = Array.isArray(km.dream_runs) ? km.dream_runs : [];
+  const personal = fetchError ? [] : (Array.isArray(km.personal_archive) ? km.personal_archive : []);
+  const creative = fetchError ? [] : (Array.isArray(km.creative_knowledge) ? km.creative_knowledge : []);
+  const news = fetchError ? [] : (Array.isArray(km.news_knowledge) ? km.news_knowledge : []);
+  const intake = fetchError ? [] : (Array.isArray(km.daily_intake_rules) ? km.daily_intake_rules : []);
+  const temporal = fetchError ? [] : (Array.isArray(km.temporal_markers) ? km.temporal_markers : []);
+  const dreams = fetchError ? [] : (Array.isArray(km.dream_runs) ? km.dream_runs : []);
   const personalCount = document.getElementById('knowledgePersonalCount');
   const sourceCount = document.getElementById('knowledgeSourceCount');
   const dreamCount = document.getElementById('knowledgeDreamCount');
@@ -467,33 +496,37 @@ function renderKnowledgeMemoryLedger() {
   if (dreamCount) dreamCount.textContent = String(dreams.length);
   const body = document.getElementById('knowledgeMemoryBody');
   if (body) {
-    const filters = knowledgeMemoryCurrentFilters();
-    const rows = knowledgeMemoryRows(km).filter((row) => {
-      if (filters.type && row.type !== filters.type) return false;
-      if (filters.review && String(row.status || '') !== filters.review) return false;
-      if (filters.flag && !(Array.isArray(row.flags) && row.flags.includes(filters.flag))) return false;
-      return true;
-    });
     body.innerHTML = '';
-    if (rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="9" class="small">No knowledge memory ledger items</td></tr>';
+    if (fetchError) {
+      body.innerHTML = '<tr><td colspan="9" class="small">Knowledge memory ledger unavailable: ' + esc(fetchError) + '</td></tr>';
     } else {
-      rows.forEach((row) => {
-        const flags = Array.isArray(row.flags) && row.flags.length ? row.flags.map((flag) => '<span class="badge ' + (flag === 'warning' ? 'warn' : '') + '">' + esc(flag) + '</span>').join(' ') : '<span class="badge">-</span>';
-        const related = Array.isArray(row.relatedStaging) && row.relatedStaging.length ? row.relatedStaging.map((item) => '<span class="badge">' + esc(short(item.id || item.ID || item.source_id || item.SourceID || '-', 26)) + '</span>').join(' ') : '<span class="badge">-</span>';
-        const tr = document.createElement('tr');
-        tr.innerHTML =
-          '<td>' + esc(row.type) + '</td>' +
-          '<td class="code">' + esc(short(row.id || '-', 48)) + '</td>' +
-          '<td>' + esc(short(row.title || '-', 140)) + '</td>' +
-          '<td class="code">' + esc(short(row.source || '-', 90)) + '</td>' +
-          '<td>' + esc(row.status || '-') + '</td>' +
-          '<td>' + flags + '</td>' +
-          '<td>' + related + '</td>' +
-          '<td>' + esc(fdt(row.updated)) + '</td>' +
-          '<td>' + knowledgeMemoryReviewActions(row.type, row.id, row.status) + '</td>';
-        body.appendChild(tr);
+      const filters = knowledgeMemoryCurrentFilters();
+      const rows = knowledgeMemoryRows(km).filter((row) => {
+        if (filters.type && row.type !== filters.type) return false;
+        if (filters.review && String(row.status || '') !== filters.review) return false;
+        if (filters.flag && !(Array.isArray(row.flags) && row.flags.includes(filters.flag))) return false;
+        return true;
       });
+      if (rows.length === 0) {
+        body.innerHTML = '<tr><td colspan="9" class="small">No knowledge memory ledger items</td></tr>';
+      } else {
+        rows.forEach((row) => {
+          const flags = Array.isArray(row.flags) && row.flags.length ? row.flags.map((flag) => '<span class="badge ' + (flag === 'warning' ? 'warn' : '') + '">' + esc(flag) + '</span>').join(' ') : '<span class="badge">-</span>';
+          const related = Array.isArray(row.relatedStaging) && row.relatedStaging.length ? row.relatedStaging.map((item) => '<span class="badge">' + esc(short(item.id || item.ID || item.source_id || item.SourceID || '-', 26)) + '</span>').join(' ') : '<span class="badge">-</span>';
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td>' + esc(row.type) + '</td>' +
+            '<td class="code">' + esc(short(row.id || '-', 48)) + '</td>' +
+            '<td>' + esc(short(row.title || '-', 140)) + '</td>' +
+            '<td class="code">' + esc(short(row.source || '-', 90)) + '</td>' +
+            '<td>' + esc(row.status || '-') + '</td>' +
+            '<td>' + flags + '</td>' +
+            '<td>' + related + '</td>' +
+            '<td>' + esc(fdt(row.updated)) + '</td>' +
+            '<td>' + knowledgeMemoryReviewActions(row.type, row.id, row.status) + '</td>';
+          body.appendChild(tr);
+        });
+      }
     }
   }
   renderKnowledgeMemoryDetail();
@@ -566,16 +599,31 @@ function reviewKnowledgeMemoryItem(encodedPayload, reviewStatus, promote) {
 function refreshKnowledgeMemoryLedger() {
   fetch('/viewer/knowledge-memory?limit=20')
     .then((r) => {
-      if (!r.ok) throw new Error('knowledge memory fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'knowledge memory ledger unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.knowledgeMemoryFetchError = '';
       state.memory.knowledgeMemory = data || {};
       renderKnowledgeMemoryLedger();
     })
     .catch((err) => {
-      state.memory.knowledgeMemoryDetail = {error: String(err && err.message ? err.message : err)};
-      renderKnowledgeMemoryDetail();
+      const message = String(err && err.message ? err.message : err);
+      state.memory.knowledgeMemoryFetchError = message;
+      state.memory.knowledgeMemory = {
+        personal_archive: [],
+        creative_knowledge: [],
+        news_knowledge: [],
+        daily_intake_rules: [],
+        temporal_markers: [],
+        dream_runs: [],
+      };
+      state.memory.knowledgeMemoryDetail = {error: message};
+      renderKnowledgeMemoryLedger();
       console.error(err);
     });
 }
@@ -586,7 +634,11 @@ function fetchMemoryKnowledgeDetail(detailType, id) {
   if (!type || !detailID) return;
   fetch('/viewer/knowledge-memory?detail_type=' + encodeURIComponent(type) + '&id=' + encodeURIComponent(detailID) + '&limit=100')
     .then((r) => {
-      if (!r.ok) throw new Error('knowledge memory detail fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'knowledge memory detail unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
@@ -606,22 +658,38 @@ function refreshMemoryEvents() {
   params.set('namespace', memoryEventNamespaceValue());
   fetch('/viewer/memory/events?' + params.toString())
     .then((r) => {
-      if (!r.ok) throw new Error('memory events fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'memory events unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.memoryEventsFetchError = '';
       state.memory.events = Array.isArray(data.events) ? data.events : [];
       state.memory.searchCache = Array.isArray(data.search_cache) ? data.search_cache : [];
       renderMemoryEvents();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.memory.memoryEventsFetchError = String(err && err.message ? err.message : err);
+      state.memory.events = [];
+      state.memory.searchCache = [];
+      renderMemoryEvents();
+      console.error(err);
+    });
 }
 
 function renderSourceRegistry() {
   const body = document.getElementById('sourceRegistryBody');
   if (!body) return;
+  const fetchError = String(state.memory.sourceRegistryFetchError || '');
   const entries = Array.isArray(state.memory.sourceRegistry) ? state.memory.sourceRegistry : [];
   body.innerHTML = '';
+  if (fetchError) {
+    body.innerHTML = '<tr><td colspan="7" class="small">Source Registry unavailable: ' + esc(fetchError) + '</td></tr>';
+    return;
+  }
   if (entries.length === 0) {
     body.innerHTML = '<tr><td colspan="7" class="small">No source registry entries</td></tr>';
     return;
@@ -659,11 +727,22 @@ function renderSourceRegistryRunStatus() {
   el.innerHTML = '<span class="' + cls + '">Source Registry run: ' + parts.join(' / ') + '</span>';
 }
 
+function setSourceRegistryActionStatus(message, warn) {
+  const el = document.getElementById('sourceRegistryRunStatus');
+  if (!el) return;
+  el.innerHTML = message ? '<span class="' + (warn ? 'badge warn' : 'badge') + '">' + esc(message) + '</span>' : '';
+}
+
 function renderSourceRegistryStaging() {
   const body = document.getElementById('sourceRegistryStagingBody');
   if (!body) return;
+  const fetchError = String(state.memory.sourceRegistryStagingFetchError || '');
   const items = Array.isArray(state.memory.sourceRegistryStaging) ? state.memory.sourceRegistryStaging : [];
   body.innerHTML = '';
+  if (fetchError) {
+    body.innerHTML = '<tr><td colspan="9" class="small">Source Registry staging unavailable: ' + esc(fetchError) + '</td></tr>';
+    return;
+  }
   if (items.length === 0) {
     body.innerHTML = '<tr><td colspan="9" class="small">No source registry staging items</td></tr>';
     return;
@@ -705,16 +784,24 @@ function refreshSourceRegistryStaging() {
   const status = statusEl && statusEl.value ? statusEl.value : 'pending';
   fetch('/viewer/source-registry?action=staging&status=' + encodeURIComponent(status) + '&limit=20')
     .then((r) => {
-      if (!r.ok) throw new Error('source registry staging fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry staging unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.sourceRegistryStagingFetchError = '';
       state.memory.sourceRegistryStaging = Array.isArray(data.items) ? data.items : [];
       renderSourceRegistryStaging();
       setSourceRegistryStagingStatus('staging=' + state.memory.sourceRegistryStaging.length, false);
     })
     .catch((err) => {
-      setSourceRegistryStagingStatus(err.message || String(err), true);
+      state.memory.sourceRegistryStagingFetchError = String(err && err.message ? err.message : err);
+      state.memory.sourceRegistryStaging = [];
+      renderSourceRegistryStaging();
+      setSourceRegistryStagingStatus('staging unavailable: ' + state.memory.sourceRegistryStagingFetchError, true);
       console.error(err);
     });
 }
@@ -730,7 +817,11 @@ function validateSourceRegistryStaging(id) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({id: stagingID, minimum_trust_score: Number.isFinite(minTrust) ? minTrust : 0.5}),
   }).then((r) => {
-    if (!r.ok) throw new Error('source registry staging validation failed');
+    if (!r.ok) {
+      return r.text().then((text) => {
+        throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry staging validation failed'));
+      });
+    }
     return r.json();
   }).then((data) => {
     const result = data && data.result ? data.result : {};
@@ -763,7 +854,11 @@ function promoteSourceRegistryStaging(id, target) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload),
   }).then((r) => {
-    if (!r.ok) throw new Error('source registry staging promotion failed');
+    if (!r.ok) {
+      return r.text().then((text) => {
+        throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry staging promotion failed'));
+      });
+    }
     return r.json();
   }).then((data) => {
     setSourceRegistryStagingStatus('promoted=' + (data.target || promotionTarget), false);
@@ -781,7 +876,11 @@ function runSourceRegistryEntry(sourceID) {
   fetch('/viewer/source-registry?action=run&source_id=' + encodeURIComponent(id), {
     method: 'POST',
   }).then((r) => {
-    if (!r.ok) throw new Error('source registry run failed');
+    if (!r.ok) {
+      return r.text().then((text) => {
+        throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry run failed'));
+      });
+    }
     return r.json();
   }).then((data) => {
     state.memory.sourceRegistryLastRun = data;
@@ -789,21 +888,36 @@ function runSourceRegistryEntry(sourceID) {
     refreshSourceRegistry();
     refreshSourceRegistryStaging();
     refreshMemorySnapshot();
-  }).catch((err) => console.error(err));
+  }).catch((err) => {
+    state.memory.sourceRegistryLastRun = {result: {warnings: 1}, error: String(err && err.message ? err.message : err)};
+    const el = document.getElementById('sourceRegistryRunStatus');
+    if (el) el.innerHTML = '<span class="badge warn">Source Registry run unavailable: ' + esc(state.memory.sourceRegistryLastRun.error) + '</span>';
+    console.error(err);
+  });
 }
 
 function refreshSourceRegistry() {
   fetch('/viewer/source-registry')
     .then((r) => {
-      if (!r.ok) throw new Error('source registry fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.sourceRegistryFetchError = '';
       state.memory.sourceRegistry = Array.isArray(data.entries) ? data.entries : [];
       renderSourceRegistry();
       refreshSourceRegistryStaging();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.memory.sourceRegistryFetchError = String(err && err.message ? err.message : err);
+      state.memory.sourceRegistry = [];
+      renderSourceRegistry();
+      console.error(err);
+    });
 }
 
 function saveSourceRegistryEntry() {
@@ -824,22 +938,39 @@ function saveSourceRegistryEntry() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload),
   }).then((r) => {
-    if (!r.ok) throw new Error('source registry save failed');
+    if (!r.ok) {
+      return r.text().then((text) => {
+        throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry save failed'));
+      });
+    }
     return r.json();
-  }).then(() => refreshSourceRegistry())
-    .catch((err) => console.error(err));
+  }).then(() => {
+    setSourceRegistryActionStatus('Source Registry source saved', false);
+    refreshSourceRegistry();
+  }).catch((err) => {
+    setSourceRegistryActionStatus('Source Registry save unavailable: ' + String(err && err.message ? err.message : err), true);
+    console.error(err);
+  });
 }
 
 function exportSourceRegistryYAML() {
   fetch('/viewer/source-registry?format=yaml')
     .then((r) => {
-      if (!r.ok) throw new Error('source registry export failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry export failed'));
+        });
+      }
       return r.text();
     })
     .then((text) => {
       if (sourceRegistryYAML) sourceRegistryYAML.value = text;
+      setSourceRegistryActionStatus('Source Registry YAML exported', false);
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      setSourceRegistryActionStatus('Source Registry export unavailable: ' + String(err && err.message ? err.message : err), true);
+      console.error(err);
+    });
 }
 
 function importSourceRegistryYAML() {
@@ -849,10 +980,19 @@ function importSourceRegistryYAML() {
     headers: {'Content-Type': 'application/x-yaml'},
     body: sourceRegistryYAML.value,
   }).then((r) => {
-    if (!r.ok) throw new Error('source registry import failed');
+    if (!r.ok) {
+      return r.text().then((text) => {
+        throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'source registry import failed'));
+      });
+    }
     return r.json();
-  }).then(() => refreshSourceRegistry())
-    .catch((err) => console.error(err));
+  }).then(() => {
+    setSourceRegistryActionStatus('Source Registry YAML imported', false);
+    refreshSourceRegistry();
+  }).catch((err) => {
+    setSourceRegistryActionStatus('Source Registry import unavailable: ' + String(err && err.message ? err.message : err), true);
+    console.error(err);
+  });
 }
 
 function refreshMemorySnapshot() {
@@ -863,10 +1003,15 @@ function refreshMemorySnapshot() {
   if (memoryDomain && memoryDomain.value.trim()) params.set('domain', memoryDomain.value.trim());
   fetch('/viewer/memory/snapshot?' + params.toString())
     .then((r) => {
-      if (!r.ok) throw new Error('memory snapshot fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'memory snapshot unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.memorySnapshotFetchError = '';
       state.memory.snapshot = data || {};
       renderMemorySnapshot();
       refreshMemoryLayers();
@@ -874,7 +1019,12 @@ function refreshMemorySnapshot() {
       refreshKnowledgeMemoryLedger();
       refreshSourceRegistry();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.memory.memorySnapshotFetchError = String(err && err.message ? err.message : err);
+      state.memory.snapshot = {memory: [], news: [], digests: [], knowledge: []};
+      renderMemorySnapshot();
+      console.error(err);
+    });
 }
 
 function postMemoryAction(url, payload) {
@@ -883,10 +1033,20 @@ function postMemoryAction(url, payload) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload),
   }).then((r) => {
-    if (!r.ok) throw new Error('memory action failed');
+    if (!r.ok) {
+      return r.text().then((text) => {
+        throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'memory action failed'));
+      });
+    }
     return r.json();
-  }).then(() => refreshMemorySnapshot())
-    .catch((err) => console.error(err));
+  }).then(() => {
+    state.memory.memoryActionError = '';
+    refreshMemorySnapshot();
+  }).catch((err) => {
+    state.memory.memoryActionError = String(err && err.message ? err.message : err);
+    renderMemorySnapshot();
+    console.error(err);
+  });
 }
 
 function setMemoryState(id, memoryState) {
@@ -915,8 +1075,13 @@ function promoteMemory(id) {
 function renderRecallTraces() {
   const body = document.getElementById('recallTraceBody');
   if (!body) return;
+  const fetchError = String(state.memory.recallTraceFetchError || '');
   const traces = Array.isArray(state.memory.traces) ? state.memory.traces : [];
   body.innerHTML = '';
+  if (fetchError) {
+    body.innerHTML = '<tr><td colspan="9" class="small">Recall traces unavailable: ' + esc(fetchError) + '</td></tr>';
+    return;
+  }
   if (traces.length === 0) {
     body.innerHTML = '<tr><td colspan="9" class="small">No recall traces yet</td></tr>';
     return;
@@ -956,13 +1121,24 @@ function refreshRecallTraces() {
   params.set('limit', '20');
   fetch('/viewer/recall/traces?' + params.toString())
     .then((r) => {
-      if (!r.ok) throw new Error('recall trace fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'recall traces unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.memory.recallTraceFetchError = '';
       state.memory.traces = Array.isArray(data.items) ? data.items : [];
       renderRecallTraces();
       renderNewsPackPanel();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.memory.recallTraceFetchError = String(err && err.message ? err.message : err);
+      state.memory.traces = [];
+      renderRecallTraces();
+      renderNewsPackPanel();
+      console.error(err);
+    });
 }

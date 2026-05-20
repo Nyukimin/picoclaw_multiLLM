@@ -18,26 +18,31 @@ function renderOps() {
   feedBody.innerHTML = '';
   bindDCISearchControls();
 
-  const persisted = Array.isArray(state.ops.persistedLogs) ? state.ops.persistedLogs : [];
+  const logsFetchError = String(state.ops.opsLogsFetchError || '');
+  const persisted = logsFetchError ? [] : (Array.isArray(state.ops.persistedLogs) ? state.ops.persistedLogs : []);
   const runningJobs = Object.values(state.jobs).filter((j) => String(j.status || '') !== 'done');
-  const lastMio = state.ops.lastMioReport || latestOpsEventBy((ev) => String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user');
-  const latestJobID = state.ops.latestJobID || ((persisted[0] && persisted[0].job_id) || '-');
-  const latestRoute = state.ops.latestRoute || ((persisted[0] && persisted[0].route) || '-');
-  const latestError = state.ops.latestError || latestOpsEventBy((ev) => {
+  const lastMio = logsFetchError ? null : (state.ops.lastMioReport || latestOpsEventBy((ev) => String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user'));
+  const latestJobID = logsFetchError ? '' : (state.ops.latestJobID || ((persisted[0] && persisted[0].job_id) || '-'));
+  const latestRoute = logsFetchError ? '' : (state.ops.latestRoute || ((persisted[0] && persisted[0].route) || '-'));
+  const latestError = logsFetchError ? null : (state.ops.latestError || latestOpsEventBy((ev) => {
     const t = String(ev.type || '').toLowerCase();
     return t === 'agent.error' || t === 'mailbox.error' || t === 'worker.classified_failure';
-  });
+  }));
   const activeAgents = AGENTS.filter((id) => {
     const s = state.agents[id];
     return s && s.state !== 'offline';
   });
 
   [
-    {title: 'Latest Job', big: latestJobID || '-', sub: 'route: ' + (latestRoute || '-')},
+    {
+      title: 'Latest Job',
+      big: logsFetchError ? 'unavailable' : (latestJobID || '-'),
+      sub: logsFetchError ? ('ops logs unavailable: ' + logsFetchError) : ('route: ' + (latestRoute || '-')),
+    },
     {
       title: 'Mio Last Report',
-      big: lastMio ? short(lastMio.content || '-', 48) : '-',
-      sub: lastMio ? ('time: ' + fdt(lastMio.timestamp) + '\njob: ' + (lastMio.job_id || '-')) : 'Mio からの最終報告はまだありません',
+      big: logsFetchError ? 'unavailable' : (lastMio ? short(lastMio.content || '-', 48) : '-'),
+      sub: logsFetchError ? ('ops logs unavailable: ' + logsFetchError) : (lastMio ? ('time: ' + fdt(lastMio.timestamp) + '\njob: ' + (lastMio.job_id || '-')) : 'Mio からの最終報告はまだありません'),
     },
     {
       title: 'Running Jobs',
@@ -46,8 +51,8 @@ function renderOps() {
     },
     {
       title: 'Last Error',
-      big: latestError ? short(latestError.type || '-', 24) : 'none',
-      sub: latestError ? (short(latestError.content || '-', 120) + '\njob: ' + (latestError.job_id || '-')) : '直近の失敗イベントなし',
+      big: logsFetchError ? 'unavailable' : (latestError ? short(latestError.type || '-', 24) : 'none'),
+      sub: logsFetchError ? ('ops logs unavailable: ' + logsFetchError) : (latestError ? (short(latestError.content || '-', 120) + '\njob: ' + (latestError.job_id || '-')) : '直近の失敗イベントなし'),
     },
     {
       title: 'Active Agents',
@@ -63,9 +68,11 @@ function renderOps() {
     personaObservationOpsCard(),
     browserTraceAPIOpsCard(),
     complexityHotspotOpsCard(),
+    aiWorkflowOpsCard(),
     superAgentOpsCard(),
     heavyWorkerRuntimeOpsCard(),
     knowledgeMemoryOpsCard(),
+    runtimeBlockedRoutesOpsCard(),
   ].forEach((item) => {
     const card = document.createElement('div');
     card.className = 'card';
@@ -77,8 +84,8 @@ function renderOps() {
   });
 
   [
-    {label: '最新 route', value: latestRoute || '-'},
-    {label: '最新 persisted event', value: persisted[0] ? ((persisted[0].type || '-') + ' @ ' + fdt(persisted[0].timestamp)) : '-'},
+    {label: '最新 route', value: logsFetchError ? 'unavailable' : (latestRoute || '-')},
+    {label: '最新 persisted event', value: logsFetchError ? ('Ops logs unavailable: ' + logsFetchError) : (persisted[0] ? ((persisted[0].type || '-') + ' @ ' + fdt(persisted[0].timestamp)) : '-')},
     {label: 'Mio job', value: state.agents.mio && state.agents.mio.jobID ? state.agents.mio.jobID : '-'},
     {label: 'Worker job', value: state.agents.shiro && state.agents.shiro.jobID ? state.agents.shiro.jobID : '-'},
   ].forEach((row) => {
@@ -92,6 +99,12 @@ function renderOps() {
     const t = String(ev.type || '');
     return t === 'message.received' || t === 'routing.decision' || t === 'agent.dispatch' || t === 'agent.start' || t === 'agent.note' || t === 'agent.response' || t === 'mailbox.waiting' || t === 'mailbox.received' || t === 'mailbox.error' || t === 'agent.error' || t === 'worker.classified_failure';
   }).slice(0, 20);
+  if (logsFetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">Ops logs unavailable: ' + esc(logsFetchError) + '</td>';
+    feedBody.appendChild(tr);
+    return;
+  }
   if (feed.length === 0) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="6" class="small">No operator events yet</td>';
@@ -113,9 +126,17 @@ function renderOps() {
   renderDCITraces();
   renderDCISearchResult();
   renderSandboxStatus();
+  renderSkillExternalPRAudits();
+  renderSkillEvidenceAudits();
+  renderSuperAgentTerminalAudits();
+  renderSuperAgentResumeAudits();
+  renderAIWorkflowRunEvidence();
+  renderComplexityReviewArtifacts();
+  renderRuntimeBlockedRouteAudits();
   renderWorkstreamVaultReviews();
   renderRevenueHumanDecisions();
   renderRevenueChannelDrafts();
+  renderRevenueExternalSendAudits();
   renderRevenueDrilldown();
   renderPersonaMetaReviews();
 }
@@ -136,6 +157,14 @@ function toolHarnessRepairSummary(repair) {
 }
 
 function toolHarnessOpsCard() {
+  const fetchError = String(state.ops.toolHarnessFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Tool Harness',
+      big: 'unavailable',
+      sub: 'tool harness status unavailable: ' + fetchError + '\nblocked: provider protocol recovery state unreadable',
+    };
+  }
   const events = Array.isArray(state.ops.toolHarnessEvents) ? state.ops.toolHarnessEvents : [];
   const repaired = events.filter((ev) => String(toolHarnessField(ev, 'validation_status', 'ValidationStatus') || '') === 'repaired').length;
   const latest = events[0] || null;
@@ -144,7 +173,7 @@ function toolHarnessOpsCard() {
   return {
     title: 'Tool Harness',
     big: String(repaired) + '/' + String(events.length),
-    sub: latest ? ('latest: ' + latestTool + ' · ' + latestStatus) : 'mediation event なし',
+    sub: latest ? ('latest: ' + latestTool + ' · ' + latestStatus + '\nread-only evidence: provider protocol recovery not verified') : 'mediation event なし\nblocked: provider protocol recovery not verified',
   };
 }
 
@@ -152,6 +181,13 @@ function renderToolHarnessEvents() {
   const body = document.getElementById('toolHarnessBody');
   if (!body) return;
   body.innerHTML = '';
+  const fetchError = String(state.ops.toolHarnessFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">Tool Harness events unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    return;
+  }
   const events = Array.isArray(state.ops.toolHarnessEvents) ? state.ops.toolHarnessEvents : [];
   if (events.length === 0) {
     const tr = document.createElement('tr');
@@ -183,13 +219,21 @@ function dciField(trace, snake, pascal) {
 }
 
 function dciOpsCard() {
+  const fetchError = String(state.ops.dciFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'DCI Trace',
+      big: 'unavailable',
+      sub: 'dci trace status unavailable: ' + fetchError + '\nblocked: read-only evidence state unreadable\nblocked: VectorDB/Qdrant E2E not verified',
+    };
+  }
   const traces = Array.isArray(state.ops.dciTraces) ? state.ops.dciTraces : [];
   const latest = traces[0] || null;
   const evidenceCount = traces.reduce((sum, trace) => sum + Number(dciField(trace, 'final_evidence_count', 'FinalEvidenceCount') || 0), 0);
   return {
     title: 'DCI Trace',
     big: String(evidenceCount) + '/' + String(traces.length),
-    sub: latest ? ('latest: ' + short(dciField(latest, 'user_query', 'UserQuery') || '-', 72)) : 'Search Trace なし',
+    sub: latest ? ('latest: ' + short(dciField(latest, 'user_query', 'UserQuery') || '-', 72) + '\nread-only evidence: VectorDB/Qdrant E2E not verified') : 'Search Trace なし\nblocked: VectorDB/Qdrant E2E not verified',
   };
 }
 
@@ -197,6 +241,13 @@ function renderDCITraces() {
   const body = document.getElementById('dciTraceBody');
   if (!body) return;
   body.innerHTML = '';
+  const fetchError = String(state.ops.dciFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">DCI search traces unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    return;
+  }
   const traces = Array.isArray(state.ops.dciTraces) ? state.ops.dciTraces : [];
   if (traces.length === 0) {
     const tr = document.createElement('tr');
@@ -236,6 +287,10 @@ function renderDCISearchResult() {
     'status: ' + String(trace.status || trace.Status || '-'),
     'evidence: ' + String(Array.isArray(evidence) ? evidence.length : 0),
   ];
+  const errorMessage = String(trace.error_message || trace.ErrorMessage || '');
+  if (errorMessage) {
+    lines.push('error: ' + errorMessage);
+  }
   if (Array.isArray(evidence) && evidence.length) {
     evidence.slice(0, 3).forEach((ev, idx) => {
       const file = ev.file_path || ev.FilePath || '-';
@@ -255,6 +310,14 @@ function sandboxField(item, snake, pascal) {
 }
 
 function sandboxOpsCard() {
+  const fetchError = String(state.ops.sandboxFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Sandbox Gate',
+      big: 'unavailable',
+      sub: 'sandbox status unavailable: ' + fetchError + '\nblocked: promotion apply state unreadable',
+    };
+  }
   const sandboxes = Array.isArray(state.ops.sandboxes) ? state.ops.sandboxes : [];
   const artifacts = Array.isArray(state.ops.sandboxArtifacts) ? state.ops.sandboxArtifacts : [];
   const promotions = Array.isArray(state.ops.sandboxPromotions) ? state.ops.sandboxPromotions : [];
@@ -276,11 +339,21 @@ function renderSandboxStatus() {
   const sandboxes = Array.isArray(state.ops.sandboxes) ? state.ops.sandboxes : [];
   const promotions = Array.isArray(state.ops.sandboxPromotions) ? state.ops.sandboxPromotions : [];
   const decisions = Array.isArray(state.ops.sandboxDecisions) ? state.ops.sandboxDecisions : [];
+  const fetchError = String(state.ops.sandboxFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="small">Sandbox status unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderSandboxPromotionPreviewResult();
+    renderSandboxGateLogs();
+    return;
+  }
   if (sandboxes.length === 0 && promotions.length === 0) {
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="7" class="small">No sandbox or promotion records yet</td>';
     body.appendChild(tr);
     renderSandboxPromotionPreviewResult();
+    renderSandboxGateLogs();
     return;
   }
   const rows = Math.max(sandboxes.length, promotions.length);
@@ -320,11 +393,17 @@ function renderSandboxStatus() {
     });
   });
   renderSandboxPromotionPreviewResult();
+  renderSandboxGateLogs();
 }
 
 function renderSandboxPromotionPreviewResult() {
   const el = document.getElementById('sandboxPromotionPreviewResult');
   if (!el) return;
+  const fetchError = String(state.ops.sandboxFetchError || '');
+  if (fetchError) {
+    el.textContent = 'sandbox promotion diff preview unavailable: ' + fetchError + '\nblocked: promotion apply state unreadable';
+    return;
+  }
   const preview = state.ops.sandboxPromotionPreviewResult || null;
   if (!preview) {
     el.textContent = 'sandbox promotion diff preview: -';
@@ -332,6 +411,68 @@ function renderSandboxPromotionPreviewResult() {
   }
   const reviewResult = state.ops.sandboxPromotionManualReviewResult || null;
   el.textContent = formatSandboxPromotionDiffPreview(preview) + (reviewResult ? '\n\nmanual review workflow:\n' + JSON.stringify(reviewResult, null, 2) : '');
+}
+
+function renderSandboxGateLogs() {
+  const body = document.getElementById('sandboxGateLogBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.sandboxFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="small">Sandbox gate logs unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderSandboxGateLogResult();
+    return;
+  }
+  const logs = Array.isArray(state.ops.sandboxGateLogs) ? state.ops.sandboxGateLogs : [];
+  if (logs.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="small">No sandbox promotion gate logs yet</td>';
+    body.appendChild(tr);
+    renderSandboxGateLogResult();
+    return;
+  }
+  logs.slice(0, 20).forEach((item) => {
+    const eventID = String(sandboxField(item, 'event_id', 'EventID') || '');
+    const promotionID = String(sandboxField(item, 'promotion_id', 'PromotionID') || '');
+    const gate = String(sandboxField(item, 'gate_status', 'GateStatus') || '-');
+    const human = String(sandboxField(item, 'human_approval_status', 'HumanApprovalStatus') || '-');
+    const postApply = String(sandboxField(item, 'post_apply_verification', 'PostApplyVerification') || '');
+    const reason = String(sandboxField(item, 'reason', 'Reason') || '');
+    const gateClass = gate === 'promotion_applied' || gate === 'rollback_executed' ? 'running' : (gate === 'reject' ? 'error' : 'offline');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(sandboxField(item, 'created_at', 'CreatedAt'))) + '</td>' +
+      '<td class="code">' + esc(short(eventID || '-', 42)) + '</td>' +
+      '<td class="code">' + esc(short(promotionID || '-', 42)) + '</td>' +
+      '<td><span class="badge ' + stateClass(gateClass) + '">' + esc(gate) + '</span></td>' +
+      '<td>' + esc(human) + '</td>' +
+      '<td>' + esc(postApply || '-') + '</td>' +
+      '<td>' + esc(short(reason || '-', 140)) + '</td>';
+    body.appendChild(tr);
+  });
+  renderSandboxGateLogResult();
+}
+
+function renderSandboxGateLogResult() {
+  const el = document.getElementById('sandboxGateLogResult');
+  if (!el) return;
+  const fetchError = String(state.ops.sandboxFetchError || '');
+  if (fetchError) {
+    el.textContent = 'sandbox promotion gate logs unavailable: ' + fetchError + '\nblocked: promotion apply state unreadable';
+    return;
+  }
+  const logs = Array.isArray(state.ops.sandboxGateLogs) ? state.ops.sandboxGateLogs : [];
+  const needsReview = logs.filter((item) => {
+    const status = String(sandboxField(item, 'gate_status', 'GateStatus') || '');
+    return status === 'needs_review' || status === 'needs_more_tests';
+  }).length;
+  const applied = logs.filter((item) => String(sandboxField(item, 'gate_status', 'GateStatus') || '') === 'promotion_applied').length;
+  const rollback = logs.filter((item) => String(sandboxField(item, 'gate_status', 'GateStatus') || '') === 'rollback_executed').length;
+  const verified = logs.filter((item) => String(sandboxField(item, 'post_apply_verification', 'PostApplyVerification') || '').trim() !== '').length;
+  const blocked = applied === 0 ? ' / blocked: no promotion applied' : '';
+  el.textContent = 'sandbox promotion gate logs: ' + String(logs.length) + ' total / ' + String(needsReview) + ' needs-review / ' + String(applied) + ' applied / ' + String(rollback) + ' rollback / ' + String(verified) + ' post-apply evidence / formal apply requires human approval' + blocked;
 }
 
 function formatSandboxPromotionDiffPreview(preview) {
@@ -399,22 +540,567 @@ function twoColumnDiffRows(rows, width, maxRows) {
 }
 
 function skillGovernanceOpsCard() {
+  const fetchError = String(state.ops.skillGovernanceFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Skill Governance',
+      big: 'unavailable',
+      sub: 'skill governance status unavailable: ' + fetchError + '\nblocked: external PR audit state unreadable',
+    };
+  }
   const manifests = Array.isArray(state.ops.skillManifests) ? state.ops.skillManifests : [];
   const triggers = Array.isArray(state.ops.skillTriggerLogs) ? state.ops.skillTriggerLogs : [];
   const contributions = Array.isArray(state.ops.contributionGateLogs) ? state.ops.contributionGateLogs : [];
+  const prSubmits = Array.isArray(state.ops.skillExternalPRSubmitRecords) ? state.ops.skillExternalPRSubmitRecords : [];
   const transcripts = Array.isArray(state.ops.coderTranscripts) ? state.ops.coderTranscripts : [];
   const blocked = contributions.filter((item) => String(sandboxField(item, 'gate_status', 'GateStatus') || '') === 'blocked').length;
+  const blockedPRSubmits = prSubmits.filter((item) => String(sandboxField(item, 'submit_status', 'SubmitStatus') || '') === 'blocked').length;
   const missed = triggers.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'missed').length;
   const latest = triggers[0] || null;
   const warning = missed > 0 ? '\nWARNING: skill_trigger_missed requires review' : '';
+  const prAdapter = state.ops.skillExternalPRAdapter || 'unconfigured';
+  const prAdapterConfigured = state.ops.skillExternalPRAdapterConfigured === true;
+  const prApproval = state.ops.skillExternalPRHumanApprovalRequired !== false;
   return {
     title: 'Skill Governance',
     big: String(triggers.length) + '/' + String(manifests.length),
-    sub: manifests.length || triggers.length || contributions.length || transcripts.length ? ('missed triggers: ' + String(missed) + '\nblocked contributions: ' + String(blocked) + '\ncoder transcripts: ' + String(transcripts.length) + '\nlatest skill: ' + String(sandboxField(latest, 'skill_id', 'SkillID') || '-') + warning) : 'skill manifest なし',
+    sub: manifests.length || triggers.length || contributions.length || prSubmits.length || transcripts.length ? ('missed triggers: ' + String(missed) + '\nblocked contributions: ' + String(blocked) + '\nexternal PR adapter: ' + String(prAdapter) + ' / configured: ' + (prAdapterConfigured ? 'yes' : 'no') + ' / human approval: ' + (prApproval ? 'required' : 'missing') + '\nexternal PR audits: ' + String(prSubmits.length) + ' / blocked: ' + String(blockedPRSubmits) + '\ncoder transcripts: ' + String(transcripts.length) + '\nlatest skill: ' + String(sandboxField(latest, 'skill_id', 'SkillID') || '-') + warning) : 'skill manifest なし',
   };
 }
 
+function renderSkillExternalPRAudits() {
+  const body = document.getElementById('skillExternalPRAuditBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.skillGovernanceFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="9" class="small">Skill external PR submit audits unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderSkillExternalPRAuditResult();
+    return;
+  }
+  const records = Array.isArray(state.ops.skillExternalPRSubmitRecords) ? state.ops.skillExternalPRSubmitRecords : [];
+  if (records.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="9" class="small">No skill external PR submit audits yet</td>';
+    body.appendChild(tr);
+    renderSkillExternalPRAuditResult();
+    return;
+  }
+  records.slice(0, 20).forEach((item) => {
+    const submitID = String(sandboxField(item, 'submit_id', 'SubmitID') || '');
+    const eventID = String(sandboxField(item, 'contribution_event_id', 'ContributionEventID') || '');
+    const repo = String(sandboxField(item, 'repo', 'Repo') || '-');
+    const branch = String(sandboxField(item, 'target_branch', 'TargetBranch') || '-');
+    const status = String(sandboxField(item, 'submit_status', 'SubmitStatus') || '-');
+    const adapter = String(sandboxField(item, 'pr_adapter', 'PRAdapter') || 'unconfigured');
+    const prURL = String(sandboxField(item, 'pr_url', 'PRURL') || '');
+    const created = Boolean(sandboxField(item, 'external_pr_created', 'ExternalPRCreated'));
+    const verified = Boolean(sandboxField(item, 'post_submit_verified', 'PostSubmitVerified'));
+    const evidence = sandboxField(item, 'post_submit_evidence', 'PostSubmitEvidence') || sandboxField(item, 'failure_reason', 'FailureReason') || '';
+    const statusClass = created && verified ? 'running' : (status === 'failed' ? 'error' : 'offline');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(sandboxField(item, 'created_at', 'CreatedAt'))) + '</td>' +
+      '<td class="code">' + esc(submitID || '-') + '</td>' +
+      '<td class="code">' + esc(short(eventID || '-', 42)) + '</td>' +
+      '<td>' + esc(repo) + '</td>' +
+      '<td>' + esc(branch) + '</td>' +
+      '<td><span class="badge ' + stateClass(statusClass) + '">' + esc(status) + '</span></td>' +
+      '<td>' + esc(adapter) + '</td>' +
+      '<td>' + esc(prURL || (created ? 'PR URL missing' : 'not created')) + '</td>' +
+      '<td>' + esc(short(evidence || (created ? 'post-submit evidence missing' : 'not submitted'), 120)) + '</td>';
+    body.appendChild(tr);
+  });
+  renderSkillExternalPRAuditResult();
+}
+
+function renderSkillExternalPRAuditResult() {
+  const el = document.getElementById('skillExternalPRAuditResult');
+  if (!el) return;
+  const fetchError = String(state.ops.skillGovernanceFetchError || '');
+  if (fetchError) {
+    el.textContent = 'skill external PR submit audits unavailable: ' + fetchError + '\nblocked: external PR audit state unreadable';
+    return;
+  }
+  const records = Array.isArray(state.ops.skillExternalPRSubmitRecords) ? state.ops.skillExternalPRSubmitRecords : [];
+  const blocked = records.filter((item) => String(sandboxField(item, 'submit_status', 'SubmitStatus') || '') === 'blocked').length;
+  const created = records.filter((item) => Boolean(sandboxField(item, 'external_pr_created', 'ExternalPRCreated'))).length;
+  const verified = records.filter((item) => Boolean(sandboxField(item, 'post_submit_verified', 'PostSubmitVerified')) && String(sandboxField(item, 'post_submit_evidence', 'PostSubmitEvidence') || '').trim() !== '').length;
+  const notCreated = records.length - created;
+  const adapter = String(state.ops.skillExternalPRAdapter || 'unconfigured');
+  const configured = state.ops.skillExternalPRAdapterConfigured === true;
+  const approval = state.ops.skillExternalPRHumanApprovalRequired !== false;
+  const blockedText = created === 0 ? '\nblocked: no external PR created' : '';
+  el.textContent = 'skill external PR submit audits: ' + String(records.length) + ' total / ' + String(blocked) + ' blocked / ' + String(created) + ' created / ' + String(notCreated) + ' not created / ' + String(verified) + ' verified\nexternal PR adapter: ' + adapter + ' / configured: ' + (configured ? 'yes' : 'no') + ' / human approval: ' + (approval ? 'required' : 'missing') + blockedText;
+}
+
+function renderSkillEvidenceAudits() {
+  const body = document.getElementById('skillEvidenceAuditBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.skillGovernanceFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">Skill evidence audits unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderSkillEvidenceAuditResult();
+    return;
+  }
+  const rows = skillEvidenceAuditRows();
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">No skill evidence records yet</td>';
+    body.appendChild(tr);
+    renderSkillEvidenceAuditResult();
+    return;
+  }
+  rows.slice(0, 20).forEach((item) => {
+    const evidenceClass = item.evidenceOK ? 'running' : 'warning';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(item.time)) + '</td>' +
+      '<td>' + esc(item.kind) + '</td>' +
+      '<td class="code">' + esc(short(item.id || '-', 48)) + '</td>' +
+      '<td>' + esc(short(item.target || '-', 64)) + '</td>' +
+      '<td><span class="badge ' + stateClass(item.status) + '">' + esc(item.status || '-') + '</span></td>' +
+      '<td><span class="badge ' + stateClass(evidenceClass) + '">' + esc(short(item.evidence || '-', 140)) + '</span></td>';
+    body.appendChild(tr);
+  });
+  renderSkillEvidenceAuditResult();
+}
+
+function skillEvidenceAuditRows() {
+  const triggers = Array.isArray(state.ops.skillTriggerLogs) ? state.ops.skillTriggerLogs : [];
+  const contributions = Array.isArray(state.ops.contributionGateLogs) ? state.ops.contributionGateLogs : [];
+  const transcripts = Array.isArray(state.ops.coderTranscripts) ? state.ops.coderTranscripts : [];
+  const rows = [];
+  triggers.forEach((item) => {
+    rows.push({
+      time: sandboxField(item, 'created_at', 'CreatedAt'),
+      kind: 'trigger',
+      id: sandboxField(item, 'event_id', 'EventID') || '',
+      target: sandboxField(item, 'skill_id', 'SkillID') || '',
+      status: String(sandboxField(item, 'status', 'Status') || ''),
+      evidenceOK: String(sandboxField(item, 'status', 'Status') || '') === 'triggered',
+      evidence: sandboxField(item, 'trigger_reason', 'TriggerReason') || sandboxField(item, 'trigger_type', 'TriggerType') || '',
+    });
+  });
+  contributions.forEach((item) => {
+    const testResult = String(sandboxField(item, 'test_result', 'TestResult') || '');
+    const approved = Boolean(sandboxField(item, 'diff_human_approved', 'DiffHumanApproved'));
+    rows.push({
+      time: sandboxField(item, 'created_at', 'CreatedAt'),
+      kind: 'contribution_gate',
+      id: sandboxField(item, 'event_id', 'EventID') || '',
+      target: sandboxField(item, 'repo', 'Repo') || '',
+      status: String(sandboxField(item, 'gate_status', 'GateStatus') || ''),
+      evidenceOK: testResult.trim() !== '' && approved,
+      evidence: testResult.trim() !== '' ? testResult : 'missing test result',
+    });
+  });
+  transcripts.forEach((item) => {
+    const segment = String(sandboxField(item, 'segment', 'Segment') || '');
+    const evidencePath = String(sandboxField(item, 'evidence_path', 'EvidencePath') || '');
+    const legacyDiffPath = String(sandboxField(item, 'skill_diff_path', 'SkillDiffPath') || sandboxField(item, 'diff_path', 'DiffPath') || '');
+    const legacyTranscriptPath = String(sandboxField(item, 'agent_transcript_path', 'AgentTranscriptPath') || sandboxField(item, 'transcript_path', 'TranscriptPath') || '');
+    rows.push({
+      time: sandboxField(item, 'created_at', 'CreatedAt'),
+      kind: 'coder_transcript',
+      id: sandboxField(item, 'event_id', 'EventID') || sandboxField(item, 'entry_id', 'EntryID') || sandboxField(item, 'job_id', 'JobID') || '',
+      target: sandboxField(item, 'skill_id', 'SkillID') || sandboxField(item, 'job_id', 'JobID') || '',
+      status: String(sandboxField(item, 'status', 'Status') || segment || 'recorded'),
+      evidenceOK: evidencePath.trim() !== '' || (legacyDiffPath.trim() !== '' && legacyTranscriptPath.trim() !== ''),
+      evidence: evidencePath || [legacyDiffPath || 'missing skill_diff_path', legacyTranscriptPath || 'missing agent_transcript_path'].join(' / '),
+    });
+  });
+  return rows;
+}
+
+function countCoderTranscriptEvidencePairs(transcripts) {
+  const groups = new Map();
+  transcripts.forEach((item) => {
+    const key = String(sandboxField(item, 'job_id', 'JobID') || sandboxField(item, 'session_id', 'SessionID') || sandboxField(item, 'entry_id', 'EntryID') || '');
+    if (!key) return;
+    const segment = String(sandboxField(item, 'segment', 'Segment') || '');
+    const evidencePath = String(sandboxField(item, 'evidence_path', 'EvidencePath') || '');
+    const legacyDiffPath = String(sandboxField(item, 'skill_diff_path', 'SkillDiffPath') || sandboxField(item, 'diff_path', 'DiffPath') || '');
+    const legacyTranscriptPath = String(sandboxField(item, 'agent_transcript_path', 'AgentTranscriptPath') || sandboxField(item, 'transcript_path', 'TranscriptPath') || '');
+    if (!groups.has(key)) groups.set(key, {diff: false, transcript: false});
+    const group = groups.get(key);
+    if ((segment === 'patch_evidence' && evidencePath.trim() !== '') || legacyDiffPath.trim() !== '') group.diff = true;
+    if ((segment === 'transcript_evidence' && evidencePath.trim() !== '') || legacyTranscriptPath.trim() !== '') group.transcript = true;
+  });
+  let count = 0;
+  groups.forEach((group) => {
+    if (group.diff && group.transcript) count++;
+  });
+  return count;
+}
+
+function renderSkillEvidenceAuditResult() {
+  const el = document.getElementById('skillEvidenceAuditResult');
+  if (!el) return;
+  const fetchError = String(state.ops.skillGovernanceFetchError || '');
+  if (fetchError) {
+    el.textContent = 'skill evidence audits unavailable: ' + fetchError + '\nblocked: coder evidence state unreadable';
+    return;
+  }
+  const triggers = Array.isArray(state.ops.skillTriggerLogs) ? state.ops.skillTriggerLogs : [];
+  const contributions = Array.isArray(state.ops.contributionGateLogs) ? state.ops.contributionGateLogs : [];
+  const transcripts = Array.isArray(state.ops.coderTranscripts) ? state.ops.coderTranscripts : [];
+  const triggered = triggers.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'triggered').length;
+  const passed = contributions.filter((item) => String(sandboxField(item, 'gate_status', 'GateStatus') || '') === 'passed').length;
+  const transcriptWithEvidence = countCoderTranscriptEvidencePairs(transcripts);
+  const blocked = [];
+  if (transcripts.length === 0) blocked.push('blocked: coder evidence transcript not observed');
+  if (passed > 0) blocked.push('blocked: passed contribution gate is not external PR evidence');
+  el.textContent = 'skill evidence audits: ' + String(triggers.length) + ' triggers / ' + String(triggered) + ' triggered / ' + String(contributions.length) + ' contribution gates / ' + String(passed) + ' passed / ' + String(transcripts.length) + ' coder transcripts / ' + String(transcriptWithEvidence) + ' with diff+transcript evidence' + (blocked.length ? '\n' + blocked.join('\n') : '');
+}
+
+function renderSuperAgentTerminalAudits() {
+  const body = document.getElementById('superAgentTerminalAuditBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.superAgentFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">SuperAgent terminal audits unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderSuperAgentTerminalAuditResult();
+    return;
+  }
+  const runs = Array.isArray(state.ops.superAgentRuns) ? state.ops.superAgentRuns : [];
+  const queue = Array.isArray(state.ops.superAgentRunQueue) ? state.ops.superAgentRunQueue : [];
+  const rows = [];
+  runs.forEach((item) => {
+    const status = String(sandboxField(item, 'status', 'Status') || '');
+    if (status !== 'completed' && status !== 'failed' && status !== 'cancelled' && status !== 'paused') return;
+    rows.push({
+      time: sandboxField(item, 'completed_at', 'CompletedAt') || sandboxField(item, 'started_at', 'StartedAt'),
+      kind: 'agent_run',
+      id: sandboxField(item, 'run_id', 'RunID') || '',
+      run: sandboxField(item, 'run_id', 'RunID') || '',
+      status,
+      evidence: sandboxField(item, 'summary', 'Summary') || '',
+    });
+  });
+  queue.forEach((item) => {
+    const status = String(sandboxField(item, 'status', 'Status') || '');
+    if (status !== 'completed' && status !== 'failed' && status !== 'cancelled') return;
+    rows.push({
+      time: sandboxField(item, 'completed_at', 'CompletedAt') || sandboxField(item, 'claimed_at', 'ClaimedAt') || sandboxField(item, 'created_at', 'CreatedAt'),
+      kind: 'run_queue',
+      id: sandboxField(item, 'queue_id', 'QueueID') || '',
+      run: sandboxField(item, 'run_id', 'RunID') || '',
+      status,
+      evidence: sandboxField(item, 'reason', 'Reason') || '',
+    });
+  });
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">No SuperAgent terminal records yet</td>';
+    body.appendChild(tr);
+    renderSuperAgentTerminalAuditResult();
+    return;
+  }
+  rows.slice(0, 20).forEach((item) => {
+    const evidence = String(item.evidence || '');
+    const evidenceClass = evidence.trim() ? 'running' : 'error';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(item.time)) + '</td>' +
+      '<td>' + esc(item.kind) + '</td>' +
+      '<td class="code">' + esc(short(item.id || '-', 48)) + '</td>' +
+      '<td class="code">' + esc(short(item.run || '-', 48)) + '</td>' +
+      '<td><span class="badge ' + stateClass(item.status) + '">' + esc(item.status) + '</span></td>' +
+      '<td><span class="badge ' + stateClass(evidenceClass) + '">' + esc(evidence.trim() ? short(evidence, 140) : 'missing evidence') + '</span></td>';
+    body.appendChild(tr);
+  });
+  renderSuperAgentTerminalAuditResult();
+}
+
+function renderSuperAgentTerminalAuditResult() {
+  const el = document.getElementById('superAgentTerminalAuditResult');
+  if (!el) return;
+  const fetchError = String(state.ops.superAgentFetchError || '');
+  if (fetchError) {
+    el.textContent = 'superagent terminal audits unavailable: ' + fetchError + '\nblocked: scheduler terminal state unreadable';
+    return;
+  }
+  const runs = Array.isArray(state.ops.superAgentRuns) ? state.ops.superAgentRuns : [];
+  const queue = Array.isArray(state.ops.superAgentRunQueue) ? state.ops.superAgentRunQueue : [];
+  const terminalRuns = runs.filter((item) => {
+    const status = String(sandboxField(item, 'status', 'Status') || '');
+    return status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'paused';
+  });
+  const terminalQueue = queue.filter((item) => {
+    const status = String(sandboxField(item, 'status', 'Status') || '');
+    return status === 'completed' || status === 'failed' || status === 'cancelled';
+  });
+  const failedRuns = terminalRuns.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'failed').length;
+  const failedQueues = terminalQueue.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'failed').length;
+  const missingRunSummary = terminalRuns.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'failed' && String(sandboxField(item, 'summary', 'Summary') || '').trim() === '').length;
+  const missingQueueReason = terminalQueue.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'failed' && String(sandboxField(item, 'reason', 'Reason') || '').trim() === '').length;
+  el.textContent = 'superagent terminal audits: ' + String(terminalRuns.length) + ' terminal runs / ' + String(terminalQueue.length) + ' terminal queue / ' + String(failedRuns) + ' failed runs / ' + String(failedQueues) + ' failed queue / missing evidence: ' + String(missingRunSummary + missingQueueReason);
+}
+
+function renderSuperAgentResumeAudits() {
+  const body = document.getElementById('superAgentResumeAuditBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.superAgentFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="small">SuperAgent resume audits unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderSuperAgentResumeAuditResult();
+    return;
+  }
+  const rows = superAgentResumeAuditRows();
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7" class="small">No SuperAgent resume records yet</td>';
+    body.appendChild(tr);
+    renderSuperAgentResumeAuditResult();
+    return;
+  }
+  rows.slice(0, 20).forEach((item) => {
+    const tr = document.createElement('tr');
+    const traceText = 'paused:' + String(item.paused) + ' resumed:' + String(item.resumed);
+    const controlText = 'runtime-control:' + item.runtimeControlActions.join(',');
+    const evidenceClass = item.manualLedger ? 'warning' : (item.resumed > 0 && item.paused > 0 && item.runtimeControlApplied ? 'running' : 'error');
+    tr.innerHTML =
+      '<td>' + esc(ftime(item.time)) + '</td>' +
+      '<td class="code">' + esc(short(item.queueID || '-', 48)) + '</td>' +
+      '<td class="code">' + esc(short(item.runID || '-', 48)) + '</td>' +
+      '<td><span class="badge ' + stateClass(item.status) + '">' + esc(item.status || '-') + '</span></td>' +
+      '<td><span class="badge ' + stateClass(item.paused > 0 && item.resumed > 0 ? 'running' : 'error') + '">' + esc(traceText) + '</span></td>' +
+      '<td><span class="badge ' + stateClass(item.runtimeControlApplied ? 'running' : 'warning') + '">' + esc(short(controlText, 140)) + '</span></td>' +
+      '<td><span class="badge ' + stateClass(evidenceClass) + '">' + esc(short(item.evidence || '-', 140)) + '</span></td>';
+    body.appendChild(tr);
+  });
+  renderSuperAgentResumeAuditResult();
+}
+
+function superAgentResumeAuditRows() {
+  const queue = Array.isArray(state.ops.superAgentRunQueue) ? state.ops.superAgentRunQueue : [];
+  const traces = Array.isArray(state.ops.superAgentTraceEvents) ? state.ops.superAgentTraceEvents : [];
+  return queue.filter((item) => String(sandboxField(item, 'action', 'Action') || '') === 'resume').map((item) => {
+    const runID = sandboxField(item, 'run_id', 'RunID') || '';
+    const related = traces.filter((ev) => String(sandboxField(ev, 'run_id', 'RunID') || '') === String(runID));
+    const paused = related.filter((ev) => String(sandboxField(ev, 'event_type', 'EventType') || '') === 'lead_agent_paused').length;
+    const resumed = related.filter((ev) => String(sandboxField(ev, 'event_type', 'EventType') || '') === 'lead_agent_resumed').length;
+    const reason = String(sandboxField(item, 'reason', 'Reason') || '');
+    const manualLedger = /manual ledger|without scheduler execution|scheduler execution not used/i.test(reason);
+    const runtimeControlActions = superAgentResumeRuntimeControlActions(related);
+    const runtimeControlApplied = runtimeControlActions.some((action) => action !== 'none');
+    return {
+      time: sandboxField(item, 'completed_at', 'CompletedAt') || sandboxField(item, 'claimed_at', 'ClaimedAt') || sandboxField(item, 'created_at', 'CreatedAt'),
+      queueID: sandboxField(item, 'queue_id', 'QueueID') || '',
+      runID,
+      status: String(sandboxField(item, 'status', 'Status') || ''),
+      paused,
+      resumed,
+      manualLedger,
+      runtimeControlActions,
+      runtimeControlApplied,
+      evidence: manualLedger ? 'manual-ledger only; runtime control not applied; true long-running resume not verified' : (reason || 'missing resume evidence'),
+    };
+  });
+}
+
+function superAgentResumeRuntimeControlActions(events) {
+  const actions = [];
+  (Array.isArray(events) ? events : []).forEach((ev) => {
+    const summary = String(sandboxField(ev, 'payload_summary', 'PayloadSummary') || '');
+    const match = summary.match(/runtime_control=([^\s;]+)/);
+    if (!match || !match[1]) return;
+    if (!actions.includes(match[1])) actions.push(match[1]);
+  });
+  return actions.length ? actions : ['none'];
+}
+
+function renderSuperAgentResumeAuditResult() {
+  const el = document.getElementById('superAgentResumeAuditResult');
+  if (!el) return;
+  const fetchError = String(state.ops.superAgentFetchError || '');
+  if (fetchError) {
+    el.textContent = 'superagent resume audits unavailable: ' + fetchError + '\nblocked: true long-running resume state unreadable';
+    return;
+  }
+  const rows = superAgentResumeAuditRows();
+  const manual = rows.filter((item) => item.manualLedger).length;
+  const completed = rows.filter((item) => item.status === 'completed').length;
+  const withPauseResume = rows.filter((item) => item.paused > 0 && item.resumed > 0).length;
+  const runtimeControlApplied = rows.filter((item) => item.runtimeControlApplied).length;
+  el.textContent = 'superagent resume audits: ' + String(rows.length) + ' resume queue / ' + String(completed) + ' completed / ' + String(manual) + ' manual-ledger / ' + String(withPauseResume) + ' pause-resume trace / ' + String(runtimeControlApplied) + ' runtime-control applied\nblocked: true long-running resume not verified';
+}
+
+function renderAIWorkflowRunEvidence() {
+  const body = document.getElementById('aiWorkflowRunEvidenceBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.aiWorkflowFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">AI Workflow run evidence unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderAIWorkflowRunEvidenceResult([]);
+    return;
+  }
+  const rows = aiWorkflowRunEvidenceRows();
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">No AI Workflow run evidence yet</td>';
+    body.appendChild(tr);
+    renderAIWorkflowRunEvidenceResult(rows);
+    return;
+  }
+  rows.slice(0, 20).forEach((item) => {
+    const statusClass = item.hasCommand && item.hasContext && item.hasTrace ? 'running' : 'offline';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="code">' + esc(short(item.runID || '-', 52)) + '</td>' +
+      '<td class="code">' + esc(short(item.workstreamID || '-', 42)) + '</td>' +
+      '<td>' + esc(item.hasCommand ? 'present' : 'missing') + '</td>' +
+      '<td>' + esc(item.hasContext ? 'present' : 'missing') + '</td>' +
+      '<td>' + esc(item.hasTrace ? 'present' : 'missing') + '</td>' +
+      '<td><span class="badge ' + stateClass(statusClass) + '">' + esc(item.status) + '</span></td>';
+    body.appendChild(tr);
+  });
+  renderAIWorkflowRunEvidenceResult(rows);
+}
+
+function aiWorkflowRunEvidenceRows() {
+  const events = Array.isArray(state.ops.aiWorkflowEvents) ? state.ops.aiWorkflowEvents : [];
+  const contexts = Array.isArray(state.ops.aiWorkflowContextUsages) ? state.ops.aiWorkflowContextUsages : [];
+  const traces = Array.isArray(state.ops.superAgentTraceEvents) ? state.ops.superAgentTraceEvents : [];
+  const byRun = new Map();
+  const ensure = (runID, workstreamID) => {
+    const id = String(runID || '');
+    if (!id) return null;
+    if (!byRun.has(id)) {
+      byRun.set(id, {runID: id, workstreamID: String(workstreamID || ''), hasCommand: false, hasContext: false, hasTrace: false, status: 'incomplete'});
+    }
+    const row = byRun.get(id);
+    if (!row.workstreamID && workstreamID) row.workstreamID = String(workstreamID);
+    return row;
+  };
+  events.forEach((item) => {
+    const row = ensure(sandboxField(item, 'run_id', 'RunID'), sandboxField(item, 'workstream_id', 'WorkstreamID'));
+    if (!row) return;
+    if (String(sandboxField(item, 'event_type', 'EventType') || '') === 'command_invoked') row.hasCommand = true;
+  });
+  contexts.forEach((item) => {
+    const row = ensure(sandboxField(item, 'run_id', 'RunID'), sandboxField(item, 'workstream_id', 'WorkstreamID'));
+    if (!row) return;
+    row.hasContext = true;
+  });
+  traces.forEach((item) => {
+    const row = ensure(sandboxField(item, 'run_id', 'RunID'), '');
+    if (!row) return;
+    row.hasTrace = true;
+  });
+  const out = Array.from(byRun.values());
+  out.forEach((item) => {
+    item.status = item.hasCommand && item.hasContext && item.hasTrace ? 'same-run evidence' : 'partial evidence';
+  });
+  return out;
+}
+
+function renderAIWorkflowRunEvidenceResult(rows) {
+  const el = document.getElementById('aiWorkflowRunEvidenceResult');
+  if (!el) return;
+  const fetchError = String(state.ops.aiWorkflowFetchError || '');
+  if (fetchError) {
+    el.textContent = 'ai workflow run evidence unavailable: ' + fetchError + '\nblocked: scheduler normal completion state unreadable';
+    return;
+  }
+  const list = Array.isArray(rows) ? rows : aiWorkflowRunEvidenceRows();
+  const sameRun = list.filter((item) => item.hasCommand && item.hasContext && item.hasTrace).length;
+  const partial = list.length - sameRun;
+  el.textContent = 'ai workflow run evidence: ' + String(list.length) + ' runs / ' + String(sameRun) + ' command-context-trace same-run / ' + String(partial) + ' partial\nblocked: scheduler normal completion not verified';
+}
+
+function renderComplexityReviewArtifacts() {
+  const body = document.getElementById('complexityReviewArtifactBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.complexityFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">Complexity review artifacts unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderComplexityReviewArtifactResult([]);
+    return;
+  }
+  const rows = complexityReviewArtifactRows();
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">No complexity review artifacts yet</td>';
+    body.appendChild(tr);
+    renderComplexityReviewArtifactResult(rows);
+    return;
+  }
+  rows.slice(0, 20).forEach((item) => {
+    const patch = item.patchApplied ? 'applied' : 'not applied';
+    const approval = item.humanApprovalRequired ? 'required' : 'missing';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(item.createdAt)) + '</td>' +
+      '<td class="code">' + esc(short(item.artifactID || '-', 48)) + '</td>' +
+      '<td>' + esc(short(item.artifactType || '-', 52)) + '</td>' +
+      '<td><span class="badge ' + stateClass(item.status) + '">' + esc(item.status || '-') + '</span></td>' +
+      '<td><span class="badge ' + stateClass(item.patchApplied ? 'error' : 'running') + '">' + esc(patch) + '</span></td>' +
+      '<td>' + esc(approval) + '</td>';
+    body.appendChild(tr);
+  });
+  renderComplexityReviewArtifactResult(rows);
+}
+
+function complexityReviewArtifactRows() {
+  const reports = Array.isArray(state.ops.complexityReports) ? state.ops.complexityReports : [];
+  return reports.map((item) => {
+    const content = String(sandboxField(item, 'content', 'Content') || '');
+    const normalized = content.toLowerCase();
+    return {
+      artifactID: String(sandboxField(item, 'artifact_id', 'ArtifactID') || ''),
+      artifactType: String(sandboxField(item, 'artifact_type', 'ArtifactType') || ''),
+      status: String(sandboxField(item, 'status', 'Status') || ''),
+      createdAt: sandboxField(item, 'created_at', 'CreatedAt'),
+      patchApplied: normalized.includes('patch applied: `true`') || normalized.includes('patch applied: true'),
+      humanApprovalRequired: normalized.includes('human approval required: `true`') || normalized.includes('human approval required: true'),
+    };
+  });
+}
+
+function renderComplexityReviewArtifactResult(rows) {
+  const el = document.getElementById('complexityReviewArtifactResult');
+  if (!el) return;
+  const fetchError = String(state.ops.complexityFetchError || '');
+  if (fetchError) {
+    el.textContent = 'complexity review artifacts unavailable: ' + fetchError + '\nblocked: patch apply state unreadable';
+    return;
+  }
+  const list = Array.isArray(rows) ? rows : complexityReviewArtifactRows();
+  const pendingReview = list.filter((item) => item.status === 'pending_review').length;
+  const failed = list.filter((item) => item.status === 'failed' || item.artifactType === 'complexity_coder_diff_failure').length;
+  const patchApplied = list.filter((item) => item.patchApplied).length;
+  const approvalRequired = list.filter((item) => item.humanApprovalRequired).length;
+  el.textContent = 'complexity review artifacts: ' + String(list.length) + ' total / ' + String(pendingReview) + ' pending-review / ' + String(failed) + ' failed / ' + String(patchApplied) + ' patch applied / ' + String(approvalRequired) + ' human approval required\nmode: review-only blocked: no patch applied';
+}
+
 function workstreamOpsCard() {
+  const fetchError = String(state.ops.workstreamFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Workstreams',
+      big: 'unavailable',
+      sub: 'workstream status unavailable: ' + fetchError + '\nblocked: vault apply state unreadable',
+    };
+  }
   const workstreams = Array.isArray(state.ops.workstreams) ? state.ops.workstreams : [];
   const goals = Array.isArray(state.ops.workstreamGoals) ? state.ops.workstreamGoals : [];
   const artifacts = Array.isArray(state.ops.workstreamArtifacts) ? state.ops.workstreamArtifacts : [];
@@ -423,13 +1109,17 @@ function workstreamOpsCard() {
   const heartbeats = Array.isArray(state.ops.workstreamHeartbeats) ? state.ops.workstreamHeartbeats : [];
   const vaultUpdates = latestWorkstreamVaultUpdates(Array.isArray(state.ops.workstreamVaultUpdates) ? state.ops.workstreamVaultUpdates : []);
   const activeGoals = goals.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'active').length;
+  const waitingGoals = goals.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'waiting').length;
+  const pendingReviewArtifacts = artifacts.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'pending_review').length;
   const activeHeartbeats = heartbeats.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'active').length;
   const approvalPending = vaultUpdates.filter((item) => String(sandboxField(item, 'review_status', 'ReviewStatus') || '') === 'pending').length;
+  const appliedVaultUpdates = vaultUpdates.filter((item) => Boolean(sandboxField(item, 'applied', 'Applied'))).length;
+  const vaultApplyBoundary = appliedVaultUpdates > 0 ? ('vault applied: ' + String(appliedVaultUpdates)) : 'mode: review-only blocked: no vault apply';
   const latest = workstreams[0] || null;
   return {
     title: 'Workstreams',
     big: String(goals.length) + '/' + String(workstreams.length),
-    sub: workstreams.length || goals.length || artifacts.length || annotations.length || steering.length || heartbeats.length || vaultUpdates.length ? ('active goals: ' + String(activeGoals) + ' active heartbeats: ' + String(activeHeartbeats) + '\napproval pending: ' + String(approvalPending) + ' vault updates: ' + String(vaultUpdates.length) + '\nartifacts: ' + String(artifacts.length) + ' annotations: ' + String(annotations.length) + ' steering: ' + String(steering.length) + '\nlatest: ' + String(sandboxField(latest, 'name', 'Name') || '-')) : 'workstream record なし',
+    sub: workstreams.length || goals.length || artifacts.length || annotations.length || steering.length || heartbeats.length || vaultUpdates.length ? ('active goals: ' + String(activeGoals) + ' waiting goals: ' + String(waitingGoals) + ' active heartbeats: ' + String(activeHeartbeats) + '\napproval pending: ' + String(approvalPending) + ' vault updates: ' + String(vaultUpdates.length) + '\nartifacts: ' + String(artifacts.length) + ' pending-review: ' + String(pendingReviewArtifacts) + ' annotations: ' + String(annotations.length) + ' steering: ' + String(steering.length) + '\n' + vaultApplyBoundary + '\nlatest: ' + String(sandboxField(latest, 'name', 'Name') || '-')) : 'workstream record なし',
   };
 }
 
@@ -450,10 +1140,18 @@ function renderWorkstreamVaultReviews() {
   const body = document.getElementById('workstreamVaultReviewBody');
   if (!body) return;
   body.innerHTML = '';
+  const fetchError = String(state.ops.workstreamFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="8" class="small">Workstream vault reviews unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderWorkstreamVaultReviewResult();
+    return;
+  }
   const updates = latestWorkstreamVaultUpdates(Array.isArray(state.ops.workstreamVaultUpdates) ? state.ops.workstreamVaultUpdates : []);
   if (updates.length === 0) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="6" class="small">No workstream vault updates yet</td>';
+    tr.innerHTML = '<td colspan="8" class="small">No workstream vault updates yet</td>';
     body.appendChild(tr);
     renderWorkstreamVaultReviewResult();
     return;
@@ -461,6 +1159,8 @@ function renderWorkstreamVaultReviews() {
   updates.slice(0, 20).forEach((item) => {
     const updateID = String(sandboxField(item, 'update_id', 'UpdateID') || '');
     const review = String(sandboxField(item, 'review_status', 'ReviewStatus') || '-');
+    const applied = Boolean(sandboxField(item, 'applied', 'Applied'));
+    const appliedPath = String(sandboxField(item, 'applied_path', 'AppliedPath') || '');
     const proposed = String(sandboxField(item, 'proposed_content', 'ProposedContent') || '');
     const pending = review === 'pending';
     const payload = encodeURIComponent(JSON.stringify(item));
@@ -476,6 +1176,8 @@ function renderWorkstreamVaultReviews() {
       '<td class="code">' + esc(updateID || '-') + '</td>' +
       '<td class="code">' + esc(short(sandboxField(item, 'file_path', 'FilePath') || '-', 80)) + '</td>' +
       '<td><span class="badge ' + stateClass(review) + '">' + esc(review) + '</span></td>' +
+      '<td><span class="badge ' + stateClass(applied ? 'applied' : 'not-applied') + '">' + esc(applied ? 'applied' : 'not applied') + '</span></td>' +
+      '<td class="code">' + esc(appliedPath ? short(appliedPath, 80) : '-') + '</td>' +
       '<td class="code">' + esc(proposed ? short(proposed, 120) : '-') + '</td>' +
       '<td>' + actions + '</td>';
     body.appendChild(tr);
@@ -496,13 +1198,34 @@ function renderWorkstreamVaultReviews() {
 function renderWorkstreamVaultReviewResult() {
   const el = document.getElementById('workstreamVaultReviewResult');
   if (!el) return;
-  const result = state.ops.workstreamVaultReviewResult || null;
-  const preview = state.ops.workstreamVaultPreviewResult || null;
-  if (!result && !preview) {
-    el.textContent = 'workstream vault review: -';
+  const fetchError = String(state.ops.workstreamFetchError || '');
+  if (fetchError) {
+    el.textContent = 'workstream vault review unavailable: ' + fetchError + '\nblocked: vault apply state unreadable';
     return;
   }
-  el.textContent = 'review:\n' + (result ? JSON.stringify(result, null, 2) : '-') + (preview ? '\n\npreview:\n' + formatWorkstreamVaultPreview(preview) : '');
+  const result = state.ops.workstreamVaultReviewResult || null;
+  const preview = state.ops.workstreamVaultPreviewResult || null;
+  const summary = workstreamVaultReviewSummary();
+  if (!result && !preview) {
+    el.textContent = summary;
+    return;
+  }
+  el.textContent = summary + '\n\nreview:\n' + (result ? JSON.stringify(result, null, 2) : '-') + (preview ? '\n\npreview:\n' + formatWorkstreamVaultPreview(preview) : '');
+}
+
+function workstreamVaultReviewSummary() {
+  const updates = latestWorkstreamVaultUpdates(Array.isArray(state.ops.workstreamVaultUpdates) ? state.ops.workstreamVaultUpdates : []);
+  const pending = updates.filter((item) => String(sandboxField(item, 'review_status', 'ReviewStatus') || '') === 'pending').length;
+  const approved = updates.filter((item) => String(sandboxField(item, 'review_status', 'ReviewStatus') || '') === 'approved').length;
+  const rejected = updates.filter((item) => String(sandboxField(item, 'review_status', 'ReviewStatus') || '') === 'rejected').length;
+  const applied = updates.filter((item) => Boolean(sandboxField(item, 'applied', 'Applied'))).length;
+  const approvedNotApplied = updates.filter((item) => String(sandboxField(item, 'review_status', 'ReviewStatus') || '') === 'approved' && !Boolean(sandboxField(item, 'applied', 'Applied'))).length;
+  const lines = [
+    'workstream vault review: ' + String(updates.length) + ' total / ' + String(pending) + ' pending / ' + String(approved) + ' approved / ' + String(rejected) + ' rejected / ' + String(applied) + ' applied',
+  ];
+  if (approvedNotApplied > 0) lines.push('approved not applied: ' + String(approvedNotApplied));
+  if (applied === 0) lines.push('blocked: no vault apply');
+  return lines.join('\n');
 }
 
 function formatWorkstreamVaultPreview(preview) {
@@ -698,6 +1421,14 @@ async function reviewWorkstreamVaultUpdate(encodedUpdate, reviewStatus) {
 }
 
 function revenueOpsCard() {
+  const fetchError = String(state.ops.revenueFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Revenue',
+      big: 'unavailable',
+      sub: 'revenue status unavailable: ' + fetchError + '\nblocked: external send audit state unreadable',
+    };
+  }
   const market = Array.isArray(state.ops.revenueMarketResearch) ? state.ops.revenueMarketResearch : [];
   const posts = Array.isArray(state.ops.revenueSNSPostMetrics) ? state.ops.revenueSNSPostMetrics : [];
   const products = Array.isArray(state.ops.revenueProducts) ? state.ops.revenueProducts : [];
@@ -706,6 +1437,7 @@ function revenueOpsCard() {
   const decisions = latestRevenueHumanDecisions(Array.isArray(state.ops.revenueHumanDecisions) ? state.ops.revenueHumanDecisions : []);
   const dailyReports = Array.isArray(state.ops.revenueDailyRoutineReports) ? state.ops.revenueDailyRoutineReports : [];
   const channelDrafts = Array.isArray(state.ops.revenueChannelDrafts) ? state.ops.revenueChannelDrafts : [];
+  const externalSendApplies = Array.isArray(state.ops.revenueExternalSendApplyRecords) ? state.ops.revenueExternalSendApplyRecords : [];
   const summary = state.ops.revenueSummary && typeof state.ops.revenueSummary === 'object' ? state.ops.revenueSummary : null;
   const paid = events.filter((item) => Number(sandboxField(item, 'amount', 'Amount') || 0) > 0).length;
   const usableVoices = voices.filter((item) => Boolean(sandboxField(item, 'usable_for_marketing', 'UsableForMarketing'))).length;
@@ -720,10 +1452,14 @@ function revenueOpsCard() {
   const latestTrend = trend.length ? trend[trend.length - 1] : null;
   const latest = channelDrafts[0] || dailyReports[0] || products[0] || market[0] || null;
   const channelDraftCount = summary ? Number(sandboxField(summary, 'channel_draft_count', 'ChannelDraftCount') || 0) : channelDrafts.length;
+  const externalSendApplyCount = summary ? Number(sandboxField(summary, 'external_send_apply_count', 'ExternalSendApplyCount') || 0) : externalSendApplies.length;
+  const externalChannelAdapter = String(state.ops.revenueExternalChannelAdapter || 'unconfigured');
+  const externalChannelConfigured = Boolean(state.ops.revenueExternalChannelAdapterConfigured);
+  const externalSendApproval = state.ops.revenueExternalSendHumanApprovalRequired !== false;
   return {
     title: 'Revenue',
     big: String(events.length) + '/' + String(products.length),
-    sub: market.length || posts.length || products.length || voices.length || events.length || decisions.length || dailyReports.length || channelDrafts.length ? ('paid events: ' + String(summary ? sandboxField(summary, 'paid_event_count', 'PaidEventCount') : paid) + ' market: ' + String(summary ? sandboxField(summary, 'market_research_count', 'MarketResearchCount') : market.length) + '\nrevenue: ' + String(totalRevenue) + ' paid customers: ' + String(paidCustomers) + '\nvoices usable: ' + String(summary ? sandboxField(summary, 'usable_voice_count', 'UsableVoiceCount') : usableVoices) + '/' + String(summary ? sandboxField(summary, 'customer_voice_count', 'CustomerVoiceCount') : voices.length) + ' posts: ' + String(summary ? sandboxField(summary, 'sns_post_count', 'SNSPostCount') : posts.length) + '\ndaily reports: ' + String(summary ? sandboxField(summary, 'daily_report_count', 'DailyReportCount') : dailyReports.length) + ' channel drafts: ' + String(channelDraftCount) + ' human decisions pending: ' + String(summary ? sandboxField(summary, 'pending_decision_count', 'PendingDecisionCount') : pendingDecisions) + '/' + String(decisions.length) + '\ntrend days: ' + String(trend.length) + ' latest revenue: ' + String(latestTrend ? sandboxField(latestTrend, 'revenue_amount', 'RevenueAmount') : '-') + '\ntop product: ' + String(topProduct ? (sandboxField(topProduct, 'product_name', 'ProductName') || sandboxField(topProduct, 'product_id', 'ProductID')) : '-') + ' voices top: ' + String(topVoiceType ? sandboxField(topVoiceType, 'voice_type', 'VoiceType') : '-') + '\nlatest: ' + String(sandboxField(latest, 'draft_id', 'DraftID') || sandboxField(latest, 'report_id', 'ReportID') || sandboxField(latest, 'product_name', 'ProductName') || sandboxField(latest, 'theme', 'Theme') || '-')) : 'revenue record なし',
+    sub: market.length || posts.length || products.length || voices.length || events.length || decisions.length || dailyReports.length || channelDrafts.length || externalSendApplies.length ? ('paid events: ' + String(summary ? sandboxField(summary, 'paid_event_count', 'PaidEventCount') : paid) + ' market: ' + String(summary ? sandboxField(summary, 'market_research_count', 'MarketResearchCount') : market.length) + '\nrevenue: ' + String(totalRevenue) + ' paid customers: ' + String(paidCustomers) + '\nvoices usable: ' + String(summary ? sandboxField(summary, 'usable_voice_count', 'UsableVoiceCount') : usableVoices) + '/' + String(summary ? sandboxField(summary, 'customer_voice_count', 'CustomerVoiceCount') : voices.length) + ' posts: ' + String(summary ? sandboxField(summary, 'sns_post_count', 'SNSPostCount') : posts.length) + '\ndaily reports: ' + String(summary ? sandboxField(summary, 'daily_report_count', 'DailyReportCount') : dailyReports.length) + ' channel drafts: ' + String(channelDraftCount) + ' external apply audits: ' + String(externalSendApplyCount) + ' human decisions pending: ' + String(summary ? sandboxField(summary, 'pending_decision_count', 'PendingDecisionCount') : pendingDecisions) + '/' + String(decisions.length) + '\nexternal channel adapter: ' + externalChannelAdapter + ' / configured: ' + (externalChannelConfigured ? 'yes' : 'no') + ' / human approval: ' + (externalSendApproval ? 'required' : 'missing') + '\ntrend days: ' + String(trend.length) + ' latest revenue: ' + String(latestTrend ? sandboxField(latestTrend, 'revenue_amount', 'RevenueAmount') : '-') + '\ntop product: ' + String(topProduct ? (sandboxField(topProduct, 'product_name', 'ProductName') || sandboxField(topProduct, 'product_id', 'ProductID')) : '-') + ' voices top: ' + String(topVoiceType ? sandboxField(topVoiceType, 'voice_type', 'VoiceType') : '-') + '\nlatest: ' + String(sandboxField(latest, 'draft_id', 'DraftID') || sandboxField(latest, 'report_id', 'ReportID') || sandboxField(latest, 'product_name', 'ProductName') || sandboxField(latest, 'theme', 'Theme') || '-')) : 'revenue record なし',
   };
 }
 
@@ -827,10 +1563,85 @@ function renderRevenueChannelDrafts() {
 function renderRevenueChannelDraftResult() {
   const el = document.getElementById('revenueChannelDraftResult');
   if (!el) return;
+  const fetchError = String(state.ops.revenueFetchError || '');
+  if (fetchError) {
+    el.textContent = 'revenue channel drafts unavailable: ' + fetchError + '\nblocked: external send audit state unreadable';
+    return;
+  }
   const drafts = Array.isArray(state.ops.revenueChannelDrafts) ? state.ops.revenueChannelDrafts : [];
   const externalSent = drafts.filter((item) => Boolean(sandboxField(item, 'external_send_applied', 'ExternalSendApplied'))).length;
   const pending = drafts.filter((item) => String(sandboxField(item, 'approval_status', 'ApprovalStatus') || '') === 'pending').length;
-  el.textContent = 'revenue channel drafts: ' + String(drafts.length) + ' total / ' + String(pending) + ' pending / ' + String(externalSent) + ' external_send_applied';
+  const draftOnly = drafts.length - externalSent;
+  const approval = state.ops.revenueExternalSendHumanApprovalRequired !== false;
+  el.textContent = 'revenue channel drafts: ' + String(drafts.length) + ' total / ' + String(pending) + ' pending / ' + String(draftOnly) + ' draft-only / ' + String(externalSent) + ' external_send_applied\nmode: draft-only / external send requires human approval: ' + (approval ? 'yes' : 'missing');
+}
+
+function renderRevenueExternalSendAudits() {
+  const body = document.getElementById('revenueExternalSendAuditBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const fetchError = String(state.ops.revenueFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="9" class="small">Revenue external send apply audits unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderRevenueExternalSendAuditResult();
+    return;
+  }
+  const records = Array.isArray(state.ops.revenueExternalSendApplyRecords) ? state.ops.revenueExternalSendApplyRecords : [];
+  if (records.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="9" class="small">No revenue external send apply audits yet</td>';
+    body.appendChild(tr);
+    renderRevenueExternalSendAuditResult();
+    return;
+  }
+  records.slice(0, 20).forEach((item) => {
+    const applyID = String(sandboxField(item, 'apply_id', 'ApplyID') || '');
+    const draftID = String(sandboxField(item, 'draft_id', 'DraftID') || '');
+    const decisionID = String(sandboxField(item, 'decision_id', 'DecisionID') || '');
+    const channel = String(sandboxField(item, 'channel', 'Channel') || '-');
+    const status = String(sandboxField(item, 'apply_status', 'ApplyStatus') || '-');
+    const sendResult = String(sandboxField(item, 'send_result', 'SendResult') || '-');
+    const adapter = String(sandboxField(item, 'channel_adapter', 'ChannelAdapter') || 'unconfigured');
+    const applied = Boolean(sandboxField(item, 'external_send_applied', 'ExternalSendApplied'));
+    const verified = Boolean(sandboxField(item, 'post_send_verified', 'PostSendVerified'));
+    const evidence = sandboxField(item, 'post_send_evidence', 'PostSendEvidence') || sandboxField(item, 'failure_reason', 'FailureReason') || '';
+    const statusClass = applied && verified ? 'running' : (status === 'failed' ? 'error' : 'offline');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(ftime(sandboxField(item, 'created_at', 'CreatedAt'))) + '</td>' +
+      '<td class="code">' + esc(applyID || '-') + '</td>' +
+      '<td class="code">' + esc(short(draftID || '-', 42)) + '</td>' +
+      '<td class="code">' + esc(short(decisionID || '-', 42)) + '</td>' +
+      '<td>' + esc(channel) + '</td>' +
+      '<td><span class="badge ' + stateClass(statusClass) + '">' + esc(status) + '</span></td>' +
+      '<td>' + esc(sendResult) + '</td>' +
+      '<td>' + esc(adapter) + '</td>' +
+      '<td>' + esc(short(evidence || (applied ? 'post-send evidence missing' : 'not sent'), 120)) + '</td>';
+    body.appendChild(tr);
+  });
+  renderRevenueExternalSendAuditResult();
+}
+
+function renderRevenueExternalSendAuditResult() {
+  const el = document.getElementById('revenueExternalSendAuditResult');
+  if (!el) return;
+  const fetchError = String(state.ops.revenueFetchError || '');
+  if (fetchError) {
+    el.textContent = 'revenue external send apply audits unavailable: ' + fetchError + '\nblocked: external send audit state unreadable';
+    return;
+  }
+  const records = Array.isArray(state.ops.revenueExternalSendApplyRecords) ? state.ops.revenueExternalSendApplyRecords : [];
+  const sent = records.filter((item) => Boolean(sandboxField(item, 'external_send_applied', 'ExternalSendApplied'))).length;
+  const verified = records.filter((item) => Boolean(sandboxField(item, 'post_send_verified', 'PostSendVerified')) && String(sandboxField(item, 'post_send_evidence', 'PostSendEvidence') || '').trim() !== '').length;
+  const blocked = records.filter((item) => String(sandboxField(item, 'apply_status', 'ApplyStatus') || '') === 'blocked').length;
+  const notSent = records.length - sent;
+  const adapter = String(state.ops.revenueExternalChannelAdapter || 'unconfigured');
+  const configured = Boolean(state.ops.revenueExternalChannelAdapterConfigured);
+  const approval = state.ops.revenueExternalSendHumanApprovalRequired !== false;
+  const blockedText = sent === 0 ? '\nblocked: no external send applied' : '';
+  el.textContent = 'revenue external send apply audits: ' + String(records.length) + ' total / ' + String(blocked) + ' blocked / ' + String(sent) + ' sent / ' + String(notSent) + ' not sent / ' + String(verified) + ' verified\nexternal channel adapter: ' + adapter + ' / configured: ' + (configured ? 'yes' : 'no') + ' / human approval: ' + (approval ? 'required' : 'missing') + blockedText;
 }
 
 function revenueBar(value, max) {
@@ -841,12 +1652,21 @@ function revenueBar(value, max) {
 }
 
 function revenueDrilldownLines() {
+  const fetchError = String(state.ops.revenueFetchError || '');
+  if (fetchError) {
+    return [
+      'Revenue Drilldown unavailable',
+      'blocked: external send audit state unreadable',
+      fetchError,
+    ];
+  }
   const summary = state.ops.revenueSummary && typeof state.ops.revenueSummary === 'object' ? state.ops.revenueSummary : {};
   const trend = Array.isArray(sandboxField(summary, 'kpi_trend', 'KPITrend')) ? sandboxField(summary, 'kpi_trend', 'KPITrend') : [];
   const productSales = Array.isArray(sandboxField(summary, 'product_sales', 'ProductSales')) ? sandboxField(summary, 'product_sales', 'ProductSales') : [];
   const voiceTypes = Array.isArray(sandboxField(summary, 'customer_voice_types', 'CustomerVoiceTypes')) ? sandboxField(summary, 'customer_voice_types', 'CustomerVoiceTypes') : [];
   const decisions = latestRevenueHumanDecisions(Array.isArray(state.ops.revenueHumanDecisions) ? state.ops.revenueHumanDecisions : []);
   const drafts = Array.isArray(state.ops.revenueChannelDrafts) ? state.ops.revenueChannelDrafts : [];
+  const externalSendApplies = Array.isArray(state.ops.revenueExternalSendApplyRecords) ? state.ops.revenueExternalSendApplyRecords : [];
   const maxRevenue = Math.max(1, ...trend.map((item) => Number(sandboxField(item, 'revenue_amount', 'RevenueAmount') || 0)));
   const maxProductRevenue = Math.max(1, ...productSales.map((item) => Number(sandboxField(item, 'revenue_amount', 'RevenueAmount') || 0)));
   const maxVoiceCount = Math.max(1, ...voiceTypes.map((item) => Number(sandboxField(item, 'count', 'Count') || 0)));
@@ -855,7 +1675,8 @@ function revenueDrilldownLines() {
     'summary: revenue=' + String(sandboxField(summary, 'total_revenue_amount', 'TotalRevenueAmount') || 0) +
       ' paid_customers=' + String(sandboxField(summary, 'paid_customer_count', 'PaidCustomerCount') || 0) +
       ' pending_decisions=' + String(sandboxField(summary, 'pending_decision_count', 'PendingDecisionCount') || 0) +
-      ' channel_drafts=' + String(sandboxField(summary, 'channel_draft_count', 'ChannelDraftCount') || drafts.length),
+      ' channel_drafts=' + String(sandboxField(summary, 'channel_draft_count', 'ChannelDraftCount') || drafts.length) +
+      ' external_apply_audits=' + String(sandboxField(summary, 'external_send_apply_count', 'ExternalSendApplyCount') || externalSendApplies.length),
     '',
     'KPI trend graph:',
   ];
@@ -942,6 +1763,14 @@ async function reviewRevenueHumanDecision(decisionID, approvalStatus) {
 }
 
 function personaObservationOpsCard() {
+  const fetchError = String(state.ops.personaObservationFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Persona Observation',
+      big: 'unavailable',
+      sub: 'persona observation status unavailable: ' + fetchError + '\nblocked: persona meta review state unreadable\nblocked: long-term personality update state unreadable',
+    };
+  }
   const discomforts = Array.isArray(state.ops.personaDiscomfortLogs) ? state.ops.personaDiscomfortLogs : [];
   const triggers = Array.isArray(state.ops.personaTriggerLogs) ? state.ops.personaTriggerLogs : [];
   const canonicals = Array.isArray(state.ops.personaCanonicalResponseLogs) ? state.ops.personaCanonicalResponseLogs : [];
@@ -975,6 +1804,14 @@ function renderPersonaMetaReviews() {
   const body = document.getElementById('personaMetaReviewBody');
   if (!body) return;
   body.innerHTML = '';
+  const fetchError = String(state.ops.personaObservationFetchError || '');
+  if (fetchError) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6" class="small">Persona meta reviews unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    renderPersonaMetaReviewResult();
+    return;
+  }
   const updates = latestPersonaMetaProfileUpdates(Array.isArray(state.ops.personaMetaProfileUpdates) ? state.ops.personaMetaProfileUpdates : []);
   if (updates.length === 0) {
     const tr = document.createElement('tr');
@@ -1015,6 +1852,11 @@ function renderPersonaMetaReviews() {
 function renderPersonaMetaReviewResult() {
   const el = document.getElementById('personaMetaReviewResult');
   if (!el) return;
+  const fetchError = String(state.ops.personaObservationFetchError || '');
+  if (fetchError) {
+    el.textContent = 'persona meta review unavailable: ' + fetchError + '\nblocked: persona meta review state unreadable';
+    return;
+  }
   const result = state.ops.personaMetaReviewResult || null;
   if (!result) {
     el.textContent = 'persona meta review: -';
@@ -1060,6 +1902,14 @@ async function reviewPersonaMetaUpdate(encodedUpdate, reviewStatus) {
 }
 
 function browserTraceAPIOpsCard() {
+  const fetchError = String(state.ops.browserTraceAPIFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Browser Trace API',
+      big: 'unavailable',
+      sub: 'browser trace api status unavailable: ' + fetchError + '\nblocked: official API adoption state unreadable\nblocked: fetcher implementation state unreadable',
+    };
+  }
   const runs = Array.isArray(state.ops.browserTraceRuns) ? state.ops.browserTraceRuns : [];
   const candidates = Array.isArray(state.ops.browserTraceAPICandidates) ? state.ops.browserTraceAPICandidates : [];
   const schemas = Array.isArray(state.ops.browserTraceAPISchemas) ? state.ops.browserTraceAPISchemas : [];
@@ -1071,7 +1921,7 @@ function browserTraceAPIOpsCard() {
   return {
     title: 'Browser Trace API',
     big: String(candidates.length) + '/' + String(runs.length),
-    sub: runs.length || candidates.length || schemas.length || coverage.length || artifacts.length ? ('auth candidates: ' + String(auth) + ' schemas: ' + String(schemas.length) + '\ncoverage reports: ' + String(coverage.length) + ' fetcher proposals: ' + String(fetcherProposals) + '\nlatest: ' + String(sandboxField(latest, 'path_template', 'PathTemplate') || sandboxField(latest, 'trace_run_id', 'TraceRunID') || '-')) : 'browser trace api record なし',
+    sub: runs.length || candidates.length || schemas.length || coverage.length || artifacts.length ? ('auth candidates: ' + String(auth) + ' schemas: ' + String(schemas.length) + '\ncoverage reports: ' + String(coverage.length) + ' fetcher proposals: ' + String(fetcherProposals) + '\nlatest: ' + String(sandboxField(latest, 'path_template', 'PathTemplate') || sandboxField(latest, 'trace_run_id', 'TraceRunID') || '-') + '\nreview-only: no official API adoption') : 'browser trace api record なし\nblocked: no trace candidates\nblocked: no official API adoption',
   };
 }
 
@@ -1102,36 +1952,99 @@ async function requestBrowserTraceAPIFetcherProposal(candidateID, workstreamID) 
 }
 
 function complexityHotspotOpsCard() {
+  const fetchError = String(state.ops.complexityFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Complexity Hotspots',
+      big: 'unavailable',
+      sub: 'complexity hotspot status unavailable: ' + fetchError + '\nblocked: patch apply state unreadable',
+    };
+  }
   const scans = Array.isArray(state.ops.complexityScans) ? state.ops.complexityScans : [];
   const hotspots = Array.isArray(state.ops.complexityHotspots) ? state.ops.complexityHotspots : [];
   const evidence = Array.isArray(state.ops.complexityEvidence) ? state.ops.complexityEvidence : [];
+  const reports = Array.isArray(state.ops.complexityReports) ? state.ops.complexityReports : [];
   const highRisk = hotspots.filter((item) => String(sandboxField(item, 'risk_level', 'RiskLevel') || '') === 'high').length;
+  const pendingReview = reports.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'pending_review').length;
   const latest = hotspots[0] || scans[0] || null;
   return {
     title: 'Complexity Hotspots',
     big: String(hotspots.length) + '/' + String(scans.length),
-    sub: scans.length || hotspots.length || evidence.length ? ('high risk: ' + String(highRisk) + ' evidence: ' + String(evidence.length) + '\nlatest: ' + String(sandboxField(latest, 'hotspot_type', 'HotspotType') || sandboxField(latest, 'scan_id', 'ScanID') || '-') + '\nmode: report-only') : 'complexity hotspot record なし',
+    sub: scans.length || hotspots.length || evidence.length || reports.length ? ('high risk: ' + String(highRisk) + ' evidence: ' + String(evidence.length) + '\nreports: ' + String(reports.length) + ' pending-review: ' + String(pendingReview) + '\nlatest: ' + String(sandboxField(latest, 'hotspot_type', 'HotspotType') || sandboxField(latest, 'scan_id', 'ScanID') || '-') + '\nmode: review-only blocked: no patch applied') : 'complexity hotspot record なし',
   };
 }
 
 function superAgentOpsCard() {
+  const fetchError = String(state.ops.superAgentFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'SuperAgent Harness',
+      big: 'unavailable',
+      sub: 'superagent status unavailable: ' + fetchError + '\nblocked: scheduler terminal state unreadable\nblocked: true long-running resume state unreadable',
+    };
+  }
   const runs = Array.isArray(state.ops.superAgentRuns) ? state.ops.superAgentRuns : [];
   const tasks = Array.isArray(state.ops.superAgentSubagentTasks) ? state.ops.superAgentSubagentTasks : [];
   const contexts = Array.isArray(state.ops.superAgentContextPacks) ? state.ops.superAgentContextPacks : [];
   const channels = Array.isArray(state.ops.superAgentMessageChannels) ? state.ops.superAgentMessageChannels : [];
   const events = Array.isArray(state.ops.superAgentTraceEvents) ? state.ops.superAgentTraceEvents : [];
   const queue = Array.isArray(state.ops.superAgentRunQueue) ? state.ops.superAgentRunQueue : [];
+  const runtimeConfig = state.ops.superAgentRuntimeConfig || {};
   const running = runs.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'running').length;
   const queued = queue.filter((item) => String(sandboxField(item, 'status', 'Status') || '') === 'queued').length;
   const latest = runs[0] || tasks[0] || events[0] || null;
+  const schedulerEnabled = Boolean(sandboxField(runtimeConfig, 'run_queue_scheduler_enabled', 'RunQueueSchedulerEnabled'));
+  const schedulerInterval = Number(sandboxField(runtimeConfig, 'run_queue_scheduler_interval_sec', 'RunQueueSchedulerIntervalSec') || 0);
+  const schedulerClaimLimit = Number(sandboxField(runtimeConfig, 'run_queue_scheduler_claim_limit', 'RunQueueSchedulerClaimLimit') || 0);
+  const schedulerState = schedulerEnabled ? 'enabled' : 'disabled';
+  const schedulerDetail = schedulerEnabled ?
+    ('scheduler:' + schedulerState + ' interval:' + String(schedulerInterval) + 's claim:' + String(schedulerClaimLimit)) :
+    'scheduler:disabled blocked: scheduler disabled';
   return {
     title: 'SuperAgent Harness',
     big: String(runs.length) + '/' + String(tasks.length),
-    sub: runs.length || tasks.length || contexts.length || channels.length || events.length || queue.length ? ('running: ' + String(running) + ' context packs: ' + String(contexts.length) + '\nchannels: ' + String(channels.length) + ' trace events: ' + String(events.length) + '\nrun queue: ' + String(queue.length) + ' queued: ' + String(queued) + '\nlatest: ' + String(sandboxField(latest, 'run_id', 'RunID') || sandboxField(latest, 'subagent_id', 'SubagentID') || '-')) : 'superagent harness record なし',
+    sub: runs.length || tasks.length || contexts.length || channels.length || events.length || queue.length || runtimeConfig ? ('running: ' + String(running) + ' context packs: ' + String(contexts.length) + '\nchannels: ' + String(channels.length) + ' trace events: ' + String(events.length) + '\nrun queue: ' + String(queue.length) + ' queued: ' + String(queued) + '\n' + schedulerDetail + '\nlatest: ' + String(sandboxField(latest, 'run_id', 'RunID') || sandboxField(latest, 'subagent_id', 'SubagentID') || '-')) : 'superagent harness record なし',
+  };
+}
+
+function aiWorkflowOpsCard() {
+  const fetchError = String(state.ops.aiWorkflowFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'AI Workflow',
+      big: 'unavailable',
+      sub: 'ai workflow status unavailable: ' + fetchError + '\nblocked: scheduler normal completion state unreadable',
+    };
+  }
+  const events = Array.isArray(state.ops.aiWorkflowEvents) ? state.ops.aiWorkflowEvents : [];
+  const memories = Array.isArray(state.ops.aiWorkflowProjectMemoryIndexes) ? state.ops.aiWorkflowProjectMemoryIndexes : [];
+  const worktrees = Array.isArray(state.ops.aiWorkflowWorktreeRegistries) ? state.ops.aiWorkflowWorktreeRegistries : [];
+  const commands = Array.isArray(state.ops.aiWorkflowCommandRegistries) ? state.ops.aiWorkflowCommandRegistries : [];
+  const contexts = Array.isArray(state.ops.aiWorkflowContextUsages) ? state.ops.aiWorkflowContextUsages : [];
+  const policy = state.ops.aiWorkflowContextBudgetPolicy || {};
+  const latest = events[0] || contexts[0] || commands[0] || null;
+  const maxTokens = Number(sandboxField(policy, 'max_context_tokens', 'MaxContextTokens') || 0);
+  const warnRatio = Number(sandboxField(policy, 'warn_at_ratio', 'WarnAtRatio') || 0);
+  const stopRatio = Number(sandboxField(policy, 'stop_at_ratio', 'StopAtRatio') || 0);
+  const budgetDetail = maxTokens > 0 ?
+    ('context-budget:enabled max:' + String(maxTokens) + ' warn:' + String(warnRatio) + ' stop:' + String(stopRatio)) :
+    'context-budget:disabled blocked: context budget disabled';
+  return {
+    title: 'AI Workflow',
+    big: String(events.length) + '/' + String(contexts.length),
+    sub: events.length || memories.length || worktrees.length || commands.length || contexts.length || policy ? ('commands: ' + String(commands.length) + ' worktrees: ' + String(worktrees.length) + '\nproject memory: ' + String(memories.length) + ' context usage: ' + String(contexts.length) + '\n' + budgetDetail + '\nlatest: ' + String(sandboxField(latest, 'event_id', 'EventID') || sandboxField(latest, 'command_name', 'CommandName') || '-')) : 'ai workflow record なし',
   };
 }
 
 function heavyWorkerRuntimeOpsCard() {
+  const fetchError = String(state.ops.heavyWorkerRuntimeDiagnosticsFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Heavy Runtime',
+      big: 'unavailable',
+      sub: 'heavy runtime diagnostics unavailable: ' + fetchError + '\nblocked: RouteANALYZE provider state unreadable\nblocked: LLM Ops live state unreadable',
+    };
+  }
   const diag = state.ops.heavyWorkerRuntimeDiagnostics || null;
   if (!diag) {
     return {
@@ -1159,6 +2072,14 @@ function heavyWorkerRuntimeOpsCard() {
 }
 
 function knowledgeMemoryOpsCard() {
+  const fetchError = String(state.ops.knowledgeMemoryFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Knowledge Memory',
+      big: 'unavailable',
+      sub: 'knowledge memory status unavailable: ' + fetchError + '\nblocked: memory promote state unreadable\nblocked: source registry sync state unreadable',
+    };
+  }
   const personal = Array.isArray(state.ops.knowledgePersonalArchive) ? state.ops.knowledgePersonalArchive : [];
   const creative = Array.isArray(state.ops.knowledgeCreativeItems) ? state.ops.knowledgeCreativeItems : [];
   const news = Array.isArray(state.ops.knowledgeNewsItems) ? state.ops.knowledgeNewsItems : [];
@@ -1170,8 +2091,56 @@ function knowledgeMemoryOpsCard() {
   return {
     title: 'Knowledge Memory',
     big: String(personal.length) + '/' + String(creative.length),
-    sub: personal.length || creative.length || news.length || intake.length || temporal.length || dreams.length ? ('daily intake: ' + String(intake.length) + ' news: ' + String(news.length) + '\ntemporal: ' + String(temporal.length) + ' dream pending: ' + String(pendingDreams) + '\nlatest: ' + String(sandboxField(latest, 'title', 'Title') || sandboxField(latest, 'topic', 'Topic') || sandboxField(latest, 'entry_id', 'EntryID') || '-')) : 'knowledge memory record なし',
+    sub: personal.length || creative.length || news.length || intake.length || temporal.length || dreams.length ? ('daily intake: ' + String(intake.length) + ' news: ' + String(news.length) + '\ntemporal: ' + String(temporal.length) + ' dream pending: ' + String(pendingDreams) + '\nlatest: ' + String(sandboxField(latest, 'title', 'Title') || sandboxField(latest, 'topic', 'Topic') || sandboxField(latest, 'entry_id', 'EntryID') || '-') + '\nreview-only: promote not verified') : 'knowledge memory record なし\nblocked: empty ledger\nblocked: no memory promote verified',
   };
+}
+
+function runtimeBlockedRoutesOpsCard() {
+  const routes = Array.isArray(state.ops.runtimeBlockedRoutes) ? state.ops.runtimeBlockedRoutes : [];
+  const blocked = routes.filter((item) => !Boolean(item.ok)).length;
+  const unavailable = routes.filter((item) => Number(item.status || 0) === 503).length;
+  return {
+    title: 'Runtime Blocked Routes',
+    big: String(blocked) + '/' + String(routes.length),
+    sub: routes.length ? ('503 unavailable: ' + String(unavailable) + '\n' + routes.map((item) => String(item.label || item.path || '-') + ': HTTP ' + String(item.status || 0)).join('\n') + '\nblocked: dependency unavailable') : 'blocked route checks 未取得',
+  };
+}
+
+function renderRuntimeBlockedRouteAudits() {
+  const body = document.getElementById('runtimeBlockedRouteAuditBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const routes = Array.isArray(state.ops.runtimeBlockedRoutes) ? state.ops.runtimeBlockedRoutes : [];
+  if (!routes.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4" class="small">No runtime blocked route checks yet</td>';
+    body.appendChild(tr);
+    renderRuntimeBlockedRouteAuditResult();
+    return;
+  }
+  routes.forEach((item) => {
+    const ok = Boolean(item.ok);
+    const status = Number(item.status || 0);
+    const result = ok ? 'available' : (status === 503 ? 'blocked' : 'failed');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="code">' + esc(item.path || item.label || '-') + '</td>' +
+      '<td><span class="badge ' + stateClass(ok ? 'idle' : 'unavailable') + '">HTTP ' + esc(String(status)) + '</span></td>' +
+      '<td>' + esc(result) + '</td>' +
+      '<td>' + esc(short(item.body || '-', 160)) + '</td>';
+    body.appendChild(tr);
+  });
+  renderRuntimeBlockedRouteAuditResult();
+}
+
+function renderRuntimeBlockedRouteAuditResult() {
+  const el = document.getElementById('runtimeBlockedRouteAuditResult');
+  if (!el) return;
+  const routes = Array.isArray(state.ops.runtimeBlockedRoutes) ? state.ops.runtimeBlockedRoutes : [];
+  const blocked = routes.filter((item) => !Boolean(item.ok)).length;
+  const unavailable = routes.filter((item) => Number(item.status || 0) === 503).length;
+  const available = routes.filter((item) => Boolean(item.ok)).length;
+  el.textContent = 'runtime blocked route audits: ' + String(routes.length) + ' checked / ' + String(blocked) + ' blocked / ' + String(unavailable) + ' unavailable / ' + String(available) + ' available\nblocked: Source Registry staging, Memory Layers, Sandbox, and LLM Ops require their runtime dependencies';
 }
 
 function renderKnowledgeMemoryDetailFocus(focusBody) {
@@ -1211,7 +2180,11 @@ function fetchKnowledgeMemoryDetail(detailType, id) {
   if (!type || !detailID) return;
   fetch('/viewer/knowledge-memory?detail_type=' + encodeURIComponent(type) + '&id=' + encodeURIComponent(detailID) + '&limit=100')
     .then((r) => {
-      if (!r.ok) throw new Error('knowledge memory detail fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'knowledge memory detail unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
@@ -1246,7 +2219,11 @@ function bindDCISearchControls() {
       body: JSON.stringify({query}),
     })
       .then((r) => {
-        if (!r.ok) throw new Error('dci search failed');
+        if (!r.ok) {
+          return r.text().then((text) => {
+            throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'dci search unavailable'));
+          });
+        }
         return r.json();
       })
       .then((data) => {
@@ -1280,13 +2257,21 @@ function bindLLMOpsButtons() {
   if (restartBtn) restartBtn.addEventListener('click', llmOpsRestartAllRoles);
 }
 
-function syncLLMOpsPanel(cfg) {
+function syncLLMOpsPanel(cfg, fetchError) {
   const panel = document.getElementById('llmOpsPanel');
   if (!panel) return;
+  const runtimeConfigError = String(fetchError || '').trim();
   const configured = Boolean(cfg && cfg.llm_ops_configured);
   const enabled = Boolean(cfg && cfg.llm_ops_enabled);
   const baseURL = cfg && cfg.llm_ops_base_url ? String(cfg.llm_ops_base_url) : '';
+  state.ops.runtimeConfigFetchError = runtimeConfigError;
+  state.ops.llmOpsConfigured = configured;
+  state.ops.llmOpsBaseURL = baseURL;
   state.ops.localLLM = cfg && cfg.local_llm ? cfg.local_llm : null;
+  state.ops.runtimeReadiness = cfg && cfg.runtime_readiness ? cfg.runtime_readiness : null;
+  state.ops.runtimeSTTBaseURL = cfg && cfg.stt_base_url ? String(cfg.stt_base_url) : '';
+  state.ops.runtimeSTTStreamURL = cfg && cfg.stt_stream_url ? String(cfg.stt_stream_url) : '';
+  state.ops.runtimeTTSBaseURL = cfg && cfg.tts_base_url ? String(cfg.tts_base_url) : '';
   if (typeof syncChatRouteAliasesFromRuntimeConfig === 'function') {
     syncChatRouteAliasesFromRuntimeConfig(state.ops.localLLM);
   }
@@ -1300,7 +2285,9 @@ function syncLLMOpsPanel(cfg) {
     if (btn) btn.disabled = !enabled;
   });
   if (configEl) {
-    if (enabled) {
+    if (runtimeConfigError) {
+      configEl.innerHTML = '<span class="badge state-error">unavailable</span> ' + esc('runtime config unavailable: ' + runtimeConfigError);
+    } else if (enabled) {
       configEl.innerHTML = '<span class="badge state-running">enabled</span> ' + esc(baseURL || 'llm_ops configured');
     } else if (configured) {
       configEl.innerHTML = '<span class="badge state-error">token missing</span> ' + esc(baseURL || 'llm_ops configured') + '<div class="ops-sub">LLM_OPS_TOKEN が未設定のためViewerプロキシは無効です</div>';
@@ -1309,18 +2296,30 @@ function syncLLMOpsPanel(cfg) {
     }
   }
   renderLocalLLMRuntimeConfig();
+  renderRuntimeDependencyReadiness();
+  refreshRuntimeHealthStatus();
   if (enabled) refreshLlmOpsStatus();
   else {
     state.ops.llmStatus = null;
-    state.ops.llmStatusError = configured ? 'LLM_OPS_TOKEN missing' : 'llm_ops disabled';
+    state.ops.llmStatusError = runtimeConfigError ? ('runtime config unavailable: ' + runtimeConfigError) : (configured ? 'LLM_OPS_TOKEN missing' : 'llm_ops disabled');
     renderLlmMemoryStatus();
     setLlmOpsStatusPre(state.ops.llmStatusError);
   }
 }
 
+function syncRuntimeDebugSystem(snapshot, fetchError) {
+  state.ops.runtimeDebugSystemFetchError = String(fetchError || '').trim();
+  state.ops.runtimeDebugSystem = snapshot && typeof snapshot === 'object' ? snapshot : null;
+  renderRuntimeDependencyReadiness();
+}
+
 function renderLocalLLMRuntimeConfig() {
   const el = document.getElementById('llmRuntimeConfigCards');
   if (!el) return;
+  if (state.ops.runtimeConfigFetchError) {
+    el.innerHTML = '<div class="debug-empty">local_llm runtime config unavailable: ' + esc(state.ops.runtimeConfigFetchError) + '</div>';
+    return;
+  }
   const localLLM = state.ops.localLLM || {};
   if (!localLLM.enabled) {
     el.innerHTML = '<div class="debug-empty">local_llm disabled</div>';
@@ -1348,6 +2347,144 @@ function renderLocalLLMRuntimeConfig() {
       (row.meta ? '<div class="ops-sub">' + esc(row.meta) + '</div>' : '') +
     '</div>'
   )).join('') + (params ? '<div class="ops-sub">' + esc(params) + '</div>' : '');
+}
+
+function renderRuntimeDependencyReadiness() {
+  const el = document.getElementById('runtimeReadinessCards');
+  if (!el) return;
+  const runtimeConfigError = String(state.ops.runtimeConfigFetchError || '').trim();
+  const runtimeDebugError = String(state.ops.runtimeDebugSystemFetchError || '').trim();
+  const readiness = state.ops.runtimeReadiness || {};
+  const audio = state.ops.runtimeDebugSystem && state.ops.runtimeDebugSystem.audio ? state.ops.runtimeDebugSystem.audio : null;
+  const sttItems = [
+    runtimeReadinessItem('env', readiness.stt_gateway_env_present),
+    runtimeReadinessItem('config', readiness.stt_gateway_config_present),
+  ];
+  if (audio && (audio.stt_base_url || readiness.stt_gateway_config_present === true)) {
+    sttItems.push(runtimeReadinessItem('health', audio.stt_ok));
+  }
+  const ttsItems = [
+    runtimeReadinessItem('env', readiness.tts_provider_env_present),
+    runtimeReadinessItem('config', readiness.tts_provider_config_present),
+  ];
+  if (audio && (audio.tts_base_url || readiness.tts_provider_config_present === true)) {
+    ttsItems.push(runtimeReadinessItem('live', audio.tts_live_ok));
+    ttsItems.push(runtimeReadinessItem('ready', audio.tts_ready_ok));
+  }
+  const audioError = audio && audio.last_error ? 'blocked: ' + String(audio.last_error) : (runtimeDebugError ? 'blocked: ' + runtimeDebugError : '');
+  const sttDetail = [state.ops.runtimeSTTBaseURL || state.ops.runtimeSTTStreamURL || '', audioError, 'blocked: real microphone STT E2E not verified'].filter(Boolean).join('\n');
+  const ttsDetail = [state.ops.runtimeTTSBaseURL || '', audioError, 'blocked: browser audio playback/lip sync E2E not verified'].filter(Boolean).join('\n');
+  const externalChannelDetail = 'blocked: real external API file event E2E not verified';
+  const distributedDetail = [
+    readiness.distributed_enabled ? 'distributed runtime configured' : 'blocked: distributed disabled',
+    'blocked: Wild SSH/multi-machine E2E not verified',
+  ].join('\n');
+  const runtimeHealth = state.ops.runtimeHealth || null;
+  const runtimeHealthChecks = runtimeHealthChecksByName(runtimeHealth);
+  const runtimeHealthChat = runtimeHealthChecks.local_llm_chat || runtimeHealthChecks.chat || null;
+  const runtimeHealthWorker = runtimeHealthChecks.local_llm_worker || runtimeHealthChecks.worker || null;
+  const runtimeHealthDetail = runtimeHealthDetailText(runtimeHealth, state.ops.runtimeHealthError);
+  const rows = [
+    runtimeConfigError ? runtimeReadinessCard('Runtime Config', [
+      runtimeReadinessItem('config', false),
+    ], 'blocked: ' + runtimeConfigError) : '',
+    runtimeReadinessCard('Runtime Health', [
+      runtimeReadinessItem('service', runtimeHealth && runtimeHealth.status === 'ok'),
+      runtimeReadinessItem('chat', runtimeHealthCheckOK(runtimeHealthChat)),
+      runtimeReadinessItem('worker', runtimeHealthCheckOK(runtimeHealthWorker)),
+    ], runtimeHealthDetail),
+    runtimeReadinessCard('LLM Ops', [
+      runtimeReadinessItem('configured', state.ops.llmOpsConfigured),
+      runtimeReadinessItem('proxy', state.ops.llmOpsEnabled),
+      runtimeReadinessItem('live', state.ops.llmStatus != null),
+    ], [state.ops.llmOpsBaseURL || '', state.ops.llmStatusError ? 'blocked: ' + String(state.ops.llmStatusError) : ''].filter(Boolean).join('\n')),
+    runtimeReadinessCard('Slack', [
+      runtimeReadinessItem('credentials', readiness.slack_credentials_present),
+      runtimeReadinessItem('webhook', readiness.slack_webhook_registered),
+      runtimeReadinessItem('file', readiness.slack_file_payload_pipeline),
+    ], externalChannelDetail),
+    runtimeReadinessCard('Discord', [
+      runtimeReadinessItem('credentials', readiness.discord_credentials_present),
+      runtimeReadinessItem('webhook', readiness.discord_webhook_registered),
+      runtimeReadinessItem('file', readiness.discord_file_payload_pipeline),
+    ], externalChannelDetail),
+    runtimeReadinessCard('Telegram', [
+      runtimeReadinessItem('credentials', readiness.telegram_credentials_present),
+      runtimeReadinessItem('webhook', readiness.telegram_webhook_registered),
+      runtimeReadinessItem('file', readiness.telegram_file_payload_pipeline),
+    ], externalChannelDetail),
+    runtimeReadinessCard('STT', sttItems, sttDetail),
+    runtimeReadinessCard('TTS', ttsItems, ttsDetail),
+    runtimeReadinessCard('Distributed', [
+      runtimeReadinessItem('enabled', readiness.distributed_enabled),
+      runtimeReadinessItem('transport', readiness.distributed_transports_present),
+      runtimeReadinessItem('ssh-config', readiness.distributed_ssh_configured),
+      runtimeReadinessItem('ssh-connected', readiness.distributed_ssh_connected),
+      runtimeReadinessItem('local', readiness.distributed_local_transport),
+    ], distributedDetail),
+    runtimeReadinessCard('Source Registry', [
+      runtimeReadinessItem('conversation', readiness.conversation_enabled),
+      runtimeReadinessItem('l1', readiness.l1_sqlite_config_present),
+      runtimeReadinessItem('memory-layers', readiness.memory_layers_available),
+      runtimeReadinessItem('memory-route', readiness.memory_layers_status_available),
+      runtimeReadinessItem('source', readiness.source_registry_available),
+      runtimeReadinessItem('source-route', readiness.source_registry_status_available),
+    ], readiness.source_registry_available ? '/viewer/source-registry' : 'blocked: conversation L1 disabled'),
+    runtimeReadinessCard('Knowledge Memory', [
+      runtimeReadinessItem('enabled', readiness.knowledge_memory_enabled),
+      runtimeReadinessItem('status', readiness.knowledge_memory_status_available),
+    ], readiness.knowledge_memory_enabled ? '/viewer/knowledge-memory' : 'blocked: knowledge memory disabled'),
+    runtimeReadinessCard('Browser Trace API', [
+      runtimeReadinessItem('enabled', readiness.browser_trace_api_enabled),
+      runtimeReadinessItem('status', readiness.browser_trace_api_status_available),
+      runtimeReadinessItem('fetcher', readiness.browser_trace_api_fetcher_available),
+    ], readiness.browser_trace_api_enabled ? 'review-only: discover and fetcher proposal require evidence' : 'blocked: browser trace API disabled'),
+    runtimeReadinessCard('Sandbox', [
+      runtimeReadinessItem('enabled', readiness.sandbox_enabled),
+      runtimeReadinessItem('status', readiness.sandbox_status_available),
+    ], readiness.sandbox_enabled ? '/viewer/sandbox' : 'blocked: sandbox disabled'),
+  ].filter(Boolean);
+  el.innerHTML = rows.join('');
+}
+
+function runtimeReadinessItem(label, value) {
+  const ok = value === true;
+  return '<span class="badge ' + stateClass(ok ? 'running' : 'offline') + '">' + esc(label + ':' + (ok ? 'present' : 'missing')) + '</span>';
+}
+
+function runtimeReadinessCard(title, items, detail) {
+  return '<div class="llm-runtime-card">' +
+    '<div class="ops-card-title">' + esc(title) + '</div>' +
+    '<div class="runtime-readiness-badges">' + items.join('') + '</div>' +
+    (detail ? '<div class="llm-runtime-url">' + esc(detail) + '</div>' : '') +
+  '</div>';
+}
+
+function runtimeHealthChecksByName(report) {
+  const out = {};
+  const checks = report && Array.isArray(report.checks) ? report.checks : [];
+  checks.forEach((check) => {
+    if (!check || !check.name) return;
+    out[String(check.name).toLowerCase()] = check;
+  });
+  return out;
+}
+
+function runtimeHealthCheckOK(check) {
+  return Boolean(check && String(check.status || '').toLowerCase() === 'ok');
+}
+
+function runtimeHealthDetailText(report, errorText) {
+  if (errorText) return 'blocked: ' + String(errorText);
+  if (!report) return 'blocked: /health not checked yet';
+  const checks = Array.isArray(report.checks) ? report.checks : [];
+  const blocked = checks.filter((check) => check && String(check.status || '').toLowerCase() !== 'ok');
+  if (!blocked.length) return '/health';
+  return 'blocked: ' + blocked.map((check) => {
+    const name = check.name || 'check';
+    const message = check.message || check.status || 'down';
+    return String(name) + ': ' + String(message);
+  }).join('; ');
 }
 
 function llmRuntimeRoleRow(role, configModel, configURL, configuredState) {
@@ -1698,6 +2835,31 @@ function renderLocalLLMFallback(localLLM, errorText) {
   )).join('') + (params ? '<div class="ops-sub">' + esc(params) + '</div>' : '');
 }
 
+async function refreshRuntimeHealthStatus() {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 3500) : null;
+  try {
+    const res = await fetch('/health', {
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined,
+    });
+    const body = await res.text();
+    try {
+      state.ops.runtimeHealth = JSON.parse(body);
+      state.ops.runtimeHealthError = '';
+    } catch (parseErr) {
+      state.ops.runtimeHealth = null;
+      state.ops.runtimeHealthError = 'HTTP ' + res.status + ': ' + String(parseErr);
+    }
+  } catch (err) {
+    state.ops.runtimeHealth = null;
+    state.ops.runtimeHealthError = err && err.name === 'AbortError' ? '/health timeout' : String(err);
+  } finally {
+    if (timer) clearTimeout(timer);
+    renderRuntimeDependencyReadiness();
+  }
+}
+
 function roleRSSMiB(info) {
   if (!info) return 0;
   return num(info.rss_mib) || (num(info.rss_bytes) / 1048576);
@@ -1713,25 +2875,29 @@ async function refreshLlmOpsStatus() {
     const res = await fetch('/viewer/llm-ops/status', { cache: 'no-store' });
     const body = await res.text();
     if (!res.ok) {
-      state.ops.llmStatusError = 'HTTP ' + res.status;
+      state.ops.llmStatusError = 'HTTP ' + res.status + (body ? ': ' + body.trim() : '');
       setLlmOpsStatusPre('HTTP ' + res.status + '\n' + body);
       renderLlmMemoryStatus();
+      renderRuntimeDependencyReadiness();
       return;
     }
     try {
       state.ops.llmStatus = JSON.parse(body);
       state.ops.llmStatusError = '';
       renderLlmMemoryStatus();
+      renderRuntimeDependencyReadiness();
       setLlmOpsStatusPre(JSON.stringify(state.ops.llmStatus, null, 2));
     } catch (parseErr) {
       state.ops.llmStatusError = String(parseErr);
       setLlmOpsStatusPre(body);
       renderLlmMemoryStatus();
+      renderRuntimeDependencyReadiness();
     }
   } catch (err) {
     state.ops.llmStatusError = String(err);
     setLlmOpsStatusPre(String(err));
     renderLlmMemoryStatus();
+    renderRuntimeDependencyReadiness();
   }
 }
 

@@ -99,12 +99,19 @@ function rememberEventKey(key) {
 
 const state = {
   logs: [],
+  homeSendError: '',
+  viewerAttachmentError: '',
+  viewerStatusFetchError: '',
   sessions: {},
   jobs: {},
   evidence: [],
   evidenceSummary: {status: {}, error_kind: {}},
+  evidenceFetchError: '',
+  evidenceSummaryFetchError: '',
   verificationReports: [],
   verificationSummary: {status: {}, trigger_level: {}},
+  verificationFetchError: '',
+  verificationSummaryFetchError: '',
   evidenceOrder: [],
   selectedEvidenceJobID: '',
   selectedEvidenceItem: null,
@@ -113,11 +120,15 @@ const state = {
   pendingEvidenceJobID: '',
   memory: {
     snapshot: {memory: [], news: [], digests: [], knowledge: []},
+    memorySnapshotFetchError: '',
     layers: {l0: [], l1: [], l2: [], l3: []},
     events: [],
     searchCache: [],
+    memoryEventsFetchError: '',
     sourceRegistry: [],
     sourceRegistryStaging: [],
+    sourceRegistryFetchError: '',
+    sourceRegistryStagingFetchError: '',
     knowledgeMemory: {
       personal_archive: [],
       creative_knowledge: [],
@@ -126,9 +137,12 @@ const state = {
       temporal_markers: [],
       dream_runs: [],
     },
+    knowledgeMemoryFetchError: '',
     knowledgeMemoryDetail: null,
     knowledgeMemoryReviewResult: null,
     traces: [],
+    recallTraceFetchError: '',
+    newsPackFetchError: '',
     selectedNewsIndex: 0,
   },
   agents: {},
@@ -147,19 +161,28 @@ const state = {
   progressOpenJobs: {},
   ops: {
     persistedLogs: [],
+    opsLogsFetchError: '',
     toolHarnessEvents: [],
+    toolHarnessFetchError: '',
     dciTraces: [],
+    dciFetchError: '',
     dciLastResult: null,
     sandboxes: [],
     sandboxArtifacts: [],
     sandboxPromotions: [],
     sandboxDecisions: [],
     sandboxGateLogs: [],
+    sandboxFetchError: '',
     sandboxPromotionPreviewResult: null,
     skillManifests: [],
     skillTriggerLogs: [],
     skillChangeLogs: [],
     contributionGateLogs: [],
+    skillExternalPRSubmitRecords: [],
+    skillExternalPRAdapter: '',
+    skillExternalPRAdapterConfigured: false,
+    skillExternalPRHumanApprovalRequired: true,
+    skillGovernanceFetchError: '',
     workstreams: [],
     workstreamGoals: [],
     workstreamArtifacts: [],
@@ -167,6 +190,7 @@ const state = {
     workstreamSteering: [],
     workstreamHeartbeats: [],
     workstreamVaultUpdates: [],
+    workstreamFetchError: '',
     workstreamVaultPreviewResult: null,
     workstreamVaultReviewResult: null,
     revenueMarketResearch: [],
@@ -177,7 +201,12 @@ const state = {
     revenueHumanDecisions: [],
     revenueDailyRoutineReports: [],
     revenueChannelDrafts: [],
+    revenueExternalSendApplyRecords: [],
+    revenueExternalChannelAdapter: '',
+    revenueExternalChannelAdapterConfigured: false,
+    revenueExternalSendHumanApprovalRequired: true,
     revenueSummary: null,
+    revenueFetchError: '',
     revenueDecisionReviewResult: null,
     personaDiscomfortLogs: [],
     personaTriggerLogs: [],
@@ -186,37 +215,61 @@ const state = {
     personaMetaProfileUpdates: [],
     personaMetaReviewResult: null,
     personaInterfaceSessions: [],
+    personaObservationFetchError: '',
     browserTraceRuns: [],
     browserTraceAPICandidates: [],
     browserTraceAPISchemas: [],
     browserTraceAPICoverageReports: [],
     browserTraceAPIArtifacts: [],
+    browserTraceAPIFetchError: '',
     browserTraceAPIFetcherProposalResult: null,
     complexityScans: [],
     complexityHotspots: [],
     complexityEvidence: [],
+    complexityReports: [],
+    complexityFetchError: '',
+    aiWorkflowEvents: [],
+    aiWorkflowProjectMemoryIndexes: [],
+    aiWorkflowWorktreeRegistries: [],
+    aiWorkflowCommandRegistries: [],
+    aiWorkflowContextUsages: [],
+    aiWorkflowContextBudgetPolicy: null,
+    aiWorkflowFetchError: '',
     superAgentRuns: [],
     superAgentSubagentTasks: [],
     superAgentContextPacks: [],
     superAgentMessageChannels: [],
     superAgentTraceEvents: [],
     superAgentRunQueue: [],
+    superAgentRuntimeConfig: null,
+    superAgentFetchError: '',
     heavyWorkerRuntimeDiagnostics: null,
+    heavyWorkerRuntimeDiagnosticsFetchError: '',
     knowledgePersonalArchive: [],
     knowledgeCreativeItems: [],
     knowledgeNewsItems: [],
     knowledgeDailyIntakeRules: [],
     knowledgeTemporalMarkers: [],
     knowledgeDreamRuns: [],
+    knowledgeMemoryFetchError: '',
     knowledgeMemoryDetail: null,
+    runtimeBlockedRoutes: [],
     lastMioReport: null,
     latestJobID: '',
     latestRoute: '',
     latestError: null,
     llmOpsEnabled: false,
     localLLM: null,
+    runtimeReadiness: null,
+    runtimeConfigFetchError: '',
+    runtimeSTTBaseURL: '',
+    runtimeSTTStreamURL: '',
+    runtimeTTSBaseURL: '',
+    runtimeDebugSystemFetchError: '',
     llmStatus: null,
     llmStatusError: '',
+    runtimeHealth: null,
+    runtimeHealthError: '',
   },
   debug: {
     gpu: null,
@@ -257,6 +310,7 @@ const ttsPlayback = {
   audioEnabled: true,
   unlocked: false,
   blocked: false,
+  audioError: '',
   currentCharacterId: '',
   currentText: '',
   currentDisplayText: '',
@@ -332,6 +386,23 @@ function setNowPlayingText(characterId, text) {
   if (id === 'mio' || id === 'shiro') ttsNowPlayingEl.classList.add(id);
   ttsNowPlayingTextEl.textContent = normalizedText;
   ttsNowPlayingEl.classList.remove('hidden');
+}
+
+function describeTTSAudioError(err) {
+  if (!err) return 'unknown audio playback error';
+  const name = String(err.name || '').trim();
+  const message = String(err.message || err).trim();
+  return [name, message].filter(Boolean).join(': ') || 'unknown audio playback error';
+}
+
+function setTTSAudioError(err) {
+  const message = describeTTSAudioError(err);
+  ttsPlayback.audioError = message;
+  setNowPlayingText('', 'TTS audio unavailable: ' + message);
+}
+
+function clearTTSAudioError() {
+  ttsPlayback.audioError = '';
 }
 
 function isIdleChatSessionId(sessionId) {
@@ -825,7 +896,11 @@ function renderDebugPanels() {
 function refreshDebugSystem() {
   fetch('/viewer/debug/system')
     .then((r) => {
-      if (!r.ok) throw new Error('debug system fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'debug system fetch failed'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
@@ -835,7 +910,7 @@ function refreshDebugSystem() {
     })
     .catch((err) => {
       console.error(err);
-      state.debug.gpu = {available: false, note: 'fetch failed'};
+      state.debug.gpu = {available: false, note: String(err && err.message ? err.message : err)};
       state.debug.audio = null;
       renderDebugPanels();
     });
@@ -1001,8 +1076,15 @@ function copyMsg(btn) {
   const text = mc.dataset.raw || mc.textContent;
   writeClipboardText(text).then(() => {
     btn.textContent = 'OK';
+    btn.title = '';
     btn.classList.add('ok');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('ok'); }, 1200);
+  }).catch((err) => {
+    console.error(err);
+    const message = 'Copy unavailable: ' + String(err && err.message ? err.message : err);
+    btn.textContent = message;
+    btn.title = message;
+    showToast('Copy failed', 'error');
   });
 }
 window.copyMsg = copyMsg;
@@ -1048,6 +1130,7 @@ function copyTextPayload(btn, payload) {
   writeClipboardText(String(payload || '')).then(() => {
     const old = btn.textContent;
     btn.textContent = 'Copied';
+    btn.title = '';
     btn.classList.add('ok');
     showToast('Copied to clipboard', 'success');
     setTimeout(() => {
@@ -1056,6 +1139,9 @@ function copyTextPayload(btn, payload) {
     }, 1200);
   }).catch((err) => {
     console.error(err);
+    const message = 'Copy unavailable: ' + String(err && err.message ? err.message : err);
+    btn.textContent = message;
+    btn.title = message;
     showToast('Copy failed', 'error');
   });
 }
@@ -1106,6 +1192,7 @@ function touchAgent(agentID, patch) {
 function applyMonitorStatusSnapshot(payload) {
   const status = payload && payload.status ? payload.status : payload;
   if (!status) return;
+  state.viewerStatusFetchError = '';
   const items = [];
   if (status.chat) items.push(status.chat);
   if (status.worker) items.push(status.worker);
@@ -1225,6 +1312,22 @@ function updateAgents(ev) {
 function renderEvidence() {
   const body = document.getElementById('evidenceBody');
   body.innerHTML = '';
+  const fetchError = evidenceFetchErrorMessage();
+  if (fetchError) {
+    state.evidenceOrder = [];
+    if (state.selectedEvidenceJobID) {
+      state.selectedEvidenceJobID = '';
+      state.selectedEvidenceItem = null;
+      syncEvidenceQuery('');
+    }
+    const detail = document.getElementById('evidenceDetail');
+    if (detail) detail.textContent = 'No selection';
+    updateEvidenceNav();
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="11" class="small">Evidence / verification unavailable: ' + esc(fetchError) + '</td>';
+    body.appendChild(tr);
+    return;
+  }
   const statusFilter = (eviStatus && eviStatus.value) ? eviStatus.value : '';
   const kindFilter = (eviErrorKind && eviErrorKind.value) ? eviErrorKind.value : '';
   const list = combinedEvidenceList().filter((r) => {
@@ -1296,9 +1399,30 @@ function combinedEvidenceList() {
   return out;
 }
 
+function evidenceFetchErrorMessage() {
+  const parts = [];
+  if (state.evidenceFetchError) parts.push('evidence: ' + state.evidenceFetchError);
+  if (state.verificationFetchError) parts.push('verification: ' + state.verificationFetchError);
+  return parts.join('; ');
+}
+
+function evidenceSummaryFetchErrorMessage() {
+  const parts = [];
+  if (state.evidenceSummaryFetchError) parts.push('evidence summary: ' + state.evidenceSummaryFetchError);
+  if (state.verificationSummaryFetchError) parts.push('verification summary: ' + state.verificationSummaryFetchError);
+  return parts.join('; ');
+}
+
 function renderEvidenceSummary() {
   const root = document.getElementById('evidenceSummaryCards');
   if (!root) return;
+  const fetchError = evidenceSummaryFetchErrorMessage();
+  if (fetchError) {
+    root.innerHTML = '' +
+      '<div class="card"><h4>Evidence Total</h4><div style="font-size:22px;font-weight:700">unavailable</div><div class="small">evidence summary unavailable: ' + esc(fetchError) + '</div></div>' +
+      '<div class="card"><h4>Verification Reports</h4><div style="font-size:22px;font-weight:700">unavailable</div><div class="small">verification summary unavailable: ' + esc(fetchError) + '</div><div class="small">blocked: execution evidence state unreadable</div></div>';
+    return;
+  }
   const s = state.evidenceSummary || {};
   const st = s.status || {};
   const ek = s.error_kind || {};
@@ -1360,11 +1484,16 @@ function renderDeskViews() {
 function refreshOpsData() {
   fetch('/viewer/logs?scope=persisted&limit=40')
     .then((r) => {
-      if (!r.ok) throw new Error('ops logs fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'ops logs unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
       const items = Array.isArray(data.items) ? data.items : [];
+      state.ops.opsLogsFetchError = '';
       state.ops.persistedLogs = items;
       state.ops.lastMioReport = items.find((ev) => String(ev.from || '').toLowerCase() === 'mio' && String(ev.to || '').toLowerCase() === 'user') || null;
       state.ops.latestJobID = items[0] ? (items[0].job_id || '') : '';
@@ -1376,44 +1505,81 @@ function refreshOpsData() {
       renderOps();
       renderDeskViews();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.opsLogsFetchError = String(err && err.message ? err.message : err);
+      state.ops.persistedLogs = [];
+      state.ops.lastMioReport = null;
+      state.ops.latestJobID = '';
+      state.ops.latestRoute = '';
+      state.ops.latestError = null;
+      renderOps();
+      renderDeskViews();
+      console.error(err);
+    });
 }
 
 function refreshToolHarnessData() {
   fetch('/viewer/tool-harness/recent?limit=30')
     .then((r) => {
-      if (!r.ok) throw new Error('tool harness fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'tool harness unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.toolHarnessFetchError = '';
       state.ops.toolHarnessEvents = Array.isArray(data.items) ? data.items : [];
       if (typeof renderToolHarnessEvents === 'function') renderToolHarnessEvents();
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.toolHarnessFetchError = String(err && err.message ? err.message : err);
+      state.ops.toolHarnessEvents = [];
+      if (typeof renderToolHarnessEvents === 'function') renderToolHarnessEvents();
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshDCIData() {
   fetch('/viewer/dci/recent?limit=20')
     .then((r) => {
-      if (!r.ok) throw new Error('dci trace fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'dci trace unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.dciFetchError = '';
       state.ops.dciTraces = Array.isArray(data.items) ? data.items : [];
       if (typeof renderDCITraces === 'function') renderDCITraces();
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.dciFetchError = String(err && err.message ? err.message : err);
+      state.ops.dciTraces = [];
+      if (typeof renderDCITraces === 'function') renderDCITraces();
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshSandboxData() {
   fetch('/viewer/sandbox?limit=20')
     .then((r) => {
-      if (!r.ok) return {sandboxes: [], artifacts: [], promotions: [], decisions: [], gate_logs: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.sandboxFetchError = '';
       state.ops.sandboxes = Array.isArray(data.sandboxes) ? data.sandboxes : [];
       state.ops.sandboxArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
       state.ops.sandboxPromotions = Array.isArray(data.promotions) ? data.promotions : [];
@@ -1422,33 +1588,67 @@ function refreshSandboxData() {
       if (typeof renderSandboxStatus === 'function') renderSandboxStatus();
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.sandboxFetchError = String(err && err.message ? err.message : err);
+      state.ops.sandboxes = [];
+      state.ops.sandboxArtifacts = [];
+      state.ops.sandboxPromotions = [];
+      state.ops.sandboxDecisions = [];
+      state.ops.sandboxGateLogs = [];
+      if (typeof renderSandboxStatus === 'function') renderSandboxStatus();
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshSkillGovernanceData() {
   fetch('/viewer/skill-governance/recent?limit=20')
     .then((r) => {
-      if (!r.ok) return {manifests: [], trigger_logs: [], change_logs: [], contributions: [], coder_transcripts: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.skillGovernanceFetchError = '';
       state.ops.skillManifests = Array.isArray(data.manifests) ? data.manifests : [];
       state.ops.skillTriggerLogs = Array.isArray(data.trigger_logs) ? data.trigger_logs : [];
       state.ops.skillChangeLogs = Array.isArray(data.change_logs) ? data.change_logs : [];
       state.ops.contributionGateLogs = Array.isArray(data.contributions) ? data.contributions : [];
+      state.ops.skillExternalPRSubmitRecords = Array.isArray(data.external_pr_submit_records) ? data.external_pr_submit_records : [];
+      state.ops.skillExternalPRAdapter = data.external_pr_adapter ? String(data.external_pr_adapter) : '';
+      state.ops.skillExternalPRAdapterConfigured = Boolean(data.external_pr_adapter_configured);
+      state.ops.skillExternalPRHumanApprovalRequired = data.human_approval_required_for_pr !== false;
       state.ops.coderTranscripts = Array.isArray(data.coder_transcripts) ? data.coder_transcripts : [];
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.skillGovernanceFetchError = String(err && err.message ? err.message : err);
+      state.ops.skillManifests = [];
+      state.ops.skillTriggerLogs = [];
+      state.ops.skillChangeLogs = [];
+      state.ops.contributionGateLogs = [];
+      state.ops.skillExternalPRSubmitRecords = [];
+      state.ops.coderTranscripts = [];
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshWorkstreamData() {
   fetch('/viewer/workstreams?limit=20')
     .then((r) => {
-      if (!r.ok) return {workstreams: [], goals: [], artifacts: [], annotations: [], steering: [], heartbeats: [], vault_updates: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.workstreamFetchError = '';
       state.ops.workstreams = Array.isArray(data.workstreams) ? data.workstreams : [];
       state.ops.workstreamGoals = Array.isArray(data.goals) ? data.goals : [];
       state.ops.workstreamArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
@@ -1458,16 +1658,32 @@ function refreshWorkstreamData() {
       state.ops.workstreamVaultUpdates = Array.isArray(data.vault_updates) ? data.vault_updates : [];
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.workstreamFetchError = String(err && err.message ? err.message : err);
+      state.ops.workstreams = [];
+      state.ops.workstreamGoals = [];
+      state.ops.workstreamArtifacts = [];
+      state.ops.workstreamAnnotations = [];
+      state.ops.workstreamSteering = [];
+      state.ops.workstreamHeartbeats = [];
+      state.ops.workstreamVaultUpdates = [];
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshRevenueData() {
   fetch('/viewer/revenue?limit=20')
     .then((r) => {
-      if (!r.ok) return {market_research: [], sns_post_metrics: [], products: [], customer_voices: [], revenue_events: [], human_decisions: [], daily_routine_reports: [], channel_drafts: [], summary: null};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.revenueFetchError = '';
       state.ops.revenueMarketResearch = Array.isArray(data.market_research) ? data.market_research : [];
       state.ops.revenueSNSPostMetrics = Array.isArray(data.sns_post_metrics) ? data.sns_post_metrics : [];
       state.ops.revenueProducts = Array.isArray(data.products) ? data.products : [];
@@ -1476,19 +1692,42 @@ function refreshRevenueData() {
       state.ops.revenueHumanDecisions = Array.isArray(data.human_decisions) ? data.human_decisions : [];
       state.ops.revenueDailyRoutineReports = Array.isArray(data.daily_routine_reports) ? data.daily_routine_reports : [];
       state.ops.revenueChannelDrafts = Array.isArray(data.channel_drafts) ? data.channel_drafts : [];
+      state.ops.revenueExternalSendApplyRecords = Array.isArray(data.external_send_apply_records) ? data.external_send_apply_records : [];
+      state.ops.revenueExternalChannelAdapter = String(data.external_channel_adapter || '');
+      state.ops.revenueExternalChannelAdapterConfigured = Boolean(data.external_channel_adapter_configured);
+      state.ops.revenueExternalSendHumanApprovalRequired = Boolean(data.human_approval_required_for_external_send);
       state.ops.revenueSummary = data && data.summary && typeof data.summary === 'object' ? data.summary : null;
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.revenueFetchError = String(err && err.message ? err.message : err);
+      state.ops.revenueMarketResearch = [];
+      state.ops.revenueSNSPostMetrics = [];
+      state.ops.revenueProducts = [];
+      state.ops.revenueCustomerVoices = [];
+      state.ops.revenueEvents = [];
+      state.ops.revenueHumanDecisions = [];
+      state.ops.revenueDailyRoutineReports = [];
+      state.ops.revenueChannelDrafts = [];
+      state.ops.revenueExternalSendApplyRecords = [];
+      state.ops.revenueSummary = null;
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshPersonaObservationData() {
   fetch('/viewer/persona-observation?limit=20')
     .then((r) => {
-      if (!r.ok) return {discomfort_logs: [], trigger_logs: [], canonical_response_logs: [], observation_logs: [], meta_profile_updates: [], interface_sessions: []};
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'persona observation unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.personaObservationFetchError = '';
       state.ops.personaDiscomfortLogs = Array.isArray(data.discomfort_logs) ? data.discomfort_logs : [];
       state.ops.personaTriggerLogs = Array.isArray(data.trigger_logs) ? data.trigger_logs : [];
       state.ops.personaCanonicalResponseLogs = Array.isArray(data.canonical_response_logs) ? data.canonical_response_logs : [];
@@ -1497,16 +1736,31 @@ function refreshPersonaObservationData() {
       state.ops.personaInterfaceSessions = Array.isArray(data.interface_sessions) ? data.interface_sessions : [];
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.personaObservationFetchError = String(err && err.message ? err.message : err);
+      state.ops.personaDiscomfortLogs = [];
+      state.ops.personaTriggerLogs = [];
+      state.ops.personaCanonicalResponseLogs = [];
+      state.ops.personaObservationLogs = [];
+      state.ops.personaMetaProfileUpdates = [];
+      state.ops.personaInterfaceSessions = [];
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshBrowserTraceAPIData() {
   fetch('/viewer/browser-trace-api?limit=20')
     .then((r) => {
-      if (!r.ok) return {trace_runs: [], api_candidates: [], api_schemas: [], coverage_reports: [], api_artifacts: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.browserTraceAPIFetchError = '';
       state.ops.browserTraceRuns = Array.isArray(data.trace_runs) ? data.trace_runs : [];
       state.ops.browserTraceAPICandidates = Array.isArray(data.api_candidates) ? data.api_candidates : [];
       state.ops.browserTraceAPISchemas = Array.isArray(data.api_schemas) ? data.api_schemas : [];
@@ -1514,62 +1768,150 @@ function refreshBrowserTraceAPIData() {
       state.ops.browserTraceAPIArtifacts = Array.isArray(data.api_artifacts) ? data.api_artifacts : [];
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.browserTraceAPIFetchError = String(err && err.message ? err.message : err);
+      state.ops.browserTraceRuns = [];
+      state.ops.browserTraceAPICandidates = [];
+      state.ops.browserTraceAPISchemas = [];
+      state.ops.browserTraceAPICoverageReports = [];
+      state.ops.browserTraceAPIArtifacts = [];
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshComplexityHotspotData() {
   fetch('/viewer/complexity-hotspots?limit=20')
     .then((r) => {
-      if (!r.ok) return {scans: [], hotspots: [], evidence: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.complexityFetchError = '';
       state.ops.complexityScans = Array.isArray(data.scans) ? data.scans : [];
       state.ops.complexityHotspots = Array.isArray(data.hotspots) ? data.hotspots : [];
       state.ops.complexityEvidence = Array.isArray(data.evidence) ? data.evidence : [];
+      state.ops.complexityReports = Array.isArray(data.reports) ? data.reports : [];
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.complexityFetchError = String(err && err.message ? err.message : err);
+      state.ops.complexityScans = [];
+      state.ops.complexityHotspots = [];
+      state.ops.complexityEvidence = [];
+      state.ops.complexityReports = [];
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshSuperAgentData() {
   fetch('/viewer/superagent?limit=20')
     .then((r) => {
-      if (!r.ok) return {agent_runs: [], subagent_tasks: [], context_packs: [], message_channels: [], trace_events: [], run_queue: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.superAgentFetchError = '';
       state.ops.superAgentRuns = Array.isArray(data.agent_runs) ? data.agent_runs : [];
       state.ops.superAgentSubagentTasks = Array.isArray(data.subagent_tasks) ? data.subagent_tasks : [];
       state.ops.superAgentContextPacks = Array.isArray(data.context_packs) ? data.context_packs : [];
       state.ops.superAgentMessageChannels = Array.isArray(data.message_channels) ? data.message_channels : [];
       state.ops.superAgentTraceEvents = Array.isArray(data.trace_events) ? data.trace_events : [];
       state.ops.superAgentRunQueue = Array.isArray(data.run_queue) ? data.run_queue : [];
+      state.ops.superAgentRuntimeConfig = data.runtime_config && typeof data.runtime_config === 'object' ? data.runtime_config : null;
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.superAgentFetchError = String(err && err.message ? err.message : err);
+      state.ops.superAgentRuns = [];
+      state.ops.superAgentSubagentTasks = [];
+      state.ops.superAgentContextPacks = [];
+      state.ops.superAgentMessageChannels = [];
+      state.ops.superAgentTraceEvents = [];
+      state.ops.superAgentRunQueue = [];
+      state.ops.superAgentRuntimeConfig = null;
+      renderOps();
+      console.error(err);
+    });
+}
+
+function refreshAIWorkflowData() {
+  fetch('/viewer/ai-workflow?limit=20')
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.aiWorkflowFetchError = '';
+      state.ops.aiWorkflowEvents = Array.isArray(data.workflow_events) ? data.workflow_events : [];
+      state.ops.aiWorkflowProjectMemoryIndexes = Array.isArray(data.project_memory_indexes) ? data.project_memory_indexes : [];
+      state.ops.aiWorkflowWorktreeRegistries = Array.isArray(data.worktree_registries) ? data.worktree_registries : [];
+      state.ops.aiWorkflowCommandRegistries = Array.isArray(data.command_registries) ? data.command_registries : [];
+      state.ops.aiWorkflowContextUsages = Array.isArray(data.context_usages) ? data.context_usages : [];
+      state.ops.aiWorkflowContextBudgetPolicy = data.context_budget_policy && typeof data.context_budget_policy === 'object' ? data.context_budget_policy : null;
+      renderOps();
+    })
+    .catch((err) => {
+      state.ops.aiWorkflowFetchError = String(err && err.message ? err.message : err);
+      state.ops.aiWorkflowEvents = [];
+      state.ops.aiWorkflowProjectMemoryIndexes = [];
+      state.ops.aiWorkflowWorktreeRegistries = [];
+      state.ops.aiWorkflowCommandRegistries = [];
+      state.ops.aiWorkflowContextUsages = [];
+      state.ops.aiWorkflowContextBudgetPolicy = null;
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshHeavyWorkerRuntimeDiagnostics() {
   fetch('/viewer/ai-workflow/heavy-worker/runtime-diagnostics', { cache: 'no-store' })
     .then((r) => {
-      if (!r.ok) return null;
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'heavy worker runtime diagnostics unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.heavyWorkerRuntimeDiagnosticsFetchError = '';
       state.ops.heavyWorkerRuntimeDiagnostics = data || null;
       renderOps();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.ops.heavyWorkerRuntimeDiagnosticsFetchError = String(err && err.message ? err.message : err);
+      state.ops.heavyWorkerRuntimeDiagnostics = null;
+      renderOps();
+      console.error(err);
+    });
 }
 
 function refreshKnowledgeMemoryData() {
   fetch('/viewer/knowledge-memory?limit=20')
     .then((r) => {
-      if (!r.ok) return {personal_archive: [], creative_knowledge: [], news_knowledge: [], daily_intake_rules: [], temporal_markers: [], dream_runs: []};
+      if (!r.ok) {
+        return r.text().then((body) => {
+          throw new Error('HTTP ' + r.status + (body ? ': ' + body.trim() : ''));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.ops.knowledgeMemoryFetchError = '';
       state.ops.knowledgePersonalArchive = Array.isArray(data.personal_archive) ? data.personal_archive : [];
       state.ops.knowledgeCreativeItems = Array.isArray(data.creative_knowledge) ? data.creative_knowledge : [];
       state.ops.knowledgeNewsItems = Array.isArray(data.news_knowledge) ? data.news_knowledge : [];
@@ -1578,16 +1920,63 @@ function refreshKnowledgeMemoryData() {
       state.ops.knowledgeDreamRuns = Array.isArray(data.dream_runs) ? data.dream_runs : [];
       renderOps();
     })
+    .catch((err) => {
+      state.ops.knowledgeMemoryFetchError = String(err && err.message ? err.message : err);
+      state.ops.knowledgePersonalArchive = [];
+      state.ops.knowledgeCreativeItems = [];
+      state.ops.knowledgeNewsItems = [];
+      state.ops.knowledgeDailyIntakeRules = [];
+      state.ops.knowledgeTemporalMarkers = [];
+      state.ops.knowledgeDreamRuns = [];
+      state.ops.knowledgeMemoryDetail = null;
+      renderOps();
+      console.error(err);
+    });
+}
+
+function refreshRuntimeBlockedRouteData() {
+  const routes = [
+    {label: 'Source Registry staging', path: '/viewer/source-registry?action=staging&limit=3'},
+    {label: 'Memory Layers', path: '/viewer/memory/layers'},
+    {label: 'Sandbox status', path: '/viewer/sandbox?limit=1'},
+    {label: 'LLM Ops status', path: '/viewer/llm-ops/status'},
+  ];
+  Promise.all(routes.map((route) => {
+    return fetch(route.path, {cache: 'no-store'})
+      .then((r) => r.text().then((body) => ({
+        label: route.label,
+        path: route.path,
+        status: r.status,
+        ok: r.ok,
+        body: body || '',
+      })))
+      .catch((err) => ({
+        label: route.label,
+        path: route.path,
+        status: 0,
+        ok: false,
+        body: String(err && err.message ? err.message : err),
+      }));
+  }))
+    .then((items) => {
+      state.ops.runtimeBlockedRoutes = items;
+      renderOps();
+    })
     .catch((err) => console.error(err));
 }
 
 function refreshEvidence() {
   fetch('/viewer/evidence/recent?limit=20')
     .then((r) => {
-      if (!r.ok) throw new Error('evidence fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'evidence unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.evidenceFetchError = '';
       state.evidence = Array.isArray(data.items) ? data.items : [];
       renderEvidence();
       renderDeskViews();
@@ -1608,51 +1997,90 @@ function refreshEvidence() {
         }
       }
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.evidenceFetchError = String(err && err.message ? err.message : err);
+      state.evidence = [];
+      state.pendingEvidenceJobID = '';
+      state.selectedEvidenceItem = null;
+      renderEvidence();
+      renderDeskViews();
+      console.error(err);
+    });
 }
 
 function refreshEvidenceSummary() {
   fetch('/viewer/evidence/summary')
     .then((r) => {
-      if (!r.ok) throw new Error('evidence summary fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'evidence summary unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.evidenceSummaryFetchError = '';
       state.evidenceSummary = data.summary || {status: {}, error_kind: {}};
       renderEvidenceSummary();
       renderDeskViews();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.evidenceSummaryFetchError = String(err && err.message ? err.message : err);
+      state.evidenceSummary = {status: {}, error_kind: {}};
+      renderEvidenceSummary();
+      renderDeskViews();
+      console.error(err);
+    });
 }
 
 function refreshVerification() {
   fetch('/viewer/verification/recent?limit=20')
     .then((r) => {
-      if (r.status === 404) return {items: []};
-      if (!r.ok) throw new Error('verification fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'verification unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.verificationFetchError = '';
       state.verificationReports = Array.isArray(data.items) ? data.items : [];
       renderEvidence();
       renderDeskViews();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.verificationFetchError = String(err && err.message ? err.message : err);
+      state.verificationReports = [];
+      renderEvidence();
+      renderDeskViews();
+      console.error(err);
+    });
 }
 
 function refreshVerificationSummary() {
   fetch('/viewer/verification/summary')
     .then((r) => {
-      if (r.status === 404) return {summary: {status: {}, trigger_level: {}}};
-      if (!r.ok) throw new Error('verification summary fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'verification summary unavailable'));
+        });
+      }
       return r.json();
     })
     .then((data) => {
+      state.verificationSummaryFetchError = '';
       state.verificationSummary = data.summary || {status: {}, trigger_level: {}};
       renderEvidenceSummary();
       renderDeskViews();
     })
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      state.verificationSummaryFetchError = String(err && err.message ? err.message : err);
+      state.verificationSummary = {status: {}, trigger_level: {}};
+      renderEvidenceSummary();
+      renderDeskViews();
+      console.error(err);
+    });
 }
 
 function openEvidence(jobID) {
@@ -1666,8 +2094,10 @@ function openEvidence(jobID) {
   fetch(detailURL + encodeURIComponent(jobID))
     .then((r) => {
       if (!r.ok) {
-        if (r.status === 404) throw new Error('evidence not found');
-        throw new Error('evidence detail fetch failed');
+        return r.text().then((text) => {
+          const fallback = r.status === 404 ? 'evidence not found' : 'evidence detail fetch failed';
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || fallback));
+        });
       }
       return r.json();
     })
@@ -1731,25 +2161,42 @@ function openEvidenceAdjacent(delta) {
 
 if (eviPrev) eviPrev.addEventListener('click', () => openEvidenceAdjacent(-1));
 if (eviNext) eviNext.addEventListener('click', () => openEvidenceAdjacent(1));
+
+function setEvidenceCopyFailure(btn, label, err) {
+  if (!btn) return;
+  const message = label + ' unavailable: ' + String(err && err.message ? err.message : err);
+  btn.textContent = message;
+  btn.title = message;
+  showToast(label + ' failed', 'error');
+}
+
 if (eviCopy) eviCopy.addEventListener('click', () => {
   if (!state.selectedEvidenceItem) return;
   const text = JSON.stringify(state.selectedEvidenceItem, null, 2);
-  navigator.clipboard.writeText(text).then(() => {
+  writeClipboardText(text).then(() => {
     const old = eviCopy.textContent;
     eviCopy.textContent = 'Copied';
+    eviCopy.title = '';
     showToast('Copied evidence JSON', 'success');
     setTimeout(() => { eviCopy.textContent = old; }, 1200);
-  }).catch((err) => console.error(err));
+  }).catch((err) => {
+    console.error(err);
+    setEvidenceCopyFailure(eviCopy, 'Evidence JSON copy', err);
+  });
 });
 if (eviCopySummary) eviCopySummary.addEventListener('click', () => {
   if (!state.selectedEvidenceItem) return;
   const summary = buildEvidenceSummary(state.selectedEvidenceItem);
-  navigator.clipboard.writeText(summary).then(() => {
+  writeClipboardText(summary).then(() => {
     const old = eviCopySummary.textContent;
     eviCopySummary.textContent = 'Copied';
+    eviCopySummary.title = '';
     showToast('Copied evidence summary', 'success');
     setTimeout(() => { eviCopySummary.textContent = old; }, 1200);
-  }).catch((err) => console.error(err));
+  }).catch((err) => {
+    console.error(err);
+    setEvidenceCopyFailure(eviCopySummary, 'Evidence summary copy', err);
+  });
 });
 
 function errorKindClass(kind) {
@@ -1901,15 +2348,22 @@ function initLiveMode() {
     switchTab('timeline');
     // ライブモードではIdleChat状態をポーリングしてトピックバーを更新
     setInterval(async () => {
+      const topicEl = document.getElementById('liveTopicText');
       try {
         const r = await fetch('/viewer/idlechat/status');
-        if (!r.ok) return;
+        if (!r.ok) {
+          const text = await r.text();
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'idlechat status unavailable'));
+        }
         const d = await r.json();
-        const topicEl = document.getElementById('liveTopicText');
         if (topicEl) {
           topicEl.textContent = d.current_topic || '-';
         }
-      } catch (_) {}
+      } catch (err) {
+        if (topicEl) {
+          topicEl.textContent = 'IdleChat status unavailable: ' + String(err && err.message ? err.message : err);
+        }
+      }
     }, 5000);
     return true;
   } catch (_) { return false; }
@@ -2010,11 +2464,34 @@ setInterval(degradeOfflineStates, 5000);
 function refreshViewerStatus() {
   fetch('/viewer/status')
     .then((r) => {
-      if (!r.ok) throw new Error('viewer status fetch failed');
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'viewer status unavailable'));
+        });
+      }
       return r.json();
     })
     .then((payload) => applyMonitorStatusSnapshot(payload))
-    .catch((err) => console.error(err));
+    .catch((err) => {
+      const message = String(err && err.message ? err.message : err);
+      state.viewerStatusFetchError = message;
+      AGENTS.forEach((id) => {
+        touchAgent(id, {
+          state: 'unavailable',
+          reason: 'viewer status unavailable: ' + message,
+          route: '-',
+          lastEvent: 'viewer status fetch failed',
+          peer: '-',
+          jobID: '-',
+          preview: 'viewer status unavailable',
+          updatedAt: new Date().toISOString(),
+        });
+      });
+      renderOverview();
+      renderRoleSelector();
+      renderProgress();
+      console.error(err);
+    });
 }
 
 function ingestEvent(ev) {
@@ -2269,6 +2746,7 @@ function createChatAudioSync() {
     state.audioEnabled = false;
     state.unlocked = false;
     state.blocked = false;
+    clearTTSAudioError();
     resetCurrentInternal();
     updateAudioButton();
     startTextFallbackInternal();
@@ -2289,11 +2767,13 @@ function createChatAudioSync() {
       audio.muted = false;
       state.unlocked = true;
       state.blocked = false;
+      clearTTSAudioError();
       updateAudioButton();
       playNextInternal();
     } catch (err) {
       state.unlocked = false;
       state.blocked = true;
+      setTTSAudioError(err);
       updateAudioButton();
       startTextFallbackInternal();
       console.error('tts audio unlock failed', err);
@@ -2430,6 +2910,7 @@ function createChatAudioSync() {
       state.audioEnabled = true;
       state.unlocked = true;
       state.blocked = false;
+      clearTTSAudioError();
       updateAudioButton();
     }).catch(function(err) {
       resetCurrentInternal();
@@ -2441,6 +2922,7 @@ function createChatAudioSync() {
         state.blocked = false;
         showFallbackChunkInternal(next);
       }
+      setTTSAudioError(err);
       console.error('tts audio play failed', err);
       updateAudioButton();
       if (state.blocked) startTextFallbackInternal();
@@ -2462,8 +2944,9 @@ function updateAudioButton() {
       btn.title = '音声はOFFです。タップしてON';
       btn.setAttribute('aria-label', '音声はOFFです。タップしてON');
     } else if (ttsPlayback.blocked) {
-      btn.title = '音声がブロックされています。タップして再許可';
-      btn.setAttribute('aria-label', '音声がブロックされています。タップして再許可');
+      const detail = ttsPlayback.audioError ? ' / ' + ttsPlayback.audioError : '';
+      btn.title = '音声がブロックされています。タップして再許可' + detail;
+      btn.setAttribute('aria-label', '音声がブロックされています。タップして再許可' + detail);
     } else if (ttsPlayback.unlocked) {
       btn.title = '音声は有効です';
       btn.setAttribute('aria-label', '音声は有効です');
@@ -2593,11 +3076,15 @@ if (attachInput) attachInput.addEventListener('change', () => addViewerAttachmen
 if (cameraInput) cameraInput.addEventListener('change', () => addViewerAttachments(cameraInput.files, cameraInput));
 
 function addViewerAttachments(files, input) {
+  state.viewerAttachmentError = '';
   Array.from(files || []).forEach((file) => {
     if (!viewerAttachmentAccepted(file)) {
+      const name = String(file && file.name ? file.name : 'attachment');
+      state.viewerAttachmentError = 'Attachment unavailable: unsupported file type: ' + name;
       showToast('未対応の添付形式です', 'error');
       return;
     }
+    state.viewerAttachmentError = '';
     viewerAttachments.push(file);
   });
   if (input) input.value = '';
@@ -2614,7 +3101,13 @@ function viewerAttachmentAccepted(file) {
 function renderAttachmentTray() {
   if (!attachmentTray) return;
   attachmentTray.innerHTML = '';
-  attachmentTray.classList.toggle('has-items', viewerAttachments.length > 0);
+  attachmentTray.classList.toggle('has-items', viewerAttachments.length > 0 || Boolean(state.viewerAttachmentError));
+  if (state.viewerAttachmentError) {
+    const err = document.createElement('span');
+    err.className = 'attachment-chip attachment-error';
+    err.textContent = state.viewerAttachmentError;
+    attachmentTray.appendChild(err);
+  }
   viewerAttachments.forEach((file, index) => {
     const chip = document.createElement('span');
     chip.className = 'attachment-chip';
@@ -2663,7 +3156,17 @@ function send() {
     renderAttachmentTray();
     autoResize();
   })
-  .catch((err) => console.error(err))
+  .catch((err) => {
+    const message = 'Viewer send unavailable: ' + String(err && err.message ? err.message : err);
+    addMsgToTimeline({
+      type: 'agent.response',
+      from: 'mio',
+      to: 'user',
+      timestamp: new Date().toISOString(),
+      content: message,
+    });
+    console.error(err);
+  })
   .finally(() => {
     sending = false;
     sendBtn.disabled = false;
@@ -2692,7 +3195,10 @@ async function sendViewerMessage(message, attachments = []) {
     };
   }
   const r = await fetch('/viewer/send', request);
-  if (!r.ok) throw new Error('send failed');
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'send failed'));
+  }
   return {ok: true};
 }
 
@@ -2822,9 +3328,11 @@ refreshRevenueData();
 refreshPersonaObservationData();
 refreshBrowserTraceAPIData();
 refreshComplexityHotspotData();
+refreshAIWorkflowData();
 refreshSuperAgentData();
 refreshHeavyWorkerRuntimeDiagnostics();
 refreshKnowledgeMemoryData();
+refreshRuntimeBlockedRouteData();
 refreshEvidence();
 refreshEvidenceSummary();
 refreshVerification();
@@ -2850,9 +3358,11 @@ setInterval(refreshRevenueData, 5000);
 setInterval(refreshPersonaObservationData, 5000);
 setInterval(refreshBrowserTraceAPIData, 5000);
 setInterval(refreshComplexityHotspotData, 5000);
+setInterval(refreshAIWorkflowData, 5000);
 setInterval(refreshSuperAgentData, 5000);
 setInterval(refreshHeavyWorkerRuntimeDiagnostics, 5000);
 setInterval(refreshKnowledgeMemoryData, 5000);
+setInterval(refreshRuntimeBlockedRouteData, 5000);
 setInterval(refreshEvidence, 5000);
 setInterval(refreshEvidenceSummary, 5000);
 setInterval(refreshVerification, 5000);
@@ -2891,6 +3401,7 @@ const sttState = {
   captureStartedAt: '',
   captureEndedAt: '',
   captureSessionID: '(unknown)',
+  captureActionError: '',
   voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`,
   runtimeConfigLoaded: false
 };
@@ -2931,7 +3442,8 @@ async function loadViewerRuntimeConfig() {
   try {
     const res = await fetch('/viewer/runtime-config', { cache: 'no-store' });
     if (!res.ok) {
-      syncLLMOpsPanel(null);
+      const text = await res.text();
+      syncLLMOpsPanel(null, 'HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'runtime config unavailable'));
       return;
     }
     const cfg = await res.json();
@@ -2940,10 +3452,29 @@ async function loadViewerRuntimeConfig() {
     }
     sttState.runtimeConfigLoaded = true;
     updateSTTInputIndicators();
-    syncLLMOpsPanel(cfg);
+    syncLLMOpsPanel(cfg, '');
+    loadViewerDebugSystemSnapshot();
   } catch (err) {
+    const message = String(err && err.message ? err.message : err);
     console.warn('[STT] runtime config unavailable:', err);
-    syncLLMOpsPanel(null);
+    syncLLMOpsPanel(null, message);
+  }
+}
+
+async function loadViewerDebugSystemSnapshot() {
+  if (typeof syncRuntimeDebugSystem !== 'function') return;
+  try {
+    const res = await fetch('/viewer/debug/system', { cache: 'no-store' });
+    if (!res.ok) {
+      const text = await res.text();
+      syncRuntimeDebugSystem(null, 'HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'debug system unavailable'));
+      return;
+    }
+    syncRuntimeDebugSystem(await res.json(), '');
+  } catch (err) {
+    const message = String(err && err.message ? err.message : err);
+    console.warn('[Runtime] debug system snapshot unavailable:', err);
+    syncRuntimeDebugSystem(null, message);
   }
 }
 
@@ -3000,11 +3531,19 @@ function buildSTTCaptureLogText() {
   return meta.concat(body).join('\n');
 }
 
+function describeSTTActionError(prefix, err) {
+  return prefix + ': ' + String(err && err.message ? err.message : err);
+}
+
 function copySTTCaptureLog() {
   const text = buildSTTCaptureLogText();
   writeClipboardText(text).then(() => {
+    sttState.captureActionError = '';
+    updateSTTInputIndicators();
     showToast('STTログをコピーしました', 'success');
   }).catch((err) => {
+    sttState.captureActionError = describeSTTActionError('STT log copy unavailable', err);
+    updateSTTInputIndicators();
     console.error('[STT] copy failed:', err);
     showToast('STTログコピー失敗', 'error');
   });
@@ -3040,8 +3579,12 @@ function copySTTSessionID() {
     return;
   }
   writeClipboardText(sid).then(() => {
+    sttState.captureActionError = '';
+    updateSTTInputIndicators();
     showToast('SessionIDをコピーしました', 'success');
   }).catch((err) => {
+    sttState.captureActionError = describeSTTActionError('STT session copy unavailable', err);
+    updateSTTInputIndicators();
     console.error('[STT] session_id copy failed:', err);
     showToast('SessionIDコピー失敗', 'error');
   });
@@ -3053,7 +3596,10 @@ async function persistSTTLogToServer(logText) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({content: logText}),
   });
-  if (!res.ok) throw new Error('stt log save failed');
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'stt log save failed'));
+  }
 }
 
 async function persistSTTWavToServer(wavBuffer) {
@@ -3062,7 +3608,10 @@ async function persistSTTWavToServer(wavBuffer) {
     headers: {'Content-Type': 'audio/wav'},
     body: wavBuffer,
   });
-  if (!res.ok) throw new Error('stt wav save failed');
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'stt wav save failed'));
+  }
 }
 
 async function runSTTAutoTest() {
@@ -3075,7 +3624,10 @@ async function runSTTAutoTest() {
       ws_wait: 8,
     }),
   });
-  if (!res.ok) throw new Error('stt autotest failed');
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'stt autotest failed'));
+  }
 }
 
 async function persistSTTArtifacts() {
@@ -3128,10 +3680,12 @@ function updateSTTInputIndicators() {
   }
   if (sttSessionStateEl) {
     const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
-    sttSessionStateEl.textContent = 'Session: ' + sid;
-    sttSessionStateEl.title = 'Session: ' + sid;
+    const actionError = String(sttState.captureActionError || '').trim();
+    const suffix = actionError ? ' / ' + actionError : '';
+    sttSessionStateEl.textContent = 'Session: ' + sid + suffix;
+    sttSessionStateEl.title = 'Session: ' + sid + suffix;
     if (debugSttSessionEl) {
-      debugSttSessionEl.textContent = 'Session: ' + sid;
+      debugSttSessionEl.textContent = 'Session: ' + sid + suffix;
     }
   }
 }
@@ -3159,6 +3713,7 @@ async function startSTT() {
     sttState.capturePCM = [];
     sttState.captureStartedAt = '';
     sttState.captureEndedAt = '';
+    sttState.captureActionError = '';
     sttState.streamReady = false;
     if (!sttState.runtimeConfigLoaded) {
       await loadViewerRuntimeConfig();
@@ -3197,6 +3752,8 @@ async function startSTT() {
     updateSTTInputIndicators();
     connectSTTWebSocket();
   } catch (err) {
+    sttState.captureActionError = describeSTTActionError('STT microphone start unavailable', err);
+    updateSTTInputIndicators();
     console.error('[STT] Failed:', err);
     showToast('マイクアクセス拒否', 'error');
     stopSTT();
@@ -3254,14 +3811,22 @@ function connectSTTWebSocket() {
         } else if (msg.type === 'empty') {
           console.log('[STT] Empty result');
         } else if (msg.type === 'error') {
+          sttState.captureActionError = describeSTTActionError('STT recognition unavailable', msg.error || 'unknown error');
+          updateSTTInputIndicators();
           console.error('[STT] Error:', msg.error);
           showToast('認識エラー', 'error');
         }
       } catch (err) {
+        sttState.captureActionError = describeSTTActionError('STT message parse unavailable', err);
+        updateSTTInputIndicators();
         console.error('[STT] Parse error:', err);
       }
   };
-  sttState.ws.onerror = () => {
+  sttState.ws.onerror = (event) => {
+    sttState.captureActionError = describeSTTActionError(
+      'STT websocket unavailable',
+      event && event.message ? event : 'connection error',
+    );
     updateSTTInputIndicators();
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
@@ -3407,6 +3972,8 @@ function stopSTT() {
   persistSTTArtifacts().then(() => {
     showToast('STTログ/WAVを tmp に保存しました', 'success');
   }).catch((err) => {
+    sttState.captureActionError = describeSTTActionError('STT artifact persistence unavailable', err);
+    updateSTTInputIndicators();
     console.error('[STT] persist failed:', err);
     showToast('STT保存または自動テストに失敗', 'error');
   });

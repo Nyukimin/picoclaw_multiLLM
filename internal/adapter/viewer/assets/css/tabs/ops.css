@@ -24,6 +24,7 @@
 .llm-runtime-card .ops-card-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .llm-runtime-model{font-size:16px;font-weight:800;color:var(--t1);line-height:1.25;word-break:break-word}
 .llm-runtime-url{font-size:11px;color:var(--t2);line-height:1.35;word-break:break-all;margin-top:4px}
+.runtime-readiness-badges{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .llm-memory-bar{height:10px;border:1px solid var(--border);border-radius:999px;background:rgba(74,222,128,.14);overflow:hidden;margin:8px 0 10px}
 .llm-memory-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--warn),var(--err));border-radius:999px;transition:width .2s}
 .llm-role-memory-list{display:flex;flex-direction:column;gap:8px;margin:10px 0}

@@ -11,7 +11,10 @@ class FakeElement {
     this.style = {};
     this.title = '';
     this.children = [];
+    this.dataset = {};
+    this.classList = {add() {}, remove() {}, toggle() {}};
   }
+  addEventListener() {}
   querySelector(selector) {
     if (selector !== 'span') return null;
     if (!this.children.length) this.children.push(new FakeElement('span'));
@@ -21,6 +24,9 @@ class FakeElement {
     this.children.push(child);
     this.innerHTML += child.innerHTML || child.textContent || '';
     return child;
+  }
+  querySelectorAll() {
+    return [];
   }
 }
 
@@ -83,9 +89,12 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="llmMemoryProcessLists"/);
   assert.match(html, /id="llmMemoryRoles"/);
   assert.match(html, /id="llmRuntimeConfigCards"/);
+  assert.match(html, /id="runtimeReadinessCards"/);
   assert.match(html, /id="llmOpsConfigState"/);
   assert.match(html, /id="toolHarnessBody"/);
   assert.match(html, /id="dciTraceBody"/);
+  assert.match(html, /id="sandboxGateLogBody"/);
+  assert.match(html, /id="sandboxGateLogResult"/);
   assert.match(html, /id="dciSearchInput"/);
   assert.match(html, /id="dciSearchBtn"/);
   assert.match(html, /id="dciSearchResult"/);
@@ -164,11 +173,14 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(opsJs, /function renderLocalLLMRuntimeConfig/);
   assert.match(opsJs, /function renderToolHarnessEvents/);
   assert.match(opsJs, /function toolHarnessOpsCard/);
+  assert.match(opsJs, /provider protocol recovery not verified/);
   assert.match(opsJs, /function renderDCITraces/);
   assert.match(opsJs, /function dciOpsCard/);
+  assert.match(opsJs, /VectorDB\/Qdrant E2E not verified/);
   assert.match(opsJs, /function bindDCISearchControls/);
   assert.match(opsJs, /\/viewer\/dci\/search/);
   assert.match(opsJs, /function renderSandboxStatus/);
+  assert.match(opsJs, /function renderSandboxGateLogs/);
   assert.match(opsJs, /function sandboxOpsCard/);
   assert.match(opsJs, /sandboxArtifacts/);
   assert.match(opsJs, /sandboxGateLogs/);
@@ -180,22 +192,44 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(viewer.includes('/viewer/sandbox/promotions/preview'));
   assert.match(opsJs, /function skillGovernanceOpsCard/);
   assert.match(opsJs, /skillManifests/);
+  assert.match(opsJs, /skillExternalPRSubmitRecords/);
+  assert.match(opsJs, /function renderSkillEvidenceAudits/);
+  assert.match(opsJs, /function renderSuperAgentTerminalAudits/);
+  assert.match(opsJs, /function renderSuperAgentResumeAudits/);
+  assert.match(opsJs, /function renderAIWorkflowRunEvidence/);
+  assert.match(opsJs, /scheduler normal completion not verified/);
+  assert.ok(viewer.includes('superAgentTerminalAuditBody'));
+  assert.ok(viewer.includes('SuperAgent Terminal Audits'));
+  assert.ok(viewer.includes('superAgentResumeAuditBody'));
+  assert.ok(viewer.includes('SuperAgent Resume Audits'));
+  assert.match(opsJs, /external PR adapter/);
+  assert.match(viewer, /skillExternalPRAdapterConfigured/);
   assert.match(opsJs, /coderTranscripts/);
   assert.match(opsJs, /skill_trigger_missed requires review/);
   assert.match(opsJs, /function workstreamOpsCard/);
+  assert.match(opsJs, /blocked: no vault apply/);
   assert.match(opsJs, /function latestWorkstreamVaultUpdates/);
   assert.match(opsJs, /function renderWorkstreamVaultReviews/);
+  assert.match(opsJs, /function workstreamVaultReviewSummary/);
+  assert.match(opsJs, /approved not applied/);
   assert.match(opsJs, /function reviewWorkstreamVaultUpdate/);
   assert.match(opsJs, /function formatWorkstreamVaultPreview/);
   assert.match(opsJs, /preview side-by-side/);
   assert.match(opsJs, /function revenueOpsCard/);
+  assert.match(opsJs, /external channel adapter/);
   assert.match(opsJs, /function latestPersonaMetaProfileUpdates/);
   assert.match(opsJs, /function renderPersonaMetaReviews/);
   assert.match(opsJs, /function reviewPersonaMetaUpdate/);
   assert.match(opsJs, /function complexityHotspotOpsCard/);
+  assert.match(opsJs, /function renderComplexityReviewArtifacts/);
+  assert.match(opsJs, /complexity review artifacts:/);
   assert.match(opsJs, /function superAgentOpsCard/);
   assert.match(opsJs, /function heavyWorkerRuntimeOpsCard/);
   assert.match(opsJs, /function knowledgeMemoryOpsCard/);
+  assert.match(opsJs, /blocked: empty ledger/);
+  assert.match(opsJs, /blocked: no memory promote verified/);
+  assert.match(opsJs, /blocked: no trace candidates/);
+  assert.match(opsJs, /blocked: no official API adoption/);
   assert.match(opsJs, /function fetchKnowledgeMemoryDetail/);
   assert.match(opsJs, /Knowledge Memory Detail/);
   assert.match(viewer, /refreshHeavyWorkerRuntimeDiagnostics/);
@@ -215,6 +249,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(opsCss, /\.ops-grid,\.llm-memory-grid,\.llm-memory-process-grid,\.llm-runtime-grid\{grid-template-columns:minmax\(0,1fr\)\}/);
   assert.match(viewer, /\/v1\/chat\/completions/);
   assert.match(viewer, /llm_ops_configured/);
+  assert.match(opsJs, /LLM Ops/);
+  assert.match(opsJs, /blocked: /);
   assert.match(viewer, /LLM_OPS_TOKEN missing/);
   assert.match(viewer, /memory\.system/);
   assert.match(viewer, /memory\.llm_by_role/);
@@ -253,6 +289,11 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(viewer.includes('/viewer/dci/recent'));
   assert.ok(viewer.includes('/viewer/sandbox'));
   assert.ok(viewer.includes('/viewer/skill-governance/recent'));
+  assert.ok(viewer.includes('Skill Governance External PR Submit Audits'));
+  assert.ok(viewer.includes('skillExternalPRAuditBody'));
+  assert.ok(viewer.includes('Skill Evidence Audits'));
+  assert.ok(viewer.includes('skillEvidenceAuditBody'));
+  assert.ok(viewer.includes('function renderSkillExternalPRAudits'));
   assert.ok(viewer.includes('missed triggers'));
   assert.ok(viewer.includes('coder_transcripts'));
   assert.ok(viewer.includes('/viewer/workstreams'));
@@ -275,11 +316,18 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(viewer.includes('product_sales'));
   assert.ok(viewer.includes('customer_voice_types'));
   assert.ok(viewer.includes('revenueChannelDrafts'));
+  assert.ok(viewer.includes('revenueExternalSendApplyRecords'));
+  assert.ok(viewer.includes('revenueExternalChannelAdapterConfigured'));
+  assert.ok(viewer.includes('external_send_apply_records'));
+  assert.ok(viewer.includes('external apply audits'));
   assert.ok(viewer.includes('channel_drafts'));
   assert.ok(viewer.includes('channel drafts'));
   assert.ok(viewer.includes('Revenue Channel Drafts'));
   assert.ok(viewer.includes('revenueChannelDraftBody'));
   assert.ok(viewer.includes('function renderRevenueChannelDrafts'));
+  assert.ok(viewer.includes('Revenue External Send Apply Audits'));
+  assert.ok(viewer.includes('revenueExternalSendAuditBody'));
+  assert.ok(viewer.includes('function renderRevenueExternalSendAudits'));
   assert.ok(viewer.includes('external_send_applied'));
   assert.ok(viewer.includes('draft only'));
   assert.ok(viewer.includes('Revenue Drilldown'));
@@ -310,11 +358,29 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(viewer.includes('fetcher proposals'));
   assert.ok(viewer.includes('/viewer/complexity-hotspots'));
   assert.ok(viewer.includes('complexityHotspots'));
+  assert.ok(viewer.includes('complexityReports'));
   assert.ok(viewer.includes('Complexity Hotspots'));
+  assert.ok(viewer.includes('complexityReviewArtifactBody'));
+  assert.ok(viewer.includes('Complexity Review Artifacts'));
+  assert.ok(opsJs.includes('blocked: no patch applied'));
+  assert.ok(viewer.includes('Runtime Blocked Route Audits'));
+  assert.ok(viewer.includes('runtimeBlockedRouteAuditBody'));
+  assert.ok(viewer.includes('runtimeBlockedRoutes'));
+  assert.ok(viewer.includes('function renderRuntimeBlockedRouteAudits'));
+  assert.ok(viewer.includes('function refreshRuntimeBlockedRouteData'));
+  assert.ok(viewer.includes('/viewer/ai-workflow'));
+  assert.ok(viewer.includes('aiWorkflowEvents'));
+  assert.ok(viewer.includes('aiWorkflowContextBudgetPolicy'));
+  assert.ok(viewer.includes('AI Workflow'));
+  assert.ok(viewer.includes('aiWorkflowRunEvidenceBody'));
+  assert.ok(viewer.includes('AI Workflow Run Evidence'));
+  assert.ok(opsJs.includes('context-budget:disabled'));
   assert.ok(viewer.includes('/viewer/superagent'));
   assert.ok(viewer.includes('superAgentRuns'));
   assert.ok(viewer.includes('superAgentRunQueue'));
+  assert.ok(viewer.includes('superAgentRuntimeConfig'));
   assert.ok(viewer.includes('SuperAgent Harness'));
+  assert.ok(opsJs.includes('scheduler:disabled'));
   assert.ok(opsJs.includes('run queue'));
   assert.ok(viewer.includes('/viewer/knowledge-memory'));
   assert.ok(viewer.includes('/viewer/knowledge-memory/review'));
@@ -332,6 +398,546 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.ok(viewer.includes('/viewer/memory/promote'));
   assert.ok(viewer.includes('target_kind'));
   assert.ok(viewer.includes('target_id'));
+});
+
+test('viewer renders memory layers fetch errors as visible state', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('memorySession').value = 'session-1';
+  get('memoryNamespace').value = 'kb:e2e';
+  get('memoryDomain').value = 'movie';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || ''); }
+const state = {memory: {layers: {l0: [{ID: 'old', Message: 'old memory', Layer: 'L0', CreatedAt: '2026-05-20T09:20:00Z'}]}}};
+const memorySession = document.getElementById('memorySession');
+const memoryNamespace = document.getElementById('memoryNamespace');
+const memoryDomain = document.getElementById('memoryDomain');
+` + sourceBetween(memoryJs, 'function renderMemoryLayers', 'function memoryEventNamespaceValue') + `
+globalThis.__refresh = refreshMemoryLayers;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    URLSearchParams,
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('invalid memory layers snapshot: l2 summary missing summary'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /session_id=session-1/);
+  assert.equal(get('memoryL0Count').textContent, '0');
+  assert.match(get('memoryLayerBody').innerHTML, /Memory Layers unavailable/);
+  assert.match(get('memoryLayerBody').innerHTML, /invalid memory layers snapshot: l2 summary missing summary/);
+  assert.equal(context.__state.memory.layers.l0.length, 0);
+});
+
+test('viewer renders news pack fetch errors as visible state', async () => {
+  const newsPackJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/news-pack.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('newsPackCategory').value = 'tech';
+  get('memoryCategory').value = '';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || ''); }
+function renderMemorySnapshot() {}
+function refreshRecallTraces() {}
+const state = {memory: {
+  snapshot: {
+    news: [{SourceID: 'stale_news', SummaryDraft: 'stale headline', Category: 'tech'}],
+    digests: [{DigestText: 'stale digest', Category: 'tech'}],
+  },
+  traces: [],
+  selectedNewsIndex: 0,
+  newsPackFetchError: '',
+}};
+const newsPackCategory = document.getElementById('newsPackCategory');
+const memoryCategory = document.getElementById('memoryCategory');
+` + newsPackJs + `
+globalThis.__refresh = refreshNewsPack;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    URLSearchParams,
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('invalid news snapshot: digest missing created_at'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /category=tech/);
+  assert.equal(get('memoryCategory').value, 'tech');
+  assert.equal(get('newsPackPanelCount').textContent, '0');
+  assert.equal(get('newsDigestPanelCount').textContent, '0');
+  assert.equal(get('newsUsageCount').textContent, '0');
+  assert.match(get('newsPackPanelBody').innerHTML, /News Pack unavailable: HTTP 500: invalid news snapshot: digest missing created_at/);
+  assert.match(get('newsDigestPanelBody').innerHTML, /News digests unavailable: HTTP 500: invalid news snapshot: digest missing created_at/);
+  assert.match(get('newsPackDetail').innerHTML, /News Pack unavailable: HTTP 500: invalid news snapshot: digest missing created_at/);
+  assert.doesNotMatch(get('newsPackPanelBody').innerHTML, /stale headline/);
+  assert.doesNotMatch(get('newsDigestPanelBody').innerHTML, /stale digest/);
+  assert.equal(context.__state.memory.snapshot.news.length, 0);
+  assert.equal(context.__state.memory.snapshot.digests.length, 0);
+});
+
+test('viewer renders complexity review-only blocked state in ops card', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function short(s) { return String(s || ''); }
+const state = {ops: {
+  complexityScans: [{scan_id: 'scan_1', status: 'completed'}],
+  complexityHotspots: [{hotspot_id: 'hot_1', scan_id: 'scan_1', hotspot_type: 'nested_loop', risk_level: 'medium'}],
+  complexityEvidence: [{evidence_id: 'ev_1', hotspot_id: 'hot_1'}],
+  complexityReports: [
+    {artifact_id: 'art_report', artifact_type: 'complexity_hotspot_report', status: 'generated'},
+    {artifact_id: 'art_diff', artifact_type: 'complexity_concrete_diff_proposal', status: 'pending_review'},
+  ],
+}};
+` + sourceBetween(opsJs, 'function sandboxField', 'function superAgentOpsCard') + `
+globalThis.__card = complexityHotspotOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'Complexity Hotspots');
+  assert.match(context.__card.sub, /reports: 2 pending-review: 1/);
+  assert.match(context.__card.sub, /mode: review-only/);
+  assert.match(context.__card.sub, /blocked: no patch applied/);
+});
+
+test('viewer renders complexity review artifact patch boundary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  complexityReports: [{
+    artifact_id: 'art_diff_1',
+    artifact_type: 'complexity_concrete_diff_proposal',
+    status: 'pending_review',
+    content: 'Patch applied: false\\nHuman approval required: true',
+  }],
+}};
+` + sourceBetween(opsJs, 'function renderComplexityReviewArtifacts', 'function workstreamOpsCard') + `
+renderComplexityReviewArtifacts();
+globalThis.__complexityArtifacts = document.getElementById('complexityReviewArtifactBody').innerHTML;
+globalThis.__complexityArtifactResult = document.getElementById('complexityReviewArtifactResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__complexityArtifacts, /art_diff_1/);
+  assert.match(context.__complexityArtifacts, /complexity_concrete_diff_proposal/);
+  assert.match(context.__complexityArtifacts, /pending_review/);
+  assert.match(context.__complexityArtifacts, /not applied/);
+  assert.match(context.__complexityArtifacts, /required/);
+  assert.match(context.__complexityArtifactResult, /1 total \/ 1 pending-review \/ 0 failed \/ 0 patch applied \/ 1 human approval required/);
+  assert.match(context.__complexityArtifactResult, /mode: review-only blocked: no patch applied/);
+});
+
+test('viewer renders complexity coder diff failure audit boundary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  complexityReports: [{
+    artifact_id: 'art_fail_1',
+    artifact_type: 'complexity_coder_diff_failure',
+    status: 'failed',
+    content: 'Failure reason: timeout\\nPatch applied: false\\nHuman approval required: true',
+  }],
+}};
+` + sourceBetween(opsJs, 'function renderComplexityReviewArtifacts', 'function workstreamOpsCard') + `
+renderComplexityReviewArtifacts();
+globalThis.__complexityArtifacts = document.getElementById('complexityReviewArtifactBody').innerHTML;
+globalThis.__complexityArtifactResult = document.getElementById('complexityReviewArtifactResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__complexityArtifacts, /art_fail_1/);
+  assert.match(context.__complexityArtifacts, /complexity_coder_diff_failure/);
+  assert.match(context.__complexityArtifacts, /failed/);
+  assert.match(context.__complexityArtifacts, /not applied/);
+  assert.match(context.__complexityArtifactResult, /1 total \/ 0 pending-review \/ 1 failed \/ 0 patch applied \/ 1 human approval required/);
+  assert.match(context.__complexityArtifactResult, /mode: review-only blocked: no patch applied/);
+});
+
+test('viewer renders complexity fetch errors as visible patch apply state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  complexityFetchError: 'HTTP 500: complexity store unavailable',
+  complexityScans: [{scan_id: 'stale_scan'}],
+  complexityHotspots: [{hotspot_id: 'stale_hotspot'}],
+  complexityEvidence: [],
+  complexityReports: [{
+    artifact_id: 'stale_patch',
+    artifact_type: 'complexity_concrete_diff_proposal',
+    status: 'pending_review',
+    content: 'Patch applied: true\\nHuman approval required: false',
+  }],
+}};
+` + sourceBetween(opsJs, 'function renderComplexityReviewArtifacts', 'function workstreamOpsCard') + `
+` + sourceBetween(opsJs, 'function complexityHotspotOpsCard', 'function superAgentOpsCard') + `
+globalThis.__card = complexityHotspotOpsCard();
+renderComplexityReviewArtifacts();
+globalThis.__complexityArtifacts = document.getElementById('complexityReviewArtifactBody').innerHTML;
+globalThis.__complexityArtifactResult = document.getElementById('complexityReviewArtifactResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /complexity hotspot status unavailable: HTTP 500: complexity store unavailable/);
+  assert.match(context.__card.sub, /blocked: patch apply state unreadable/);
+  assert.match(context.__complexityArtifacts, /Complexity review artifacts unavailable: HTTP 500: complexity store unavailable/);
+  assert.doesNotMatch(context.__complexityArtifacts, /stale_patch/);
+  assert.match(context.__complexityArtifactResult, /complexity review artifacts unavailable: HTTP 500: complexity store unavailable/);
+  assert.match(context.__complexityArtifactResult, /blocked: patch apply state unreadable/);
+});
+
+test('viewer renders browser trace api fetch errors as visible official adoption state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function short(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  browserTraceAPIFetchError: 'HTTP 500: browser trace store unavailable',
+  browserTraceRuns: [{trace_run_id: 'stale_trace'}],
+  browserTraceAPICandidates: [{candidate_id: 'stale_candidate', path_template: '/stale'}],
+  browserTraceAPISchemas: [{schema_id: 'stale_schema'}],
+  browserTraceAPICoverageReports: [],
+  browserTraceAPIArtifacts: [{artifact_id: 'stale_fetcher', artifact_type: 'fetcher_proposal'}],
+}};
+` + sourceBetween(opsJs, 'function browserTraceAPIOpsCard', 'async function requestBrowserTraceAPIFetcherProposal') + `
+globalThis.__card = browserTraceAPIOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'Browser Trace API');
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /browser trace api status unavailable: HTTP 500: browser trace store unavailable/);
+  assert.match(context.__card.sub, /blocked: official API adoption state unreadable/);
+  assert.match(context.__card.sub, /blocked: fetcher implementation state unreadable/);
+  assert.doesNotMatch(context.__card.sub, /stale_trace/);
+  assert.doesNotMatch(context.__card.sub, /fetcher proposals: 1/);
+});
+
+test('viewer renders knowledge memory fetch errors as visible promote sync state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  knowledgeMemoryFetchError: 'HTTP 500: knowledge memory store unavailable',
+  knowledgePersonalArchive: [],
+  knowledgeCreativeItems: [],
+  knowledgeNewsItems: [{news_id: 'stale_news', title: 'stale promoted news', status: 'promoted'}],
+  knowledgeDailyIntakeRules: [{rule_id: 'stale_rule', status: 'enabled'}],
+  knowledgeTemporalMarkers: [],
+  knowledgeDreamRuns: [],
+}};
+` + sourceBetween(opsJs, 'function knowledgeMemoryOpsCard', 'function runtimeBlockedRoutesOpsCard') + `
+globalThis.__card = knowledgeMemoryOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'Knowledge Memory');
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /knowledge memory status unavailable: HTTP 500: knowledge memory store unavailable/);
+  assert.match(context.__card.sub, /blocked: memory promote state unreadable/);
+  assert.match(context.__card.sub, /blocked: source registry sync state unreadable/);
+  assert.doesNotMatch(context.__card.sub, /stale promoted news/);
+  assert.doesNotMatch(context.__card.sub, /daily intake: 1/);
+});
+
+test('viewer renders superagent scheduler blocked state in ops card', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function short(s) { return String(s || ''); }
+const state = {ops: {
+  superAgentRuns: [],
+  superAgentSubagentTasks: [],
+  superAgentContextPacks: [],
+  superAgentMessageChannels: [],
+  superAgentTraceEvents: [],
+  superAgentRunQueue: [{queue_id: 'rq_1', status: 'queued'}],
+  superAgentRuntimeConfig: {
+    run_queue_scheduler_enabled: false,
+    run_queue_scheduler_interval_sec: 60,
+    run_queue_scheduler_claim_limit: 1,
+  },
+}};
+` + sourceBetween(opsJs, 'function sandboxField', 'function heavyWorkerRuntimeOpsCard') + `
+globalThis.__card = superAgentOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'SuperAgent Harness');
+  assert.match(context.__card.sub, /run queue: 1 queued: 1/);
+  assert.match(context.__card.sub, /scheduler:disabled/);
+  assert.match(context.__card.sub, /blocked: scheduler disabled/);
+});
+
+test('viewer renders ai workflow context budget blocked state in ops card', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function short(s) { return String(s || ''); }
+const state = {ops: {
+  aiWorkflowEvents: [{event_id: 'evt_1', event_type: 'command_invoked', status: 'requested'}],
+  aiWorkflowProjectMemoryIndexes: [],
+  aiWorkflowWorktreeRegistries: [],
+  aiWorkflowCommandRegistries: [{command_name: '/tool-harness-check'}],
+  aiWorkflowContextUsages: [{event_id: 'ctx_1', agent: 'chat', context_tokens: 100}],
+  aiWorkflowContextBudgetPolicy: {
+    max_context_tokens: 0,
+    warn_at_ratio: 0.8,
+    stop_at_ratio: 0.95,
+  },
+}};
+` + sourceBetween(opsJs, 'function sandboxField', 'function heavyWorkerRuntimeOpsCard') + `
+globalThis.__card = aiWorkflowOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'AI Workflow');
+  assert.match(context.__card.sub, /commands: 1/);
+  assert.match(context.__card.sub, /context usage: 1/);
+  assert.match(context.__card.sub, /context-budget:disabled/);
+  assert.match(context.__card.sub, /blocked: context budget disabled/);
+});
+
+test('viewer renders workstream review-only blocked state in ops card', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function short(s) { return String(s || ''); }
+function latestWorkstreamVaultUpdates(items) { return items || []; }
+const state = {ops: {
+  workstreams: [],
+  workstreamGoals: [{goal_id: 'goal_1', workstream_id: 'ws_1', title: 'Review diff', status: 'waiting'}],
+  workstreamArtifacts: [{artifact_id: 'art_1', workstream_id: 'ws_1', artifact_type: 'complexity_concrete_diff_review', status: 'pending_review'}],
+  workstreamAnnotations: [],
+  workstreamSteering: [],
+  workstreamHeartbeats: [],
+  workstreamVaultUpdates: [],
+}};
+` + sourceBetween(opsJs, 'function sandboxField', 'function skillGovernanceOpsCard') +
+sourceBetween(opsJs, 'function workstreamOpsCard', 'function latestWorkstreamVaultUpdates') + `
+globalThis.__card = workstreamOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'Workstreams');
+  assert.match(context.__card.sub, /waiting goals: 1/);
+  assert.match(context.__card.sub, /pending-review: 1/);
+  assert.match(context.__card.sub, /mode: review-only/);
+  assert.match(context.__card.sub, /blocked: no vault apply/);
+});
+
+test('viewer renders workstream vault review applied boundary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+const state = {ops: {
+  workstreamVaultUpdates: [
+    {update_id: 'vu_1', file_path: 'vault/a.md', review_status: 'pending', proposed_content: 'draft text', applied: false},
+  ],
+}};
+function escAttr(s) { return String(s || ''); }
+function ftime(s) { return String(s || ''); }
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function stateClass(s) { return 'state-' + String(s || ''); }
+` +
+sourceBetween(opsJs, 'function sandboxField', 'function skillGovernanceOpsCard') +
+sourceBetween(opsJs, 'function latestWorkstreamVaultUpdates', 'function formatWorkstreamVaultPreview') + `
+globalThis.__summary = workstreamVaultReviewSummary();
+renderWorkstreamVaultReviews();
+globalThis.__body = document.getElementById('workstreamVaultReviewBody').innerHTML;
+globalThis.__result = document.getElementById('workstreamVaultReviewResult').textContent;
+`;
+  const context = vm.createContext({document, encodeURIComponent, JSON});
+  vm.runInContext(source, context);
+
+  assert.match(context.__summary, /1 total \/ 1 pending \/ 0 approved \/ 0 rejected \/ 0 applied/);
+  assert.match(context.__summary, /blocked: no vault apply/);
+  assert.match(context.__body, /vu_1/);
+  assert.match(context.__body, /not applied/);
+  assert.match(context.__body, /vault\/a\.md/);
+  assert.match(context.__result, /workstream vault review:/);
+  assert.match(context.__result, /blocked: no vault apply/);
+});
+
+test('viewer renders workstream fetch errors as visible vault apply state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+const state = {ops: {
+  workstreamFetchError: 'HTTP 500: workstream store unavailable',
+  workstreams: [{name: 'stale ws'}],
+  workstreamGoals: [],
+  workstreamArtifacts: [],
+  workstreamAnnotations: [],
+  workstreamSteering: [],
+  workstreamHeartbeats: [],
+  workstreamVaultUpdates: [
+    {update_id: 'stale_vault', file_path: 'vault/stale.md', review_status: 'approved', proposed_content: 'old', applied: true, applied_path: 'vault/stale.md'},
+  ],
+}};
+function escAttr(s) { return String(s || ''); }
+function ftime(s) { return String(s || ''); }
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function stateClass(s) { return 'state-' + String(s || ''); }
+` +
+sourceBetween(opsJs, 'function sandboxField', 'function skillGovernanceOpsCard') +
+sourceBetween(opsJs, 'function workstreamOpsCard', 'function formatWorkstreamVaultPreview') + `
+globalThis.__card = workstreamOpsCard();
+renderWorkstreamVaultReviews();
+globalThis.__body = document.getElementById('workstreamVaultReviewBody').innerHTML;
+globalThis.__result = document.getElementById('workstreamVaultReviewResult').textContent;
+`;
+  const context = vm.createContext({document, encodeURIComponent, JSON});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /workstream status unavailable: HTTP 500: workstream store unavailable/);
+  assert.match(context.__card.sub, /blocked: vault apply state unreadable/);
+  assert.match(context.__body, /Workstream vault reviews unavailable: HTTP 500: workstream store unavailable/);
+  assert.doesNotMatch(context.__body, /stale_vault/);
+  assert.match(context.__result, /workstream vault review unavailable: HTTP 500: workstream store unavailable/);
+  assert.match(context.__result, /blocked: vault apply state unreadable/);
 });
 
 test('viewer renders expanded llm ops memory fields', () => {
@@ -468,6 +1074,137 @@ globalThis.__dream = document.getElementById('knowledgeDreamCount').textContent;
   assert.match(context.__detail, /stg_personal/);
 });
 
+test('viewer renders knowledge memory ledger fetch errors as visible state', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  knowledgeMemory: {
+    personal_archive: [{entry_id: 'stale_personal', title: 'stale personal'}],
+    creative_knowledge: [{item_id: 'stale_creative', title: 'stale creative'}],
+    news_knowledge: [{item_id: 'stale_news', topic: 'stale news'}],
+    daily_intake_rules: [{rule_id: 'stale_rule', title: 'stale rule'}],
+    temporal_markers: [{marker_id: 'stale_marker', summary: 'stale marker'}],
+    dream_runs: [{run_id: 'stale_dream', topic: 'stale dream'}],
+  },
+  sourceRegistryStaging: [],
+  knowledgeMemoryFetchError: '',
+  knowledgeMemoryDetail: null,
+}};
+` + sourceBetween(memoryJs, 'function knowledgeMemoryID', 'function refreshMemoryEvents') + `
+globalThis.__refreshKnowledgeMemoryLedger = refreshKnowledgeMemoryLedger;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('invalid knowledge memory ledger'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshKnowledgeMemoryLedger();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /\/viewer\/knowledge-memory\?limit=20/);
+  assert.equal(get('knowledgePersonalCount').textContent, '0');
+  assert.equal(get('knowledgeSourceCount').textContent, '0');
+  assert.equal(get('knowledgeDreamCount').textContent, '0');
+  assert.match(get('knowledgeMemoryBody').innerHTML, /Knowledge memory ledger unavailable: HTTP 500: invalid knowledge memory ledger/);
+  assert.match(get('knowledgeMemoryDetail').innerHTML, /HTTP 500: invalid knowledge memory ledger/);
+  assert.doesNotMatch(get('knowledgeMemoryBody').innerHTML, /stale_personal/);
+  assert.doesNotMatch(get('knowledgeMemoryBody').innerHTML, /stale_creative/);
+  assert.doesNotMatch(get('knowledgeMemoryBody').innerHTML, /stale_dream/);
+  assert.equal(context.__state.memory.knowledgeMemory.personal_archive.length, 0);
+  assert.equal(context.__state.memory.knowledgeMemory.creative_knowledge.length, 0);
+  assert.equal(context.__state.memory.knowledgeMemory.news_knowledge.length, 0);
+  assert.equal(context.__state.memory.knowledgeMemory.daily_intake_rules.length, 0);
+  assert.equal(context.__state.memory.knowledgeMemory.temporal_markers.length, 0);
+  assert.equal(context.__state.memory.knowledgeMemory.dream_runs.length, 0);
+});
+
+test('viewer renders memory tab knowledge detail fetch errors as visible state', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  knowledgeMemory: {
+    personal_archive: [],
+    creative_knowledge: [],
+    news_knowledge: [{item_id: 'news_1', topic: 'visible news'}],
+    daily_intake_rules: [],
+    temporal_markers: [],
+    dream_runs: [],
+  },
+  sourceRegistryStaging: [],
+  knowledgeMemoryFetchError: '',
+  knowledgeMemoryDetail: {detail_type: 'news_knowledge', id: 'stale_news', item: {topic: 'stale detail'}},
+}};
+` + sourceBetween(memoryJs, 'function knowledgeMemoryID', 'function refreshMemoryEvents') + `
+globalThis.__fetchMemoryKnowledgeDetail = fetchMemoryKnowledgeDetail;
+globalThis.__state = state;
+renderKnowledgeMemoryDetail();
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: () => Promise.resolve('knowledge detail store unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__fetchMemoryKnowledgeDetail('news_knowledge', 'news_1');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /detail_type=news_knowledge/);
+  assert.match(requested[0], /id=news_1/);
+  assert.match(get('knowledgeMemoryDetail').innerHTML, /HTTP 500: knowledge detail store unavailable/);
+  assert.doesNotMatch(get('knowledgeMemoryDetail').innerHTML, /stale_news/);
+  assert.doesNotMatch(get('knowledgeMemoryDetail').innerHTML, /stale detail/);
+  assert.equal(context.__state.memory.knowledgeMemoryDetail.error, 'HTTP 500: knowledge detail store unavailable');
+  assert.equal(context.__state.memory.knowledgeMemoryDetail.detail_type, 'news_knowledge');
+  assert.equal(context.__state.memory.knowledgeMemoryDetail.id, 'news_1');
+});
+
 test('viewer renders source registry staging related knowledge column', () => {
   const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
   const elements = new Map();
@@ -505,6 +1242,614 @@ globalThis.__body = document.getElementById('sourceRegistryStagingBody').innerHT
   assert.match(context.__body, /news_knowledge:news_1/);
 });
 
+test('viewer renders source registry fetch errors as visible state', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('sourceRegistryStagingStatus').value = 'pending';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  sourceRegistry: [{source_id: 'stale_source', kind: 'rss', url: 'https://example.com/stale'}],
+  sourceRegistryStaging: [{id: 'stale_staging', validation_status: 'pending', summary_draft: 'stale staging'}],
+  knowledgeMemory: {},
+  sourceRegistryFetchError: '',
+  sourceRegistryStagingFetchError: '',
+}};
+` + sourceBetween(memoryJs, 'function renderSourceRegistry', 'function saveSourceRegistryEntry') + `
+globalThis.__refreshSourceRegistry = refreshSourceRegistry;
+globalThis.__refreshSourceRegistryStaging = refreshSourceRegistryStaging;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      if (String(url).includes('action=staging')) {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          text: () => Promise.resolve('source registry staging unavailable'),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('source registry unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshSourceRegistry();
+  context.__refreshSourceRegistryStaging();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requested.filter((url) => String(url).includes('/viewer/source-registry')).length, 2);
+  assert.match(get('sourceRegistryBody').innerHTML, /Source Registry unavailable: HTTP 503: source registry unavailable/);
+  assert.match(get('sourceRegistryStagingBody').innerHTML, /Source Registry staging unavailable: HTTP 503: source registry staging unavailable/);
+  assert.match(get('sourceRegistryStagingStatusLine').innerHTML, /staging unavailable: HTTP 503: source registry staging unavailable/);
+  assert.doesNotMatch(get('sourceRegistryBody').innerHTML, /stale_source/);
+  assert.doesNotMatch(get('sourceRegistryStagingBody').innerHTML, /stale_staging/);
+  assert.equal(context.__state.memory.sourceRegistry.length, 0);
+  assert.equal(context.__state.memory.sourceRegistryStaging.length, 0);
+});
+
+test('viewer renders source registry action errors with response body', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('sourceRegistryStagingTrust').value = '0.8';
+  get('sourceRegistryStagingCategory').value = 'tech';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  sourceRegistry: [],
+  sourceRegistryStaging: [{id: 'stg_1', validation_status: 'pending', summary_draft: 'candidate'}],
+  knowledgeMemory: {},
+  sourceRegistryLastRun: null,
+}};
+` + sourceBetween(memoryJs, 'function renderSourceRegistry', 'function saveSourceRegistryEntry') + `
+globalThis.__validateSourceRegistryStaging = validateSourceRegistryStaging;
+globalThis.__promoteSourceRegistryStaging = promoteSourceRegistryStaging;
+globalThis.__runSourceRegistryEntry = runSourceRegistryEntry;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(String(url));
+      const raw = String(url);
+      if (raw.includes('action=validate')) {
+        return Promise.resolve({
+          ok: false,
+          status: 422,
+          statusText: 'Unprocessable Entity',
+          text: () => Promise.resolve('validation issues present'),
+        });
+      }
+      if (raw.includes('action=promote')) {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          statusText: 'Conflict',
+          text: () => Promise.resolve('promotion target mismatch'),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        text: () => Promise.resolve('source registry runtime unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+
+  context.__validateSourceRegistryStaging('stg_1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryStagingStatusLine').innerHTML, /HTTP 422: validation issues present/);
+  assert.doesNotMatch(get('sourceRegistryStagingStatusLine').innerHTML, /source registry staging validation failed/);
+
+  context.__promoteSourceRegistryStaging('stg_1', 'news');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryStagingStatusLine').innerHTML, /HTTP 409: promotion target mismatch/);
+  assert.doesNotMatch(get('sourceRegistryStagingStatusLine').innerHTML, /source registry staging promotion failed/);
+
+  context.__runSourceRegistryEntry('src_1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryRunStatus').innerHTML, /Source Registry run unavailable: HTTP 503: source registry runtime unavailable/);
+  assert.equal(context.__state.memory.sourceRegistryLastRun.error, 'HTTP 503: source registry runtime unavailable');
+  assert.deepEqual(requested, [
+    '/viewer/source-registry?action=validate',
+    '/viewer/source-registry?action=promote',
+    '/viewer/source-registry?action=run&source_id=src_1',
+  ]);
+});
+
+test('viewer renders source registry yaml action errors with response body', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('sourceRegistryID').value = 'src_1';
+  get('sourceRegistryURL').value = 'https://example.com/feed.xml';
+  get('sourceRegistryKind').value = 'rss';
+  get('sourceRegistryTrust').value = '0.9';
+  get('sourceRegistryInterval').value = '3600';
+  get('sourceRegistryLicense').value = 'manual';
+  get('sourceRegistryNamespace').value = 'kb:test';
+  get('sourceRegistryEnabled').checked = true;
+  get('sourceRegistryYAML').value = 'sources:\n- id: src_1\n';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const sourceRegistryYAML = document.getElementById('sourceRegistryYAML');
+const state = {memory: {
+  sourceRegistry: [],
+  sourceRegistryStaging: [],
+  knowledgeMemory: {},
+  sourceRegistryLastRun: null,
+}};
+` + sourceBetween(memoryJs, 'function renderSourceRegistry', 'function refreshMemorySnapshot') + `
+globalThis.__saveSourceRegistryEntry = saveSourceRegistryEntry;
+globalThis.__exportSourceRegistryYAML = exportSourceRegistryYAML;
+globalThis.__importSourceRegistryYAML = importSourceRegistryYAML;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url, options = {}) {
+      requested.push({url: String(url), method: String(options.method || 'GET')});
+      const raw = String(url);
+      if (raw.includes('format=yaml') && String(options.method || 'GET') === 'POST') {
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          statusText: 'Bad Request',
+          text: () => Promise.resolve('invalid source registry yaml'),
+        });
+      }
+      if (raw.includes('format=yaml')) {
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+          statusText: 'Bad Gateway',
+          text: () => Promise.resolve('source registry export unavailable'),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        text: () => Promise.resolve('source registry save unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+
+  context.__saveSourceRegistryEntry();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryRunStatus').innerHTML, /Source Registry save unavailable: HTTP 503: source registry save unavailable/);
+  assert.doesNotMatch(get('sourceRegistryRunStatus').innerHTML, /source registry save failed/);
+
+  context.__exportSourceRegistryYAML();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryRunStatus').innerHTML, /Source Registry export unavailable: HTTP 502: source registry export unavailable/);
+  assert.doesNotMatch(get('sourceRegistryRunStatus').innerHTML, /source registry export failed/);
+
+  context.__importSourceRegistryYAML();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryRunStatus').innerHTML, /Source Registry import unavailable: HTTP 400: invalid source registry yaml/);
+  assert.doesNotMatch(get('sourceRegistryRunStatus').innerHTML, /source registry import failed/);
+  assert.deepEqual(requested, [
+    {url: '/viewer/source-registry', method: 'POST'},
+    {url: '/viewer/source-registry?format=yaml', method: 'GET'},
+    {url: '/viewer/source-registry?format=yaml', method: 'POST'},
+  ]);
+});
+
+test('viewer renders ops logs fetch errors as visible state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+function agName(s) { return String(s || '-'); }
+function bindDCISearchControls() {}
+function renderKnowledgeMemoryDetailFocus() {}
+const stubCard = () => ({title: 'stub', big: '-', sub: '-'});
+const toolHarnessOpsCard = stubCard;
+const dciOpsCard = stubCard;
+const sandboxOpsCard = stubCard;
+const skillGovernanceOpsCard = stubCard;
+const workstreamOpsCard = stubCard;
+const revenueOpsCard = stubCard;
+const personaObservationOpsCard = stubCard;
+const browserTraceAPIOpsCard = stubCard;
+const complexityHotspotOpsCard = stubCard;
+const aiWorkflowOpsCard = stubCard;
+const superAgentOpsCard = stubCard;
+const heavyWorkerRuntimeOpsCard = stubCard;
+const knowledgeMemoryOpsCard = stubCard;
+const runtimeBlockedRoutesOpsCard = stubCard;
+const AGENTS = ['mio', 'shiro'];
+const state = {
+  jobs: {},
+  agents: {mio: {state: 'idle', jobID: 'stale_mio_job'}, shiro: {state: 'offline', jobID: 'stale_worker_job'}},
+  ops: {
+    persistedLogs: [
+      {type: 'agent.response', from: 'mio', to: 'user', job_id: 'stale_job', route: 'CHAT', content: 'stale persisted report', timestamp: '2026-05-20T00:00:00Z'},
+      {type: 'agent.error', job_id: 'stale_error_job', route: 'CODE', content: 'stale error', timestamp: '2026-05-20T00:00:01Z'},
+    ],
+    opsLogsFetchError: '',
+    lastMioReport: {type: 'agent.response', from: 'mio', to: 'user', job_id: 'stale_job', content: 'stale mio report', timestamp: '2026-05-20T00:00:00Z'},
+    latestJobID: 'stale_job',
+    latestRoute: 'CHAT',
+    latestError: {type: 'agent.error', job_id: 'stale_error_job', content: 'stale error'},
+  },
+};
+` + sourceBetween(opsJs, 'function latestOpsEventBy', 'function toolHarnessField') + `
+function renderDeskViews() { globalThis.__deskRendered = true; }
+` + sourceBetween(viewerJs, 'function refreshOpsData', 'function refreshToolHarnessData') + `
+globalThis.__refreshOpsData = refreshOpsData;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch() {
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('persisted log store unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshOpsData();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(get('opsCards').innerHTML, /Latest Job/);
+  assert.match(get('opsCards').innerHTML, /unavailable/);
+  assert.match(get('opsCards').innerHTML, /ops logs unavailable: HTTP 500: persisted log store unavailable/);
+  assert.match(get('opsFocusBody').innerHTML, /Ops logs unavailable: HTTP 500: persisted log store unavailable/);
+  assert.match(get('opsFeedBody').innerHTML, /Ops logs unavailable: HTTP 500: persisted log store unavailable/);
+  assert.doesNotMatch(get('opsCards').innerHTML, /stale_job|stale mio report|stale error/);
+  assert.doesNotMatch(get('opsFeedBody').innerHTML, /stale persisted report|stale_error_job/);
+  assert.equal(context.__state.ops.persistedLogs.length, 0);
+  assert.equal(context.__state.ops.lastMioReport, null);
+  assert.equal(context.__state.ops.latestJobID, '');
+  assert.equal(context.__state.ops.latestRoute, '');
+  assert.equal(context.__state.ops.latestError, null);
+  assert.equal(context.__deskRendered, true);
+});
+
+test('viewer marks agents unavailable on viewer status fetch errors', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const source = `
+const AGENTS = ['mio', 'shiro', 'coder'];
+const state = {
+  viewerStatusFetchError: '',
+  agents: {
+    mio: {state: 'running', route: 'CHAT', jobID: 'stale_mio_job', reason: '', preview: 'stale mio'},
+    shiro: {state: 'idle', route: 'CODE', jobID: 'stale_worker_job', reason: '', preview: 'stale worker'},
+    coder: {state: 'idle', route: 'CODE', jobID: 'stale_coder_job', reason: '', preview: 'stale coder'},
+  },
+};
+function renderOverview() { globalThis.__overviewRendered = true; }
+function renderRoleSelector() { globalThis.__rolesRendered = true; }
+function renderProgress() { globalThis.__progressRendered = true; }
+` + sourceBetween(viewerJs, 'function touchAgent', 'function addOpenTask') + `
+` + sourceBetween(viewerJs, 'function refreshViewerStatus', 'function ingestEvent') + `
+globalThis.__refreshViewerStatus = refreshViewerStatus;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    console: {error() {}},
+    fetch() {
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('monitor snapshot unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshViewerStatus();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(context.__state.viewerStatusFetchError, 'HTTP 503: monitor snapshot unavailable');
+  for (const id of ['mio', 'shiro', 'coder']) {
+    assert.equal(context.__state.agents[id].state, 'unavailable');
+    assert.equal(context.__state.agents[id].route, '-');
+    assert.equal(context.__state.agents[id].jobID, '-');
+    assert.match(context.__state.agents[id].reason, /viewer status unavailable: HTTP 503: monitor snapshot unavailable/);
+    assert.equal(context.__state.agents[id].lastEvent, 'viewer status fetch failed');
+    assert.equal(context.__state.agents[id].preview, 'viewer status unavailable');
+  }
+  assert.equal(context.__overviewRendered, true);
+  assert.equal(context.__rolesRendered, true);
+  assert.equal(context.__progressRendered, true);
+});
+
+test('viewer renders memory events and recall trace fetch errors as visible state', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('memoryEventNamespace').value = 'kb:test';
+  get('memoryNamespace').value = '';
+  const requested = [];
+  const recallSource = memoryJs.slice(memoryJs.indexOf('function renderRecallTraces'));
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+function renderNewsPackPanel() {}
+const memoryEventNamespace = document.getElementById('memoryEventNamespace');
+const memoryNamespace = document.getElementById('memoryNamespace');
+const state = {memory: {
+  events: [{EventType: 'stale_event', Namespace: 'kb:test', Source: 'stale'}],
+  searchCache: [{Provider: 'stale_provider', RawQuery: 'stale query'}],
+  traces: [{ResponseID: 'stale_response', Role: 'mio', Items: [{Kind: 'search_cache', Summary: 'stale recall'}]}],
+  memoryEventsFetchError: '',
+  recallTraceFetchError: '',
+}};
+` + sourceBetween(memoryJs, 'function memoryEventNamespaceValue', 'function renderSourceRegistry') + `
+` + recallSource + `
+globalThis.__refreshMemoryEvents = refreshMemoryEvents;
+globalThis.__refreshRecallTraces = refreshRecallTraces;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    URLSearchParams,
+    fetch(url) {
+      requested.push(url);
+      if (String(url).includes('/viewer/memory/events')) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve('invalid memory event ledger'),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('invalid recall trace ledger'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshMemoryEvents();
+  context.__refreshRecallTraces();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /namespace=kb%3Atest/);
+  assert.match(get('memoryEventBody').innerHTML, /Memory events unavailable: HTTP 500: invalid memory event ledger/);
+  assert.match(get('searchCacheBody').innerHTML, /Search cache unavailable: HTTP 500: invalid memory event ledger/);
+  assert.match(get('recallTraceBody').innerHTML, /Recall traces unavailable: HTTP 500: invalid recall trace ledger/);
+  assert.equal(get('memoryEventCount').textContent, '0');
+  assert.equal(get('searchCacheCount').textContent, '0');
+  assert.doesNotMatch(get('memoryEventBody').innerHTML, /stale_event/);
+  assert.doesNotMatch(get('searchCacheBody').innerHTML, /stale_provider/);
+  assert.doesNotMatch(get('recallTraceBody').innerHTML, /stale_response/);
+  assert.equal(context.__state.memory.events.length, 0);
+  assert.equal(context.__state.memory.searchCache.length, 0);
+  assert.equal(context.__state.memory.traces.length, 0);
+});
+
+test('viewer renders memory snapshot fetch errors as visible state', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('memoryNamespace').value = 'kb:test';
+  get('memoryCategory').value = 'tech';
+  get('memoryDomain').value = 'ai';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+function renderNewsPackPanel() {}
+function refreshMemoryLayers() {}
+function refreshMemoryEvents() {}
+function refreshKnowledgeMemoryLedger() {}
+function refreshSourceRegistry() {}
+const memoryNamespace = document.getElementById('memoryNamespace');
+const memoryCategory = document.getElementById('memoryCategory');
+const memoryDomain = document.getElementById('memoryDomain');
+const state = {memory: {
+  snapshot: {
+    memory: [{ID: 'stale_memory', Message: 'stale memory'}],
+    news: [{SourceID: 'stale_news', SummaryDraft: 'stale news'}],
+    digests: [{DigestText: 'stale digest'}],
+    knowledge: [{id: 'stale_knowledge'}],
+  },
+  memorySnapshotFetchError: '',
+}};
+` + sourceBetween(memoryJs, 'function renderMemorySnapshot', 'function postMemoryAction') + `
+globalThis.__refreshMemorySnapshot = refreshMemorySnapshot;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    URLSearchParams,
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('invalid memory snapshot: stale current view'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshMemorySnapshot();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /namespace=kb%3Atest/);
+  assert.match(requested[0], /category=tech/);
+  assert.match(requested[0], /domain=ai/);
+  assert.equal(get('memoryCount').textContent, '0');
+  assert.equal(get('newsPackCount').textContent, '0');
+  assert.equal(get('digestCount').textContent, '0');
+  assert.equal(get('knowledgeCount').textContent, '0');
+  assert.match(get('memoryBody').innerHTML, /Memory snapshot unavailable: HTTP 500: invalid memory snapshot: stale current view/);
+  assert.match(get('newsPackBody').innerHTML, /Memory snapshot news unavailable: HTTP 500: invalid memory snapshot: stale current view/);
+  assert.match(get('digestBody').innerHTML, /Memory snapshot digests unavailable: HTTP 500: invalid memory snapshot: stale current view/);
+  assert.doesNotMatch(get('memoryBody').innerHTML, /stale_memory/);
+  assert.doesNotMatch(get('newsPackBody').innerHTML, /stale_news/);
+  assert.doesNotMatch(get('digestBody').innerHTML, /stale digest/);
+  assert.equal(context.__state.memory.snapshot.memory.length, 0);
+  assert.equal(context.__state.memory.snapshot.news.length, 0);
+  assert.equal(context.__state.memory.snapshot.digests.length, 0);
+  assert.equal(context.__state.memory.snapshot.knowledge.length, 0);
+});
+
+test('viewer renders memory action errors with response body', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('memoryPromoteKind').value = 'kb';
+  get('memoryPromoteID').value = 'e2e';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+function renderNewsPackPanel() {}
+const memoryPromoteKind = document.getElementById('memoryPromoteKind');
+const memoryPromoteID = document.getElementById('memoryPromoteID');
+const state = {memory: {
+  snapshot: {
+    memory: [{ID: 'mem_1', Message: 'candidate memory', MemoryState: 'candidate', Namespace: 'kb:e2e'}],
+    news: [],
+    digests: [],
+    knowledge: [],
+  },
+  memorySnapshotFetchError: '',
+  memoryActionError: '',
+}};
+` + sourceBetween(memoryJs, 'function renderMemorySnapshot', 'function renderMemoryLayers') + `
+` + sourceBetween(memoryJs, 'function postMemoryAction', 'function renderRecallTraces') + `
+globalThis.__setMemoryState = setMemoryState;
+globalThis.__promoteMemory = promoteMemory;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      if (url === '/viewer/memory/state') {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          text: () => Promise.resolve('memory state store unavailable'),
+        });
+      }
+      if (url === '/viewer/memory/promote') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          text: () => Promise.resolve('memory promote target not validated'),
+        });
+      }
+      throw new Error('unexpected url: ' + url);
+    },
+  });
+  vm.runInContext(source, context);
+
+  context.__setMemoryState('mem_1', 'confirmed');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requested[0], '/viewer/memory/state');
+  assert.match(get('memoryBody').innerHTML, /Memory action unavailable: HTTP 503: memory state store unavailable/);
+  assert.doesNotMatch(get('memoryBody').innerHTML, /memory action failed/);
+
+  context.__promoteMemory('mem_1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(requested[1], '/viewer/memory/promote');
+  assert.match(get('memoryBody').innerHTML, /Memory action unavailable: HTTP 409: memory promote target not validated/);
+  assert.doesNotMatch(get('memoryBody').innerHTML, /memory action failed/);
+});
+
 test('viewer renders source registry warning run status', () => {
   const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
   const elements = new Map();
@@ -512,6 +1857,9 @@ test('viewer renders source registry warning run status', () => {
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, new FakeElement(id));
       return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
     },
   };
   const source = `
@@ -537,6 +1885,9 @@ test('viewer renders revenue drilldown graph lines from dashboard summary', () =
       if (!elements.has(id)) elements.set(id, new FakeElement(id));
       return elements.get(id);
     },
+    createElement() {
+      return new FakeElement();
+    },
   };
   const source = `
 function esc(s) { return String(s || ''); }
@@ -551,11 +1902,15 @@ function sandboxField(obj, snake, pascal) {
   return undefined;
 }
 const state = {ops: {
+  revenueExternalChannelAdapter: 'unconfigured',
+  revenueExternalChannelAdapterConfigured: false,
+  revenueExternalSendHumanApprovalRequired: true,
   revenueSummary: {
     total_revenue_amount: 3000,
     paid_customer_count: 2,
     pending_decision_count: 1,
     channel_draft_count: 1,
+    external_send_apply_count: 1,
     kpi_trend: [
       {date: '2026-05-17', revenue_amount: 1000, post_count: 2, voice_count: 1},
       {date: '2026-05-18', revenue_amount: 3000, post_count: 3, voice_count: 2},
@@ -565,10 +1920,16 @@ const state = {ops: {
   },
   revenueHumanDecisions: [{decision_id: 'dec_1', decision_type: 'external_publish', approval_status: 'pending', gate_status: 'needs_review'}],
   revenueChannelDrafts: [{draft_id: 'draft_1', approval_status: 'pending'}],
+  revenueExternalSendApplyRecords: [{apply_id: 'apply_1', apply_status: 'blocked', send_result: 'not_sent'}],
 }};
 ` + sourceBetween(opsJs, 'function revenueOpsCard', 'async function reviewRevenueHumanDecision') + `
 renderRevenueDrilldown();
+renderRevenueChannelDrafts();
+renderRevenueExternalSendAudits();
 globalThis.__drilldown = document.getElementById('revenueDrilldownResult').textContent;
+globalThis.__channelDraftResult = document.getElementById('revenueChannelDraftResult').textContent;
+globalThis.__externalSendAudits = document.getElementById('revenueExternalSendAuditBody').innerHTML;
+globalThis.__externalSendAuditResult = document.getElementById('revenueExternalSendAuditResult').textContent;
 `;
   const context = vm.createContext({document});
   vm.runInContext(source, context);
@@ -582,6 +1943,1298 @@ globalThis.__drilldown = document.getElementById('revenueDrilldownResult').textC
   assert.match(context.__drilldown, /blocker/);
   assert.match(context.__drilldown, /Decision drilldown/);
   assert.match(context.__drilldown, /dec_1/);
+  assert.match(context.__channelDraftResult, /1 total \/ 1 pending \/ 1 draft-only \/ 0 external_send_applied/);
+  assert.match(context.__channelDraftResult, /mode: draft-only \/ external send requires human approval: yes/);
+  assert.match(context.__externalSendAudits, /apply_1/);
+  assert.match(context.__externalSendAudits, /blocked/);
+  assert.match(context.__externalSendAudits, /not_sent/);
+  assert.match(context.__externalSendAudits, /unconfigured/);
+  assert.match(context.__externalSendAuditResult, /1 total \/ 1 blocked \/ 0 sent \/ 1 not sent \/ 0 verified/);
+  assert.match(context.__externalSendAuditResult, /external channel adapter: unconfigured \/ configured: no \/ human approval: required/);
+  assert.match(context.__externalSendAuditResult, /blocked: no external send applied/);
+});
+
+test('viewer renders tool harness and dci fetch errors as visible read-only state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+const state = {ops: {
+  toolHarnessFetchError: 'HTTP 500: tool harness store unavailable',
+  toolHarnessEvents: [{event_id: 'stale_tool_event', tool_name: 'stale_tool', validation_status: 'repaired'}],
+  dciFetchError: 'HTTP 500: dci trace store unavailable',
+  dciTraces: [{event_id: 'stale_dci_trace', user_query: 'stale vector query', final_evidence_count: 9, status: 'completed'}],
+}};
+` + sourceBetween(opsJs, 'function toolHarnessField', 'function sandboxField') + `
+globalThis.__toolCard = toolHarnessOpsCard();
+renderToolHarnessEvents();
+globalThis.__toolRows = document.getElementById('toolHarnessBody').innerHTML;
+globalThis.__dciCard = dciOpsCard();
+renderDCITraces();
+globalThis.__dciRows = document.getElementById('dciTraceBody').innerHTML;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__toolCard.big, 'unavailable');
+  assert.match(context.__toolCard.sub, /tool harness status unavailable: HTTP 500: tool harness store unavailable/);
+  assert.match(context.__toolCard.sub, /blocked: provider protocol recovery state unreadable/);
+  assert.match(context.__toolRows, /Tool Harness events unavailable: HTTP 500: tool harness store unavailable/);
+  assert.doesNotMatch(context.__toolRows, /stale_tool/);
+  assert.equal(context.__dciCard.big, 'unavailable');
+  assert.match(context.__dciCard.sub, /dci trace status unavailable: HTTP 500: dci trace store unavailable/);
+  assert.match(context.__dciCard.sub, /blocked: read-only evidence state unreadable/);
+  assert.match(context.__dciCard.sub, /blocked: VectorDB\/Qdrant E2E not verified/);
+  assert.match(context.__dciRows, /DCI search traces unavailable: HTTP 500: dci trace store unavailable/);
+  assert.doesNotMatch(context.__dciRows, /stale_dci_trace/);
+  assert.doesNotMatch(context.__dciRows, /stale vector query/);
+});
+
+test('viewer renders dci manual search fetch errors with response body', async () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const listeners = {};
+  class EventElement extends FakeElement {
+    constructor(id = '') {
+      super(id);
+      this.value = '';
+      this.disabled = false;
+    }
+    addEventListener(type, fn) {
+      listeners[this.id + ':' + type] = fn;
+    }
+  }
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new EventElement(id));
+      return elements.get(id);
+    },
+  };
+  const source = `
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+const state = {ops: {
+  dciLastResult: {pack: {query: 'stale query'}, trace: {status: 'completed'}, Pack: {Evidence: [{FilePath: 'stale.go'}]}},
+}};
+` + sourceBetween(opsJs, 'function renderDCISearchResult', 'function sandboxField') + `
+` + sourceBetween(opsJs, 'let dciSearchBound', 'let llmOpsUIBound') + `
+globalThis.__getDCIResult = () => state.ops.dciLastResult;
+`;
+  const context = vm.createContext({
+    document,
+    fetch: async () => ({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      text: async () => 'dci search store unavailable',
+    }),
+    JSON,
+  });
+  vm.runInContext(source, context);
+  document.getElementById('dciSearchInput').value = 'ToolRunner context budget';
+  context.bindDCISearchControls();
+  listeners['dciSearchBtn:click']();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const resultText = document.getElementById('dciSearchResult').textContent;
+  assert.match(resultText, /query: ToolRunner context budget/);
+  assert.match(resultText, /status: failed/);
+  assert.match(resultText, /error: HTTP 503: dci search store unavailable/);
+  assert.doesNotMatch(resultText, /stale query/);
+  assert.doesNotMatch(resultText, /stale\.go/);
+  assert.equal(context.__getDCIResult().trace.error_message, 'HTTP 503: dci search store unavailable');
+  assert.equal(document.getElementById('dciSearchBtn').disabled, false);
+});
+
+test('viewer renders evidence and verification fetch errors as visible execution state', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function fdt(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function syncEvidenceQuery() {}
+function updateEvidenceNav() {}
+const eviStatus = null;
+const eviErrorKind = null;
+const state = {
+  evidenceFetchError: 'HTTP 500: evidence store unavailable',
+  verificationFetchError: 'HTTP 500: verification store unavailable',
+  evidenceSummaryFetchError: 'HTTP 500: evidence summary unavailable',
+  verificationSummaryFetchError: 'HTTP 500: verification summary unavailable',
+  evidence: [{job_id: 'stale_job', status: 'passed', goal: 'stale execution'}],
+  verificationReports: [{job_id: 'stale_verify', status: 'verified', route: 'stale verification'}],
+  evidenceSummary: {status: {passed: 9}, error_kind: {none: 9}},
+  verificationSummary: {status: {verified: 7}, trigger_level: {high: 7}},
+  evidenceOrder: ['stale_job'],
+  selectedEvidenceJobID: 'stale_job',
+  selectedEvidenceItem: {job_id: 'stale_job'},
+  evidenceSortDesc: true,
+};
+` + sourceBetween(viewerJs, 'function renderEvidence', 'function refreshDerivedViews') + `
+renderEvidence();
+renderEvidenceSummary();
+globalThis.__rows = document.getElementById('evidenceBody').innerHTML;
+globalThis.__detail = document.getElementById('evidenceDetail').textContent;
+globalThis.__summary = document.getElementById('evidenceSummaryCards').innerHTML;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__rows, /Evidence \/ verification unavailable: evidence: HTTP 500: evidence store unavailable; verification: HTTP 500: verification store unavailable/);
+  assert.doesNotMatch(context.__rows, /stale_job/);
+  assert.doesNotMatch(context.__rows, /stale verification/);
+  assert.equal(context.__detail, 'No selection');
+  assert.equal(context.__state.evidenceOrder.length, 0);
+  assert.equal(context.__state.selectedEvidenceJobID, '');
+  assert.match(context.__summary, /Evidence Total/);
+  assert.match(context.__summary, /unavailable/);
+  assert.match(context.__summary, /evidence summary unavailable: evidence summary: HTTP 500: evidence summary unavailable; verification summary: HTTP 500: verification summary unavailable/);
+  assert.match(context.__summary, /blocked: execution evidence state unreadable/);
+  assert.doesNotMatch(context.__summary, />9</);
+  assert.doesNotMatch(context.__summary, />7</);
+});
+
+test('viewer renders evidence detail fetch errors with response body', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function syncEvidenceQuery() {}
+function renderEvidence() {}
+function updateEvidenceNav() {}
+function renderEvidenceDetail() { return 'unexpected evidence detail success'; }
+function renderVerificationReportDetail() { return 'unexpected verification detail success'; }
+function scrollEvidenceFocus() {}
+function showToast() {}
+const state = {
+  evidence: [{job_id: 'job_fail', status: 'passed'}],
+  verificationReports: [],
+  evidenceOrder: ['job_fail'],
+  selectedEvidenceJobID: '',
+  selectedEvidenceItem: {job_id: 'stale_job', status: 'passed'},
+  selectedEvidenceFocus: '',
+};
+` + sourceBetween(viewerJs, 'function openEvidence', 'window.openEvidence = openEvidence;') + `
+globalThis.__openEvidence = openEvidence;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('execution evidence detail store unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__openEvidence('job_fail');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requested[0], '/viewer/evidence/detail?job_id=job_fail');
+  assert.match(get('evidenceDetail').innerHTML, /HTTP 500: execution evidence detail store unavailable/);
+  assert.match(get('evidenceDetail').innerHTML, /job_id=job_fail/);
+  assert.doesNotMatch(get('evidenceDetail').innerHTML, /evidence detail fetch failed/);
+  assert.equal(context.__state.selectedEvidenceItem, null);
+});
+
+test('viewer renders evidence copy failures as visible button state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const eviCopy = new FakeElement('eviCopy');
+  const eviCopySummary = new FakeElement('eviCopySummary');
+  eviCopy.textContent = 'Copy JSON';
+  eviCopySummary.textContent = 'Copy summary';
+  let copyJSONHandler = null;
+  let copySummaryHandler = null;
+  eviCopy.addEventListener = (type, handler) => {
+    if (type === 'click') copyJSONHandler = handler;
+  };
+  eviCopySummary.addEventListener = (type, handler) => {
+    if (type === 'click') copySummaryHandler = handler;
+  };
+  const source = `
+const state = {
+  selectedEvidenceItem: {job_id: 'job_1', status: 'failed', error: 'apply failed'},
+  evidenceOrder: ['job_1'],
+  selectedEvidenceJobID: 'job_1',
+};
+const eviCopy = globalThis.__eviCopy;
+const eviCopySummary = globalThis.__eviCopySummary;
+const eviPrev = null;
+const eviNext = null;
+const eviPos = null;
+function buildEvidenceSummary(item) { return 'job_id=' + String(item.job_id || '-'); }
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function writeClipboardText() { return Promise.reject(new Error('clipboard denied')); }
+` + sourceBetween(viewerJs, 'function updateEvidenceNav', 'function errorKindClass') + `
+`;
+  const context = vm.createContext({
+    __eviCopy: eviCopy,
+    __eviCopySummary: eviCopySummary,
+    __toasts: [],
+    console: {error() {}},
+    setTimeout(fn) { fn(); },
+  });
+  vm.runInContext(source, context);
+
+  assert.equal(typeof copyJSONHandler, 'function');
+  assert.equal(typeof copySummaryHandler, 'function');
+  assert.doesNotThrow(() => copyJSONHandler());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(eviCopy.textContent, 'Evidence JSON copy unavailable: clipboard denied');
+  assert.equal(eviCopy.title, 'Evidence JSON copy unavailable: clipboard denied');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+
+  assert.doesNotThrow(() => copySummaryHandler());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(eviCopySummary.textContent, 'Evidence summary copy unavailable: clipboard denied');
+  assert.equal(eviCopySummary.title, 'Evidence summary copy unavailable: clipboard denied');
+  assert.equal(context.__toasts.at(-1).message, 'Evidence summary copy failed');
+});
+
+test('viewer renders generic copy payload failures as visible button state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const btn = new FakeElement('genericCopy');
+  btn.textContent = 'Copy Chat';
+  const source = `
+var window = {};
+function writeClipboardText() { return Promise.reject(new Error('clipboard denied')); }
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+` + sourceBetween(viewerJs, 'function copyTextPayload', 'window.copyTextPayload = copyTextPayload;') + `
+globalThis.__copyTextPayload = copyTextPayload;
+`;
+  const context = vm.createContext({
+    __toasts: [],
+    console: {error() {}},
+    setTimeout(fn) { fn(); },
+  });
+  vm.runInContext(source, context);
+
+  context.__copyTextPayload(btn, 'payload');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(btn.textContent, 'Copy unavailable: clipboard denied');
+  assert.equal(btn.title, 'Copy unavailable: clipboard denied');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders message copy failures as visible button state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const message = new FakeElement('mc');
+  message.className = 'mc';
+  message.dataset.raw = 'raw message';
+  message.textContent = 'rendered message';
+  const parent = {
+    querySelector(selector) {
+      return selector === '.mc' ? message : null;
+    },
+  };
+  const btn = new FakeElement('copyMsg');
+  btn.textContent = 'Copy';
+  btn.parentElement = parent;
+  const source = `
+var window = {};
+function writeClipboardText() { return Promise.reject(new Error('clipboard denied')); }
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+` + sourceBetween(viewerJs, 'function copyMsg', 'window.copyMsg = copyMsg;') + `
+globalThis.__copyMsg = copyMsg;
+`;
+  const context = vm.createContext({
+    __toasts: [],
+    console: {error() {}},
+    setTimeout(fn) { fn(); },
+  });
+  vm.runInContext(source, context);
+
+  context.__copyMsg(btn);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(btn.textContent, 'Copy unavailable: clipboard denied');
+  assert.equal(btn.title, 'Copy unavailable: clipboard denied');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders unsupported attachment files as visible tray state', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const attachmentTray = new FakeElement('attachmentTray');
+  const input = {value: 'C:\\fakepath\\payload.exe'};
+  const source = `
+const state = {viewerAttachmentError: ''};
+const attachmentTray = globalThis.__attachmentTray;
+let viewerAttachments = [];
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+` + sourceBetween(viewerJs, 'function addViewerAttachments', 'function formatAttachmentSize') + `
+globalThis.__addViewerAttachments = addViewerAttachments;
+globalThis.__state = state;
+globalThis.__viewerAttachments = viewerAttachments;
+`;
+  const context = vm.createContext({
+    __attachmentTray: attachmentTray,
+    __toasts: [],
+    document: {
+      createElement() {
+        return new FakeElement();
+      },
+    },
+  });
+  vm.runInContext(source, context);
+
+  context.__addViewerAttachments([{name: 'payload.exe', type: 'application/x-msdownload', size: 123}], input);
+
+  assert.equal(input.value, '');
+  assert.equal(context.__viewerAttachments.length, 0);
+  assert.match(attachmentTray.innerHTML, /Attachment unavailable: unsupported file type: payload\.exe/);
+  assert.equal(context.__state.viewerAttachmentError, 'Attachment unavailable: unsupported file type: payload.exe');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders debug system fetch errors with response body', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+const state = {debug: {
+  gpu: {available: true, note: 'stale gpu ok'},
+  audio: {stt_ok: true, tts_live_ok: true, tts_ready_ok: true},
+  sttTrace: [],
+  thinkTrace: [],
+}};
+` + sourceBetween(viewerJs, 'function renderDebugPanels', 'function trimTimelineNodes') + `
+globalThis.__refreshDebugSystem = refreshDebugSystem;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('debug system store unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshDebugSystem();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requested[0], '/viewer/debug/system');
+  assert.match(get('debugGpuSummary').innerHTML, /HTTP 503: debug system store unavailable/);
+  assert.doesNotMatch(get('debugGpuSummary').innerHTML, /stale gpu ok/);
+  assert.doesNotMatch(get('debugGpuSummary').innerHTML, />fetch failed</);
+  assert.equal(context.__state.debug.audio, null);
+});
+
+test('viewer renders revenue fetch errors as visible external send audit state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function escAttr(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  revenueFetchError: 'HTTP 500: revenue store unavailable',
+  revenueExternalSendApplyRecords: [{apply_id: 'stale_apply', apply_status: 'sent', external_send_applied: true}],
+  revenueChannelDrafts: [{draft_id: 'stale_draft', external_send_applied: true}],
+  revenueSummary: {total_revenue_amount: 999},
+}};
+` + sourceBetween(opsJs, 'function revenueOpsCard', 'async function reviewRevenueHumanDecision') + `
+globalThis.__card = revenueOpsCard();
+renderRevenueDrilldown();
+renderRevenueChannelDrafts();
+renderRevenueExternalSendAudits();
+globalThis.__drilldown = document.getElementById('revenueDrilldownResult').textContent;
+globalThis.__channelDraftResult = document.getElementById('revenueChannelDraftResult').textContent;
+globalThis.__externalSendAudits = document.getElementById('revenueExternalSendAuditBody').innerHTML;
+globalThis.__externalSendAuditResult = document.getElementById('revenueExternalSendAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /revenue status unavailable: HTTP 500: revenue store unavailable/);
+  assert.match(context.__card.sub, /blocked: external send audit state unreadable/);
+  assert.match(context.__drilldown, /Revenue Drilldown unavailable/);
+  assert.match(context.__channelDraftResult, /revenue channel drafts unavailable: HTTP 500: revenue store unavailable/);
+  assert.match(context.__externalSendAudits, /Revenue external send apply audits unavailable: HTTP 500: revenue store unavailable/);
+  assert.doesNotMatch(context.__externalSendAudits, /stale_apply/);
+  assert.match(context.__externalSendAuditResult, /revenue external send apply audits unavailable: HTTP 500: revenue store unavailable/);
+  assert.match(context.__externalSendAuditResult, /blocked: external send audit state unreadable/);
+});
+
+test('viewer renders persona observation fetch errors as visible meta review state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function escAttr(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  personaObservationFetchError: 'HTTP 500: persona observation store unavailable',
+  personaObservationLogs: [{observation_id: 'stale_observation', review_status: 'approved'}],
+  personaMetaProfileUpdates: [{update_id: 'stale_meta', review_status: 'approved', proposed_content: 'stale approved update'}],
+  personaMetaReviewResult: {status: 'approved', update_id: 'stale_meta'},
+}};
+` + sourceBetween(opsJs, 'function personaObservationOpsCard', 'function browserTraceAPIOpsCard') + `
+globalThis.__card = personaObservationOpsCard();
+renderPersonaMetaReviews();
+globalThis.__personaMetaReviews = document.getElementById('personaMetaReviewBody').innerHTML;
+globalThis.__personaMetaReviewResult = document.getElementById('personaMetaReviewResult').textContent;
+`;
+  const context = vm.createContext({document, encodeURIComponent, decodeURIComponent, JSON});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /persona observation status unavailable: HTTP 500: persona observation store unavailable/);
+  assert.match(context.__card.sub, /blocked: persona meta review state unreadable/);
+  assert.match(context.__card.sub, /blocked: long-term personality update state unreadable/);
+  assert.match(context.__personaMetaReviews, /Persona meta reviews unavailable: HTTP 500: persona observation store unavailable/);
+  assert.doesNotMatch(context.__personaMetaReviews, /stale_meta/);
+  assert.doesNotMatch(context.__personaMetaReviews, /stale approved update/);
+  assert.match(context.__personaMetaReviewResult, /persona meta review unavailable: HTTP 500: persona observation store unavailable/);
+  assert.match(context.__personaMetaReviewResult, /blocked: persona meta review state unreadable/);
+});
+
+test('viewer renders runtime blocked route audit details', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  knowledgePersonalArchive: [],
+  knowledgeCreativeItems: [],
+  knowledgeNewsItems: [],
+  knowledgeDailyIntakeRules: [],
+  knowledgeTemporalMarkers: [],
+  knowledgeDreamRuns: [],
+  runtimeBlockedRoutes: [
+    {label: 'Source Registry staging', path: '/viewer/source-registry?action=staging&limit=3', status: 503, ok: false, body: 'source registry unavailable'},
+    {label: 'Memory Layers', path: '/viewer/memory/layers', status: 503, ok: false, body: 'memory layers unavailable'},
+    {label: 'Sandbox status', path: '/viewer/sandbox?limit=1', status: 503, ok: false, body: 'sandbox store unavailable'},
+    {label: 'LLM Ops status', path: '/viewer/llm-ops/status', status: 502, ok: false, body: 'upstream unreachable'},
+  ],
+}};
+` + sourceBetween(opsJs, 'function knowledgeMemoryOpsCard', 'function renderKnowledgeMemoryDetailFocus') + `
+const card = runtimeBlockedRoutesOpsCard();
+renderRuntimeBlockedRouteAudits();
+globalThis.__card = card.sub;
+globalThis.__body = document.getElementById('runtimeBlockedRouteAuditBody').innerHTML;
+globalThis.__result = document.getElementById('runtimeBlockedRouteAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__card, /503 unavailable: 3/);
+  assert.match(context.__card, /blocked: dependency unavailable/);
+  assert.match(context.__body, /source registry unavailable/);
+  assert.match(context.__body, /memory layers unavailable/);
+  assert.match(context.__body, /sandbox store unavailable/);
+  assert.match(context.__body, /upstream unreachable/);
+  assert.match(context.__result, /4 checked \/ 4 blocked \/ 3 unavailable \/ 0 available/);
+  assert.match(context.__result, /blocked: Source Registry staging, Memory Layers, Sandbox, and LLM Ops require their runtime dependencies/);
+});
+
+test('viewer renders knowledge memory detail fetch errors as visible state', async () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  knowledgePersonalArchive: [],
+  knowledgeCreativeItems: [],
+  knowledgeNewsItems: [{item_id: 'news_1', title: 'visible news candidate'}],
+  knowledgeDailyIntakeRules: [],
+  knowledgeTemporalMarkers: [],
+  knowledgeDreamRuns: [],
+  knowledgeMemoryDetail: {detail_type: 'news_knowledge', id: 'stale_news', item: {title: 'stale detail'}},
+}};
+function renderOps() {
+  const body = document.getElementById('opsFocusBody');
+  body.innerHTML = '';
+  renderKnowledgeMemoryDetailFocus(body);
+}
+` + sourceBetween(opsJs, 'function renderKnowledgeMemoryDetailFocus', 'let dciSearchBound') + `
+renderOps();
+globalThis.__getKnowledgeMemoryDetail = () => state.ops.knowledgeMemoryDetail;
+`;
+  const context = vm.createContext({
+    document,
+    encodeURIComponent,
+    fetch: async () => ({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => 'knowledge memory detail store unavailable',
+    }),
+    console: {error() {}},
+  });
+  vm.runInContext(source, context);
+  context.fetchKnowledgeMemoryDetail('news_knowledge', 'news_1');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const body = document.getElementById('opsFocusBody').innerHTML;
+  assert.match(body, /HTTP 500: knowledge memory detail store unavailable/);
+  assert.match(body, /news_knowledge/);
+  assert.match(body, /news_1/);
+  assert.doesNotMatch(body, /stale_news/);
+  assert.doesNotMatch(body, /stale detail/);
+  assert.equal(context.__getKnowledgeMemoryDetail().error, 'HTTP 500: knowledge memory detail store unavailable');
+});
+
+test('viewer renders heavy runtime llm-ops unavailable diagnostics', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+function replaceURLPort(raw, port) { return String(raw || '').replace(/:[0-9]+$/, ':' + String(port)); }
+const state = {ops: {
+  heavyWorkerRuntimeDiagnostics: {
+    role: 'Heavy',
+    route: 'ANALYZE',
+    route_prefix: '/analyze',
+    provider: 'local_openai',
+    configured: true,
+    base_url: 'http://192.168.1.13:8082',
+    model: 'Worker',
+    failure_is_error: true,
+    llm_ops: {
+      configured: true,
+      enabled: true,
+      live_available: false,
+      error: 'llm-ops GET /v1/status: context deadline exceeded',
+    },
+  },
+}};
+` + sourceBetween(opsJs, 'function heavyWorkerRuntimeOpsCard', 'function knowledgeMemoryOpsCard') + `
+globalThis.__card = heavyWorkerRuntimeOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'Heavy Runtime');
+  assert.equal(context.__card.big, 'config');
+  assert.match(context.__card.sub, /route: ANALYZE \/analyze/);
+  assert.match(context.__card.sub, /Worker/);
+  assert.match(context.__card.sub, /http:\/\/192\.168\.1\.13:8082/);
+  assert.match(context.__card.sub, /llm-ops GET \/v1\/status/);
+});
+
+test('viewer renders heavy runtime diagnostics fetch errors as blocked state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const source = `
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+function replaceURLPort(raw, port) { return String(raw || '').replace(/:[0-9]+$/, ':' + String(port)); }
+const state = {ops: {
+  heavyWorkerRuntimeDiagnosticsFetchError: 'HTTP 500: heavy runtime store unavailable',
+  heavyWorkerRuntimeDiagnostics: {
+    role: 'Heavy',
+    route: 'ANALYZE',
+    base_url: 'http://stale.example:8082',
+    model: 'stale-model',
+    llm_ops: {live_available: true},
+  },
+}};
+` + sourceBetween(opsJs, 'function heavyWorkerRuntimeOpsCard', 'function knowledgeMemoryOpsCard') + `
+globalThis.__card = heavyWorkerRuntimeOpsCard();
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.title, 'Heavy Runtime');
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /heavy runtime diagnostics unavailable: HTTP 500: heavy runtime store unavailable/);
+  assert.match(context.__card.sub, /blocked: RouteANALYZE provider state unreadable/);
+  assert.match(context.__card.sub, /blocked: LLM Ops live state unreadable/);
+  assert.doesNotMatch(context.__card.sub, /stale-model/);
+  assert.doesNotMatch(context.__card.sub, /stale\.example/);
+});
+
+test('viewer renders skill external PR blocked audit details', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  skillExternalPRAdapter: 'unconfigured',
+  skillExternalPRAdapterConfigured: false,
+  skillExternalPRHumanApprovalRequired: true,
+  skillExternalPRSubmitRecords: [{
+    submit_id: 'submit_1',
+    contribution_event_id: 'gate_1',
+    repo: 'owner/repo',
+    target_branch: 'feature/test',
+    submit_status: 'blocked',
+    failure_reason: 'external PR adapter is not configured',
+    pr_adapter: 'unconfigured',
+    external_pr_created: false,
+    post_submit_verified: false,
+  }],
+}};
+` + sourceBetween(opsJs, 'function renderSkillExternalPRAudits', 'function workstreamOpsCard') + `
+renderSkillExternalPRAudits();
+globalThis.__skillPRAudits = document.getElementById('skillExternalPRAuditBody').innerHTML;
+globalThis.__skillPRAuditResult = document.getElementById('skillExternalPRAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__skillPRAudits, /submit_1/);
+  assert.match(context.__skillPRAudits, /gate_1/);
+  assert.match(context.__skillPRAudits, /owner\/repo/);
+  assert.match(context.__skillPRAudits, /blocked/);
+  assert.match(context.__skillPRAudits, /unconfigured/);
+  assert.match(context.__skillPRAudits, /not created/);
+  assert.match(context.__skillPRAuditResult, /1 total \/ 1 blocked \/ 0 created \/ 1 not created \/ 0 verified/);
+  assert.match(context.__skillPRAuditResult, /external PR adapter: unconfigured \/ configured: no \/ human approval: required/);
+  assert.match(context.__skillPRAuditResult, /blocked: no external PR created/);
+});
+
+test('viewer renders skill governance fetch errors as visible PR audit state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  skillGovernanceFetchError: 'HTTP 500: skill governance store unavailable',
+  skillExternalPRSubmitRecords: [{submit_id: 'stale_submit', submit_status: 'created', external_pr_created: true}],
+  skillTriggerLogs: [{event_id: 'stale_trigger', status: 'triggered'}],
+  contributionGateLogs: [],
+  coderTranscripts: [],
+}};
+` + sourceBetween(opsJs, 'function skillGovernanceOpsCard', 'function workstreamOpsCard') + `
+globalThis.__card = skillGovernanceOpsCard();
+renderSkillExternalPRAudits();
+renderSkillEvidenceAudits();
+globalThis.__skillPRAudits = document.getElementById('skillExternalPRAuditBody').innerHTML;
+globalThis.__skillPRAuditResult = document.getElementById('skillExternalPRAuditResult').textContent;
+globalThis.__skillEvidence = document.getElementById('skillEvidenceAuditBody').innerHTML;
+globalThis.__skillEvidenceResult = document.getElementById('skillEvidenceAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /skill governance status unavailable: HTTP 500: skill governance store unavailable/);
+  assert.match(context.__card.sub, /blocked: external PR audit state unreadable/);
+  assert.match(context.__skillPRAudits, /Skill external PR submit audits unavailable: HTTP 500: skill governance store unavailable/);
+  assert.doesNotMatch(context.__skillPRAudits, /stale_submit/);
+  assert.match(context.__skillPRAuditResult, /skill external PR submit audits unavailable: HTTP 500: skill governance store unavailable/);
+  assert.match(context.__skillPRAuditResult, /blocked: external PR audit state unreadable/);
+  assert.match(context.__skillEvidence, /Skill evidence audits unavailable: HTTP 500: skill governance store unavailable/);
+  assert.doesNotMatch(context.__skillEvidence, /stale_trigger/);
+  assert.match(context.__skillEvidenceResult, /blocked: coder evidence state unreadable/);
+});
+
+test('viewer renders skill evidence audit transcript boundary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  skillTriggerLogs: [{event_id: 'evt_trigger_1', skill_id: 'core.skill', status: 'triggered', trigger_reason: 'complexity_hotspot_scan'}],
+  contributionGateLogs: [{event_id: 'evt_contrib_1', repo: 'example/repo', gate_status: 'passed', diff_human_approved: true, test_result: 'go test ./...'}],
+  coderTranscripts: [],
+}};
+` + sourceBetween(opsJs, 'function renderSkillEvidenceAudits', 'function renderSuperAgentTerminalAudits') + `
+renderSkillEvidenceAudits();
+globalThis.__skillEvidence = document.getElementById('skillEvidenceAuditBody').innerHTML;
+globalThis.__skillEvidenceResult = document.getElementById('skillEvidenceAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__skillEvidence, /evt_trigger_1/);
+  assert.match(context.__skillEvidence, /evt_contrib_1/);
+  assert.match(context.__skillEvidence, /complexity_hotspot_scan/);
+  assert.match(context.__skillEvidence, /go test \.\/\.\.\./);
+  assert.match(context.__skillEvidenceResult, /1 triggers \/ 1 triggered \/ 1 contribution gates \/ 1 passed \/ 0 coder transcripts \/ 0 with diff\+transcript evidence/);
+  assert.match(context.__skillEvidenceResult, /blocked: coder evidence transcript not observed/);
+  assert.match(context.__skillEvidenceResult, /blocked: passed contribution gate is not external PR evidence/);
+});
+
+test('viewer counts coder transcript evidence path pairs by job', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  skillTriggerLogs: [],
+  contributionGateLogs: [],
+  coderTranscripts: [
+    {event_id: 'evt_patch', job_id: 'job_coder_1', role: 'coder', segment: 'patch_evidence', evidence_path: 'workspace/logs/skill_governance/coder_evidence/job_coder_1/skill_diff.md'},
+    {event_id: 'evt_transcript', job_id: 'job_coder_1', role: 'system', segment: 'transcript_evidence', evidence_path: 'workspace/logs/skill_governance/coder_evidence/job_coder_1/agent_transcript.md'},
+  ],
+}};
+` + sourceBetween(opsJs, 'function renderSkillEvidenceAudits', 'function renderSuperAgentTerminalAudits') + `
+renderSkillEvidenceAudits();
+globalThis.__skillEvidence = document.getElementById('skillEvidenceAuditBody').innerHTML;
+globalThis.__skillEvidenceResult = document.getElementById('skillEvidenceAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__skillEvidence, /evt_patch/);
+  assert.match(context.__skillEvidence, /skill_diff\.md/);
+  assert.match(context.__skillEvidence, /agent_transcript\.md/);
+  assert.match(context.__skillEvidenceResult, /2 coder transcripts \/ 1 with diff\+transcript evidence/);
+  assert.doesNotMatch(context.__skillEvidenceResult, /blocked: coder evidence transcript not observed/);
+});
+
+test('viewer renders superagent terminal failure evidence', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  superAgentRuns: [{
+    run_id: 'run_1',
+    status: 'failed',
+    completed_at: '2026-05-19T21:16:26Z',
+    summary: 'local LLM connection refused',
+  }],
+  superAgentRunQueue: [{
+    queue_id: 'rq_1',
+    run_id: 'run_1',
+    status: 'failed',
+    completed_at: '2026-05-19T21:16:26Z',
+    reason: 'scheduler processor failed',
+  }],
+}};
+` + sourceBetween(opsJs, 'function renderSuperAgentTerminalAudits', 'function workstreamOpsCard') + `
+renderSuperAgentTerminalAudits();
+globalThis.__superAgentTerminal = document.getElementById('superAgentTerminalAuditBody').innerHTML;
+globalThis.__superAgentTerminalResult = document.getElementById('superAgentTerminalAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__superAgentTerminal, /agent_run/);
+  assert.match(context.__superAgentTerminal, /run_queue/);
+  assert.match(context.__superAgentTerminal, /run_1/);
+  assert.match(context.__superAgentTerminal, /rq_1/);
+  assert.match(context.__superAgentTerminal, /local LLM connection refused/);
+  assert.match(context.__superAgentTerminal, /scheduler processor failed/);
+  assert.match(context.__superAgentTerminalResult, /1 terminal runs \/ 1 terminal queue \/ 1 failed runs \/ 1 failed queue \/ missing evidence: 0/);
+});
+
+test('viewer renders superagent fetch errors as visible scheduler audit state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  superAgentFetchError: 'HTTP 500: superagent store unavailable',
+  superAgentRuns: [{run_id: 'stale_run', status: 'completed', summary: 'stale success'}],
+  superAgentRunQueue: [{queue_id: 'stale_queue', action: 'resume', status: 'completed'}],
+  superAgentSubagentTasks: [],
+  superAgentContextPacks: [],
+  superAgentMessageChannels: [],
+  superAgentTraceEvents: [],
+  superAgentRuntimeConfig: {},
+}};
+` + sourceBetween(opsJs, 'function renderSuperAgentTerminalAudits', 'function workstreamOpsCard') + `
+` + sourceBetween(opsJs, 'function superAgentOpsCard', 'function aiWorkflowOpsCard') + `
+globalThis.__card = superAgentOpsCard();
+renderSuperAgentTerminalAudits();
+renderSuperAgentResumeAudits();
+globalThis.__superAgentTerminal = document.getElementById('superAgentTerminalAuditBody').innerHTML;
+globalThis.__superAgentTerminalResult = document.getElementById('superAgentTerminalAuditResult').textContent;
+globalThis.__superAgentResume = document.getElementById('superAgentResumeAuditBody').innerHTML;
+globalThis.__superAgentResumeResult = document.getElementById('superAgentResumeAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /superagent status unavailable: HTTP 500: superagent store unavailable/);
+  assert.match(context.__card.sub, /blocked: scheduler terminal state unreadable/);
+  assert.match(context.__card.sub, /blocked: true long-running resume state unreadable/);
+  assert.match(context.__superAgentTerminal, /SuperAgent terminal audits unavailable: HTTP 500: superagent store unavailable/);
+  assert.doesNotMatch(context.__superAgentTerminal, /stale_run/);
+  assert.match(context.__superAgentTerminalResult, /superagent terminal audits unavailable: HTTP 500: superagent store unavailable/);
+  assert.match(context.__superAgentTerminalResult, /blocked: scheduler terminal state unreadable/);
+  assert.match(context.__superAgentResume, /SuperAgent resume audits unavailable: HTTP 500: superagent store unavailable/);
+  assert.doesNotMatch(context.__superAgentResume, /stale_queue/);
+  assert.match(context.__superAgentResumeResult, /blocked: true long-running resume state unreadable/);
+});
+
+test('viewer renders superagent resume manual ledger boundary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  superAgentRunQueue: [{
+    queue_id: 'rq_resume_1',
+    run_id: 'run_resume_1',
+    action: 'resume',
+    status: 'completed',
+    completed_at: '2026-05-19T21:16:26Z',
+    reason: 'pause/resume queue reentry ledger E2E completed without scheduler execution',
+  }],
+  superAgentTraceEvents: [
+    {run_id: 'run_resume_1', event_type: 'lead_agent_paused', payload_summary: 'lead_agent_paused runtime_control=none'},
+    {run_id: 'run_resume_1', event_type: 'lead_agent_resumed', payload_summary: 'lead_agent_resumed runtime_control=none'},
+  ],
+}};
+` + sourceBetween(opsJs, 'function renderSuperAgentResumeAudits', 'function renderAIWorkflowRunEvidence') + `
+renderSuperAgentResumeAudits();
+globalThis.__superAgentResume = document.getElementById('superAgentResumeAuditBody').innerHTML;
+globalThis.__superAgentResumeResult = document.getElementById('superAgentResumeAuditResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__superAgentResume, /rq_resume_1/);
+  assert.match(context.__superAgentResume, /run_resume_1/);
+  assert.match(context.__superAgentResume, /paused:1 resumed:1/);
+  assert.match(context.__superAgentResume, /runtime-control:none/);
+  assert.match(context.__superAgentResume, /manual-ledger only/);
+  assert.match(context.__superAgentResume, /runtime control not applied/);
+  assert.match(context.__superAgentResumeResult, /1 resume queue \/ 1 completed \/ 1 manual-ledger \/ 1 pause-resume trace \/ 0 runtime-control applied/);
+  assert.match(context.__superAgentResumeResult, /blocked: true long-running resume not verified/);
+});
+
+test('viewer renders ai workflow same-run evidence boundary', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  aiWorkflowEvents: [{event_id: 'evt_cmd_1', run_id: 'run_1', workstream_id: 'ws_1', event_type: 'command_invoked'}],
+  aiWorkflowContextUsages: [{event_id: 'ctx_1', run_id: 'run_1', workstream_id: 'ws_1', context_tokens: 100}],
+  superAgentTraceEvents: [{event_id: 'trace_1', run_id: 'run_1', event_type: 'lead_agent_started'}],
+}};
+` + sourceBetween(opsJs, 'function renderAIWorkflowRunEvidence', 'function workstreamOpsCard') + `
+renderAIWorkflowRunEvidence();
+globalThis.__aiWorkflowEvidence = document.getElementById('aiWorkflowRunEvidenceBody').innerHTML;
+globalThis.__aiWorkflowEvidenceResult = document.getElementById('aiWorkflowRunEvidenceResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__aiWorkflowEvidence, /run_1/);
+  assert.match(context.__aiWorkflowEvidence, /ws_1/);
+  assert.match(context.__aiWorkflowEvidence, /same-run evidence/);
+  assert.match(context.__aiWorkflowEvidenceResult, /1 runs \/ 1 command-context-trace same-run \/ 0 partial/);
+  assert.match(context.__aiWorkflowEvidenceResult, /blocked: scheduler normal completion not verified/);
+});
+
+test('viewer renders ai workflow fetch errors as visible same-run evidence state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s) { return String(s || ''); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  aiWorkflowFetchError: 'HTTP 500: ai workflow store unavailable',
+  aiWorkflowEvents: [{event_id: 'stale_cmd', run_id: 'stale_run', event_type: 'command_invoked'}],
+  aiWorkflowContextUsages: [{event_id: 'stale_ctx', run_id: 'stale_run'}],
+  aiWorkflowProjectMemoryIndexes: [],
+  aiWorkflowWorktreeRegistries: [],
+  aiWorkflowCommandRegistries: [],
+  aiWorkflowContextBudgetPolicy: {},
+  superAgentTraceEvents: [{event_id: 'stale_trace', run_id: 'stale_run'}],
+}};
+` + sourceBetween(opsJs, 'function renderAIWorkflowRunEvidence', 'function renderComplexityReviewArtifacts') + `
+` + sourceBetween(opsJs, 'function aiWorkflowOpsCard', 'function heavyWorkerRuntimeOpsCard') + `
+globalThis.__card = aiWorkflowOpsCard();
+renderAIWorkflowRunEvidence();
+globalThis.__aiWorkflowEvidence = document.getElementById('aiWorkflowRunEvidenceBody').innerHTML;
+globalThis.__aiWorkflowEvidenceResult = document.getElementById('aiWorkflowRunEvidenceResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /ai workflow status unavailable: HTTP 500: ai workflow store unavailable/);
+  assert.match(context.__card.sub, /blocked: scheduler normal completion state unreadable/);
+  assert.match(context.__aiWorkflowEvidence, /AI Workflow run evidence unavailable: HTTP 500: ai workflow store unavailable/);
+  assert.doesNotMatch(context.__aiWorkflowEvidence, /stale_run/);
+  assert.match(context.__aiWorkflowEvidenceResult, /ai workflow run evidence unavailable: HTTP 500: ai workflow store unavailable/);
+  assert.match(context.__aiWorkflowEvidenceResult, /blocked: scheduler normal completion state unreadable/);
+});
+
+test('viewer renders sandbox promotion gate log details', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function escAttr(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+function sandboxField(obj, snake, pascal) {
+  if (!obj) return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, snake)) return obj[snake];
+  if (Object.prototype.hasOwnProperty.call(obj, pascal)) return obj[pascal];
+  return undefined;
+}
+const state = {ops: {
+  sandboxGateLogs: [{
+    event_id: 'evt_gate_1',
+    promotion_id: 'promo_1',
+    gate_status: 'needs_review',
+    human_approval_status: 'pending',
+    reason: 'human approval missing',
+  }],
+}};
+` + sourceBetween(opsJs, 'function renderSandboxGateLogs', 'function formatSandboxPromotionDiffPreview') + `
+renderSandboxGateLogs();
+globalThis.__sandboxGateLogs = document.getElementById('sandboxGateLogBody').innerHTML;
+globalThis.__sandboxGateLogResult = document.getElementById('sandboxGateLogResult').textContent;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.match(context.__sandboxGateLogs, /evt_gate_1/);
+  assert.match(context.__sandboxGateLogs, /promo_1/);
+  assert.match(context.__sandboxGateLogs, /needs_review/);
+  assert.match(context.__sandboxGateLogs, /pending/);
+  assert.match(context.__sandboxGateLogs, /human approval missing/);
+  assert.match(context.__sandboxGateLogResult, /1 total \/ 1 needs-review \/ 0 applied \/ 0 rollback \/ 0 post-apply evidence/);
+  assert.match(context.__sandboxGateLogResult, /formal apply requires human approval/);
+  assert.match(context.__sandboxGateLogResult, /blocked: no promotion applied/);
+});
+
+test('viewer renders sandbox fetch errors as visible promotion apply state', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function escAttr(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function ftime(s) { return String(s || '-'); }
+function stateClass(s) { return String(s || ''); }
+const state = {ops: {
+  sandboxFetchError: 'HTTP 500: sandbox store unavailable',
+  sandboxes: [{sandbox_id: 'stale_sandbox'}],
+  sandboxArtifacts: [],
+  sandboxPromotions: [{promotion_id: 'stale_promotion'}],
+  sandboxDecisions: [],
+  sandboxGateLogs: [{event_id: 'stale_gate', gate_status: 'promotion_applied'}],
+}};
+` + sourceBetween(opsJs, 'function sandboxField', 'function skillGovernanceOpsCard') + `
+globalThis.__card = sandboxOpsCard();
+renderSandboxStatus();
+globalThis.__sandboxStatus = document.getElementById('sandboxBody').innerHTML;
+globalThis.__sandboxPreviewResult = document.getElementById('sandboxPromotionPreviewResult').textContent;
+globalThis.__sandboxGateLogs = document.getElementById('sandboxGateLogBody').innerHTML;
+globalThis.__sandboxGateLogResult = document.getElementById('sandboxGateLogResult').textContent;
+`;
+  const context = vm.createContext({document, encodeURIComponent, JSON});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__card.big, 'unavailable');
+  assert.match(context.__card.sub, /sandbox status unavailable: HTTP 500: sandbox store unavailable/);
+  assert.match(context.__card.sub, /blocked: promotion apply state unreadable/);
+  assert.match(context.__sandboxStatus, /Sandbox status unavailable: HTTP 500: sandbox store unavailable/);
+  assert.doesNotMatch(context.__sandboxStatus, /stale_promotion/);
+  assert.match(context.__sandboxPreviewResult, /sandbox promotion diff preview unavailable: HTTP 500: sandbox store unavailable/);
+  assert.match(context.__sandboxGateLogs, /Sandbox gate logs unavailable: HTTP 500: sandbox store unavailable/);
+  assert.doesNotMatch(context.__sandboxGateLogs, /stale_gate/);
+  assert.match(context.__sandboxGateLogResult, /sandbox promotion gate logs unavailable: HTTP 500: sandbox store unavailable/);
+  assert.match(context.__sandboxGateLogResult, /blocked: promotion apply state unreadable/);
 });
 
 test('viewer runtime cards prefer live llm ops status over local config labels', () => {
@@ -615,6 +3268,64 @@ var state = {
       heavy_model: 'Worker',
       wild_model: 'Chat',
     },
+    llmOpsConfigured: true,
+    llmOpsEnabled: true,
+    llmOpsBaseURL: 'http://192.168.1.13:8079',
+    runtimeReadiness: {
+      slack_credentials_present: false,
+      slack_webhook_registered: false,
+      slack_file_payload_pipeline: false,
+      discord_credentials_present: false,
+      discord_webhook_registered: false,
+      discord_file_payload_pipeline: false,
+      telegram_credentials_present: false,
+      telegram_webhook_registered: false,
+      telegram_file_payload_pipeline: false,
+      stt_gateway_env_present: true,
+      stt_gateway_config_present: true,
+      tts_provider_env_present: false,
+      tts_provider_config_present: true,
+      distributed_enabled: false,
+      distributed_transports_present: false,
+      distributed_ssh_configured: false,
+      distributed_ssh_connected: false,
+      distributed_local_transport: false,
+      conversation_enabled: false,
+      l1_sqlite_config_present: false,
+      memory_layers_available: false,
+      memory_layers_status_available: true,
+      source_registry_available: false,
+      source_registry_status_available: true,
+      knowledge_memory_enabled: true,
+      knowledge_memory_status_available: true,
+      browser_trace_api_enabled: true,
+      browser_trace_api_status_available: true,
+      browser_trace_api_fetcher_available: true,
+      sandbox_enabled: false,
+      sandbox_status_available: true,
+    },
+    runtimeSTTBaseURL: 'http://192.168.1.33:8766',
+    runtimeSTTStreamURL: 'wss://fujitsu-ubunts.tailb07d8d.ts.net/stt',
+    runtimeTTSBaseURL: 'http://192.168.1.13:7870',
+    runtimeHealth: {
+      status: 'down',
+      checks: [
+        {name: 'local_llm_chat', status: 'down', message: 'connection refused'},
+        {name: 'local_llm_worker', status: 'down', message: 'connection refused'},
+      ],
+      timestamp: '2026-05-19T20:45:00Z',
+    },
+    runtimeHealthError: '',
+    runtimeDebugSystem: {
+      audio: {
+        stt_base_url: 'http://192.168.1.33:8766',
+        tts_base_url: 'http://192.168.1.13:7870',
+        stt_ok: false,
+        tts_live_ok: false,
+        tts_ready_ok: false,
+        last_error: 'stt:context deadline exceeded; tts_live:context deadline exceeded',
+      },
+    },
     llmStatus: {
       roles: {
         Chat: {health_ok: true, halted: false},
@@ -636,7 +3347,9 @@ var state = {
 ` + sourceBetween(js, 'function normState', 'function fmt') +
 sourceBetween(opsJs, 'function renderLocalLLMRuntimeConfig', 'function setLlmOpsStatusPre') + `
 renderLocalLLMRuntimeConfig();
+renderRuntimeDependencyReadiness();
 globalThis.__runtime = document.getElementById('llmRuntimeConfigCards').innerHTML;
+globalThis.__readiness = document.getElementById('runtimeReadinessCards').innerHTML;
 `;
   const context = vm.createContext({document});
   vm.runInContext(source, context);
@@ -646,6 +3359,872 @@ globalThis.__runtime = document.getElementById('llmRuntimeConfigCards').innerHTM
   assert.ok(context.__runtime.includes('halted'), 'Worker should not be shown as running when llm-ops marks it halted');
   assert.ok(context.__runtime.includes('/models/qwen-heavy'), 'Heavy should use live status model, not stale local config label');
   assert.ok(context.__runtime.includes('http://192.168.1.31:8083'), 'Heavy should use live status port');
+  assert.ok(context.__readiness.includes('LLM Ops'));
+  assert.ok(context.__readiness.includes('Runtime Health'));
+  assert.ok(context.__readiness.includes('service:missing'));
+  assert.ok(context.__readiness.includes('chat:missing'));
+  assert.ok(context.__readiness.includes('worker:missing'));
+  assert.ok(context.__readiness.includes('local_llm_chat: connection refused'));
+  assert.ok(context.__readiness.includes('configured:present'));
+  assert.ok(context.__readiness.includes('proxy:present'));
+  assert.ok(context.__readiness.includes('STT'));
+  assert.ok(context.__readiness.includes('env:present'));
+  assert.ok(context.__readiness.includes('config:present'));
+  assert.ok(context.__readiness.includes('health:missing'));
+  assert.ok(context.__readiness.includes('live:missing'));
+  assert.ok(context.__readiness.includes('ready:missing'));
+  assert.ok(context.__readiness.includes('blocked: stt:context deadline exceeded'));
+  assert.ok(context.__readiness.includes('blocked: real microphone STT E2E not verified'));
+  assert.ok(context.__readiness.includes('blocked: browser audio playback/lip sync E2E not verified'));
+  assert.ok(context.__readiness.includes('Distributed'));
+  assert.ok(context.__readiness.includes('enabled:missing'));
+  assert.ok(context.__readiness.includes('ssh-connected:missing'));
+  assert.ok(context.__readiness.includes('blocked: distributed disabled'));
+  assert.ok(context.__readiness.includes('credentials:missing'));
+  assert.ok(context.__readiness.includes('webhook:missing'));
+  assert.ok(context.__readiness.includes('file:missing'));
+  assert.ok(context.__readiness.includes('blocked: real external API file event E2E not verified'));
+  assert.ok(context.__readiness.includes('blocked: Wild SSH/multi-machine E2E not verified'));
+  assert.ok(context.__readiness.includes('Source Registry'));
+  assert.ok(context.__readiness.includes('memory-layers:missing'));
+  assert.ok(context.__readiness.includes('memory-route:present'));
+  assert.ok(context.__readiness.includes('source:missing'));
+  assert.ok(context.__readiness.includes('source-route:present'));
+  assert.ok(context.__readiness.includes('blocked: conversation L1 disabled'));
+  assert.ok(context.__readiness.includes('Knowledge Memory'));
+  assert.ok(context.__readiness.includes('/viewer/knowledge-memory'));
+  assert.ok(context.__readiness.includes('Browser Trace API'));
+  assert.ok(context.__readiness.includes('fetcher:present'));
+  assert.ok(context.__readiness.includes('review-only: discover and fetcher proposal require evidence'));
+  assert.ok(context.__readiness.includes('Sandbox'));
+  assert.ok(context.__readiness.includes('status:present'));
+  assert.ok(context.__readiness.includes('blocked: sandbox disabled'));
+  assert.ok(context.__readiness.includes('http://192.168.1.13:7870'));
+});
+
+test('viewer renders llm ops upstream failure as blocked readiness', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const els = new Map();
+  const document = {
+    getElementById(id) {
+      if (!els.has(id)) els.set(id, new FakeElement());
+      return els.get(id);
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function stateClass(s) { return 'state-' + s; }
+var state = {ops: {
+  llmOpsConfigured: true,
+  llmOpsEnabled: true,
+  llmOpsBaseURL: 'http://192.168.1.13:8079',
+  llmStatus: null,
+  llmStatusError: 'HTTP 502: upstream unreachable',
+  runtimeReadiness: {},
+}};
+` + sourceBetween(opsJs, 'function renderRuntimeDependencyReadiness', 'function llmRuntimeRoleRow') + `
+renderRuntimeDependencyReadiness();
+globalThis.__readiness = document.getElementById('runtimeReadinessCards').innerHTML;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.ok(context.__readiness.includes('LLM Ops'));
+  assert.ok(context.__readiness.includes('configured:present'));
+  assert.ok(context.__readiness.includes('proxy:present'));
+  assert.ok(context.__readiness.includes('live:missing'));
+  assert.ok(context.__readiness.includes('blocked: HTTP 502: upstream unreachable'));
+});
+
+test('viewer renders runtime config and debug snapshot fetch failures as blocked readiness', () => {
+  const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
+  const els = new Map();
+  const document = {
+    getElementById(id) {
+      if (!els.has(id)) els.set(id, new FakeElement());
+      return els.get(id);
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function stateClass(s) { return 'state-' + s; }
+var state = {ops: {
+  runtimeConfigFetchError: 'HTTP 503: runtime config store unavailable',
+  runtimeDebugSystemFetchError: 'HTTP 502: debug system unavailable',
+  localLLM: {enabled: true, chat_model: 'stale-chat', chat_base_url: 'http://stale:8081'},
+  runtimeReadiness: {
+    stt_gateway_env_present: true,
+    stt_gateway_config_present: true,
+    tts_provider_env_present: false,
+    tts_provider_config_present: true,
+  },
+  runtimeSTTBaseURL: 'http://192.168.1.33:8766',
+  runtimeTTSBaseURL: 'http://192.168.1.13:7870',
+  runtimeDebugSystem: null,
+  llmOpsConfigured: false,
+  llmOpsEnabled: false,
+  llmOpsBaseURL: '',
+  llmStatus: null,
+  llmStatusError: '',
+  runtimeHealth: null,
+  runtimeHealthError: '',
+}};
+` + sourceBetween(opsJs, 'function renderLocalLLMRuntimeConfig', 'function setLlmOpsStatusPre') + `
+renderLocalLLMRuntimeConfig();
+renderRuntimeDependencyReadiness();
+globalThis.__runtime = document.getElementById('llmRuntimeConfigCards').innerHTML;
+globalThis.__readiness = document.getElementById('runtimeReadinessCards').innerHTML;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+
+  assert.ok(context.__runtime.includes('local_llm runtime config unavailable: HTTP 503: runtime config store unavailable'));
+  assert.ok(!context.__runtime.includes('stale-chat'), 'stale local LLM config should not be displayed when runtime config fetch failed');
+  assert.ok(context.__readiness.includes('Runtime Config'));
+  assert.ok(context.__readiness.includes('config:missing'));
+  assert.ok(context.__readiness.includes('blocked: HTTP 503: runtime config store unavailable'));
+  assert.ok(context.__readiness.includes('STT'));
+  assert.ok(context.__readiness.includes('blocked: HTTP 502: debug system unavailable'));
+  assert.ok(context.__readiness.includes('TTS'));
+  assert.ok(context.__readiness.includes('blocked: browser audio playback/lip sync E2E not verified'));
+});
+
+test('viewer renders tts audio unlock failures as visible playback state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const nowPlaying = new FakeElement('ttsNowPlaying');
+  const nowPlayingText = new FakeElement('ttsNowPlayingText');
+  const source = `
+var ttsNowPlayingEl = globalThis.__nowPlaying;
+var ttsNowPlayingTextEl = globalThis.__nowPlayingText;
+var ttsPlayback = {
+  queue: [],
+  audio: null,
+  playing: false,
+  audioEnabled: true,
+  unlocked: false,
+  blocked: false,
+  currentCharacterId: '',
+  currentText: '',
+  currentDisplayText: '',
+  currentSessionId: '',
+  currentChunkIndex: -1,
+  currentUtteranceId: '',
+  currentResponseId: '',
+  currentShown: false,
+  fallbackActive: false,
+  fallbackTimer: null,
+  seq: 0,
+};
+var lipSyncActors = {};
+function setLipSyncSpeaking() {}
+function clearLipSyncSpeaking() {}
+function setCentralTTSSpeechText() {}
+function updateAudioButton() { globalThis.__buttonState = {blocked: ttsPlayback.blocked, error: ttsPlayback.audioError}; }
+function isAutoplayBlockedError(err) { return err && err.name === 'NotAllowedError'; }
+function ttsDisplayDelay() { return 1; }
+class Audio {
+  constructor() { this.dataset = {}; this.readyState = 0; this.currentTime = 0; }
+  addEventListener() {}
+  pause() {}
+  removeAttribute() {}
+  load() {}
+  play() { const err = new Error('browser blocked autoplay'); err.name = 'NotAllowedError'; return Promise.reject(err); }
+}
+var HTMLMediaElement = {HAVE_CURRENT_DATA: 2};
+` + sourceBetween(viewerJs, 'function setNowPlayingText', 'function isIdleChatSessionId') +
+sourceBetween(viewerJs, 'function createChatAudioSync', 'const chatAudioSync') + `
+globalThis.__sync = createChatAudioSync();
+`;
+  const context = vm.createContext({
+    __nowPlaying: nowPlaying,
+    __nowPlayingText: nowPlayingText,
+    setTimeout,
+    clearTimeout,
+    console: {error() {}, warn() {}, log() {}},
+  });
+  vm.runInContext(source, context);
+
+  await context.__sync.unlockAudio();
+
+  assert.equal(nowPlayingText.textContent, 'TTS audio unavailable: NotAllowedError: browser blocked autoplay');
+  assert.equal(context.__buttonState.blocked, true);
+  assert.equal(context.__buttonState.error, 'NotAllowedError: browser blocked autoplay');
+});
+
+test('viewer renders stt copy failures as persistent session state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const debugSession = new FakeElement('debugSttSession');
+  const sessionState = new FakeElement('sttSessionState');
+  const source = `
+var window = {location: {href: 'http://127.0.0.1:18790/viewer', protocol: 'http:', host: '127.0.0.1:18790'}};
+var sttState = {
+  ws: null,
+  isRecording: false,
+  reconnecting: false,
+  captureLog: [],
+  captureStartedAt: '',
+  captureEndedAt: '',
+  captureSessionID: 'stt_session_1',
+  captureActionError: '',
+  voiceBridgeURL: 'ws://127.0.0.1:18790/stt',
+};
+var micBtn = null;
+var micStateEl = null;
+var sttConnStateEl = null;
+var sttSessionStateEl = globalThis.__sessionState;
+var debugSttSessionEl = globalThis.__debugSession;
+function fdt(s) { return s || '-'; }
+function ftime(s) { return s || '--:--:--'; }
+function isVoiceChatAllowed() { return true; }
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function writeClipboardText() { return Promise.reject(new Error('clipboard denied')); }
+` + sourceBetween(viewerJs, 'function getSTTCaptureSummaryText', 'async function persistSTTLogToServer') +
+sourceBetween(viewerJs, 'function updateSTTInputIndicators', 'async function toggleSTT') + `
+globalThis.__copyLog = copySTTCaptureLog;
+globalThis.__copySession = copySTTSessionID;
+`;
+  const context = vm.createContext({
+    __debugSession: debugSession,
+    __sessionState: sessionState,
+    __toasts: [],
+    console: {error() {}, warn() {}, log() {}},
+  });
+  vm.runInContext(source, context);
+
+  context.__copyLog();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(debugSession.textContent, 'Session: stt_session_1 / STT log copy unavailable: clipboard denied');
+  assert.equal(sessionState.title, 'Session: stt_session_1 / STT log copy unavailable: clipboard denied');
+
+  context.__copySession();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(debugSession.textContent, 'Session: stt_session_1 / STT session copy unavailable: clipboard denied');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders stt microphone start failures as persistent session state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const debugSession = new FakeElement('debugSttSession');
+  const sessionState = new FakeElement('sttSessionState');
+  const source = `
+var WebSocket = {OPEN: 1, CONNECTING: 0};
+var sttState = {
+  ws: null,
+  isRecording: false,
+  reconnecting: false,
+  captureActionError: '',
+  captureSessionID: '(unknown)',
+  captureLog: [],
+  capturePCM: [],
+  captureStartedAt: '',
+  captureEndedAt: '',
+  streamReady: false,
+  runtimeConfigLoaded: true,
+};
+var micBtn = null;
+var micStateEl = null;
+var sttConnStateEl = null;
+var sttSessionStateEl = globalThis.__sessionState;
+var debugSttSessionEl = globalThis.__debugSession;
+var navigator = {mediaDevices: {getUserMedia() { return Promise.reject(new Error('permission denied')); }}};
+function isVoiceChatAllowed() { return true; }
+function loadViewerRuntimeConfig() { return Promise.resolve(); }
+function updateSTTInputIndicators() {
+  const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
+  const actionError = String(sttState.captureActionError || '').trim();
+  const suffix = actionError ? ' / ' + actionError : '';
+  sttSessionStateEl.textContent = 'Session: ' + sid + suffix;
+  sttSessionStateEl.title = 'Session: ' + sid + suffix;
+  debugSttSessionEl.textContent = 'Session: ' + sid + suffix;
+}
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function stopSTT() { globalThis.__stopCalled = true; updateSTTInputIndicators(); }
+` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
+sourceBetween(viewerJs, 'async function startSTT()', 'function connectSTTWebSocket') + `
+globalThis.__startSTT = startSTT;
+`;
+  const context = vm.createContext({
+    __debugSession: debugSession,
+    __sessionState: sessionState,
+    __toasts: [],
+    __stopCalled: false,
+    console: {error() {}, warn() {}, log() {}},
+  });
+  vm.runInContext(source, context);
+
+  await context.__startSTT();
+
+  assert.equal(context.__stopCalled, true);
+  assert.equal(debugSession.textContent, 'Session: (unknown) / STT microphone start unavailable: permission denied');
+  assert.equal(sessionState.title, 'Session: (unknown) / STT microphone start unavailable: permission denied');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders stt artifact persistence failures as persistent session state', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const debugSession = new FakeElement('debugSttSession');
+  const sessionState = new FakeElement('sttSessionState');
+  const source = `
+var WebSocket = {OPEN: 1};
+var sttState = {
+  ws: null,
+  audioContext: null,
+  audioStream: null,
+  scriptNode: null,
+  isRecording: true,
+  isStopping: false,
+  reconnectTimer: null,
+  reconnecting: false,
+  chunkBuffer: [],
+  draftBuffer: [],
+  captureActionError: '',
+  captureSessionID: 'stt_session_2',
+};
+var sttSessionStateEl = globalThis.__sessionState;
+var debugSttSessionEl = globalThis.__debugSession;
+function updateSTTInputIndicators() {
+  const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
+  const actionError = String(sttState.captureActionError || '').trim();
+  const suffix = actionError ? ' / ' + actionError : '';
+  sttSessionStateEl.textContent = 'Session: ' + sid + suffix;
+  sttSessionStateEl.title = 'Session: ' + sid + suffix;
+  debugSttSessionEl.textContent = 'Session: ' + sid + suffix;
+}
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function persistSTTArtifacts() { return Promise.reject(new Error('HTTP 507: tmp log path full')); }
+` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
+viewerJs.slice(viewerJs.indexOf('function stopSTT()')) + `
+globalThis.__stopSTT = stopSTT;
+`;
+  const context = vm.createContext({
+    __debugSession: debugSession,
+    __sessionState: sessionState,
+    __toasts: [],
+    console: {error() {}, warn() {}, log() {}},
+    clearTimeout() {},
+  });
+  vm.runInContext(source, context);
+
+  context.__stopSTT();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(debugSession.textContent, 'Session: stt_session_2 / STT artifact persistence unavailable: HTTP 507: tmp log path full');
+  assert.equal(sessionState.title, 'Session: stt_session_2 / STT artifact persistence unavailable: HTTP 507: tmp log path full');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders stt websocket message failures as persistent session state', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const debugSession = new FakeElement('debugSttSession');
+  const sessionState = new FakeElement('sttSessionState');
+  const source = `
+var wsInstances = [];
+class FakeWebSocket {
+  static OPEN = 1;
+  static CONNECTING = 0;
+  constructor(url) {
+    this.url = url;
+    this.readyState = FakeWebSocket.CONNECTING;
+    wsInstances.push(this);
+  }
+}
+var WebSocket = FakeWebSocket;
+var sttState = {
+  ws: null,
+  isRecording: true,
+  isStopping: false,
+  keepSessionChannel: false,
+  reconnecting: false,
+  captureActionError: '',
+  captureSessionID: 'stt_session_3',
+  voiceBridgeURL: 'ws://127.0.0.1:18790/stt',
+};
+var sttSessionStateEl = globalThis.__sessionState;
+var debugSttSessionEl = globalThis.__debugSession;
+function updateSTTInputIndicators() {
+  const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
+  const actionError = String(sttState.captureActionError || '').trim();
+  const suffix = actionError ? ' / ' + actionError : '';
+  sttSessionStateEl.textContent = 'Session: ' + sid + suffix;
+  sttSessionStateEl.title = 'Session: ' + sid + suffix;
+  debugSttSessionEl.textContent = 'Session: ' + sid + suffix;
+}
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function ftime() { return '12:00:00'; }
+function pushDebugTrace() {}
+function short(value) { return String(value || ''); }
+function recordSTTCaptureEvent() {}
+function renderDebugPanels() {}
+function handleSTTFinalText() {}
+function scheduleSTTReconnect() {}
+var document = {getElementById() { return null; }};
+` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
+sourceBetween(viewerJs, 'function connectSTTWebSocket', 'function resampleToPCM16') + `
+globalThis.__connectSTTWebSocket = connectSTTWebSocket;
+globalThis.__wsInstances = wsInstances;
+`;
+  const context = vm.createContext({
+    __debugSession: debugSession,
+    __sessionState: sessionState,
+    __toasts: [],
+    console: {error() {}, warn() {}, log() {}},
+  });
+  vm.runInContext(source, context);
+
+  context.__connectSTTWebSocket();
+  const ws = context.__wsInstances[0];
+  ws.onmessage({data: JSON.stringify({type: 'error', error: 'provider timeout'})});
+  assert.equal(debugSession.textContent, 'Session: stt_session_3 / STT recognition unavailable: provider timeout');
+  assert.equal(sessionState.title, 'Session: stt_session_3 / STT recognition unavailable: provider timeout');
+  assert.equal(context.__toasts.at(-1).type, 'error');
+
+  ws.onmessage({data: '{'});
+  assert.match(debugSession.textContent, /Session: stt_session_3 \/ STT message parse unavailable: /);
+
+  ws.onerror(new Error('socket refused'));
+  assert.equal(debugSession.textContent, 'Session: stt_session_3 / STT websocket unavailable: socket refused');
+  assert.equal(sessionState.title, 'Session: stt_session_3 / STT websocket unavailable: socket refused');
+});
+
+test('viewer renders home send failures as visible desk state', async () => {
+  const homeJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/home.js', 'utf8');
+  const elements = new Map();
+  const listeners = {};
+  class EventElement extends FakeElement {
+    constructor(id = '') {
+      super(id);
+      this.value = '';
+      this.disabled = false;
+    }
+    addEventListener(type, fn) {
+      listeners[this.id + ':' + type] = fn;
+    }
+  }
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new EventElement(id));
+      return elements.get(id);
+    },
+  };
+  const source = `
+const state = {
+  logs: [],
+  jobs: {},
+  agents: {},
+  evidence: [],
+  verificationReports: [],
+  homeSendError: '',
+};
+const AGENTS = ['mio'];
+function esc(s) { return String(s || ''); }
+function fdt(s) { return String(s || '-'); }
+function short(s) { return String(s || ''); }
+function agName(s) { return String(s || '-'); }
+function switchTab(tab) { globalThis.__switchedTab = tab; }
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function sendViewerMessage() { return Promise.reject(new Error('HTTP 502: viewer send route unavailable')); }
+var localStorage = {getItem() { return null; }, setItem() {}};
+` + homeJs + `
+globalThis.__state = state;
+globalThis.__bindHomeDeskControls = bindHomeDeskControls;
+globalThis.__renderHomeDesk = renderHomeDesk;
+`;
+  const context = vm.createContext({
+    document,
+    __toasts: [],
+    console: {error() {}, warn() {}, log() {}},
+  });
+  vm.runInContext(source, context);
+  document.getElementById('homeInput').value = 'hello';
+  document.getElementById('homeTargetAgent').value = 'worker';
+
+  context.__bindHomeDeskControls();
+  listeners['homeSendBtn:click']();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(context.__state.homeSendError, 'Home send unavailable: HTTP 502: viewer send route unavailable');
+  assert.match(document.getElementById('homeStatusCard').innerHTML, /Home send unavailable: HTTP 502: viewer send route unavailable/);
+  assert.equal(context.__toasts.at(-1).type, 'error');
+});
+
+test('viewer renders send failures with response body in timeline', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const requested = [];
+  const timelineEvents = [];
+  const source = `
+let sending = false;
+let viewerAttachments = [];
+const inp = {value: 'hello', disabled: false, focus() {}};
+const sendBtn = {disabled: false};
+const attachBtn = null;
+const cameraBtn = null;
+function renderAttachmentTray() {}
+function autoResize() {}
+function buildViewerSendRequest(message) { return {message}; }
+async function ensureViewerLLMReadyForRequest() {}
+function addMsgToTimeline(ev) { globalThis.__timelineEvents.push(ev); }
+` + sourceBetween(viewerJs, 'function send()', 'function buildViewerStatusSnapshot') + `
+globalThis.__send = send;
+`;
+  const context = vm.createContext({
+    console: {error() {}},
+    __timelineEvents: timelineEvents,
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 502,
+        text: () => Promise.resolve('viewer send route unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__send();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requested[0], '/viewer/send');
+  assert.equal(timelineEvents.length, 1);
+  assert.equal(timelineEvents[0].type, 'agent.response');
+  assert.equal(timelineEvents[0].from, 'mio');
+  assert.equal(timelineEvents[0].to, 'user');
+  assert.match(timelineEvents[0].content, /Viewer send unavailable: HTTP 502: viewer send route unavailable/);
+  assert.doesNotMatch(timelineEvents[0].content, /send failed/);
+});
+
+test('viewer timeline renders local send failures from tts synced speakers', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const chatNode = {
+    children: [],
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+  };
+  const source = `
+const chat = globalThis.__chat;
+function matchesFilters() { return true; }
+function ag(agentID) { return {c: '#69f', e: 'M', l: String(agentID || '')}; }
+function ftime() { return '09:21'; }
+function normalizeViewerDisplayText(value) { return String(value || ''); }
+function fmt(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function removeThinking() {}
+function addThinkingStart() {}
+function addThinking() {}
+function isTTSSyncedSpeaker(agentID) { return String(agentID || '').toLowerCase() === 'mio'; }
+function trimTimelineNodes() {}
+function bump() {}
+` + sourceBetween(timelineJs, 'function addMsgToTimeline', 'bindChatRouteAliasButtons();') + `
+globalThis.__addMsgToTimeline = addMsgToTimeline;
+`;
+  const context = vm.createContext({
+    __chat: chatNode,
+    document: {
+      getElementById() { return {remove() {}}; },
+      createElement() {
+        return {
+          className: '',
+          _innerHTML: '',
+          querySelector(selector) {
+            if (selector === '.mc') return {dataset: {}};
+            return null;
+          },
+          set innerHTML(value) { this._innerHTML = String(value || ''); },
+          get innerHTML() { return this._innerHTML; },
+        };
+      },
+    },
+  });
+  vm.runInContext(source, context);
+
+  context.__addMsgToTimeline({
+    type: 'agent.response',
+    from: 'mio',
+    to: 'user',
+    timestamp: '2026-05-20T09:21:00Z',
+    content: 'Viewer send unavailable: llm ops health failed: HTTP 503: llm ops health unavailable live',
+  });
+  context.__addMsgToTimeline({
+    type: 'agent.response',
+    from: 'mio',
+    to: 'user',
+    timestamp: '2026-05-20T09:21:01Z',
+    content: 'normal tts-synced response',
+  });
+
+  assert.equal(chatNode.children.length, 1);
+  assert.match(chatNode.children[0].innerHTML, /Viewer send unavailable: llm ops health failed: HTTP 503: llm ops health unavailable live/);
+  assert.doesNotMatch(chatNode.children[0].innerHTML, /normal tts-synced response/);
+});
+
+test('viewer llm ops readiness failures keep response bodies', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const requested = [];
+  const source = `
+const CHAT_ROUTE_ALIASES = {
+  worker: {label: 'Worker', baseURL: 'http://127.0.0.1:8082', model: 'Worker', routePrefix: '/ops'},
+};
+function refreshLlmOpsStatus() {}
+` + sourceBetween(timelineJs, 'function viewerLLMStartSelectionForRequest', 'function addMsgToTimeline') + `
+globalThis.__ensure = ensureViewerLLMReadyForRequest;
+`;
+  const responses = [
+    {ok: false, status: 503, body: 'llm ops health unavailable'},
+    {ok: true, status: 200, body: '{}'},
+    {ok: false, status: 502, body: 'llm ops status unavailable'},
+    {ok: true, status: 200, body: '{}'},
+    {ok: true, status: 200, body: '{"roles":{"Chat":{"health_ok":true},"Worker":{"health_ok":false}}}'},
+    {ok: false, status: 409, body: 'llm ops stop refused'},
+    {ok: true, status: 200, body: '{}'},
+    {ok: true, status: 200, body: '{"roles":{"Chat":{"health_ok":true},"Worker":{"health_ok":false}}}'},
+    {ok: true, status: 200, body: 'stopped'},
+    {ok: false, status: 503, body: 'llm ops start unavailable'},
+  ];
+  const context = vm.createContext({
+    fetch(url) {
+      requested.push(url);
+      const next = responses.shift();
+      return Promise.resolve({
+        ok: next.ok,
+        status: next.status,
+        text: () => Promise.resolve(next.body),
+        json: () => Promise.resolve(JSON.parse(next.body)),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+
+  await assert.rejects(
+    () => context.__ensure({model_alias: 'Worker'}),
+    /llm ops health failed: HTTP 503: llm ops health unavailable/,
+  );
+  await assert.rejects(
+    () => context.__ensure({model_alias: 'Worker'}),
+    /llm ops status failed: HTTP 502: llm ops status unavailable/,
+  );
+  await assert.rejects(
+    () => context.__ensure({model_alias: 'Worker'}),
+    /llm ops stop failed: HTTP 409: llm ops stop refused/,
+  );
+  await assert.rejects(
+    () => context.__ensure({model_alias: 'Worker'}),
+    /llm ops start failed: HTTP 503: llm ops start unavailable/,
+  );
+  assert.deepEqual(requested, [
+    '/viewer/llm-ops/health',
+    '/viewer/llm-ops/health',
+    '/viewer/llm-ops/status',
+    '/viewer/llm-ops/health',
+    '/viewer/llm-ops/status',
+    '/viewer/llm-ops/stop',
+    '/viewer/llm-ops/health',
+    '/viewer/llm-ops/status',
+    '/viewer/llm-ops/stop',
+    '/viewer/llm-ops/start',
+  ]);
+});
+
+test('viewer stt artifact persistence errors keep response bodies', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const requested = [];
+  const source = sourceBetween(viewerJs, 'async function persistSTTLogToServer', 'async function persistSTTArtifacts') + `
+globalThis.__persistSTTLogToServer = persistSTTLogToServer;
+globalThis.__persistSTTWavToServer = persistSTTWavToServer;
+globalThis.__runSTTAutoTest = runSTTAutoTest;
+`;
+  const responses = [
+    {status: 507, body: 'tmp log path full'},
+    {status: 413, body: 'wav too large'},
+    {status: 502, body: 'stt provider unavailable'},
+  ];
+  const context = vm.createContext({
+    fetch(url) {
+      requested.push(url);
+      const next = responses.shift();
+      return Promise.resolve({
+        ok: false,
+        status: next.status,
+        text: () => Promise.resolve(next.body),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+
+  await assert.rejects(
+    () => context.__persistSTTLogToServer('log-body'),
+    /HTTP 507: tmp log path full/,
+  );
+  await assert.rejects(
+    () => context.__persistSTTWavToServer(new ArrayBuffer(4)),
+    /HTTP 413: wav too large/,
+  );
+  await assert.rejects(
+    () => context.__runSTTAutoTest(),
+    /HTTP 502: stt provider unavailable/,
+  );
+  assert.deepEqual(requested, ['/viewer/stt/log', '/viewer/stt/wav', '/viewer/stt/autotest']);
+});
+
+test('viewer renders idlechat control failures with response body', async () => {
+  const idleChatJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/idlechat.js', 'utf8');
+  const requested = [];
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+const idleStartBtn = {disabled: false};
+const idleModeNormalBtn = null;
+const idleModeForecastBtn = null;
+const idleModeStorySimpleBtn = null;
+const idleStopBtn = {disabled: false};
+const idleStateEl = {textContent: '', className: ''};
+const state = {idleChat: {history: [], openIndex: -1}};
+function esc(s) { return String(s || ''); }
+function fdt(s) { return String(s || '-'); }
+function short(s) { return String(s || ''); }
+function fmt(s) { return String(s || ''); }
+function copyTextPayload() {}
+function showToast() {}
+` + sourceBetween(idleChatJs, 'function setIdleState', 'async function controlIdle') +
+idleChatJs.slice(idleChatJs.indexOf('async function controlIdle')) + `
+globalThis.__controlIdle = controlIdle;
+`;
+  const responses = [
+    {
+      ok: false,
+      status: 409,
+      text: () => Promise.resolve('idlechat already stopping'),
+    },
+    {
+      ok: true,
+      json: () => Promise.resolve({manual_mode: false, chat_active: false, current_topic: ''}),
+    },
+  ];
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve(responses.shift());
+    },
+  });
+  vm.runInContext(source, context);
+  await context.__controlIdle('/viewer/idlechat/stop');
+
+  assert.deepEqual(requested, ['/viewer/idlechat/stop', '/viewer/idlechat/status']);
+  assert.match(document.getElementById('idlechatBody').innerHTML, /IdleChat control unavailable: HTTP 409: idlechat already stopping/);
+  assert.doesNotMatch(document.getElementById('idlechatBody').innerHTML, /idlechat control failed/);
+});
+
+test('viewer renders idlechat status and logs failures with response bodies', async () => {
+  const idleChatJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/idlechat.js', 'utf8');
+  const requested = [];
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+const idleStartBtn = {disabled: false};
+const idleModeNormalBtn = null;
+const idleModeForecastBtn = null;
+const idleModeStorySimpleBtn = null;
+const idleStopBtn = {disabled: false};
+const idleStateEl = {textContent: '', className: ''};
+const state = {idleChat: {history: [{title: 'stale summary'}], openIndex: -1}};
+function esc(s) { return String(s || ''); }
+function fdt(s) { return String(s || '-'); }
+function short(s) { return String(s || ''); }
+function fmt(s) { return String(s || ''); }
+function copyTextPayload() {}
+function showToast() {}
+` + sourceBetween(idleChatJs, 'function setIdleState', 'async function controlIdle') + `
+globalThis.__refreshIdleStatus = refreshIdleStatus;
+globalThis.__refreshIdleLogs = refreshIdleLogs;
+`;
+  const responses = [
+    {
+      ok: false,
+      status: 503,
+      text: () => Promise.resolve('idlechat status store unavailable'),
+    },
+    {
+      ok: false,
+      status: 502,
+      text: () => Promise.resolve('idlechat logs unavailable'),
+    },
+  ];
+  const context = vm.createContext({
+    document,
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve(responses.shift());
+    },
+  });
+  vm.runInContext(source, context);
+  await context.__refreshIdleStatus();
+  await context.__refreshIdleLogs();
+
+  const body = document.getElementById('idlechatBody').innerHTML;
+  assert.deepEqual(requested, ['/viewer/idlechat/status', '/viewer/idlechat/logs?limit=20']);
+  assert.match(body, /IdleChat status unavailable: HTTP 503: idlechat status store unavailable/);
+  assert.match(body, /IdleChat logs unavailable: HTTP 502: idlechat logs unavailable/);
+  assert.doesNotMatch(body, /stale summary/);
+});
+
+test('viewer live mode renders idlechat topic fetch failures', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const requested = [];
+  let intervalCallback = null;
+  const elements = new Map();
+  const document = {
+    body: {classList: {add() {}}},
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+  };
+  const source = `
+const panels = {timeline: true};
+function switchTab(tab) { globalThis.__switchedTab = tab; }
+` + sourceBetween(viewerJs, 'function initLiveMode', 'function initEvidenceFromQuery') + `
+globalThis.__initLiveMode = initLiveMode;
+`;
+  const context = vm.createContext({
+    document,
+    window: {location: {href: 'http://127.0.0.1:18790/viewer?mode=live'}},
+    URL,
+    setInterval(fn) {
+      intervalCallback = fn;
+      return 1;
+    },
+    fetch(url) {
+      requested.push(url);
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('idlechat status unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  assert.equal(context.__initLiveMode(), true);
+  await intervalCallback();
+
+  assert.equal(context.__switchedTab, 'timeline');
+  assert.deepEqual(requested, ['/viewer/idlechat/status']);
+  assert.match(document.getElementById('liveTopicText').textContent, /IdleChat status unavailable: HTTP 503: idlechat status unavailable/);
 });
 
 test('viewer chat route alias builds llm switch request fields', () => {
