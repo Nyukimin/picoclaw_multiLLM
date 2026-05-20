@@ -386,6 +386,8 @@ func HandleWorkstreamVaultUpdateReview(store WorkstreamStore) http.HandlerFunc {
 			}
 			applied = true
 			appliedPath = path
+			item.Applied = true
+			item.AppliedPath = path
 		}
 		if err := store.SaveVaultUpdateLog(r.Context(), item); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -414,6 +416,9 @@ func HandleWorkstreamVaultUpdatePreview(store WorkstreamStore) http.HandlerFunc 
 		if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
 			http.Error(w, "invalid workstream vault update preview payload", http.StatusBadRequest)
 			return
+		}
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = time.Now().UTC()
 		}
 		if err := domainworkstream.ValidateVaultUpdateLog(item); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

@@ -454,7 +454,7 @@ func TestHandleWorkstreamVaultUpdateReviewAppliesProposedContent(t *testing.T) {
 	if len(store.applied) != 1 || store.applied[0].ProposedContent == "" {
 		t.Fatalf("applied=%#v", store.applied)
 	}
-	if len(store.vaultUpdates) != 1 || store.vaultUpdates[0].ReviewStatus != domainworkstream.VaultReviewApproved {
+	if len(store.vaultUpdates) != 1 || store.vaultUpdates[0].ReviewStatus != domainworkstream.VaultReviewApproved || !store.vaultUpdates[0].Applied || store.vaultUpdates[0].AppliedPath != store.appliedPath {
 		t.Fatalf("vaultUpdates=%#v", store.vaultUpdates)
 	}
 }
