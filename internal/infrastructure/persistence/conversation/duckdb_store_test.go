@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,60 @@ func TestDuckDBStore_SaveThreadSummaryArchivesSessionID(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ThreadID != 201 || got[0].SessionID != "sess-l2" {
 		t.Fatalf("unexpected session history: %+v", got)
+	}
+}
+
+func TestDuckDBStore_SaveThreadSummaryRejectsMalformedSummary(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewDuckDBStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewDuckDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	tests := []struct {
+		name    string
+		summary *domconv.ThreadSummary
+		want    string
+	}{
+		{name: "nil", summary: nil, want: "thread summary is required"},
+		{name: "missing thread id", summary: &domconv.ThreadSummary{Summary: "valid summary"}, want: "thread_id must be > 0"},
+		{name: "missing summary", summary: &domconv.ThreadSummary{ThreadID: 301, Summary: "   "}, want: "summary is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := store.SaveThreadSummary(ctx, tt.summary)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("SaveThreadSummary() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestDuckDBStore_ReadThreadSummaryRejectsMalformedRows(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewDuckDBStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewDuckDBStore failed: %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.db.ExecContext(ctx, `
+INSERT INTO session_thread (
+	thread_id, session_id, ts_start, ts_end, domain, summary, keywords, embedding, is_novel
+) VALUES (?, ?, ?, ?, ?, ?, ?::VARCHAR[], ?::FLOAT[], ?)
+`, int64(401), "sess-bad-l2", time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC), time.Date(2026, 5, 20, 9, 5, 0, 0, time.UTC), "memory", "", "[]", "[]", false)
+	if err != nil {
+		t.Fatalf("insert malformed thread summary: %v", err)
+	}
+
+	_, err = store.GetSessionHistory(ctx, "sess-bad-l2", 10)
+	if err == nil || !strings.Contains(err.Error(), "summary is required") {
+		t.Fatalf("GetSessionHistory() error = %v, want summary validation", err)
+	}
+	_, err = store.SearchByDomain(ctx, "memory", 10)
+	if err == nil || !strings.Contains(err.Error(), "summary is required") {
+		t.Fatalf("SearchByDomain() error = %v, want summary validation", err)
 	}
 }
 

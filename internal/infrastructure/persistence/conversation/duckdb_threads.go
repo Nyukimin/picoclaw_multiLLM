@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	_ "github.com/marcboeker/go-duckdb"
@@ -13,6 +14,9 @@ import (
 func (d *DuckDBStore) SaveThreadSummary(ctx context.Context, summary *conversation.ThreadSummary) error {
 	if summary == nil {
 		return fmt.Errorf("thread summary is required")
+	}
+	if err := validateThreadSummary(summary); err != nil {
+		return err
 	}
 	keywords := summary.Keywords
 	if keywords == nil {
@@ -104,6 +108,9 @@ func (d *DuckDBStore) GetSessionHistory(ctx context.Context, sessionID string, l
 		if err := json.Unmarshal([]byte(embeddingJSON), &summary.Embedding); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal embedding: %w", err)
 		}
+		if err := validateThreadSummary(&summary); err != nil {
+			return nil, err
+		}
 
 		summaries = append(summaries, &summary)
 	}
@@ -158,6 +165,9 @@ func (d *DuckDBStore) SearchByDomain(ctx context.Context, domain string, limit i
 		if err := json.Unmarshal([]byte(embeddingJSON), &summary.Embedding); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal embedding: %w", err)
 		}
+		if err := validateThreadSummary(&summary); err != nil {
+			return nil, err
+		}
 
 		summaries = append(summaries, &summary)
 	}
@@ -167,4 +177,17 @@ func (d *DuckDBStore) SearchByDomain(ctx context.Context, domain string, limit i
 	}
 
 	return summaries, nil
+}
+
+func validateThreadSummary(summary *conversation.ThreadSummary) error {
+	if summary == nil {
+		return fmt.Errorf("thread summary is required")
+	}
+	if summary.ThreadID <= 0 {
+		return fmt.Errorf("thread summary thread_id must be > 0")
+	}
+	if strings.TrimSpace(summary.Summary) == "" {
+		return fmt.Errorf("thread summary summary is required")
+	}
+	return nil
 }
