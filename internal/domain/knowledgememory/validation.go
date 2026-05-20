@@ -18,6 +18,9 @@ func ValidatePersonalArchiveEntry(item PersonalArchiveEntry) error {
 	if !item.Protected {
 		return fmt.Errorf("personal archive original must be protected")
 	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -30,6 +33,12 @@ func ValidateCreativeKnowledgeItem(item CreativeKnowledgeItem) error {
 	}
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
+	}
+	if !isKnowledgeItemStatus(item.Status) {
+		return fmt.Errorf("unsupported creative knowledge status")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
 	}
 	return nil
 }
@@ -46,6 +55,12 @@ func ValidateNewsKnowledgeItem(item NewsKnowledgeItem) error {
 	}
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
+	}
+	if !isKnowledgeItemStatus(item.Status) {
+		return fmt.Errorf("unsupported news knowledge status")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
 	}
 	return nil
 }
@@ -66,6 +81,12 @@ func ValidateDailyIntakeRule(item DailyIntakeRule) error {
 	if strings.TrimSpace(item.Status) == "" {
 		return fmt.Errorf("status is required")
 	}
+	if !isDailyIntakeStatus(item.Status) {
+		return fmt.Errorf("unsupported daily intake status")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -84,6 +105,12 @@ func ValidateTemporalMemoryMarker(item TemporalMemoryMarker) error {
 	if strings.TrimSpace(item.Summary) == "" {
 		return fmt.Errorf("summary is required")
 	}
+	if item.AccessCount < 0 {
+		return fmt.Errorf("access_count must be >= 0")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
 	return nil
 }
 
@@ -97,8 +124,64 @@ func ValidateDreamConsolidationRun(item DreamConsolidationRun) error {
 	if strings.TrimSpace(item.ReviewStatus) == "" {
 		return fmt.Errorf("review_status is required")
 	}
-	if item.ReviewStatus == "approved" && item.Status != "reviewed" && item.Status != "promoted" {
-		return fmt.Errorf("dream consolidation cannot be auto-approved")
+	if !isDreamStatus(item.Status) {
+		return fmt.Errorf("unsupported dream consolidation status")
+	}
+	if !isDreamReviewStatus(item.ReviewStatus) {
+		return fmt.Errorf("unsupported dream consolidation review_status")
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
+	}
+	switch item.ReviewStatus {
+	case "pending":
+		if item.Status != "draft" && item.Status != "proposal" {
+			return fmt.Errorf("dream consolidation pending review requires draft or proposal status")
+		}
+	case "approved":
+		if item.Status != "reviewed" && item.Status != "promoted" {
+			return fmt.Errorf("dream consolidation cannot be auto-approved")
+		}
+	case "rejected":
+		if item.Status != "rejected" {
+			return fmt.Errorf("dream consolidation rejected review requires rejected status")
+		}
 	}
 	return nil
+}
+
+func isKnowledgeItemStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "candidate", "reviewed", "promoted", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDailyIntakeStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "candidate", "reviewed", "enabled", "active", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDreamStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "draft", "proposal", "reviewed", "promoted", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDreamReviewStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "pending", "approved", "rejected":
+		return true
+	default:
+		return false
+	}
 }
