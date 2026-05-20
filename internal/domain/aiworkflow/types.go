@@ -5,6 +5,8 @@ import "time"
 type WorkflowEvent struct {
 	EventID       string    `json:"event_id"`
 	ParentEventID string    `json:"parent_event_id,omitempty"`
+	RunID         string    `json:"run_id,omitempty"`
+	WorkstreamID  string    `json:"workstream_id,omitempty"`
 	EventType     string    `json:"event_type"`
 	Agent         string    `json:"agent,omitempty"`
 	Repo          string    `json:"repo,omitempty"`

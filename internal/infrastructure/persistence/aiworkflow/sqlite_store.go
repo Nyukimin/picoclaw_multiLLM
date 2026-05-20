@@ -47,6 +47,8 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE TABLE IF NOT EXISTS ai_workflow_event (
 			event_id TEXT PRIMARY KEY,
 			parent_event_id TEXT,
+			run_id TEXT,
+			workstream_id TEXT,
 			event_type TEXT,
 			agent TEXT,
 			repo TEXT,
@@ -96,6 +98,12 @@ func (s *SQLiteStore) migrate() error {
 			return err
 		}
 	}
+	if err := addColumnIfMissing(s.db, "ai_workflow_event", "run_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(s.db, "ai_workflow_event", "workstream_id", "TEXT"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -104,9 +112,9 @@ func (s *SQLiteStore) SaveWorkflowEvent(ctx context.Context, item domainai.Workf
 		return err
 	}
 	return s.save(ctx, `INSERT OR REPLACE INTO ai_workflow_event (
-		event_id, parent_event_id, event_type, agent, repo, worktree_id, command_name, skill_name, status, created_at, payload
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.EventID, item.ParentEventID, item.EventType, item.Agent, item.Repo, item.WorktreeID, item.CommandName, item.SkillName, item.Status, item.CreatedAt.Format(timeFormatRFC3339Nano), item)
+		event_id, parent_event_id, run_id, workstream_id, event_type, agent, repo, worktree_id, command_name, skill_name, status, created_at, payload
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.EventID, item.ParentEventID, item.RunID, item.WorkstreamID, item.EventType, item.Agent, item.Repo, item.WorktreeID, item.CommandName, item.SkillName, item.Status, item.CreatedAt.Format(timeFormatRFC3339Nano), item)
 }
 
 func (s *SQLiteStore) ListWorkflowEvents(ctx context.Context, limit int) ([]domainai.WorkflowEvent, error) {
@@ -182,6 +190,32 @@ func (s *SQLiteStore) save(ctx context.Context, query string, args ...any) error
 	}
 	args[len(args)-1] = string(payload)
 	_, err = s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
+func addColumnIfMissing(db *sql.DB, table string, column string, columnType string) error {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, columnType))
 	return err
 }
 

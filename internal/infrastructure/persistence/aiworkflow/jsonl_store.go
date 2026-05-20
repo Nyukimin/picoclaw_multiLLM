@@ -51,7 +51,9 @@ func (s *JSONLStore) SaveProjectMemoryIndex(_ context.Context, item domainai.Pro
 }
 
 func (s *JSONLStore) ListProjectMemoryIndexes(_ context.Context, limit int) ([]domainai.ProjectMemoryIndex, error) {
-	return listJSONL[domainai.ProjectMemoryIndex](s.projectMemoryPath, limit)
+	return listLatestJSONLByKey(s.projectMemoryPath, limit, func(item domainai.ProjectMemoryIndex) string {
+		return item.ID
+	})
 }
 
 func (s *JSONLStore) SaveWorktreeRegistry(_ context.Context, item domainai.WorktreeRegistry) error {
@@ -62,7 +64,9 @@ func (s *JSONLStore) SaveWorktreeRegistry(_ context.Context, item domainai.Workt
 }
 
 func (s *JSONLStore) ListWorktreeRegistries(_ context.Context, limit int) ([]domainai.WorktreeRegistry, error) {
-	return listJSONL[domainai.WorktreeRegistry](s.worktreePath, limit)
+	return listLatestJSONLByKey(s.worktreePath, limit, func(item domainai.WorktreeRegistry) string {
+		return item.WorktreeID
+	})
 }
 
 func (s *JSONLStore) SaveCommandRegistry(_ context.Context, item domainai.CommandRegistry) error {
@@ -73,7 +77,9 @@ func (s *JSONLStore) SaveCommandRegistry(_ context.Context, item domainai.Comman
 }
 
 func (s *JSONLStore) ListCommandRegistries(_ context.Context, limit int) ([]domainai.CommandRegistry, error) {
-	return listJSONL[domainai.CommandRegistry](s.commandPath, limit)
+	return listLatestJSONLByKey(s.commandPath, limit, func(item domainai.CommandRegistry) string {
+		return item.CommandName
+	})
 }
 
 func (s *JSONLStore) SaveContextUsage(_ context.Context, item domainai.ContextUsage) error {
@@ -120,6 +126,37 @@ func listJSONL[T any](path string, limit int) ([]T, error) {
 		return nil, err
 	}
 	return reverseLimit(items, limit), nil
+}
+
+func listLatestJSONLByKey[T any](path string, limit int, keyFn func(T) string) ([]T, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var items []T
+	if err := readJSONL(path, func(line []byte) error {
+		var item T
+		if err := json.Unmarshal(line, &item); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return []T{}, nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]T, 0, min(limit, len(items)))
+	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		key := keyFn(items[i])
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, items[i])
+	}
+	return out, nil
 }
 
 func readJSONL(path string, fn func([]byte) error) error {
