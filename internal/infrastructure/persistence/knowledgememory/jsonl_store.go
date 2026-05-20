@@ -50,7 +50,9 @@ func (s *JSONLStore) ListPersonalArchiveEntries(_ context.Context, limit int) ([
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestByID(items, normalizedLimit(limit), func(item domainkm.PersonalArchiveEntry) string {
+		return item.EntryID
+	}), err
 }
 
 func (s *JSONLStore) SaveCreativeKnowledgeItem(_ context.Context, item domainkm.CreativeKnowledgeItem) error {
@@ -69,7 +71,9 @@ func (s *JSONLStore) ListCreativeKnowledgeItems(_ context.Context, limit int) ([
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestByID(items, normalizedLimit(limit), func(item domainkm.CreativeKnowledgeItem) string {
+		return item.ItemID
+	}), err
 }
 
 func (s *JSONLStore) SaveNewsKnowledgeItem(_ context.Context, item domainkm.NewsKnowledgeItem) error {
@@ -88,7 +92,9 @@ func (s *JSONLStore) ListNewsKnowledgeItems(_ context.Context, limit int) ([]dom
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestByID(items, normalizedLimit(limit), func(item domainkm.NewsKnowledgeItem) string {
+		return item.ItemID
+	}), err
 }
 
 func (s *JSONLStore) SaveDailyIntakeRule(_ context.Context, item domainkm.DailyIntakeRule) error {
@@ -107,7 +113,9 @@ func (s *JSONLStore) ListDailyIntakeRules(_ context.Context, limit int) ([]domai
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestByID(items, normalizedLimit(limit), func(item domainkm.DailyIntakeRule) string {
+		return item.RuleID
+	}), err
 }
 
 func (s *JSONLStore) SaveTemporalMemoryMarker(_ context.Context, item domainkm.TemporalMemoryMarker) error {
@@ -126,7 +134,9 @@ func (s *JSONLStore) ListTemporalMemoryMarkers(_ context.Context, limit int) ([]
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestByID(items, normalizedLimit(limit), func(item domainkm.TemporalMemoryMarker) string {
+		return item.MarkerID
+	}), err
 }
 
 func (s *JSONLStore) SaveDreamConsolidationRun(_ context.Context, item domainkm.DreamConsolidationRun) error {
@@ -145,7 +155,9 @@ func (s *JSONLStore) ListDreamConsolidationRuns(_ context.Context, limit int) ([
 		items = append(items, item)
 		return nil
 	})
-	return reverseLimit(items, normalizedLimit(limit)), err
+	return latestByID(items, normalizedLimit(limit), func(item domainkm.DreamConsolidationRun) string {
+		return item.RunID
+	}), err
 }
 
 func appendJSONL(path string, value any) error {
@@ -190,12 +202,18 @@ func normalizedLimit(limit int) int {
 	return limit
 }
 
-func reverseLimit[T any](items []T, limit int) []T {
+func latestByID[T any](items []T, limit int, idOf func(T) string) []T {
 	if limit <= 0 || limit > len(items) {
 		limit = len(items)
 	}
 	out := make([]T, 0, limit)
+	seen := map[string]struct{}{}
 	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
+		id := idOf(items[i])
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
 		out = append(out, items[i])
 	}
 	return out

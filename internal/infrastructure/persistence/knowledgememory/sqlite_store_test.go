@@ -63,7 +63,7 @@ func TestSQLiteStoreSavesKnowledgeMemoryRecords(t *testing.T) {
 	}
 	if err := store.SaveDreamConsolidationRun(context.Background(), domainkm.DreamConsolidationRun{
 		RunID:        "dream_1",
-		Status:       "candidate",
+		Status:       "proposal",
 		ReviewStatus: "pending",
 		CreatedAt:    now,
 	}); err != nil {
