@@ -31,6 +31,9 @@ func NewJSONLStore(root string) *JSONLStore {
 }
 
 func (s *JSONLStore) SaveSandbox(_ context.Context, record domainsandbox.SandboxRecord) error {
+	if err := domainsandbox.ValidateSandboxRecord(record); err != nil {
+		return err
+	}
 	return appendJSONL(s.sandboxPath, record)
 }
 
@@ -53,6 +56,9 @@ func (s *JSONLStore) ListSandboxes(_ context.Context, limit int) ([]domainsandbo
 }
 
 func (s *JSONLStore) SaveSandboxArtifact(_ context.Context, artifact domainsandbox.SandboxArtifact) error {
+	if err := domainsandbox.ValidateSandboxArtifact(artifact); err != nil {
+		return err
+	}
 	return appendJSONL(s.artifactPath, artifact)
 }
 
@@ -75,6 +81,9 @@ func (s *JSONLStore) ListSandboxArtifacts(_ context.Context, limit int) ([]domai
 }
 
 func (s *JSONLStore) SavePromotionRequest(_ context.Context, req domainsandbox.PromotionRequest) error {
+	if err := domainsandbox.ValidatePromotionRequest(req); err != nil {
+		return err
+	}
 	return appendJSONL(s.promotionPath, req)
 }
 
@@ -97,6 +106,9 @@ func (s *JSONLStore) ListPromotionRequests(_ context.Context, limit int) ([]doma
 }
 
 func (s *JSONLStore) SavePromotionGateLog(_ context.Context, log domainsandbox.PromotionGateLog) error {
+	if err := domainsandbox.ValidatePromotionGateLog(log); err != nil {
+		return err
+	}
 	return appendJSONL(s.gateLogPath, log)
 }
 

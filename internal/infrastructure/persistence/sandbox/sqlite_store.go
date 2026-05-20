@@ -91,6 +91,9 @@ func (s *SQLiteStore) migrate() error {
 }
 
 func (s *SQLiteStore) SaveSandbox(ctx context.Context, record domainsandbox.SandboxRecord) error {
+	if err := domainsandbox.ValidateSandboxRecord(record); err != nil {
+		return err
+	}
 	return s.save(ctx, `INSERT OR REPLACE INTO sandbox_registry (
 		sandbox_id, workstream_id, goal_id, sandbox_type, path, status, created_at, payload
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -102,6 +105,9 @@ func (s *SQLiteStore) ListSandboxes(ctx context.Context, limit int) ([]domainsan
 }
 
 func (s *SQLiteStore) SaveSandboxArtifact(ctx context.Context, artifact domainsandbox.SandboxArtifact) error {
+	if err := domainsandbox.ValidateSandboxArtifact(artifact); err != nil {
+		return err
+	}
 	return s.save(ctx, `INSERT OR REPLACE INTO sandbox_artifact (
 		artifact_id, sandbox_id, artifact_type, file_path, status, created_at, payload
 	) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -113,6 +119,9 @@ func (s *SQLiteStore) ListSandboxArtifacts(ctx context.Context, limit int) ([]do
 }
 
 func (s *SQLiteStore) SavePromotionRequest(ctx context.Context, req domainsandbox.PromotionRequest) error {
+	if err := domainsandbox.ValidatePromotionRequest(req); err != nil {
+		return err
+	}
 	return s.save(ctx, `INSERT OR REPLACE INTO sandbox_promotion_request (
 		promotion_id, sandbox_id, workstream_id, goal_id, target_path, status, created_at, payload
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -124,6 +133,9 @@ func (s *SQLiteStore) ListPromotionRequests(ctx context.Context, limit int) ([]d
 }
 
 func (s *SQLiteStore) SavePromotionGateLog(ctx context.Context, log domainsandbox.PromotionGateLog) error {
+	if err := domainsandbox.ValidatePromotionGateLog(log); err != nil {
+		return err
+	}
 	return s.save(ctx, `INSERT OR REPLACE INTO promotion_gate_log (
 		event_id, promotion_id, gate_status, human_approval_status, created_at, payload
 	) VALUES (?, ?, ?, ?, ?, ?)`,
