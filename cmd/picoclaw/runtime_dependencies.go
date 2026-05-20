@@ -350,6 +350,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 	var sandboxStore sandboxRuntimeStore
 	var promotionDiffPreviewer *sandboxapp.PromotionDiffApplier
+	if !cfg.Sandbox.Enabled {
+		deps.sandboxStatus = viewer.HandleSandboxStatus(nil)
+	}
 	if cfg.Sandbox.Enabled {
 		if cfg.Sandbox.Storage == "sqlite" {
 			store, err := sandboxpersistence.NewSQLiteStore(cfg.Sandbox.SQLitePath)

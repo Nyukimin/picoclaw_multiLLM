@@ -228,6 +228,20 @@ func TestHandleSandboxStatusInvalidLimit(t *testing.T) {
 	}
 }
 
+func TestHandleSandboxStatusRequiresStore(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/viewer/sandbox", nil)
+	rec := httptest.NewRecorder()
+
+	HandleSandboxStatus(nil).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "sandbox store unavailable") {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
 func TestHandleSandboxPromotionRequest(t *testing.T) {
 	store := &stubSandboxPromotionStore{}
 	body := []byte(`{
@@ -440,6 +454,36 @@ func TestHandleSandboxPromotionApplyRunsPostApplyVerificationCommand(t *testing.
 	}
 	if response.Result == nil || response.Result.Status != "completed" || response.Result.Output != "ok" {
 		t.Fatalf("response result = %#v", response.Result)
+	}
+}
+
+func TestHandleSandboxPromotionApplyRejectsVerificationCommandWithoutRunner(t *testing.T) {
+	store := &stubSandboxPromotionStore{}
+	body := []byte(`{
+		"promotion":{
+			"promotion_id":"prom_1",
+			"sandbox_id":"sbx_1",
+			"target_path":"docs/example.md",
+			"diff_path":"sandbox/sbx_1/diff.patch",
+			"reason":"docs update",
+			"test_result_path":"sandbox/sbx_1/reports/test.txt",
+			"rollback_plan_path":"sandbox/sbx_1/reports/rollback.md",
+			"human_approval_status":"granted"
+		},
+		"post_apply_verification_path":"post_apply.md",
+		"post_apply_verification_command":"go test ./pkg/rencrowclient",
+		"human_approved":true
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/sandbox/promotions/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	HandleSandboxPromotionApply(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.gateLogs) != 0 || len(store.artifacts) != 0 {
+		t.Fatalf("unexpected writes logs=%#v artifacts=%#v", store.gateLogs, store.artifacts)
 	}
 }
 

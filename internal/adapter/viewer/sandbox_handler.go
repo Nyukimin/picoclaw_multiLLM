@@ -235,6 +235,10 @@ func HandleSandboxPromotionApplyWithVerifierAndApplier(store SandboxPromotionSto
 			diffApplyResult = &result
 		}
 		var verificationResult *sandboxapp.PostApplyVerificationResult
+		if strings.TrimSpace(req.PostApplyVerificationCommand) != "" && verifier == nil {
+			http.Error(w, "post-apply verification runner unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if verifier != nil {
 			result, err := verifier.RunPostApplyVerification(r.Context(), req)
 			if err != nil {
