@@ -66,6 +66,10 @@ func HandleAIWorkflowExternalControlCheck(store AIWorkflowStore, policy domainai
 }
 
 func HandleAIWorkflowStatus(store AIWorkflowLister) http.HandlerFunc {
+	return HandleAIWorkflowStatusWithPolicy(store, domainai.ContextBudgetPolicy{})
+}
+
+func HandleAIWorkflowStatusWithPolicy(store AIWorkflowLister, contextBudgetPolicy domainai.ContextBudgetPolicy) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -111,6 +115,7 @@ func HandleAIWorkflowStatus(store AIWorkflowLister) http.HandlerFunc {
 			"worktree_registries":    nonNilWorktreeRegistries(worktrees),
 			"command_registries":     nonNilCommandRegistries(commands),
 			"context_usages":         nonNilContextUsages(contexts),
+			"context_budget_policy":  contextBudgetPolicy,
 		})
 	}
 }
@@ -160,6 +165,7 @@ func HandleAIWorkflowCommandRun(store AIWorkflowStore, skills AIWorkflowSkillBoo
 		CommandName  string   `json:"command_name"`
 		Text         string   `json:"text,omitempty"`
 		Agent        string   `json:"agent,omitempty"`
+		RunID        string   `json:"run_id,omitempty"`
 		WorkstreamID string   `json:"workstream_id,omitempty"`
 		UsedSkillIDs []string `json:"used_skill_ids,omitempty"`
 	}
@@ -200,13 +206,15 @@ func HandleAIWorkflowCommandRun(store AIWorkflowStore, skills AIWorkflowSkillBoo
 		agent := firstNonEmptyString(req.Agent, command.DefaultAgent, "Worker")
 		now := time.Now().UTC()
 		event := domainai.WorkflowEvent{
-			EventID:     "command_invoked:" + strings.TrimPrefix(command.CommandName, "/") + ":" + now.Format("20060102150405.000000000"),
-			EventType:   "command_invoked",
-			Agent:       agent,
-			CommandName: command.CommandName,
-			Status:      "requested",
-			CreatedAt:   now,
-			Summary:     strings.TrimSpace(req.Text),
+			EventID:      "command_invoked:" + strings.TrimPrefix(command.CommandName, "/") + ":" + now.Format("20060102150405.000000000"),
+			RunID:        strings.TrimSpace(req.RunID),
+			WorkstreamID: strings.TrimSpace(req.WorkstreamID),
+			EventType:    "command_invoked",
+			Agent:        agent,
+			CommandName:  command.CommandName,
+			Status:       "requested",
+			CreatedAt:    now,
+			Summary:      strings.TrimSpace(req.Text),
 		}
 		if err := store.SaveWorkflowEvent(r.Context(), event); err != nil {
 			http.Error(w, "failed to save command event: "+err.Error(), http.StatusBadRequest)

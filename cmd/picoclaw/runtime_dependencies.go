@@ -555,7 +555,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		} else if len(commands) > 0 {
 			log.Printf("AI Workflow command files registered: %d", len(commands))
 		}
-		deps.aiWorkflowStatus = viewer.HandleAIWorkflowStatus(aiWorkflowStore)
+		deps.aiWorkflowStatus = viewer.HandleAIWorkflowStatusWithPolicy(aiWorkflowStore, domainai.ContextBudgetPolicy{
+			MaxContextTokens: cfg.AIWorkflow.ContextBudgetTokens,
+			WarnAtRatio:      cfg.AIWorkflow.ContextBudgetWarnRatio,
+			StopAtRatio:      cfg.AIWorkflow.ContextBudgetStopRatio,
+		})
 		deps.aiWorkflowEvent = viewer.HandleAIWorkflowEventCreate(aiWorkflowStore)
 		deps.aiWorkflowProjectMemory = viewer.HandleAIWorkflowProjectMemoryCreate(aiWorkflowStore)
 		deps.aiWorkflowWorktree = viewer.HandleAIWorkflowWorktreeCreate(aiWorkflowStore)

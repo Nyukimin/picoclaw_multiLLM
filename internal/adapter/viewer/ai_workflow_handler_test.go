@@ -104,7 +104,26 @@ func TestHandleAIWorkflowStatus(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"workflow_events", "project_memory_indexes", "worktree_registries", "command_registries", "context_usages"} {
+	for _, want := range []string{"workflow_events", "project_memory_indexes", "worktree_registries", "command_registries", "context_usages", "context_budget_policy"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestHandleAIWorkflowStatusWithPolicyShowsEffectiveContextBudget(t *testing.T) {
+	store := &stubAIWorkflowStore{}
+	rec := httptest.NewRecorder()
+	HandleAIWorkflowStatusWithPolicy(store, domainai.ContextBudgetPolicy{
+		MaxContextTokens: 1000,
+		WarnAtRatio:      0.8,
+		StopAtRatio:      0.95,
+	}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/viewer/ai-workflow", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"context_budget_policy"`, `"max_context_tokens":1000`, `"warn_at_ratio":0.8`, `"stop_at_ratio":0.95`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}
@@ -175,7 +194,7 @@ func TestHandleAIWorkflowCommandRunSavesEventAndRunsSkillBootstrap(t *testing.T)
 	}
 	skills := &stubAIWorkflowSkillBootstrap{}
 	rec := httptest.NewRecorder()
-	body := `{"command_name":"/review-architecture","text":"境界を確認して","workstream_id":"ws_1"}`
+	body := `{"command_name":"/review-architecture","text":"境界を確認して","run_id":"run_1","workstream_id":"ws_1"}`
 
 	HandleAIWorkflowCommandRun(store, skills).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/viewer/ai-workflow/commands/run", strings.NewReader(body)))
 
@@ -184,6 +203,9 @@ func TestHandleAIWorkflowCommandRunSavesEventAndRunsSkillBootstrap(t *testing.T)
 	}
 	if len(store.events) != 1 || store.events[0].EventType != "command_invoked" || store.events[0].CommandName != "/review-architecture" {
 		t.Fatalf("events=%#v", store.events)
+	}
+	if store.events[0].RunID != "run_1" || store.events[0].WorkstreamID != "ws_1" {
+		t.Fatalf("event run/workstream=%#v", store.events[0])
 	}
 	if skills.task.Intent != "review-architecture" || skills.task.Agent != "Coder" || skills.task.WorkstreamID != "ws_1" {
 		t.Fatalf("task=%#v", skills.task)
@@ -247,6 +269,53 @@ func TestHandleAIWorkflowContextBudgetCheckStopsAndSavesEvent(t *testing.T) {
 	}
 	if len(store.events) != 1 || store.events[0].EventType != "context_budget_exceeded" || store.events[0].Status != domainai.ContextBudgetStatusStop {
 		t.Fatalf("events=%#v", store.events)
+	}
+}
+
+func TestHandleAIWorkflowCommandAndContextBudgetAreVisibleInStatus(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	store := &stubAIWorkflowStore{
+		commands: []domainai.CommandRegistry{{
+			CommandName:   "/review-architecture",
+			FilePath:      "commands/review-architecture.md",
+			Description:   "review architecture",
+			DefaultAgent:  "Coder",
+			RequiredSkill: "core.review",
+			UpdatedAt:     now,
+		}},
+	}
+	skills := &stubAIWorkflowSkillBootstrap{}
+
+	commandRec := httptest.NewRecorder()
+	HandleAIWorkflowCommandRun(store, skills).ServeHTTP(commandRec, httptest.NewRequest(http.MethodPost, "/viewer/ai-workflow/commands/run", strings.NewReader(
+		`{"command_name":"/review-architecture","text":"境界を確認して","run_id":"run_1","workstream_id":"ws_1"}`,
+	)))
+	if commandRec.Code != http.StatusCreated {
+		t.Fatalf("command status=%d body=%s", commandRec.Code, commandRec.Body.String())
+	}
+
+	contextRec := httptest.NewRecorder()
+	HandleAIWorkflowContextBudgetCheck(store, domainai.ContextBudgetPolicy{
+		MaxContextTokens: 1000,
+		WarnAtRatio:      0.8,
+		StopAtRatio:      0.95,
+	}).ServeHTTP(contextRec, httptest.NewRequest(http.MethodPost, "/viewer/ai-workflow/context-budget/check", strings.NewReader(
+		`{"event_id":"ctx_ws_1","session_id":"ws_1","agent":"Coder","context_tokens":850,"created_at":"2026-05-18T12:00:00Z"}`,
+	)))
+	if contextRec.Code != http.StatusCreated {
+		t.Fatalf("context status=%d body=%s", contextRec.Code, contextRec.Body.String())
+	}
+
+	statusRec := httptest.NewRecorder()
+	HandleAIWorkflowStatus(store).ServeHTTP(statusRec, httptest.NewRequest(http.MethodGet, "/viewer/ai-workflow", nil))
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+	body := statusRec.Body.String()
+	for _, want := range []string{"command_invoked", "context_budget_warning", "ctx_ws_1", "run_1", "ws_1", "/review-architecture"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("status response missing %s: %s", want, body)
+		}
 	}
 }
 
