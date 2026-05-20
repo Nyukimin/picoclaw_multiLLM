@@ -44,7 +44,7 @@ func fetchGoogleNewsRSS(rssURL string, limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("google news rss status %d", resp.StatusCode)
+		return nil, idlechatHTTPStatusError("google news rss status", resp.StatusCode, resp.Body)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -306,7 +306,7 @@ func fetchGoogleTrendsJP(limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("google trends rss status %d", resp.StatusCode)
+		return nil, idlechatHTTPStatusError("google trends rss status", resp.StatusCode, resp.Body)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -354,7 +354,7 @@ func fetchRedditHot(subreddit string, limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("reddit r/%s status %d", subreddit, resp.StatusCode)
+		return nil, idlechatHTTPStatusError(fmt.Sprintf("reddit r/%s status", subreddit), resp.StatusCode, resp.Body)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -402,7 +402,7 @@ func fetchHatenaHotentry(category string, limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("hatena %s rss status %d", category, resp.StatusCode)
+		return nil, idlechatHTTPStatusError(fmt.Sprintf("hatena %s rss status", category), resp.StatusCode, resp.Body)
 	}
 
 	body, err := io.ReadAll(resp.Body)

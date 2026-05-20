@@ -31,6 +31,10 @@ func (d *HTTPDownloader) Download(ctx context.Context, rawURL string) ([]byte, e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if text := strings.TrimSpace(string(respBody)); text != "" {
+			return nil, fmt.Errorf("bad status: %d: %s", resp.StatusCode, text)
+		}
 		return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
@@ -104,6 +108,10 @@ func (c *SSEClient) consumeOnce(ctx context.Context, lastEventID string, handler
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if text := strings.TrimSpace(string(respBody)); text != "" {
+			return lastEventID, fmt.Errorf("unexpected status: %d: %s", resp.StatusCode, text)
+		}
 		return lastEventID, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 	if c.cfg.OnConnect != nil {

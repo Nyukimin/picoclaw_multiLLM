@@ -5,10 +5,55 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestHTTPDownloaderDownload_Non2xxIncludesResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "audio object expired", http.StatusGone)
+	}))
+	defer server.Close()
+
+	downloader := NewHTTPDownloader(time.Second)
+	_, err := downloader.Download(context.Background(), server.URL+"/audio.wav")
+	if err == nil {
+		t.Fatal("Download() error = nil, want non-2xx error")
+	}
+	if !strings.Contains(err.Error(), "bad status: 410") || !strings.Contains(err.Error(), "audio object expired") {
+		t.Fatalf("Download() error = %q, want status and response body", err.Error())
+	}
+}
+
+func TestSSEClientRun_NonOKIncludesResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "audio stream unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := NewSSEClient(SSEClientConfig{
+		URL:            server.URL,
+		ConnectTimeout: time.Second,
+		RetryDelay:     time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var got error
+	client.cfg.OnDisconnect = func(err error) {
+		got = err
+		cancel()
+	}
+	_ = client.Run(ctx, func(id int64, ev Event) error { return nil })
+	if got == nil {
+		t.Fatal("OnDisconnect error = nil, want non-OK error")
+	}
+	if !strings.Contains(got.Error(), "unexpected status: 503") || !strings.Contains(got.Error(), "audio stream unavailable") {
+		t.Fatalf("OnDisconnect error = %q, want status and response body", got.Error())
+	}
+}
 
 func TestSSEClientRun_ReconnectsWithLastEventID(t *testing.T) {
 	var (

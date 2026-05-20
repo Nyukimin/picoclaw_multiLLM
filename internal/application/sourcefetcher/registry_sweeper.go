@@ -147,6 +147,10 @@ func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversati
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if text := strings.TrimSpace(string(body)); text != "" {
+			return fmt.Errorf("source fetch failed with status %d: %s", resp.StatusCode, text)
+		}
 		return fmt.Errorf("source fetch failed with status %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))

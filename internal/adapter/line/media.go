@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -52,6 +53,10 @@ func (d *MediaDownloader) DownloadContent(ctx context.Context, messageID string)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if text := strings.TrimSpace(string(respBody)); text != "" {
+			return nil, fmt.Errorf("LINE API error (status %d): %s", resp.StatusCode, text)
+		}
 		return nil, fmt.Errorf("LINE API error (status %d)", resp.StatusCode)
 	}
 

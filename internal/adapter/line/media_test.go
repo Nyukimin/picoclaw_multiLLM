@@ -73,13 +73,32 @@ func TestMediaDownloader_DownloadContent_APIError(t *testing.T) {
 	}
 }
 
+func TestMediaDownloader_DownloadContent_APIErrorIncludesResponseBody(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"message":"rate limited"}`))
+	}))
+	defer mockServer.Close()
+
+	downloader := NewMediaDownloader("test-token")
+	downloader.contentEndpoint = mockServer.URL + "/%s/content"
+
+	_, err := downloader.DownloadContent(context.Background(), "123456")
+	if err == nil {
+		t.Fatal("Expected error for API error response")
+	}
+	if !strings.Contains(err.Error(), "status 429") || !strings.Contains(err.Error(), `{"message":"rate limited"}`) {
+		t.Fatalf("DownloadContent() error = %q, want status and response body", err.Error())
+	}
+}
+
 func TestIsBotMention(t *testing.T) {
 	tests := []struct {
-		name        string
-		sourceType  string
-		mentionees  []Mentionee
-		botUserID   string
-		expected    bool
+		name       string
+		sourceType string
+		mentionees []Mentionee
+		botUserID  string
+		expected   bool
 	}{
 		{
 			name:       "User chat (always true)",

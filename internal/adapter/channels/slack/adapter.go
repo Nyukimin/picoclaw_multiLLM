@@ -89,6 +89,11 @@ func (a *Adapter) Send(ctx context.Context, chatID, text string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return fmt.Errorf("slack postMessage failed: status=%d: %s", resp.StatusCode, detail)
+		}
 		return fmt.Errorf("slack postMessage failed: status=%d", resp.StatusCode)
 	}
 	return nil
@@ -110,6 +115,11 @@ func (a *Adapter) Probe(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return fmt.Errorf("slack auth.test failed: status=%d: %s", resp.StatusCode, detail)
+		}
 		return fmt.Errorf("slack auth.test failed: status=%d", resp.StatusCode)
 	}
 	return nil
@@ -235,7 +245,12 @@ func (a *Adapter) attachmentsForEvent(ctx context.Context, event EventInner) ([]
 			return nil, err
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
+			detail := strings.TrimSpace(string(body))
+			if detail != "" {
+				return nil, fmt.Errorf("slack file download failed: status=%d: %s", resp.StatusCode, detail)
+			}
 			return nil, fmt.Errorf("slack file download failed: status=%d", resp.StatusCode)
 		}
 		contentType := firstNonEmptySlack(file.MimeType, resp.Header.Get("Content-Type"))

@@ -82,7 +82,7 @@ func fetchWikipediaRandom(limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("wikipedia api returned status %d", resp.StatusCode)
+		return nil, idlechatHTTPStatusError("wikipedia api returned status", resp.StatusCode, resp.Body)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -131,7 +131,7 @@ func fetchNewsHeadlinesFrom(rssURL string, limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("nhk rss returned status %d", resp.StatusCode)
+		return nil, idlechatHTTPStatusError("nhk rss returned status", resp.StatusCode, resp.Body)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -169,4 +169,13 @@ func getDailyCache() *DailySeedCache {
 	cacheMu.RLock()
 	defer cacheMu.RUnlock()
 	return dailyCache
+}
+
+func idlechatHTTPStatusError(prefix string, status int, body io.Reader) error {
+	data, _ := io.ReadAll(io.LimitReader(body, 4096))
+	text := strings.TrimSpace(string(data))
+	if text != "" {
+		return fmt.Errorf("%s %d: %s", prefix, status, text)
+	}
+	return fmt.Errorf("%s %d", prefix, status)
 }

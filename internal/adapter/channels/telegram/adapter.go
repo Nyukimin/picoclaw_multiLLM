@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -90,6 +91,11 @@ func (a *Adapter) Send(ctx context.Context, chatID, text string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return fmt.Errorf("telegram sendMessage failed: status=%d: %s", resp.StatusCode, detail)
+		}
 		return fmt.Errorf("telegram sendMessage failed: status=%d", resp.StatusCode)
 	}
 	return nil
@@ -110,6 +116,11 @@ func (a *Adapter) Probe(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return fmt.Errorf("telegram getMe failed: status=%d: %s", resp.StatusCode, detail)
+		}
 		return fmt.Errorf("telegram getMe failed: status=%d", resp.StatusCode)
 	}
 	return nil
@@ -264,7 +275,12 @@ func (a *Adapter) downloadTelegramFile(ctx context.Context, fileID, filename, co
 		return appattachment.IncomingFile{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
+		detail := strings.TrimSpace(string(body))
+		if detail != "" {
+			return appattachment.IncomingFile{}, fmt.Errorf("telegram file download failed: status=%d: %s", resp.StatusCode, detail)
+		}
 		return appattachment.IncomingFile{}, fmt.Errorf("telegram file download failed: status=%d", resp.StatusCode)
 	}
 	return appattachment.IncomingFile{
@@ -287,6 +303,10 @@ func (a *Adapter) getTelegramFilePath(ctx context.Context, fileID string) (strin
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if detail := strings.TrimSpace(string(body)); detail != "" {
+			return "", 0, fmt.Errorf("telegram getFile failed: status=%d: %s", resp.StatusCode, detail)
+		}
 		return "", 0, fmt.Errorf("telegram getFile failed: status=%d", resp.StatusCode)
 	}
 	var payload struct {

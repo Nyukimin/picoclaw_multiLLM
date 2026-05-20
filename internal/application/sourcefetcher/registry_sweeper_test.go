@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,5 +210,40 @@ func TestRunSourceStagesValidatesAndPromotesPyPIHTTPSource(t *testing.T) {
 	}
 	if items[0].SummaryDraft != "sample package" || items[0].Meta["latest_version"] != "1.0.0" {
 		t.Fatalf("expected PyPI-specific fields, got %+v", items[0])
+	}
+}
+
+func TestRunSourceHTTPFailureIncludesResponseBody(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "source upstream unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "pypi:down",
+		URL:           srv.URL,
+		Kind:          conversationpersistence.L1SourceKindPyPI,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "pypi json api",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"namespace": "kb:pypi", "domain": "pypi"},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+
+	_, err = RunSource(ctx, store, "pypi:down", now, SweepOptions{LimitPerSource: 5, MinimumTrustScore: 0.5})
+	if err == nil {
+		t.Fatal("RunSource error = nil, want source fetch failure")
+	}
+	if !strings.Contains(err.Error(), "source fetch failed with status 503") || !strings.Contains(err.Error(), "source upstream unavailable") {
+		t.Fatalf("RunSource error = %q, want status and response body", err.Error())
 	}
 }
