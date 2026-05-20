@@ -3,6 +3,7 @@ package viewer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -99,8 +100,82 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 			return
 		}
 		out["l3"] = l3
+		if err := validateMemoryLayersSnapshot(out); err != nil {
+			http.Error(w, "invalid memory layers snapshot: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	}
+}
+
+func validateMemoryLayersSnapshot(snapshot map[string]any) error {
+	for _, layer := range []string{"l0", "l1", "l3"} {
+		items, ok := snapshot[layer].([]conversationpersistence.L1MemoryEvent)
+		if !ok {
+			return fmt.Errorf("%s memory snapshot has invalid type", layer)
+		}
+		for _, item := range items {
+			if err := validateMemoryLayerEventSnapshot(layer, item); err != nil {
+				return err
+			}
+		}
+	}
+	summaries, ok := snapshot["l2"].([]*domconv.ThreadSummary)
+	if !ok {
+		return fmt.Errorf("l2 memory snapshot has invalid type")
+	}
+	for _, item := range summaries {
+		if item == nil {
+			return fmt.Errorf("l2 summary is nil")
+		}
+		if item.ThreadID <= 0 {
+			return fmt.Errorf("l2 summary missing thread_id")
+		}
+		if strings.TrimSpace(item.Summary) == "" {
+			return fmt.Errorf("l2 summary missing summary")
+		}
+	}
+	docs, ok := snapshot["l3_qdrant"].([]*domconv.Document)
+	if !ok {
+		return fmt.Errorf("l3_qdrant snapshot has invalid type")
+	}
+	for _, item := range docs {
+		if item == nil {
+			return fmt.Errorf("l3_qdrant document is nil")
+		}
+		if strings.TrimSpace(item.ID) == "" {
+			return fmt.Errorf("l3_qdrant document missing id")
+		}
+		if strings.TrimSpace(item.Domain) == "" {
+			return fmt.Errorf("l3_qdrant document missing domain")
+		}
+		if strings.TrimSpace(item.Content) == "" {
+			return fmt.Errorf("l3_qdrant document missing content")
+		}
+		if item.CreatedAt.IsZero() {
+			return fmt.Errorf("l3_qdrant document missing created_at")
+		}
+		if item.UpdatedAt.IsZero() {
+			return fmt.Errorf("l3_qdrant document missing updated_at")
+		}
+	}
+	return nil
+}
+
+func validateMemoryLayerEventSnapshot(layer string, item conversationpersistence.L1MemoryEvent) error {
+	if strings.TrimSpace(item.ID) == "" {
+		return fmt.Errorf("%s memory missing id", layer)
+	}
+	if strings.TrimSpace(item.Message) == "" {
+		return fmt.Errorf("%s memory missing message", layer)
+	}
+	if strings.TrimSpace(item.Layer) == "" {
+		return fmt.Errorf("%s memory missing layer", layer)
+	}
+	if item.CreatedAt.IsZero() {
+		return fmt.Errorf("%s memory missing created_at", layer)
+	}
+	return nil
 }
