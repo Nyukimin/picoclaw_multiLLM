@@ -10,6 +10,8 @@ function parseArgs(argv) {
     requireFinal: true,
     requireSend: true,
     speakMs: 0,
+    manualStop: false,
+    manualTimeoutMs: 120000,
     partialTimeoutMs: 30000,
     finalTimeoutMs: 70000,
     headless: true,
@@ -22,12 +24,15 @@ function parseArgs(argv) {
     else if (a === '--no-require-final') args.requireFinal = false;
     else if (a === '--no-require-send') args.requireSend = false;
     else if (a === '--speak-ms') args.speakMs = Number(argv[++i]) || 0;
+    else if (a === '--manual-stop') args.manualStop = true;
+    else if (a === '--manual-timeout-ms') args.manualTimeoutMs = Number(argv[++i]) || args.manualTimeoutMs;
     else if (a === '--partial-timeout-ms') args.partialTimeoutMs = Number(argv[++i]) || args.partialTimeoutMs;
     else if (a === '--final-timeout-ms') args.finalTimeoutMs = Number(argv[++i]) || args.finalTimeoutMs;
     else if (a === '--headed') args.headless = false;
     else if (a === '--headless') args.headless = true;
     else throw new Error(`unknown arg: ${a}`);
   }
+  if (args.realMic && args.speakMs <= 0) args.manualStop = true;
   return args;
 }
 
@@ -78,19 +83,26 @@ async function main() {
   await page.waitForSelector('body[data-viewer-tab="timeline"]', { timeout: 10000 });
   await page.click('#micBtn');
   await page.waitForFunction(() => document.querySelector('#micState')?.textContent?.includes('on'), null, { timeout: 10000 });
-  const sawPartial = await waitOrNull(page, () => (document.querySelector('#sttCaption')?.textContent || '').includes('暫定字幕:'), args.partialTimeoutMs);
-  const partialCaption = await page.textContent('#sttCaption').catch(() => '');
 
-  if (args.realMic && args.speakMs <= 0) {
-    await page.pause();
+  let sawPartial = false;
+  if (args.manualStop) {
+    console.error('[stt-viewer-browser-e2e] Microphone is ON. Speak clearly, then click the mic button in the browser to stop.');
+    await page.waitForFunction(() => document.querySelector('#micState')?.textContent?.includes('off'), null, { timeout: args.manualTimeoutMs });
   } else if (args.speakMs > 0) {
     await page.waitForTimeout(args.speakMs);
+    sawPartial = (await page.textContent('#sttCaption').catch(() => '')).includes('暫定字幕:');
+    await page.click('#micBtn');
+  } else {
+    sawPartial = await waitOrNull(page, () => (document.querySelector('#sttCaption')?.textContent || '').includes('暫定字幕:'), args.partialTimeoutMs);
+    await page.click('#micBtn');
   }
 
-  await page.click('#micBtn');
+  const partialCaption = await page.textContent('#sttCaption').catch(() => '');
+  if (!sawPartial) sawPartial = partialCaption.includes('暫定字幕:');
   const sawFinal = await waitOrNull(page, () => (document.querySelector('#sttCaption')?.textContent || '').includes('確定字幕:'), args.finalTimeoutMs);
   const finalCaption = await page.textContent('#sttCaption').catch(() => '');
-  const deadline = Date.now() + 15000;
+  if (!sawPartial) sawPartial = finalCaption.includes('暫定字幕:');
+  const deadline = Date.now() + (args.requireSend ? 15000 : 1000);
   while (!sendBody && Date.now() < deadline) await page.waitForTimeout(200);
 
   const sentText = wsSent.filter(p => typeof p === 'string');
@@ -99,6 +111,7 @@ async function main() {
     ok: true,
     url: args.url,
     real_mic: args.realMic,
+    manual_stop: args.manualStop,
     saw_partial: sawPartial,
     saw_final: sawFinal,
     partial_caption: partialCaption,
