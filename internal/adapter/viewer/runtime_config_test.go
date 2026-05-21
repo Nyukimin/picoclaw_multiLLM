@@ -38,6 +38,55 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	}
 }
 
+func TestHandleRuntimeConfig_KeepsConfiguredSTTStreamURLForLANHTTP(t *testing.T) {
+	handler := HandleRuntimeConfig(DebugSystemOptions{
+		STTBaseURL:   "http://192.168.1.207:8766",
+		STTStreamURL: "ws://192.168.1.207:8766/stt",
+	})
+	req := httptest.NewRequest(http.MethodGet, "http://192.168.1.204:18790/viewer/runtime-config", nil)
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	var body RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.STTStreamURL != "ws://192.168.1.207:8766/stt" {
+		t.Fatalf("unexpected LAN stt stream url: %+v", body)
+	}
+}
+
+func TestHandleRuntimeConfig_ReturnsSameOriginWSSForTailscaleHTTPS(t *testing.T) {
+	handler := HandleRuntimeConfig(DebugSystemOptions{
+		STTBaseURL:   "http://192.168.1.207:8766",
+		STTStreamURL: "ws://192.168.1.207:8766/stt",
+	})
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18790/viewer/runtime-config", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "fujitsu-ubunts.tailb07d8d.ts.net")
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	var body RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.STTStreamURL != "wss://fujitsu-ubunts.tailb07d8d.ts.net/stt" {
+		t.Fatalf("unexpected Tailscale stt stream url: %+v", body)
+	}
+	if body.STTBaseURL != "http://192.168.1.207:8766" {
+		t.Fatalf("server-side stt base url should remain LAN-local: %+v", body)
+	}
+}
+
 func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
 		LLMOpsConfigured: true,

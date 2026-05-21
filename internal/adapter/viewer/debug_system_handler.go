@@ -122,7 +122,7 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(RuntimeConfig{
-			STTStreamURL:     strings.TrimSpace(opts.STTStreamURL),
+			STTStreamURL:     browserFacingSTTStreamURL(r, opts.STTStreamURL),
 			STTBaseURL:       strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
 			TTSBaseURL:       strings.TrimRight(strings.TrimSpace(opts.TTSBaseURL), "/"),
 			TTSHealthPath:    strings.TrimSpace(opts.TTSHealthPath),
@@ -133,6 +133,60 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
 		})
 	}
+}
+
+func browserFacingSTTStreamURL(r *http.Request, configured string) string {
+	configured = strings.TrimSpace(configured)
+	if r == nil {
+		return configured
+	}
+	host := forwardedHost(r)
+	if host == "" {
+		return configured
+	}
+	if isHTTPSRequest(r) || isTailscaleHost(host) {
+		return "wss://" + host + "/stt"
+	}
+	return configured
+}
+
+func forwardedHost(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	return strings.TrimRight(host, ".")
+}
+
+func isHTTPSRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if strings.EqualFold(firstForwardedValue(r.Header.Get("X-Forwarded-Proto")), "https") {
+		return true
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.URL.Scheme, "https")
+}
+
+func isTailscaleHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if i := strings.LastIndex(host, ":"); i >= 0 && !strings.Contains(host[i+1:], "]") {
+		host = host[:i]
+	}
+	return strings.HasSuffix(strings.TrimRight(host, "."), ".ts.net")
+}
+
+func firstForwardedValue(value string) string {
+	if i := strings.Index(value, ","); i >= 0 {
+		value = value[:i]
+	}
+	return strings.TrimSpace(value)
 }
 
 func normalizeRuntimeDependencyReadiness(opts DebugSystemOptions) RuntimeDependencyReadiness {
