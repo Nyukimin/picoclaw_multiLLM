@@ -3404,6 +3404,7 @@ const sttState = {
   captureActionError: '',
   lastRecognitionText: '',
   lastRecognitionType: '',
+  inputLevel: 0,
   voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`,
   sttBaseURL: '',
   runtimeConfigLoaded: false
@@ -3658,9 +3659,11 @@ function updateSTTInputIndicators() {
   const voiceAllowed = isVoiceChatAllowed();
   if (micBtn) {
     micBtn.classList.toggle('ready', !!sttState.isRecording);
+    micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
+    micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
     micBtn.disabled = !voiceAllowed && !sttState.isRecording;
     micBtn.title = voiceAllowed
-      ? (sttState.isRecording ? '音声入力中（クリックで停止）' : '音声入力')
+      ? (sttState.isRecording ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
       : '音声入力は通常チャットでのみ有効です';
   }
   if (micStateEl) {
@@ -3730,6 +3733,7 @@ async function startSTT() {
     sttState.captureActionError = '';
     sttState.lastRecognitionText = '';
     sttState.lastRecognitionType = '';
+    updateSTTInputLevel(0);
     sttState.streamReady = false;
     if (!sttState.runtimeConfigLoaded) {
       await loadViewerRuntimeConfig();
@@ -3755,6 +3759,7 @@ async function startSTT() {
       if (!sttState.isRecording) return;
       const pcm = e.inputBuffer.getChannelData(0);
       const pcm16 = resampleToPCM16(pcm, sttState.inputSampleRate || 48000, 16000);
+      updateSTTInputLevel(calculateSTTInputLevel(pcm16));
       sttState.draftBuffer.push(...pcm16);
       sttState.capturePCM.push(...pcm16);
       sendSTTAudioChunk(pcm16);
@@ -3888,6 +3893,24 @@ function resampleToPCM16(input, fromRate, toRate) {
   return output;
 }
 
+function calculateSTTInputLevel(pcm16) {
+  if (!pcm16 || pcm16.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < pcm16.length; i++) {
+    const sample = Number(pcm16[i]) || 0;
+    sumSquares += sample * sample;
+  }
+  const rms = Math.sqrt(sumSquares / pcm16.length);
+  return Math.max(0, Math.min(100, Math.round((rms / 2400) * 100)));
+}
+
+function updateSTTInputLevel(level) {
+  sttState.inputLevel = Math.max(0, Math.min(100, Number(level) || 0));
+  if (!micBtn) return;
+  micBtn.style.setProperty('--mic-level-pct', `${Math.round(sttState.inputLevel)}%`);
+  micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
+}
+
 function sendSTTAudioChunk(pcm16) {
   if (!sttState.isRecording || !sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return;
   sttState.chunkBuffer.push(...pcm16);
@@ -3975,6 +3998,7 @@ function stopSTT() {
   sttState.isStopping = true;
   console.log('[STT] Stopping');
   sttState.isRecording = false;
+  updateSTTInputLevel(0);
 
   if (sttState.draftTimer) sttState.draftTimer();
   if (sttState.reconnectTimer) {

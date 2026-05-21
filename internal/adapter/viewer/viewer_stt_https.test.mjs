@@ -50,3 +50,15 @@ test('viewer STT autotest uses runtime STT base URL for provider inference', () 
   assert.match(js, /base \+ '\/v1\/audio\/transcriptions'/);
   assert.match(js, /provider_url: providerURL/);
 });
+
+test('viewer renders live microphone input level on the mic button', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
+  assert.match(js, /inputLevel:\s*0/);
+  assert.match(js, /function calculateSTTInputLevel\(pcm16\)/);
+  assert.match(js, /updateSTTInputLevel\(calculateSTTInputLevel\(pcm16\)\)/);
+  assert.match(js, /micBtn\.style\.setProperty\('--mic-level-pct'/);
+  assert.match(js, /updateSTTInputLevel\(0\);/);
+  assert.match(css, /#micBtn\.has-level/);
+  assert.match(css, /var\(--mic-level-pct\)/);
+});
