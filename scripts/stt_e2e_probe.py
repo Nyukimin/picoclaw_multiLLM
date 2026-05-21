@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import sys
 import time
 import wave
 from pathlib import Path
@@ -131,6 +132,36 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_
     return out
 
 
+def count_ok(records):
+    return sum(1 for x in records if x.get("ok"))
+
+
+def build_result(args, wav_path: Path, inf, chat, ws):
+    return {
+        "provider_url": args.provider_url,
+        "chat_input_url": args.chat_input_url,
+        "ws_url": args.ws_url,
+        "wav": str(wav_path),
+        "inference": inf,
+        "inference_success": f"{count_ok(inf)}/{len(inf)}",
+        "chat_input": chat,
+        "chat_input_success": f"{count_ok(chat)}/{len(chat)}" if chat else "skipped",
+        "ws": ws,
+        "ws_success": f"{count_ok(ws)}/{len(ws)}",
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def result_exit_code(args, result):
+    if args.require_ws_final and count_ok(result["ws"]) != len(result["ws"]):
+        return 2
+    if args.require_provider_text and count_ok(result["inference"]) != len(result["inference"]):
+        return 3
+    if args.chat_input_url and args.require_chat_input_text and count_ok(result["chat_input"]) != len(result["chat_input"]):
+        return 4
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(description="STT E2E probe for Go STT API/provider and /stt")
     p.add_argument("--wav", default="tmp/client_stt_input_latest.wav", help="Path to WAV sample")
@@ -142,6 +173,9 @@ def main():
     p.add_argument("--ws-rounds", type=int, default=3)
     p.add_argument("--ws-wait", type=float, default=10.0)
     p.add_argument("--ws-chunk-ms", type=int, default=200)
+    p.add_argument("--require-ws-final", action="store_true", help="Exit non-zero unless every WS round returns a final text")
+    p.add_argument("--require-provider-text", action="store_true", help="Exit non-zero unless every HTTP provider round returns text")
+    p.add_argument("--require-chat-input-text", action="store_true", help="Exit non-zero unless optional chat-input round returns text")
     args = p.parse_args()
 
     wav_path = Path(args.wav)
@@ -153,20 +187,9 @@ def main():
     if args.chat_input_url:
         chat = run_inference_bench(args.chat_input_url, wav_path, args.provider_timeout, 1)
     ws = run_ws_bench(args.ws_url, wav_path, args.ws_rounds, args.ws_wait, args.ws_chunk_ms)
-    result = {
-        "provider_url": args.provider_url,
-        "chat_input_url": args.chat_input_url,
-        "ws_url": args.ws_url,
-        "wav": str(wav_path),
-        "inference": inf,
-        "inference_success": f"{sum(1 for x in inf if x['ok'])}/{len(inf)}",
-        "chat_input": chat,
-        "chat_input_success": f"{sum(1 for x in chat if x['ok'])}/{len(chat)}" if chat else "skipped",
-        "ws": ws,
-        "ws_success": f"{sum(1 for x in ws if x['ok'])}/{len(ws)}",
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    result = build_result(args, wav_path, inf, chat, ws)
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    sys.exit(result_exit_code(args, result))
 
 
 if __name__ == "__main__":

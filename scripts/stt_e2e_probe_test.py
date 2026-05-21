@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import argparse
 import struct
 import tempfile
 import unittest
@@ -48,6 +49,26 @@ class STTE2EProbeTest(unittest.TestCase):
             self.write_wav(pcm8_path, 1, 1, 16000, [0, 1, 2, 3])
             with self.assertRaisesRegex(ValueError, "PCM16"):
                 probe.load_pcm16_chunks(pcm8_path, 200)
+
+    def test_result_exit_code_requires_ws_final_when_requested(self):
+        args = argparse.Namespace(
+            require_ws_final=True,
+            require_provider_text=False,
+            require_chat_input_text=False,
+            chat_input_url="",
+        )
+        result = {"ws": [{"ok": True}, {"ok": False}], "inference": [], "chat_input": []}
+        self.assertEqual(probe.result_exit_code(args, result), 2)
+
+    def test_result_exit_code_allows_partial_only_when_not_required(self):
+        args = argparse.Namespace(
+            require_ws_final=False,
+            require_provider_text=False,
+            require_chat_input_text=False,
+            chat_input_url="",
+        )
+        result = {"ws": [{"ok": False, "partial": "テスト"}], "inference": [], "chat_input": []}
+        self.assertEqual(probe.result_exit_code(args, result), 0)
 
 
 if __name__ == "__main__":

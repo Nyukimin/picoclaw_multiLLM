@@ -88,6 +88,16 @@ test('viewer renders STT errors in the caption area without keeping stale partia
   assert.match(js, /sttState\.partialCaptionText = '';/);
   assert.match(js, /sttState\.finalCaptionText = '';/);
   assert.match(css, /\.stt-caption\.error/);
+
+  const parseStart = js.indexOf("sttState.captureActionError = describeSTTActionError('STT message parse unavailable'");
+  const wsStart = js.indexOf("sttState.captureActionError = describeSTTActionError(\n      'STT websocket unavailable'");
+  const timeoutStart = js.indexOf("sttState.captureActionError = describeSTTActionError('STT final unavailable'");
+  assert.ok(parseStart >= 0, 'parse error path not found');
+  assert.ok(wsStart >= 0, 'websocket error path not found');
+  assert.ok(timeoutStart >= 0, 'final timeout path not found');
+  assert.match(js.slice(parseStart, parseStart + 220), /setSTTCaptionError\(sttState\.captureActionError\)/);
+  assert.match(js.slice(wsStart, wsStart + 260), /setSTTCaptionError\(sttState\.captureActionError\)/);
+  assert.match(js.slice(timeoutStart, timeoutStart + 260), /setSTTCaptionError\(sttState\.captureActionError\)/);
 });
 
 test('viewer sends STT stop control and waits for final or error before closing', () => {
