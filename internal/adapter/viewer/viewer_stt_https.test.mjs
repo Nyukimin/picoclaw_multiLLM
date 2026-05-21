@@ -83,6 +83,8 @@ test('viewer sends STT stop control and waits for final or error before closing'
   assert.match(js, /sttState\.ws\.send\(JSON\.stringify\(\{ type: 'stop' \}\)\)/);
   assert.match(js, /recordSTTCaptureEvent\('stop', 'requested'\)/);
   assert.match(js, /function scheduleSTTFinalWaitTimeout\(\)/);
+  assert.match(js, /const STT_FINAL_WAIT_TIMEOUT_MS = 30000/);
+  assert.match(js, /}, STT_FINAL_WAIT_TIMEOUT_MS\)/);
   assert.match(js, /timed out waiting for final/);
   assert.match(js, /function completeSTTStop\(\)/);
 

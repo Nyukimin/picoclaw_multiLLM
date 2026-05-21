@@ -3424,6 +3424,7 @@ const sttCaptureCopyBtn = document.getElementById('sttCaptureCopyBtn');
 const sttCaptureDownloadBtn = document.getElementById('sttCaptureDownloadBtn');
 const sttCaptureClearBtn = document.getElementById('sttCaptureClearBtn');
 const sttSessionCopyBtn = document.getElementById('sttSessionCopyBtn');
+const STT_FINAL_WAIT_TIMEOUT_MS = 30000;
 if (micBtn) {
   micBtn.addEventListener('click', toggleSTT);
 }
@@ -4026,7 +4027,7 @@ function scheduleSTTFinalWaitTimeout() {
       return;
     }
     completeSTTStop();
-  }, 5000);
+  }, STT_FINAL_WAIT_TIMEOUT_MS);
 }
 
 function handleSTTFinalText(text) {

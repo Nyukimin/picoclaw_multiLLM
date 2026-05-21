@@ -440,6 +440,7 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 - Viewer マイク入力レベル表示を追加した。
 - Viewer WebSocket open 時に `start` control を送るようにした。
 - Viewer 停止時に残り PCM16 chunk を送信後、`stop` control を送り、`final` / `error` / timeout / close を待って終了処理へ進むようにした。
+- 207 STT の partial 推論に 6 秒以上かかるケースがあるため、Viewer の final 待ち timeout を 30 秒にした。
 - `partial` / `draft` を通常 chat input へ送る停止時 fallback を削除し、`final.text` のみ通常 chat input に接続する contract test を追加した。
 - `partial` / `draft` と `final` を入力欄とは別の STT 字幕 UI に表示するようにした。
 - `scripts/stt_e2e_probe.py` を WAV decode -> PCM16 raw chunk -> `start` -> binary chunks -> `stop` protocol に修正し、`final` がない WS 結果を success 扱いしないようにした。
@@ -457,11 +458,12 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
   - `ws://192.168.1.207:8766/stt`
   - `ws://127.0.0.1:18790/stt`
   - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
+- Playwright Chromium の fake microphone で local Viewer を開き、ブラウザ `getUserMedia` -> Viewer PCM16 chunk -> 207 STT の経路で `start` / binary chunk / `stop` 送信と `partial` 受信を確認した。同 run では 207 STT が `NO_SPEECH_DETECTED` を返し、Viewer は `STT recognition unavailable: 音声が検出されませんでした。` を session 表示に残し、通常 chat input へ送信しなかった。
 
 ### 残る未確認
 
 - 実ブラウザのマイク操作で、Mic ON -> 入力レベル -> `partial` 表示 -> `stop` -> `final` -> 通常 chat input 送信までを 1 セッション通して確認すること。
-- no speech / provider timeout / invalid audio / proxy failure などの全 error path を、実 runtime 表示として網羅確認すること。
+- no speech は実 runtime 表示まで確認済み。provider timeout / invalid audio / proxy failure などの error path は、実 runtime 表示として網羅確認すること。
 
 ## 分類
 
