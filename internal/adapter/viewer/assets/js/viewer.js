@@ -3394,8 +3394,10 @@ const sttState = {
   chunkSamples: 1600,
   draftBuffer: [],        // Recent window for draft (1 second)
   draftTimer: null,
+  finalWaitTimer: null,
   reconnectTimer: null,
   reconnecting: false,
+  stopControlSent: false,
   captureLog: [],
   capturePCM: [],
   captureStartedAt: '',
@@ -3486,9 +3488,9 @@ async function loadViewerDebugSystemSnapshot() {
 }
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'start' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
+  if (type !== 'speech_start' && type !== 'start' && type !== 'stop' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'closed' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
   const rawPayload = String(payload || '').trim();
-  if (type === 'speech_start' || type === 'ready' || type === 'ws_open' || type === 'ws_close') {
+  if (type === 'speech_start' || type === 'ready' || type === 'closed' || type === 'ws_open' || type === 'ws_close') {
     payload = '-';
   } else {
     if (!rawPayload) return;
@@ -3733,6 +3735,8 @@ async function startSTT() {
     sttState.captureActionError = '';
     sttState.lastRecognitionText = '';
     sttState.lastRecognitionType = '';
+    sttState.stopControlSent = false;
+    clearSTTFinalWaitTimer();
     updateSTTInputLevel(0);
     sttState.streamReady = false;
     if (!sttState.runtimeConfigLoaded) {
@@ -3825,17 +3829,24 @@ function connectSTTWebSocket() {
           sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = msg.type;
           console.log('[STT] Draft:', msg.text);
-        } else if (msg.type === 'final' && msg.text) {
+        } else if (msg.type === 'final') {
           sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = 'final';
           console.log('[STT] Final:', msg.text);
-          handleSTTFinalText(msg.text);
+          handleSTTFinalText(sttState.lastRecognitionText);
           // Clear buffer for next utterance (server-side VAD detected end)
           sttState.draftBuffer = [];
+          if (sttState.isStopping && sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+            sttState.ws.close();
+          }
         } else if (msg.type === 'reply_reset') {
           console.log('[STT] LLM reply starting...');
         } else if (msg.type === 'reply_delta' && msg.text) {
           console.log('[STT] LLM reply:', msg.text);
+        } else if (msg.type === 'closed') {
+          if (sttState.isStopping && sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+            sttState.ws.close();
+          }
         } else if (msg.type === 'empty') {
           console.log('[STT] Empty result');
         } else if (msg.type === 'error') {
@@ -3843,6 +3854,9 @@ function connectSTTWebSocket() {
           updateSTTInputIndicators();
           console.error('[STT] Error:', msg.error || msg.message);
           showToast('認識エラー', 'error');
+          if (sttState.isStopping && sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+            sttState.ws.close();
+          }
         }
       } catch (err) {
         sttState.captureActionError = describeSTTActionError('STT message parse unavailable', err);
@@ -3863,6 +3877,10 @@ function connectSTTWebSocket() {
     recordSTTCaptureEvent('ws_close', '');
     sttState.streamReady = false;
     updateSTTInputIndicators();
+    if (sttState.isStopping) {
+      completeSTTStop();
+      return;
+    }
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
 }
@@ -3922,6 +3940,14 @@ function sendSTTAudioChunk(pcm16) {
   }
 }
 
+function flushSTTAudioChunkBuffer() {
+  if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN || sttState.chunkBuffer.length === 0) return false;
+  const chunk = new Int16Array(sttState.chunkBuffer);
+  sttState.chunkBuffer = [];
+  sttState.ws.send(chunk.buffer);
+  return true;
+}
+
 function sendSTTStartControl() {
   if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return false;
   const sampleRate = Number(sttState.sampleRate || 16000) || 16000;
@@ -3934,6 +3960,37 @@ function sendSTTStartControl() {
   sttState.ws.send(JSON.stringify(control));
   recordSTTCaptureEvent('start', `${sampleRate}Hz pcm_s16le mono`);
   return true;
+}
+
+function sendSTTStopControl() {
+  if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return false;
+  if (sttState.stopControlSent) return true;
+  sttState.ws.send(JSON.stringify({ type: 'stop' }));
+  sttState.stopControlSent = true;
+  recordSTTCaptureEvent('stop', 'requested');
+  return true;
+}
+
+function clearSTTFinalWaitTimer() {
+  if (!sttState.finalWaitTimer) return;
+  clearTimeout(sttState.finalWaitTimer);
+  sttState.finalWaitTimer = null;
+}
+
+function scheduleSTTFinalWaitTimeout() {
+  clearSTTFinalWaitTimer();
+  sttState.finalWaitTimer = setTimeout(() => {
+    sttState.finalWaitTimer = null;
+    if (!sttState.isStopping) return;
+    sttState.captureActionError = describeSTTActionError('STT final unavailable', 'timed out waiting for final');
+    recordSTTCaptureEvent('error', 'timed out waiting for final');
+    updateSTTInputIndicators();
+    if (sttState.ws && (sttState.ws.readyState === WebSocket.OPEN || sttState.ws.readyState === WebSocket.CONNECTING)) {
+      sttState.ws.close();
+      return;
+    }
+    completeSTTStop();
+  }, 5000);
 }
 
 function handleSTTFinalText(text) {
@@ -4021,7 +4078,6 @@ function stopSTT() {
     sttState.reconnectTimer = null;
   }
   sttState.reconnecting = false;
-  sttState.chunkBuffer = [];
 
   if (sttState.scriptNode) {
     sttState.scriptNode.disconnect();
@@ -4036,17 +4092,31 @@ function stopSTT() {
     sttState.audioStream = null;
   }
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
-    const pendingText = String(sttState.lastRecognitionText || '').trim();
-    if (pendingText && sttState.lastRecognitionType !== 'final') {
-      recordSTTCaptureEvent('final', pendingText);
-      handleSTTFinalText(pendingText);
-    }
+    flushSTTAudioChunkBuffer();
+    sendSTTStopControl();
+    scheduleSTTFinalWaitTimeout();
+    updateSTTInputIndicators();
+    return;
+  }
+  sttState.chunkBuffer = [];
+  if (sttState.ws && sttState.ws.readyState === WebSocket.CONNECTING) {
     sttState.ws.close();
+    scheduleSTTFinalWaitTimeout();
+    updateSTTInputIndicators();
+    return;
   }
 
+  completeSTTStop();
+}
+
+function completeSTTStop() {
+  if (!sttState.isStopping) return;
+  clearSTTFinalWaitTimer();
+  sttState.chunkBuffer = [];
   sttState.draftBuffer = [];
-  updateSTTInputIndicators();
+  sttState.stopControlSent = false;
   sttState.isStopping = false;
+  updateSTTInputIndicators();
   persistSTTArtifacts().then(() => {
     showToast('STTログ/WAVを tmp に保存しました', 'success');
   }).catch((err) => {
