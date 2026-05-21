@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,6 +114,82 @@ func TestIsSTTTextFramePayload(t *testing.T) {
 	}
 	if isSTTTextFramePayload([]byte{0xff, 0x00, 0x01}) {
 		t.Fatal("non-json bytes should be relayed as binary")
+	}
+}
+
+func TestSTTWebSocketProxyE2E_RelaysStartStopTextAndPCM16Binary(t *testing.T) {
+	pcm := rawPCM16Chunk()
+	gatewayDone := make(chan error, 1)
+	gateway := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var start string
+		if err := websocket.Message.Receive(conn, &start); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if !strings.Contains(start, `"type":"start"`) || !strings.Contains(start, `"format":"pcm_s16le"`) {
+			gatewayDone <- fmt.Errorf("unexpected start control: %s", start)
+			return
+		}
+
+		var gotPCM []byte
+		if err := websocket.Message.Receive(conn, &gotPCM); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if string(gotPCM) != string(pcm) {
+			gatewayDone <- fmt.Errorf("unexpected pcm chunk: got %d bytes", len(gotPCM))
+			return
+		}
+
+		var stop string
+		if err := websocket.Message.Receive(conn, &stop); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if strings.TrimSpace(stop) != `{"type":"stop"}` {
+			gatewayDone <- fmt.Errorf("unexpected stop control: %s", stop)
+			return
+		}
+		if err := websocket.Message.Send(conn, `{"type":"final","text":"テスト"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		gatewayDone <- nil
+	}))
+	defer gateway.Close()
+
+	mux := http.NewServeMux()
+	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
+	registerSTTRoutes(mux, handleSTTWebSocketProxy(gatewayURL))
+	proxy := httptest.NewServer(mux)
+	defer proxy.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(proxy.URL, "http")+"/stt", "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial proxy websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"start","sample_rate":16000,"channels":1,"format":"pcm_s16le"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	if err := websocket.Message.Send(conn, pcm); err != nil {
+		t.Fatalf("send pcm: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"stop"}`); err != nil {
+		t.Fatalf("send stop: %v", err)
+	}
+
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive final: %v", err)
+	}
+	if !strings.Contains(final, `"type":"final"`) || !strings.Contains(final, `"text":"テスト"`) {
+		t.Fatalf("unexpected final event: %s", final)
+	}
+	if err := <-gatewayDone; err != nil {
+		t.Fatalf("gateway relay: %v", err)
 	}
 }
 
