@@ -3402,7 +3402,10 @@ const sttState = {
   captureEndedAt: '',
   captureSessionID: '(unknown)',
   captureActionError: '',
+  lastRecognitionText: '',
+  lastRecognitionType: '',
   voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`,
+  sttBaseURL: '',
   runtimeConfigLoaded: false
 };
 
@@ -3450,6 +3453,9 @@ async function loadViewerRuntimeConfig() {
     if (cfg && cfg.stt_stream_url) {
       sttState.voiceBridgeURL = String(cfg.stt_stream_url).trim() || sttState.voiceBridgeURL;
     }
+    if (cfg && cfg.stt_base_url) {
+      sttState.sttBaseURL = String(cfg.stt_base_url).trim();
+    }
     sttState.runtimeConfigLoaded = true;
     updateSTTInputIndicators();
     syncLLMOpsPanel(cfg, '');
@@ -3479,7 +3485,7 @@ async function loadViewerDebugSystemSnapshot() {
 }
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'draft' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
+  if (type !== 'speech_start' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
   const rawPayload = String(payload || '').trim();
   if (type === 'speech_start' || type === 'ready' || type === 'ws_open' || type === 'ws_close') {
     payload = '-';
@@ -3504,10 +3510,10 @@ function recordSTTCaptureEvent(type, payload) {
 
 function getSTTCaptureSummaryText() {
   const finals = sttState.captureLog
-    .filter((item) => item.type === 'final' && item.payload && item.payload !== '-')
+    .filter((item) => (item.type === 'final' || item.type === 'partial' || item.type === 'draft') && item.payload && item.payload !== '-')
     .map((item) => item.payload.trim())
     .filter(Boolean);
-  return finals.length > 0 ? finals.join(' / ') : '-';
+  return finals.length > 0 ? finals.slice(-3).join(' / ') : '-';
 }
 
 function buildSTTCaptureLogText() {
@@ -3615,10 +3621,12 @@ async function persistSTTWavToServer(wavBuffer) {
 }
 
 async function runSTTAutoTest() {
+  const providerURL = buildSTTProviderURLForAutoTest();
   const res = await fetch('/viewer/stt/autotest', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
+      provider_url: providerURL,
       provider_rounds: 1,
       ws_rounds: 1,
       ws_wait: 8,
@@ -3628,6 +3636,12 @@ async function runSTTAutoTest() {
     const text = await res.text();
     throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'stt autotest failed'));
   }
+}
+
+function buildSTTProviderURLForAutoTest() {
+  const state = typeof sttState !== 'undefined' ? sttState : {};
+  const base = String(state.sttBaseURL || '').trim().replace(/\/+$/, '');
+  return base ? base + '/v1/audio/transcriptions' : '';
 }
 
 async function persistSTTArtifacts() {
@@ -3714,6 +3728,8 @@ async function startSTT() {
     sttState.captureStartedAt = '';
     sttState.captureEndedAt = '';
     sttState.captureActionError = '';
+    sttState.lastRecognitionText = '';
+    sttState.lastRecognitionType = '';
     sttState.streamReady = false;
     if (!sttState.runtimeConfigLoaded) {
       await loadViewerRuntimeConfig();
@@ -3778,10 +3794,11 @@ function connectSTTWebSocket() {
         const msg = JSON.parse(event.data);
         const inp = document.getElementById('inp');
         if (msg.type) {
+          const eventText = extractSTTMessageText(msg);
           pushDebugTrace('stt', {
             time: ftime(new Date().toISOString()),
             step: msg.type,
-            text: short(String(msg.text || msg.error || ''), 240),
+            text: short(eventText, 240),
           });
           if (msg.type === 'session_info' && msg.session_id) {
             sttState.captureSessionID = String(msg.session_id).trim() || '(unknown)';
@@ -3795,12 +3812,16 @@ function connectSTTWebSocket() {
           } else if (msg.type === 'progress') {
             recordSTTCaptureEvent('progress', `${msg.duration || 0}s / ${msg.bytes || 0} bytes`);
           }
-          recordSTTCaptureEvent(msg.type, msg.text || '');
+          recordSTTCaptureEvent(msg.type, eventText);
           renderDebugPanels();
         }
-        if (msg.type === 'draft' && msg.text) {
+        if ((msg.type === 'draft' || msg.type === 'partial') && msg.text) {
+          sttState.lastRecognitionText = String(msg.text || '').trim();
+          sttState.lastRecognitionType = msg.type;
           console.log('[STT] Draft:', msg.text);
         } else if (msg.type === 'final' && msg.text) {
+          sttState.lastRecognitionText = String(msg.text || '').trim();
+          sttState.lastRecognitionType = 'final';
           console.log('[STT] Final:', msg.text);
           handleSTTFinalText(msg.text);
           // Clear buffer for next utterance (server-side VAD detected end)
@@ -3812,9 +3833,9 @@ function connectSTTWebSocket() {
         } else if (msg.type === 'empty') {
           console.log('[STT] Empty result');
         } else if (msg.type === 'error') {
-          sttState.captureActionError = describeSTTActionError('STT recognition unavailable', msg.error || 'unknown error');
+          sttState.captureActionError = describeSTTActionError('STT recognition unavailable', extractSTTMessageText(msg) || 'unknown error');
           updateSTTInputIndicators();
-          console.error('[STT] Error:', msg.error);
+          console.error('[STT] Error:', msg.error || msg.message);
           showToast('認識エラー', 'error');
         }
       } catch (err) {
@@ -3838,6 +3859,16 @@ function connectSTTWebSocket() {
     updateSTTInputIndicators();
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
+}
+
+function extractSTTMessageText(msg) {
+  if (!msg) return '';
+  if (msg.text) return String(msg.text);
+  if (msg.message) return String(msg.message);
+  if (typeof msg.error === 'string') return msg.error;
+  if (msg.error && msg.error.message) return String(msg.error.message);
+  if (msg.error_code) return String(msg.error_code);
+  return '';
 }
 
 function resampleToPCM16(input, fromRate, toRate) {
@@ -3966,6 +3997,11 @@ function stopSTT() {
     sttState.audioStream = null;
   }
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+    const pendingText = String(sttState.lastRecognitionText || '').trim();
+    if (pendingText && sttState.lastRecognitionType !== 'final') {
+      recordSTTCaptureEvent('final', pendingText);
+      handleSTTFinalText(pendingText);
+    }
     sttState.ws.close();
   }
 

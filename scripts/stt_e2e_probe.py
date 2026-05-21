@@ -41,12 +41,11 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float):
     wav = wav_path.read_bytes()
     out = []
     for i in range(rounds):
-        rec = {"i": i + 1, "events": [], "final": "", "ok": False, "err": ""}
+        rec = {"i": i + 1, "events": [], "messages": [], "partial": "", "final": "", "ok": False, "err": ""}
         try:
             ws = websocket.create_connection(ws_url, timeout=6)
-            ws.send(json.dumps({"type": "config", "mimeType": "audio/wav"}))
+            ws.settimeout(max(1.0, wait_s))
             ws.send_binary(wav)
-            ws.send(json.dumps({"type": "final_pending"}))
             end = time.time() + wait_s
             while time.time() < end:
                 msg = ws.recv()
@@ -54,6 +53,26 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float):
                 ev_type = obj.get("type", "")
                 if ev_type:
                     rec["events"].append(ev_type)
+                compact = {
+                    "type": ev_type,
+                    "text": str(obj.get("text", "") or "")[:140],
+                    "message": str(obj.get("message", "") or "")[:180],
+                    "error_code": str(obj.get("error_code", "") or ""),
+                }
+                if isinstance(obj.get("error"), dict):
+                    compact["error"] = str(obj["error"].get("message", "") or "")[:180]
+                    compact["error_code"] = compact["error_code"] or str(obj["error"].get("code", "") or "")
+                elif obj.get("error"):
+                    compact["error"] = str(obj.get("error", "") or "")[:180]
+                if "duration" in obj:
+                    compact["duration"] = obj.get("duration")
+                if "bytes" in obj:
+                    compact["bytes"] = obj.get("bytes")
+                rec["messages"].append({k: v for k, v in compact.items() if v != ""})
+                if ev_type == "partial" and obj.get("text"):
+                    rec["partial"] = str(obj["text"])[:140]
+                    rec["ok"] = True
+                    break
                 if ev_type == "final" and obj.get("text"):
                     rec["final"] = str(obj["text"])[:140]
                     rec["ok"] = True

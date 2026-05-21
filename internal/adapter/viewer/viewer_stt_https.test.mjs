@@ -32,3 +32,21 @@ test('viewer voice chat sends final text only in normal timeline chat without st
   assert.match(js, /micBtn\.disabled = !voiceAllowed && !sttState\.isRecording;/);
   assert.match(js, /if \(!isVoiceChatAllowed\(\)\) \{\s*console\.warn\('\[STT\] Final ignored outside normal chat:', finalText\);/);
 });
+
+test('viewer treats Mac STT partial events as recognition drafts and finalizes on stop', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /type !== 'draft' && type !== 'partial' && type !== 'final'/);
+  assert.match(js, /\(msg\.type === 'draft' \|\| msg\.type === 'partial'\) && msg\.text/);
+  assert.match(js, /sttState\.lastRecognitionText = String\(msg\.text \|\| ''\)\.trim\(\);/);
+  assert.match(js, /pendingText && sttState\.lastRecognitionType !== 'final'/);
+  assert.match(js, /handleSTTFinalText\(pendingText\);/);
+});
+
+test('viewer STT autotest uses runtime STT base URL for provider inference', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /sttBaseURL:\s*''/);
+  assert.match(js, /cfg\.stt_base_url/);
+  assert.match(js, /function buildSTTProviderURLForAutoTest\(\)/);
+  assert.match(js, /base \+ '\/v1\/audio\/transcriptions'/);
+  assert.match(js, /provider_url: providerURL/);
+});
