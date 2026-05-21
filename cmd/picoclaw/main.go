@@ -130,7 +130,7 @@ func cmdRun() {
 
 	server := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: withTailscaleViewerOnlyGuard(mux),
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			log.Printf("[ConnState] %s -> %s (remote: %s)", state.String(), conn.LocalAddr(), conn.RemoteAddr())
 		},
