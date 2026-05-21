@@ -3786,6 +3786,90 @@ globalThis.__wsInstances = wsInstances;
   assert.equal(sessionState.title, 'Session: stt_session_3 / STT websocket unavailable: socket refused');
 });
 
+test('viewer finalizes latest STT partial text on microphone stop', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const source = `
+var wsInstances = [];
+class FakeWebSocket {
+  static OPEN = 1;
+  static CONNECTING = 0;
+  constructor(url) {
+    this.url = url;
+    this.readyState = FakeWebSocket.CONNECTING;
+    this.closed = false;
+    wsInstances.push(this);
+  }
+  close() { this.closed = true; this.readyState = 3; }
+}
+var WebSocket = FakeWebSocket;
+var sttState = {
+  ws: null,
+  audioContext: null,
+  audioStream: null,
+  scriptNode: null,
+  isRecording: true,
+  isStopping: false,
+  keepSessionChannel: false,
+  reconnecting: false,
+  chunkBuffer: [],
+  draftBuffer: [],
+  captureActionError: '',
+  captureSessionID: 'stt_session_partial',
+  lastRecognitionText: '',
+  lastRecognitionType: '',
+  voiceBridgeURL: 'ws://127.0.0.1:18790/stt',
+};
+function updateSTTInputIndicators() {}
+function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+function ftime() { return '12:00:00'; }
+function pushDebugTrace(kind, payload) { globalThis.__debug.push({kind, payload}); }
+function short(value) { return String(value || ''); }
+function recordSTTCaptureEvent(type, payload) { globalThis.__capture.push({type, payload}); }
+function renderDebugPanels() {}
+function handleSTTFinalText(text) { globalThis.__finals.push(text); }
+function scheduleSTTReconnect() {}
+function persistSTTArtifacts() { return Promise.resolve(); }
+var document = {getElementById() { return null; }};
+` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
+sourceBetween(viewerJs, 'function connectSTTWebSocket', 'function resampleToPCM16') +
+viewerJs.slice(viewerJs.indexOf('function stopSTT()')) + `
+globalThis.__connectSTTWebSocket = connectSTTWebSocket;
+globalThis.__stopSTT = stopSTT;
+globalThis.__wsInstances = wsInstances;
+globalThis.__sttState = sttState;
+`;
+  const context = vm.createContext({
+    __capture: [],
+    __debug: [],
+    __finals: [],
+    __toasts: [],
+    console: {error() {}, warn() {}, log() {}},
+    clearTimeout() {},
+  });
+  vm.runInContext(source, context);
+
+  context.__connectSTTWebSocket();
+  const ws = context.__wsInstances[0];
+  ws.readyState = 1;
+  ws.onmessage({data: JSON.stringify({type: 'partial', text: 'テスト', is_final: false})});
+  assert.equal(context.__sttState.lastRecognitionText, 'テスト');
+  assert.equal(context.__sttState.lastRecognitionType, 'partial');
+
+  context.__stopSTT();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(context.__finals, ['テスト']);
+  assert.equal(ws.closed, true);
+  const recognitionCapture = context.__capture
+    .filter((item) => item.type === 'partial' || item.type === 'final')
+    .map((item) => ({type: item.type, payload: item.payload}));
+  assert.deepEqual(recognitionCapture, [
+    {type: 'partial', payload: 'テスト'},
+    {type: 'final', payload: 'テスト'},
+  ]);
+  assert.equal(context.__toasts.at(-1).type, 'success');
+});
+
 test('viewer renders home send failures as visible desk state', async () => {
   const homeJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/home.js', 'utf8');
   const elements = new Map();
