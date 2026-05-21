@@ -3826,12 +3826,25 @@ function pushDebugTrace(kind, payload) { globalThis.__debug.push({kind, payload}
 function short(value) { return String(value || ''); }
 function recordSTTCaptureEvent(type, payload) { globalThis.__capture.push({type, payload}); }
 function renderDebugPanels() {}
-function handleSTTFinalText(text) { globalThis.__finals.push(text); }
 function scheduleSTTReconnect() {}
 function persistSTTArtifacts() { return Promise.resolve(); }
-var document = {getElementById() { return null; }};
+var activeViewerTab = 'timeline';
+var sending = false;
+var document = {
+  body: {classList: {contains() { return false; }}},
+  getElementById(id) {
+    if (id === 'inp') return globalThis.__input;
+    return null;
+  }
+};
+function isVoiceChatAllowed() {
+  return activeViewerTab === 'timeline' && !document.body.classList.contains('live-mode');
+}
+function autoResize() { globalThis.__autoResizeCalled = true; }
+function send() { globalThis.__sendCalled = true; }
 ` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
 sourceBetween(viewerJs, 'function connectSTTWebSocket', 'function resampleToPCM16') +
+sourceBetween(viewerJs, 'function handleSTTFinalText', 'function scheduleSTTReconnect') +
 viewerJs.slice(viewerJs.indexOf('function stopSTT()')) + `
 globalThis.__connectSTTWebSocket = connectSTTWebSocket;
 globalThis.__stopSTT = stopSTT;
@@ -3841,7 +3854,9 @@ globalThis.__sttState = sttState;
   const context = vm.createContext({
     __capture: [],
     __debug: [],
-    __finals: [],
+    __input: {value: '', focus() { this.focused = true; }},
+    __autoResizeCalled: false,
+    __sendCalled: false,
     __toasts: [],
     console: {error() {}, warn() {}, log() {}},
     clearTimeout() {},
@@ -3858,7 +3873,10 @@ globalThis.__sttState = sttState;
   context.__stopSTT();
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(context.__finals, ['テスト']);
+  assert.equal(context.__input.value, 'テスト');
+  assert.equal(context.__input.focused, true);
+  assert.equal(context.__autoResizeCalled, true);
+  assert.equal(context.__sendCalled, true);
   assert.equal(ws.closed, true);
   const recognitionCapture = context.__capture
     .filter((item) => item.type === 'partial' || item.type === 'final')
