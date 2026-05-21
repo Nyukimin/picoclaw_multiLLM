@@ -2,6 +2,7 @@
 import argparse
 import json
 import time
+import wave
 from pathlib import Path
 
 import requests
@@ -37,18 +38,61 @@ def run_inference_bench(provider_url: str, wav_path: Path, timeout_s: float, rou
     return out
 
 
-def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float):
-    wav = wav_path.read_bytes()
+def load_pcm16_chunks(wav_path: Path, chunk_ms: int):
+    if chunk_ms <= 0:
+        raise ValueError("chunk_ms must be positive")
+    with wave.open(str(wav_path), "rb") as wav:
+        channels = wav.getnchannels()
+        sample_width = wav.getsampwidth()
+        sample_rate = wav.getframerate()
+        frame_count = wav.getnframes()
+        if channels != 1:
+            raise ValueError(f"WS probe requires mono WAV, got channels={channels}")
+        if sample_width != 2:
+            raise ValueError(f"WS probe requires PCM16 WAV, got sample_width={sample_width}")
+        frames = wav.readframes(frame_count)
+    frames_per_chunk = max(1, int(sample_rate * (chunk_ms / 1000.0)))
+    bytes_per_frame = channels * sample_width
+    chunk_bytes = frames_per_chunk * bytes_per_frame
+    chunks = [frames[i : i + chunk_bytes] for i in range(0, len(frames), chunk_bytes)]
+    return sample_rate, channels, chunks
+
+
+def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_ms: int):
+    sample_rate, channels, chunks = load_pcm16_chunks(wav_path, chunk_ms)
     out = []
     for i in range(rounds):
-        rec = {"i": i + 1, "events": [], "messages": [], "partial": "", "final": "", "ok": False, "err": ""}
+        rec = {
+            "i": i + 1,
+            "protocol": "pcm16_raw_start_stop",
+            "sample_rate": sample_rate,
+            "channels": channels,
+            "chunk_ms": chunk_ms,
+            "events": [],
+            "messages": [],
+            "partial": "",
+            "final": "",
+            "ok": False,
+            "err": "",
+        }
         try:
             ws = websocket.create_connection(ws_url, timeout=6)
             ws.settimeout(max(1.0, wait_s))
-            ws.send_binary(wav)
+            ws.send(json.dumps({
+                "type": "start",
+                "sample_rate": sample_rate,
+                "channels": channels,
+                "format": "pcm_s16le",
+            }))
+            for chunk in chunks:
+                ws.send_binary(chunk)
+            ws.send(json.dumps({"type": "stop"}))
             end = time.time() + wait_s
             while time.time() < end:
                 msg = ws.recv()
+                if isinstance(msg, bytes):
+                    rec["messages"].append({"type": "binary", "bytes": len(msg)})
+                    continue
                 obj = json.loads(msg)
                 ev_type = obj.get("type", "")
                 if ev_type:
@@ -71,15 +115,16 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float):
                 rec["messages"].append({k: v for k, v in compact.items() if v != ""})
                 if ev_type == "partial" and obj.get("text"):
                     rec["partial"] = str(obj["text"])[:140]
-                    rec["ok"] = True
-                    break
                 if ev_type == "final" and obj.get("text"):
                     rec["final"] = str(obj["text"])[:140]
                     rec["ok"] = True
                     break
+                if ev_type == "error":
+                    rec["err"] = compact.get("message") or compact.get("error") or "stt error"
+                    break
             ws.close()
             if not rec["ok"] and not rec["err"]:
-                rec["err"] = "timed out"
+                rec["err"] = "timed out waiting for final"
         except Exception as e:
             rec["err"] = str(e)
         out.append(rec)
@@ -96,6 +141,7 @@ def main():
     p.add_argument("--provider-rounds", type=int, default=5)
     p.add_argument("--ws-rounds", type=int, default=3)
     p.add_argument("--ws-wait", type=float, default=10.0)
+    p.add_argument("--ws-chunk-ms", type=int, default=200)
     args = p.parse_args()
 
     wav_path = Path(args.wav)
@@ -106,7 +152,7 @@ def main():
     chat = []
     if args.chat_input_url:
         chat = run_inference_bench(args.chat_input_url, wav_path, args.provider_timeout, 1)
-    ws = run_ws_bench(args.ws_url, wav_path, args.ws_rounds, args.ws_wait)
+    ws = run_ws_bench(args.ws_url, wav_path, args.ws_rounds, args.ws_wait, args.ws_chunk_ms)
     result = {
         "provider_url": args.provider_url,
         "chat_input_url": args.chat_input_url,
