@@ -441,6 +441,7 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 - Viewer WebSocket open 時に `start` control を送るようにした。
 - Viewer 停止時に残り PCM16 chunk を送信後、`stop` control を送り、`final` / `error` / timeout / close を待って終了処理へ進むようにした。
 - 207 STT の partial 推論に 6 秒以上かかるケースがあるため、Viewer の final 待ち timeout を 30 秒にした。
+- 保存 WAV の realtime probe では 1 秒無音 tail を付けた場合に `final` が安定したため、Viewer 停止時も残り PCM16 chunk の後に 1 秒の無音 tail を送り、その後 `stop` control を送るようにした。
 - `partial` / `draft` を通常 chat input へ送る停止時 fallback を削除し、`final.text` のみ通常 chat input に接続する contract test を追加した。
 - `partial` / `draft` と `final` を入力欄とは別の STT 字幕 UI に表示するようにした。
 - `scripts/stt_e2e_probe.py` を WAV decode -> PCM16 raw chunk -> `start` -> binary chunks -> `stop` protocol に修正し、`final` がない WS 結果を success 扱いしないようにした。
@@ -462,6 +463,11 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 - Playwright Chromium の fake microphone で local Viewer を開き、ブラウザ `getUserMedia` -> Viewer PCM16 chunk -> 207 STT の経路で `start` / binary chunk / `stop` 送信と `partial` 受信を確認した。同 run では 207 STT が `NO_SPEECH_DETECTED` を返し、Viewer は `STT recognition unavailable: 音声が検出されませんでした。` を session 表示に残し、通常 chat input へ送信しなかった。
 - Playwright Chromium の fake microphone run で、207 STT から `final` / `error` が返らない場合に Viewer が `STT error: STT final unavailable: timed out waiting for final` を字幕欄と session 表示に残し、通常 chat input へ送信しないことを確認した。
 - `python3 scripts/stt_e2e_probe.py --wav tmp/client_stt_input_latest.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 20 --ws-url ws://127.0.0.1:18790/stt --require-ws-final` が、`final` なしの runtime result を exit code 2 として失敗扱いにすることを確認した。同 run では `ready` / `progress` までで timeout しており、STT streaming E2E 成功ではない。
+- `python3 scripts/stt_e2e_probe.py --wav tmp/client_stt_input_latest.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 60 --ws-realtime --ws-tail-silence-ms 1000 --require-ws-final` を使い、次の WS endpoint で `final` が返ることを確認した。
+  - `ws://192.168.1.207:8766/stt`
+  - `ws://127.0.0.1:18790/stt`
+  - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
+- Playwright Chromium の fake microphone は、run ごとに `partial` / `NO_SPEECH_DETECTED` / timeout の揺れがあり、`final` -> 通常 chat input 送信の完了証跡にはできなかった。
 
 ### 残る未確認
 

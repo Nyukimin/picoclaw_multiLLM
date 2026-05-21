@@ -98,11 +98,20 @@ test('viewer renders STT errors in the caption area without keeping stale partia
   assert.match(js.slice(parseStart, parseStart + 220), /setSTTCaptionError\(sttState\.captureActionError\)/);
   assert.match(js.slice(wsStart, wsStart + 260), /setSTTCaptionError\(sttState\.captureActionError\)/);
   assert.match(js.slice(timeoutStart, timeoutStart + 260), /setSTTCaptionError\(sttState\.captureActionError\)/);
+
+  const serverErrorStart = js.indexOf("} else if (msg.type === 'error') {");
+  const serverErrorEnd = js.indexOf('        }', serverErrorStart);
+  assert.ok(serverErrorStart >= 0 && serverErrorEnd > serverErrorStart, 'server error path not found');
+  const serverErrorSource = js.slice(serverErrorStart, serverErrorEnd);
+  assert.doesNotMatch(serverErrorSource, /sttState\.ws\.close\(\)/);
 });
 
 test('viewer sends STT stop control and waits for final or error before closing', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /function sendSTTStopControl\(\)/);
+  assert.match(js, /const STT_STOP_TAIL_SILENCE_MS = 1000/);
+  assert.match(js, /function sendSTTStopTailSilence\(\)/);
+  assert.match(js, /stop tail silence/);
   assert.match(js, /sttState\.ws\.send\(JSON\.stringify\(\{ type: 'stop' \}\)\)/);
   assert.match(js, /recordSTTCaptureEvent\('stop', 'requested'\)/);
   assert.match(js, /function scheduleSTTFinalWaitTimeout\(\)/);
@@ -116,6 +125,7 @@ test('viewer sends STT stop control and waits for final or error before closing'
   assert.ok(stopStart >= 0 && stopEnd > stopStart, 'stopSTT block not found');
   const stopSource = js.slice(stopStart, stopEnd);
   assert.match(stopSource, /flushSTTAudioChunkBuffer\(\);/);
+  assert.match(stopSource, /sendSTTStopTailSilence\(\);/);
   assert.match(stopSource, /sendSTTStopControl\(\);/);
   assert.match(stopSource, /scheduleSTTFinalWaitTimeout\(\);/);
   assert.doesNotMatch(stopSource, /handleSTTFinalText/);

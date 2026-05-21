@@ -3426,6 +3426,7 @@ const sttCaptureDownloadBtn = document.getElementById('sttCaptureDownloadBtn');
 const sttCaptureClearBtn = document.getElementById('sttCaptureClearBtn');
 const sttSessionCopyBtn = document.getElementById('sttSessionCopyBtn');
 const STT_FINAL_WAIT_TIMEOUT_MS = 30000;
+const STT_STOP_TAIL_SILENCE_MS = 1000;
 if (micBtn) {
   micBtn.addEventListener('click', toggleSTT);
 }
@@ -3910,9 +3911,6 @@ function connectSTTWebSocket() {
           updateSTTInputIndicators();
           console.error('[STT] Error:', msg.error || msg.message);
           showToast('認識エラー', 'error');
-          if (sttState.isStopping && sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
-            sttState.ws.close();
-          }
         }
       } catch (err) {
         sttState.captureActionError = describeSTTActionError('STT message parse unavailable', err);
@@ -4003,6 +4001,20 @@ function flushSTTAudioChunkBuffer() {
   const chunk = new Int16Array(sttState.chunkBuffer);
   sttState.chunkBuffer = [];
   sttState.ws.send(chunk.buffer);
+  return true;
+}
+
+function sendSTTStopTailSilence() {
+  if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return false;
+  const sampleRate = Number(sttState.sampleRate || 16000) || 16000;
+  const totalSamples = Math.max(0, Math.round(sampleRate * STT_STOP_TAIL_SILENCE_MS / 1000));
+  if (totalSamples <= 0) return false;
+  const chunkSamples = Math.max(1, Number(sttState.chunkSamples || 1600) || 1600);
+  for (let offset = 0; offset < totalSamples; offset += chunkSamples) {
+    const size = Math.min(chunkSamples, totalSamples - offset);
+    sttState.ws.send(new Int16Array(size).buffer);
+  }
+  recordSTTCaptureEvent('progress', `stop tail silence ${STT_STOP_TAIL_SILENCE_MS}ms`);
   return true;
 }
 
@@ -4152,6 +4164,7 @@ function stopSTT() {
   }
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
     flushSTTAudioChunkBuffer();
+    sendSTTStopTailSilence();
     sendSTTStopControl();
     scheduleSTTFinalWaitTimeout();
     updateSTTInputIndicators();

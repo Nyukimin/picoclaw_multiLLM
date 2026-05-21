@@ -38,6 +38,18 @@ class STTE2EProbeTest(unittest.TestCase):
             self.assertEqual(b"".join(chunks), b"".join(struct.pack("<h", s) for s in samples))
             self.assertNotIn(b"RIFF", b"".join(chunks))
 
+    def test_load_pcm16_chunks_can_append_tail_silence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.wav"
+            samples = [1000, -1000]
+            self.write_wav(path, 1, 2, 1000, samples)
+
+            sample_rate, channels, chunks = probe.load_pcm16_chunks(path, 1, tail_silence_ms=2)
+
+            self.assertEqual(sample_rate, 1000)
+            self.assertEqual(channels, 1)
+            self.assertEqual(b"".join(chunks), b"".join(struct.pack("<h", s) for s in samples) + b"\x00\x00\x00\x00")
+
     def test_load_pcm16_chunks_rejects_non_mono_or_non_pcm16_wav(self):
         with tempfile.TemporaryDirectory() as tmp:
             stereo_path = Path(tmp) / "stereo.wav"
@@ -49,6 +61,8 @@ class STTE2EProbeTest(unittest.TestCase):
             self.write_wav(pcm8_path, 1, 1, 16000, [0, 1, 2, 3])
             with self.assertRaisesRegex(ValueError, "PCM16"):
                 probe.load_pcm16_chunks(pcm8_path, 200)
+            with self.assertRaisesRegex(ValueError, "tail_silence_ms"):
+                probe.load_pcm16_chunks(pcm8_path, 200, tail_silence_ms=-1)
 
     def test_result_exit_code_requires_ws_final_when_requested(self):
         args = argparse.Namespace(

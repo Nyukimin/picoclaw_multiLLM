@@ -39,9 +39,11 @@ def run_inference_bench(provider_url: str, wav_path: Path, timeout_s: float, rou
     return out
 
 
-def load_pcm16_chunks(wav_path: Path, chunk_ms: int):
+def load_pcm16_chunks(wav_path: Path, chunk_ms: int, tail_silence_ms: int = 0):
     if chunk_ms <= 0:
         raise ValueError("chunk_ms must be positive")
+    if tail_silence_ms < 0:
+        raise ValueError("tail_silence_ms must be >= 0")
     with wave.open(str(wav_path), "rb") as wav:
         channels = wav.getnchannels()
         sample_width = wav.getsampwidth()
@@ -56,11 +58,15 @@ def load_pcm16_chunks(wav_path: Path, chunk_ms: int):
     bytes_per_frame = channels * sample_width
     chunk_bytes = frames_per_chunk * bytes_per_frame
     chunks = [frames[i : i + chunk_bytes] for i in range(0, len(frames), chunk_bytes)]
+    if tail_silence_ms > 0:
+        tail_frames = int(sample_rate * (tail_silence_ms / 1000.0))
+        tail_bytes = b"\x00" * (tail_frames * bytes_per_frame)
+        chunks.extend(tail_bytes[i : i + chunk_bytes] for i in range(0, len(tail_bytes), chunk_bytes))
     return sample_rate, channels, chunks
 
 
-def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_ms: int):
-    sample_rate, channels, chunks = load_pcm16_chunks(wav_path, chunk_ms)
+def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_ms: int, realtime: bool, tail_silence_ms: int):
+    sample_rate, channels, chunks = load_pcm16_chunks(wav_path, chunk_ms, tail_silence_ms)
     out = []
     for i in range(rounds):
         rec = {
@@ -69,6 +75,8 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_
             "sample_rate": sample_rate,
             "channels": channels,
             "chunk_ms": chunk_ms,
+            "realtime": realtime,
+            "tail_silence_ms": tail_silence_ms,
             "events": [],
             "messages": [],
             "partial": "",
@@ -87,6 +95,8 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_
             }))
             for chunk in chunks:
                 ws.send_binary(chunk)
+                if realtime:
+                    time.sleep(chunk_ms / 1000.0)
             ws.send(json.dumps({"type": "stop"}))
             end = time.time() + wait_s
             while time.time() < end:
@@ -173,6 +183,8 @@ def main():
     p.add_argument("--ws-rounds", type=int, default=3)
     p.add_argument("--ws-wait", type=float, default=10.0)
     p.add_argument("--ws-chunk-ms", type=int, default=200)
+    p.add_argument("--ws-realtime", action="store_true", help="Sleep between WS chunks to mimic microphone streaming")
+    p.add_argument("--ws-tail-silence-ms", type=int, default=0, help="Append this much PCM16 silence before stop")
     p.add_argument("--require-ws-final", action="store_true", help="Exit non-zero unless every WS round returns a final text")
     p.add_argument("--require-provider-text", action="store_true", help="Exit non-zero unless every HTTP provider round returns text")
     p.add_argument("--require-chat-input-text", action="store_true", help="Exit non-zero unless optional chat-input round returns text")
@@ -186,7 +198,15 @@ def main():
     chat = []
     if args.chat_input_url:
         chat = run_inference_bench(args.chat_input_url, wav_path, args.provider_timeout, 1)
-    ws = run_ws_bench(args.ws_url, wav_path, args.ws_rounds, args.ws_wait, args.ws_chunk_ms)
+    ws = run_ws_bench(
+        args.ws_url,
+        wav_path,
+        args.ws_rounds,
+        args.ws_wait,
+        args.ws_chunk_ms,
+        args.ws_realtime,
+        args.ws_tail_silence_ms,
+    )
     result = build_result(args, wav_path, inf, chat, ws)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     sys.exit(result_exit_code(args, result))
