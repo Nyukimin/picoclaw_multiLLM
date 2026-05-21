@@ -50,6 +50,30 @@ async function waitOrNull(page, fn, timeout) {
   }
 }
 
+function framePayloadBytes(payload) {
+  if (typeof payload === 'string') return Buffer.byteLength(payload);
+  if (Buffer.isBuffer(payload)) return payload.length;
+  if (payload instanceof Uint8Array) return payload.byteLength;
+  return 0;
+}
+
+function framePayloadText(payload) {
+  if (typeof payload === 'string') return payload;
+  if (Buffer.isBuffer(payload)) return payload.toString('utf8');
+  if (payload instanceof Uint8Array) return Buffer.from(payload).toString('utf8');
+  return '';
+}
+
+function parseJSONFrames(frames) {
+  return frames.flatMap(text => {
+    try {
+      return [JSON.parse(text)];
+    } catch (_) {
+      return [];
+    }
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const repo = process.cwd();
@@ -74,6 +98,12 @@ async function main() {
   page.on('pageerror', err => consoleLines.push(`pageerror: ${err.message}`));
 
   let sendBody = '';
+  const failedRequests = [];
+  const nonOKResponses = [];
+  page.on('requestfailed', req => failedRequests.push(`${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
+  page.on('response', resp => {
+    if (resp.status() >= 400) nonOKResponses.push(`${resp.status()} ${resp.url()}`);
+  });
   await page.route('**/viewer/send', route => {
     sendBody = route.request().postData() || '';
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
@@ -106,7 +136,12 @@ async function main() {
   while (!sendBody && Date.now() < deadline) await page.waitForTimeout(200);
 
   const sentText = wsSent.filter(p => typeof p === 'string');
-  const recvText = wsRecv.filter(p => typeof p === 'string').join('\n');
+  const sentBinary = wsSent.filter(p => typeof p !== 'string');
+  const sentBinaryBytes = sentBinary.reduce((sum, p) => sum + framePayloadBytes(p), 0);
+  const recvFrames = wsRecv.map(framePayloadText).filter(Boolean);
+  const recvEvents = parseJSONFrames(recvFrames);
+  const recvEventTypes = recvEvents.map(ev => String(ev.type || '')).filter(Boolean);
+  const recvText = recvFrames.join('\n');
   const result = {
     ok: true,
     url: args.url,
@@ -118,14 +153,25 @@ async function main() {
     final_caption: finalCaption,
     sent_start: sentText.some(p => p.includes('"type":"start"')),
     sent_stop: sentText.some(p => p.includes('"type":"stop"')),
-    sent_binary: wsSent.some(p => typeof p !== 'string'),
-    recv_partial: recvText.includes('"type":"partial"') || recvText.includes('"type":"draft"') || sawPartial,
-    recv_final: recvText.includes('"type":"final"'),
+    sent_binary: sentBinary.length > 0,
+    sent_binary_frames: sentBinary.length,
+    sent_binary_bytes: sentBinaryBytes,
+    sent_binary_seconds_16k_mono_pcm16: Math.round((sentBinaryBytes / 32000) * 100) / 100,
+    recv_partial: recvEventTypes.includes('partial') || recvEventTypes.includes('draft') || sawPartial,
+    recv_final: recvEventTypes.includes('final'),
+    recv_error: recvEventTypes.includes('error'),
+    recv_event_types: recvEventTypes,
+    recv_text_frames: recvFrames.length,
+    recv_recent: recvFrames.slice(-8).map(s => s.slice(0, 240)),
     chat_send_observed: Boolean(sendBody),
     send_message: sendBody ? JSON.parse(sendBody).message || '' : '',
+    input_value: await page.inputValue('#inp').catch(() => ''),
     session: await page.textContent('#sttSessionState').catch(() => ''),
     mic: await page.textContent('#micState').catch(() => ''),
     conn: await page.textContent('#sttConnState').catch(() => ''),
+    stt_console: consoleLines.filter(line => line.includes('[STT]') || line.includes('Viewer send')).slice(-20),
+    failed_requests: failedRequests.slice(-20),
+    non_ok_responses: nonOKResponses.slice(-20),
     recent_console: consoleLines.slice(-20),
   };
 

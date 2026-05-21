@@ -470,6 +470,8 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
   - `ws://192.168.1.207:8766/stt`
   - `ws://127.0.0.1:18790/stt`
   - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
+- `scripts/stt_viewer_browser_e2e.js` は、送信した binary PCM frame 数、PCM byte 数、16kHz mono PCM16 換算秒数、受信 event type、直近受信 frame、`/viewer/send` request body、network failure を結果 JSON に出す。実マイク gate で失敗した場合は、この JSON を一次証跡として使う。
+- `node scripts/stt_viewer_browser_e2e.js --wav tmp/stt_inputs/client_stt_input_20260521_084443.wav --speak-ms 20000 --partial-timeout-ms 30000 --final-timeout-ms 90000 --no-require-final --no-require-send` では、ブラウザから約 21.43 秒分の PCM16 を送信し、207 STT から `partial` を受信したが、停止時に `empty_transcript` error となり、`/viewer/send` は発火しなかった。この結果は fake microphone の診断証跡であり、STT streaming E2E 成功ではない。
 - Playwright Chromium の fake microphone は、run ごとに `partial` / `NO_SPEECH_DETECTED` / timeout の揺れがあり、`final` -> 通常 chat input 送信の完了証跡にはできなかった。
 - `node scripts/stt_viewer_browser_e2e.js --no-require-final --no-require-send` で、fake microphone でも browser が `start` / binary chunk / `stop` を送り、`final` がない場合は通常 chat input へ送らないことを確認した。
 - `node scripts/stt_viewer_browser_e2e.js --partial-timeout-ms 15000 --final-timeout-ms 15000` は fake microphone で `final` / `/viewer/send` がない状態を exit code 2 として失敗扱いにすることを確認した。実マイク確認ではこの script を final 必須 gate として使う。
