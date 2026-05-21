@@ -433,6 +433,36 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 - [ ] `scripts/stt_e2e_probe.py` が WAV whole file を WS に直送しない。
 - [ ] HTTP `/v1/audio/transcriptions` は file inference として別枠で記録される。
 
+## 実装・確認メモ
+
+### 2026-05-21 実装済み
+
+- Viewer マイク入力レベル表示を追加した。
+- Viewer WebSocket open 時に `start` control を送るようにした。
+- Viewer 停止時に残り PCM16 chunk を送信後、`stop` control を送り、`final` / `error` / timeout / close を待って終了処理へ進むようにした。
+- `partial` / `draft` を通常 chat input へ送る停止時 fallback を削除し、`final.text` のみ通常 chat input に接続する contract test を追加した。
+- `partial` / `draft` と `final` を入力欄とは別の STT 字幕 UI に表示するようにした。
+- `scripts/stt_e2e_probe.py` を WAV decode -> PCM16 raw chunk -> `start` -> binary chunks -> `stop` protocol に修正し、`final` がない WS 結果を success 扱いしないようにした。
+- Go `/stt` proxy が JSON control と PCM16 binary chunk を透過する E2E test を追加した。
+
+### 2026-05-21 確認済み
+
+- `node --test internal/adapter/viewer/viewer_stt_https.test.mjs`
+- `python3 -m py_compile scripts/stt_e2e_probe.py scripts/stt_e2e_probe_test.py`
+- `python3 -m unittest scripts/stt_e2e_probe_test.py`
+- `GOCACHE=/tmp/picoclaw-gocache go test ./...`
+- `git diff --check`
+- `make install` 後に `picoclaw.service` を再起動し、`http://127.0.0.1:18790/health`、local Viewer、Tailscale Viewer 200、配信中 HTML / JS 反映を確認した。
+- `tmp/client_stt_input_latest.wav` を使い、次の WS endpoint で `ready` / `progress` / `partial` / `final` を確認した。
+  - `ws://192.168.1.207:8766/stt`
+  - `ws://127.0.0.1:18790/stt`
+  - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
+
+### 残る未確認
+
+- 実ブラウザのマイク操作で、Mic ON -> 入力レベル -> `partial` 表示 -> `stop` -> `final` -> 通常 chat input 送信までを 1 セッション通して確認すること。
+- no speech / provider timeout / invalid audio / proxy failure などの全 error path を、実 runtime 表示として網羅確認すること。
+
 ## 分類
 
 | 分類 | 項目 |
