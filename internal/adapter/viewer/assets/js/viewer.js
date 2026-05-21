@@ -3486,7 +3486,7 @@ async function loadViewerDebugSystemSnapshot() {
 }
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
+  if (type !== 'speech_start' && type !== 'start' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
   const rawPayload = String(payload || '').trim();
   if (type === 'speech_start' || type === 'ready' || type === 'ws_open' || type === 'ws_close') {
     payload = '-';
@@ -3791,6 +3791,7 @@ function connectSTTWebSocket() {
   sttState.ws.onopen = () => {
     sttState.reconnecting = false;
     recordSTTCaptureEvent('ws_open', '');
+    sendSTTStartControl();
     console.log('[STT] Connected - streaming PCM16 16kHz chunks');
     updateSTTInputIndicators();
   };
@@ -3919,6 +3920,20 @@ function sendSTTAudioChunk(pcm16) {
     sttState.chunkBuffer = sttState.chunkBuffer.slice(sttState.chunkSamples);
     sttState.ws.send(chunk.buffer);
   }
+}
+
+function sendSTTStartControl() {
+  if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return false;
+  const sampleRate = Number(sttState.sampleRate || 16000) || 16000;
+  const control = {
+    type: 'start',
+    sample_rate: sampleRate,
+    channels: 1,
+    format: 'pcm_s16le',
+  };
+  sttState.ws.send(JSON.stringify(control));
+  recordSTTCaptureEvent('start', `${sampleRate}Hz pcm_s16le mono`);
+  return true;
 }
 
 function handleSTTFinalText(text) {

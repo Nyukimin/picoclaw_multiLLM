@@ -20,6 +20,26 @@ test('viewer microphone input is the STT production entrypoint', () => {
   assert.match(js, /sendViewerMessage\(message\)/);
 });
 
+test('viewer sends STT start control before streaming audio chunks', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /function sendSTTStartControl\(\)/);
+  assert.match(js, /type:\s*'start'/);
+  assert.match(js, /sample_rate:\s*sampleRate/);
+  assert.match(js, /channels:\s*1/);
+  assert.match(js, /format:\s*'pcm_s16le'/);
+  assert.match(js, /sttState\.ws\.send\(JSON\.stringify\(control\)\)/);
+
+  const onopenStart = js.indexOf('sttState.ws.onopen = () => {');
+  const onopenEnd = js.indexOf('sttState.ws.onmessage =', onopenStart);
+  assert.ok(onopenStart >= 0 && onopenEnd > onopenStart, 'STT onopen block not found');
+  const onopenSource = js.slice(onopenStart, onopenEnd);
+  assert.match(onopenSource, /sendSTTStartControl\(\);/);
+
+  const startControl = js.indexOf('function sendSTTStartControl()');
+  const sendChunk = js.indexOf('function sendSTTAudioChunk(pcm16)');
+  assert.ok(sendChunk >= 0 && startControl > sendChunk, 'start control helper should be near chunk sender');
+});
+
 test('viewer voice chat sends final text only in normal timeline chat without stopping capture on idle view', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /let activeViewerTab = 'home'/);
