@@ -3406,6 +3406,8 @@ const sttState = {
   captureActionError: '',
   lastRecognitionText: '',
   lastRecognitionType: '',
+  partialCaptionText: '',
+  finalCaptionText: '',
   inputLevel: 0,
   voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`,
   sttBaseURL: '',
@@ -3416,6 +3418,7 @@ const micBtn = document.getElementById('micBtn');
 const micStateEl = document.getElementById('micState');
 const sttConnStateEl = document.getElementById('sttConnState');
 const sttSessionStateEl = document.getElementById('sttSessionState');
+const sttCaptionEl = document.getElementById('sttCaption');
 const debugSttSessionEl = document.getElementById('debugSttSession');
 const sttCaptureCopyBtn = document.getElementById('sttCaptureCopyBtn');
 const sttCaptureDownloadBtn = document.getElementById('sttCaptureDownloadBtn');
@@ -3577,6 +3580,9 @@ function clearSTTCaptureLog() {
   sttState.capturePCM = [];
   sttState.captureStartedAt = '';
   sttState.captureEndedAt = '';
+  sttState.partialCaptionText = '';
+  sttState.finalCaptionText = '';
+  updateSTTCaption();
   updateSTTInputIndicators();
   showToast('STTログをクリアしました', 'success');
 }
@@ -3709,6 +3715,27 @@ function updateSTTInputIndicators() {
   }
 }
 
+function updateSTTCaption() {
+  if (!sttCaptionEl) return;
+  const finalText = String(sttState.finalCaptionText || '').trim();
+  const partialText = String(sttState.partialCaptionText || '').trim();
+  if (finalText) {
+    sttCaptionEl.textContent = '確定字幕: ' + finalText;
+    sttCaptionEl.title = sttCaptionEl.textContent;
+    sttCaptionEl.className = 'stt-caption has-text final';
+    return;
+  }
+  if (partialText) {
+    sttCaptionEl.textContent = '暫定字幕: ' + partialText;
+    sttCaptionEl.title = sttCaptionEl.textContent;
+    sttCaptionEl.className = 'stt-caption has-text draft';
+    return;
+  }
+  sttCaptionEl.textContent = '';
+  sttCaptionEl.title = '';
+  sttCaptionEl.className = 'stt-caption';
+}
+
 async function toggleSTT() {
   if (sttState.isRecording) {
     stopSTT();
@@ -3735,8 +3762,11 @@ async function startSTT() {
     sttState.captureActionError = '';
     sttState.lastRecognitionText = '';
     sttState.lastRecognitionType = '';
+    sttState.partialCaptionText = '';
+    sttState.finalCaptionText = '';
     sttState.stopControlSent = false;
     clearSTTFinalWaitTimer();
+    updateSTTCaption();
     updateSTTInputLevel(0);
     sttState.streamReady = false;
     if (!sttState.runtimeConfigLoaded) {
@@ -3828,10 +3858,16 @@ function connectSTTWebSocket() {
         if ((msg.type === 'draft' || msg.type === 'partial') && msg.text) {
           sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = msg.type;
+          sttState.partialCaptionText = sttState.lastRecognitionText;
+          sttState.finalCaptionText = '';
+          updateSTTCaption();
           console.log('[STT] Draft:', msg.text);
         } else if (msg.type === 'final') {
           sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = 'final';
+          sttState.finalCaptionText = sttState.lastRecognitionText;
+          sttState.partialCaptionText = '';
+          updateSTTCaption();
           console.log('[STT] Final:', msg.text);
           handleSTTFinalText(sttState.lastRecognitionText);
           // Clear buffer for next utterance (server-side VAD detected end)

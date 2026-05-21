@@ -62,6 +62,21 @@ test('viewer treats Mac STT partial events as recognition drafts without chat fa
   assert.doesNotMatch(js, /recordSTTCaptureEvent\('final', pendingText\)/);
 });
 
+test('viewer renders partial and final STT captions outside the chat input', () => {
+  const html = fs.readFileSync('internal/adapter/viewer/viewer.html', 'utf8');
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
+  assert.match(html, /id="sttCaption"/);
+  assert.match(js, /const sttCaptionEl = document\.getElementById\('sttCaption'\)/);
+  assert.match(js, /function updateSTTCaption\(\)/);
+  assert.match(js, /sttCaptionEl\.textContent = '暫定字幕: ' \+ partialText/);
+  assert.match(js, /sttCaptionEl\.textContent = '確定字幕: ' \+ finalText/);
+  assert.match(js, /sttState\.partialCaptionText = sttState\.lastRecognitionText/);
+  assert.match(js, /sttState\.finalCaptionText = sttState\.lastRecognitionText/);
+  assert.match(css, /\.stt-caption\.draft/);
+  assert.match(css, /\.stt-caption\.final/);
+});
+
 test('viewer sends STT stop control and waits for final or error before closing', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /function sendSTTStopControl\(\)/);
