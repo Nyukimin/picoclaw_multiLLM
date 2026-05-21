@@ -5,9 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WATCHDOG_SCRIPT="${ROOT_DIR}/scripts/ops_watchdog.sh"
 TMP_DIR="$(mktemp -d)"
 MOCK_BIN="${TMP_DIR}/mockbin"
-STATE_DIR="${TMP_DIR}/state"
 LOG_DIR="${TMP_DIR}/logs"
-mkdir -p "${MOCK_BIN}" "${STATE_DIR}" "${LOG_DIR}"
+SERVE_COUNT_FILE="${TMP_DIR}/serve_count"
+mkdir -p "${MOCK_BIN}" "${LOG_DIR}"
+echo 0 > "${SERVE_COUNT_FILE}"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -25,93 +26,52 @@ EOF
 }
 
 write_mock "curl" '
-args=("$@")
-url="${args[-1]}"
-code="000"
+url="${@: -1}"
 if [[ "$url" == *"/health" ]]; then
-  code="${MOCK_HEALTH_CODE:-200}"
-elif [[ "$url" == *"/ready" ]]; then
-  code="${MOCK_READY_CODE:-200}"
-elif [[ "$url" == *"/webhook/line" ]]; then
-  code="${MOCK_WEBHOOK_CODE:-405}"
-elif [[ "$url" == *"/v1/models" ]]; then
-  code="${MOCK_OLLAMA_CODE:-200}"
-else
-  code="${MOCK_LINE_PUSH_CODE:-200}"
+  printf "%s" "${MOCK_HEALTH_CODE:-200}"
+  exit 0
 fi
-printf "%s" "$code"
+if [[ "$url" == https://*"/viewer?tab=timeline" ]]; then
+  printf "%s" "${MOCK_VIEWER_CODE:-200}"
+  exit 0
+fi
+printf "000"
 '
 
-write_mock "systemctl" '
-if [[ "${2:-}" == "is-active" ]]; then
-  [[ "${MOCK_SYSTEMCTL_ACTIVE:-1}" == "1" ]] && exit 0 || exit 3
+write_mock "tailscale" '
+if [[ "${1:-}" == "serve" && "${2:-}" == "status" ]]; then
+  count_file="${MOCK_SERVE_COUNT_FILE}"
+  count=0
+  [[ -f "$count_file" ]] && count="$(cat "$count_file")"
+  if [[ "${MOCK_SERVE_OK:-1}" == "1" || "$count" -gt 0 ]]; then
+    cat <<JSON
+{"Web":{"fujitsu-ubunts.tailb07d8d.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:18790"}}}}}
+JSON
+  else
+    echo "{}"
+  fi
+  exit 0
 fi
-if [[ "${2:-}" == "restart" ]]; then
-  count_file="${MOCK_RESTART_COUNT_FILE}"
+if [[ "${1:-}" == "serve" && "${2:-}" == "--bg" ]]; then
+  count_file="${MOCK_SERVE_COUNT_FILE}"
   count=0
   [[ -f "$count_file" ]] && count="$(cat "$count_file")"
   count=$((count + 1))
   echo "$count" > "$count_file"
-  [[ "${MOCK_SYSTEMCTL_RESTART_OK:-1}" == "1" ]] && exit 0 || exit 1
+  [[ "${MOCK_SERVE_CONFIGURE_OK:-1}" == "1" ]] && exit 0 || exit 1
+fi
+if [[ "${1:-}" == "funnel" ]]; then
+  echo "unexpected funnel call" >&2
+  exit 99
 fi
 exit 0
-'
-
-write_mock "ss" '
-if [[ "${MOCK_PORTS_OK:-1}" == "1" ]]; then
-  cat <<OUT
-State Recv-Q Send-Q Local Address:Port Peer Address:Port
-LISTEN 0      128    0.0.0.0:18790    0.0.0.0:*
-LISTEN 0      128    0.0.0.0:18791    0.0.0.0:*
-OUT
-else
-  cat <<OUT
-State Recv-Q Send-Q Local Address:Port Peer Address:Port
-OUT
-fi
-'
-
-write_mock "tailscale" '
-if [[ "${1:-}" == "funnel" && "${2:-}" == "status" ]]; then
-  if [[ "${MOCK_FUNNEL_OK:-1}" == "1" ]]; then
-    cat <<OUT
-Funnel on:
-proxy http://127.0.0.1:18791
-OUT
-  else
-    echo "Funnel off"
-  fi
-  exit 0
-fi
-if [[ "${1:-}" == "funnel" && "${2:-}" == "reset" ]]; then
-  exit 0
-fi
-if [[ "${1:-}" == "funnel" && "${2:-}" == "--bg" ]]; then
-  [[ "${MOCK_FUNNEL_RECOVER_OK:-1}" == "1" ]] && exit 0 || exit 1
-fi
-exit 0
-'
-
-write_mock "sudo" '
-if [[ "${1:-}" == "-n" ]]; then
-  shift
-fi
-exec "$@"
-'
-
-write_mock "journalctl" '
-echo "mock journal line"
 '
 
 export PATH="${MOCK_BIN}:$PATH"
 export PICO_HOME="${TMP_DIR}/picohome"
-export PICOCLAW_WATCHDOG_STATE_DIR="${STATE_DIR}"
 export PICOCLAW_WATCHDOG_LOG_DIR="${LOG_DIR}"
 export PICOCLAW_WATCHDOG_LOG_FILE="${LOG_DIR}/ops-watchdog.log"
-export PICOCLAW_WATCHDOG_KICK_ENABLED=true
-export PICOCLAW_WATCHDOG_KICK_TOKEN="test-kick-token"
-export MOCK_RESTART_COUNT_FILE="${TMP_DIR}/restart_count"
-echo 0 > "${MOCK_RESTART_COUNT_FILE}"
+export MOCK_SERVE_COUNT_FILE="${SERVE_COUNT_FILE}"
 
 assert_eq() {
   local actual="$1"
@@ -123,26 +83,28 @@ assert_eq() {
   fi
 }
 
-echo "[1/4] healthy scenario"
-MOCK_SYSTEMCTL_ACTIVE=1 MOCK_PORTS_OK=1 MOCK_HEALTH_CODE=200 MOCK_READY_CODE=200 MOCK_FUNNEL_OK=1 MOCK_WEBHOOK_CODE=405 MOCK_OLLAMA_CODE=200 \
+echo "[1/4] healthy Serve config is left untouched"
+MOCK_HEALTH_CODE=200 MOCK_SERVE_OK=1 MOCK_VIEWER_CODE=200 \
   bash "${WATCHDOG_SCRIPT}" once
-assert_eq "$(cat "${TMP_DIR}/restart_count")" "0" "healthy should not restart gateway"
+assert_eq "$(cat "${SERVE_COUNT_FILE}")" "0" "healthy Serve should not be reconfigured"
 
-echo "[2/4] health failure triggers restart"
-MOCK_SYSTEMCTL_ACTIVE=1 MOCK_PORTS_OK=1 MOCK_HEALTH_CODE=500 MOCK_READY_CODE=500 MOCK_FUNNEL_OK=1 MOCK_WEBHOOK_CODE=405 MOCK_OLLAMA_CODE=200 \
+echo "[2/4] missing Serve config is restored"
+MOCK_HEALTH_CODE=200 MOCK_SERVE_OK=0 MOCK_VIEWER_CODE=200 \
   bash "${WATCHDOG_SCRIPT}" once
-assert_eq "$(cat "${TMP_DIR}/restart_count")" "1" "health failure should restart gateway once"
+assert_eq "$(cat "${SERVE_COUNT_FILE}")" "1" "missing Serve should be configured"
 
-echo "[3/4] ollama 3rd failure suppresses restart"
-echo 2 > "${STATE_DIR}/ollama_fail_count"
-MOCK_SYSTEMCTL_ACTIVE=1 MOCK_PORTS_OK=1 MOCK_HEALTH_CODE=200 MOCK_READY_CODE=200 MOCK_FUNNEL_OK=1 MOCK_WEBHOOK_CODE=405 MOCK_OLLAMA_CODE=500 \
-  bash "${WATCHDOG_SCRIPT}" once
-assert_eq "$(cat "${TMP_DIR}/restart_count")" "1" "ollama 3rd failure should not restart gateway"
+echo "[3/4] RenCrow health failure blocks Serve mutation"
+if MOCK_HEALTH_CODE=503 MOCK_SERVE_OK=0 MOCK_VIEWER_CODE=200 bash "${WATCHDOG_SCRIPT}" once; then
+  echo "FAIL: health failure should fail watchdog"
+  exit 1
+fi
+assert_eq "$(cat "${SERVE_COUNT_FILE}")" "1" "health failure should not configure Serve"
 
-echo "[4/4] kick request triggers gateway restart"
-printf 'restart_gateway|%s|line:test|%s\n' "test-kick-token" "$(date +%s)" > "${STATE_DIR}/kick_request"
-MOCK_SYSTEMCTL_ACTIVE=1 MOCK_PORTS_OK=1 MOCK_HEALTH_CODE=200 MOCK_READY_CODE=200 MOCK_FUNNEL_OK=1 MOCK_WEBHOOK_CODE=405 MOCK_OLLAMA_CODE=200 \
-  bash "${WATCHDOG_SCRIPT}" once
-assert_eq "$(cat "${TMP_DIR}/restart_count")" "2" "kick request should restart gateway"
+echo "[4/4] viewer HTTPS failure is reported"
+if MOCK_HEALTH_CODE=200 MOCK_SERVE_OK=1 MOCK_VIEWER_CODE=000 bash "${WATCHDOG_SCRIPT}" once; then
+  echo "FAIL: viewer HTTPS failure should fail watchdog"
+  exit 1
+fi
+assert_eq "$(cat "${SERVE_COUNT_FILE}")" "1" "viewer failure should not use Funnel fallback"
 
 echo "PASS: watchdog mock tests"

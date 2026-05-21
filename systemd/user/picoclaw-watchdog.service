@@ -1,5 +1,5 @@
 [Unit]
-Description=RenCrow Ops Watchdog (oneshot)
+Description=RenCrow Viewer Tailscale Serve Watchdog (oneshot)
 After=network-online.target
 Wants=network-online.target
 

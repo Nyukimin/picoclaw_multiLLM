@@ -147,7 +147,7 @@ watchdog-run-once:
 test-watchdog-mock:
 	@bash scripts/tests/watchdog_mock_test.sh
 
-## watchdog-kick: Queue manual watchdog action (ACTION=restart_gateway|recover_funnel|check_ollama SOURCE=line TOKEN=...)
+## watchdog-kick: Obsolete; use make watchdog-run-once for Viewer Serve recovery
 watchdog-kick:
 	@bash "$(WATCHDOG_KICK_SCRIPT_DST)" "$(ACTION)" "$(SOURCE)" "$(TOKEN)"
 

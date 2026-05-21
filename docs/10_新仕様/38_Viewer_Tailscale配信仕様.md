@@ -219,6 +219,34 @@ Tailscale Serve が WebSocket proxy の要件を満たせない場合は、Ubunt
 scripts/tailscale_viewer_serve_verify.sh
 ```
 
+## 9. Watchdog 方針
+
+Viewer Tailscale 配信の watchdog は、RenCrow health と Tailscale Serve の維持だけを担当する。
+
+対象:
+
+- `http://127.0.0.1:18790/health` が 200 を返すこと。
+- Tailscale Serve が `https://<ubuntu-tailnet-host>/` を `http://127.0.0.1:18790` へ proxy していること。
+- `https://<ubuntu-tailnet-host>/viewer?tab=timeline` が 200 を返すこと。
+
+禁止:
+
+- Tailscale Funnel を復旧しない。
+- `tailscale funnel reset` を実行しない。
+- LINE webhook port `18791` を監視しない。
+- LLM / Ollama / STT / TTS provider の復旧を担当しない。
+- RenCrow process の restart を自動実行しない。
+
+Funnel と Serve は同じ Tailscale Serve/Funnel config を共有するため、旧 Funnel watchdog が `tailscale funnel reset` を実行すると Viewer 用 Serve 設定も消える。Viewer 配信では旧 `picoclaw-watchdog.timer` の Funnel 復旧処理を使わず、`scripts/ops_watchdog.sh` の Viewer Serve 専用 watchdog を使う。
+
+運用コマンド:
+
+```bash
+make install-watchdog enable-watchdog
+make watchdog-run-once
+make watchdog-status
+```
+
 このスクリプトは、`picoclaw-funnel.service` が active の場合は停止条件として exit 2 で止まる。Funnel 停止後に `tailscale serve --bg --yes http://127.0.0.1:18790` を設定し、Viewer HTTPS、`/viewer/runtime-config`、非 Viewer route guard、`/stt` WebSocket handshake を確認する。
 
 root 権限で Funnel 停止から検証まで一括で行う場合:
