@@ -138,6 +138,53 @@ test('viewer sends STT stop control and waits for final or error before closing'
   assert.match(finalSource, /sttState\.ws\.close\(\)/);
 });
 
+test('viewer preserves received STT final when later stop or error arrives', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /finalReceived:\s*false/);
+  assert.match(js, /sttState\.finalReceived = false;/);
+
+  const finalStart = js.indexOf("} else if (msg.type === 'final') {");
+  const finalEnd = js.indexOf("} else if (msg.type === 'reply_reset')", finalStart);
+  assert.ok(finalStart >= 0 && finalEnd > finalStart, 'final message block not found');
+  const finalSource = js.slice(finalStart, finalEnd);
+  assert.match(finalSource, /sttState\.finalReceived = true;/);
+  assert.match(finalSource, /clearSTTFinalWaitTimer\(\);/);
+  assert.match(finalSource, /handleSTTFinalText\(sttState\.lastRecognitionText\)/);
+
+  const errorStart = js.indexOf("} else if (msg.type === 'error') {");
+  const errorEnd = js.indexOf('        }', errorStart);
+  assert.ok(errorStart >= 0 && errorEnd > errorStart, 'server error path not found');
+  const errorSource = js.slice(errorStart, errorEnd);
+  assert.match(errorSource, /if \(sttState\.finalReceived\)/);
+  assert.doesNotMatch(errorSource, /sttState\.finalCaptionText = ''/);
+
+  const stopStart = js.indexOf('function stopSTT()');
+  const stopEnd = js.indexOf('function completeSTTStop()', stopStart);
+  assert.ok(stopStart >= 0 && stopEnd > stopStart, 'stopSTT block not found');
+  const stopSource = js.slice(stopStart, stopEnd);
+  const finalReceivedBranch = stopSource.indexOf('if (sttState.finalReceived)');
+  const openStopBranch = stopSource.indexOf('sendSTTStopControl();', finalReceivedBranch);
+  assert.ok(finalReceivedBranch >= 0, 'finalReceived stop branch not found');
+  assert.ok(openStopBranch > finalReceivedBranch, 'normal open stop branch not found after finalReceived branch');
+  const finalReceivedSource = stopSource.slice(finalReceivedBranch, openStopBranch);
+  assert.match(finalReceivedSource, /sttState\.ws\.close\(\);/);
+  assert.doesNotMatch(finalReceivedSource, /sendSTTStopControl\(\);/);
+});
+
+test('viewer STT message handling is not blocked by debug panel rendering', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /function renderSTTDebugPanelsSafely\(\)/);
+  assert.match(js, /try \{\s*renderDebugPanels\(\);/);
+  assert.match(js, /console\.warn\('\[STT\] Debug panel render skipped:'/);
+
+  const msgStart = js.indexOf('sttState.ws.onmessage = (event) => {');
+  const partialStart = js.indexOf("if ((msg.type === 'draft' || msg.type === 'partial') && msg.text)", msgStart);
+  assert.ok(msgStart >= 0 && partialStart > msgStart, 'STT message handler not found');
+  const preActionSource = js.slice(msgStart, partialStart);
+  assert.match(preActionSource, /renderSTTDebugPanelsSafely\(\);/);
+  assert.doesNotMatch(preActionSource, /renderDebugPanels\(\);/);
+});
+
 test('viewer STT autotest uses runtime STT base URL for provider inference', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /sttBaseURL:\s*''/);

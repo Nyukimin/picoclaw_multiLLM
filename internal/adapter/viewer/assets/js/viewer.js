@@ -3398,6 +3398,7 @@ const sttState = {
   reconnectTimer: null,
   reconnecting: false,
   stopControlSent: false,
+  finalReceived: false,
   captureLog: [],
   capturePCM: [],
   captureStartedAt: '',
@@ -3514,6 +3515,14 @@ function recordSTTCaptureEvent(type, payload) {
   });
   if (sttState.captureLog.length > 200) {
     sttState.captureLog.shift();
+  }
+}
+
+function renderSTTDebugPanelsSafely() {
+  try {
+    renderDebugPanels();
+  } catch (err) {
+    console.warn('[STT] Debug panel render skipped:', err && err.message ? err.message : err);
   }
 }
 
@@ -3784,6 +3793,7 @@ async function startSTT() {
     sttState.finalCaptionText = '';
     sttState.errorCaptionText = '';
     sttState.stopControlSent = false;
+    sttState.finalReceived = false;
     clearSTTFinalWaitTimer();
     updateSTTCaption();
     updateSTTInputLevel(0);
@@ -3872,7 +3882,7 @@ function connectSTTWebSocket() {
             recordSTTCaptureEvent('progress', `${msg.duration || 0}s / ${msg.bytes || 0} bytes`);
           }
           recordSTTCaptureEvent(msg.type, eventText);
-          renderDebugPanels();
+          renderSTTDebugPanelsSafely();
         }
         if ((msg.type === 'draft' || msg.type === 'partial') && msg.text) {
           sttState.lastRecognitionText = String(msg.text || '').trim();
@@ -3884,8 +3894,11 @@ function connectSTTWebSocket() {
         } else if (msg.type === 'final') {
           sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = 'final';
+          sttState.finalReceived = true;
+          clearSTTFinalWaitTimer();
           sttState.finalCaptionText = sttState.lastRecognitionText;
           sttState.partialCaptionText = '';
+          sttState.errorCaptionText = '';
           updateSTTCaption();
           console.log('[STT] Final:', msg.text);
           handleSTTFinalText(sttState.lastRecognitionText);
@@ -3906,6 +3919,12 @@ function connectSTTWebSocket() {
           console.log('[STT] Empty result');
         } else if (msg.type === 'error') {
           const sttErrorText = extractSTTMessageText(msg) || 'unknown error';
+          if (sttState.finalReceived) {
+            recordSTTCaptureEvent('error', 'ignored after final: ' + sttErrorText);
+            console.warn('[STT] Error ignored after final:', msg.error || msg.message);
+            updateSTTInputIndicators();
+            return;
+          }
           sttState.captureActionError = describeSTTActionError('STT recognition unavailable', sttErrorText);
           setSTTCaptionError(sttErrorText);
           updateSTTInputIndicators();
@@ -4161,6 +4180,15 @@ function stopSTT() {
   if (sttState.audioStream) {
     sttState.audioStream.getTracks().forEach(t => t.stop());
     sttState.audioStream = null;
+  }
+  if (sttState.finalReceived) {
+    clearSTTFinalWaitTimer();
+    sttState.chunkBuffer = [];
+    if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+      sttState.ws.close();
+      updateSTTInputIndicators();
+      return;
+    }
   }
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
     flushSTTAudioChunkBuffer();
