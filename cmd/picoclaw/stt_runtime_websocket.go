@@ -97,6 +97,7 @@ func handleSTTWebSocket(sttProviderURL string) http.Handler {
 			_ = sendSTTError(conn, "stt provider url is not configured")
 			return
 		}
+		sendSTTSessionReady(conn, "http")
 
 		autoFinalTimeout := sttFinalTimeoutFromEnv()
 		silenceThreshold := sttSilenceAbsThresholdFromEnv()
@@ -248,6 +249,10 @@ func handleSTTWebSocketProvider(provider sttinfra.Provider) http.Handler {
 			"session_id": sttinfra.NextEventID(time.Now()),
 			"provider":   provider.Name(),
 		})
+		_ = sendSTTEvent(conn, map[string]any{
+			"type":        "ready",
+			"sample_rate": 16000,
+		})
 
 		autoFinalTimeout := sttFinalTimeoutFromEnv()
 		silenceThreshold := sttSilenceAbsThresholdFromEnv()
@@ -323,6 +328,18 @@ func handleSTTWebSocketProvider(provider sttinfra.Provider) http.Handler {
 			lastDraftAt = time.Now()
 			_ = sendSTTEvent(conn, map[string]any{"type": "draft", "text": normalized})
 		}
+	})
+}
+
+func sendSTTSessionReady(conn *websocket.Conn, provider string) {
+	_ = sendSTTEvent(conn, map[string]any{
+		"type":       "session_info",
+		"session_id": sttinfra.NextEventID(time.Now()),
+		"provider":   strings.TrimSpace(provider),
+	})
+	_ = sendSTTEvent(conn, map[string]any{
+		"type":        "ready",
+		"sample_rate": 16000,
 	})
 }
 

@@ -3479,9 +3479,9 @@ async function loadViewerDebugSystemSnapshot() {
 }
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'draft' && type !== 'final' && type !== 'progress' && type !== 'ready') return;
+  if (type !== 'speech_start' && type !== 'draft' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
   const rawPayload = String(payload || '').trim();
-  if (type === 'speech_start' || type === 'ready') {
+  if (type === 'speech_start' || type === 'ready' || type === 'ws_open' || type === 'ws_close') {
     payload = '-';
   } else {
     if (!rawPayload) return;
@@ -3769,6 +3769,7 @@ function connectSTTWebSocket() {
   sttState.ws.binaryType = 'arraybuffer';
   sttState.ws.onopen = () => {
     sttState.reconnecting = false;
+    recordSTTCaptureEvent('ws_open', '');
     console.log('[STT] Connected - streaming PCM16 16kHz chunks');
     updateSTTInputIndicators();
   };
@@ -3823,6 +3824,7 @@ function connectSTTWebSocket() {
       }
   };
   sttState.ws.onerror = (event) => {
+    recordSTTCaptureEvent('ws_error', event && event.message ? event.message : 'connection error');
     sttState.captureActionError = describeSTTActionError(
       'STT websocket unavailable',
       event && event.message ? event : 'connection error',
@@ -3831,6 +3833,7 @@ function connectSTTWebSocket() {
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
   sttState.ws.onclose = () => {
+    recordSTTCaptureEvent('ws_close', '');
     sttState.streamReady = false;
     updateSTTInputIndicators();
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();

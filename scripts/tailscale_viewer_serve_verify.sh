@@ -55,20 +55,21 @@ PY
 verify_websocket_handshake() {
   local url="$1"
   local output
-  output="$(
-    curl -k -i --http1.1 -N --max-time 3 \
-      -H 'Connection: Upgrade' \
-      -H 'Upgrade: websocket' \
-      -H 'Sec-WebSocket-Version: 13' \
-      -H 'Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==' \
-      -H "Origin: https://${TAILSCALE_HOST}" \
-      "$url" 2>&1 || true
-  )"
-  if ! grep -q '101 Switching Protocols' <<<"$output"; then
-    printf '%s\n' "$output" >&2
+  output="$(mktemp)"
+  curl -k -i --http1.1 -N --max-time 3 \
+    -H 'Connection: Upgrade' \
+    -H 'Upgrade: websocket' \
+    -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==' \
+    -H "Origin: https://${TAILSCALE_HOST}" \
+    "$url" >"$output" 2>&1 || true
+  if ! grep -a -q '101 Switching Protocols' "$output"; then
+    cat "$output" >&2
+    rm -f "$output"
     log "websocket handshake failed: $url"
     exit 1
   fi
+  rm -f "$output"
 }
 
 require_cmd tailscale

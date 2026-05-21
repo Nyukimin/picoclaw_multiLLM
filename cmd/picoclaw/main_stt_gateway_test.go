@@ -166,6 +166,35 @@ func TestSTTWebSocketProviderE2E_ReturnsFinal(t *testing.T) {
 	t.Fatal("timed out waiting for final")
 }
 
+func TestSTTWebSocketProviderE2E_SendsSessionReadyOnOpen(t *testing.T) {
+	mux := http.NewServeMux()
+	registerSTTRoutes(mux, handleSTTWebSocketProvider(sttinfra.MockProvider{Text: "ルミナ、今日の予定を確認して。"}))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/stt"
+	conn, err := websocket.Dial(wsURL, "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	want := []string{"session_info", "ready"}
+	for _, wantType := range want {
+		var raw string
+		if err := websocket.Message.Receive(conn, &raw); err != nil {
+			t.Fatalf("receive %s: %v", wantType, err)
+		}
+		var ev map[string]any
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			t.Fatalf("decode event %q: %v", raw, err)
+		}
+		if ev["type"] != wantType {
+			t.Fatalf("expected %s, got %+v", wantType, ev)
+		}
+	}
+}
+
 func TestSTTWebSocketProviderE2E_AcceptsRawPCM16Chunks(t *testing.T) {
 	mux := http.NewServeMux()
 	registerSTTRoutes(mux, handleSTTWebSocketProvider(sttinfra.MockProvider{Text: "ルミナ、今日の予定を確認して。"}))
