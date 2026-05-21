@@ -483,7 +483,13 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 node scripts/stt_viewer_browser_e2e.js --real-mic --headed --partial-timeout-ms 30000 --final-timeout-ms 70000
 ```
 
-headed browser が開いたら、通常チャット timeline でマイクを開始し、十分な音量で発話し、停止する。この command が exit code 0 で、`recv_final=true`、`chat_send_observed=true`、`send_message` 非空を返した場合だけ、実ブラウザ実マイク STT E2E 成功とする。
+headed browser が開くと script がマイクを開始する。十分な音量で発話し、ブラウザ上のマイクボタンをクリックして停止する。script は mic off を検出してから `final` と `/viewer/send` を待つ。この command が exit code 0 で、`recv_final=true`、`chat_send_observed=true`、`send_message` 非空を返した場合だけ、実ブラウザ実マイク STT E2E 成功とする。
+
+自動停止で確認したい場合は、発話時間を指定する。
+
+```bash
+node scripts/stt_viewer_browser_e2e.js --real-mic --headed --speak-ms 6000 --partial-timeout-ms 30000 --final-timeout-ms 70000
+```
 
 ## 分類
 
