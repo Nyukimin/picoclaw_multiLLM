@@ -70,6 +70,8 @@ Browser Viewer
 - 受信済み音声量を `progress` として返す。
 - 直近 window の途中認識を `partial` として返す。
 - `stop` / `final_pending` / close / VAD / 最大発話長により `final` を返す。
+- `final` は同一 `utterance` の終端 event として扱う。
+- 同一 `utterance` で `final` を返した後に、同じ発話を否定・上書きする `error` を返さない。
 - HTTP `/v1/audio/transcriptions` は file inference 用であり、WebSocket streaming と入力仕様が違う。
 
 ### HTTP file inference との違い
@@ -203,6 +205,37 @@ Viewer は `/viewer/runtime-config` の `stt_stream_url` を優先して接続�
 
 `final.text` が通常 chat input の唯一の入力元である。空文字、no speech、error は chat input にしない。
 
+`final` は同一 `utterance` の終端 event である。STT server は `final` を送信した時点で、その `utterance` の認識結果を確定済みとして扱う。
+
+`final` 後に同じ `utterance` に対して許可される event は、原則として次だけである。
+
+- `closed`
+- 接続維持のための protocol-level close / websocket close
+- 次の `utterance` を明示する新しい `start` / 新しい `event_id` / 新しい `utterance_id` に属する event
+
+`final` 後に同じ `event_id` / `utterance` で `progress`、`partial`、`error` を返してはいけない。特に `final` 後の `empty_transcript` / `NO_SPEECH_DETECTED` は、Viewer 側で確定済み text を壊す原因になるため禁止する。
+
+STT server が `final` 後にも音声 frame を受信した場合、次のいずれかで扱う。
+
+1. 現行 `utterance` では無視し、必要なら debug log に `ignored_after_final` として記録する。
+2. 新しい `utterance` として扱う場合は、新しい `event_id` または `utterance_id` を割り当て、前の `final` とは別系列の event として返す。
+3. protocol 違反として扱う場合でも、前の `final` と同じ `event_id` で `error` を返さない。返すなら connection-level error として、確定済み `final` を取り消さない形にする。
+
+推奨ログ:
+
+```json
+{
+  "event": "stt_utterance_finalized",
+  "session_id": "viewer-session",
+  "event_id": "evt_stt_...",
+  "utterance_id": "utt_...",
+  "final_text": "テスト",
+  "final_reason": "stop",
+  "received_bytes": 96000,
+  "audio_duration_sec": 3.0
+}
+```
+
 #### closed
 
 ```json
@@ -227,6 +260,18 @@ Viewer は `/viewer/runtime-config` の `stt_stream_url` を優先して接続�
 ```
 
 `error` は通常 chat 成功として隠さない。Viewer は session state と STT log に残す。
+
+`error` は未確定の `utterance` にだけ返す。すでに `final` を返した同一 `utterance` に対して、後続の `error` を返してはいけない。
+
+`partial` を返した後に `final` で `empty_transcript` / `NO_SPEECH_DETECTED` へ落とす場合は、server log に次を必ず残す。
+
+- `partial` を返した window の start / end / duration
+- `final` 対象にした audio range
+- VAD speech detected true/false
+- final 推論に渡した PCM bytes / duration
+- `partial` text が final 候補として採用されなかった理由
+
+ただし、この logging requirement は `partial` を final として流用することを求めるものではない。通常 chat input に渡してよいのは `final.text` だけである。目的は、`partial` が出た発話で final が no speech になる原因を追跡可能にすることである。
 
 ## 5. 状態遷移
 
@@ -378,199 +423,10 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 7. `/stt-ws` / `/ws` は互換 endpoint として維持する。
 8. `scripts/stt_e2e_probe.py` を PCM16 raw + `start` + `stop` に修正する。
 
-## 現行実装との差分
+## 11. 実装作業仕様
 
-| 項目 | 現行 | 本仕様 |
-| --- | --- | --- |
-| Viewer start | 明示送信していない | 接続後に `start` を送る |
-| Viewer stop | 明示送信していない | 停止時に `stop` を送る |
-| Viewer audio | PCM16 raw chunk 送信済み | 継続 |
-| partial / draft | `partial` / `draft` を lastRecognition として保持 | 暫定字幕 UI として明示し、Chat へ送らない |
-| final 未到達時 | 停止時に latest partial を final 扱いで送る補助実装がある | 原則禁止。診断モード以外では Chat へ送らない |
-| Go proxy | text / binary frame を透過 | 継続 |
-| Go fallback WS | provider に chunk ごと WAV 化して推論し `draft` を返す | fallback は正常系ではない。E2E 成功扱いしない |
-| WS probe | WAV bytes を直送していた | PCM16 raw + `start` + `stop` に修正する |
-| HTTP inference | 保存 WAV の推論確認に使用 | WS streaming の代替にしない |
+STT streaming の実装作業、変更対象、検証チェックリスト、確認メモ、Goal 実行ルールは次の作業専用文書へ切り出した。
 
-## 実装タスク一覧
+- `docs/10_新仕様/40_STT_Streaming実装作業仕様.md`
 
-### local regression
-
-- Viewer: WebSocket open 時に `start` control を送る。
-- Viewer: `stopSTT()` で `stop` control を送り、`final` / `error` / timeout を待ってから close する。
-- Viewer: `partial` / `draft` を暫定字幕として表示する UI を追加する。
-- Viewer: `final` 未到達時に latest partial を通常 chat 送信する fallback を削除または診断モードへ隔離する。
-- Viewer tests: start / chunk / stop / final の contract test を追加する。
-- Probe: `scripts/stt_e2e_probe.py` を PCM16 raw + `start` + `stop` に修正する。
-- Go tests: `/stt` proxy が JSON control と binary chunk を透過することを確認する。
-
-### external dependency
-
-- 207 STT server が `start` / PCM16 raw chunk / `stop` / `final` を安定して返すこと。
-- 207 STT server log に `event_id` / `session_id` / VAD / partial / final / error が追跡可能に出ること。
-- Tailscale Viewer 経由で `wss://<tailnet-host>/stt` が継続利用できること。
-
-### blocked
-
-- 実マイク E2E は、ブラウザ端末のマイク権限、入力デバイス、音量、207 STT server 稼働状態に依存する。
-- `final` が返らない状態では通常 chat input 接続を完了扱いにしない。
-- fallback / partial-only / HTTP file inference 成功は STT streaming E2E 成功ではない。
-
-## 検証チェックリスト
-
-- [ ] Viewer runtime-config が正しい `stt_stream_url` を返す。
-- [ ] Viewer が WebSocket open 後に `start` を送る。
-- [ ] Viewer が PCM16 little-endian raw chunk を binary frame で送る。
-- [ ] Viewer が stop 時に `{ "type": "stop" }` を送る。
-- [ ] 207 direct WS で `ready` / `progress` / `partial` / `final` が返る。
-- [ ] RenCrow `/stt` proxy WS で direct WS と同等の event が返る。
-- [ ] Tailscale `wss://<tailnet-host>/stt` で同等の event が返る。
-- [ ] `partial` / `draft` が Viewer 暫定字幕・ログに表示される。
-- [ ] `partial` / `draft` が Chat / LLM に送られない。
-- [ ] `final.text` だけが通常 chat input に送られる。
-- [ ] `final` なし close は未確定終了として扱われる。
-- [ ] no speech / timeout / invalid audio / proxy failure が error として見える。
-- [ ] `scripts/stt_e2e_probe.py` が WAV whole file を WS に直送しない。
-- [ ] HTTP `/v1/audio/transcriptions` は file inference として別枠で記録される。
-
-## 実装・確認メモ
-
-### 2026-05-21 実装済み
-
-- Viewer マイク入力レベル表示を追加した。
-- Viewer WebSocket open 時に `start` control を送るようにした。
-- Viewer 停止時に残り PCM16 chunk を送信後、`stop` control を送り、`final` / `error` / timeout / close を待って終了処理へ進むようにした。
-- 207 STT の partial 推論に 6 秒以上かかるケースがあるため、Viewer の final 待ち timeout を 30 秒にした。
-- 保存 WAV の realtime probe では 1 秒無音 tail を付けた場合に `final` が安定したため、Viewer 停止時も残り PCM16 chunk の後に 1 秒の無音 tail を送り、その後 `stop` control を送るようにした。
-- `partial` / `draft` を通常 chat input へ送る停止時 fallback を削除し、`final.text` のみ通常 chat input に接続する contract test を追加した。
-- `partial` / `draft` と `final` を入力欄とは別の STT 字幕 UI に表示するようにした。
-- `scripts/stt_e2e_probe.py` を WAV decode -> PCM16 raw chunk -> `start` -> binary chunks -> `stop` protocol に修正し、`final` がない WS 結果を success 扱いしないようにした。
-- `scripts/stt_e2e_probe.py` に `--require-ws-final` を追加し、WS round の `final` が欠ける場合は non-zero exit にした。
-- `scripts/stt_viewer_browser_e2e.js` を追加し、Viewer browser 経由の `start` / PCM16 binary / `stop` / `final` / `/viewer/send` を Playwright で確認できるようにした。
-- Go `/stt` proxy が JSON control と PCM16 binary chunk を透過する E2E test を追加した。
-
-### 2026-05-21 確認済み
-
-- `node --test internal/adapter/viewer/viewer_stt_https.test.mjs`
-- `python3 -m py_compile scripts/stt_e2e_probe.py scripts/stt_e2e_probe_test.py`
-- `python3 -m unittest scripts/stt_e2e_probe_test.py`
-- `GOCACHE=/tmp/picoclaw-gocache go test ./...`
-- `git diff --check`
-- `make install` 後に `picoclaw.service` を再起動し、`http://127.0.0.1:18790/health`、local Viewer、Tailscale Viewer 200、配信中 HTML / JS 反映を確認した。
-- 2026-05-21 09:18 UTC 時点の `tmp/client_stt_input_latest.wav` は、HTTP file inference / WS streaming ともに `NO_SPEECH_DETECTED` になるため、以後の成功証跡には使わない。
-- `tmp/stt_inputs/client_stt_input_20260521_084443.wav` は HTTP file inference で `テストテストテストおわり` を返すことを確認し、この WAV を WS streaming probe の検証入力に使った。
-- `tmp/stt_inputs/client_stt_input_20260521_084443.wav` を使い、次の WS endpoint で `ready` / `progress` / `final` を確認した。
-  - `ws://192.168.1.207:8766/stt`
-  - `ws://127.0.0.1:18790/stt`
-  - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
-- Playwright Chromium の fake microphone で local Viewer を開き、ブラウザ `getUserMedia` -> Viewer PCM16 chunk -> 207 STT の経路で `start` / binary chunk / `stop` 送信と `partial` 受信を確認した。同 run では 207 STT が `NO_SPEECH_DETECTED` を返し、Viewer は `STT recognition unavailable: 音声が検出されませんでした。` を session 表示に残し、通常 chat input へ送信しなかった。
-- Playwright Chromium の fake microphone run で、207 STT から `final` / `error` が返らない場合に Viewer が `STT error: STT final unavailable: timed out waiting for final` を字幕欄と session 表示に残し、通常 chat input へ送信しないことを確認した。
-- `python3 scripts/stt_e2e_probe.py --wav tmp/client_stt_input_latest.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 20 --ws-url ws://127.0.0.1:18790/stt --require-ws-final` が、`final` なしの runtime result を exit code 2 として失敗扱いにすることを確認した。同 run では `ready` / `progress` までで timeout しており、STT streaming E2E 成功ではない。
-- `python3 scripts/stt_e2e_probe.py --wav tmp/stt_inputs/client_stt_input_20260521_084443.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 70 --ws-realtime --ws-tail-silence-ms 1000 --require-ws-final` を使い、次の WS endpoint で `final` が返ることを確認した。
-  - `ws://192.168.1.207:8766/stt`
-  - `ws://127.0.0.1:18790/stt`
-  - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
-- `scripts/stt_viewer_browser_e2e.js` は、送信した binary PCM frame 数、PCM byte 数、16kHz mono PCM16 換算秒数、受信 event type、直近受信 frame、`/viewer/send` request body、network failure を結果 JSON に出す。実マイク gate で失敗した場合は、この JSON を一次証跡として使う。
-- `node scripts/stt_viewer_browser_e2e.js --wav tmp/stt_inputs/client_stt_input_20260521_084443.wav --speak-ms 20000 --partial-timeout-ms 30000 --final-timeout-ms 90000 --no-require-final --no-require-send` では、ブラウザから約 21.43 秒分の PCM16 を送信し、207 STT から `partial` を受信したが、停止時に `empty_transcript` error となり、`/viewer/send` は発火しなかった。この結果は fake microphone の診断証跡であり、STT streaming E2E 成功ではない。
-- Playwright Chromium の fake microphone は、run ごとに `partial` / `NO_SPEECH_DETECTED` / timeout の揺れがあり、`final` -> 通常 chat input 送信の完了証跡にはできなかった。
-- `node scripts/stt_viewer_browser_e2e.js --no-require-final --no-require-send` で、fake microphone でも browser が `start` / binary chunk / `stop` を送り、`final` がない場合は通常 chat input へ送らないことを確認した。
-- `node scripts/stt_viewer_browser_e2e.js --partial-timeout-ms 15000 --final-timeout-ms 15000` は fake microphone で `final` / `/viewer/send` がない状態を exit code 2 として失敗扱いにすることを確認した。実マイク確認ではこの script を final 必須 gate として使う。
-
-### 残る未確認
-
-- 実ブラウザのマイク操作で、Mic ON -> 入力レベル -> `partial` 表示 -> `stop` -> `final` -> 通常 chat input 送信までを 1 セッション通して確認すること。
-- no speech は実 runtime 表示まで確認済み。provider timeout / invalid audio / proxy failure などの error path は、実 runtime 表示として網羅確認すること。
-
-実マイク gate:
-
-```bash
-node scripts/stt_viewer_browser_e2e.js --real-mic --headed --partial-timeout-ms 30000 --final-timeout-ms 70000
-```
-
-headed browser が開くと script がマイクを開始する。十分な音量で発話し、ブラウザ上のマイクボタンをクリックして停止する。script は mic off を検出してから `final` と `/viewer/send` を待つ。この command が exit code 0 で、`recv_final=true`、`chat_send_observed=true`、`send_message` 非空を返した場合だけ、実ブラウザ実マイク STT E2E 成功とする。
-
-自動停止で確認したい場合は、発話時間を指定する。
-
-```bash
-node scripts/stt_viewer_browser_e2e.js --real-mic --headed --speak-ms 6000 --partial-timeout-ms 30000 --final-timeout-ms 70000
-```
-
-## 分類
-
-| 分類 | 項目 |
-| --- | --- |
-| local regression | Viewer start/stop control、partial UI、final-only Chat 接続、probe 修正、Go proxy test |
-| external dependency | 207 STT server、WhisperKit、MacBook 207 launchd、Tailscale Serve |
-| blocked | 実マイク・実ブラウザ・207 runtime が必要な E2E、final 未返却時の chat 接続 |
-
-## Goal 実行用作業ルール
-
-この仕様を Goal に設定して実装する場合は、未完了項目を小さな検証済み commit 単位で順に処理する。
-
-各単位では、実装前に次を定義する。
-
-- 対象: Viewer / Go proxy / probe / docs / runtime 確認のどれか。
-- 変更範囲: 触るファイルと触らないファイル。
-- 検証コマンド: Node test、Go test、`git diff --check`、runtime / Viewer 確認のどれを行うか。
-- 完了条件: `partial` / `draft` / `final`、Chat input、error 表示、proxy 透過など、何が確認できれば完了か。
-
-実装後は、該当テストと必要な runtime / Viewer 確認を行う。確認済みの関連ファイルだけを選択的に stage し、日本語 commit message で commit する。commit 後は push する。push できたら、不要なユーザー確認を待たずに次の未完了項目へ進む。
-
-### 推奨 commit 単位
-
-1. `scripts/stt_e2e_probe.py` を PCM16 raw + `start` + `stop` protocol に修正する。
-2. Viewer から WebSocket open 時に `start` を送る。
-3. Viewer 停止時に `stop` を送り、`final` / `error` / timeout を待ってから close する。
-4. Viewer の `partial` / `draft` 暫定字幕 UI を追加する。
-5. `final` 未到達時に latest partial を通常 chat 送信する fallback を削除または診断モードへ隔離する。
-6. Go `/stt` proxy の JSON control / binary chunk 透過 test を追加する。
-7. runtime / Viewer E2E 確認結果をこの仕様または残課題台帳へ反映する。
-
-各 commit は 1 つの責務だけを持つ。Viewer / Go proxy / probe / docs / runtime 証跡を、責務が曖昧なまま 1 commit に混ぜない。
-
-### 標準検証
-
-変更内容に応じて、以下から必要なものを選ぶ。
-
-```bash
-node --test internal/adapter/viewer/viewer_stt_https.test.mjs
-node --test internal/adapter/viewer/viewer_memory_panel.test.mjs
-GOCACHE=/tmp/picoclaw-gocache go test ./cmd/picoclaw ./internal/adapter/viewer ./internal/infrastructure/stt -count=1
-git diff --check
-```
-
-runtime / Viewer に触れた場合は、必要に応じて次も確認する。
-
-- `systemctl --user stop picoclaw.service` を含むクリーン停止後に `make install` / restart する。
-- `http://127.0.0.1:18790/health` が OK である。
-- `/viewer/runtime-config` が 207 STT / TTS endpoint を返す。
-- LAN または Tailscale Viewer で Mic ON から `ready` / `progress` / `partial` / `final` を 1 セッション追う。
-- Tailscale Viewer 配信に関わる場合は `tailscale serve status --json` と Viewer HTTPS 200 を確認する。
-
-### stage / commit / push ルール
-
-- worktree 全体を一括 stage しない。
-- 確認済みの関連ファイルだけを `git add` する。
-- 日本語 commit message で commit する。
-- commit 後は push する。
-- push 後に、commit hash、検証コマンド、次に進む対象を短く報告する。
-- push 対象に未確認差分、別責務の差分、live E2E 生成物、一時生成物、`vault/` が混ざりそうな場合は停止する。
-
-### 停止条件
-
-次の場合だけ作業を止めて報告または質問する。
-
-- テスト失敗や runtime / Viewer 確認失敗が、現在の作業範囲内で短時間に解消できない。
-- 変更が複数領域へ広がり、1 commit の責務が曖昧になった。
-- 207 STT server、MacBook launchd、ブラウザ実マイク、Tailscale、外部 secret など、作業者側で準備できない依存が必要になった。
-- destructive operation、依存追加、CI / deploy 設定変更、ファイル削除、セーフガード変更が必要になった。
-- push 対象に未確認差分、別責務の差分、または live E2E 証跡ファイルが混ざりそうになった。
-- Goal の達成条件が、この仕様または `docs/01_正本仕様/STT_正本仕様.md` と矛盾している。
-
-### 禁止事項
-
-- blocked / skipped / fail を成功扱いしない。
-- fallback 成功、partial-only、HTTP file inference 成功を STT streaming E2E 成功扱いしない。
-- `partial` / `draft` を通常 chat input として送る変更を、明示的な診断モードなしに入れない。
-- Viewer 表示、STT log、Chat input、TTS 音声、口パク trigger を混同しない。
-- live E2E 証跡、`tmp/` の録音、`vault/`、一時生成物を明示指示なく commit しない。
+この文書は protocol / behavior の仕様を扱う。実装作業の進行、commit 単位、runtime 証跡、未確認項目は 40 を参照する。
