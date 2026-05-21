@@ -459,6 +459,7 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
   - `ws://127.0.0.1:18790/stt`
   - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
 - Playwright Chromium の fake microphone で local Viewer を開き、ブラウザ `getUserMedia` -> Viewer PCM16 chunk -> 207 STT の経路で `start` / binary chunk / `stop` 送信と `partial` 受信を確認した。同 run では 207 STT が `NO_SPEECH_DETECTED` を返し、Viewer は `STT recognition unavailable: 音声が検出されませんでした。` を session 表示に残し、通常 chat input へ送信しなかった。
+- Playwright Chromium の fake microphone run で、207 STT から `final` / `error` が返らない場合に Viewer が `STT error: STT final unavailable: timed out waiting for final` を字幕欄と session 表示に残し、通常 chat input へ送信しないことを確認した。
 
 ### 残る未確認
 

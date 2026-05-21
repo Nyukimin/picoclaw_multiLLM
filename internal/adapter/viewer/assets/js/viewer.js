@@ -3408,6 +3408,7 @@ const sttState = {
   lastRecognitionType: '',
   partialCaptionText: '',
   finalCaptionText: '',
+  errorCaptionText: '',
   inputLevel: 0,
   voiceBridgeURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/stt`,
   sttBaseURL: '',
@@ -3583,6 +3584,7 @@ function clearSTTCaptureLog() {
   sttState.captureEndedAt = '';
   sttState.partialCaptionText = '';
   sttState.finalCaptionText = '';
+  sttState.errorCaptionText = '';
   updateSTTCaption();
   updateSTTInputIndicators();
   showToast('STTログをクリアしました', 'success');
@@ -3720,6 +3722,13 @@ function updateSTTCaption() {
   if (!sttCaptionEl) return;
   const finalText = String(sttState.finalCaptionText || '').trim();
   const partialText = String(sttState.partialCaptionText || '').trim();
+  const errorText = String(sttState.errorCaptionText || '').trim();
+  if (errorText) {
+    sttCaptionEl.textContent = 'STT error: ' + errorText;
+    sttCaptionEl.title = sttCaptionEl.textContent;
+    sttCaptionEl.className = 'stt-caption has-text error';
+    return;
+  }
   if (finalText) {
     sttCaptionEl.textContent = '確定字幕: ' + finalText;
     sttCaptionEl.title = sttCaptionEl.textContent;
@@ -3735,6 +3744,13 @@ function updateSTTCaption() {
   sttCaptionEl.textContent = '';
   sttCaptionEl.title = '';
   sttCaptionEl.className = 'stt-caption';
+}
+
+function setSTTCaptionError(text) {
+  sttState.errorCaptionText = String(text || 'unknown error').trim() || 'unknown error';
+  sttState.partialCaptionText = '';
+  sttState.finalCaptionText = '';
+  updateSTTCaption();
 }
 
 async function toggleSTT() {
@@ -3765,6 +3781,7 @@ async function startSTT() {
     sttState.lastRecognitionType = '';
     sttState.partialCaptionText = '';
     sttState.finalCaptionText = '';
+    sttState.errorCaptionText = '';
     sttState.stopControlSent = false;
     clearSTTFinalWaitTimer();
     updateSTTCaption();
@@ -3887,7 +3904,9 @@ function connectSTTWebSocket() {
         } else if (msg.type === 'empty') {
           console.log('[STT] Empty result');
         } else if (msg.type === 'error') {
-          sttState.captureActionError = describeSTTActionError('STT recognition unavailable', extractSTTMessageText(msg) || 'unknown error');
+          const sttErrorText = extractSTTMessageText(msg) || 'unknown error';
+          sttState.captureActionError = describeSTTActionError('STT recognition unavailable', sttErrorText);
+          setSTTCaptionError(sttErrorText);
           updateSTTInputIndicators();
           console.error('[STT] Error:', msg.error || msg.message);
           showToast('認識エラー', 'error');
@@ -3897,6 +3916,7 @@ function connectSTTWebSocket() {
         }
       } catch (err) {
         sttState.captureActionError = describeSTTActionError('STT message parse unavailable', err);
+        setSTTCaptionError(sttState.captureActionError);
         updateSTTInputIndicators();
         console.error('[STT] Parse error:', err);
       }
@@ -3907,6 +3927,7 @@ function connectSTTWebSocket() {
       'STT websocket unavailable',
       event && event.message ? event : 'connection error',
     );
+    setSTTCaptionError(sttState.captureActionError);
     updateSTTInputIndicators();
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
@@ -4020,6 +4041,7 @@ function scheduleSTTFinalWaitTimeout() {
     sttState.finalWaitTimer = null;
     if (!sttState.isStopping) return;
     sttState.captureActionError = describeSTTActionError('STT final unavailable', 'timed out waiting for final');
+    setSTTCaptionError(sttState.captureActionError);
     recordSTTCaptureEvent('error', 'timed out waiting for final');
     updateSTTInputIndicators();
     if (sttState.ws && (sttState.ws.readyState === WebSocket.OPEN || sttState.ws.readyState === WebSocket.CONNECTING)) {

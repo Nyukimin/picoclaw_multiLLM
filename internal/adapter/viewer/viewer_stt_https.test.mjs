@@ -77,6 +77,19 @@ test('viewer renders partial and final STT captions outside the chat input', () 
   assert.match(css, /\.stt-caption\.final/);
 });
 
+test('viewer renders STT errors in the caption area without keeping stale partial text', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
+  assert.match(js, /errorCaptionText:\s*''/);
+  assert.match(js, /sttCaptionEl\.textContent = 'STT error: ' \+ errorText/);
+  assert.match(js, /function setSTTCaptionError\(text\)/);
+  assert.match(js, /setSTTCaptionError\(sttErrorText\)/);
+  assert.match(js, /setSTTCaptionError\(sttState\.captureActionError\)/);
+  assert.match(js, /sttState\.partialCaptionText = '';/);
+  assert.match(js, /sttState\.finalCaptionText = '';/);
+  assert.match(css, /\.stt-caption\.error/);
+});
+
 test('viewer sends STT stop control and waits for final or error before closing', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /function sendSTTStopControl\(\)/);
