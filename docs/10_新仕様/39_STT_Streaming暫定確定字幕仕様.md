@@ -457,14 +457,16 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 - `GOCACHE=/tmp/picoclaw-gocache go test ./...`
 - `git diff --check`
 - `make install` 後に `picoclaw.service` を再起動し、`http://127.0.0.1:18790/health`、local Viewer、Tailscale Viewer 200、配信中 HTML / JS 反映を確認した。
-- `tmp/client_stt_input_latest.wav` を使い、次の WS endpoint で `ready` / `progress` / `partial` / `final` を確認した。
+- 2026-05-21 09:18 UTC 時点の `tmp/client_stt_input_latest.wav` は、HTTP file inference / WS streaming ともに `NO_SPEECH_DETECTED` になるため、以後の成功証跡には使わない。
+- `tmp/stt_inputs/client_stt_input_20260521_084443.wav` は HTTP file inference で `テストテストテストおわり` を返すことを確認し、この WAV を WS streaming probe の検証入力に使った。
+- `tmp/stt_inputs/client_stt_input_20260521_084443.wav` を使い、次の WS endpoint で `ready` / `progress` / `final` を確認した。
   - `ws://192.168.1.207:8766/stt`
   - `ws://127.0.0.1:18790/stt`
   - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
 - Playwright Chromium の fake microphone で local Viewer を開き、ブラウザ `getUserMedia` -> Viewer PCM16 chunk -> 207 STT の経路で `start` / binary chunk / `stop` 送信と `partial` 受信を確認した。同 run では 207 STT が `NO_SPEECH_DETECTED` を返し、Viewer は `STT recognition unavailable: 音声が検出されませんでした。` を session 表示に残し、通常 chat input へ送信しなかった。
 - Playwright Chromium の fake microphone run で、207 STT から `final` / `error` が返らない場合に Viewer が `STT error: STT final unavailable: timed out waiting for final` を字幕欄と session 表示に残し、通常 chat input へ送信しないことを確認した。
 - `python3 scripts/stt_e2e_probe.py --wav tmp/client_stt_input_latest.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 20 --ws-url ws://127.0.0.1:18790/stt --require-ws-final` が、`final` なしの runtime result を exit code 2 として失敗扱いにすることを確認した。同 run では `ready` / `progress` までで timeout しており、STT streaming E2E 成功ではない。
-- `python3 scripts/stt_e2e_probe.py --wav tmp/client_stt_input_latest.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 60 --ws-realtime --ws-tail-silence-ms 1000 --require-ws-final` を使い、次の WS endpoint で `final` が返ることを確認した。
+- `python3 scripts/stt_e2e_probe.py --wav tmp/stt_inputs/client_stt_input_20260521_084443.wav --provider-rounds 0 --ws-rounds 1 --ws-wait 70 --ws-realtime --ws-tail-silence-ms 1000 --require-ws-final` を使い、次の WS endpoint で `final` が返ることを確認した。
   - `ws://192.168.1.207:8766/stt`
   - `ws://127.0.0.1:18790/stt`
   - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
