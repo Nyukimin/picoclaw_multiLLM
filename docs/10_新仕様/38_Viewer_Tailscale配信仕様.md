@@ -221,6 +221,14 @@ scripts/tailscale_viewer_serve_verify.sh
 
 このスクリプトは、`picoclaw-funnel.service` が active の場合は停止条件として exit 2 で止まる。Funnel 停止後に `tailscale serve --bg --yes http://127.0.0.1:18790` を設定し、Viewer HTTPS、`/viewer/runtime-config`、非 Viewer route guard、`/stt` WebSocket handshake を確認する。
 
+root 権限で Funnel 停止から検証まで一括で行う場合:
+
+```bash
+sudo scripts/tailscale_viewer_disable_funnel_and_verify.sh
+```
+
+この wrapper は `picoclaw-funnel.service` を `disable --now` し、停止と disable を確認した後、通常ユーザーに戻して `scripts/tailscale_viewer_serve_verify.sh` を実行する。
+
 ## 9. Caddy / nginx 方針
 
 Reverse proxy を使う場合の要件:
