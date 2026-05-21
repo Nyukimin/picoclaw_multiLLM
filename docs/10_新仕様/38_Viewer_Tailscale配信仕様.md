@@ -213,6 +213,14 @@ wss://<ubuntu-tailnet-host>/stt -> ws://192.168.1.207:8766/stt
 
 Tailscale Serve が WebSocket proxy の要件を満たせない場合は、Ubuntu 上に Caddy / nginx などを立て、Tailscale HTTPS からその local reverse proxy へ渡す。
 
+実装補助スクリプト:
+
+```bash
+scripts/tailscale_viewer_serve_verify.sh
+```
+
+このスクリプトは、`picoclaw-funnel.service` が active の場合は停止条件として exit 2 で止まる。Funnel 停止後に `tailscale serve --bg --yes http://127.0.0.1:18790` を設定し、Viewer HTTPS、`/viewer/runtime-config`、非 Viewer route guard、`/stt` WebSocket handshake を確認する。
+
 ## 9. Caddy / nginx 方針
 
 Reverse proxy を使う場合の要件:
