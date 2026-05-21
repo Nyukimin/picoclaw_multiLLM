@@ -446,6 +446,7 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
 - `partial` / `draft` と `final` を入力欄とは別の STT 字幕 UI に表示するようにした。
 - `scripts/stt_e2e_probe.py` を WAV decode -> PCM16 raw chunk -> `start` -> binary chunks -> `stop` protocol に修正し、`final` がない WS 結果を success 扱いしないようにした。
 - `scripts/stt_e2e_probe.py` に `--require-ws-final` を追加し、WS round の `final` が欠ける場合は non-zero exit にした。
+- `scripts/stt_viewer_browser_e2e.js` を追加し、Viewer browser 経由の `start` / PCM16 binary / `stop` / `final` / `/viewer/send` を Playwright で確認できるようにした。
 - Go `/stt` proxy が JSON control と PCM16 binary chunk を透過する E2E test を追加した。
 
 ### 2026-05-21 確認済み
@@ -468,11 +469,21 @@ HTTP file inference は、保存 WAV の一括推論確認に使う。WS streami
   - `ws://127.0.0.1:18790/stt`
   - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
 - Playwright Chromium の fake microphone は、run ごとに `partial` / `NO_SPEECH_DETECTED` / timeout の揺れがあり、`final` -> 通常 chat input 送信の完了証跡にはできなかった。
+- `node scripts/stt_viewer_browser_e2e.js --no-require-final --no-require-send` で、fake microphone でも browser が `start` / binary chunk / `stop` を送り、`final` がない場合は通常 chat input へ送らないことを確認した。
+- `node scripts/stt_viewer_browser_e2e.js --partial-timeout-ms 15000 --final-timeout-ms 15000` は fake microphone で `final` / `/viewer/send` がない状態を exit code 2 として失敗扱いにすることを確認した。実マイク確認ではこの script を final 必須 gate として使う。
 
 ### 残る未確認
 
 - 実ブラウザのマイク操作で、Mic ON -> 入力レベル -> `partial` 表示 -> `stop` -> `final` -> 通常 chat input 送信までを 1 セッション通して確認すること。
 - no speech は実 runtime 表示まで確認済み。provider timeout / invalid audio / proxy failure などの error path は、実 runtime 表示として網羅確認すること。
+
+実マイク gate:
+
+```bash
+node scripts/stt_viewer_browser_e2e.js --real-mic --headed --partial-timeout-ms 30000 --final-timeout-ms 70000
+```
+
+headed browser が開いたら、通常チャット timeline でマイクを開始し、十分な音量で発話し、停止する。この command が exit code 0 で、`recv_final=true`、`chat_send_observed=true`、`send_message` 非空を返した場合だけ、実ブラウザ実マイク STT E2E 成功とする。
 
 ## 分類
 
