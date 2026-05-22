@@ -321,6 +321,7 @@ const ttsPlayback = {
   currentShown: false,
   fallbackActive: false,
   fallbackTimer: null,
+  blockedFallbackUtteranceId: '',
   seq: 0,
 };
 const lipSyncMioEl = document.getElementById('lipSyncMio');
@@ -2545,7 +2546,7 @@ function createChatAudioSync() {
       enqueue: enqueueAudioChunkInternal,
       playNext: playNextInternal,
       disable: disableAudioInternal,
-      unlock: unlockAudioInternal,
+    unlock: unlockAudioInternal,
     },
     text: {
       show: showChunkTextInternal,
@@ -2722,6 +2723,7 @@ function createChatAudioSync() {
     state.currentUtteranceId = '';
     state.currentResponseId = '';
     state.currentShown = false;
+    state.blockedFallbackUtteranceId = '';
     setNowPlayingText('', '');
     clearTextInternal();
   }
@@ -2746,14 +2748,24 @@ function createChatAudioSync() {
     state.audioEnabled = false;
     state.unlocked = false;
     state.blocked = false;
+    state.blockedFallbackUtteranceId = '';
     clearTTSAudioError();
     resetCurrentInternal();
     updateAudioButton();
     startTextFallbackInternal();
   }
 
-  async function unlockAudioInternal() {
+  async function unlockAudioInternal(options = {}) {
     state.audioEnabled = true;
+    if (options.preferQueued && state.blocked && state.queue.length > 0) {
+      state.blocked = false;
+      state.unlocked = true;
+      state.blockedFallbackUtteranceId = '';
+      clearTTSAudioError();
+      updateAudioButton();
+      playNextInternal();
+      return;
+    }
     const audio = ensureAudioInternal();
     try {
       audio.pause();
@@ -2767,6 +2779,7 @@ function createChatAudioSync() {
       audio.muted = false;
       state.unlocked = true;
       state.blocked = false;
+      state.blockedFallbackUtteranceId = '';
       clearTTSAudioError();
       updateAudioButton();
       playNextInternal();
@@ -2792,8 +2805,7 @@ function createChatAudioSync() {
         playNextInternal();
       });
       state.audio.addEventListener('error', function() {
-        resetCurrentInternal();
-        playNextInternal();
+        handleCurrentAudioFailureInternal(new Error('audio element error'));
       });
     }
     return state.audio;
@@ -2853,6 +2865,10 @@ function createChatAudioSync() {
       return;
     }
     const head = state.queue[0];
+    if (state.blocked && head && !head.displayOnly) {
+      showBlockedAudioTextFallbackInternal(head);
+      return;
+    }
     if (state.audioEnabled && !state.blocked && !(head && head.displayOnly)) return;
     const next = state.queue.shift();
     state.fallbackActive = true;
@@ -2870,6 +2886,42 @@ function createChatAudioSync() {
     }, ttsDisplayDelay(next));
   }
 
+  function showBlockedAudioTextFallbackInternal(item) {
+    if (!item) return;
+    const key = String(item.utteranceId || item.sessionId + ':' + String(item.chunkIndex) || item.seq || '');
+    if (key && state.blockedFallbackUtteranceId === key) return;
+    state.blockedFallbackUtteranceId = key;
+    showFallbackChunkInternal(item);
+  }
+
+  function currentAudioItemInternal(fallback) {
+    return {
+      characterId: state.currentCharacterId || String((fallback && fallback.characterId) || ''),
+      displayText: state.currentDisplayText || String((fallback && fallback.displayText) || ''),
+      text: state.currentText || String((fallback && fallback.text) || ''),
+      sessionId: state.currentSessionId || String((fallback && fallback.sessionId) || ''),
+      chunkIndex: state.currentChunkIndex >= 0 ? state.currentChunkIndex : (Number.isFinite(fallback && fallback.chunkIndex) ? fallback.chunkIndex : -1),
+      utteranceId: state.currentUtteranceId || String((fallback && fallback.utteranceId) || ''),
+      responseId: state.currentResponseId || String((fallback && fallback.responseId) || ''),
+    };
+  }
+
+  function handleCurrentAudioFailureInternal(err, fallback) {
+    const item = currentAudioItemInternal(fallback);
+    stopLipSyncInternal(item.characterId);
+    if (!state.currentShown) showFallbackChunkInternal(item);
+    if (err) setTTSAudioError(err);
+    updateAudioButton();
+    if (state.fallbackTimer) clearTimeout(state.fallbackTimer);
+    state.fallbackActive = true;
+    state.fallbackTimer = setTimeout(function() {
+      state.fallbackTimer = null;
+      state.fallbackActive = false;
+      resetCurrentInternal();
+      playNextInternal();
+    }, ttsDisplayDelay(item));
+  }
+
   function playNextInternal() {
     if (state.playing) return;
     if (state.fallbackActive) return;
@@ -2882,7 +2934,7 @@ function createChatAudioSync() {
       return;
     }
     if (state.blocked) {
-      startTextFallbackInternal();
+      showBlockedAudioTextFallbackInternal(state.queue[0]);
       return;
     }
     if (state.queue.length === 0) {
@@ -2911,23 +2963,24 @@ function createChatAudioSync() {
       state.audioEnabled = true;
       state.unlocked = true;
       state.blocked = false;
+      state.blockedFallbackUtteranceId = '';
       clearTTSAudioError();
       updateAudioButton();
     }).catch(function(err) {
-      resetCurrentInternal();
       if (isAutoplayBlockedError(err)) {
         state.blocked = true;
         state.unlocked = false;
         state.queue.unshift(next);
+        resetCurrentInternal();
+        setTTSAudioError(err);
+        console.error('tts audio play failed', err);
+        updateAudioButton();
+        showBlockedAudioTextFallbackInternal(state.queue[0]);
       } else {
         state.blocked = false;
-        showFallbackChunkInternal(next);
+        console.error('tts audio play failed', err);
+        handleCurrentAudioFailureInternal(err, next);
       }
-      setTTSAudioError(err);
-      console.error('tts audio play failed', err);
-      updateAudioButton();
-      if (state.blocked) startTextFallbackInternal();
-      else playNextInternal();
     });
   }
 }
@@ -2972,20 +3025,38 @@ function disableTTSAudio() {
   chatAudioSync.disableAudio();
 }
 
-async function unlockTTSAudio() {
-  await chatAudioSync.unlockAudio();
+async function unlockTTSAudio(options = {}) {
+  await chatAudioSync.unlockAudio(options);
 }
 
 async function toggleTTSAudio() {
   if (ttsPlayback.audioEnabled && ttsPlayback.unlocked && !ttsPlayback.blocked) {
+    if (isMobileControlViewport()) {
+      return;
+    }
     disableTTSAudio();
     return;
   }
-  await unlockTTSAudio();
+  await unlockTTSAudio({preferQueued: isMobileControlViewport()});
 }
 
 function ensureTTSAudio() {
   return chatAudioSync.ensureAudio();
+}
+
+function bindMobileTTSAudioAutounlock() {
+  if (!document || !document.addEventListener) return;
+  let attempted = false;
+  document.addEventListener('pointerdown', function() {
+    if (attempted) return;
+    if (!isMobileControlViewport()) return;
+    if (!ttsPlayback.audioEnabled || ttsPlayback.unlocked) return;
+    attempted = true;
+    unlockTTSAudio().catch(function(err) {
+      attempted = false;
+      console.warn('mobile tts audio unlock skipped:', err);
+    });
+  }, {passive: true});
 }
 
 function isAutoplayBlockedError(err) {
@@ -3076,6 +3147,7 @@ const cameraInput = document.getElementById('cameraInput');
 const attachmentTray = document.getElementById('attachmentTray');
 bindTTSAudioButton(audioBtn);
 bindTTSAudioButton(liveAudioBtn);
+bindMobileTTSAudioAutounlock();
 updateAudioButton();
 let sending = false;
 let viewerAttachments = [];

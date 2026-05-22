@@ -102,6 +102,8 @@ class FakeAudio {
     return this.attributes[name] || '';
   }
   play() {
+    const outcome = FakeAudio.playOutcomes.shift();
+    if (outcome instanceof Error) return Promise.reject(outcome);
     this.paused = false;
     return Promise.resolve();
   }
@@ -113,8 +115,10 @@ class FakeAudio {
     if (name === 'src') this.src = '';
   }
 }
+FakeAudio.playOutcomes = [];
 
-function loadAudioHarness() {
+function loadAudioHarness(options = {}) {
+  FakeAudio.playOutcomes = [...(options.playOutcomes || [])];
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const idleJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/idlechat.js', 'utf8');
@@ -153,7 +157,16 @@ globalThis.__viewerAudioHarness = {
   const context = {
     document,
     console: {error() {}},
-    window: {addEventListener() {}, location: {protocol: 'http:'}, history: null},
+    window: {
+      addEventListener() {},
+      location: {protocol: 'http:'},
+      history: null,
+      innerWidth: options.mobile ? 390 : 1280,
+      matchMedia: options.mobile
+        ? () => ({matches: true, addEventListener() {}, removeEventListener() {}})
+        : () => ({matches: false, addEventListener() {}, removeEventListener() {}}),
+    },
+    navigator: {maxTouchPoints: options.mobile ? 1 : 0},
     localStorage: {
       getItem: (key) => localStore.get(key) || null,
       setItem: (key, value) => localStore.set(key, String(value)),
@@ -222,6 +235,71 @@ test('speaker button can turn ready audio off without stopping central chat fall
 
   timers.shift()();
   assert.equal(harness.ttsPlayback.fallbackActive, false);
+});
+
+test('mobile speaker tap keeps ready audio enabled instead of toggling it off', async () => {
+  const {harness, elements} = loadAudioHarness({mobile: true});
+  const audioBtn = elements.get('audioBtn');
+
+  harness.ttsPlayback.unlocked = true;
+  harness.ttsPlayback.blocked = false;
+  harness.updateAudioButton();
+  assert.equal(audioBtn.getAttribute('aria-label'), '音声は有効です');
+
+  await audioBtn.click();
+
+  assert.equal(harness.ttsPlayback.audioEnabled, true);
+  assert.equal(harness.ttsPlayback.unlocked, true);
+  assert.equal(audioBtn.getAttribute('aria-label'), '音声は有効です');
+  assert.equal(audioBtn.textContent, '🔊');
+});
+
+test('mobile speaker tap replays queued tts after autoplay block instead of losing it to fallback', async () => {
+  const err = new Error('play() failed because the user did not interact with the document first');
+  err.name = 'NotAllowedError';
+  const {harness, elements} = loadAudioHarness({mobile: true, playOutcomes: [err]});
+
+  harness.enqueueTTSAudio('/audio/a.wav', 'mio', 'session-mobile', 'default', 0, 'speech', '音声で聞きたい本文です。', '', 'mobile-u1');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.blocked, true);
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '音声で聞きたい本文です。');
+
+  await harness.toggleTTSAudio();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.blocked, false);
+  assert.equal(harness.ttsPlayback.unlocked, true);
+  assert.equal(harness.ttsPlayback.queue.length, 0);
+  assert.equal(harness.ttsPlayback.playing, true);
+});
+
+test('audio error does not start the next tts chunk until fallback delay completes', async () => {
+  const {harness, elements, timers} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/first.wav', 'mio', 'serial-error-session', 'default', 0, 'first speech', '一つ目です。', '', 'serial-error-0');
+  harness.enqueueTTSAudio('/audio/second.wav', 'mio', 'serial-error-session', 'default', 1, 'second speech', '二つ目です。', '', 'serial-error-1');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.currentChunkIndex, 0);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+
+  harness.ttsPlayback.audio.listeners.error();
+
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.equal(harness.ttsPlayback.fallbackActive, true);
+  assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '一つ目です。');
+
+  timers.shift()();
+
+  assert.equal(harness.ttsPlayback.currentChunkIndex, 1);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/second.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 0);
 });
 
 test('idlechat message is visible before tts chunk arrives', () => {
