@@ -44,12 +44,15 @@ test('viewer voice chat sends final text only in normal timeline chat without st
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /let activeViewerTab = 'home'/);
   assert.match(js, /function isVoiceChatAllowed\(\) \{\s*return activeViewerTab === 'timeline' && !document\.body\.classList\.contains\('live-mode'\);/);
+  assert.match(js, /function ensureVoiceChatForMobileControl\(\) \{/);
+  assert.match(js, /switchTab\('timeline'\);/);
   const switchTabStart = js.indexOf('function switchTab(tab) {');
   const switchTabEnd = js.indexOf('function switchAdjacentPanel', switchTabStart);
   assert.ok(switchTabStart >= 0 && switchTabEnd > switchTabStart, 'switchTab block not found');
   const switchTabSource = js.slice(switchTabStart, switchTabEnd);
   assert.doesNotMatch(switchTabSource, /stopSTT\(\)/);
-  assert.match(js, /micBtn\.disabled = !voiceAllowed && !sttState\.isRecording;/);
+  assert.match(js, /micBtn\.disabled = !mobileControlAllowed && !sttState\.isRecording;/);
+  assert.match(js, /if \(!ensureVoiceChatForMobileControl\(\)\) \{\s*showToast\('音声入力は通常チャットでのみ有効です', 'error'\);/);
   assert.match(js, /if \(!isVoiceChatAllowed\(\)\) \{\s*console\.warn\('\[STT\] Final ignored outside normal chat:', finalText\);/);
 });
 

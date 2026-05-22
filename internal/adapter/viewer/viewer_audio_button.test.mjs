@@ -83,15 +83,23 @@ class FakeAudio {
   constructor() {
     this.listeners = {};
     this.dataset = {};
+    this.attributes = {};
     this.readyState = 4;
     this.currentTime = 0;
     this.muted = false;
     this.preload = '';
     this.src = '';
     this.paused = true;
+    this.playsInline = false;
   }
   addEventListener(type, fn) {
     this.listeners[type] = fn;
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+  getAttribute(name) {
+    return this.attributes[name] || '';
   }
   play() {
     this.paused = false;
@@ -362,6 +370,16 @@ test('live mode audio button mirrors state and unlocks audio', async () => {
   assert.equal(audioBtn.getAttribute('aria-label'), '音声は有効です');
   assert.equal(liveAudioBtn.getAttribute('aria-label'), '音声は有効です');
   assert.ok(liveAudioBtn.classList.contains('ready'));
+});
+
+test('viewer audio element is prepared for inline mobile playback', async () => {
+  const {harness} = loadAudioHarness();
+
+  const audio = await harness.chatAudioSync.ensureAudio();
+
+  assert.equal(audio.playsInline, true);
+  assert.equal(audio.getAttribute('playsinline'), '');
+  assert.equal(audio.getAttribute('webkit-playsinline'), '');
 });
 
 test('tts chunk is shown when audio play resolves even if media events are missed', async () => {

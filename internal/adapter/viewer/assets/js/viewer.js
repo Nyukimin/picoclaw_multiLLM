@@ -2784,6 +2784,7 @@ function createChatAudioSync() {
     if (!state.audio) {
       state.audio = new Audio();
       state.audio.preload = 'auto';
+      prepareMobileInlineAudio(state.audio);
       state.audio.addEventListener('playing', markAudioStarted);
       state.audio.addEventListener('timeupdate', markAudioStarted);
       state.audio.addEventListener('ended', function() {
@@ -2993,6 +2994,26 @@ function isAutoplayBlockedError(err) {
   const msg = String(err.message || '').toLowerCase();
   if (name === 'NotAllowedError') return true;
   return msg.includes('user didn\'t interact') || msg.includes('notallowederror');
+}
+
+function isMobileControlViewport() {
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) return true;
+  return Boolean(navigator.maxTouchPoints && window.innerWidth <= 900);
+}
+
+function prepareMobileInlineAudio(audio) {
+  if (!audio) return;
+  audio.playsInline = true;
+  audio.setAttribute('playsinline', '');
+  audio.setAttribute('webkit-playsinline', '');
+}
+
+function ensureVoiceChatForMobileControl() {
+  if (isVoiceChatAllowed()) return true;
+  if (!isMobileControlViewport()) return false;
+  switchTab('timeline');
+  return isVoiceChatAllowed();
 }
 
 function markTTSAudioStarted() {
@@ -3708,14 +3729,15 @@ async function persistSTTArtifacts() {
 
 function updateSTTInputIndicators() {
   const voiceAllowed = isVoiceChatAllowed();
+  const mobileControlAllowed = voiceAllowed || isMobileControlViewport();
   if (micBtn) {
     micBtn.classList.toggle('ready', !!sttState.isRecording);
     micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
     micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
-    micBtn.disabled = !voiceAllowed && !sttState.isRecording;
+    micBtn.disabled = !mobileControlAllowed && !sttState.isRecording;
     micBtn.title = voiceAllowed
       ? (sttState.isRecording ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
-      : '音声入力は通常チャットでのみ有効です';
+      : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
   }
   if (micStateEl) {
     micStateEl.textContent = sttState.isRecording ? 'Mic: on' : 'Mic: off';
@@ -3795,7 +3817,7 @@ async function toggleSTT() {
   if (sttState.isRecording) {
     stopSTT();
   } else {
-    if (!isVoiceChatAllowed()) {
+    if (!ensureVoiceChatForMobileControl()) {
       showToast('音声入力は通常チャットでのみ有効です', 'error');
       return;
     }
@@ -3804,7 +3826,7 @@ async function toggleSTT() {
 }
 
 async function startSTT() {
-  if (!isVoiceChatAllowed()) {
+  if (!ensureVoiceChatForMobileControl()) {
     showToast('音声入力は通常チャットでのみ有効です', 'error');
     return;
   }
