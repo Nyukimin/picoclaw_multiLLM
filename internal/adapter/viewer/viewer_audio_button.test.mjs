@@ -84,6 +84,7 @@ class FakeAudio {
     this.listeners = {};
     this.dataset = {};
     this.attributes = {};
+    this.style = {};
     this.readyState = 4;
     this.currentTime = 0;
     this.muted = false;

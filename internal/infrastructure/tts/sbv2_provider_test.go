@@ -3,11 +3,13 @@ package tts
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -187,8 +189,60 @@ func TestSBV2Provider_SynthesizeEditorAPI_WritesWAV(t *testing.T) {
 	}
 }
 
+func TestSaveEditorWAVRejectsSilentPCM16WAV(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, err := saveEditorWAV(bytes.NewReader(testPCM16WAV([]int16{0, 0, 0, 0})), tmpDir, "silent")
+	if err == nil {
+		t.Fatal("expected silent wav error")
+	}
+	if !strings.Contains(err.Error(), "generated wav is silent") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(tmpDir, "silent-*.wav"))
+	if globErr != nil {
+		t.Fatalf("glob failed: %v", globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("silent wav should be removed, got %#v", matches)
+	}
+}
+
+func TestSaveEditorWAVAllowsAudiblePCM16WAV(t *testing.T) {
+	tmpDir := t.TempDir()
+	out, err := saveEditorWAV(bytes.NewReader(testPCM16WAV([]int16{0, 1200, -800, 0})), tmpDir, "audible")
+	if err != nil {
+		t.Fatalf("expected audible wav, got %v", err)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("expected saved wav: %v", err)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func testPCM16WAV(samples []int16) []byte {
+	const sampleRate = 48000
+	dataSize := len(samples) * 2
+	out := make([]byte, 44+dataSize)
+	copy(out[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(out[4:8], uint32(36+dataSize))
+	copy(out[8:12], "WAVE")
+	copy(out[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(out[16:20], 16)
+	binary.LittleEndian.PutUint16(out[20:22], 1)
+	binary.LittleEndian.PutUint16(out[22:24], 1)
+	binary.LittleEndian.PutUint32(out[24:28], sampleRate)
+	binary.LittleEndian.PutUint32(out[28:32], sampleRate*2)
+	binary.LittleEndian.PutUint16(out[32:34], 2)
+	binary.LittleEndian.PutUint16(out[34:36], 16)
+	copy(out[36:40], "data")
+	binary.LittleEndian.PutUint32(out[40:44], uint32(dataSize))
+	for i, s := range samples {
+		binary.LittleEndian.PutUint16(out[44+i*2:46+i*2], uint16(s))
+	}
+	return out
 }

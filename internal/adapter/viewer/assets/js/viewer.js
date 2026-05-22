@@ -2769,7 +2769,7 @@ function createChatAudioSync() {
     const audio = ensureAudioInternal();
     try {
       audio.pause();
-      audio.muted = true;
+      audio.muted = false;
       audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAA';
       await audio.play();
       audio.pause();
@@ -2798,6 +2798,7 @@ function createChatAudioSync() {
       state.audio = new Audio();
       state.audio.preload = 'auto';
       prepareMobileInlineAudio(state.audio);
+      attachPlaybackAudioElement(state.audio);
       state.audio.addEventListener('playing', markAudioStarted);
       state.audio.addEventListener('timeupdate', markAudioStarted);
       state.audio.addEventListener('ended', function() {
@@ -3078,6 +3079,22 @@ function prepareMobileInlineAudio(audio) {
   audio.playsInline = true;
   audio.setAttribute('playsinline', '');
   audio.setAttribute('webkit-playsinline', '');
+}
+
+function attachPlaybackAudioElement(audio) {
+  if (!audio || audio.dataset.rencrowPlaybackAttached === '1') return;
+  audio.dataset.rencrowPlaybackAttached = '1';
+  audio.setAttribute('aria-hidden', 'true');
+  audio.style.position = 'fixed';
+  audio.style.width = '1px';
+  audio.style.height = '1px';
+  audio.style.opacity = '0';
+  audio.style.pointerEvents = 'none';
+  audio.style.left = '-10000px';
+  audio.style.bottom = '0';
+  try {
+    document.body.appendChild(audio);
+  } catch (_) {}
 }
 
 function ensureVoiceChatForMobileControl() {

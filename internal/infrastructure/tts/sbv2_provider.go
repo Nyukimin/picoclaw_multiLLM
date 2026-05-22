@@ -3,6 +3,7 @@ package tts
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -323,7 +324,66 @@ func saveEditorWAV(body io.Reader, outputDir, prefix string) (string, error) {
 	if _, err := io.Copy(f, body); err != nil {
 		return "", fmt.Errorf("write wav response: %w", err)
 	}
+	if err := rejectSilentWAV(f.Name()); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
 	return filepath.Clean(f.Name()), nil
+}
+
+func rejectSilentWAV(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read wav response: %w", err)
+	}
+	silent, ok := isSilentPCM16WAV(data)
+	if !ok || !silent {
+		return nil
+	}
+	return fmt.Errorf("%w: generated wav is silent", ErrSynthesisFailed)
+}
+
+func isSilentPCM16WAV(data []byte) (bool, bool) {
+	if len(data) < 44 || string(data[0:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
+		return false, false
+	}
+	var audioFormat uint16
+	var bitsPerSample uint16
+	dataStart := -1
+	dataSize := 0
+	for off := 12; off+8 <= len(data); {
+		chunkID := string(data[off : off+4])
+		chunkSize := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
+		chunkStart := off + 8
+		chunkEnd := chunkStart + chunkSize
+		if chunkSize < 0 || chunkEnd > len(data) {
+			return false, false
+		}
+		switch chunkID {
+		case "fmt ":
+			if chunkSize >= 16 {
+				audioFormat = binary.LittleEndian.Uint16(data[chunkStart : chunkStart+2])
+				bitsPerSample = binary.LittleEndian.Uint16(data[chunkStart+14 : chunkStart+16])
+			}
+		case "data":
+			dataStart = chunkStart
+			dataSize = chunkSize
+		}
+		off = chunkEnd
+		if off%2 == 1 {
+			off++
+		}
+	}
+	if audioFormat != 1 || bitsPerSample != 16 || dataStart < 0 || dataSize < 2 {
+		return false, false
+	}
+	pcm := data[dataStart : dataStart+dataSize]
+	for i := 0; i+1 < len(pcm); i += 2 {
+		if binary.LittleEndian.Uint16(pcm[i:i+2]) != 0 {
+			return false, true
+		}
+	}
+	return true, true
 }
 
 func sanitizeAudioPrefix(prefix string) string {
