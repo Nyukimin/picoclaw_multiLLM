@@ -56,8 +56,9 @@ test('viewer voice chat sends final text only in normal timeline chat without st
 test('viewer treats Mac STT partial events as recognition drafts without chat fallback', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /type !== 'draft' && type !== 'partial' && type !== 'final'/);
-  assert.match(js, /\(msg\.type === 'draft' \|\| msg\.type === 'partial'\) && msg\.text/);
-  assert.match(js, /sttState\.lastRecognitionText = String\(msg\.text \|\| ''\)\.trim\(\);/);
+  assert.match(js, /\(msg\.type === 'draft' \|\| msg\.type === 'partial'\) && extractSTTMessageText\(msg\)/);
+  assert.match(js, /const draftText = extractSTTMessageText\(msg\)/);
+  assert.match(js, /sttState\.lastRecognitionText = String\(draftText \|\| ''\)\.trim\(\);/);
   assert.doesNotMatch(js, /handleSTTFinalText\(pendingText\)/);
   assert.doesNotMatch(js, /recordSTTCaptureEvent\('final', pendingText\)/);
 });
@@ -67,12 +68,21 @@ test('viewer renders partial and final STT captions outside the chat input', () 
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
   assert.match(html, /id="sttCaption"/);
+  assert.match(html, /class="input-text-stack"/);
+  assert.match(html, /class="input-side"/);
+  assert.match(html, /class="input-compose"/);
+  assert.match(html, /id="sttCaptionLabel"/);
+  assert.match(html, /id="sttCaptionText"/);
+  assert.match(html, /暫定文字列/);
   assert.match(js, /const sttCaptionEl = document\.getElementById\('sttCaption'\)/);
+  assert.match(js, /const sttCaptionLabelEl = document\.getElementById\('sttCaptionLabel'\)/);
+  assert.match(js, /const sttCaptionTextEl = document\.getElementById\('sttCaptionText'\)/);
   assert.match(js, /function updateSTTCaption\(\)/);
-  assert.match(js, /sttCaptionEl\.textContent = '暫定字幕: ' \+ partialText/);
-  assert.match(js, /sttCaptionEl\.textContent = '確定字幕: ' \+ finalText/);
+  assert.match(js, /setCaption\('確定文字列', finalText, 'stt-caption has-text final'\)/);
+  assert.match(js, /setCaption\('暫定文字列', partialText, 'stt-caption has-text draft'\)/);
   assert.match(js, /sttState\.partialCaptionText = sttState\.lastRecognitionText/);
   assert.match(js, /sttState\.finalCaptionText = sttState\.lastRecognitionText/);
+  assert.match(css, /\.input-text-stack/);
   assert.match(css, /\.stt-caption\.draft/);
   assert.match(css, /\.stt-caption\.final/);
 });
@@ -81,7 +91,7 @@ test('viewer renders STT errors in the caption area without keeping stale partia
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
   assert.match(js, /errorCaptionText:\s*''/);
-  assert.match(js, /sttCaptionEl\.textContent = 'STT error: ' \+ errorText/);
+  assert.match(js, /setCaption\('STT error', errorText, 'stt-caption has-text error'\)/);
   assert.match(js, /function setSTTCaptionError\(text\)/);
   assert.match(js, /setSTTCaptionError\(sttErrorText\)/);
   assert.match(js, /setSTTCaptionError\(sttState\.captureActionError\)/);
@@ -115,7 +125,7 @@ test('viewer sends STT stop control and waits for final or error before closing'
   assert.match(js, /sttState\.ws\.send\(JSON\.stringify\(\{ type: 'stop' \}\)\)/);
   assert.match(js, /recordSTTCaptureEvent\('stop', 'requested'\)/);
   assert.match(js, /function scheduleSTTFinalWaitTimeout\(\)/);
-  assert.match(js, /const STT_FINAL_WAIT_TIMEOUT_MS = 30000/);
+  assert.match(js, /const STT_FINAL_WAIT_TIMEOUT_MS = 90000/);
   assert.match(js, /}, STT_FINAL_WAIT_TIMEOUT_MS\)/);
   assert.match(js, /timed out waiting for final/);
   assert.match(js, /function completeSTTStop\(\)/);
@@ -136,6 +146,24 @@ test('viewer sends STT stop control and waits for final or error before closing'
   const finalSource = js.slice(finalStart, finalEnd);
   assert.match(finalSource, /handleSTTFinalText\(sttState\.lastRecognitionText\)/);
   assert.match(finalSource, /sttState\.ws\.close\(\)/);
+});
+
+test('viewer logs sent audio and STT event timing for stream correlation', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /captureEventID:\s*''/);
+  assert.match(js, /sentAudioSamples:\s*0/);
+  assert.match(js, /sentAudioBytes:\s*0/);
+  assert.match(js, /sentAudioFrames:\s*0/);
+  assert.match(js, /'event_id: ' \+ \(sttState\.captureEventID \|\| '\(unknown\)'\)/);
+  assert.match(js, /'sent_audio: ' \+ formatSTTSentAudioSummary\(\)/);
+  assert.ok(js.includes("item.payload.trim().split(' / ')[0].trim()"));
+  assert.match(js, /function formatSTTServerEventPayload\(msg, fallbackText\)/);
+  assert.match(js, /range=' \+ String\(msg\.start_ms\) \+ '-' \+ String\(msg\.end_ms\) \+ 'ms'/);
+  assert.match(js, /duration=' \+ String\(msg\.duration\) \+ 's'/);
+  assert.match(js, /recordSTTCaptureEvent\('audio_sent'/);
+  assert.match(js, /recordSTTAudioSent\(chunk\.length\)/);
+  assert.match(js, /sttState\.captureEventID = String\(msg\.event_id\)\.trim\(\);/);
+  assert.match(js, /if \(msg\.type !== 'progress'\) \{\s*recordSTTCaptureEvent\(msg\.type, formatSTTServerEventPayload\(msg, eventText\)\);/);
 });
 
 test('viewer preserves received STT final when later stop or error arrives', () => {
@@ -178,7 +206,7 @@ test('viewer STT message handling is not blocked by debug panel rendering', () =
   assert.match(js, /console\.warn\('\[STT\] Debug panel render skipped:'/);
 
   const msgStart = js.indexOf('sttState.ws.onmessage = (event) => {');
-  const partialStart = js.indexOf("if ((msg.type === 'draft' || msg.type === 'partial') && msg.text)", msgStart);
+  const partialStart = js.indexOf("if ((msg.type === 'draft' || msg.type === 'partial') && extractSTTMessageText(msg))", msgStart);
   assert.ok(msgStart >= 0 && partialStart > msgStart, 'STT message handler not found');
   const preActionSource = js.slice(msgStart, partialStart);
   assert.match(preActionSource, /renderSTTDebugPanelsSafely\(\);/);

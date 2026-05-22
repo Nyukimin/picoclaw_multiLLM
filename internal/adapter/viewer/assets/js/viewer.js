@@ -3404,7 +3404,12 @@ const sttState = {
   captureStartedAt: '',
   captureEndedAt: '',
   captureSessionID: '(unknown)',
+  captureEventID: '',
   captureActionError: '',
+  sentAudioSamples: 0,
+  sentAudioBytes: 0,
+  sentAudioFrames: 0,
+  lastLoggedAudioSecond: 0,
   lastRecognitionText: '',
   lastRecognitionType: '',
   partialCaptionText: '',
@@ -3421,12 +3426,14 @@ const micStateEl = document.getElementById('micState');
 const sttConnStateEl = document.getElementById('sttConnState');
 const sttSessionStateEl = document.getElementById('sttSessionState');
 const sttCaptionEl = document.getElementById('sttCaption');
+const sttCaptionLabelEl = document.getElementById('sttCaptionLabel');
+const sttCaptionTextEl = document.getElementById('sttCaptionText');
 const debugSttSessionEl = document.getElementById('debugSttSession');
 const sttCaptureCopyBtn = document.getElementById('sttCaptureCopyBtn');
 const sttCaptureDownloadBtn = document.getElementById('sttCaptureDownloadBtn');
 const sttCaptureClearBtn = document.getElementById('sttCaptureClearBtn');
 const sttSessionCopyBtn = document.getElementById('sttSessionCopyBtn');
-const STT_FINAL_WAIT_TIMEOUT_MS = 30000;
+const STT_FINAL_WAIT_TIMEOUT_MS = 90000;
 const STT_STOP_TAIL_SILENCE_MS = 1000;
 if (micBtn) {
   micBtn.addEventListener('click', toggleSTT);
@@ -3495,7 +3502,7 @@ async function loadViewerDebugSystemSnapshot() {
 }
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'start' && type !== 'stop' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'ready' && type !== 'closed' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
+  if (type !== 'speech_start' && type !== 'start' && type !== 'stop' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'audio_sent' && type !== 'ready' && type !== 'closed' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
   const rawPayload = String(payload || '').trim();
   if (type === 'speech_start' || type === 'ready' || type === 'closed' || type === 'ws_open' || type === 'ws_close') {
     payload = '-';
@@ -3529,7 +3536,7 @@ function renderSTTDebugPanelsSafely() {
 function getSTTCaptureSummaryText() {
   const finals = sttState.captureLog
     .filter((item) => (item.type === 'final' || item.type === 'partial' || item.type === 'draft') && item.payload && item.payload !== '-')
-    .map((item) => item.payload.trim())
+    .map((item) => item.payload.trim().split(' / ')[0].trim())
     .filter(Boolean);
   return finals.length > 0 ? finals.slice(-3).join(' / ') : '-';
 }
@@ -3543,6 +3550,8 @@ function buildSTTCaptureLogText() {
     'ws_url: ' + sttState.voiceBridgeURL,
     'test_time: ' + startedAt + ' ~ ' + endedAt,
     'session_id: ' + (sttState.captureSessionID || '(unknown)'),
+    'event_id: ' + (sttState.captureEventID || '(unknown)'),
+    'sent_audio: ' + formatSTTSentAudioSummary(),
     'spoken_text: ' + getSTTCaptureSummaryText(),
     '',
   ];
@@ -3553,6 +3562,27 @@ function buildSTTCaptureLogText() {
     body.push('NO_STT_EVENTS');
   }
   return meta.concat(body).join('\n');
+}
+
+function formatSTTSentAudioSummary() {
+  const sampleRate = Number(sttState.sampleRate || 16000) || 16000;
+  const seconds = sampleRate > 0 ? sttState.sentAudioSamples / sampleRate : 0;
+  return `${seconds.toFixed(3)}s / ${sttState.sentAudioBytes} bytes / ${sttState.sentAudioFrames} frames`;
+}
+
+function formatSTTServerEventPayload(msg, fallbackText) {
+  const parts = [];
+  const text = String(fallbackText || '').trim();
+  if (text) parts.push(text);
+  if (msg && msg.seq !== undefined && msg.seq !== null) parts.push('seq=' + String(msg.seq));
+  if (msg && msg.start_ms !== undefined && msg.end_ms !== undefined) {
+    parts.push('range=' + String(msg.start_ms) + '-' + String(msg.end_ms) + 'ms');
+  }
+  if (msg && msg.duration !== undefined && msg.duration !== null) {
+    parts.push('duration=' + String(msg.duration) + 's');
+  }
+  if (msg && msg.reason) parts.push('reason=' + String(msg.reason));
+  return parts.join(' / ');
 }
 
 function describeSTTActionError(prefix, err) {
@@ -3733,27 +3763,25 @@ function updateSTTCaption() {
   const finalText = String(sttState.finalCaptionText || '').trim();
   const partialText = String(sttState.partialCaptionText || '').trim();
   const errorText = String(sttState.errorCaptionText || '').trim();
+  const setCaption = (label, text, cls) => {
+    if (sttCaptionLabelEl) sttCaptionLabelEl.textContent = label || '暫定文字列';
+    if (sttCaptionTextEl) sttCaptionTextEl.textContent = text || '-';
+    sttCaptionEl.title = [label, text].filter(Boolean).join(': ');
+    sttCaptionEl.className = cls || 'stt-caption';
+  };
   if (errorText) {
-    sttCaptionEl.textContent = 'STT error: ' + errorText;
-    sttCaptionEl.title = sttCaptionEl.textContent;
-    sttCaptionEl.className = 'stt-caption has-text error';
+    setCaption('STT error', errorText, 'stt-caption has-text error');
     return;
   }
   if (finalText) {
-    sttCaptionEl.textContent = '確定字幕: ' + finalText;
-    sttCaptionEl.title = sttCaptionEl.textContent;
-    sttCaptionEl.className = 'stt-caption has-text final';
+    setCaption('確定文字列', finalText, 'stt-caption has-text final');
     return;
   }
   if (partialText) {
-    sttCaptionEl.textContent = '暫定字幕: ' + partialText;
-    sttCaptionEl.title = sttCaptionEl.textContent;
-    sttCaptionEl.className = 'stt-caption has-text draft';
+    setCaption('暫定文字列', partialText, 'stt-caption has-text draft');
     return;
   }
-  sttCaptionEl.textContent = '';
-  sttCaptionEl.title = '';
-  sttCaptionEl.className = 'stt-caption';
+  setCaption('暫定文字列', '', 'stt-caption');
 }
 
 function setSTTCaptionError(text) {
@@ -3786,7 +3814,12 @@ async function startSTT() {
     sttState.capturePCM = [];
     sttState.captureStartedAt = '';
     sttState.captureEndedAt = '';
+    sttState.captureEventID = '';
     sttState.captureActionError = '';
+    sttState.sentAudioSamples = 0;
+    sttState.sentAudioBytes = 0;
+    sttState.sentAudioFrames = 0;
+    sttState.lastLoggedAudioSecond = 0;
     sttState.lastRecognitionText = '';
     sttState.lastRecognitionType = '';
     sttState.partialCaptionText = '';
@@ -3869,7 +3902,13 @@ function connectSTTWebSocket() {
             step: msg.type,
             text: short(eventText, 240),
           });
+          if (msg.event_id && !sttState.captureEventID) {
+            sttState.captureEventID = String(msg.event_id).trim();
+          }
           if (msg.type === 'session_info' && msg.session_id) {
+            sttState.captureSessionID = String(msg.session_id).trim() || '(unknown)';
+            updateSTTInputIndicators();
+          } else if (msg.session_id && sttState.captureSessionID === '(unknown)') {
             sttState.captureSessionID = String(msg.session_id).trim() || '(unknown)';
             updateSTTInputIndicators();
           } else if (msg.type === 'ready') {
@@ -3881,16 +3920,19 @@ function connectSTTWebSocket() {
           } else if (msg.type === 'progress') {
             recordSTTCaptureEvent('progress', `${msg.duration || 0}s / ${msg.bytes || 0} bytes`);
           }
-          recordSTTCaptureEvent(msg.type, eventText);
+          if (msg.type !== 'progress') {
+            recordSTTCaptureEvent(msg.type, formatSTTServerEventPayload(msg, eventText));
+          }
           renderSTTDebugPanelsSafely();
         }
-        if ((msg.type === 'draft' || msg.type === 'partial') && msg.text) {
-          sttState.lastRecognitionText = String(msg.text || '').trim();
+        if ((msg.type === 'draft' || msg.type === 'partial') && extractSTTMessageText(msg)) {
+          const draftText = extractSTTMessageText(msg);
+          sttState.lastRecognitionText = String(draftText || '').trim();
           sttState.lastRecognitionType = msg.type;
           sttState.partialCaptionText = sttState.lastRecognitionText;
           sttState.finalCaptionText = '';
           updateSTTCaption();
-          console.log('[STT] Draft:', msg.text);
+          console.log('[STT] Draft:', draftText);
         } else if (msg.type === 'final') {
           sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = 'final';
@@ -4012,6 +4054,7 @@ function sendSTTAudioChunk(pcm16) {
     const chunk = new Int16Array(sttState.chunkBuffer.slice(0, sttState.chunkSamples));
     sttState.chunkBuffer = sttState.chunkBuffer.slice(sttState.chunkSamples);
     sttState.ws.send(chunk.buffer);
+    recordSTTAudioSent(chunk.length);
   }
 }
 
@@ -4020,7 +4063,23 @@ function flushSTTAudioChunkBuffer() {
   const chunk = new Int16Array(sttState.chunkBuffer);
   sttState.chunkBuffer = [];
   sttState.ws.send(chunk.buffer);
+  recordSTTAudioSent(chunk.length);
   return true;
+}
+
+function recordSTTAudioSent(samples) {
+  const count = Math.max(0, Number(samples) || 0);
+  if (count <= 0) return;
+  sttState.sentAudioSamples += count;
+  sttState.sentAudioBytes += count * 2;
+  sttState.sentAudioFrames += 1;
+  const sampleRate = Number(sttState.sampleRate || 16000) || 16000;
+  const seconds = sampleRate > 0 ? sttState.sentAudioSamples / sampleRate : 0;
+  const wholeSecond = Math.floor(seconds);
+  if (wholeSecond > sttState.lastLoggedAudioSecond) {
+    sttState.lastLoggedAudioSecond = wholeSecond;
+    recordSTTCaptureEvent('audio_sent', `${seconds.toFixed(3)}s / ${sttState.sentAudioBytes} bytes / frame ${sttState.sentAudioFrames}`);
+  }
 }
 
 function sendSTTStopTailSilence() {

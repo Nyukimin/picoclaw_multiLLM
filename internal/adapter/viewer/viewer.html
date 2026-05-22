@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260511-memory-desk">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260522-partial-text-fix">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/ops.css?v=20260511-memory-desk">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/desk.css?v=20260517-desk-regenerated">
 </head>
@@ -927,19 +927,32 @@
       <button class="chat-route-btn" type="button" data-chat-route="wild">Wild</button>
     </div>
     <div class="input-main">
-      <button class="audio-btn" id="audioBtn" type="button" title="音声を有効化">🔊</button>
-      <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
-      <button class="audio-btn" id="attachBtn" type="button" title="画像・PDF・テキストを添付">📎</button>
-      <button class="audio-btn" id="cameraBtn" type="button" title="カメラ画像を添付">📷</button>
-      <input id="attachInput" type="file" multiple accept="image/*,application/pdf,text/*,.txt,.md,.json,.csv,.yaml,.yml" hidden>
-      <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
-      <span id="micState" class="stt-state">Mic: off</span>
-      <span id="sttConnState" class="stt-state">STT: off</span>
-      <span id="sttSessionState" class="stt-state session-id" title="Session: (unknown)">Session: (unknown)</span>
-      <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
-      <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
+      <div class="input-side">
+        <div class="input-audio-controls">
+          <button class="audio-btn" id="audioBtn" type="button" title="音声を有効化">🔊</button>
+          <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
+          <button class="audio-btn" id="attachBtn" type="button" title="画像・PDF・テキストを添付">📎</button>
+          <button class="audio-btn" id="cameraBtn" type="button" title="カメラ画像を添付">📷</button>
+          <input id="attachInput" type="file" multiple accept="image/*,application/pdf,text/*,.txt,.md,.json,.csv,.yaml,.yml" hidden>
+          <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+        </div>
+        <div class="input-status-row">
+          <span id="micState" class="stt-state">Mic: off</span>
+          <span id="sttConnState" class="stt-state">STT: off</span>
+          <span id="sttSessionState" class="stt-state session-id" title="Session: (unknown)">Session: (unknown)</span>
+        </div>
+      </div>
+      <div class="input-compose">
+        <div class="input-text-stack">
+          <div id="sttCaption" class="stt-caption" aria-live="polite">
+            <span id="sttCaptionLabel" class="stt-caption-label">暫定文字列</span>
+            <span id="sttCaptionText" class="stt-caption-text">-</span>
+          </div>
+          <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
+        </div>
+        <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
+      </div>
     </div>
-    <div id="sttCaption" class="stt-caption" aria-live="polite"></div>
     <div class="attachment-tray" id="attachmentTray" aria-live="polite"></div>
     <div class="idle-tools">
       <button id="idleModeNormal" class="ctl-btn" title="通常のIdleChat会話を選択">通常Chat</button>
@@ -973,7 +986,7 @@
 <script src="/viewer/assets/js/tabs/idlechat.js?v=20260510-tabs-idlechat" defer></script>
 <script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
 <script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
-<script src="/viewer/assets/js/viewer.js?v=20260510-tabs-ops" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260522-partial-text-fix" defer></script>
 <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </body>
 </html>
