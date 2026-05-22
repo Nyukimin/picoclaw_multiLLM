@@ -278,7 +278,7 @@ func collectAudioSnapshot(opts DebugSystemOptions) DebugAudioSnapshot {
 		switch result.name {
 		case "stt":
 			out.STTHealth = result.body
-			out.STTOK = result.ok
+			out.STTOK = result.ok && isSTTHealthReady(result.body)
 		case "tts":
 			out.TTSLive = result.body
 			out.TTSReady = result.body

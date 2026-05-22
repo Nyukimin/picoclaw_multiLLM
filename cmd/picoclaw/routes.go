@@ -72,6 +72,7 @@ func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, depend
 	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave("tmp/client_stt_log.txt"))
 	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave("tmp/client_stt_input_latest.wav", "tmp/stt_inputs"))
 	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest("scripts/stt_e2e_probe.py", "tmp/client_stt_input_latest.wav", "tmp/stt_e2e_from_mic_latest.json"))
+	mux.HandleFunc("/viewer/stt/admin/restart", viewer.HandleSTTRestart(viewer.STTAdminOptions{BaseURL: sttRuntime.DebugOptions.STTBaseURL}))
 	registerSTTRuntimeRoutes(mux, sttRuntime)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 }
