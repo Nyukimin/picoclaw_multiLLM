@@ -70,10 +70,18 @@ func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 		expectedRoute routing.Route
 	}{
 		{"/chat hello", routing.RouteCHAT},
-		{"/code3 implement feature", routing.RouteCODE3},
 		{"/plan create project", routing.RoutePLAN},
 		{"/analyze logs", routing.RouteANALYZE},
 		{"/heavy logs", routing.RouteANALYZE},
+		{"/ops deploy", routing.RouteOPS},
+		{"/research topic", routing.RouteRESEARCH},
+		{"/wild image prompt", routing.RouteWILD},
+		{"/code", routing.RouteCODE},
+		{"/code fix bug", routing.RouteCODE},
+		{"/code1 design spec", routing.RouteCODE1},
+		{"/code2 implement feature", routing.RouteCODE2},
+		{"/code3 implement feature", routing.RouteCODE3},
+		{"/code4 prototype feature", routing.RouteCODE4},
 	}
 
 	for _, tt := range tests {
@@ -701,6 +709,26 @@ func TestParseExplicitCommand_PrefixOverlap(t *testing.T) {
 	result = mio.parseExplicitCommand("/code4 task")
 	if result != routing.RouteCODE4 {
 		t.Errorf("/code4 should match CODE4, got %s", result)
+	}
+}
+
+func TestParseExplicitCommand_RequiresCommandBoundary(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+
+	tests := []string{
+		"/codebase を説明して",
+		"/coder task",
+		"/code3extra task",
+		"/opslog 見せて",
+		"/wildcard pattern",
+		"/researcher profile",
+	}
+	for _, message := range tests {
+		t.Run(message, func(t *testing.T) {
+			if got := mio.parseExplicitCommand(message); got != "" {
+				t.Fatalf("parseExplicitCommand(%q) = %s, want empty", message, got)
+			}
+		})
 	}
 }
 

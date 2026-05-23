@@ -38,6 +38,33 @@ func TestRouteIsCoderRoute(t *testing.T) {
 	}
 }
 
+func TestRouteToCoderSlot(t *testing.T) {
+	tests := []struct {
+		route Route
+		want  string
+	}{
+		{RouteCODE, "coder1"},
+		{RouteCODE1, "coder1"},
+		{RouteCODE2, "coder2"},
+		{RouteCODE3, "coder3"},
+		{RouteCODE4, "coder4"},
+		{RouteCHAT, ""},
+		{RoutePLAN, ""},
+		{RouteANALYZE, ""},
+		{RouteOPS, ""},
+		{RouteRESEARCH, ""},
+		{RouteWILD, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.route), func(t *testing.T) {
+			if got := tt.route.RouteToCoderSlot(); got != tt.want {
+				t.Fatalf("%s.RouteToCoderSlot() = %q, want %q", tt.route, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewDecision(t *testing.T) {
 	decision := NewDecision(RouteCODE3, 0.95, "Explicit command")
 

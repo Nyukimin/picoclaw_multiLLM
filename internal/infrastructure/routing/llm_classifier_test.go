@@ -39,6 +39,64 @@ func TestNewLLMClassifier(t *testing.T) {
 	}
 }
 
+func TestLLMClassifier_Classify_AllRoutes(t *testing.T) {
+	tests := []struct {
+		response string
+		want     routing.Route
+	}{
+		{"CHAT", routing.RouteCHAT},
+		{"PLAN", routing.RoutePLAN},
+		{"ANALYZE", routing.RouteANALYZE},
+		{"OPS", routing.RouteOPS},
+		{"RESEARCH", routing.RouteRESEARCH},
+		{"WILD", routing.RouteWILD},
+		{"CODE", routing.RouteCODE},
+		{"CODE1", routing.RouteCODE1},
+		{"CODE2", routing.RouteCODE2},
+		{"CODE3", routing.RouteCODE3},
+		{"CODE4", routing.RouteCODE4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.response, func(t *testing.T) {
+			classifier := NewLLMClassifier(&mockLLMProvider{response: tt.response}, "test prompt")
+
+			decision, err := classifier.Classify(context.Background(), task.NewTask(task.NewJobID(), "test", "line", "U123"))
+			if err != nil {
+				t.Fatalf("Classify failed: %v", err)
+			}
+			if decision.Route != tt.want {
+				t.Fatalf("route = %s, want %s", decision.Route, tt.want)
+			}
+			if decision.Evidence[0].Source != routing.EvidenceSourceClassifier {
+				t.Fatalf("source = %s, want classifier", decision.Evidence[0].Source)
+			}
+		})
+	}
+}
+
+func TestLLMClassifier_ParseRoute_LongestCodeRouteFirst(t *testing.T) {
+	classifier := NewLLMClassifier(&mockLLMProvider{}, "test prompt")
+
+	tests := []struct {
+		response string
+		want     routing.Route
+	}{
+		{"route: CODE4", routing.RouteCODE4},
+		{"route: CODE3", routing.RouteCODE3},
+		{"route: CODE2", routing.RouteCODE2},
+		{"route: CODE1", routing.RouteCODE1},
+		{"route: CODE", routing.RouteCODE},
+	}
+	for _, tt := range tests {
+		t.Run(tt.response, func(t *testing.T) {
+			if got := classifier.parseRoute(tt.response); got != tt.want {
+				t.Fatalf("parseRoute(%q) = %s, want %s", tt.response, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLLMClassifier_Classify_CHAT(t *testing.T) {
 	mock := &mockLLMProvider{response: "CHAT"}
 	classifier := NewLLMClassifier(mock, "test prompt")

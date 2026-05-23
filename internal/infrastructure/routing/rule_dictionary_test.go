@@ -16,6 +16,34 @@ func TestNewRuleDictionary(t *testing.T) {
 	}
 }
 
+func TestRuleDictionary_Match_AllConfiguredKeywords(t *testing.T) {
+	dict := NewRuleDictionary()
+
+	seen := 0
+	for _, rule := range dict.rules {
+		for _, keyword := range rule.keywords {
+			seen++
+			t.Run(string(rule.route)+"/"+keyword, func(t *testing.T) {
+				testTask := task.NewTask(task.NewJobID(), "前置き "+keyword+" 後置き", "line", "U123")
+
+				route, confidence, matched := dict.Match(testTask)
+				if !matched {
+					t.Fatalf("keyword %q did not match", keyword)
+				}
+				if route != rule.route {
+					t.Fatalf("keyword %q route = %s, want %s", keyword, route, rule.route)
+				}
+				if confidence != rule.confidence {
+					t.Fatalf("keyword %q confidence = %f, want %f", keyword, confidence, rule.confidence)
+				}
+			})
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no routing keywords were checked")
+	}
+}
+
 func TestRuleDictionary_Match_NoMatch(t *testing.T) {
 	dict := NewRuleDictionary()
 

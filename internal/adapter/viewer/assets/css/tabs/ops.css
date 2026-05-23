@@ -11,6 +11,7 @@
 .ops-sub{font-size:12px;color:var(--t2);line-height:1.5;margin-top:6px;white-space:pre-wrap;word-break:break-word}
 .ops-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
 #panel-ops,#panel-ops *{min-width:0}
+#panel-ops .debug-table{display:block;width:100%;max-width:100%;min-width:0;overflow-x:auto}
 .llm-memory-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:8px;margin:10px 0}
 .llm-memory-card{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.045);padding:10px;max-width:100%;overflow:hidden;backdrop-filter:blur(14px)}
 .llm-memory-process-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:8px;margin:10px 0}

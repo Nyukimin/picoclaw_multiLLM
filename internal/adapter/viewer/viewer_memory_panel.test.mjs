@@ -61,9 +61,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="mobilePanelPrev"/);
   assert.match(html, /id="mobilePanelNext"/);
   assert.match(html, /<option value="idlechat">IdleChat<\/option>/);
-  assert.match(html, /data-chat-route="worker">Worker/);
-  assert.match(html, /data-chat-route="heavy">Heavy/);
-  assert.match(html, /data-chat-route="wild">Wild/);
+  assert.doesNotMatch(html, /data-chat-route="worker">Worker/);
+  assert.doesNotMatch(html, /data-chat-route="heavy">Heavy/);
+  assert.doesNotMatch(html, /data-chat-route="wild">Wild/);
   assert.match(html, /id="memoryNamespace"/);
   assert.match(html, /id="memorySession"/);
   assert.match(html, /id="memoryLayerBody"/);
@@ -251,9 +251,19 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(css, /repeating-linear-gradient/);
   assert.match(css, /backdrop-filter:blur/);
   assert.match(css, /\.lipsync-stage\{/);
+  assert.doesNotMatch(css, /\\u\{1f4ad\}/);
+  assert.match(css, /\.thinking \.mc \.dots\{[^}]*animation:dotPulse/);
+  assert.match(js, /function shouldRenderThinking/);
+  assert.match(js, /gemma4: \{c:'#34d399', l:'Gemma4'/);
+  assert.match(js, /gamma4: \{c:'#34d399', l:'Gemma4'/);
+  assert.match(js, /id !== 'mio' && id !== 'chat'/);
+  assert.doesNotMatch(js, /id !== 'gemma4'/);
+  assert.doesNotMatch(js, /id !== 'gamma4'/);
+  assert.match(js, /function renderThinkingDots/);
   assert.match(css, /main\{[^}]*max-width:100vw;[^}]*overflow-x:hidden/);
   assert.match(css, /\.panel\{[^}]*max-width:100%/);
   assert.match(opsCss, /#panel-ops,#panel-ops \*\{min-width:0\}/);
+  assert.match(opsCss, /#panel-ops \.debug-table\{[^}]*display:block;[^}]*max-width:100%;[^}]*overflow-x:auto/);
   assert.match(opsCss, /\.llm-ops-raw\{[^}]*max-width:100%;[^}]*white-space:pre-wrap;word-break:break-word/);
   assert.match(opsCss, /#llmOpsPanel \.debug-actions\{display:grid;grid-template-columns:1fr;gap:6px\}/);
   assert.match(opsCss, /\.ops-grid,\.llm-memory-grid,\.llm-memory-process-grid,\.llm-runtime-grid\{grid-template-columns:minmax\(0,1fr\)\}/);
@@ -4339,7 +4349,7 @@ globalThis.__initLiveMode = initLiveMode;
   assert.match(document.getElementById('liveTopicText').textContent, /IdleChat status unavailable: HTTP 503: idlechat status unavailable/);
 });
 
-test('viewer chat route alias builds llm switch request fields', () => {
+test('viewer chat send ignores stale route alias and leaves routing to orchestrator', () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();
   const context = vm.createContext({
@@ -4349,24 +4359,20 @@ test('viewer chat route alias builds llm switch request fields', () => {
       setItem: (key, value) => store.set(key, String(value)),
       removeItem: (key) => store.delete(key),
     },
+    applyRoleTargetToMessage: (message) => message,
   });
   vm.runInContext(timelineJs, context);
 
   vm.runInContext("localStorage.setItem('chatRouteAlias.selected', 'heavy')", context);
   const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
-  assert.deepEqual(heavyReq, {
-    message: '原因を調べて',
-    model_alias: 'Heavy',
-    base_url: 'http://127.0.0.1:8083',
-    model: 'Heavy',
-    route_prefix: '/analyze',
-  });
+  assert.deepEqual(heavyReq, {message: '原因を調べて'});
+  assert.equal(store.has('chatRouteAlias.selected'), false);
 
   const explicitReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('/wild 物語にして'))", context));
   assert.deepEqual(explicitReq, {message: '/wild 物語にして'});
 });
 
-test('viewer chat route aliases follow runtime local llm config', () => {
+test('viewer chat send ignores runtime route aliases and leaves routing to orchestrator', () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();
   const context = vm.createContext({
@@ -4376,6 +4382,7 @@ test('viewer chat route aliases follow runtime local llm config', () => {
       setItem: (key, value) => store.set(key, String(value)),
       removeItem: (key) => store.delete(key),
     },
+    applyRoleTargetToMessage: (message) => message,
   });
   vm.runInContext(timelineJs, context);
 
@@ -4390,13 +4397,8 @@ test('viewer chat route aliases follow runtime local llm config', () => {
   })`, context);
   vm.runInContext("localStorage.setItem('chatRouteAlias.selected', 'heavy')", context);
   const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
-  assert.deepEqual(heavyReq, {
-    message: '原因を調べて',
-    model_alias: 'Heavy',
-    base_url: 'http://192.168.1.31:8083',
-    model: 'HeavyRuntime',
-    route_prefix: '/analyze',
-  });
+  assert.deepEqual(heavyReq, {message: '原因を調べて'});
+  assert.equal(store.has('chatRouteAlias.selected'), false);
 });
 
 test('viewer starts selected llm before sending alias request', async () => {

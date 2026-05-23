@@ -248,11 +248,7 @@ const message = process.env.PHASE25_BROWSER_MESSAGE;
     }, { timeout: 10000 });
     await page.click('.tab-btn[data-tab="timeline"]');
     await page.waitForSelector('#chat', { state: 'visible', timeout: 10000 });
-    await page.click('.chat-agent-card[data-chat-route=""]');
-    await page.waitForFunction(() => {
-      return localStorage.getItem('chatRouteAlias.selected') === null &&
-        document.querySelector('.chat-agent-card[data-chat-route=""]')?.classList.contains('active');
-    }, { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelectorAll('[data-chat-route]').length === 0, { timeout: 10000 });
     await page.waitForSelector('#inp', { state: 'visible', timeout: 10000 });
     await page.waitForSelector('#sendBtn', { state: 'visible', timeout: 10000 });
     await page.waitForFunction(() => {

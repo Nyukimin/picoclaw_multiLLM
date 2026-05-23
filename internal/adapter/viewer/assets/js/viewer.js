@@ -8,6 +8,8 @@ const A = {
   coder2: {c:'#818cf8', l:'あお',  en:'Ao',    e:'\u{1f535}'},
   coder3: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
   coder4: {c:'#facc15', l:'きん',  en:'Kin',   e:'\u{1f7e1}'},
+  gemma4: {c:'#34d399', l:'Gemma4', en:'Gemma4', e:'G4'},
+  gamma4: {c:'#34d399', l:'Gemma4', en:'Gemma4', e:'G4'},
   system: {c:'#475569', l:'System', en:'System', e:'\u2699\ufe0f'},
 };
 const RC = {
@@ -942,16 +944,43 @@ function isTTSSyncedSpeaker(agentID) {
   return id === 'mio' || id === 'shiro';
 }
 
+function thinkingDisplayAgentID(ev) {
+  if (!ev) return '';
+  if (ev.type === 'agent.start' && String(ev.to || '').trim()) return String(ev.to || '').trim().toLowerCase();
+  return String(ev.from || '').trim().toLowerCase();
+}
+
+function shouldRenderThinking(ev) {
+  const id = thinkingDisplayAgentID(ev);
+  return id !== '' && id !== 'mio' && id !== 'chat';
+}
+
+function matchesThinkingFilters(ev) {
+  const id = thinkingDisplayAgentID(ev);
+  if (fltType.value && ev.type !== fltType.value) return false;
+  if (fltAgent.value && id !== fltAgent.value && ev.from !== fltAgent.value && ev.to !== fltAgent.value) return false;
+  if (fltRoute.value && (ev.route || '') !== fltRoute.value) return false;
+  if (fltJob.value && !(ev.job_id || '').toLowerCase().includes(fltJob.value.toLowerCase())) return false;
+  if (fltText.value && !(ev.content || '').toLowerCase().includes(fltText.value.toLowerCase())) return false;
+  return true;
+}
+
+function renderThinkingDots(el) {
+  if (!el) return;
+  el.innerHTML = '<span class="dots" aria-label="Thinking"><span></span><span></span><span></span></span>';
+}
+
 function addThinkingStart(ev) {
-  if (!matchesFilters(ev)) return;
+  if (!matchesThinkingFilters(ev)) return;
+  if (!shouldRenderThinking(ev)) return;
   const jid = ev.job_id || '_';
   if (thinkingBubbles[jid]) return;
-  const f = ag(ev.from);
+  const f = ag(thinkingDisplayAgentID(ev));
   const el = document.createElement('div');
   el.className = 'msg thinking';
   const textEl = document.createElement('div');
   textEl.className = 'mc';
-  textEl.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+  renderThinkingDots(textEl);
   el.innerHTML =
     '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
     '<div class="mb"><div class="mh">' +
@@ -966,15 +995,17 @@ function addThinkingStart(ev) {
 }
 
 function addThinking(ev) {
-  if (!matchesFilters(ev)) return;
+  if (!matchesThinkingFilters(ev)) return;
+  if (!shouldRenderThinking(ev)) return;
   const jid = ev.job_id || '_';
   let b = thinkingBubbles[jid];
   if (!b) {
-    const f = ag(ev.from);
+    const f = ag(thinkingDisplayAgentID(ev));
     const el = document.createElement('div');
     el.className = 'msg thinking';
     const textEl = document.createElement('div');
     textEl.className = 'mc';
+    renderThinkingDots(textEl);
     el.innerHTML =
       '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
       '<div class="mb"><div class="mh">' +
@@ -987,12 +1018,8 @@ function addThinking(ev) {
     b = {el: el, textEl: textEl, raw: '', waiting: false};
     thinkingBubbles[jid] = b;
   }
-  if (b.waiting) {
-    b.waiting = false;
-    b.textEl.innerHTML = '';
-  }
   b.raw += normalizeViewerDisplayText(ev.content || '');
-  b.textEl.textContent = b.raw;
+  renderThinkingDots(b.textEl);
   scrollToBottom();
 }
 

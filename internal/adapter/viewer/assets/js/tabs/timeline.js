@@ -32,8 +32,8 @@ function syncChatRouteAliasesFromRuntimeConfig(localLLM) {
 }
 
 function selectedChatRouteAlias() {
-  const value = localStorage.getItem(CHAT_ROUTE_ALIAS_STORAGE_KEY) || '';
-  return Object.prototype.hasOwnProperty.call(CHAT_ROUTE_ALIASES, value) ? value : '';
+  localStorage.removeItem(CHAT_ROUTE_ALIAS_STORAGE_KEY);
+  return '';
 }
 
 function isExplicitRouteMessage(message) {
@@ -41,12 +41,7 @@ function isExplicitRouteMessage(message) {
 }
 
 function selectChatRouteAlias(alias) {
-  const next = selectedChatRouteAlias() === alias ? '' : String(alias || '');
-  if (Object.prototype.hasOwnProperty.call(CHAT_ROUTE_ALIASES, next)) {
-    localStorage.setItem(CHAT_ROUTE_ALIAS_STORAGE_KEY, next);
-  } else {
-    localStorage.removeItem(CHAT_ROUTE_ALIAS_STORAGE_KEY);
-  }
+  localStorage.removeItem(CHAT_ROUTE_ALIAS_STORAGE_KEY);
   syncChatRouteAliasButtons();
 }
 
@@ -76,28 +71,9 @@ function applyChatRouteAliasToMessage(message) {
 
 function buildViewerSendRequest(message) {
   const trimmed = String(message || '').trim();
-  const selected = selectedChatRouteAlias();
-  const alias = selected ? CHAT_ROUTE_ALIASES[selected] : null;
-  if (!trimmed) {
-    return alias ? {
-      message: '',
-      model_alias: alias.label,
-      base_url: alias.baseURL,
-      model: alias.model,
-      route_prefix: alias.routePrefix,
-    } : {message: ''};
-  }
+  selectedChatRouteAlias();
+  if (!trimmed) return {message: ''};
   if (isExplicitRouteMessage(trimmed)) return {message: trimmed};
-
-  if (alias) {
-    return {
-      message: trimmed,
-      model_alias: alias.label,
-      base_url: alias.baseURL,
-      model: alias.model,
-      route_prefix: alias.routePrefix,
-    };
-  }
 
   return {message: applyRoleTargetToMessage(trimmed)};
 }
@@ -183,6 +159,10 @@ async function ensureViewerLLMReadyForRequest(req) {
 }
 
 function addMsgToTimeline(ev) {
+  if (ev.type === 'agent.response') removeThinking(ev.job_id);
+  if (ev.type === 'agent.thinking') { addThinking(ev); return; }
+  if (ev.type === 'agent.start') { addThinkingStart(ev); return; }
+
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
   if (ev.type === 'idlechat.message') return;
@@ -192,9 +172,6 @@ function addMsgToTimeline(ev) {
   if (em) em.remove();
 
   if (ev.type === 'routing.decision') return;
-  if (ev.type === 'agent.start') { addThinkingStart(ev); return; }
-  if (ev.type === 'agent.thinking') { addThinking(ev); return; }
-  if (ev.type === 'agent.response') { removeThinking(ev.job_id); }
   if (ev.type === 'agent.response' && (ev.to || '').toLowerCase() !== 'user') return;
   if (ev.type === 'agent.response' && isTTSSyncedSpeaker(ev.from) && !isViewerLocalFailureMessage(ev)) return;
   if (ev.type === 'idlechat.message' && isTTSSyncedSpeaker(ev.from)) return;

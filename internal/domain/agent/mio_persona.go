@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -33,12 +35,24 @@ func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
 
 	trimmed := strings.TrimSpace(message)
 	for _, c := range commands {
-		if strings.HasPrefix(trimmed, c.cmd) {
+		if explicitCommandMatches(trimmed, c.cmd) {
 			return c.route
 		}
 	}
 
 	return ""
+}
+
+func explicitCommandMatches(message, command string) bool {
+	if !strings.HasPrefix(message, command) {
+		return false
+	}
+	rest := message[len(command):]
+	if rest == "" {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	return unicode.IsSpace(r)
 }
 
 // detectPersonaEditIntent はペルソナ調整意図を検出する

@@ -77,12 +77,14 @@ func (c *LLMClassifier) parseRouteWithMatch(response string) (routing.Route, boo
 		key   string
 		route routing.Route
 	}{
+		{"CODE4", routing.RouteCODE4},
 		{"CODE3", routing.RouteCODE3},
 		{"CODE2", routing.RouteCODE2},
 		{"CODE1", routing.RouteCODE1},
 		{"CODE", routing.RouteCODE},
 		{"ANALYZE", routing.RouteANALYZE},
 		{"RESEARCH", routing.RouteRESEARCH},
+		{"WILD", routing.RouteWILD},
 		{"PLAN", routing.RoutePLAN},
 		{"CHAT", routing.RouteCHAT},
 		{"OPS", routing.RouteOPS},

@@ -266,6 +266,7 @@ Worker は実行主体である。
 - 実行結果を記録する
 - 失敗時は原因を切り分ける
 - `job_id`、`session_id`、route、status などの追跡可能性を意識する
+- ビルドが必要な案件では、再起動前に service 停止、残プロセス停止、`:18790` listen なし、`http://127.0.0.1:18790/health` 応答なしを確認してから、ビルド・起動を行う
 
 ログとトレーサビリティの詳細は `CLAUDE.md` と `rules/common/rules_logging.md` を参照。
 
