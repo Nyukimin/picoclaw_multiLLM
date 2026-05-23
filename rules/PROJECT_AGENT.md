@@ -360,6 +360,21 @@ AI は実装中に必要と判断した場合、新規ファイルを作成し�
 
 責務の違う層へロジックを混ぜないこと。
 
+### 7.4 コーディングAIの運用モード
+
+コーディング作業は `docs/コーディング/coding_agent_modes.md` を前提に、Safe Build Mode と Tool Build Mode を区別する。
+
+| モード | 使う場面 | 守ること |
+| ------ | -------- | -------- |
+| Safe Build Mode | 既存コード、DB、環境、設定、運用、memory、Source Registry、validator に触る作業 | 小さい差分、影響範囲、テスト、ログ、ロールバック可能性を優先する |
+| Tool Build Mode | 新規ツール、小物スクリプト、補助アプリ、検証用CLI | `tools/`、`experiments/`、`sandbox/` 配下で既存本体から切り離して作る |
+
+判断に迷う場合は Safe Build Mode に倒す。Tool Build Mode の作業中でも、既存本体や正式データに接続する必要が出た時点で Safe Build Mode として扱う。
+
+`docs/コーディング/coding_agent_implementation_spec.md` の v0.1 は「コーディングAIの運用判断エンジン」であり、自律実行基盤ではない。v0.1 で行うのは、依頼文分析、モード判定、理由生成、ガードレール判定、Worker / Coder プロンプト生成、WorkLog 雛形生成、MemoryCandidate 生成、CLI確認、代表テストまでに限定する。
+
+v0.1 では、実コード変更の自動実行、Git操作の自動実行、DB正式保存、confirmed / pinned memory 昇格、Source Registry更新、LangGraph接続、自律エージェント実行、外部検索を行わない。
+
 ---
 
 ## 8. ルーティングの基本

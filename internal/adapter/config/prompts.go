@@ -34,12 +34,14 @@ func LoadPrompts(baseDir, workspaceDir string) *LoadedPrompts {
 		IdleChatAgents:   copyMap(defaultIdleChatAgents),
 	}
 
-	// Step 1: prompts/ から読み込み（デフォルト）
-	loadPromptsFromDir(baseDir, p)
+	// Step 1: prompts/ から legacy prompt files を読み込む。
+	// character bundle は運用中の workspace Mio だけを正本にするため、
+	// repo 側 prompts/characters は読まない。
+	loadPromptsFromDir(baseDir, p, false, nil)
 
 	// Step 2: workspace/ から読み込み（オーバーライド）
 	if workspaceDir != "" && workspaceDir != baseDir {
-		overrideCount := loadPromptsFromDir(workspaceDir, p)
+		overrideCount := loadPromptsFromDir(workspaceDir, p, true, map[string]struct{}{"mio": {}})
 		if overrideCount > 0 {
 			log.Printf("Overridden %d prompt files from %s", overrideCount, workspaceDir)
 		}
@@ -51,7 +53,7 @@ func LoadPrompts(baseDir, workspaceDir string) *LoadedPrompts {
 // readPromptFile はプロンプトファイルを読み込む
 // loadPromptsFromDir は指定ディレクトリからプロンプトファイルを読み込み、
 // LoadedPrompts を更新する。読み込んだファイル数を返す。
-func loadPromptsFromDir(dir string, p *LoadedPrompts) int {
+func loadPromptsFromDir(dir string, p *LoadedPrompts, includeCharacterBundles bool, allowedCharacterBundles map[string]struct{}) int {
 	if dir == "" {
 		return 0
 	}
@@ -90,18 +92,28 @@ func loadPromptsFromDir(dir string, p *LoadedPrompts) int {
 		log.Printf("Loaded %d prompt files from %s", loaded, dir)
 	}
 
-	loaded += loadCharacterPromptsFromDir(dir, p)
+	if includeCharacterBundles {
+		loaded += loadCharacterPromptsFromDir(dir, p, allowedCharacterBundles)
+	}
 
 	return loaded
 }
 
-func loadCharacterPromptsFromDir(dir string, p *LoadedPrompts) int {
+func loadCharacterPromptsFromDir(dir string, p *LoadedPrompts, allowed map[string]struct{}) int {
 	bundles := promptbundle.LoadCharacterBundlesFromDir(dir)
+	loaded := 0
 	for _, bundle := range bundles {
+		name := strings.ToLower(strings.TrimSpace(bundle.Name))
+		if len(allowed) > 0 {
+			if _, ok := allowed[name]; !ok {
+				continue
+			}
+		}
 		p.CharacterPrompts[bundle.Name] = bundle.Content
 		applyCharacterPrompt(bundle.Name, bundle.Content, p)
+		loaded++
 	}
-	return len(bundles)
+	return loaded
 }
 
 func applyCharacterPrompt(name, content string, p *LoadedPrompts) {

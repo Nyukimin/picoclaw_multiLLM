@@ -2388,6 +2388,10 @@ conversation:
   enabled: true
   redis_url: "redis://localhost:6379"
   vectordb_url: "localhost:6334"
+  vector_collection: "picoclaw_memory_3584"
+  vector_dimension: 3584
+  embed_provider: "ollama"
+  embed_base_url: "http://localhost:11434"
   embed_model: "nomic-embed-text"
   summary_model: "chat-v1"
 `
@@ -2399,6 +2403,18 @@ conversation:
 
 	if cfg.Conversation.EmbedModel != "nomic-embed-text" {
 		t.Errorf("expected EmbedModel 'nomic-embed-text', got %q", cfg.Conversation.EmbedModel)
+	}
+	if cfg.Conversation.VectorCollection != "picoclaw_memory_3584" {
+		t.Errorf("expected VectorCollection 'picoclaw_memory_3584', got %q", cfg.Conversation.VectorCollection)
+	}
+	if cfg.Conversation.VectorDimension != 3584 {
+		t.Errorf("expected VectorDimension 3584, got %d", cfg.Conversation.VectorDimension)
+	}
+	if cfg.Conversation.EmbedProvider != "ollama" {
+		t.Errorf("expected EmbedProvider 'ollama', got %q", cfg.Conversation.EmbedProvider)
+	}
+	if cfg.Conversation.EmbedBaseURL != "http://localhost:11434" {
+		t.Errorf("expected EmbedBaseURL 'http://localhost:11434', got %q", cfg.Conversation.EmbedBaseURL)
 	}
 	if cfg.Conversation.SummaryModel != "chat-v1" {
 		t.Errorf("expected SummaryModel 'chat-v1', got %q", cfg.Conversation.SummaryModel)

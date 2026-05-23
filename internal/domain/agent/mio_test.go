@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
@@ -1069,5 +1070,61 @@ func TestViolatesAttributionInChat(t *testing.T) {
 	}
 	if violatesAttributionInChat("あなたの『世界の調律師』案いいね。", other) {
 		t.Fatal("expected explicit attribution to pass")
+	}
+}
+
+func TestMioAgentChatInjectsConfirmedUserMemory(t *testing.T) {
+	var captured []llm.Message
+	provider := &mockLLMProvider{generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+		captured = append([]llm.Message(nil), req.Messages...)
+		return llm.GenerateResponse{Content: "了解"}, nil
+	}}
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{
+			{
+				ID:          "mem-confirmed",
+				Namespace:   "user:ren",
+				UserID:      "ren",
+				Statement:   "日本語で短く論理的に答える",
+				State:       domainmemory.MemoryStateConfirmed,
+				Sensitivity: "normal",
+				Active:      true,
+			},
+			{
+				ID:          "mem-candidate",
+				Namespace:   "user:ren",
+				UserID:      "ren",
+				Statement:   "candidate は注入しない",
+				State:       domainmemory.MemoryStateCandidate,
+				Sensitivity: "normal",
+				Active:      true,
+			},
+			{
+				ID:          "mem-sensitive",
+				Namespace:   "user:ren",
+				UserID:      "ren",
+				Statement:   "sensitive は注入しない",
+				State:       domainmemory.MemoryStateConfirmed,
+				Sensitivity: "sensitive",
+				Active:      true,
+			},
+		},
+	}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil).
+		WithUserMemoryManager(mem)
+
+	_, err := mio.Chat(context.Background(), task.NewTask(task.NewJobID(), "こんにちは", "viewer", "chat-1"))
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	var joined string
+	for _, msg := range captured {
+		joined += "\n" + msg.Content
+	}
+	if !strings.Contains(joined, "思い出したこと") || !strings.Contains(joined, "日本語で短く論理的に答える") {
+		t.Fatalf("confirmed user memory was not injected: %s", joined)
+	}
+	if strings.Contains(joined, "candidate は注入しない") || strings.Contains(joined, "sensitive は注入しない") {
+		t.Fatalf("unsafe user memory leaked into prompt: %s", joined)
 	}
 }

@@ -28,14 +28,25 @@ func buildConversationRuntime(
 	var l1Store *conversationpersistence.L1SQLiteStore
 	if cfg.Conversation.Enabled {
 		var err error
-		realMgr, err = conversationpersistence.NewRealConversationManager(
+		vectorCollection := cfg.Conversation.VectorCollection
+		if vectorCollection == "" {
+			vectorCollection = "picoclaw_memory"
+		}
+		vectorDimension := cfg.Conversation.VectorDimension
+		if vectorDimension <= 0 {
+			vectorDimension = 768
+		}
+		realMgr, err = conversationpersistence.NewRealConversationManagerWithVectorOptions(
 			cfg.Conversation.RedisURL,
 			cfg.Conversation.DuckDBPath,
 			cfg.Conversation.VectorDBURL,
+			vectorCollection,
+			uint64(vectorDimension),
 		)
 		if err != nil {
 			log.Fatalf("Failed to initialize conversation manager: %v", err)
 		}
+		log.Printf("  VectorDB collection: %s (dimension=%d)", vectorCollection, vectorDimension)
 		if cfg.Conversation.L1SQLitePath != "" {
 			if err := os.MkdirAll(filepath.Dir(cfg.Conversation.L1SQLitePath), 0755); err != nil {
 				log.Fatalf("Failed to create L1 SQLite directory: %v", err)

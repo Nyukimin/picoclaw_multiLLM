@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -22,6 +23,13 @@ type KBManager interface {
 type SearchCacheManager interface {
 	GetFreshWebSearchCache(ctx context.Context, query string) ([]WebSearchResult, bool, error)
 	SaveWebSearchCache(ctx context.Context, query string, results []WebSearchResult, ttl time.Duration) error
+}
+
+type UserMemoryManager interface {
+	CreateUserMemory(ctx context.Context, input domainmemory.CreateUserMemoryInput) (*domainmemory.UserMemory, error)
+	ListUserMemories(ctx context.Context, userID string, state string, includeInactive bool, limit int) ([]domainmemory.UserMemory, error)
+	UpdateUserMemoryState(ctx context.Context, id string, state string, reason string) (*domainmemory.UserMemory, error)
+	ForgetUserMemory(ctx context.Context, id string, reason string) (*domainmemory.UserMemory, error)
 }
 
 // PersonaEditor はペルソナファイルの読み書きを抽象化する
@@ -47,6 +55,7 @@ type MioAgent struct {
 	conversationEngine conversation.ConversationEngine // v5.1: 会話エンジン（nilを許容）
 	kbManager          KBManager                       // Phase 4.2: KB自動保存用（nilを許容）
 	searchCacheManager SearchCacheManager              // L1 Search Cache連携（nilを許容）
+	userMemoryManager  UserMemoryManager               // Memory v0.1: user:<uid> 操作用（nilを許容）
 	personaEditor      PersonaEditor                   // ペルソナ自己編集用（nilを許容）
 	recentContext      func(context.Context, int) (string, error)
 	systemPrompt       string
@@ -70,6 +79,7 @@ func NewMioAgent(
 		conversationEngine: conversationEngine,
 		kbManager:          nil, // WithKBManager() でセット
 		searchCacheManager: nil, // WithSearchCacheManager() でセット
+		userMemoryManager:  nil, // WithUserMemoryManager() でセット
 	}
 }
 
@@ -155,6 +165,14 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 			// RecallPack からプロンプトメッセージを生成（system prompt + 過去文脈 + 会話履歴）
 			messages = append(messages, recallPack.ToPromptMessages()...)
 		}
+	}
+	if userMemoryPrompt, err := m.userMemoryPrompt(ctx); err != nil {
+		log.Printf("[Mio] user memory recall failed: %v", err)
+	} else if userMemoryPrompt != "" {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: userMemoryPrompt,
+		})
 	}
 
 	// ペルソナ調整意図を検出 → 自己編集

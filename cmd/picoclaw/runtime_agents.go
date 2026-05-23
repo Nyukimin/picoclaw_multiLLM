@@ -37,6 +37,7 @@ func buildAgentRuntime(
 	convEngine conversation.ConversationEngine,
 	recentGlossaryContext func(context.Context, int) (string, error),
 	realMgr *conversationpersistence.RealConversationManager,
+	l1Store *conversationpersistence.L1SQLiteStore,
 	subagentMgr *subagent.Manager,
 ) agentRuntime {
 	mioAgent := agent.NewMioAgent(chatProvider, classifier, ruleDictionary, chatToolRunner, mcpClient, convEngine).
@@ -48,6 +49,10 @@ func buildAgentRuntime(
 	if realMgr != nil {
 		mioAgent = mioAgent.WithKBManager(realMgr)
 		log.Printf("Mio: KBManager injected (KB autosave enabled)")
+	}
+	if l1Store != nil {
+		mioAgent = mioAgent.WithUserMemoryManager(l1Store)
+		log.Printf("Mio: UserMemoryManager injected")
 	}
 	mioPersonaFile := filepath.Join(cfg.WorkspaceDir, "persona", "mio.md")
 	if cfg.MioPersonaFile != "" {

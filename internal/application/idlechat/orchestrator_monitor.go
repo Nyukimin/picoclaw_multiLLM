@@ -33,26 +33,13 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	threshold := o.interval
 	now := time.Now()
 	nextTopicAt := o.nextTopicAt
-	alreadyActive := o.chatActive
 	chatBusy := o.chatBusy
 	workerBusy := o.workerBusy
 	manualMode := o.manualMode
-	o.mu.Unlock()
-
-	if alreadyActive {
+	if o.chatActive || chatBusy || workerBusy || (!nextTopicAt.IsZero() && now.Before(nextTopicAt)) || (!manualMode && idleDuration < threshold) {
+		o.mu.Unlock()
 		return
 	}
-	if chatBusy || workerBusy {
-		return
-	}
-	if !nextTopicAt.IsZero() && now.Before(nextTopicAt) {
-		return
-	}
-	if !manualMode && idleDuration < threshold {
-		return
-	}
-
-	o.mu.Lock()
 	o.chatActive = true
 	plan := o.nextIdleSessionPlanLocked()
 	o.sessionMode = plan.mode

@@ -1,5 +1,0 @@
-# fixed prompt prefix for character:shiro
-00_system.md
-10_policy.md
-20_routing.md
-30_knowledge.md

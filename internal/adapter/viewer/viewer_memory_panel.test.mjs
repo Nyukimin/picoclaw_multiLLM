@@ -68,6 +68,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="memorySession"/);
   assert.match(html, /id="memoryLayerBody"/);
   assert.match(html, /id="memoryEventBody"/);
+  assert.match(html, /id="recallPackBody"/);
+  assert.match(html, /id="userMemoryBody"/);
+  assert.match(html, /id="recallPackCount"/);
+  assert.match(html, /id="userMemoryCount"/);
   assert.match(html, /id="searchCacheBody"/);
   assert.match(html, /id="knowledgeMemoryBody"/);
   assert.match(html, /id="knowledgeMemoryDetail"/);
@@ -122,6 +126,12 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="newsRelatedMemoryBody"/);
   assert.match(memoryJs, /function refreshMemoryLayers/);
   assert.match(memoryJs, /function refreshMemoryEvents/);
+  assert.match(memoryJs, /function refreshMemoryRecallPack/);
+  assert.match(memoryJs, /function refreshUserMemory/);
+  assert.match(memoryJs, /function setUserMemoryState/);
+  assert.match(memoryJs, /function forgetUserMemory/);
+  assert.ok(viewer.includes('/viewer/memory/recall-pack'));
+  assert.ok(viewer.includes('/viewer/memory/user'));
   assert.match(memoryJs, /function renderMemoryEvents/);
   assert.match(js, /function applyViewerTheme/);
   assert.match(js, /viewer\.theme/);

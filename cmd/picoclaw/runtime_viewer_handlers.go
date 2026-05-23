@@ -27,6 +27,11 @@ func buildViewerRuntimeHandlers(
 		deps.viewerMemoryEvents = viewer.HandleMemoryEvents(l1Store)
 		deps.viewerMemoryState = viewer.HandleMemoryState(l1Store)
 		deps.viewerMemoryPromote = viewer.HandleMemoryPromote(l1Store)
+		deps.viewerMemoryUser = viewer.HandleUserMemory(l1Store)
+		deps.viewerMemoryUserState = viewer.HandleUserMemoryState(l1Store)
+		deps.viewerMemoryUserForget = viewer.HandleUserMemoryForget(l1Store)
+		deps.viewerMemoryUserSupersede = viewer.HandleUserMemorySupersede(l1Store)
+		deps.viewerMemoryRecallPack = viewer.HandleMemoryRecallPack(l1Store, realMgr, l1Store)
 		deps.viewerRecallTraces = viewer.HandleRecallTraces(l1Store)
 		deps.viewerSourceRegistry = viewer.HandleSourceRegistry(l1Store)
 	}

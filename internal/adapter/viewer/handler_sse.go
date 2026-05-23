@@ -30,6 +30,9 @@ func (h *EventHub) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		if ev.Seq > 0 && ev.Seq <= lastSeen {
 			continue
 		}
+		if isTransientReplayEvent(ev) {
+			continue
+		}
 		data, err := json.Marshal(ev)
 		if err != nil {
 			continue
@@ -67,6 +70,15 @@ func parseLastEventIDHeader(v string) int64 {
 		return 0
 	}
 	return n
+}
+
+func isTransientReplayEvent(ev orchestrator.OrchestratorEvent) bool {
+	switch ev.Type {
+	case "tts.audio_chunk", "tts.session_completed", "idlechat.message", "idlechat.summary":
+		return true
+	default:
+		return false
+	}
 }
 
 // HandlePage serves the single-page viewer HTML.

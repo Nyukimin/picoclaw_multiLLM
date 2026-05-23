@@ -84,6 +84,27 @@ Coder が行うのは次のみ：
 
 この責務境界を崩してはいけない。
 
+### コーディングAIの Safe / Tool Build Mode
+
+コーディング作業は、`docs/コーディング/coding_agent_modes.md` と `docs/コーディング/coding_agent_implementation_spec.md` を前提に、次の2形態を区別する。
+
+- **Safe Build Mode**: 既存コード、既存DB、既存環境、設定、運用系に触る作業。既存システムを壊さず、小さい差分、影響範囲、テスト、ログを優先する。
+- **Tool Build Mode**: 新規ツール、小物スクリプト、補助アプリ、検証用CLIなどを、`tools/`、`experiments/`、`sandbox/` 配下で既存本体から切り離して作る作業。
+
+判断に迷う場合は Safe Build Mode に倒す。Tool Build Mode でも、既存本体、DB、設定、運用、Source Registry、memory、validator に踏み込む場合は Safe Build Mode として扱う。
+
+`coding_agent_implementation_spec.md` の v0.1 は「自律コーディングAI」ではなく「コーディングAIの運用判断エンジン」とする。v0.1 では、依頼文の分析、モード判定、理由生成、ガードレール判定、Worker / Coder プロンプト生成、WorkLog 雛形生成、MemoryCandidate 生成、CLI確認、代表テストまでを対象にする。
+
+v0.1 では次を行わない。
+
+- 実コード変更の自動実行
+- Git操作の自動実行
+- official DB への直接write
+- `user:<uid>` への直接upsert
+- confirmed / pinned memory への直接昇格
+- Source Registry への無審査追加
+- LangGraph接続、自律エージェント実行、外部検索
+
 ---
 
 ## 絶対に守る検証・状態管理ルール
@@ -327,6 +348,8 @@ Go のテスト実行例：
   実装の一次参照
 
 ### 必要に応じて読むもの
+- `docs/コーディング/coding_agent_modes.md`
+- `docs/コーディング/coding_agent_implementation_spec.md`
 - `docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md`
 - `docs/04_実装仕様_機能拡張/実装仕様_会話LLM_v5.md`
 - `docs/04_実装仕様_機能拡張/実装仕様_会話エンジン_v5.1.md`

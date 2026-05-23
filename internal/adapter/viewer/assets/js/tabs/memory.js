@@ -169,6 +169,128 @@ function refreshMemoryLayers() {
     });
 }
 
+function renderMemoryRecallPack() {
+  const body = document.getElementById('recallPackBody');
+  const count = document.getElementById('recallPackCount');
+  const pack = state.memory.recallPack || {};
+  const items = Array.isArray(pack.items) ? pack.items : [];
+  const error = String(state.memory.recallPackFetchError || '');
+  if (count) count.textContent = error ? '0' : String(items.length);
+  if (!body) return;
+  body.innerHTML = '';
+  if (error) {
+    body.innerHTML = '<tr><td colspan="7" class="small">Recall Pack unavailable: ' + esc(error) + '</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="small">思い出したことはまだありません</td></tr>';
+    return;
+  }
+  items.forEach((item) => {
+    const eventIDs = item.event_ids || item.EventIDs || [];
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(item.layer || item.Layer || '-') + '</td>' +
+      '<td class="code">' + esc(item.namespace || item.Namespace || '-') + '</td>' +
+      '<td><span class="badge state-idle">' + esc(item.state || item.State || '-') + '</span></td>' +
+      '<td>' + esc(String(item.score || item.Score || 0)) + '</td>' +
+      '<td>' + esc(item.kind || item.Kind || '-') + '</td>' +
+      '<td>' + esc(short(item.summary || item.Summary || '-', 220)) + '</td>' +
+      '<td class="code">' + esc(short(Array.isArray(eventIDs) ? eventIDs.join(', ') : String(eventIDs || '-'), 120)) + '</td>';
+    body.appendChild(tr);
+  });
+}
+
+function refreshMemoryRecallPack() {
+  const params = new URLSearchParams();
+  params.set('limit', '20');
+  params.set('user_id', 'ren');
+  if (memorySession && memorySession.value.trim()) params.set('session_id', memorySession.value.trim());
+  if (memoryDomain && memoryDomain.value.trim()) params.set('domain', memoryDomain.value.trim());
+  fetch('/viewer/memory/recall-pack?' + params.toString())
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'recall pack unavailable'));
+        });
+      }
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.recallPackFetchError = '';
+      state.memory.recallPack = data || {items: []};
+      renderMemoryRecallPack();
+    })
+    .catch((err) => {
+      state.memory.recallPackFetchError = String(err && err.message ? err.message : err);
+      state.memory.recallPack = {items: []};
+      renderMemoryRecallPack();
+      console.error(err);
+    });
+}
+
+function renderUserMemory() {
+  const body = document.getElementById('userMemoryBody');
+  const count = document.getElementById('userMemoryCount');
+  const items = Array.isArray(state.memory.userMemory) ? state.memory.userMemory : [];
+  const error = String(state.memory.userMemoryFetchError || '');
+  if (count) count.textContent = error ? '0' : String(items.length);
+  if (!body) return;
+  body.innerHTML = '';
+  if (error) {
+    body.innerHTML = '<tr><td colspan="6" class="small">User Memory unavailable: ' + esc(error) + '</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="small">user:ren の記憶はまだありません</td></tr>';
+    return;
+  }
+  items.forEach((item) => {
+    const id = item.id || item.ID || '';
+    const evidence = item.evidence_event_ids || item.EvidenceEventIDs || [];
+    const stateValue = item.state || item.State || '-';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><span class="badge state-idle">' + esc(stateValue) + '</span></td>' +
+      '<td>' + esc(item.type || item.Type || '-') + '</td>' +
+      '<td>' + esc(short(item.statement || item.Statement || '-', 260)) + '</td>' +
+      '<td class="code">' + esc(short(Array.isArray(evidence) ? evidence.join(', ') : String(evidence || '-'), 120)) + '</td>' +
+      '<td>' + esc(fdt(item.updated_at || item.UpdatedAt || item.created_at || item.CreatedAt)) + '</td>' +
+      '<td>' +
+        '<button class="ctl-btn" onclick="setUserMemoryState(&quot;' + esc(id) + '&quot;,&quot;confirmed&quot;)">Confirm</button> ' +
+        '<button class="ctl-btn" onclick="setUserMemoryState(&quot;' + esc(id) + '&quot;,&quot;pinned&quot;)">Pin</button> ' +
+        '<button class="ctl-btn" onclick="forgetUserMemory(&quot;' + esc(id) + '&quot;)">Forget</button>' +
+      '</td>';
+    body.appendChild(tr);
+  });
+}
+
+function refreshUserMemory() {
+  const params = new URLSearchParams();
+  params.set('user_id', 'ren');
+  params.set('limit', '50');
+  fetch('/viewer/memory/user?' + params.toString())
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'user memory unavailable'));
+        });
+      }
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.userMemoryFetchError = '';
+      state.memory.userMemory = Array.isArray(data.items) ? data.items : [];
+      renderUserMemory();
+    })
+    .catch((err) => {
+      state.memory.userMemoryFetchError = String(err && err.message ? err.message : err);
+      state.memory.userMemory = [];
+      renderUserMemory();
+      console.error(err);
+    });
+}
+
 function memoryEventNamespaceValue() {
   if (memoryEventNamespace && memoryEventNamespace.value.trim()) return memoryEventNamespace.value.trim();
   if (memoryNamespace && memoryNamespace.value.trim()) return memoryNamespace.value.trim();
@@ -1016,6 +1138,8 @@ function refreshMemorySnapshot() {
       renderMemorySnapshot();
       refreshMemoryLayers();
       refreshMemoryEvents();
+      refreshMemoryRecallPack();
+      refreshUserMemory();
       refreshKnowledgeMemoryLedger();
       refreshSourceRegistry();
     })
@@ -1070,6 +1194,16 @@ function promoteMemory(id) {
   const payload = memoryPromotePayload(id);
   if (!payload) return;
   postMemoryAction('/viewer/memory/promote', payload);
+}
+
+function setUserMemoryState(id, memoryState) {
+  if (!id) return;
+  postMemoryAction('/viewer/memory/user/state', {id, state: memoryState, reason: 'viewer'});
+}
+
+function forgetUserMemory(id) {
+  if (!id) return;
+  postMemoryAction('/viewer/memory/user/forget', {id, reason: 'viewer'});
 }
 
 function renderRecallTraces() {

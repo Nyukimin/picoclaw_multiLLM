@@ -33,9 +33,25 @@ func buildConversationEmbedder(cfg *config.Config) (conversation.EmbeddingProvid
 	if model == "" {
 		return nil, ""
 	}
+	embedProvider := strings.ToLower(strings.TrimSpace(cfg.Conversation.EmbedProvider))
+	embedBaseURL := strings.TrimSpace(cfg.Conversation.EmbedBaseURL)
+	if embedProvider == "ollama" {
+		if embedBaseURL == "" {
+			embedBaseURL = cfg.Ollama.BaseURL
+		}
+		return ollama.NewOllamaEmbedder(embedBaseURL, model),
+			fmt.Sprintf("conversation embedding ollama: %s (model: %s)", embedBaseURL, model)
+	}
 	timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 120 * time.Second
+	}
+	if embedProvider == "openai" {
+		if embedBaseURL == "" {
+			embedBaseURL = cfg.LocalLLM.BaseURL
+		}
+		return openai.NewOpenAIEmbedderWithOptions(cfg.LocalLLM.APIKey, model, embedBaseURL, timeout),
+			fmt.Sprintf("conversation embedding openai: %s (model: %s)", embedBaseURL, model)
 	}
 	if cfg.LocalLLM.Enabled && cfg.LocalLLM.Provider != "ollama" {
 		return openai.NewOpenAIEmbedderWithOptions(cfg.LocalLLM.APIKey, model, cfg.LocalLLM.BaseURL, timeout),

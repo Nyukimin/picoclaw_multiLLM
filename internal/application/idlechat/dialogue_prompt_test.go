@@ -137,6 +137,14 @@ func TestSanitizeIdleResponseForSpeakerSelectsShiroLine(t *testing.T) {
 	}
 }
 
+func TestPromptInstructionLeakIsRejectedAsUnusableIdleResponse(t *testing.T) {
+	raw := "直前と違う入り口、具体物・理由・問いのどれか一つを足してください。"
+	sanitized := sanitizeIdleResponse(raw, "文化交流")
+	if !unusableIdleResponse(raw, sanitized) {
+		t.Fatalf("prompt instruction leak should be unusable: raw=%q sanitized=%q", raw, sanitized)
+	}
+}
+
 func TestSanitizeIdleResponseExtractsStraightQuotedPossibleResponse(t *testing.T) {
 	raw := `Possible response: "雨上がりの空気は、薄い青色だったような気がする。でも、古い傘の柄にまだ水滴が残っていた。"`
 

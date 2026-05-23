@@ -12,6 +12,7 @@ const (
 	MemoryStateObserved  = "observed"
 	MemoryStateCandidate = "candidate"
 	MemoryStateConfirmed = "confirmed"
+	MemoryStatePinned    = "pinned"
 	MemoryLayerL1        = "L1"
 )
 

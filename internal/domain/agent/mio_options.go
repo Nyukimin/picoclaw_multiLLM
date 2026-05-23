@@ -19,6 +19,11 @@ func (m *MioAgent) WithSearchCacheManager(mgr SearchCacheManager) *MioAgent {
 	return m
 }
 
+func (m *MioAgent) WithUserMemoryManager(mgr UserMemoryManager) *MioAgent {
+	m.userMemoryManager = mgr
+	return m
+}
+
 // WithPersonaEditor はPersonaEditorを設定（ペルソナ自己編集用）
 func (m *MioAgent) WithPersonaEditor(editor PersonaEditor) *MioAgent {
 	m.personaEditor = editor

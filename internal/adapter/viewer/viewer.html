@@ -605,11 +605,33 @@
       <div class="card"><h4>L0</h4><div id="memoryL0Count" class="ops-big">0</div><div class="ops-sub">current session</div></div>
       <div class="card"><h4>L2</h4><div id="memoryL2Count" class="ops-big">0</div><div class="ops-sub">thread summaries</div></div>
       <div class="card"><h4>L3</h4><div id="memoryL3Count" class="ops-big">0</div><div class="ops-sub">confirmed memory</div></div>
+      <div class="card"><h4>思い出したこと</h4><div id="recallPackCount" class="ops-big">0</div><div class="ops-sub">recall pack</div></div>
+      <div class="card"><h4>User Memory</h4><div id="userMemoryCount" class="ops-big">0</div><div class="ops-sub">user:ren</div></div>
       <div class="card"><h4>Events</h4><div id="memoryEventCount" class="ops-big">0</div><div class="ops-sub">L1 event log</div></div>
       <div class="card"><h4>Search Cache</h4><div id="searchCacheCount" class="ops-big">0</div><div class="ops-sub">fresh/recent cache</div></div>
       <div class="card"><h4>Personal Archive</h4><div id="knowledgePersonalCount" class="ops-big">0</div><div class="ops-sub">protected originals</div></div>
       <div class="card"><h4>Knowledge Sources</h4><div id="knowledgeSourceCount" class="ops-big">0</div><div class="ops-sub">creative / news / intake</div></div>
       <div class="card"><h4>Dream Runs</h4><div id="knowledgeDreamCount" class="ops-big">0</div><div class="ops-sub">reviewed consolidation</div></div>
+    </div>
+    <div class="panel-head" style="margin-top:12px">
+      <h3>思い出したこと</h3>
+      <div class="sub">LLMへ渡す Recall Pack の確認用表示</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>Namespace</th><th>State</th><th>Score</th><th>Kind</th><th>Summary</th><th>Evidence</th></tr></thead>
+        <tbody id="recallPackBody"></tbody>
+      </table>
+    </div>
+    <div class="panel-head" style="margin-top:12px">
+      <h3>User Memory</h3>
+      <div class="sub">user:ren の observed / candidate / confirmed / pinned</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>State</th><th>Type</th><th>Memory</th><th>Evidence</th><th>Updated</th><th>Action</th></tr></thead>
+        <tbody id="userMemoryBody"></tbody>
+      </table>
     </div>
     <div class="panel-head" style="margin-top:12px">
       <h3>Knowledge Memory Ledger</h3>

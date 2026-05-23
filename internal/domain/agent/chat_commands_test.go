@@ -1,8 +1,49 @@
 package agent
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
 )
+
+type mockUserMemoryManager struct {
+	createInput  domainmemory.CreateUserMemoryInput
+	listItems    []domainmemory.UserMemory
+	forgetID     string
+	forgetReason string
+}
+
+func (m *mockUserMemoryManager) CreateUserMemory(_ context.Context, input domainmemory.CreateUserMemoryInput) (*domainmemory.UserMemory, error) {
+	m.createInput = input
+	return &domainmemory.UserMemory{
+		ID:               "mem-1",
+		Namespace:        "user:" + input.UserID,
+		UserID:           input.UserID,
+		Type:             input.Type,
+		Statement:        strings.TrimSpace(input.Statement),
+		EvidenceEventIDs: input.EvidenceEventIDs,
+		Confidence:       input.Confidence,
+		Sensitivity:      input.Sensitivity,
+		State:            input.State,
+		Active:           true,
+	}, nil
+}
+
+func (m *mockUserMemoryManager) ListUserMemories(_ context.Context, _ string, _ string, _ bool, _ int) ([]domainmemory.UserMemory, error) {
+	return append([]domainmemory.UserMemory(nil), m.listItems...), nil
+}
+
+func (m *mockUserMemoryManager) UpdateUserMemoryState(context.Context, string, string, string) (*domainmemory.UserMemory, error) {
+	return nil, nil
+}
+
+func (m *mockUserMemoryManager) ForgetUserMemory(_ context.Context, id string, reason string) (*domainmemory.UserMemory, error) {
+	m.forgetID = id
+	m.forgetReason = reason
+	return &domainmemory.UserMemory{ID: id, Namespace: "user:ren", UserID: "ren", Statement: "短く答える", Active: false}, nil
+}
 
 func TestParseChatCommand(t *testing.T) {
 	tests := []struct {
@@ -16,11 +57,11 @@ func TestParseChatCommand(t *testing.T) {
 		{"/context", "context", ""},
 		{"/new", "new", ""},
 		{"/status extra", "status", "extra"},
-		{"/code something", "", ""},  // ルーティングコマンドはチャットコマンドではない
-		{"/code3 something", "", ""}, // 同上
-		{"hello", "", ""},            // コマンドではない
-		{"", "", ""},                 // 空文字列
-		{"/unknown", "", ""},         // 未知のコマンド
+		{"/code something", "", ""},   // ルーティングコマンドはチャットコマンドではない
+		{"/code3 something", "", ""},  // 同上
+		{"hello", "", ""},             // コマンドではない
+		{"", "", ""},                  // 空文字列
+		{"/unknown", "", ""},          // 未知のコマンド
 		{"  /status  ", "status", ""}, // 空白あり
 	}
 
@@ -91,6 +132,69 @@ func TestHandleChatCommand_RoutingCommand(t *testing.T) {
 	}
 	if result.Handled {
 		t.Error("expected Handled=false for routing command /code")
+	}
+}
+
+func TestHandleChatCommand_UserMemoryRemember(t *testing.T) {
+	mem := &mockUserMemoryManager{}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "session1", "覚えて: 短く論理的な説明を好む")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || !strings.Contains(result.Response, "覚える候補") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if mem.createInput.UserID != "ren" ||
+		mem.createInput.State != domainmemory.MemoryStateCandidate ||
+		mem.createInput.Type != domainmemory.UserMemoryTypePreference ||
+		mem.createInput.Statement != "短く論理的な説明を好む" ||
+		len(mem.createInput.EvidenceEventIDs) != 1 {
+		t.Fatalf("unexpected create input: %+v", mem.createInput)
+	}
+}
+
+func TestHandleChatCommand_UserMemoryPrioritize(t *testing.T) {
+	mem := &mockUserMemoryManager{}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "session1", "これを優先して 日本語で答える")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || !strings.Contains(result.Response, "固定") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if mem.createInput.State != domainmemory.MemoryStatePinned ||
+		mem.createInput.Type != domainmemory.UserMemoryTypeConstraint ||
+		mem.createInput.Source != "user_explicit_priority" {
+		t.Fatalf("unexpected priority input: %+v", mem.createInput)
+	}
+}
+
+func TestHandleChatCommand_UserMemoryForget(t *testing.T) {
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{{
+			ID:        "mem-1",
+			Namespace: "user:ren",
+			UserID:    "ren",
+			Statement: "短く答える",
+			State:     domainmemory.MemoryStateConfirmed,
+			Active:    true,
+		}},
+	}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "session1", "忘れて 短く答える")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || !strings.Contains(result.Response, "無効化") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if mem.forgetID != "mem-1" || mem.forgetReason != "forget" {
+		t.Fatalf("unexpected forget args: %+v", mem)
 	}
 }
 

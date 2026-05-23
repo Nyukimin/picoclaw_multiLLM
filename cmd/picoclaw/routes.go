@@ -130,6 +130,21 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.viewerMemoryPromote != nil {
 		mux.HandleFunc("/viewer/memory/promote", dependencies.viewerMemoryPromote)
 	}
+	if dependencies.viewerMemoryUser != nil {
+		mux.HandleFunc("/viewer/memory/user", dependencies.viewerMemoryUser)
+	}
+	if dependencies.viewerMemoryUserState != nil {
+		mux.HandleFunc("/viewer/memory/user/state", dependencies.viewerMemoryUserState)
+	}
+	if dependencies.viewerMemoryUserForget != nil {
+		mux.HandleFunc("/viewer/memory/user/forget", dependencies.viewerMemoryUserForget)
+	}
+	if dependencies.viewerMemoryUserSupersede != nil {
+		mux.HandleFunc("/viewer/memory/user/supersede", dependencies.viewerMemoryUserSupersede)
+	}
+	if dependencies.viewerMemoryRecallPack != nil {
+		mux.HandleFunc("/viewer/memory/recall-pack", dependencies.viewerMemoryRecallPack)
+	}
 	if dependencies.viewerRecallTraces != nil {
 		mux.HandleFunc("/viewer/recall/traces", dependencies.viewerRecallTraces)
 	}

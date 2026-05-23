@@ -10,7 +10,7 @@ import (
 
 func validateMemoryState(memoryState string) error {
 	switch memoryState {
-	case MemoryStateObserved, MemoryStateCandidate, MemoryStateConfirmed:
+	case MemoryStateObserved, MemoryStateCandidate, MemoryStateConfirmed, MemoryStatePinned:
 		return nil
 	default:
 		return fmt.Errorf("invalid l1 memory state: %s", memoryState)

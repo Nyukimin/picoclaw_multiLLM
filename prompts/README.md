@@ -29,19 +29,12 @@ prompts_dir: "./prompts"
 
 ## キャラクタープロンプト
 
-キャラクター、プロンプト、固定ナレッジは `characters/<name>/` にまとめます。
-各ディレクトリは `manifest.txt` を持ち、読み込む `.md` ファイルの順序を明示します。
+Mio のキャラクタープロンプト、固定ナレッジは workspace 側にまとめます。
+`mio/` ディレクトリは `manifest.txt` を持ち、読み込む `.md` ファイルの順序を明示します。
 
 ```text
-prompts/characters/
-├── mio/     # Chat
-├── shiro/   # Worker
-├── kuro/    # Heavy
-├── midori/  # Wild
-├── aka/     # Coder
-├── ao/      # Coder
-├── gin/     # Coder
-└── kin/     # Coder
+~/.picoclaw/workspace/prompts/characters/
+└── mio/     # Chat
 ```
 
 標準構成:
@@ -54,8 +47,8 @@ manifest.txt
 30_knowledge.md
 ```
 
-repo 側の `prompts/characters` は Git 管理する初期値・フォールバックです。
-運用中の上書きは `workspace_dir/prompts/characters` に置けます。
+repo 側の `prompts/characters` は参照しません。
+Mio の運用正本は `workspace_dir/prompts/characters/mio` に置きます。
 
 ## 注意事項
 

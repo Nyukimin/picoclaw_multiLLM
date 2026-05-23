@@ -30,18 +30,11 @@
 
 ## ディレクトリ構成
 
-Git 管理するキャラクター別プロンプトは repo 側の `prompts/characters/<character>/` に配置する。
-運用中に上書きしたい場合は `workspace_dir/prompts/characters/<character>/` に同じ構成で置く。
+Mio のキャラクター別プロンプトは `workspace_dir/prompts/characters/mio/` を正本にする。
+repo 側の `prompts/characters/` は参照しない。
 
 ```text
-prompts/characters/mio/
-prompts/characters/shiro/
-prompts/characters/kuro/
-prompts/characters/midori/
-prompts/characters/aka/
-prompts/characters/ao/
-prompts/characters/gin/
-prompts/characters/kin/
+~/.picoclaw/workspace/prompts/characters/mio/
 ```
 
 各 character ディレクトリには `manifest.txt` を置き、読み込む `.md` ファイルと順序を明示する。
@@ -49,7 +42,7 @@ prompts/characters/kin/
 例:
 
 ```text
-prompts/characters/mio/
+~/.picoclaw/workspace/prompts/characters/mio/
   manifest.txt
   00_system.md
   10_policy.md

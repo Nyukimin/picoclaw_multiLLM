@@ -11,13 +11,18 @@ import (
 
 // VectorDBStore はQdrantを使った会話記憶ストア（長期記憶cold、VectorDB）
 type VectorDBStore struct {
-	client         *qdrant.Client
-	collectionName string
+	client          *qdrant.Client
+	collectionName  string
+	vectorDimension uint64
 }
 
 // NewVectorDBStore は新しいVectorDBStoreを生成
 // qdrantURL は "host:port" 形式（例: "localhost:6333"）
 func NewVectorDBStore(qdrantURL, collectionName string) (*VectorDBStore, error) {
+	return NewVectorDBStoreWithDimension(qdrantURL, collectionName, 768)
+}
+
+func NewVectorDBStoreWithDimension(qdrantURL, collectionName string, vectorDimension uint64) (*VectorDBStore, error) {
 	host, portStr, err := net.SplitHostPort(qdrantURL)
 	if err != nil {
 		// コロンがない場合はホスト名のみとして扱い、デフォルトgRPCポート(6334)を使用
@@ -39,8 +44,9 @@ func NewVectorDBStore(qdrantURL, collectionName string) (*VectorDBStore, error) 
 	}
 
 	store := &VectorDBStore{
-		client:         client,
-		collectionName: collectionName,
+		client:          client,
+		collectionName:  collectionName,
+		vectorDimension: vectorDimension,
 	}
 
 	// コレクション初期化
@@ -71,11 +77,15 @@ func (v *VectorDBStore) initCollection(ctx context.Context) error {
 		return nil
 	}
 
-	// コレクション作成（embedding次元数: 768、Cohere/OpenAI embedding想定）
+	if v.vectorDimension == 0 {
+		v.vectorDimension = 768
+	}
+
+	// コレクション作成
 	err = v.client.CreateCollection(ctx, &qdrant.CreateCollection{
 		CollectionName: v.collectionName,
 		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
-			Size:     768,
+			Size:     v.vectorDimension,
 			Distance: qdrant.Distance_Cosine,
 		}),
 	})

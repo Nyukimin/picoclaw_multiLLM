@@ -30,6 +30,9 @@ func HandleAudioRouterSSE(h *EventHub) http.HandlerFunc {
 			if ev.Seq > 0 && ev.Seq <= lastSeen {
 				continue
 			}
+			if isTransientReplayEvent(ev) {
+				continue
+			}
 			if !writeAudioRouterEvent(w, ev) {
 				continue
 			}

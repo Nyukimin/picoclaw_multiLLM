@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
+	"github.com/google/uuid"
 	"github.com/qdrant/go-client/qdrant"
 )
 
@@ -16,8 +17,11 @@ func (v *VectorDBStore) getKBCollectionName(domain string) string {
 }
 
 // initKBCollection はKBコレクションを初期化
-func (v *VectorDBStore) initKBCollection(ctx context.Context, domain string) error {
+func (v *VectorDBStore) initKBCollection(ctx context.Context, domain string, vectorSize uint64) error {
 	collectionName := v.getKBCollectionName(domain)
+	if vectorSize == 0 {
+		return fmt.Errorf("kb collection vector size is required")
+	}
 
 	// コレクション存在確認
 	exists, err := v.client.CollectionExists(ctx, collectionName)
@@ -29,11 +33,11 @@ func (v *VectorDBStore) initKBCollection(ctx context.Context, domain string) err
 		return nil
 	}
 
-	// コレクション作成（embedding次元数: 768）
+	// コレクション作成。KBはproviderごとにembedding次元が異なるため、保存対象の次元に合わせる。
 	err = v.client.CreateCollection(ctx, &qdrant.CreateCollection{
 		CollectionName: collectionName,
 		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
-			Size:     768,
+			Size:     vectorSize,
 			Distance: qdrant.Distance_Cosine,
 		}),
 	})
@@ -61,7 +65,7 @@ func (v *VectorDBStore) SaveKB(ctx context.Context, doc *conversation.Document) 
 	}
 
 	// KBコレクション初期化
-	if err := v.initKBCollection(ctx, doc.Domain); err != nil {
+	if err := v.initKBCollection(ctx, doc.Domain, uint64(len(doc.Embedding))); err != nil {
 		return err
 	}
 
@@ -70,7 +74,7 @@ func (v *VectorDBStore) SaveKB(ctx context.Context, doc *conversation.Document) 
 	// Qdrant Point作成
 	point := &qdrant.PointStruct{
 		Id: &qdrant.PointId{
-			PointIdOptions: &qdrant.PointId_Uuid{Uuid: doc.ID},
+			PointIdOptions: &qdrant.PointId_Uuid{Uuid: uuid.NewSHA1(uuid.NameSpaceURL, []byte(doc.ID)).String()},
 		},
 		Vectors: &qdrant.Vectors{
 			VectorsOptions: &qdrant.Vectors_Vector{
@@ -80,6 +84,9 @@ func (v *VectorDBStore) SaveKB(ctx context.Context, doc *conversation.Document) 
 			},
 		},
 		Payload: map[string]*qdrant.Value{
+			"id": {
+				Kind: &qdrant.Value_StringValue{StringValue: doc.ID},
+			},
 			"content": {
 				Kind: &qdrant.Value_StringValue{StringValue: doc.Content},
 			},
@@ -180,16 +187,8 @@ func pointToDocument(point *qdrant.ScoredPoint, domain string) (*conversation.Do
 		return nil, fmt.Errorf("payload is nil")
 	}
 
-	// UUIDを取得
-	var docID string
-	if uuidID, ok := point.Id.GetPointIdOptions().(*qdrant.PointId_Uuid); ok {
-		docID = uuidID.Uuid
-	} else {
-		return nil, fmt.Errorf("point id is not uuid")
-	}
-
 	doc := &conversation.Document{
-		ID:     docID,
+		ID:     qdrantDocumentID(point.Id, payload),
 		Domain: domain,
 		Meta:   make(map[string]interface{}),
 	}
@@ -224,7 +223,7 @@ func pointToDocument(point *qdrant.ScoredPoint, domain string) (*conversation.Do
 
 	// その他のメタ情報
 	for key, value := range payload {
-		if key == "content" || key == "source" || key == "created_at" || key == "updated_at" {
+		if key == "id" || key == "content" || key == "source" || key == "created_at" || key == "updated_at" {
 			continue
 		}
 		if strVal, ok := value.GetKind().(*qdrant.Value_StringValue); ok {
@@ -284,16 +283,8 @@ func retrievedPointToDocument(point *qdrant.RetrievedPoint, domain string) (*con
 		return nil, fmt.Errorf("payload is nil")
 	}
 
-	// UUIDを取得
-	var docID string
-	if uuidID, ok := point.Id.GetPointIdOptions().(*qdrant.PointId_Uuid); ok {
-		docID = uuidID.Uuid
-	} else {
-		return nil, fmt.Errorf("point id is not uuid")
-	}
-
 	doc := &conversation.Document{
-		ID:     docID,
+		ID:     qdrantDocumentID(point.Id, payload),
 		Domain: domain,
 		Meta:   make(map[string]interface{}),
 	}
@@ -328,7 +319,7 @@ func retrievedPointToDocument(point *qdrant.RetrievedPoint, domain string) (*con
 
 	// その他のメタ情報
 	for key, value := range payload {
-		if key == "content" || key == "source" || key == "created_at" || key == "updated_at" {
+		if key == "id" || key == "content" || key == "source" || key == "created_at" || key == "updated_at" {
 			continue
 		}
 		if strVal, ok := value.GetKind().(*qdrant.Value_StringValue); ok {
@@ -340,6 +331,20 @@ func retrievedPointToDocument(point *qdrant.RetrievedPoint, domain string) (*con
 		return nil, err
 	}
 	return doc, nil
+}
+
+func qdrantDocumentID(id *qdrant.PointId, payload map[string]*qdrant.Value) string {
+	if v, ok := payload["id"]; ok {
+		if strVal, ok := v.GetKind().(*qdrant.Value_StringValue); ok {
+			return strVal.StringValue
+		}
+	}
+	if id != nil {
+		if uuidID, ok := id.GetPointIdOptions().(*qdrant.PointId_Uuid); ok {
+			return uuidID.Uuid
+		}
+	}
+	return ""
 }
 
 func validateKBDocumentForSave(doc *conversation.Document) error {

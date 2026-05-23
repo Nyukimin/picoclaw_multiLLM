@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -58,6 +59,9 @@ func (r *RealConversationManager) FlushThread(ctx context.Context, threadID int6
 	}
 
 	summaryText, keywords := r.generateSummaryAndKeywords(ctx, thread)
+	if strings.TrimSpace(summaryText) == "" {
+		summaryText = generateSimpleSummary(thread)
+	}
 
 	var embedding []float32
 	if r.embedder != nil {

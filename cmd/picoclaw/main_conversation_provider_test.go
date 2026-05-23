@@ -58,6 +58,52 @@ func TestBuildConversationEmbedderUsesLocalOpenAIWhenLocalLLMEnabled(t *testing.
 	}
 }
 
+func TestBuildConversationEmbedderUsesExplicitOllamaProvider(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["model"] != "Embed" {
+			t.Fatalf("unexpected model: %v", req["model"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embedding": []float64{0.3, 0.4, 0.5},
+		})
+	}))
+	defer srv.Close()
+
+	embedder, label := buildConversationEmbedder(&config.Config{
+		LocalLLM: config.LocalLLMConfig{
+			Enabled:    true,
+			Provider:   "local_openai",
+			BaseURL:    "http://local-openai.invalid",
+			TimeoutSec: 1,
+		},
+		Conversation: config.ConversationConfig{
+			EmbedProvider: "ollama",
+			EmbedBaseURL:  srv.URL,
+			EmbedModel:    "Embed",
+		},
+	})
+	if embedder == nil {
+		t.Fatal("expected embedder")
+	}
+	if !strings.Contains(label, "conversation embedding ollama") {
+		t.Fatalf("unexpected label: %s", label)
+	}
+	got, err := embedder.Embed(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Embed failed: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 dims, got %d", len(got))
+	}
+}
+
 func (f fakeConversationProvider) Generate(context.Context, llm.GenerateRequest) (llm.GenerateResponse, error) {
 	return llm.GenerateResponse{Content: "ok"}, nil
 }

@@ -74,6 +74,11 @@ type Dependencies struct {
 	viewerMemoryEvents             http.HandlerFunc                            // viewer L1 event/search cache API
 	viewerMemoryState              http.HandlerFunc                            // viewer memory state API
 	viewerMemoryPromote            http.HandlerFunc                            // viewer memory promote API
+	viewerMemoryUser               http.HandlerFunc                            // viewer user memory API
+	viewerMemoryUserState          http.HandlerFunc                            // viewer user memory state API
+	viewerMemoryUserForget         http.HandlerFunc                            // viewer user memory forget API
+	viewerMemoryUserSupersede      http.HandlerFunc                            // viewer user memory supersede API
+	viewerMemoryRecallPack         http.HandlerFunc                            // viewer memory recall pack API
 	viewerRecallTraces             http.HandlerFunc                            // viewer recall trace API
 	viewerSourceRegistry           http.HandlerFunc                            // viewer source registry API
 	verificationRecent             http.HandlerFunc                            // viewer verification recent API
@@ -259,6 +264,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		conversationRuntime.Engine,
 		glossaryRuntime.RecentContext,
 		conversationRuntime.Manager,
+		conversationRuntime.L1Store,
 		toolRuntime.SubagentMgr,
 	)
 	sessionRuntime := buildSessionRuntime(cfg)

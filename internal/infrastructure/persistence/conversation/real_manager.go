@@ -19,6 +19,10 @@ type RealConversationManager struct {
 
 // NewRealConversationManager は新しいRealConversationManagerを生成
 func NewRealConversationManager(redisURL, duckdbPath, vectordbURL string) (*RealConversationManager, error) {
+	return NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbURL, "picoclaw_memory", 768)
+}
+
+func NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbURL string, vectorCollection string, vectorDimension uint64) (*RealConversationManager, error) {
 	redisStore, err := NewRedisStore(redisURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create redis store: %w", err)
@@ -30,7 +34,10 @@ func NewRealConversationManager(redisURL, duckdbPath, vectordbURL string) (*Real
 		return nil, fmt.Errorf("failed to create duckdb store: %w", err)
 	}
 
-	vectordbStore, err := NewVectorDBStore(vectordbURL, "picoclaw_memory")
+	if vectorCollection == "" {
+		vectorCollection = "picoclaw_memory"
+	}
+	vectordbStore, err := NewVectorDBStoreWithDimension(vectordbURL, vectorCollection, vectorDimension)
 	if err != nil {
 		redisStore.Close()
 		duckdbStore.Close()

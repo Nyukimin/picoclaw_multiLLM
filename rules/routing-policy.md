@@ -23,6 +23,17 @@
 ルーティングは「最も賢そうな LLM を使うこと」ではなく、  
 「その仕事を正しい層に置くこと」を優先する。
 
+### コーディング作業の Safe / Tool Build 判定
+
+コーディング作業は `docs/コーディング/coding_agent_modes.md` に従い、役割に渡す前に Safe Build Mode / Tool Build Mode を判定する。
+
+- Safe Build Mode: 既存コード、既存DB、既存環境、設定、運用、memory、Source Registry、validator、本番系に触る作業。
+- Tool Build Mode: 新規ツール、小物スクリプト、補助アプリ、検証用CLIを既存本体から切り離して作る作業。
+
+迷った場合は Safe Build Mode とし、追加確認が必要な状態として扱う。Tool Build Mode でも、既存本体に接続する、正式DBへ保存する、memoryを確定する、Source Registryを更新する、設定や環境を変える場合は Safe Build Mode へ切り替える。
+
+`docs/コーディング/coding_agent_implementation_spec.md` の v0.1 実装では、Mode Selector、Guardrails Checker、Prompt Builder、Worklog Generator、Memory Candidate Generator、CLI、Tests までを対象にする。実コード変更、Git操作、DB正式保存、confirmed / pinned memory 昇格、Source Registry更新、LangGraph接続、自律実行、外部検索は v0.1 ではルーティングしない。
+
 ---
 
 ## 役割の定義
