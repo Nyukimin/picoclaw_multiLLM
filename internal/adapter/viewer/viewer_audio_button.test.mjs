@@ -185,6 +185,7 @@ globalThis.__viewerAudioHarness = {
     toastEl: document.getElementById('toast'),
     thinkingBubbles: {},
     setTimeout: (fn, _ms) => {
+      fn.ms = _ms;
       timers.push(fn);
       return timers.length;
     },
@@ -301,6 +302,48 @@ test('audio error does not start the next tts chunk until fallback delay complet
   assert.equal(harness.ttsPlayback.currentChunkIndex, 1);
   assert.equal(harness.ttsPlayback.audio.src, '/audio/second.wav');
   assert.equal(harness.ttsPlayback.queue.length, 0);
+});
+
+test('natural audio end waits for tail gap before starting next tts chunk', async () => {
+  const {harness, timers} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/first.wav', 'mio', 'tail-gap-session', 'default', 0, 'first speech', '一つ目です。', '', 'tail-gap-0');
+  harness.enqueueTTSAudio('/audio/second.wav', 'mio', 'tail-gap-session', 'default', 1, 'second speech', '二つ目です。', '', 'tail-gap-1');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.currentChunkIndex, 0);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+
+  harness.ttsPlayback.audio.listeners.ended();
+
+  assert.equal(harness.ttsPlayback.playing, false);
+  assert.equal(harness.ttsPlayback.tailActive, true);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.equal(timers.at(-1).ms, 240);
+
+  timers.pop()();
+
+  assert.equal(harness.ttsPlayback.tailActive, false);
+  assert.equal(harness.ttsPlayback.currentChunkIndex, 1);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/second.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 0);
+});
+
+test('natural audio end uses a longer tail gap when next tts speaker changes', async () => {
+  const {harness, timers} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/mio.wav', 'mio', 'speaker-gap-session', 'default', 0, 'mio speech', 'みおです。', '', 'speaker-gap-0');
+  harness.enqueueTTSAudio('/audio/shiro.wav', 'shiro', 'speaker-gap-session', 'default', 1, 'shiro speech', 'しろです。', '', 'speaker-gap-1');
+  await Promise.resolve();
+
+  harness.ttsPlayback.audio.listeners.ended();
+
+  assert.equal(harness.ttsPlayback.tailActive, true);
+  assert.equal(harness.ttsPlayback.currentChunkIndex, -1);
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.equal(timers.at(-1).ms, 420);
 });
 
 test('idlechat message is visible before tts chunk arrives', () => {

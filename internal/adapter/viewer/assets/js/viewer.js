@@ -321,6 +321,8 @@ const ttsPlayback = {
   currentShown: false,
   fallbackActive: false,
   fallbackTimer: null,
+  tailActive: false,
+  tailTimer: null,
   blockedFallbackUtteranceId: '',
   seq: 0,
 };
@@ -2713,6 +2715,9 @@ function createChatAudioSync() {
   }
 
   function resetCurrentInternal() {
+    if (state.tailTimer) clearTimeout(state.tailTimer);
+    state.tailTimer = null;
+    state.tailActive = false;
     stopLipSyncInternal(state.currentCharacterId);
     state.playing = false;
     state.currentCharacterId = '';
@@ -2802,8 +2807,7 @@ function createChatAudioSync() {
       state.audio.addEventListener('playing', markAudioStarted);
       state.audio.addEventListener('timeupdate', markAudioStarted);
       state.audio.addEventListener('ended', function() {
-        resetCurrentInternal();
-        playNextInternal();
+        completeCurrentAudioPlaybackInternal();
       });
       state.audio.addEventListener('error', function() {
         handleCurrentAudioFailureInternal(new Error('audio element error'));
@@ -2923,9 +2927,35 @@ function createChatAudioSync() {
     }, ttsDisplayDelay(item));
   }
 
+  function completeCurrentAudioPlaybackInternal() {
+    const finished = currentAudioItemInternal();
+    stopLipSyncInternal(finished.characterId);
+    state.playing = false;
+    state.currentCharacterId = '';
+    state.currentText = '';
+    state.currentDisplayText = '';
+    state.currentSessionId = '';
+    state.currentChunkIndex = -1;
+    state.currentUtteranceId = '';
+    state.currentResponseId = '';
+    state.currentShown = false;
+    state.blockedFallbackUtteranceId = '';
+    setNowPlayingText('', '');
+    clearTextInternal();
+    const delay = ttsPlaybackTailGap(finished, state.queue[0]);
+    if (state.tailTimer) clearTimeout(state.tailTimer);
+    state.tailActive = true;
+    state.tailTimer = setTimeout(function() {
+      state.tailTimer = null;
+      state.tailActive = false;
+      playNextInternal();
+    }, delay);
+  }
+
   function playNextInternal() {
     if (state.playing) return;
     if (state.fallbackActive) return;
+    if (state.tailActive) return;
     if (!state.audioEnabled) {
       startTextFallbackInternal();
       return;
@@ -3113,6 +3143,20 @@ function ttsDisplayDelay(item) {
   const len = Array.from(text).length;
   const punctuationPause = /[。！？!?]$/.test(text.trim()) ? 280 : 0;
   return Math.max(900, Math.min(3400, 520 + (len * 85) + punctuationPause));
+}
+
+function ttsPlaybackTailGap(finished, next) {
+  if (!next) return 180;
+  const finishedSpeaker = String((finished && finished.characterId) || '');
+  const nextSpeaker = String((next && next.characterId) || '');
+  if (finishedSpeaker && nextSpeaker && finishedSpeaker !== nextSpeaker) return 420;
+  const finishedSession = String((finished && finished.sessionId) || '');
+  const nextSession = String((next && next.sessionId) || '');
+  if (finishedSession && nextSession && finishedSession !== nextSession) return 260;
+  const text = String((finished && (finished.displayText || finished.text)) || '').trim();
+  if (/[。！？!?]$/.test(text)) return 240;
+  if (/[、,]$/.test(text)) return 160;
+  return 180;
 }
 
 function showTTSFallbackChunk(item) {
