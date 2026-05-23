@@ -82,6 +82,7 @@ func (o *IdleChatOrchestrator) StartSimpleStoryMode() error {
 	o.chatActive = true
 	o.sessionMode = "story-simple"
 	o.currentTopic = idleChatPendingTopic("story-simple")
+	o.beginIdleRunLocked()
 	o.lastActivity = time.Now()
 	log.Println("[SimpleStory] Simple story mode started")
 	return nil
@@ -96,15 +97,21 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	o.mu.Lock()
 	o.chatActive = true
 	o.sessionMode = "story-simple"
+	generation := o.beginIdleRunLocked()
+	o.activeSessionID = sessionID
 	o.mu.Unlock()
 
 	defer func() {
 		o.mu.Lock()
-		o.chatActive = false
-		o.sessionMode = ""
-		o.currentTopic = ""
+		if o.activeGeneration == generation {
+			o.chatActive = false
+			o.sessionMode = ""
+			o.currentTopic = ""
+			o.activeSessionID = ""
+		}
 		o.lastActivity = time.Now()
 		o.mu.Unlock()
+		o.cancelIdleRunIfGeneration(generation)
 	}()
 
 	// 昔話と主人公をランダム選択
@@ -129,7 +136,7 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	}
 
 	provider := o.forecastLLM()
-	resp, err := provider.Generate(o.ctx, llm.GenerateRequest{
+	resp, err := provider.Generate(o.idleRunContext(), llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   2500,
 		Temperature: 0.9,
@@ -137,6 +144,10 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	if err != nil {
 		log.Printf("[SimpleStory] generation failed: %v", err)
 		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, "", "", transcript, startedAt, "generation_error")
+		return
+	}
+	if !o.isIdleSessionActive(sessionID, generation) {
+		log.Printf("[SimpleStory] response discarded after interrupt: session=%s", sessionID)
 		return
 	}
 	logIdleRaw("story_simple.generate", resp.Content)

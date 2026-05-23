@@ -69,6 +69,21 @@ response / IdleChat event
 
 音声 chunk は本文表示の唯一の根拠ではない。
 
+### Viewer playback / スピーカ OFF 時の待ち合わせ
+
+Viewer のスピーカボタンが ON の場合、TTS chunk の進行は原則として browser audio playback の再生完了に同期する。
+
+Viewer のスピーカボタンが OFF の場合、音声を再生しないため、TTS 音声の実再生時間や audio element の完了待ちに依存してはいけない。
+この場合の読み上げ進行は、chunk 間の待ち合わせを固定 500ms とする。
+
+この 500ms は「音声なし表示のテンポ」を保つための Viewer 側 playback fallback 間隔であり、TTS provider の生成時間、audio router の配信間隔、口パク duration、本文表示生成の根拠とは混同しない。
+
+期待動作:
+
+- スピーカ ON: TTS audio chunk を再生し、再生完了または失敗境界に従って次 chunk へ進む。
+- スピーカ OFF: 音声再生を行わず、各 chunk 表示後 500ms 待って次 chunk へ進む。
+- スピーカ OFF 時も、TTS provider / audio router / lipsync の成功扱いにしてはいけない。
+
 ### 主な実装箇所
 
 | 領域 | 主担当 |

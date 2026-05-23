@@ -19,22 +19,29 @@ func (o *IdleChatOrchestrator) RunForecastSession() {
 	o.mu.Lock()
 	o.chatActive = true
 	o.sessionMode = "forecast"
+	generation := o.beginIdleRunLocked()
+	o.activeSessionID = sessionID
 	o.mu.Unlock()
 
 	totalTurns := o.runForecastSessionDomains(sessionID, startedAt, sessionDomains)
 
 	o.mu.Lock()
-	o.chatActive = false
-	o.sessionMode = ""
-	o.currentTopic = ""
-	o.sessionContext = ""
+	if o.activeGeneration == generation {
+		o.chatActive = false
+		o.sessionMode = ""
+		o.currentTopic = ""
+		o.sessionContext = ""
+		o.activeSessionID = ""
+	}
 	o.lastActivity = time.Now()
 	o.mu.Unlock()
+	o.cancelIdleRunIfGeneration(generation)
 	log.Printf("[Forecast] Session %s completed (%d total turns)", sessionID, totalTurns)
 }
 
 func (o *IdleChatOrchestrator) runForecastDomainSession(domain ForecastDomain) {
 	sessionID := fmt.Sprintf("forecast-%d", time.Now().Unix())
+	o.activateIdleSession(sessionID)
 	startedAt := time.Now().In(jst)
 	totalTurns := o.runForecastSessionDomains(sessionID, startedAt, []ForecastDomain{domain})
 	log.Printf("[Forecast] Session %s completed (%d total turns)", sessionID, totalTurns)
@@ -45,7 +52,7 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 
 	for domainIdx, domain := range sessionDomains {
 		select {
-		case <-o.ctx.Done():
+		case <-o.idleRunContext().Done():
 			return totalTurns
 		default:
 		}
@@ -114,7 +121,7 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 
 		for turn := 0; turn < forecastTurnsPerDomain; turn++ {
 			select {
-			case <-o.ctx.Done():
+			case <-o.idleRunContext().Done():
 				return totalTurns
 			default:
 			}
@@ -147,6 +154,12 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 				log.Printf("[Forecast] Generation error: %v", err)
 				genFailed = true
 				loopReason = "generation_error"
+				break
+			}
+			if !o.isIdleSessionActive(sessionID, 0) {
+				log.Printf("[Forecast] Response discarded after interrupt: session=%s turn=%d", sessionID, turn)
+				interrupted = true
+				loopReason = "interrupted"
 				break
 			}
 			if isResponseTooSimilar(response, transcript) {
@@ -185,7 +198,7 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 
 		// ドメイン要約保存（Coder2で要約 + 継続考察テーマ付与）
 		endedAt := time.Now().In(jst)
-		if segmentTurns > 0 {
+		if segmentTurns > 0 && o.isIdleSessionActive(sessionID, 0) {
 			summary := o.saveForecastSummary(sessionID, domain, topic, transcript, startedAt, endedAt, segmentTurns,
 				interrupted || genFailed || loopReason != "", loopReason)
 			o.speakSummary(sessionID, summary)

@@ -1,6 +1,7 @@
 package idlechat
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -35,6 +36,7 @@ func (o *IdleChatOrchestrator) SetIntervalSeconds(seconds int) {
 
 func (o *IdleChatOrchestrator) Stop() {
 	o.cancel()
+	o.cancelIdleRun()
 	o.wg.Wait()
 	log.Println("[IdleChat] Stopped")
 }
@@ -42,37 +44,17 @@ func (o *IdleChatOrchestrator) Stop() {
 // NotifyActivity はタスク到着を通知（雑談セッションを中断）
 
 func (o *IdleChatOrchestrator) NotifyActivity() {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.lastActivity = time.Now()
-	if o.manualMode {
-		log.Println("[IdleChat] Activity detected, stopping manual mode")
-		o.manualMode = false
-	}
-	if o.chatActive {
-		log.Println("[IdleChat] Task arrived, interrupting chat session")
-		o.chatActive = false
-		o.sessionMode = ""
-	}
+	o.Interrupt("activity")
 }
 
 // SetChatBusy はChat(mio)の活性状態を更新する。
 
 func (o *IdleChatOrchestrator) SetChatBusy(busy bool) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.chatBusy = busy
+	o.mu.Unlock()
 	if busy {
-		o.lastActivity = time.Now()
-		if o.manualMode {
-			log.Println("[IdleChat] Chat is active, stopping manual mode")
-			o.manualMode = false
-		}
-		if o.chatActive {
-			log.Println("[IdleChat] Chat is active, interrupting chat session")
-			o.chatActive = false
-			o.sessionMode = ""
-		}
+		o.Interrupt("chat_busy")
 	}
 }
 
@@ -80,29 +62,28 @@ func (o *IdleChatOrchestrator) SetChatBusy(busy bool) {
 
 func (o *IdleChatOrchestrator) SetWorkerBusy(busy bool) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.workerBusy = busy
+	o.mu.Unlock()
 	if busy {
-		o.lastActivity = time.Now()
-		if o.manualMode {
-			log.Println("[IdleChat] Worker is active, stopping manual mode")
-			o.manualMode = false
-		}
-		if o.chatActive {
-			log.Println("[IdleChat] Worker is active, interrupting chat session")
-			o.chatActive = false
-			o.sessionMode = ""
-		}
+		o.Interrupt("worker_busy")
 	}
 }
 
 // StartManualMode starts idle chat mode immediately.
 
 func (o *IdleChatOrchestrator) StopManualMode() {
+	o.interruptLockedWithReason("manual_stop")
+}
+
+func (o *IdleChatOrchestrator) Interrupt(reason string) {
+	o.interruptLockedWithReason(reason)
+}
+
+func (o *IdleChatOrchestrator) interruptLockedWithReason(reason string) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
+	cancel := o.runCancel
 	if o.manualMode || o.chatActive {
-		log.Println("[IdleChat] Manual mode stopped")
+		log.Printf("[IdleChat] Interrupted: reason=%s generation=%d session=%s", strings.TrimSpace(reason), o.activeGeneration, o.activeSessionID)
 	}
 	o.manualMode = false
 	o.chatActive = false
@@ -110,6 +91,99 @@ func (o *IdleChatOrchestrator) StopManualMode() {
 	o.currentTopic = ""
 	o.sessionContext = ""
 	o.lastActivity = time.Now()
+	if o.activeSessionID != "" {
+		if o.interruptedSessions == nil {
+			o.interruptedSessions = make(map[string]struct{})
+		}
+		o.interruptedSessions[o.activeSessionID] = struct{}{}
+	}
+	o.activeGeneration++
+	o.activeSessionID = ""
+	o.runCancel = nil
+	o.runCtx = o.ctx
+	o.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (o *IdleChatOrchestrator) beginIdleRunLocked() uint64 {
+	if o.runCancel != nil {
+		o.runCancel()
+	}
+	o.activeGeneration++
+	o.runCtx, o.runCancel = context.WithCancel(o.ctx)
+	return o.activeGeneration
+}
+
+func (o *IdleChatOrchestrator) cancelIdleRun() {
+	o.mu.Lock()
+	cancel := o.runCancel
+	o.runCancel = nil
+	o.runCtx = o.ctx
+	o.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (o *IdleChatOrchestrator) cancelIdleRunIfGeneration(generation uint64) {
+	o.mu.Lock()
+	if generation != 0 && o.activeGeneration != generation {
+		o.mu.Unlock()
+		return
+	}
+	cancel := o.runCancel
+	o.runCancel = nil
+	o.runCtx = o.ctx
+	o.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (o *IdleChatOrchestrator) idleRunContext() context.Context {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.runCtx != nil {
+		return o.runCtx
+	}
+	return o.ctx
+}
+
+func (o *IdleChatOrchestrator) activateIdleSession(sessionID string) uint64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.runCtx == nil {
+		o.beginIdleRunLocked()
+	}
+	o.activeSessionID = strings.TrimSpace(sessionID)
+	if o.interruptedSessions != nil {
+		delete(o.interruptedSessions, o.activeSessionID)
+	}
+	return o.activeGeneration
+}
+
+func (o *IdleChatOrchestrator) isIdleSessionActive(sessionID string, generation uint64) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if generation != 0 && generation != o.activeGeneration {
+		return false
+	}
+	if strings.TrimSpace(sessionID) != "" && o.activeSessionID != "" && strings.TrimSpace(sessionID) != o.activeSessionID {
+		return false
+	}
+	return o.chatActive
+}
+
+func (o *IdleChatOrchestrator) isInterruptedSession(sessionID string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if strings.TrimSpace(sessionID) == "" || o.interruptedSessions == nil {
+		return false
+	}
+	_, ok := o.interruptedSessions[strings.TrimSpace(sessionID)]
+	return ok
 }
 
 // IsManualMode returns whether manual idle chat mode is enabled.
@@ -217,6 +291,7 @@ func (o *IdleChatOrchestrator) StartForecastMode() error {
 	o.sessionMode = "forecast"
 	o.currentTopic = idleChatPendingTopic("forecast")
 	o.sessionContext = ""
+	o.beginIdleRunLocked()
 	o.lastActivity = time.Now()
 	log.Println("[Forecast] Forecast mode started")
 	return nil
@@ -238,6 +313,7 @@ func (o *IdleChatOrchestrator) StartStoryMode() error {
 	o.sessionMode = "story"
 	o.currentTopic = idleChatPendingTopic("story")
 	o.sessionContext = ""
+	o.beginIdleRunLocked()
 	o.lastActivity = time.Now()
 	log.Println("[Story] Story mode started")
 	return nil

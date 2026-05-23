@@ -3571,6 +3571,72 @@ globalThis.__sync = createChatAudioSync();
   assert.equal(context.__buttonState.error, 'NotAllowedError: browser blocked autoplay');
 });
 
+test('viewer uses 500ms chunk wait when speaker is off', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const delays = [];
+  const source = `
+var ttsPlayback = {
+  queue: [],
+  audio: null,
+  playing: false,
+  audioEnabled: false,
+  unlocked: false,
+  blocked: false,
+  currentCharacterId: '',
+  currentText: '',
+  currentDisplayText: '',
+  currentSessionId: '',
+  currentChunkIndex: -1,
+  currentUtteranceId: '',
+  currentResponseId: '',
+  currentShown: false,
+  fallbackActive: false,
+  fallbackTimer: null,
+  tailTimer: null,
+  tailActive: false,
+  seq: 0,
+};
+var state = {idleChat: {chatActive: true}};
+var lipSyncActors = {};
+function setLipSyncSpeaking() {}
+function clearLipSyncSpeaking() {}
+function setCentralTTSSpeechText(characterId, text) { globalThis.__shown = {characterId, text}; }
+function setNowPlayingText() {}
+function clearTTSAudioError() {}
+function updateAudioButton() {}
+function isIdleChatSessionId(sessionId) { return String(sessionId || '').startsWith('idle-'); }
+function describeTTSAudioError(err) { return err ? String(err.message || err) : ''; }
+function ttsDisplayDelay() { return 3400; }
+` + sourceBetween(viewerJs, 'function ttsTextFallbackDelay', 'function ttsPlaybackTailGap') +
+sourceBetween(viewerJs, 'function createChatAudioSync', 'const chatAudioSync') + `
+globalThis.__sync = createChatAudioSync();
+globalThis.__sync.enqueueAudio({
+  url: '/viewer/tts/audio?path=test.wav',
+  characterId: 'mio',
+  sessionId: 'chat-1',
+  chunkIndex: 0,
+  text: '長い読み上げテキスト',
+  displayText: '長い読み上げテキスト',
+  responseId: 'response-1',
+  utteranceId: 'utterance-1',
+});
+`;
+  const context = vm.createContext({
+    setTimeout(fn, delay) {
+      delays.push(delay);
+      return 1;
+    },
+    clearTimeout() {},
+    fetch() { return Promise.resolve({ok: true}); },
+    console: {error() {}, warn() {}, log() {}},
+  });
+  vm.runInContext(source, context);
+
+  assert.deepEqual(delays, [500]);
+  assert.equal(context.__shown.characterId, 'mio');
+  assert.equal(context.__shown.text, '長い読み上げテキスト');
+});
+
 test('viewer renders stt copy failures as persistent session state', async () => {
   const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const debugSession = new FakeElement('debugSttSession');
@@ -4242,6 +4308,39 @@ globalThis.__controlIdle = controlIdle;
   assert.deepEqual(requested, ['/viewer/idlechat/stop', '/viewer/idlechat/status']);
   assert.match(document.getElementById('idlechatBody').innerHTML, /IdleChat control unavailable: HTTP 409: idlechat already stopping/);
   assert.doesNotMatch(document.getElementById('idlechatBody').innerHTML, /idlechat control failed/);
+});
+
+test('viewer wires chat input and stt button to idlechat immediate interrupt', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const routesGo = fs.readFileSync('cmd/picoclaw/routes.go', 'utf8');
+  const handlersGo = fs.readFileSync('cmd/picoclaw/runtime_idlechat_handlers.go', 'utf8');
+  assert.match(viewerJs, /function interruptIdleChatForUserInput/);
+  assert.match(viewerJs, /fetch\('\/viewer\/idlechat\/interrupt'/);
+  assert.match(viewerJs, /inp\.addEventListener\('beforeinput', \(\) => handleChatInputIntent\('user_input'\)\)/);
+  assert.match(viewerJs, /inp\.addEventListener\('paste', \(\) => handleChatInputIntent\('paste'\)\)/);
+  assert.match(viewerJs, /inp\.addEventListener\('compositionstart', \(\) => handleChatInputIntent\('composition_start'\)\)/);
+  assert.match(viewerJs, /abortSTTImmediately\('stt_button'\)/);
+  assert.match(viewerJs, /function abortSTTImmediately\(reason\)/);
+  assert.match(viewerJs, /if \(typeof clearSTTFinalWaitTimer === 'function'\) clearSTTFinalWaitTimer\(\)/);
+  assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !state\.idleChat\.chatActive\) return/);
+  assert.match(routesGo, /\/viewer\/idlechat\/interrupt/);
+  assert.match(handlersGo, /handleIdleChatInterrupt/);
+});
+
+test('viewer idlechat interrupt is fire-and-forget before send', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const sendSource = sourceBetween(viewerJs, 'function send()', 'async function sendViewerMessage');
+  assert.ok(
+    sendSource.indexOf("interruptIdleChatForUserInput('chat_send')") >= 0,
+    'send should request idlechat interrupt before viewer send',
+  );
+  assert.ok(
+    sendSource.indexOf("interruptIdleChatForUserInput('chat_send')") < sendSource.indexOf('sendViewerMessage(message'),
+    'idlechat interrupt should happen before sendViewerMessage',
+  );
+  const interruptSource = sourceBetween(viewerJs, 'function interruptIdleChatForUserInput', 'function handleChatInputIntent');
+  assert.match(interruptSource, /keepalive: true/);
+  assert.doesNotMatch(interruptSource, /await fetch/);
 });
 
 test('viewer renders idlechat status and logs failures with response bodies', async () => {

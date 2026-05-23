@@ -61,6 +61,40 @@ func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {
 	}
 }
 
+func (d *Dependencies) handleIdleChatInterrupt() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		reason := "viewer_interrupt"
+		var req struct {
+			Reason           string `json:"reason"`
+			Source           string `json:"source"`
+			ClientGeneration string `json:"client_generation"`
+		}
+		if strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+		if strings.TrimSpace(req.Reason) != "" {
+			reason = strings.TrimSpace(req.Reason)
+		}
+		d.idleChatOrch.Interrupt(reason)
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"interrupted":   true,
+			"mode":          d.idleChatOrch.CurrentMode(),
+			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"chat_active":   d.idleChatOrch.IsChatActive(),
+			"current_topic": d.idleChatOrch.CurrentTopic(),
+		})
+	}
+}
+
 func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

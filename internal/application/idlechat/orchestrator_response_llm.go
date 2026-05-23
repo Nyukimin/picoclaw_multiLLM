@@ -21,15 +21,16 @@ func (o *IdleChatOrchestrator) generateIdleLLM(provider llm.LLMProvider, req llm
 			role = "unknown"
 		}
 	}
+	baseCtx := o.idleRunContext()
 	if timeout <= 0 {
-		resp, err := provider.Generate(o.ctx, req)
+		resp, err := provider.Generate(baseCtx, req)
 		if err == nil {
 			logIdleRaw(fmt.Sprintf("llm.generate role=%s", role), resp.Content)
 			log.Printf("[IdleChat][llm] role=%s max_tokens=%d finish=%q tokens=%d", role, req.MaxTokens, resp.FinishReason, resp.TokensUsed)
 		}
 		return resp, err
 	}
-	ctx, cancel := context.WithTimeout(o.ctx, timeout)
+	ctx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
 	resp, err := provider.Generate(ctx, req)
 	if err == nil {

@@ -453,6 +453,7 @@ func registerIdleChatRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	}
 	mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
 	mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
+	mux.HandleFunc("/viewer/idlechat/interrupt", dependencies.handleIdleChatInterrupt())
 	mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
 	mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
 	mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())

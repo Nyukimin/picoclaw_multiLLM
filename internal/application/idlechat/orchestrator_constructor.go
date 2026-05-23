@@ -28,19 +28,21 @@ func NewIdleChatOrchestrator(
 	_ = storyDataDir // unused
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
-		llmProvider:   llmProvider,
-		speakerLLMs:   make(map[string]llm.LLMProvider),
-		memory:        memory,
-		participants:  participants,
-		intervalMin:   intervalMin,
-		interval:      time.Duration(intervalMin) * time.Minute,
-		maxTurns:      maxTurns,
-		temperature:   temperature,
-		personalities: personalities,
-		lastActivity:  time.Now(),
-		history:       make([]SessionSummary, 0, 32),
-		ctx:           ctx,
-		cancel:        cancel,
+		llmProvider:         llmProvider,
+		speakerLLMs:         make(map[string]llm.LLMProvider),
+		memory:              memory,
+		participants:        participants,
+		intervalMin:         intervalMin,
+		interval:            time.Duration(intervalMin) * time.Minute,
+		maxTurns:            maxTurns,
+		temperature:         temperature,
+		personalities:       personalities,
+		lastActivity:        time.Now(),
+		history:             make([]SessionSummary, 0, 32),
+		ctx:                 ctx,
+		cancel:              cancel,
+		runCtx:              ctx,
+		interruptedSessions: make(map[string]struct{}),
 	}
 }
 

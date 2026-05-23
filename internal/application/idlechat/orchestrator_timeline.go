@@ -2,11 +2,17 @@ package idlechat
 
 import (
 	"fmt"
+	"log"
+	"strings"
 
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
 func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) <-chan struct{} {
+	if strings.HasPrefix(ev.Type, "idlechat.") && o.isInterruptedSession(ev.SessionID) {
+		log.Printf("[IdleChat] stale event discarded: type=%s session=%s", ev.Type, ev.SessionID)
+		return nil
+	}
 	o.recordPersonaTimelineEvent(ev)
 	o.mu.Lock()
 	emit := o.emitEvent

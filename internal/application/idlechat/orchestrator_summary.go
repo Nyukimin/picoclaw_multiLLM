@@ -220,7 +220,7 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 800, Temperature: 0.4}
 	req.MaxTokens = idleChatShiroSummaryMaxTokens
-	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, req)
+	resp, err := o.providerForSpeaker("shiro").Generate(o.idleRunContext(), req)
 	if err != nil || strings.TrimSpace(resp.Content) == "" {
 		if err == nil {
 			logIdleRaw("summary.generate", resp.Content)

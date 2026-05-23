@@ -119,10 +119,15 @@ type IdleChatOrchestrator struct {
 	personaTriggers           []domainpersona.TriggerDefinition
 	personaCanonicalResponses []domainpersona.CanonicalResponseDefinition
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	wg     sync.WaitGroup
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	runCtx              context.Context
+	runCancel           context.CancelFunc
+	activeSessionID     string
+	activeGeneration    uint64
+	interruptedSessions map[string]struct{}
+	mu                  sync.Mutex
+	wg                  sync.WaitGroup
 }
 
 type idleSessionPlan struct {

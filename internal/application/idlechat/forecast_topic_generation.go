@@ -141,7 +141,7 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 			MaxTokens:   420,
 			Temperature: 0.9 + float64(attempt)*0.05,
 		}
-		resp, err := o.forecastLLM().Generate(o.ctx, req)
+		resp, err := o.forecastLLM().Generate(o.idleRunContext(), req)
 		if err != nil {
 			log.Printf("[Forecast] Topic generation failed: %v", err)
 			break
@@ -187,7 +187,7 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 		{Role: "system", Content: "あなたはニュース分析の専門家です。"},
 		{Role: "user", Content: prompt},
 	}
-	resp, err := o.forecastLLM().Generate(o.ctx, llm.GenerateRequest{
+	resp, err := o.forecastLLM().Generate(o.idleRunContext(), llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   30,
 		Temperature: 0.5,

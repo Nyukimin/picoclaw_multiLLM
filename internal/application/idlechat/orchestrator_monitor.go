@@ -43,9 +43,10 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	o.chatActive = true
 	plan := o.nextIdleSessionPlanLocked()
 	o.sessionMode = plan.mode
+	generation := o.beginIdleRunLocked()
 	o.mu.Unlock()
 
-	log.Printf("[IdleChat] Idle for %v, starting %s session", idleDuration.Round(time.Second), plan.mode)
+	log.Printf("[IdleChat] Idle for %v, starting %s session generation=%d", idleDuration.Round(time.Second), plan.mode, generation)
 	switch plan.mode {
 	case "forecast":
 		if plan.domain == nil {
@@ -60,11 +61,15 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	}
 
 	o.mu.Lock()
-	o.chatActive = false
-	o.sessionMode = ""
-	o.currentTopic = ""
+	if o.activeGeneration == generation {
+		o.chatActive = false
+		o.sessionMode = ""
+		o.currentTopic = ""
+		o.activeSessionID = ""
+	}
 	o.lastActivity = time.Now() // セッション終了でアイドル計測をリセット
 	o.mu.Unlock()
+	o.cancelIdleRunIfGeneration(generation)
 }
 
 func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
@@ -76,8 +81,13 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 
 	for remainingTurns > 0 {
 		segmentID := fmt.Sprintf("%s-topic-%02d", sessionID, topicIndex)
+		generation := o.activateIdleSession(segmentID)
 		topicIndex++
 		topic, strategy := o.generateTopicFromChat(segmentID, strategy)
+		if !o.isIdleSessionActive(segmentID, generation) {
+			log.Printf("[IdleChat] Topic generation discarded after interrupt: session=%s", segmentID)
+			return
+		}
 		o.mu.Lock()
 		o.currentTopic = topic
 		o.mu.Unlock()
@@ -94,7 +104,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 
 		for turn := 0; turn < remainingTurns; turn++ {
 			select {
-			case <-o.ctx.Done():
+			case <-o.idleRunContext().Done():
 				return
 			default:
 			}
@@ -121,6 +131,12 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 				} else {
 					loopReason = "generation_error"
 				}
+				break
+			}
+			if !o.isIdleSessionActive(segmentID, generation) {
+				log.Printf("[IdleChat] Response discarded after interrupt: session=%s turn=%d", segmentID, turn)
+				sessionInterrupted = true
+				loopReason = "interrupted"
 				break
 			}
 			if isResponseTooSimilar(response, transcript) {
@@ -169,7 +185,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 		remainingTurns -= segmentTurns
 		totalTurns += segmentTurns
 		endedAt := time.Now().In(jst)
-		if segmentTurns > 0 {
+		if segmentTurns > 0 && o.isIdleSessionActive(segmentID, generation) {
 			displayStrategy := TopicStrategy(fmt.Sprintf("%s: %s", strategy, truncate(topic, 30)))
 			summary := o.saveSummary(segmentID, topic, displayStrategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
 			o.speakSummary(segmentID, summary)
@@ -204,7 +220,7 @@ func (o *IdleChatOrchestrator) waitForTTSDone(ch <-chan struct{}) {
 	timeout := idleChatTTSWaitTimeout
 	if timeout <= 0 {
 		select {
-		case <-o.ctx.Done():
+		case <-o.idleRunContext().Done():
 		case <-ch:
 		}
 		return
@@ -212,7 +228,7 @@ func (o *IdleChatOrchestrator) waitForTTSDone(ch <-chan struct{}) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-o.ctx.Done():
+	case <-o.idleRunContext().Done():
 		return
 	case <-ch:
 	case <-timer.C:
@@ -229,7 +245,7 @@ func (o *IdleChatOrchestrator) waitBreak(d time.Duration) {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
-	case <-o.ctx.Done():
+	case <-o.idleRunContext().Done():
 		return
 	case <-timer.C:
 	}

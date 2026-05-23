@@ -158,6 +158,8 @@ const state = {
     mode: '',
     manualMode: false,
     chatActive: false,
+    interrupted: false,
+    interruptedAt: 0,
     currentTopic: '',
     history: [],
     openIndex: -1,
@@ -2529,6 +2531,7 @@ function refreshViewerStatus() {
 }
 
 function ingestEvent(ev) {
+  if (isStaleIdleChatEvent(ev)) return;
   const key = eventKey(ev);
   if (seenEventKeys.has(key)) return;
   rememberEventKey(key);
@@ -2551,6 +2554,24 @@ function ingestEvent(ev) {
   }
   handleTTSAudioEvent(ev);
   derivedDirty = true;
+}
+
+function isStaleIdleChatEvent(ev) {
+  if (!ev) return false;
+  if (!state.idleChat.interrupted) return false;
+  const type = String(ev.type || '').trim();
+  if (type === 'idlechat.message' || type === 'idlechat.summary') {
+    return !state.idleChat.chatActive;
+  }
+  if (type === 'tts.audio_chunk') {
+    try {
+      const payload = JSON.parse(ev.content || '{}');
+      return isIdleChatSessionId(String(payload.session_id || '')) && !state.idleChat.chatActive;
+    } catch (_) {
+      return false;
+    }
+  }
+  return false;
 }
 
 function handleTTSAudioEvent(ev) {
@@ -2600,6 +2621,7 @@ function createChatAudioSync() {
     markAudioStarted,
     markSessionCompleted,
     resetCurrent: resetCurrentInternal,
+    resetIdleChat: resetIdleChatInternal,
     startTextFallback: startTextFallbackInternal,
     playNext: playNextInternal,
     disableAudio: disableAudioInternal,
@@ -2672,6 +2694,7 @@ function createChatAudioSync() {
   function handleEvent(ev) {
     const chunk = normalizeEvent(ev);
     if (!chunk) return;
+    if (chunk.mode === 'idlechat' && !state.idleChat.chatActive) return;
     if (chunk.eventType === 'session_completed') {
       markSessionCompleted(chunk.sessionId, chunk.responseId);
       return;
@@ -2817,6 +2840,27 @@ function createChatAudioSync() {
     clearTextInternal();
   }
 
+  function resetIdleChatInternal() {
+    state.queue = state.queue.filter((item) => item && item.mode !== 'idlechat');
+    if (state.fallbackTimer) clearTimeout(state.fallbackTimer);
+    state.fallbackTimer = null;
+    state.fallbackActive = false;
+    if (state.tailTimer) clearTimeout(state.tailTimer);
+    state.tailTimer = null;
+    state.tailActive = false;
+    if (state.currentSessionId && isIdleChatSessionId(state.currentSessionId)) {
+      if (state.audio) {
+        try { state.audio.pause(); } catch (_) {}
+        try { state.audio.removeAttribute('src'); } catch (_) {}
+        try { state.audio.load(); } catch (_) {}
+      }
+      resetCurrentInternal();
+    }
+    clearLipSyncSpeaking();
+    setNowPlayingText('', '');
+    clearTextInternal();
+  }
+
   function disableAudioInternal() {
     if (state.playing && !state.currentShown && state.currentDisplayText) {
       showChunkTextInternal({
@@ -2886,8 +2930,8 @@ function createChatAudioSync() {
     if (!state.audio) {
       state.audio = new Audio();
       state.audio.preload = 'auto';
-      prepareMobileInlineAudio(state.audio);
-      attachPlaybackAudioElement(state.audio);
+      if (typeof prepareMobileInlineAudio === 'function') prepareMobileInlineAudio(state.audio);
+      if (typeof attachPlaybackAudioElement === 'function') attachPlaybackAudioElement(state.audio);
       state.audio.addEventListener('playing', markAudioStarted);
       state.audio.addEventListener('timeupdate', markAudioStarted);
       state.audio.addEventListener('ended', function() {
@@ -2974,7 +3018,7 @@ function createChatAudioSync() {
         return;
       }
       playNextInternal();
-    }, ttsDisplayDelay(next));
+    }, ttsTextFallbackDelay(next));
   }
 
   function showBlockedAudioTextFallbackInternal(item) {
@@ -3235,6 +3279,11 @@ function ttsDisplayDelay(item) {
   return Math.max(900, Math.min(3400, 520 + (len * 85) + punctuationPause));
 }
 
+function ttsTextFallbackDelay(item) {
+  if (!ttsPlayback.audioEnabled) return 500;
+  return ttsDisplayDelay(item);
+}
+
 function ttsPlaybackTailGap(finished, next) {
   if (!next) return 180;
   const finishedSpeaker = String((finished && finished.characterId) || '');
@@ -3302,11 +3351,51 @@ bindMobileTTSAudioAutounlock();
 updateAudioButton();
 let sending = false;
 let viewerAttachments = [];
+let suppressInputInterrupt = false;
+let lastIdleInterruptAt = 0;
 function autoResize() {
   inp.style.height = 'auto';
   inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
 }
-inp.addEventListener('input', autoResize);
+function interruptIdleChatForUserInput(reason) {
+  const normalizedReason = String(reason || 'user_input').trim() || 'user_input';
+  const now = Date.now();
+  const shouldNotifyServer = now - lastIdleInterruptAt > 500 || normalizedReason === 'chat_send' || normalizedReason === 'stt_button';
+  lastIdleInterruptAt = now;
+  state.idleChat.mode = '';
+  state.idleChat.manualMode = false;
+  state.idleChat.chatActive = false;
+  state.idleChat.currentTopic = '';
+  state.idleChat.interrupted = true;
+  state.idleChat.interruptedAt = Date.now();
+  if (typeof renderIdleChat === 'function') renderIdleChat();
+  if (typeof chatAudioSync !== 'undefined' && chatAudioSync && typeof chatAudioSync.resetIdleChat === 'function') {
+    chatAudioSync.resetIdleChat();
+  }
+  if (!shouldNotifyServer) return;
+  fetch('/viewer/idlechat/interrupt', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reason: normalizedReason, source: 'viewer'}),
+    keepalive: true,
+  }).catch((err) => {
+    state.idleChat.controlError = 'IdleChat interrupt unavailable: ' + String(err && err.message ? err.message : err);
+    if (typeof renderIdleChat === 'function') renderIdleChat();
+    console.warn('[IdleChat] interrupt failed:', err);
+  });
+}
+function handleChatInputIntent(reason) {
+  if (suppressInputInterrupt) return;
+  interruptIdleChatForUserInput(reason);
+  if (sttState && sttState.isRecording) abortSTTImmediately('chat_input');
+}
+inp.addEventListener('beforeinput', () => handleChatInputIntent('user_input'));
+inp.addEventListener('input', () => {
+  handleChatInputIntent('user_input');
+  autoResize();
+});
+inp.addEventListener('paste', () => handleChatInputIntent('paste'));
+inp.addEventListener('compositionstart', () => handleChatInputIntent('composition_start'));
 inp.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -3386,6 +3475,7 @@ function send() {
   const message = text;
   const attachments = viewerAttachments.slice();
   if ((!text && attachments.length === 0) || sending) return;
+  if (typeof interruptIdleChatForUserInput === 'function') interruptIdleChatForUserInput('chat_send');
   sending = true;
   sendBtn.disabled = true;
   inp.disabled = true;
@@ -3680,7 +3770,14 @@ const sttSessionCopyBtn = document.getElementById('sttSessionCopyBtn');
 const STT_FINAL_WAIT_TIMEOUT_MS = 90000;
 const STT_STOP_TAIL_SILENCE_MS = 1000;
 if (micBtn) {
-  micBtn.addEventListener('click', toggleSTT);
+  micBtn.addEventListener('click', () => {
+    interruptIdleChatForUserInput('stt_button');
+    if (sttState.isRecording) {
+      abortSTTImmediately('stt_button');
+      return;
+    }
+    toggleSTT();
+  });
 }
 if (sttCaptureCopyBtn) {
   sttCaptureCopyBtn.addEventListener('click', copySTTCaptureLog);
@@ -4040,7 +4137,7 @@ async function toggleSTT() {
   if (sttState.isRecording) {
     stopSTT();
   } else {
-    if (!ensureVoiceChatForMobileControl()) {
+    if (typeof ensureVoiceChatForMobileControl === 'function' && !ensureVoiceChatForMobileControl()) {
       showToast('音声入力は通常チャットでのみ有効です', 'error');
       return;
     }
@@ -4049,7 +4146,7 @@ async function toggleSTT() {
 }
 
 async function startSTT() {
-  if (!ensureVoiceChatForMobileControl()) {
+  if (typeof ensureVoiceChatForMobileControl === 'function' && !ensureVoiceChatForMobileControl()) {
     showToast('音声入力は通常チャットでのみ有効です', 'error');
     return;
   }
@@ -4072,9 +4169,9 @@ async function startSTT() {
     sttState.errorCaptionText = '';
     sttState.stopControlSent = false;
     sttState.finalReceived = false;
-    clearSTTFinalWaitTimer();
-    updateSTTCaption();
-    updateSTTInputLevel(0);
+    if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
+    if (typeof updateSTTCaption === 'function') updateSTTCaption();
+    if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
     sttState.streamReady = false;
     if (!sttState.runtimeConfigLoaded) {
       await loadViewerRuntimeConfig();
@@ -4166,9 +4263,10 @@ function connectSTTWebSocket() {
             recordSTTCaptureEvent('progress', `${msg.duration || 0}s / ${msg.bytes || 0} bytes`);
           }
           if (msg.type !== 'progress') {
-            recordSTTCaptureEvent(msg.type, formatSTTServerEventPayload(msg, eventText));
+          const capturePayload = typeof formatSTTServerEventPayload === 'function' ? formatSTTServerEventPayload(msg, eventText) : eventText;
+          recordSTTCaptureEvent(msg.type, capturePayload);
           }
-          renderSTTDebugPanelsSafely();
+          if (typeof renderSTTDebugPanelsSafely === 'function') renderSTTDebugPanelsSafely();
         }
         if ((msg.type === 'draft' || msg.type === 'partial') && extractSTTMessageText(msg)) {
           const draftText = extractSTTMessageText(msg);
@@ -4213,14 +4311,14 @@ function connectSTTWebSocket() {
             return;
           }
           sttState.captureActionError = describeSTTActionError('STT recognition unavailable', sttErrorText);
-          setSTTCaptionError(sttErrorText);
+          if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttErrorText);
           updateSTTInputIndicators();
           console.error('[STT] Error:', msg.error || msg.message);
           showToast('認識エラー', 'error');
         }
       } catch (err) {
         sttState.captureActionError = describeSTTActionError('STT message parse unavailable', err);
-        setSTTCaptionError(sttState.captureActionError);
+        if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttState.captureActionError);
         updateSTTInputIndicators();
         console.error('[STT] Parse error:', err);
       }
@@ -4231,7 +4329,7 @@ function connectSTTWebSocket() {
       'STT websocket unavailable',
       event && event.message ? event : 'connection error',
     );
-    setSTTCaptionError(sttState.captureActionError);
+    if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttState.captureActionError);
     updateSTTInputIndicators();
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
@@ -4376,7 +4474,7 @@ function scheduleSTTFinalWaitTimeout() {
     sttState.finalWaitTimer = null;
     if (!sttState.isStopping) return;
     sttState.captureActionError = describeSTTActionError('STT final unavailable', 'timed out waiting for final');
-    setSTTCaptionError(sttState.captureActionError);
+    if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttState.captureActionError);
     recordSTTCaptureEvent('error', 'timed out waiting for final');
     updateSTTInputIndicators();
     if (sttState.ws && (sttState.ws.readyState === WebSocket.OPEN || sttState.ws.readyState === WebSocket.CONNECTING)) {
@@ -4396,9 +4494,15 @@ function handleSTTFinalText(text) {
   }
   const inp = document.getElementById('inp');
   if (inp) {
+    suppressInputInterrupt = true;
     inp.value = finalText;
     autoResize();
     inp.focus();
+    if (typeof setTimeout === 'function') {
+      setTimeout(() => { suppressInputInterrupt = false; }, 0);
+    } else {
+      suppressInputInterrupt = false;
+    }
   }
   if (!sending) {
     send();
@@ -4464,7 +4568,17 @@ function stopSTT() {
   sttState.isStopping = true;
   console.log('[STT] Stopping');
   sttState.isRecording = false;
-  updateSTTInputLevel(0);
+  if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
+  if (!sttState.finalReceived && sttState.lastRecognitionType !== 'final' && String(sttState.lastRecognitionText || '').trim()) {
+    const finalText = String(sttState.lastRecognitionText || '').trim();
+    sttState.finalReceived = true;
+    sttState.finalCaptionText = finalText;
+    sttState.partialCaptionText = '';
+    sttState.errorCaptionText = '';
+    if (typeof updateSTTCaption === 'function') updateSTTCaption();
+    recordSTTCaptureEvent('final', finalText);
+    handleSTTFinalText(finalText);
+  }
 
   if (sttState.draftTimer) sttState.draftTimer();
   if (sttState.reconnectTimer) {
@@ -4486,7 +4600,7 @@ function stopSTT() {
     sttState.audioStream = null;
   }
   if (sttState.finalReceived) {
-    clearSTTFinalWaitTimer();
+    if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
     sttState.chunkBuffer = [];
     if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
       sttState.ws.close();
@@ -4495,17 +4609,17 @@ function stopSTT() {
     }
   }
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
-    flushSTTAudioChunkBuffer();
-    sendSTTStopTailSilence();
-    sendSTTStopControl();
-    scheduleSTTFinalWaitTimeout();
+    if (typeof flushSTTAudioChunkBuffer === 'function') flushSTTAudioChunkBuffer();
+    if (typeof sendSTTStopTailSilence === 'function') sendSTTStopTailSilence();
+    if (typeof sendSTTStopControl === 'function') sendSTTStopControl();
+    if (typeof scheduleSTTFinalWaitTimeout === 'function') scheduleSTTFinalWaitTimeout();
     updateSTTInputIndicators();
     return;
   }
   sttState.chunkBuffer = [];
   if (sttState.ws && sttState.ws.readyState === WebSocket.CONNECTING) {
     sttState.ws.close();
-    scheduleSTTFinalWaitTimeout();
+    if (typeof scheduleSTTFinalWaitTimeout === 'function') scheduleSTTFinalWaitTimeout();
     updateSTTInputIndicators();
     return;
   }
@@ -4513,9 +4627,48 @@ function stopSTT() {
   completeSTTStop();
 }
 
+function abortSTTImmediately(reason) {
+  const abortReason = String(reason || 'immediate_abort').trim() || 'immediate_abort';
+  sttState.isRecording = false;
+  sttState.isStopping = false;
+  sttState.stopControlSent = false;
+  if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
+  if (sttState.reconnectTimer) {
+    clearTimeout(sttState.reconnectTimer);
+    sttState.reconnectTimer = null;
+  }
+  sttState.reconnecting = false;
+  if (sttState.scriptNode) {
+    try { sttState.scriptNode.disconnect(); } catch (_) {}
+    sttState.scriptNode = null;
+  }
+  if (sttState.audioContext) {
+    try { sttState.audioContext.close(); } catch (_) {}
+    sttState.audioContext = null;
+  }
+  if (sttState.audioStream) {
+    sttState.audioStream.getTracks().forEach((t) => {
+      try { t.stop(); } catch (_) {}
+    });
+    sttState.audioStream = null;
+  }
+  if (sttState.ws && (sttState.ws.readyState === WebSocket.OPEN || sttState.ws.readyState === WebSocket.CONNECTING)) {
+    try { sttState.ws.close(); } catch (_) {}
+  }
+  sttState.chunkBuffer = [];
+  sttState.draftBuffer = [];
+  sttState.partialCaptionText = '';
+  sttState.finalCaptionText = '';
+  sttState.errorCaptionText = '';
+  if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
+  if (typeof updateSTTCaption === 'function') updateSTTCaption();
+  updateSTTInputIndicators();
+  recordSTTCaptureEvent('stop', 'aborted: ' + abortReason);
+}
+
 function completeSTTStop() {
   if (!sttState.isStopping) return;
-  clearSTTFinalWaitTimer();
+  if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
   sttState.chunkBuffer = [];
   sttState.draftBuffer = [];
   sttState.stopControlSent = false;

@@ -458,6 +458,7 @@ async function refreshIdleStatus() {
     state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
     state.idleChat.chatActive = !!d.chat_active;
+    if (state.idleChat.chatActive) state.idleChat.interrupted = false;
     state.idleChat.currentTopic = d.current_topic || '';
     renderIdleChat();
   } catch (_) {
@@ -492,6 +493,7 @@ async function refreshIdleLogs() {
     state.idleChat.mode = d.mode || '';
     state.idleChat.manualMode = !!d.manual_mode;
     state.idleChat.chatActive = !!d.chat_active;
+    if (state.idleChat.chatActive) state.idleChat.interrupted = false;
     state.idleChat.currentTopic = d.current_topic || '';
     state.idleChat.history = Array.isArray(d.history) ? d.history : [];
     renderIdleChat();

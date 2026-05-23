@@ -52,7 +52,7 @@ LENGTH_CONTROL: 2文以内、または最大120字など、短くする制約を
 %s`, mode, topic, strings.TrimSpace(loopReason), strings.TrimSpace(summary), body)},
 	}
 
-	resp, err := o.providerForSpeaker("shiro").Generate(o.ctx, llm.GenerateRequest{
+	resp, err := o.providerForSpeaker("shiro").Generate(o.idleRunContext(), llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   idleChatQualityReviewMaxTokens,
 		Temperature: 0.2,

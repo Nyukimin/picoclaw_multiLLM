@@ -71,7 +71,7 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 			MaxTokens:   420,
 			Temperature: 0.9 + float64(attempt)*0.05, // 高めの温度で多様性確保
 		}
-		resp, err := o.providerForSpeaker("mio").Generate(o.ctx, req)
+		resp, err := o.providerForSpeaker("mio").Generate(o.idleRunContext(), req)
 		if err != nil {
 			log.Printf("[IdleChat] topic generation failed: %v", err)
 			break
