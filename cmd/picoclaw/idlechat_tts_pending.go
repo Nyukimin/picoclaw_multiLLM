@@ -3,18 +3,22 @@ package main
 import "sync"
 
 var (
-	idleChatTTSPendingMu sync.Mutex
-	idleChatTTSPending   = map[string]chan struct{}{}
+	idleChatTTSPendingMu         sync.Mutex
+	idleChatTTSPending           = map[string]chan struct{}{}
+	idleChatTTSPendingByResponse = map[string]chan struct{}{}
 	// Topic announcement must finish before the first agent line for the same idle session.
 	idleChatTopicGate  = map[string]chan struct{}{}
 	idleChatTopicByTTS = map[string]string{}
 )
 
-func registerIdleChatTTSPending(sessionID string) <-chan struct{} {
+func registerIdleChatTTSPending(sessionID, responseID string) <-chan struct{} {
 	idleChatTTSPendingMu.Lock()
 	defer idleChatTTSPendingMu.Unlock()
 	ch := make(chan struct{})
 	idleChatTTSPending[sessionID] = ch
+	if responseID != "" {
+		idleChatTTSPendingByResponse[responseID] = ch
+	}
 	return ch
 }
 
@@ -27,34 +31,46 @@ func registerIdleChatTopicGate(idleSessionID, ttsSessionID string) {
 	idleChatTopicByTTS[ttsSessionID] = idleSessionID
 }
 
-func notifyIdleChatTTSCompleted(sessionID string) {
+func notifyIdleChatTTSPlaybackCompleted(responseID string) bool {
 	idleChatTTSPendingMu.Lock()
-	ch, ok := idleChatTTSPending[sessionID]
-	if ok {
-		delete(idleChatTTSPending, sessionID)
-	}
-	idleSessionID, topicOK := idleChatTopicByTTS[sessionID]
-	if topicOK {
-		delete(idleChatTopicByTTS, sessionID)
-	}
+	ch, ok := idleChatTTSPendingByResponse[responseID]
 	var topicCh chan struct{}
-	if topicOK {
-		topicCh = idleChatTopicGate[idleSessionID]
-		delete(idleChatTopicGate, idleSessionID)
+	if ok {
+		delete(idleChatTTSPendingByResponse, responseID)
+		for sessionID, sessionCh := range idleChatTTSPending {
+			if sessionCh == ch {
+				delete(idleChatTTSPending, sessionID)
+				if idleSessionID, topicOK := idleChatTopicByTTS[sessionID]; topicOK {
+					delete(idleChatTopicByTTS, sessionID)
+					topicCh = idleChatTopicGate[idleSessionID]
+					delete(idleChatTopicGate, idleSessionID)
+				}
+				break
+			}
+		}
 	}
 	idleChatTTSPendingMu.Unlock()
 	if ok {
 		close(ch)
 	}
 	if topicCh != nil {
-		// Unblock queued agent speech once the topic announcement session is fully completed.
+		// Unblock queued agent speech once the topic announcement has actually finished playback.
 		close(topicCh)
 	}
+	return ok
 }
 
 func clearIdleChatTTSPending(sessionID string) {
 	idleChatTTSPendingMu.Lock()
-	delete(idleChatTTSPending, sessionID)
+	if ch, ok := idleChatTTSPending[sessionID]; ok {
+		delete(idleChatTTSPending, sessionID)
+		for responseID, responseCh := range idleChatTTSPendingByResponse {
+			if responseCh == ch {
+				delete(idleChatTTSPendingByResponse, responseID)
+			}
+		}
+		close(ch)
+	}
 	if idleSessionID, ok := idleChatTopicByTTS[sessionID]; ok {
 		delete(idleChatTopicByTTS, sessionID)
 		if topicCh := idleChatTopicGate[idleSessionID]; topicCh != nil {
@@ -71,6 +87,11 @@ func clearIdleChatTTSPendingByChan(target <-chan struct{}) {
 	for sessionID, ch := range idleChatTTSPending {
 		if (<-chan struct{})(ch) == target {
 			delete(idleChatTTSPending, sessionID)
+			for responseID, responseCh := range idleChatTTSPendingByResponse {
+				if responseCh == ch {
+					delete(idleChatTTSPendingByResponse, responseID)
+				}
+			}
 			if idleSessionID, ok := idleChatTopicByTTS[sessionID]; ok {
 				delete(idleChatTopicByTTS, sessionID)
 				topicCh = idleChatTopicGate[idleSessionID]

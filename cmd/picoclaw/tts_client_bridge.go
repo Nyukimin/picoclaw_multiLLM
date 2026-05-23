@@ -67,9 +67,11 @@ func buildTTSClientBridge(
 	}
 	onSessionDoneFn := func(sessionID, characterID string) {
 		publicSessionID := resolveTTSPublicSession(sessionID)
+		responseID := resolveTTSPublicResponse(sessionID)
 		if onChunk != nil {
 			payload, err := json.Marshal(map[string]any{
 				"session_id":   strings.TrimSpace(publicSessionID),
+				"response_id":  strings.TrimSpace(responseID),
 				"character_id": strings.TrimSpace(characterID),
 			})
 			if err != nil {
@@ -84,7 +86,6 @@ func buildTTSClientBridge(
 				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
 			}
 		}
-		notifyIdleChatTTSCompleted(sessionID)
 		clearTTSPublicSession(sessionID)
 		if onSessionCompleted != nil {
 			onSessionCompleted(publicSessionID, characterID)

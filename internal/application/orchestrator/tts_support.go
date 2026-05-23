@@ -19,7 +19,7 @@ const (
 	maleTTSVoiceID         = "male_01"
 	maleTTSVoiceProfile    = "lumina_male"
 	ttsChunkMinRunes       = 6
-	ttsChunkMaxRunes       = 42
+	ttsChunkMaxRunes       = 64
 )
 
 func buildTTSContext(route routing.Route, urgency string, attention bool) ttsapp.EmotionContext {

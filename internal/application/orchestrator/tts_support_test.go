@@ -41,6 +41,25 @@ func TestSplitTTSChunksForceSplitsTextWithoutBoundaries(t *testing.T) {
 	}
 }
 
+func TestSplitTTSChunksKeepsNaturalSentenceTogether(t *testing.T) {
+	text := "雨に濡れた掲示板って、まるで過ぎた約束をそのまま残しているみたいだよね。そんな中で見つけた、誰かの忘れ物みたいな切ないメモってどんな感じかな？"
+
+	chunks := SplitTTSChunks(text)
+
+	want := []string{
+		"雨に濡れた掲示板って、まるで過ぎた約束をそのまま残しているみたいだよね。",
+		"そんな中で見つけた、誰かの忘れ物みたいな切ないメモってどんな感じかな？",
+	}
+	if len(chunks) != len(want) {
+		t.Fatalf("expected %d chunks, got %d: %#v", len(want), len(chunks), chunks)
+	}
+	for i := range want {
+		if chunks[i] != want[i] {
+			t.Fatalf("chunk[%d] = %q, want %q", i, chunks[i], want[i])
+		}
+	}
+}
+
 func TestTTSStreamForwarderFinalizeSplitsUnemittedFinalText(t *testing.T) {
 	bridge := &recordingTTSBridge{}
 	forwarder := newTTSStreamForwarder(bridge, "s1", routing.RouteCHAT, "agent.response", "tts:")

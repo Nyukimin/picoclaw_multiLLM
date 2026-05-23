@@ -8,6 +8,7 @@ import (
 
 type ttsPublicSessionRoute struct {
 	publicSessionID string
+	responseID      string
 	chunkIndexes    map[int]int
 }
 
@@ -18,7 +19,7 @@ var (
 	ttsPublicNextResponse  = map[string]int{}
 )
 
-func registerTTSPublicSession(internalSessionID, publicSessionID string) {
+func registerTTSPublicSession(internalSessionID, publicSessionID, responseID string) {
 	internalSessionID = strings.TrimSpace(internalSessionID)
 	publicSessionID = strings.TrimSpace(publicSessionID)
 	if internalSessionID == "" || publicSessionID == "" || internalSessionID == publicSessionID {
@@ -27,6 +28,7 @@ func registerTTSPublicSession(internalSessionID, publicSessionID string) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes[internalSessionID] = &ttsPublicSessionRoute{
 		publicSessionID: publicSessionID,
+		responseID:      strings.TrimSpace(responseID),
 		chunkIndexes:    map[int]int{},
 	}
 	ttsPublicSessionMu.Unlock()
@@ -57,6 +59,16 @@ func resolveTTSPublicSession(internalSessionID string) string {
 		return route.publicSessionID
 	}
 	return internalSessionID
+}
+
+func resolveTTSPublicResponse(internalSessionID string) string {
+	internalSessionID = strings.TrimSpace(internalSessionID)
+	ttsPublicSessionMu.Lock()
+	defer ttsPublicSessionMu.Unlock()
+	if route := ttsPublicSessionRoutes[internalSessionID]; route != nil {
+		return strings.TrimSpace(route.responseID)
+	}
+	return ""
 }
 
 func clearTTSPublicSession(internalSessionID string) {

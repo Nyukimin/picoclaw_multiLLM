@@ -10,7 +10,8 @@ func buildIdleResponseGuardPrompt(speaker string, selfCtx, otherCtx []string) st
 	_ = selfCtx
 	_ = otherCtx
 	return fmt.Sprintf(
-		"%s の発話として、そのまま表示できる自然な日本語だけを返してください。英語だけの応答、英語の見出し、英語での説明、候補番号、自己採点は不要です。直前の言い回しをなぞらず、具体物・選択・秘密・感情の反転のどれかを一つだけ入れてください。",
+		"%s の発話として、そのまま表示できる自然な日本語だけを返してください。話者名、%s:、mio:、shiro:、相手の台詞、台本形式、英語だけの応答、英語の見出し、英語での説明、候補番号、自己採点は不要です。直前の言い回しをなぞらず、具体物・選択・秘密・感情の反転のどれかを一つだけ入れてください。",
+		speaker,
 		speaker,
 	)
 }
@@ -24,7 +25,7 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 	shiftHint := idleShiftHint(latestOther, latestSelf)
 	if firstTurn {
 		return fmt.Sprintf(
-			"話題: %s\n%sとして、会話の最初の発話を1〜2文で返してください。自然な日本語だけにし、英語や説明は書かないでください。%s。読者の楽しみは「%s」です。具体物か小さな問いを一つ入れ、相手が次に返しやすい未決点を残してください。",
+			"話題: %s\n%sとして、会話の最初の発話を1〜2文で返してください。自然な日本語だけにし、話者名、mio:、shiro:、相手の台詞、台本形式、英語や説明は書かないでください。%s。読者の楽しみは「%s」です。具体物か小さな問いを一つ入れ、相手が次に返しやすい未決点を残してください。",
 			topic,
 			speakerOrTarget,
 			move,
@@ -32,7 +33,7 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 		)
 	}
 	return fmt.Sprintf(
-		"話題: %s\n直前の相手発言: %s\n自分の直前発言: %s\n%sとして、直前の相手発言を受けて1〜2文で返してください。自然な日本語だけにし、英語や説明は書かないでください。%s。読者の楽しみは「%s」です。直前と入口を変え、具体物・理由・問いのどれかを一つだけ足してください。%s %s",
+		"話題: %s\n直前の相手発言: %s\n自分の直前発言: %s\n%sとして、直前の相手発言を受けて1〜2文で返してください。自然な日本語だけにし、話者名、mio:、shiro:、相手の台詞、台本形式、英語や説明は書かないでください。%s。読者の楽しみは「%s」です。直前と入口を変え、具体物・理由・問いのどれかを一つだけ足してください。%s %s",
 		topic,
 		quoteOrDash(latestOther),
 		quoteOrDash(latestSelf),

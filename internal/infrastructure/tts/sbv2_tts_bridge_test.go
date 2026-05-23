@@ -2,7 +2,9 @@ package tts
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
@@ -64,10 +66,36 @@ func (p *recordingProvider) Name() string {
 
 func (p *recordingProvider) Synthesize(_ context.Context, in SynthesisInput) (SynthesisOutput, error) {
 	p.texts = append(p.texts, in.Text)
+	path := fmt.Sprintf("%s/%02d.wav", in.OutputDir, len(p.texts))
+	if err := writeTestWAV(path); err != nil {
+		return SynthesisOutput{}, err
+	}
 	return SynthesisOutput{
 		Provider:      p.Name(),
-		AudioFilePath: fmt.Sprintf("%s/%02d.wav", in.OutputDir, len(p.texts)),
+		AudioFilePath: path,
 	}, nil
+}
+
+func writeTestWAV(path string) error {
+	pcm := make([]byte, 960)
+	for i := 0; i+1 < len(pcm); i += 2 {
+		binary.LittleEndian.PutUint16(pcm[i:i+2], uint16(1200))
+	}
+	header := make([]byte, 44)
+	copy(header[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(header[4:8], uint32(36+len(pcm)))
+	copy(header[8:12], "WAVE")
+	copy(header[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(header[16:20], 16)
+	binary.LittleEndian.PutUint16(header[20:22], 1)
+	binary.LittleEndian.PutUint16(header[22:24], 1)
+	binary.LittleEndian.PutUint32(header[24:28], 48000)
+	binary.LittleEndian.PutUint32(header[28:32], 96000)
+	binary.LittleEndian.PutUint16(header[32:34], 2)
+	binary.LittleEndian.PutUint16(header[34:36], 16)
+	copy(header[36:40], "data")
+	binary.LittleEndian.PutUint32(header[40:44], uint32(len(pcm)))
+	return os.WriteFile(path, append(header, pcm...), 0o644)
 }
 
 type recordingSink struct {

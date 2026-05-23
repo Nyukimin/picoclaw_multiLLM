@@ -108,6 +108,45 @@ func TestGenerateResponseWithRawReturnsUneditedSelectedOutput(t *testing.T) {
 	}
 }
 
+func TestGenerateResponseSelectsCurrentSpeakerLineFromScriptOutput(t *testing.T) {
+	provider := &capturingIdleProvider{responses: []string{
+		"Mio: その封筒を開けた瞬間、棚の奥の雨音まで変わりそう。\nShiro: 開ける前に、宛名の消え方を見たほうがいい。",
+		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
+	}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+
+	got, raw, err := o.generateResponseWithRaw("mio", "shiro", "idle-script-response", 0, 0, "郵便と古書店")
+	if err != nil {
+		t.Fatalf("generateResponseWithRaw() error = %v", err)
+	}
+	if got != "その封筒を開けた瞬間、棚の奥の雨音まで変わりそう。" {
+		t.Fatalf("response should keep only current speaker line: %q", got)
+	}
+	if !strings.Contains(raw, "Shiro:") {
+		t.Fatalf("raw response should preserve original script output: %q", raw)
+	}
+}
+
+func TestSanitizeIdleResponseForSpeakerSelectsShiroLine(t *testing.T) {
+	raw := "mio: その封筒を開けた瞬間、棚の奥の雨音まで変わりそう。\nshiro: 開ける前に、宛名の消え方を見たほうがいい。"
+
+	got := sanitizeIdleResponseForSpeaker(raw, "郵便と古書店", "shiro")
+	want := "開ける前に、宛名の消え方を見たほうがいい。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponseForSpeaker() = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeIdleResponseExtractsStraightQuotedPossibleResponse(t *testing.T) {
+	raw := `Possible response: "雨上がりの空気は、薄い青色だったような気がする。でも、古い傘の柄にまだ水滴が残っていた。"`
+
+	got := sanitizeIdleResponseForSpeaker(raw, "雨上がりの縁側", "shiro")
+	want := "雨上がりの空気は、薄い青色だったような気がする。でも、古い傘の柄にまだ水滴が残っていた。"
+	if got != want {
+		t.Fatalf("sanitizeIdleResponseForSpeaker() = %q, want %q", got, want)
+	}
+}
+
 func TestGenerateResponseUsesDialogueMaxTokensForShiro(t *testing.T) {
 	provider := &capturingIdleProvider{responses: []string{
 		"その点は、封筒を開ける前に誰が見ていたかで意味が変わる。",
@@ -124,6 +163,29 @@ func TestGenerateResponseUsesDialogueMaxTokensForShiro(t *testing.T) {
 	}
 	if got := provider.requests[0].MaxTokens; got != idleChatShiroResponseMaxTokens {
 		t.Fatalf("shiro primary max tokens = %d, want %d", got, idleChatShiroResponseMaxTokens)
+	}
+}
+
+func TestGenerateResponseRecoversShiroDialogueWithDefaultProvider(t *testing.T) {
+	chatProvider := &capturingIdleProvider{response: "開ける前に、宛名の消え方を見たほうがいい。封筒の端だけ濡れているなら、隠した人の癖が残ります。"}
+	workerProvider := &capturingIdleProvider{responses: []string{"", ""}}
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{
+		"shiro": workerProvider,
+	})
+
+	got, err := o.generateResponse("shiro", "mio", "idle-shiro-recovery", 1, 1, "郵便と古書店")
+	if err != nil {
+		t.Fatalf("generateResponse() error = %v", err)
+	}
+	if !strings.Contains(got, "宛名の消え方") {
+		t.Fatalf("default provider recovery was not used: %q", got)
+	}
+	if len(workerProvider.requests) < 1 {
+		t.Fatal("expected worker provider to be tried first")
+	}
+	if len(chatProvider.requests) != 1 {
+		t.Fatalf("default provider recovery requests = %d, want 1", len(chatProvider.requests))
 	}
 }
 

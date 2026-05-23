@@ -43,7 +43,7 @@ func (m *idleChatMockTTSBridge) PushTextWithDisplay(_ context.Context, sessionID
 func (m *idleChatMockTTSBridge) EndSession(_ context.Context, sessionID string) error {
 	m.endIDs = append(m.endIDs, sessionID)
 	if m.notifyOnEnd {
-		notifyIdleChatTTSCompleted(sessionID)
+		clearIdleChatTTSPending(sessionID)
 	}
 	return nil
 }
@@ -124,6 +124,125 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	}
 }
 
+func TestEmitIdleChatTTS_StripsSpeakerLabelsFromDisplayAndSpeech(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "shiro",
+		Content:   "mio: その封筒を開けた瞬間、棚の奥の雨音まで変わりそう。",
+		SessionID: "idle-label",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	want := "その封筒を開けた瞬間、棚の奥の雨音まで変わりそう。"
+	if got := bridge.pushTexts[0]; got != want {
+		t.Fatalf("unexpected tts text: got %q want %q", got, want)
+	}
+	if got := bridge.displayTexts[0]; got != want {
+		t.Fatalf("unexpected display text: got %q want %q", got, want)
+	}
+}
+
+func TestEmitIdleChatTTS_DropsReasoningLinesFromScriptOutput(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "shiro",
+		To:        "mio",
+		Content:   "Looking at the example responses,\nshiro: 開ける前に、宛名の消え方を見たほうがいい。",
+		SessionID: "idle-reasoning",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	want := "開ける前に、宛名の消え方を見たほうがいい。"
+	if got := bridge.pushTexts[0]; got != want {
+		t.Fatalf("unexpected tts text: got %q want %q", got, want)
+	}
+	if got := bridge.displayTexts[0]; got != want {
+		t.Fatalf("unexpected display text: got %q want %q", got, want)
+	}
+}
+
+func TestEmitIdleChatTTS_StripsPossibleResponsePrefix(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "shiro",
+		To:        "mio",
+		Content:   `Possible response: "雨上がりの空気は、薄い青色だったような気がする。"`,
+		SessionID: "idle-possible-response",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	want := "雨上がりの空気は、薄い青色だったような気がする。"
+	if got := bridge.pushTexts[0]; got != want {
+		t.Fatalf("unexpected tts text: got %q want %q", got, want)
+	}
+	if got := bridge.displayTexts[0]; got != want {
+		t.Fatalf("unexpected display text: got %q want %q", got, want)
+	}
+}
+
+func TestEmitIdleChatTTS_DropsEmbeddedEnglishReasoningLines(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type: "idlechat.message",
+		From: "shiro",
+		To:   "mio",
+		Content: "First, check the user's latest message:\n" +
+			"Mio says, \"その指紋が残した傷が、実は次の誰かの目印だった\"\n" +
+			"その「待つ存在」って、もしかして階段の先にいる誰か？\n" +
+			"\" So Mio is suggesting the scars are a sign for someone to step forward,\n" +
+			"and the \"waiting presence\" might be someone at the top of the stairs.",
+		SessionID: "idle-english-reasoning",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	want := "その「待つ存在」って、もしかして階段の先にいる誰か？"
+	if got := bridge.pushTexts[0]; got != want {
+		t.Fatalf("unexpected tts text: got %q want %q", got, want)
+	}
+	if got := bridge.displayTexts[0]; got != want {
+		t.Fatalf("unexpected display text: got %q want %q", got, want)
+	}
+}
+
+func TestEmitIdleChatTTS_CutsInlineEnglishReasoningTail(t *testing.T) {
+	bridge := &idleChatMockTTSBridge{}
+
+	_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "shiro",
+		To:        "mio",
+		Content:   `雨上がりの庭で、苔が宿主の根を守りながら共生する姿は、静かな中にも生命力の循環が感じられる。" That's one sentence. Maybe add a question.`,
+		SessionID: "idle-inline-reasoning",
+	})
+
+	if len(bridge.pushTexts) != 1 {
+		t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+	}
+	want := "雨上がりの庭で、苔が宿主の根を守りながら共生する姿は、静かな中にも生命力の循環が感じられる。"
+	if got := bridge.pushTexts[0]; got != want {
+		t.Fatalf("unexpected tts text: got %q want %q", got, want)
+	}
+	if got := bridge.displayTexts[0]; got != want {
+		t.Fatalf("unexpected display text: got %q want %q", got, want)
+	}
+}
+
 func TestEmitIdleChatTTSAsyncTopicAnnouncementReturnsCompletion(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{notifyOnEnd: true}
 
@@ -199,15 +318,44 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 		SessionID: "idle-prefetch-1",
 	})
 
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if len(bridge.pushTexts) >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(bridge.pushTexts) < 2 {
+		t.Fatalf("expected queued speech to be synthesized without playback completion, got %d pushes", len(bridge.pushTexts))
+	}
+	for name, done := range map[string]<-chan struct{}{"first": first, "second": second} {
+		select {
+		case <-done:
+			t.Fatalf("%s playback completion was signaled before playback ack", name)
+		default:
+		}
+	}
+
+	idleChatTTSPendingMu.Lock()
+	var responseIDs []string
+	for responseID := range idleChatTTSPendingByResponse {
+		if strings.HasPrefix(responseID, "idle-prefetch-1:") {
+			responseIDs = append(responseIDs, responseID)
+		}
+	}
+	idleChatTTSPendingMu.Unlock()
+	if len(responseIDs) != 2 {
+		t.Fatalf("expected 2 pending playback responses, got %d", len(responseIDs))
+	}
+	for _, responseID := range responseIDs {
+		notifyIdleChatTTSPlaybackCompleted(responseID)
+	}
 	for name, done := range map[string]<-chan struct{}{"first": first, "second": second} {
 		select {
 		case <-done:
 		case <-time.After(time.Second):
-			t.Fatalf("%s synthesis completion was not signaled", name)
+			t.Fatalf("%s playback completion was not signaled after ack", name)
 		}
-	}
-	if len(bridge.pushTexts) < 2 {
-		t.Fatalf("expected queued speech to be synthesized without playback completion, got %d pushes", len(bridge.pushTexts))
 	}
 	if bridge.pushTexts[len(bridge.pushTexts)-2] != "先に合成する発話です。" ||
 		bridge.pushTexts[len(bridge.pushTexts)-1] != "再生完了を待たずに合成する発話です。" {
@@ -236,8 +384,8 @@ func TestEmitIdleChatTTS_RemovesLoopNotesFromSpeechOnly(t *testing.T) {
 	if !strings.Contains(bridge.pushTexts[0], "今回のまとめです。") || !strings.Contains(bridge.pushTexts[0], "本文を読み上げます。") {
 		t.Fatalf("unexpected speech text: %q", bridge.pushTexts[0])
 	}
-	if got := formatIdleChatDisplayText(idlechat.TimelineEvent{Content: content}); !strings.Contains(got, "注記: テンプレ反復で打ち切り") {
-		t.Fatalf("display text should keep note, got %q", got)
+	if got := formatIdleChatDisplayText(idlechat.TimelineEvent{Content: content}); strings.Contains(got, "注記:") {
+		t.Fatalf("tts display text should not keep note, got %q", got)
 	}
 }
 

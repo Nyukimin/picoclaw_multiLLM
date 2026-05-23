@@ -148,7 +148,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 			msg := domaintransport.NewMessage(speaker, nextSpeaker, segmentID, "", response)
 			msg.Type = domaintransport.MessageTypeIdleChat
 			o.memory.RecordMessage(msg)
-			o.emitTimelineEvent(TimelineEvent{
+			ttsDone := o.emitTimelineEvent(TimelineEvent{
 				Type:       "idlechat.message",
 				From:       speaker,
 				To:         nextSpeaker,
@@ -160,6 +160,7 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 			segmentTurns++
 
 			log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
+			o.waitForTTSDone(ttsDone)
 			o.waitBreak(speakerBreak)
 
 			if segmentTurns >= maxTurnsPerTopic {

@@ -3,6 +3,7 @@ package tts
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -73,17 +74,21 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 		if i < len(displayChunks) && strings.TrimSpace(displayChunks[i]) != "" {
 			displayChunk = displayChunks[i]
 		}
-		out, err := b.cfg.Provider.Synthesize(ctx, SynthesisInput{
-			Text:       chunkText,
-			OutputDir:  b.cfg.OutputDir,
-			FilePrefix: "viewer-tts",
-			VoiceProfile: VoiceProfile{
-				VoiceID: s.voiceID,
-			},
-		})
+		out, stats, err := b.synthesizeChunk(ctx, s, chunkText)
 		if err != nil {
 			return err
 		}
+		log.Printf("[TTS] chunk_ready session=%s response=%s chunk=%d voice=%s duration_ms=%d rms=%d peak=%d text=%q audio_path=%s",
+			sessionID,
+			s.responseID,
+			s.nextChunk,
+			s.voiceID,
+			stats.DurationMS,
+			stats.RMS,
+			stats.Peak,
+			chunkText,
+			localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
+		)
 		ch := audioChunk{
 			ChunkIndex: s.nextChunk,
 			Text:       chunkText,
@@ -102,6 +107,43 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 		}
 	}
 	return nil
+}
+
+func (b *SBV2TTSBridge) synthesizeChunk(ctx context.Context, s *sbv2BridgeSession, chunkText string) (SynthesisOutput, wavStats, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		out, err := b.cfg.Provider.Synthesize(ctx, SynthesisInput{
+			Text:       chunkText,
+			OutputDir:  b.cfg.OutputDir,
+			FilePrefix: "viewer-tts",
+			VoiceProfile: VoiceProfile{
+				VoiceID: s.voiceID,
+			},
+		})
+		if err != nil {
+			lastErr = err
+			if attempt == 1 && strings.Contains(err.Error(), "silent") {
+				log.Printf("[TTS] retrying near-silent chunk voice=%s text=%q err=%v", s.voiceID, chunkText, err)
+				continue
+			}
+			return SynthesisOutput{}, wavStats{}, err
+		}
+		stats, ok, err := inspectPCM16WAV(out.AudioFilePath)
+		if err != nil {
+			return SynthesisOutput{}, wavStats{}, err
+		}
+		if ok && stats.NearSilent {
+			lastErr = fmt.Errorf("%w: generated wav is near silent duration_ms=%d rms=%d peak=%d", ErrSynthesisFailed, stats.DurationMS, stats.RMS, stats.Peak)
+			if attempt == 1 {
+				log.Printf("[TTS] retrying near-silent chunk voice=%s text=%q audio_path=%s duration_ms=%d rms=%d peak=%d",
+					s.voiceID, chunkText, out.AudioFilePath, stats.DurationMS, stats.RMS, stats.Peak)
+				continue
+			}
+			return SynthesisOutput{}, stats, lastErr
+		}
+		return out, stats, nil
+	}
+	return SynthesisOutput{}, wavStats{}, lastErr
 }
 
 func localAudioPathForViewer(outputDir, audioPath string) string {

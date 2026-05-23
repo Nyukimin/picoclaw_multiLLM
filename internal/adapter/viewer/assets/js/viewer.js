@@ -2539,6 +2539,9 @@ function resolveTTSPlaybackURL(audioURL, audioPath) {
 function createChatAudioSync() {
   const state = ttsPlayback;
   const completedSessions = new Set();
+  const completedResponses = new Set();
+  const acknowledgedResponses = new Set();
+  const responsePlaybackCounts = new Map();
   const seenUtterances = new Set();
 
   const module = {
@@ -2582,11 +2585,13 @@ function createChatAudioSync() {
         return {
           eventType: 'session_completed',
           sessionId: String(payload.session_id || ev.session_id || '').trim(),
+          responseId: String(payload.response_id || '').trim(),
         };
       } catch (_) {
         return {
           eventType: 'session_completed',
           sessionId: String(ev.session_id || '').trim(),
+          responseId: '',
         };
       }
     }
@@ -2637,7 +2642,7 @@ function createChatAudioSync() {
     const chunk = normalizeEvent(ev);
     if (!chunk) return;
     if (chunk.eventType === 'session_completed') {
-      markSessionCompleted(chunk.sessionId);
+      markSessionCompleted(chunk.sessionId, chunk.responseId);
       return;
     }
     if (!chunk.url) {
@@ -2682,17 +2687,15 @@ function createChatAudioSync() {
     if (chunk.utteranceId && seenUtterances.has(chunk.utteranceId)) return;
     if (chunk.utteranceId) seenUtterances.add(chunk.utteranceId);
     chunk.seq = ++state.seq;
+    incrementResponsePlaybackCount(chunk.responseId);
     state.queue.push(chunk);
     sortQueue();
   }
 
   function sortQueue() {
     state.queue.sort((a, b) => {
-      const ap = a.mode === 'idlechat' ? 1 : 0;
-      const bp = b.mode === 'idlechat' ? 1 : 0;
-      if (ap !== bp) return ap - bp;
-      const aKey = `${a.sessionId}|${a.track}`;
-      const bKey = `${b.sessionId}|${b.track}`;
+      const aKey = `${a.sessionId}|${a.responseId}|${a.track}`;
+      const bKey = `${b.sessionId}|${b.responseId}|${b.track}`;
       if (aKey === bKey && a.chunkIndex >= 0 && b.chunkIndex >= 0 && a.chunkIndex !== b.chunkIndex) {
         return a.chunkIndex - b.chunkIndex;
       }
@@ -2700,11 +2703,61 @@ function createChatAudioSync() {
     });
   }
 
-  function markSessionCompleted(sessionId) {
+  function markSessionCompleted(sessionId, responseId) {
     const sid = String(sessionId || '').trim();
-    if (!sid) return;
-    completedSessions.add(sid);
+    if (sid) completedSessions.add(sid);
+    const rid = String(responseId || '').trim();
+    if (rid) {
+      completedResponses.add(rid);
+      maybeAcknowledgeResponsePlayback({responseId: rid, sessionId: sid}, 'completed_after_playback');
+    }
     playNextInternal();
+  }
+
+  function incrementResponsePlaybackCount(responseId) {
+    const rid = String(responseId || '').trim();
+    if (!rid) return;
+    responsePlaybackCounts.set(rid, (responsePlaybackCounts.get(rid) || 0) + 1);
+  }
+
+  function decrementResponsePlaybackCount(responseId) {
+    const rid = String(responseId || '').trim();
+    if (!rid) return;
+    const nextCount = Math.max(0, (responsePlaybackCounts.get(rid) || 0) - 1);
+    if (nextCount === 0) {
+      responsePlaybackCounts.delete(rid);
+      return;
+    }
+    responsePlaybackCounts.set(rid, nextCount);
+  }
+
+  function maybeAcknowledgeResponsePlayback(item, status, err) {
+    const responseId = String((item && item.responseId) || '').trim();
+    if (!responseId) return;
+    if (!completedResponses.has(responseId)) return;
+    if ((responsePlaybackCounts.get(responseId) || 0) > 0) return;
+    if (acknowledgedResponses.has(responseId)) return;
+    acknowledgedResponses.add(responseId);
+    postTTSPlaybackAck(item, status, err);
+  }
+
+  function postTTSPlaybackAck(item, status, err) {
+    const payload = {
+      response_id: String((item && item.responseId) || '').trim(),
+      session_id: String((item && item.sessionId) || '').trim(),
+      utterance_id: String((item && item.utteranceId) || '').trim(),
+      status: String(status || 'ended'),
+      error: err ? describeTTSAudioError(err) : '',
+    };
+    if (!payload.response_id) return;
+    fetch('/viewer/tts/playback-ack', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch((ackErr) => {
+      console.warn('tts playback ack failed', ackErr);
+    });
   }
 
   function canStartChunk(chunk) {
@@ -2882,6 +2935,8 @@ function createChatAudioSync() {
     state.fallbackTimer = setTimeout(function() {
       state.fallbackTimer = null;
       state.fallbackActive = false;
+      decrementResponsePlaybackCount(next.responseId);
+      maybeAcknowledgeResponsePlayback(next, 'fallback');
       const nextHead = state.queue[0];
       if (state.blocked || (nextHead && nextHead.displayOnly)) {
         startTextFallbackInternal();
@@ -2922,6 +2977,8 @@ function createChatAudioSync() {
     state.fallbackTimer = setTimeout(function() {
       state.fallbackTimer = null;
       state.fallbackActive = false;
+      decrementResponsePlaybackCount(item.responseId);
+      maybeAcknowledgeResponsePlayback(item, 'error', err);
       resetCurrentInternal();
       playNextInternal();
     }, ttsDisplayDelay(item));
@@ -2943,6 +3000,8 @@ function createChatAudioSync() {
     setNowPlayingText('', '');
     clearTextInternal();
     const delay = ttsPlaybackTailGap(finished, state.queue[0]);
+    decrementResponsePlaybackCount(finished.responseId);
+    maybeAcknowledgeResponsePlayback(finished, 'ended');
     if (state.tailTimer) clearTimeout(state.tailTimer);
     state.tailActive = true;
     state.tailTimer = setTimeout(function() {

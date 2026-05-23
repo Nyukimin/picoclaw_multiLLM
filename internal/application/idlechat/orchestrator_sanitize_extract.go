@@ -95,6 +95,7 @@ func extractQuotedJapaneseDialogueCandidate(s string) string {
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`「([^「」]{12,240})」`),
 		regexp.MustCompile(`“([^“”]{12,240})”`),
+		regexp.MustCompile(`"([^"]{12,240})"`),
 	}
 	for _, re := range patterns {
 		matches := re.FindAllStringSubmatch(s, -1)

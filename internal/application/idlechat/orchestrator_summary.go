@@ -92,7 +92,7 @@ func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 	msg := domaintransport.NewMessage("mio", "user", sessionID, "", spokenSummary)
 	msg.Type = domaintransport.MessageTypeIdleChat
 	o.memory.RecordMessage(msg)
-	o.emitTimelineEvent(TimelineEvent{
+	ttsDone := o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.message",
 		From:      "mio",
 		To:        "user",
@@ -100,6 +100,7 @@ func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 		SessionID: sessionID,
 	})
 	log.Printf("[IdleChat] Mio reading summary: %s", truncate(spokenSummary, 80))
+	o.waitForTTSDone(ttsDone)
 	o.waitBreak(topicBreak)
 }
 
@@ -206,7 +207,7 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 	return summary
 }
 
-// speakSummary は Mio にまとめを読み上げさせる。会話進行は TTS 完了を待たない。
+// speakSummary は Mio にまとめを読み上げさせる。
 
 func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []string) string {
 	if len(transcript) == 0 {

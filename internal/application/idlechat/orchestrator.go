@@ -27,7 +27,7 @@ const (
 	topicBreak                     = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
 )
 
-var idleChatTTSWaitTimeout = 35 * time.Second
+var idleChatTTSWaitTimeout = 120 * time.Second
 
 var idleChatLLMGenerateTimeout = 45 * time.Second
 

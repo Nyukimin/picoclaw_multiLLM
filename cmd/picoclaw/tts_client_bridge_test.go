@@ -93,8 +93,8 @@ func TestTTSPublicSessionRouteKeepsLogicalSessionAndGlobalChunkOrder(t *testing.
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicSessionMu.Unlock()
 
-	registerTTSPublicSession("idle-1-tts-a", "idle-1")
-	registerTTSPublicSession("idle-1-tts-b", "idle-1")
+	registerTTSPublicSession("idle-1-tts-a", "idle-1", "idle-1:0000")
+	registerTTSPublicSession("idle-1-tts-b", "idle-1", "idle-1:0001")
 
 	session, chunk := resolveTTSPublicChunk("idle-1-tts-a", 0)
 	if session != "idle-1" || chunk != 0 {

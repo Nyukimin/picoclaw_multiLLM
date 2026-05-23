@@ -6,6 +6,10 @@ import (
 )
 
 func sanitizeIdleResponse(s, topic string) string {
+	return sanitizeIdleResponseForSpeaker(s, topic, "")
+}
+
+func sanitizeIdleResponseForSpeaker(s, topic, speaker string) string {
 	out := strings.TrimSpace(extractVisibleLLMAnswer(s))
 	if out == "" {
 		return out
@@ -32,49 +36,8 @@ func sanitizeIdleResponse(s, topic string) string {
 	for _, leak := range leaks {
 		out = strings.ReplaceAll(out, leak, "")
 	}
-	speakerPrefixes := []string{
-		// "Assistant: [speaker]:" 形式（LLMのプロンプトリーク）
-		"assistant: [mio]:",
-		"assistant: [mio]：",
-		"assistant: [shiro]:",
-		"assistant: [shiro]：",
-		"assistant: mio:",
-		"assistant: mio：",
-		"assistant: shiro:",
-		"assistant: shiro：",
-		"assistant:",
-		// 通常の speaker prefix
-		"[mio]:",
-		"[mio]：",
-		"[shiro]:",
-		"[shiro]：",
-		"mio]:",
-		"mio]：",
-		"shiro]:",
-		"shiro]：",
-		"mio:",
-		"mio：",
-		"shiro:",
-		"shiro：",
-		"mioさん:",
-		"mio さん:",
-		"shiroさん:",
-		"shiro さん:",
-	}
-	for {
-		lowerOut := strings.ToLower(out)
-		stripped := false
-		for _, prefix := range speakerPrefixes {
-			if strings.HasPrefix(lowerOut, prefix) {
-				out = strings.TrimSpace(out[len(prefix):])
-				stripped = true
-				break
-			}
-		}
-		if !stripped {
-			break
-		}
-	}
+	out = selectIdleSpeakerLine(out, speaker)
+	out = stripLeadingIdleSpeakerPrefix(out)
 	out = promptLeakLineRe.ReplaceAllString(out, "")
 	out = strings.TrimLeftFunc(out, func(r rune) bool {
 		return unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r)
@@ -82,6 +45,95 @@ func sanitizeIdleResponse(s, topic string) string {
 	out = strings.ReplaceAll(out, "  ", " ")
 	out = strings.TrimSpace(out)
 	return out
+}
+
+func selectIdleSpeakerLine(out, speaker string) string {
+	normalizedSpeaker := normalizeIdleSpeakerName(speaker)
+	if normalizedSpeaker == "" || !strings.Contains(out, "\n") {
+		return out
+	}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		lineSpeaker, body, ok := splitIdleSpeakerLine(line)
+		if ok && lineSpeaker == normalizedSpeaker && strings.TrimSpace(body) != "" {
+			return strings.TrimSpace(body)
+		}
+	}
+	return out
+}
+
+func stripLeadingIdleSpeakerPrefix(out string) string {
+	for {
+		_, body, ok := splitIdleSpeakerLine(out)
+		if !ok {
+			return out
+		}
+		out = strings.TrimSpace(body)
+	}
+}
+
+func splitIdleSpeakerLine(line string) (speaker, body string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", "", false
+	}
+	lower := strings.ToLower(trimmed)
+	prefixes := []struct {
+		raw     string
+		speaker string
+	}{
+		{"assistant: [mio]:", "mio"},
+		{"assistant: [mio]：", "mio"},
+		{"assistant: [shiro]:", "shiro"},
+		{"assistant: [shiro]：", "shiro"},
+		{"assistant: mio:", "mio"},
+		{"assistant: mio：", "mio"},
+		{"assistant: shiro:", "shiro"},
+		{"assistant: shiro：", "shiro"},
+		{"[mio]:", "mio"},
+		{"[mio]：", "mio"},
+		{"[shiro]:", "shiro"},
+		{"[shiro]：", "shiro"},
+		{"mio]:", "mio"},
+		{"mio]：", "mio"},
+		{"shiro]:", "shiro"},
+		{"shiro]：", "shiro"},
+		{"mioさん:", "mio"},
+		{"mio さん:", "mio"},
+		{"shiroさん:", "shiro"},
+		{"shiro さん:", "shiro"},
+		{"みお:", "mio"},
+		{"みお：", "mio"},
+		{"ミオ:", "mio"},
+		{"ミオ：", "mio"},
+		{"しろ:", "shiro"},
+		{"しろ：", "shiro"},
+		{"シロ:", "shiro"},
+		{"シロ：", "shiro"},
+		{"mio:", "mio"},
+		{"mio：", "mio"},
+		{"shiro:", "shiro"},
+		{"shiro：", "shiro"},
+		{"assistant:", ""},
+		{"assistant：", ""},
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, strings.ToLower(prefix.raw)) {
+			return prefix.speaker, strings.TrimSpace(trimmed[len(prefix.raw):]), true
+		}
+	}
+	return "", "", false
+}
+
+func normalizeIdleSpeakerName(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "mio", "みお", "ミオ":
+		return "mio"
+	case "shiro", "しろ", "シロ":
+		return "shiro"
+	default:
+		return ""
+	}
 }
 
 func sanitizeIdleSummaryResponse(raw, topic string) string {

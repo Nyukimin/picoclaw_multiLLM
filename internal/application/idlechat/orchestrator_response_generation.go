@@ -99,7 +99,7 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 	}
 	logIdleRaw(fmt.Sprintf("dialogue.primary speaker=%s turn=%d", speaker, turn), resp.Content)
 	firstRaw := strings.TrimSpace(resp.Content)
-	first := sanitizeIdleResponse(resp.Content, topic)
+	first := sanitizeIdleResponseForSpeaker(resp.Content, topic, speaker)
 	firstTruncated := finishReasonLooksTruncated(resp.FinishReason)
 	if firstTruncated {
 		log.Printf("[IdleChat] primary truncated (%s turn=%d): finish=%q max_tokens=%d", speaker, turn, resp.FinishReason, req.MaxTokens)
@@ -124,7 +124,7 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		} else {
 			logIdleRaw(fmt.Sprintf("dialogue.candidate_b speaker=%s turn=%d", speaker, turn), respSecond.Content)
 			secondRaw := strings.TrimSpace(respSecond.Content)
-			second := sanitizeIdleResponse(respSecond.Content, topic)
+			second := sanitizeIdleResponseForSpeaker(respSecond.Content, topic, speaker)
 			if finishReasonLooksTruncated(respSecond.FinishReason) || unusableIdleResponse(secondRaw, second) {
 				log.Printf("[IdleChat] fun candidate B unusable (%s turn=%d): raw=%q sanitized=%q", speaker, turn, truncate(secondRaw, 180), truncate(second, 180))
 			} else {
@@ -151,7 +151,7 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		}
 		if errInvalid == nil && strings.TrimSpace(respInvalid.Content) != "" {
 			logIdleRaw(fmt.Sprintf("dialogue.retry_invalid speaker=%s turn=%d", speaker, turn), respInvalid.Content)
-			first = sanitizeIdleResponse(respInvalid.Content, topic)
+			first = sanitizeIdleResponseForSpeaker(respInvalid.Content, topic, speaker)
 			firstRaw = strings.TrimSpace(respInvalid.Content)
 			firstTruncated = finishReasonLooksTruncated(respInvalid.FinishReason)
 		}
@@ -172,7 +172,7 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		}
 		if errStyle == nil && strings.TrimSpace(respStyle.Content) != "" {
 			logIdleRaw(fmt.Sprintf("dialogue.retry_style speaker=%s turn=%d", speaker, turn), respStyle.Content)
-			first = sanitizeIdleResponse(respStyle.Content, topic)
+			first = sanitizeIdleResponseForSpeaker(respStyle.Content, topic, speaker)
 			firstRaw = strings.TrimSpace(respStyle.Content)
 			firstTruncated = finishReasonLooksTruncated(respStyle.FinishReason)
 		}
@@ -189,7 +189,7 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		}
 		if errLeak == nil && strings.TrimSpace(respLeak.Content) != "" {
 			logIdleRaw(fmt.Sprintf("dialogue.retry_leak speaker=%s turn=%d", speaker, turn), respLeak.Content)
-			first = sanitizeIdleResponse(respLeak.Content, topic)
+			first = sanitizeIdleResponseForSpeaker(respLeak.Content, topic, speaker)
 			firstRaw = strings.TrimSpace(respLeak.Content)
 			firstTruncated = finishReasonLooksTruncated(respLeak.FinishReason)
 		}
@@ -211,7 +211,7 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		if err2 == nil && strings.TrimSpace(resp2.Content) != "" {
 			logIdleRaw(fmt.Sprintf("dialogue.retry_attribution speaker=%s turn=%d", speaker, turn), resp2.Content)
 			candidateRaw := strings.TrimSpace(resp2.Content)
-			candidate := sanitizeIdleResponse(resp2.Content, topic)
+			candidate := sanitizeIdleResponseForSpeaker(resp2.Content, topic, speaker)
 			if finishReasonLooksTruncated(resp2.FinishReason) || unusableIdleResponse(candidateRaw, candidate) {
 				log.Printf("[IdleChat] retryAttribution unusable (%s turn=%d): raw=%q sanitized=%q", speaker, turn, truncate(candidateRaw, 180), truncate(candidate, 180))
 				return "", candidateRaw, fmt.Errorf("idlechat dialogue retry_attribution unusable: speaker=%s turn=%d", speaker, turn)
@@ -224,6 +224,9 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 	}
 
 	if firstTruncated || unusableIdleResponse(firstRaw, first) {
+		if recovered, recoveredRaw, ok := o.recoverDialogueWithDefaultProvider(provider, speaker, sessionID, topic, latestOther, turn); ok {
+			return recovered, recoveredRaw, nil
+		}
 		log.Printf("[IdleChat] unusable response rejected (%s turn=%d): truncated=%t raw=%q sanitized=%q", speaker, turn, firstTruncated, truncate(firstRaw, 180), truncate(first, 180))
 		return "", firstRaw, fmt.Errorf("idlechat dialogue response unusable: speaker=%s turn=%d truncated=%t", speaker, turn, firstTruncated)
 	}
@@ -232,4 +235,35 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		return canonical, firstRaw, nil
 	}
 	return first, firstRaw, nil
+}
+
+func (o *IdleChatOrchestrator) recoverDialogueWithDefaultProvider(primary llm.LLMProvider, speaker, sessionID, topic, latestOther string, turn int) (string, string, bool) {
+	if o == nil || o.llmProvider == nil || primary == nil || primary == o.llmProvider || !strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
+		return "", "", false
+	}
+	log.Printf("[IdleChat] shiro dialogue recovery using default provider (turn=%d)", turn)
+	retryMessages := buildIdleCompactRetryMessages(speaker, topic, latestOther, firstTurnLabel(turn))
+	resp, err := o.generateIdleLLM(o.llmProvider, llm.GenerateRequest{
+		Messages:    retryMessages,
+		MaxTokens:   idleMaxTokensForSpeaker(speaker, idleChatRetryMaxTokens),
+		Temperature: o.temperatureForSpeaker(speaker),
+	})
+	if err != nil {
+		log.Printf("[IdleChat] shiro dialogue recovery failed (turn=%d): %v", turn, err)
+		return "", "", false
+	}
+	raw := strings.TrimSpace(resp.Content)
+	if raw == "" || finishReasonLooksTruncated(resp.FinishReason) {
+		log.Printf("[IdleChat] shiro dialogue recovery unusable (turn=%d): raw=%q finish=%q", turn, truncate(raw, 180), resp.FinishReason)
+		return "", raw, false
+	}
+	sanitized := sanitizeIdleResponseForSpeaker(resp.Content, topic, speaker)
+	if unusableIdleResponse(raw, sanitized) {
+		log.Printf("[IdleChat] shiro dialogue recovery rejected (turn=%d): raw=%q sanitized=%q", turn, truncate(raw, 180), truncate(sanitized, 180))
+		return "", raw, false
+	}
+	if canonical := o.applyPersonaCanonicalResponse(speaker, sessionID, sanitized); canonical != "" {
+		return canonical, raw, true
+	}
+	return sanitized, raw, true
 }

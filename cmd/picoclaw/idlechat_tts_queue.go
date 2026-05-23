@@ -41,15 +41,22 @@ func ensureIdleChatTTSQueue() {
 		idleChatTTSQueue = make(chan idleChatTTSItem, 512)
 		go func() {
 			for item := range idleChatTTSQueue {
-				func() {
-					defer close(item.done)
-					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
+				if !ok || waitCh == nil {
+					cancel()
+					close(item.done)
+					continue
+				}
+				go func(ctx context.Context, cancel context.CancelFunc, done chan struct{}, waitCh <-chan struct{}) {
+					defer close(done)
 					defer cancel()
-					waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
-					if !ok || waitCh == nil {
-						return
+					select {
+					case <-ctx.Done():
+						clearIdleChatTTSPendingByChan(waitCh)
+					case <-waitCh:
 					}
-				}()
+				}(ctx, cancel, item.done, waitCh)
 			}
 		}()
 	})
