@@ -168,6 +168,7 @@ globalThis.__viewerAudioHarness = {
         : () => ({matches: false, addEventListener() {}, removeEventListener() {}}),
     },
     navigator: {maxTouchPoints: options.mobile ? 1 : 0},
+    fetch: options.fetch,
     localStorage: {
       getItem: (key) => localStore.get(key) || null,
       setItem: (key, value) => localStore.set(key, String(value)),
@@ -346,7 +347,7 @@ test('natural audio end uses a longer tail gap when next tts speaker changes', a
   assert.equal(timers.at(-1).ms, 420);
 });
 
-test('idlechat message is visible before tts chunk arrives', () => {
+test('idlechat message creates a pending bubble without showing full text before tts chunk', () => {
   const {harness, elements} = loadAudioHarness();
   const idleLiveLog = elements.get('idleLiveLog');
 
@@ -360,11 +361,13 @@ test('idlechat message is visible before tts chunk arrives', () => {
   });
 
   assert.equal(idleLiveLog.children.length, 1);
-  assert.ok(idleLiveLog.children[0].innerHTML.includes('TTSを待たずに表示する発話です。'));
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '');
+  assert.equal(idleLiveLog.children[0].classList.contains('idle-pending-tts'), true);
+  assert.equal(idleLiveLog.children[0].innerHTML.includes('TTSを待たずに表示する発話です。'), false);
 });
 
-test('idlechat message renders raw response for test mode review', () => {
-  const {harness, elements} = loadAudioHarness();
+test('idlechat pending message shows raw response only after tts fallback timeout', () => {
+  const {harness, elements, timers} = loadAudioHarness();
   const idleLiveLog = elements.get('idleLiveLog');
 
   harness.addIdleMsgToTimeline({
@@ -378,12 +381,18 @@ test('idlechat message renders raw response for test mode review', () => {
   });
 
   assert.equal(idleLiveLog.children.length, 1);
-  assert.ok(idleLiveLog.children[0].innerHTML.includes('編集後の発話です。'));
-  assert.ok(idleLiveLog.children[0].innerHTML.includes('編集前（テストモード）'));
-  assert.ok(idleLiveLog.children[0].innerHTML.includes('Mio: 編集前の素の応答です。'));
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '');
+  assert.equal(idleLiveLog.children[0]._mc.innerHTML.includes('編集前（テストモード）'), false);
+
+  timers.at(-1)();
+
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '編集後の発話です。');
+  assert.ok(idleLiveLog.children[0]._mc.innerHTML.includes('編集前（テストモード）'));
+  assert.ok(idleLiveLog.children[0]._mc.innerHTML.includes('Mio: 編集前の素の応答です。'));
+  assert.equal(idleLiveLog.children[0].classList.contains('idle-fallback-tts'), true);
 });
 
-test('idlechat tts reuses the already visible message bubble', () => {
+test('idlechat tts fills the pending message bubble chunk by chunk', () => {
   const {harness, elements} = loadAudioHarness();
   const idleLiveLog = elements.get('idleLiveLog');
 
@@ -397,12 +406,16 @@ test('idlechat tts reuses the already visible message bubble', () => {
   });
   const rendered = idleLiveLog.children[0];
 
-  harness.setCentralTTSSpeechText('mio', '表示済みの発話をそのまま口パク対象にします。', 'idle-reuse-1', 0, 'chunk-0');
+  harness.setCentralTTSSpeechText('mio', '表示済みの発話を、', 'idle-reuse-1', 0, 'chunk-0', 'idle-reuse-1:0000');
 
   assert.equal(idleLiveLog.children.length, 1);
   assert.equal(idleLiveLog.children[0], rendered);
-  assert.equal(rendered._mc.textContent, '表示済みの発話をそのまま口パク対象にします。');
+  assert.equal(rendered._mc.textContent, '表示済みの発話を、');
+  assert.equal(rendered.classList.contains('idle-pending-tts'), false);
   assert.ok(rendered.classList.contains('tts-current'));
+
+  harness.setCentralTTSSpeechText('mio', 'チャンク単位で表示します。', 'idle-reuse-1', 1, 'chunk-1', 'idle-reuse-1:0000');
+  assert.equal(rendered._mc.textContent, '表示済みの発話を、チャンク単位で表示します。');
 });
 
 test('idlechat live timeline switches to a new topic instead of mixing topics', () => {
@@ -437,7 +450,8 @@ test('idlechat live timeline switches to a new topic instead of mixing topics', 
   });
 
   assert.equal(idleLiveLog.children.length, 1);
-  assert.ok(idleLiveLog.children[0].innerHTML.includes('次の話題'));
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '');
+  assert.equal(idleLiveLog.children[0].classList.contains('idle-pending-tts'), true);
   assert.ok(!idleLiveLog.children[0].innerHTML.includes('最初の話題の発話です。'));
 });
 
@@ -473,7 +487,8 @@ test('idlechat forecast topic event is treated as topic boundary', () => {
 
   assert.equal(idleLiveLog.children.length, 1);
   assert.ok(idleLiveLog.children[0].classList.contains('idle-kind-topic'));
-  assert.ok(idleLiveLog.children[0].innerHTML.includes('未来展望の話題'));
+  assert.equal(idleLiveLog.children[0]._mc.textContent, '');
+  assert.equal(idleLiveLog.children[0].classList.contains('idle-pending-tts'), true);
 });
 
 test('live mode audio button mirrors state and unlocks audio', async () => {
@@ -544,6 +559,48 @@ test('idlechat starts a single buffered chunk after session completed', async ()
 
   assert.equal(harness.ttsPlayback.playing, true);
   assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.textContent, '一つだけです。');
+});
+
+test('idlechat session completed without an observed chunk does not ack playback', async () => {
+  const fetchCalls = [];
+  const {harness} = loadAudioHarness({
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true});
+    },
+  });
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.session_completed',
+    content: JSON.stringify({session_id: 'idle-missed', response_id: 'idle-missed:0000'}),
+  });
+  await Promise.resolve();
+
+  assert.equal(fetchCalls.length, 0);
+});
+
+test('idlechat playback ack waits for natural audio end after session completed', async () => {
+  const fetchCalls = [];
+  const {harness} = loadAudioHarness({
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true});
+    },
+  });
+
+  harness.enqueueTTSAudio('/audio/idle-ack.wav', 'mio', 'idle-ack', 'default', 0, '再生します。', '再生します。', 'idle-ack:0000', 'idle-ack:0000');
+  await Promise.resolve();
+
+  harness.chatAudioSync.markSessionCompleted('idle-ack', 'idle-ack:0000');
+  await Promise.resolve();
+  assert.equal(fetchCalls.length, 0);
+
+  harness.ttsPlayback.audio.listeners.ended();
+  await Promise.resolve();
+
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0].url, '/viewer/tts/playback-ack');
+  assert.equal(JSON.parse(fetchCalls[0].init.body).status, 'ended');
 });
 
 test('central chat starts a new bubble after current tts speech is cleared', () => {

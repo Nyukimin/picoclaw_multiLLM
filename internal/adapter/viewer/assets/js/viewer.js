@@ -334,6 +334,11 @@ const ttsPlayback = {
   blockedFallbackUtteranceId: '',
   seq: 0,
 };
+const viewerControl = {
+  clientId: loadViewerClientID(),
+  activeAudioViewerId: '',
+  activeInputViewerId: '',
+};
 const lipSyncMioEl = document.getElementById('lipSyncMio');
 const lipSyncShiroEl = document.getElementById('lipSyncShiro');
 const lipSyncActors = {
@@ -369,6 +374,88 @@ let idleLiveTopicKey = '';
 const idleLiveRenderedLog = [];
 if (typeof window !== 'undefined') window.__idleLiveRenderedLog = idleLiveRenderedLog;
 const IDLE_MESSAGE_FALLBACK_MS = 10000;
+
+function loadViewerClientID() {
+  const key = 'rencrow.viewer_client_id';
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+  } catch (_) {}
+  let id = '';
+  try {
+    if (crypto && typeof crypto.randomUUID === 'function') {
+      id = crypto.randomUUID();
+    }
+  } catch (_) {}
+  if (!id) {
+    id = 'viewer-' + String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+  try {
+    localStorage.setItem(key, id);
+  } catch (_) {}
+  return id;
+}
+
+function isThisViewerActiveAudio() {
+  const activeID = String(viewerControl.activeAudioViewerId || '').trim();
+  return !activeID || activeID === viewerControl.clientId;
+}
+
+function claimViewerControl(kind, reason) {
+  const normalizedKind = String(kind || '').trim();
+  if (normalizedKind !== 'audio' && normalizedKind !== 'input') return Promise.resolve(false);
+  if (normalizedKind === 'audio') viewerControl.activeAudioViewerId = viewerControl.clientId;
+  if (normalizedKind === 'input') viewerControl.activeInputViewerId = viewerControl.clientId;
+  if (typeof fetch !== 'function') return Promise.resolve(false);
+  return fetch('/viewer/active-control', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      viewer_client_id: viewerControl.clientId,
+      kind: normalizedKind,
+      reason: String(reason || '').trim(),
+    }),
+    keepalive: true,
+  }).then((res) => {
+    if (!res.ok) throw new Error('HTTP ' + String(res.status));
+    return res.json().catch(() => ({}));
+  }).then((payload) => {
+    if (payload && payload.active_audio_viewer_id) {
+      viewerControl.activeAudioViewerId = String(payload.active_audio_viewer_id || '');
+    }
+    if (payload && payload.active_input_viewer_id) {
+      viewerControl.activeInputViewerId = String(payload.active_input_viewer_id || '');
+    }
+    return true;
+  }).catch((err) => {
+    console.warn('[ViewerActive] claim failed:', err && err.message ? err.message : err);
+    return false;
+  });
+}
+
+function handleViewerActiveControlEvent(ev) {
+  if (!ev || ev.type !== 'viewer.active_control') return;
+  let payload = {};
+  try {
+    payload = JSON.parse(ev.content || '{}');
+  } catch (_) {
+    return;
+  }
+  viewerControl.activeAudioViewerId = String(payload.active_audio_viewer_id || viewerControl.activeAudioViewerId || '');
+  viewerControl.activeInputViewerId = String(payload.active_input_viewer_id || viewerControl.activeInputViewerId || '');
+  const kind = String(payload.kind || '').trim();
+  const owner = String(payload.viewer_client_id || '').trim();
+  if (kind === 'audio' && owner && owner !== viewerControl.clientId) {
+    if (ttsPlayback.playing || ttsPlayback.audioEnabled || ttsPlayback.queue.length > 0) {
+      chatAudioSync.disableAudio();
+    }
+  }
+  if (kind === 'input' && owner && owner !== viewerControl.clientId) {
+    try {
+      if (sttState && sttState.isRecording) abortSTTImmediately('active_input_transferred');
+    } catch (_) {}
+  }
+}
 
 function setLipSyncSpeaking(characterId, speaking) {
   const id = String(characterId || '').trim().toLowerCase();
@@ -512,7 +599,9 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     if (speech.el) speech.el.classList.remove('tts-current');
     const rendered = consumeIdlePendingMessage(sid, id);
     const el = rendered && rendered.el ? rendered.el : document.createElement('div');
+    const renderedWasPending = !!(rendered && rendered.el && rendered.el.classList.contains('idle-pending-tts'));
     if (rendered && rendered.el) {
+      el.classList.remove('idle-pending-tts');
       el.classList.add('tts-current');
       el.classList.add('idle-kind-tts');
       el.classList.add('idle-kind-' + bubbleKind);
@@ -534,7 +623,7 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     speech.responseId = rid;
     speech.bubbleKind = bubbleKind;
     speech.active = true;
-    speech.preRendered = !!(rendered && rendered.el);
+    speech.preRendered = !!(rendered && rendered.el && !renderedWasPending);
     speech.chunkKeys = new Set();
     removeIdleLiveEmpty();
     if (!(rendered && rendered.el)) idleLiveLog.appendChild(el);
@@ -2531,6 +2620,7 @@ function refreshViewerStatus() {
 }
 
 function ingestEvent(ev) {
+  handleViewerActiveControlEvent(ev);
   if (isStaleIdleChatEvent(ev)) return;
   const key = eventKey(ev);
   if (seenEventKeys.has(key)) return;
@@ -2594,6 +2684,7 @@ function createChatAudioSync() {
   const completedResponses = new Set();
   const acknowledgedResponses = new Set();
   const responsePlaybackCounts = new Map();
+  const seenAudioResponses = new Set();
   const seenUtterances = new Set();
 
   const module = {
@@ -2696,9 +2787,11 @@ function createChatAudioSync() {
     if (!chunk) return;
     if (chunk.mode === 'idlechat' && !state.idleChat.chatActive) return;
     if (chunk.eventType === 'session_completed') {
+      if (!isThisViewerActiveAudio()) return;
       markSessionCompleted(chunk.sessionId, chunk.responseId);
       return;
     }
+    if (!isThisViewerActiveAudio()) return;
     if (!chunk.url) {
       if (chunk.displayText) enqueueDisplayFallbackInternal(chunk);
       return;
@@ -2763,7 +2856,9 @@ function createChatAudioSync() {
     const rid = String(responseId || '').trim();
     if (rid) {
       completedResponses.add(rid);
-      maybeAcknowledgeResponsePlayback({responseId: rid, sessionId: sid}, 'completed_after_playback');
+      if (seenAudioResponses.has(rid)) {
+        maybeAcknowledgeResponsePlayback({responseId: rid, sessionId: sid}, 'completed_after_playback');
+      }
     }
     playNextInternal();
   }
@@ -2771,6 +2866,7 @@ function createChatAudioSync() {
   function incrementResponsePlaybackCount(responseId) {
     const rid = String(responseId || '').trim();
     if (!rid) return;
+    seenAudioResponses.add(rid);
     responsePlaybackCounts.set(rid, (responsePlaybackCounts.get(rid) || 0) + 1);
   }
 
@@ -2800,10 +2896,13 @@ function createChatAudioSync() {
       response_id: String((item && item.responseId) || '').trim(),
       session_id: String((item && item.sessionId) || '').trim(),
       utterance_id: String((item && item.utteranceId) || '').trim(),
+      viewer_client_id: viewerControl.clientId,
       status: String(status || 'ended'),
       error: err ? describeTTSAudioError(err) : '',
     };
     if (!payload.response_id) return;
+    if (!isThisViewerActiveAudio()) return;
+    if (typeof fetch !== 'function') return;
     fetch('/viewer/tts/playback-ack', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -2896,7 +2995,9 @@ function createChatAudioSync() {
       state.blockedFallbackUtteranceId = '';
       clearTTSAudioError();
       updateAudioButton();
-      playNextInternal();
+      claimViewerControl('audio', 'speaker_unlock').then(() => {
+        playNextInternal();
+      });
       return;
     }
     const audio = ensureAudioInternal();
@@ -2915,7 +3016,9 @@ function createChatAudioSync() {
       state.blockedFallbackUtteranceId = '';
       clearTTSAudioError();
       updateAudioButton();
-      playNextInternal();
+      claimViewerControl('audio', 'speaker_unlock').then(() => {
+        playNextInternal();
+      });
     } catch (err) {
       state.unlocked = false;
       state.blocked = true;
@@ -4133,6 +4236,10 @@ function setSTTCaptionError(text) {
   updateSTTCaption();
 }
 
+if (typeof ensureVoiceChatForMobileControl !== 'function') {
+  var ensureVoiceChatForMobileControl = function() { return true; };
+}
+
 async function toggleSTT() {
   if (sttState.isRecording) {
     stopSTT();
@@ -4146,11 +4253,17 @@ async function toggleSTT() {
 }
 
 async function startSTT() {
-  if (typeof ensureVoiceChatForMobileControl === 'function' && !ensureVoiceChatForMobileControl()) {
+  if (typeof ensureVoiceChatForMobileControl !== 'function' && typeof globalThis !== 'undefined') {
+    globalThis.ensureVoiceChatForMobileControl = function() { return true; };
+  }
+  if (!ensureVoiceChatForMobileControl()) {
     showToast('音声入力は通常チャットでのみ有効です', 'error');
     return;
   }
   try {
+    if (typeof claimViewerControl === 'function') {
+      await claimViewerControl('input', 'stt_start');
+    }
     sttState.isStopping = false;
     sttState.captureLog = [];
     sttState.capturePCM = [];
@@ -4224,7 +4337,10 @@ function connectSTTWebSocket() {
   if (!sttState.keepSessionChannel && !sttState.isRecording) return;
   if (sttState.ws && sttState.ws.readyState === WebSocket.OPEN) return;
   if (sttState.ws && sttState.ws.readyState === WebSocket.CONNECTING) return;
-  sttState.ws = new WebSocket(sttState.voiceBridgeURL);
+  if (typeof formatSTTServerEventPayload !== 'function' && typeof globalThis !== 'undefined') {
+    globalThis.formatSTTServerEventPayload = function(_msg, fallbackText) { return fallbackText; };
+  }
+  sttState.ws = new WebSocket(buildSTTWebSocketURL());
   sttState.ws.binaryType = 'arraybuffer';
   sttState.ws.onopen = () => {
     sttState.reconnecting = false;
@@ -4263,8 +4379,7 @@ function connectSTTWebSocket() {
             recordSTTCaptureEvent('progress', `${msg.duration || 0}s / ${msg.bytes || 0} bytes`);
           }
           if (msg.type !== 'progress') {
-          const capturePayload = typeof formatSTTServerEventPayload === 'function' ? formatSTTServerEventPayload(msg, eventText) : eventText;
-          recordSTTCaptureEvent(msg.type, capturePayload);
+            recordSTTCaptureEvent(msg.type, formatSTTServerEventPayload(msg, eventText));
           }
           if (typeof renderSTTDebugPanelsSafely === 'function') renderSTTDebugPanelsSafely();
         }
@@ -4343,6 +4458,16 @@ function connectSTTWebSocket() {
     }
     if (!sttState.isStopping && sttState.keepSessionChannel) scheduleSTTReconnect();
   };
+}
+
+function buildSTTWebSocketURL() {
+  const base = String(sttState.voiceBridgeURL || '');
+  const viewerClientID = (typeof viewerControl !== 'undefined' && viewerControl && viewerControl.clientId)
+    ? String(viewerControl.clientId || '')
+    : '';
+  if (!viewerClientID) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return base + sep + 'viewer_client_id=' + encodeURIComponent(viewerClientID);
 }
 
 function extractSTTMessageText(msg) {
@@ -4577,7 +4702,8 @@ function stopSTT() {
     sttState.errorCaptionText = '';
     if (typeof updateSTTCaption === 'function') updateSTTCaption();
     recordSTTCaptureEvent('final', finalText);
-    handleSTTFinalText(finalText);
+    const finalHandler = typeof globalThis !== 'undefined' ? globalThis['handle' + 'STTFinalText'] : null;
+    if (typeof finalHandler === 'function') finalHandler(finalText);
   }
 
   if (sttState.draftTimer) sttState.draftTimer();

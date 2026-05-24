@@ -46,7 +46,7 @@ function idlePendingQueue(sessionId) {
 function queueIdleMessageForTTS(ev) {
   if (!ev || ev.type !== 'idlechat.message') return;
   const sid = String(ev.session_id || ev.chat_id || '').trim() || 'idlechat';
-  const el = appendIdleLiveMessageEvent(ev);
+  const el = appendIdleLiveMessageEvent(ev, {pending: true});
   const item = {
     ev,
     el,
@@ -55,6 +55,8 @@ function queueIdleMessageForTTS(ev) {
     timer: null,
   };
   item.timer = setTimeout(() => {
+    if (item.consumed) return;
+    renderIdlePendingMessageFallback(item);
     item.consumed = true;
     pruneIdlePendingQueue(sid);
   }, IDLE_MESSAGE_FALLBACK_MS);
@@ -92,7 +94,7 @@ function addIdleMsgToTimeline(ev) {
   queueIdleMessageForTTS(ev);
 }
 
-function appendIdleLiveMessageEvent(ev) {
+function appendIdleLiveMessageEvent(ev, options = {}) {
   if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return null;
   removeIdleLiveEmpty();
 
@@ -100,10 +102,11 @@ function appendIdleLiveMessageEvent(ev) {
   const t = ev.to ? ag(ev.to) : null;
   const dir = t && ev.to ? '<span class="dir">→ ' + t.e + ' ' + t.l + '</span>' : '';
   const displayContent = normalizeViewerDisplayText(ev.content);
-  const rawBlock = idleRawResponseBlock(ev, displayContent);
+  const pending = Boolean(options && options.pending);
+  const rawBlock = pending ? '' : idleRawResponseBlock(ev, displayContent);
   const kind = isIdleTopicEvent(ev) ? 'topic' : 'speech';
   const el = document.createElement('div');
-  el.className = 'msg idle-live-item idle-kind-' + kind;
+  el.className = 'msg idle-live-item idle-kind-' + kind + (pending ? ' idle-pending-tts' : '');
   el.innerHTML =
     '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
     '<div class="mb"><div class="mh">' +
@@ -111,13 +114,28 @@ function appendIdleLiveMessageEvent(ev) {
       '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' + dir +
       '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
     '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
-    '<div class="mc">' + fmt(displayContent) + rawBlock + '</div></div>';
+    '<div class="mc">' + (pending ? '' : fmt(displayContent) + rawBlock) + '</div></div>';
   el.querySelector('.mc').dataset.raw = ev.content || '';
   idleLiveLog.appendChild(el);
-  recordIdleLiveRendered(kind, ev, displayContent);
+  recordIdleLiveRendered(kind, ev, pending ? '' : displayContent);
   trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
   idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
   return el;
+}
+
+function renderIdlePendingMessageFallback(item) {
+  const ev = item && item.ev;
+  const el = item && item.el;
+  if (!ev || !el) return;
+  const mc = el.querySelector && el.querySelector('.mc');
+  if (!mc) return;
+  const displayContent = normalizeViewerDisplayText(ev.content);
+  mc.innerHTML = fmt(displayContent) + idleRawResponseBlock(ev, displayContent);
+  mc.textContent = displayContent;
+  mc.dataset.raw = ev.content || '';
+  el.classList.remove('idle-pending-tts');
+  el.classList.add('idle-fallback-tts');
+  recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_fallback' : 'speech_fallback', ev, displayContent);
 }
 
 function idleRawResponseBlock(ev, displayContent) {

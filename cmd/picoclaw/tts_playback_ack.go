@@ -8,11 +8,12 @@ import (
 )
 
 type ttsPlaybackAckRequest struct {
-	ResponseID  string `json:"response_id"`
-	SessionID   string `json:"session_id"`
-	UtteranceID string `json:"utterance_id"`
-	Status      string `json:"status"`
-	Error       string `json:"error,omitempty"`
+	ResponseID     string `json:"response_id"`
+	SessionID      string `json:"session_id"`
+	UtteranceID    string `json:"utterance_id"`
+	ViewerClientID string `json:"viewer_client_id,omitempty"`
+	Status         string `json:"status"`
+	Error          string `json:"error,omitempty"`
 }
 
 func handleTTSPlaybackAck() http.HandlerFunc {
@@ -32,11 +33,18 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 			http.Error(w, "response_id is required", http.StatusBadRequest)
 			return
 		}
-		ok := notifyIdleChatTTSPlaybackCompleted(responseID)
-		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s status=%s matched=%t error=%s",
+		viewerClientID := strings.TrimSpace(req.ViewerClientID)
+		activeAudio := activeViewerControl.isActiveAudio(viewerClientID)
+		ok := false
+		if activeAudio {
+			ok = notifyIdleChatTTSPlaybackCompleted(responseID)
+		}
+		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error=%s",
 			responseID,
 			strings.TrimSpace(req.SessionID),
 			strings.TrimSpace(req.UtteranceID),
+			viewerClientID,
+			activeAudio,
 			strings.TrimSpace(req.Status),
 			ok,
 			strings.TrimSpace(req.Error),

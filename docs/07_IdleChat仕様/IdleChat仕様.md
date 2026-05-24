@@ -224,6 +224,34 @@ type SessionSummary struct {
 | `/viewer/idlechat/status` | GET | 状態取得 |
 | `/viewer/idlechat/logs` | GET | 履歴取得（両モード統合） |
 
+### 6.1.1 複数 Viewer と音声入出力の単一 active 制御
+
+Viewer は PC / ケータイ / 複数タブで同時に開ける。一方で、スピーカ（TTS 再生）とマイク（STT 入力）の操作対象は常時 1 つのブラウザだけに限定する。
+
+- 各 Viewer は `viewer_client_id` を保持する。
+- スピーカは後出し優先で、最後に音声を有効化した Viewer が `active_audio_viewer_id` になる。
+- マイクも後出し優先で、最後に STT 開始操作をした Viewer が `active_input_viewer_id` になる。
+- Viewer 表示・ログ閲覧は複数同時接続を許可する。
+- IdleChat の TTS 完了待ちは `active_audio_viewer_id` と一致する TTS playback ack のみを採用する。
+- active ではない Viewer の ack / STT 結果は、ログ上は観測できても会話進行や IdleChat 制御には反映しない。
+- active が切り替わった場合、旧 Viewer は音声再生またはマイク入力を停止する。
+- active audio viewer が未設定の場合、TTS は再生完了扱いにしない。
+
+### 6.1.2 IdleChat 本文表示と TTS 同期
+
+IdleChat の Viewer 本文表示は、`idlechat.message` 到着時点の全文即時描画ではなく、TTS chunk 同期を正とする。
+`idlechat.message` は session / speaker / raw content / pending 発話の保持に使い、本文表示の進行根拠は原則 `tts.audio_chunk.display_text` とする。
+
+- `idlechat.message` 受信時は pending 発話枠だけを作り、本文全文は表示しない。
+- Mio / Shiro の本文は `tts.audio_chunk` 到着後、chunk 単位で表示する。
+- スピーカ ON の場合、active audio Viewer で TTS 再生開始または再生確定した chunk に合わせて表示する。
+- スピーカ OFF の場合、TTS chunk ごとに 500ms wait して次 chunk を表示する。
+- `tts.session_completed` は TTS 生成完了であり、再生完了・表示完了・ユーザーが聞いた完了ではない。
+- IdleChat の待ち解除は、active audio Viewer が観測した response の playback ack、またはスピーカ OFF の明示 fallback 完了に限定する。
+- TTS chunk 未着や TTS 失敗時のみ、fallback として `idlechat.message` の全文表示を許可する。
+- fallback は通常成功扱いにせず、fallback 表示としてログ・状態で区別する。
+- `tts.session_completed` だけで、chunk を観測していない response を playback 済みとして ack してはいけない。
+
 ### 6.2 Viewer UI
 
 **入力バーのコントロール:**
