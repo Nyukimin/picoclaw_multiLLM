@@ -75,140 +75,126 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 	sessionID := fmt.Sprintf("idle-%d", time.Now().Unix())
 	startedAt := time.Now().In(jst)
-	remainingTurns := o.maxTurns
-	totalTurns := 0
-	topicIndex := 0
+	turnLimit := o.idleChatTurnLimit()
+	segmentID := fmt.Sprintf("%s-topic-00", sessionID)
+	generation := o.activateIdleSession(segmentID)
+	topic, strategy := o.generateTopicFromChat(segmentID, strategy)
+	if !o.isIdleSessionActive(segmentID, generation) {
+		log.Printf("[IdleChat] Topic generation discarded after interrupt: session=%s", segmentID)
+		return
+	}
+	o.mu.Lock()
+	o.currentTopic = topic
+	o.mu.Unlock()
+	log.Printf("[IdleChat] Topic: %s (%s, session=%s)", topic, strategy, segmentID)
+	o.emitTopicToTimeline(segmentID, topic, strategy)
 
-	for remainingTurns > 0 {
-		segmentID := fmt.Sprintf("%s-topic-%02d", sessionID, topicIndex)
-		generation := o.activateIdleSession(segmentID)
-		topicIndex++
-		topic, strategy := o.generateTopicFromChat(segmentID, strategy)
-		if !o.isIdleSessionActive(segmentID, generation) {
-			log.Printf("[IdleChat] Topic generation discarded after interrupt: session=%s", segmentID)
+	segmentTurns := 0
+	loopDetected := false
+	loopReason := ""
+	sessionInterrupted := false
+	generationFailed := false
+	transcript := make([]string, 0, turnLimit)
+	currentSpeaker := o.chatSpeakerIndex()
+
+	for turn := 0; turn < turnLimit; turn++ {
+		select {
+		case <-o.idleRunContext().Done():
 			return
+		default:
 		}
+
 		o.mu.Lock()
-		o.currentTopic = topic
-		o.mu.Unlock()
-		log.Printf("[IdleChat] Topic: %s (%s, session=%s)", topic, strategy, segmentID)
-		o.emitTopicToTimeline(segmentID, topic, strategy)
-
-		segmentTurns := 0
-		loopDetected := false
-		loopReason := ""
-		sessionInterrupted := false
-		generationFailed := false
-		transcript := make([]string, 0, remainingTurns)
-		currentSpeaker := o.chatSpeakerIndex()
-
-		for turn := 0; turn < remainingTurns; turn++ {
-			select {
-			case <-o.idleRunContext().Done():
-				return
-			default:
-			}
-
-			o.mu.Lock()
-			if !o.chatActive {
-				o.mu.Unlock()
-				log.Printf("[IdleChat] Session interrupted at turn %d", turn)
-				sessionInterrupted = true
-				loopReason = "interrupted"
-				break
-			}
+		if !o.chatActive {
 			o.mu.Unlock()
-
-			speaker := o.participants[currentSpeaker]
-			nextSpeaker := o.participants[(currentSpeaker+1)%len(o.participants)]
-
-			response, rawResponse, err := o.generateResponseWithRaw(speaker, nextSpeaker, segmentID, turn, segmentTurns, topic)
-			if err != nil {
-				log.Printf("[IdleChat] Generation error: %v", err)
-				generationFailed = true
-				if errors.Is(err, errIdleInvalidResponse) {
-					loopReason = "invalid_response"
-				} else {
-					loopReason = "generation_error"
-				}
-				break
-			}
-			if !o.isIdleSessionActive(segmentID, generation) {
-				log.Printf("[IdleChat] Response discarded after interrupt: session=%s turn=%d", segmentID, turn)
-				sessionInterrupted = true
-				loopReason = "interrupted"
-				break
-			}
-			if isResponseTooSimilar(response, transcript) {
-				loopDetected = true
-				loopReason = "pre_emit_similarity"
-				log.Printf("[IdleChat] Repetitive response detected before emit, summarize and restart")
-				break
-			}
-
-			response = ensureTrailingPeriod(response)
-
-			msg := domaintransport.NewMessage(speaker, nextSpeaker, segmentID, "", response)
-			msg.Type = domaintransport.MessageTypeIdleChat
-			o.memory.RecordMessage(msg)
-			ttsDone := o.emitTimelineEvent(TimelineEvent{
-				Type:       "idlechat.message",
-				From:       speaker,
-				To:         nextSpeaker,
-				Content:    response,
-				RawContent: rawResponse,
-				SessionID:  segmentID,
-			})
-			transcript = append(transcript, fmt.Sprintf("%s: %s", speaker, response))
-			segmentTurns++
-
-			log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
-			o.waitForTTSDone(ttsDone)
-			o.waitBreak(speakerBreak)
-
-			if segmentTurns >= maxTurnsPerTopic {
-				loopDetected = true
-				loopReason = "topic_turn_limit"
-				log.Printf("[IdleChat] Topic turn limit reached (%d), summarize and switch topic", maxTurnsPerTopic)
-				break
-			}
-
-			if reason := detectLoopReason(transcript); reason != "" {
-				loopDetected = true
-				loopReason = reason
-				log.Printf("[IdleChat] Loop/repetition detected, summarize and restart with new topic")
-				break
-			}
-			currentSpeaker = (currentSpeaker + 1) % len(o.participants)
-		}
-
-		remainingTurns -= segmentTurns
-		totalTurns += segmentTurns
-		endedAt := time.Now().In(jst)
-		if segmentTurns > 0 && o.isIdleSessionActive(segmentID, generation) {
-			displayStrategy := TopicStrategy(fmt.Sprintf("%s: %s", strategy, truncate(topic, 30)))
-			summary := o.saveSummary(segmentID, topic, displayStrategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
-			o.speakSummary(segmentID, summary)
-		}
-		cooldown := topicBreak
-		if sessionInterrupted || generationFailed {
-			idleCooldown := o.interval
-			if idleCooldown > cooldown {
-				cooldown = idleCooldown
-			}
-		}
-		o.mu.Lock()
-		o.nextTopicAt = endedAt.Add(cooldown)
-		o.mu.Unlock()
-
-		if segmentTurns == 0 || sessionInterrupted || generationFailed || remainingTurns <= 0 {
+			log.Printf("[IdleChat] Session interrupted at turn %d", turn)
+			sessionInterrupted = true
+			loopReason = "interrupted"
 			break
 		}
-		log.Printf("[IdleChat] Switching topic after %d turns (%d remaining)", segmentTurns, remainingTurns)
-		o.waitBreak(cooldown)
+		o.mu.Unlock()
+
+		speaker := o.participants[currentSpeaker]
+		nextSpeaker := o.participants[(currentSpeaker+1)%len(o.participants)]
+
+		response, rawResponse, err := o.generateResponseWithRaw(speaker, nextSpeaker, segmentID, turn, segmentTurns, topic)
+		if err != nil {
+			log.Printf("[IdleChat] Generation error: %v", err)
+			generationFailed = true
+			if errors.Is(err, errIdleInvalidResponse) {
+				loopReason = "invalid_response"
+			} else {
+				loopReason = "generation_error"
+			}
+			break
+		}
+		if !o.isIdleSessionActive(segmentID, generation) {
+			log.Printf("[IdleChat] Response discarded after interrupt: session=%s turn=%d", segmentID, turn)
+			sessionInterrupted = true
+			loopReason = "interrupted"
+			break
+		}
+		if isResponseTooSimilar(response, transcript) {
+			loopDetected = true
+			loopReason = "pre_emit_similarity"
+			log.Printf("[IdleChat] Repetitive response detected before emit, ending current session topic")
+			break
+		}
+
+		response = ensureTrailingPeriod(response)
+
+		msg := domaintransport.NewMessage(speaker, nextSpeaker, segmentID, "", response)
+		msg.Type = domaintransport.MessageTypeIdleChat
+		o.memory.RecordMessage(msg)
+		ttsDone := o.emitTimelineEvent(TimelineEvent{
+			Type:       "idlechat.message",
+			From:       speaker,
+			To:         nextSpeaker,
+			Content:    response,
+			RawContent: rawResponse,
+			SessionID:  segmentID,
+		})
+		transcript = append(transcript, fmt.Sprintf("%s: %s", speaker, response))
+		segmentTurns++
+
+		log.Printf("[IdleChat] [Turn %d] %s→%s: %s", turn, speaker, nextSpeaker, truncate(response, 80))
+		o.waitForTTSDone(ttsDone)
+		o.waitBreak(speakerBreak)
+
+		if reason := detectLoopReason(transcript); reason != "" {
+			loopDetected = true
+			loopReason = reason
+			log.Printf("[IdleChat] Loop/repetition detected, ending current session topic")
+			break
+		}
+		currentSpeaker = (currentSpeaker + 1) % len(o.participants)
 	}
 
-	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, totalTurns)
+	endedAt := time.Now().In(jst)
+	if segmentTurns > 0 && o.isIdleSessionActive(segmentID, generation) {
+		displayStrategy := TopicStrategy(fmt.Sprintf("%s: %s", strategy, truncate(topic, 30)))
+		summary := o.saveSummary(segmentID, topic, displayStrategy, transcript, startedAt, endedAt, segmentTurns, loopDetected || sessionInterrupted || generationFailed, loopReason)
+		o.speakSummary(segmentID, summary)
+	}
+	cooldown := topicBreak
+	if sessionInterrupted || generationFailed {
+		idleCooldown := o.interval
+		if idleCooldown > cooldown {
+			cooldown = idleCooldown
+		}
+	}
+	o.mu.Lock()
+	o.nextTopicAt = endedAt.Add(cooldown)
+	o.mu.Unlock()
+
+	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, segmentTurns)
+}
+
+func (o *IdleChatOrchestrator) idleChatTurnLimit() int {
+	if o.maxTurns <= 0 || o.maxTurns > maxTurnsPerTopic {
+		return maxTurnsPerTopic
+	}
+	return o.maxTurns
 }
 
 // waitForTTSDone はTTS完了チャネルを待つ。nilなら即座に返る。

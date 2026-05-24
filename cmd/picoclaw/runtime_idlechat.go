@@ -46,6 +46,7 @@ func buildIdleChatRuntime(
 		"kuro":  heavyProvider,
 		"wild":  wildProvider,
 	})
+	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
 	if coder2Adapter != nil && cfg.Coder2.Provider == "openai" && cfg.Coder2.APIKey != "" {
 		openaiProvider := openai.NewOpenAIProvider(cfg.Coder2.APIKey, cfg.Coder2.Model)
 		idleChatOrch.SetForecastProvider(openaiProvider)
@@ -104,4 +105,16 @@ func buildIdleChatRuntime(
 	idleChatOrch.Start()
 	deps.idleChatOrch = idleChatOrch
 	log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
+}
+
+func idleChatProviderOptionsFromConfig(options map[string]config.IdleChatLLMOptions) map[string]map[string]any {
+	out := make(map[string]map[string]any, len(options))
+	for name, opts := range options {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key == "" || opts.Think == nil {
+			continue
+		}
+		out[key] = map[string]any{"think": *opts.Think}
+	}
+	return out
 }

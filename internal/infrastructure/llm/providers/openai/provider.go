@@ -63,6 +63,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 		"messages": p.convertMessages(req),
 	}
 	p.addThinkingBridgeFields(openaiReq, streaming)
+	p.addProviderOptions(openaiReq, req.ProviderOptions)
 
 	// MaxTokens（OpenAIではmax_tokens）
 	if req.MaxTokens > 0 {

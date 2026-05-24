@@ -2342,6 +2342,46 @@ idle_chat:
 	if cfg.IdleChat.Temperature != 0.8 {
 		t.Errorf("Expected Temperature 0.8, got %f", cfg.IdleChat.Temperature)
 	}
+	if cfg.IdleChat.SpeakerLLMOptions["mio"].Think == nil || *cfg.IdleChat.SpeakerLLMOptions["mio"].Think {
+		t.Fatalf("Expected idle_chat speaker mio think default false, got %#v", cfg.IdleChat.SpeakerLLMOptions["mio"].Think)
+	}
+	if cfg.IdleChat.SpeakerLLMOptions["shiro"].Think == nil || *cfg.IdleChat.SpeakerLLMOptions["shiro"].Think {
+		t.Fatalf("Expected idle_chat speaker shiro think default false, got %#v", cfg.IdleChat.SpeakerLLMOptions["shiro"].Think)
+	}
+}
+
+func TestLoadConfig_IdleChatOtherSpeakersDefaultThinkTrue(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+server:
+  port: 8080
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+
+session:
+  storage_dir: "./data/sessions"
+
+idle_chat:
+  enabled: true
+  participants:
+    - mio
+    - shiro
+    - aka
+`
+
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.IdleChat.SpeakerLLMOptions["aka"].Think == nil || !*cfg.IdleChat.SpeakerLLMOptions["aka"].Think {
+		t.Fatalf("Expected idle_chat speaker aka think default true, got %#v", cfg.IdleChat.SpeakerLLMOptions["aka"].Think)
+	}
 }
 
 func TestConversationConfig_DefaultValues(t *testing.T) {

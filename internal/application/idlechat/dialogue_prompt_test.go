@@ -60,6 +60,42 @@ func TestGenerateResponseFirstTurnUsesActualSpeaker(t *testing.T) {
 	}
 }
 
+func TestGenerateResponseSendsExplicitThinkOptionPerIdleSpeaker(t *testing.T) {
+	chatProvider := &capturingIdleProvider{response: "郵便配達員が古書店で手紙を見つける入口、すごく気になる。しろなら、その手紙を開ける？"}
+	workerProvider := &capturingIdleProvider{response: "開ける前に、宛名の消え方を見るべきです。封筒の端だけ濡れているなら、隠した人の癖が残ります。"}
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{
+		"mio":   chatProvider,
+		"shiro": workerProvider,
+	})
+
+	if _, err := o.generateResponse("mio", "shiro", "idle-think-mio", 0, 0, "郵便と古書店"); err != nil {
+		t.Fatalf("mio generateResponse() error = %v", err)
+	}
+	if len(chatProvider.requests) == 0 {
+		t.Fatal("expected mio request")
+	}
+	if got, ok := chatProvider.requests[0].ProviderOptions["think"].(bool); !ok || got {
+		t.Fatalf("mio think option = %#v, want false", chatProvider.requests[0].ProviderOptions["think"])
+	}
+	if system := chatProvider.requests[0].Messages[0].Content; !strings.Contains(system, "/no_think") {
+		t.Fatalf("mio system prompt should use /no_think:\n%s", system)
+	}
+
+	if _, err := o.generateResponse("shiro", "mio", "idle-think-shiro", 1, 1, "郵便と古書店"); err != nil {
+		t.Fatalf("shiro generateResponse() error = %v", err)
+	}
+	if len(workerProvider.requests) == 0 {
+		t.Fatal("expected shiro request")
+	}
+	if got, ok := workerProvider.requests[0].ProviderOptions["think"].(bool); !ok || got {
+		t.Fatalf("shiro think option = %#v, want false", workerProvider.requests[0].ProviderOptions["think"])
+	}
+	if system := workerProvider.requests[0].Messages[0].Content; !strings.Contains(system, "/no_think") {
+		t.Fatalf("shiro system prompt should use /no_think:\n%s", system)
+	}
+}
+
 func TestGenerateResponseSelectsMoreFunCandidate(t *testing.T) {
 	provider := &capturingIdleProvider{responses: []string{
 		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
@@ -349,6 +385,17 @@ func TestGenerateResponseRejectsEnglishReasoningLeak(t *testing.T) {
 	}
 }
 
+func TestUnusableIdleResponseRejectsEnglishDominantReasoningFragment(t *testing.T) {
+	raw := `Okay, let's see. The user is asking about what happens if the signal is missing.
+
+The user's question: "その合図がなかったら、私たちの体はどう反応しちゃうんだろう？" So Shiro should explain the immune reaction.`
+	sanitized := `The user's question: "その合図がなかったら、私たちの体はどう反応しちゃうんだろう？" So Shiro should explain the immune reaction.`
+
+	if !unusableIdleResponse(raw, sanitized) {
+		t.Fatalf("English-dominant reasoning fragment should be unusable: raw=%q sanitized=%q", raw, sanitized)
+	}
+}
+
 func TestHasInternalReasoningLeakDetectsEnglishReasoning(t *testing.T) {
 	raw := "Okay, let's see. The user is asking me to respond as Shiro in two sentences. The task is to acknowledge the point and add a concrete example."
 	if !hasInternalReasoningLeak(raw) {
@@ -566,6 +613,29 @@ func TestBuildIdleTurnPromptRequiresDialogueResponse(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildIdleTurnPromptFinalTurnClosesWithoutNewQuestion(t *testing.T) {
+	got := buildIdleTurnPrompt("郵便と古書店", "shiro", "古書店に届く宛先不明の手紙って、誰かの記憶みたいだね。", "配達記録が鍵になりそうです。", 11, 11, false)
+
+	for _, want := range []string{
+		"最後の発話",
+		"問いを増やさず",
+		"新しい問い",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("final turn prompt does not contain %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"最後に残る問いを一つ置く",
+		"余韻のある問いか感想",
+		"具体物・理由・問いのどれか",
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("final turn prompt still allows a new question via %q:\n%s", banned, got)
 		}
 	}
 }

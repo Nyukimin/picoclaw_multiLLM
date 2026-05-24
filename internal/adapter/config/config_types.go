@@ -281,13 +281,18 @@ type TransportConfig struct {
 
 // IdleChatConfig はAgent間雑談モードの設定
 type IdleChatConfig struct {
-	Enabled      bool     `yaml:"enabled"`        // 雑談モードの有効化（デフォルト: false）
-	Participants []string `yaml:"participants"`   // 参加Agent名（デフォルト: ["mio", "shiro"]）
-	IntervalMin  int      `yaml:"interval_min"`   // 雑談開始までのアイドル時間・分（デフォルト: 5）
-	IntervalSec  int      `yaml:"interval_sec"`   // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
-	MaxTurns     int      `yaml:"max_turns"`      // 1回の雑談の最大ターン数（デフォルト: 10）
-	Temperature  float64  `yaml:"temperature"`    // 雑談時の温度（デフォルト: 0.8）
-	StoryDataDir string   `yaml:"story_data_dir"` // 物語データJSONディレクトリ（デフォルト: "data/story"）
+	Enabled           bool                          `yaml:"enabled"`             // 雑談モードの有効化（デフォルト: false）
+	Participants      []string                      `yaml:"participants"`        // 参加Agent名（デフォルト: ["mio", "shiro"]）
+	IntervalMin       int                           `yaml:"interval_min"`        // 雑談開始までのアイドル時間・分（デフォルト: 5）
+	IntervalSec       int                           `yaml:"interval_sec"`        // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
+	MaxTurns          int                           `yaml:"max_turns"`           // 1回の雑談の最大ターン数（デフォルト: 10）
+	Temperature       float64                       `yaml:"temperature"`         // 雑談時の温度（デフォルト: 0.8）
+	StoryDataDir      string                        `yaml:"story_data_dir"`      // 物語データJSONディレクトリ（デフォルト: "data/story"）
+	SpeakerLLMOptions map[string]IdleChatLLMOptions `yaml:"speaker_llm_options"` // 話者別LLMオプション
+}
+
+type IdleChatLLMOptions struct {
+	Think *bool `yaml:"think"` // true=Think, false=NoThink
 }
 
 // ConversationConfig は会話LLMの設定

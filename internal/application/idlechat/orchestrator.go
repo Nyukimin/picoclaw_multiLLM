@@ -24,7 +24,7 @@ const (
 	idleChatShiroSummaryMaxTokens  = 1200
 	idleChatQualityReviewMaxTokens = 900
 	speakerBreak                   = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
-	topicBreak                     = 1000 * time.Millisecond // 話題交代ブレイク（TTS完了後）
+	topicBreak                     = 1000 * time.Millisecond // 次IdleChat session/ドメイン交代ブレイク（TTS完了後）
 )
 
 var idleChatTTSWaitTimeout = 120 * time.Second
@@ -98,6 +98,7 @@ type IdleChatOrchestrator struct {
 	maxTurns         int
 	temperature      float64
 	personalities    map[string]string
+	speakerOptions   map[string]map[string]any
 
 	lastActivity              time.Time
 	chatActive                bool

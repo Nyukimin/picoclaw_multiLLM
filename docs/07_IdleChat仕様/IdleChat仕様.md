@@ -74,6 +74,10 @@ internal/application/idlechat/
 | 既出テーマ抽出 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
 | まとめ生成 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
 
+通常 IdleChat では、話者ごとの LLM リクエストに `think` を常に明示する。
+既定は Mio が常時 `think: false`、Shiro は IdleChat のみ `think: false`、その他の話者/モデルは `think: true` とし、`idle_chat.speaker_llm_options` で話者ごとに切り替え可能にする。
+Shiro の NoThink は通常 Worker には適用せず、IdleChat の Shiro 呼び出しに限定する。IdleChat 以外の Shiro/Worker は `think: true` で運用する。
+
 ### 2.4 データフロー
 
 ```
@@ -146,7 +150,12 @@ runChatSession():
      ├─ ループ検出（detectLoopReason）
      └─ 中断/エラー/ループ → break
   3. saveSummary() → Worker 要約 → Mio 読み上げ → topicBreak
+  4. 次の話題は同一 session_id 内で開始せず、次回の runChatSession() で新 session として開始
 ```
+
+通常 IdleChat の境界は **1 session = 1 topic = 1 summary** とする。
+話題を切り替える場合は、話題Aの session を完了し、summary と topicBreak を終えてから、話題Bを新しい IdleChat session として開始する。
+同一 session_id 内で `topic-00` から `topic-01` へ進める実装は禁止する。
 
 ### 4.4 ループ検出（5種類）
 
@@ -178,7 +187,7 @@ runChatSession():
 2. TopicStore に永続化（JSON Lines）
 3. Timeline に idlechat.summary イベント emit
 4. speakSummary() → Mio が要約を読み上げ（TTS完了待ち）
-5. topicBreak (1000ms) → 次のトピック/ドメインへ
+5. topicBreak (1000ms) → 次の IdleChat session / ドメインへ
 ```
 
 ### 5.1 SessionSummary
@@ -262,7 +271,7 @@ Viewer → IdleChat: ユーザーメッセージ → message.received → Notify
 | `idleCheckInterval` | 30s | monitorLoop チェック間隔 |
 | `maxTurnsPerTopic` | 12 | 通常モードの1トピック最大ターン数 |
 | `speakerBreak` | 500ms | 話者交代ブレイク |
-| `topicBreak` | 1000ms | トピック/ドメイン交代ブレイク |
+| `topicBreak` | 1000ms | 次 IdleChat session / ドメイン交代ブレイク |
 | `defaultChunkPause` | 200ms | TTS チャンク間ブレイク（audio_sink） |
 | `forecastTurnsPerDomain` | 100 | 未来展望の1ドメイン最大ターン数 |
 | `forecastCheckpointInterval` | 15 | 未来展望のテーマ抑制チェック間隔 |

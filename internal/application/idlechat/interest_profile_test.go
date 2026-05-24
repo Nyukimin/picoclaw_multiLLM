@@ -68,7 +68,7 @@ func TestBuildIdleTurnPromptIncludesTopicInterestProfile(t *testing.T) {
 
 func TestIdleAudienceAngleForProfileUsesTopicSpecificAngles(t *testing.T) {
 	profile := idleInterestProfileForTopic("休日の散歩と帰り道のごはん")
-	got := idleAudienceAngleForProfile(0, false, false, profile)
+	got := idleAudienceAngleForProfile(0, false, false, false, profile)
 	if got != "その場面がすぐ浮かぶこと" {
 		t.Fatalf("angle = %q", got)
 	}

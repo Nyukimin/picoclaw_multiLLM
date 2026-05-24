@@ -16,6 +16,20 @@ func (p *OpenAIProvider) addThinkingBridgeFields(req map[string]interface{}, str
 	}
 }
 
+func (p *OpenAIProvider) addProviderOptions(req map[string]interface{}, options map[string]any) {
+	if !p.thinkingBridge || len(options) == 0 {
+		return
+	}
+	for key, value := range options {
+		switch strings.TrimSpace(key) {
+		case "", "model", "messages", "max_tokens", "temperature", "stream":
+			continue
+		default:
+			req[key] = value
+		}
+	}
+}
+
 func (p *OpenAIProvider) sanitizeThinkingBridgeContent(content, parseStatus, _ string) string {
 	if !p.thinkingBridge {
 		return content

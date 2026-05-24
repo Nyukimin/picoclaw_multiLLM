@@ -150,6 +150,44 @@ func TestOpenAIProviderGenerate_LocalCompatibleNoAPIKey(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderGenerate_LocalCompatibleMergesProviderOptions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if reqBody["think"] != false {
+			t.Fatalf("expected think=false, got %#v in %#v", reqBody["think"], reqBody)
+		}
+		if reqBody["parse_reasoning"] != true || reqBody["include_reasoning"] != false || reqBody["separate_reasoning"] != true {
+			t.Fatalf("thinking bridge fields should remain enabled: %#v", reqBody)
+		}
+		if reqBody["model"] != "Worker" {
+			t.Fatalf("provider options must not override reserved model field: %#v", reqBody)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithOptions("", "Worker", server.URL, 0)
+	if _, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "ping"}},
+		ProviderOptions: map[string]any{
+			"think": false,
+			"model": "BadOverride",
+		},
+	}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
 func TestOpenAIProviderGenerate_PublicOpenAIDoesNotSendThinkingBridgeFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}

@@ -119,6 +119,7 @@ func (c *Config) setDefaults() {
 		if c.IdleChat.Temperature == 0 {
 			c.IdleChat.Temperature = 0.8
 		}
+		c.applyIdleChatSpeakerLLMDefaults()
 	}
 
 	// v5.0 Conversation デフォルト
@@ -724,6 +725,24 @@ func (c *Config) setDefaults() {
 	}
 	if c.Coder4.LightMemory.MaxTurns == 0 {
 		c.Coder4.LightMemory.MaxTurns = 3
+	}
+}
+
+func (c *Config) applyIdleChatSpeakerLLMDefaults() {
+	if c.IdleChat.SpeakerLLMOptions == nil {
+		c.IdleChat.SpeakerLLMOptions = make(map[string]IdleChatLLMOptions)
+	}
+	for _, participant := range c.IdleChat.Participants {
+		name := strings.ToLower(strings.TrimSpace(participant))
+		if name == "" {
+			continue
+		}
+		opts := c.IdleChat.SpeakerLLMOptions[name]
+		if opts.Think == nil {
+			think := name != "mio" && name != "shiro"
+			opts.Think = &think
+		}
+		c.IdleChat.SpeakerLLMOptions[name] = opts
 	}
 }
 

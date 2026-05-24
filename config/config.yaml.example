@@ -159,6 +159,14 @@ idle_chat:
   interval_sec: 300      # 雑談開始までのアイドル時間（秒、指定時は interval_min より優先）
   max_turns: 10           # 1回の雑談最大ターン数
   temperature: 0.8        # 雑談時の温度
+  speaker_llm_options:
+    mio:
+      think: false         # NoThink
+    shiro:
+      think: false         # NoThink
+    # その他の話者/モデルを参加させる場合は既定 Think。
+    # aka:
+    #   think: true
 
 # 会話LLM v5.0: 3層記憶（短期Redis・中期DuckDB・長期Qdrant）
 conversation:

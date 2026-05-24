@@ -34,6 +34,7 @@ func buildIdleCompactRetryMessages(speaker, topic, latestOther, purpose string) 
 
 func unusableIdleResponse(raw, sanitized string) bool {
 	return invalidIdleResponse(sanitized) ||
+		englishDominantIdleText(sanitized) ||
 		((hasPromptLeak(raw) || hasInternalReasoningLeak(raw)) && !hasIdleSentenceEnd(sanitized)) ||
 		hasPromptLeak(sanitized) ||
 		hasInternalReasoningLeak(sanitized)

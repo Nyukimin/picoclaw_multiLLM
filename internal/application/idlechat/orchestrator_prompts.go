@@ -20,8 +20,9 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 	movieMode := isMovieTopicPrompt(topic)
 	interest := idleInterestProfileForTopic(topic)
 	closingMode := !firstTurn && turnsLeftInTopic(segmentTurns) <= 2
-	move := idleTurnMove(speakerOrTarget, turn, firstTurn, movieMode, closingMode)
-	audience := idleAudienceAngleForProfile(turn, movieMode, closingMode, interest)
+	finalTurn := !firstTurn && turnsLeftInTopic(segmentTurns) <= 1
+	move := idleTurnMove(speakerOrTarget, turn, firstTurn, movieMode, closingMode, finalTurn)
+	audience := idleAudienceAngleForProfile(turn, movieMode, closingMode, finalTurn, interest)
 	shiftHint := idleShiftHint(latestOther, latestSelf)
 	if firstTurn {
 		return fmt.Sprintf(
@@ -33,15 +34,16 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 		)
 	}
 	return fmt.Sprintf(
-		"話題: %s\n直前の相手発言: %s\n自分の直前発言: %s\n%sとして、直前の相手発言を受けて1〜2文で返してください。自然な日本語だけにし、話者名、mio:、shiro:、相手の台詞、台本形式、英語や説明は書かないでください。%s。読者の楽しみは「%s」です。直前と入口を変え、具体物・理由・問いのどれかを一つだけ足してください。%s %s",
+		"話題: %s\n直前の相手発言: %s\n自分の直前発言: %s\n%sとして、直前の相手発言を受けて1〜2文で返してください。自然な日本語だけにし、話者名、mio:、shiro:、相手の台詞、台本形式、英語や説明は書かないでください。%s。読者の楽しみは「%s」です。%s %s %s",
 		topic,
 		quoteOrDash(latestOther),
 		quoteOrDash(latestSelf),
 		speakerOrTarget,
 		move,
 		audience,
+		idleTurnAdditionHint(finalTurn),
 		shiftHint,
-		idleClosingHint(closingMode, movieMode),
+		idleClosingHint(closingMode, movieMode, finalTurn),
 	)
 }
 
@@ -149,8 +151,14 @@ func turnsLeftInTopic(segmentTurns int) int {
 	return left
 }
 
-func idleTurnMove(speaker string, turn int, firstTurn, movieMode, closingMode bool) string {
+func idleTurnMove(speaker string, turn int, firstTurn, movieMode, closingMode, finalTurn bool) string {
 	name := strings.ToLower(strings.TrimSpace(speaker))
+	if finalTurn {
+		if name == "shiro" {
+			return "最後の発話として、ここまでの核心を一文で受け、問いを増やさず短く締める"
+		}
+		return "最後の発話として、ここまでで一番強い感情や場面を拾い、問いを増やさず余韻で締める"
+	}
 	if closingMode {
 		if movieMode {
 			if name == "shiro" {
@@ -234,7 +242,10 @@ func idleAudienceAngle(turn int, movieMode, closingMode bool) string {
 	return angles[turn%len(angles)]
 }
 
-func idleAudienceAngleForProfile(turn int, movieMode, closingMode bool, profile idleInterestProfile) string {
+func idleAudienceAngleForProfile(turn int, movieMode, closingMode, finalTurn bool, profile idleInterestProfile) string {
+	if finalTurn {
+		return "最後に話の芯がまとまり、新しい問いを増やさず余韻で終わること"
+	}
 	if closingMode {
 		if movieMode {
 			return "締めに向かって、見終わったあとの余韻が少し残ること"
@@ -247,9 +258,19 @@ func idleAudienceAngleForProfile(turn int, movieMode, closingMode bool, profile 
 	return profile.Angles[turn%len(profile.Angles)]
 }
 
-func idleClosingHint(closingMode, movieMode bool) string {
+func idleTurnAdditionHint(finalTurn bool) string {
+	if finalTurn {
+		return "直前と入口を変えず、具体物・理由・問いを新しく足さず、既に出た要素だけで閉じてください。"
+	}
+	return "直前と入口を変え、具体物・理由・問いのどれかを一つだけ足してください。"
+}
+
+func idleClosingHint(closingMode, movieMode, finalTurn bool) string {
 	if !closingMode {
 		return "- まだ広げてよいが、論点は一つに絞る"
+	}
+	if finalTurn {
+		return "- 最後の発話。新しい問い・新設定・次の論点を出さず、ここまでの話を1-2文で締める"
 	}
 	if movieMode {
 		return "- そろそろ締める。新要素を増やしすぎず、最後の1-2ターンとして余韻や締めの像に寄せる"
@@ -315,7 +336,7 @@ func quoteOrDash(s string) string {
 }
 
 func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
-	idlePolicy := "/no_think\nこの会話はidleChatです。内部推論や思考チャンネルは出力せず、表示本文だけを返してください。外部検索（Web検索/API検索）は行わず、既存の内部文脈だけで自然に会話してください。出力は必ず自然な日本語だけにしてください。英語の見出し、英語だけの応答、英語での説明は禁止です。"
+	idlePolicy := idleChatThinkingDirective(o.speakerThinkEnabled(agentName)) + "\nこの会話はidleChatです。表示本文だけを返してください。外部検索（Web検索/API検索）は行わず、既存の内部文脈だけで自然に会話してください。出力は必ず自然な日本語だけにしてください。英語の見出し、英語だけの応答、英語での説明は禁止です。"
 
 	o.mu.Lock()
 	mode := o.sessionMode
@@ -332,4 +353,11 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 		return idlePolicy + "\n\n" + prompt + "\n" + idleStyle
 	}
 	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleStyle)
+}
+
+func idleChatThinkingDirective(think bool) string {
+	if think {
+		return "/think\n思考が必要な場合でも、通常表示に出すのは最終的な会話本文だけにしてください。"
+	}
+	return "/no_think\n内部推論や思考チャンネルは出力せず、表示本文だけを返してください。"
 }

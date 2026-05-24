@@ -30,6 +30,7 @@ func NewIdleChatOrchestrator(
 	return &IdleChatOrchestrator{
 		llmProvider:         llmProvider,
 		speakerLLMs:         make(map[string]llm.LLMProvider),
+		speakerOptions:      defaultIdleChatSpeakerOptions(participants),
 		memory:              memory,
 		participants:        participants,
 		intervalMin:         intervalMin,
@@ -80,6 +81,26 @@ func (o *IdleChatOrchestrator) SetSpeakerProviders(providers map[string]llm.LLMP
 	}
 }
 
+func (o *IdleChatOrchestrator) SetSpeakerProviderOptions(options map[string]map[string]any) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.speakerOptions = defaultIdleChatSpeakerOptions(o.participants)
+	for name, values := range options {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key == "" || len(values) == 0 {
+			continue
+		}
+		copied := copyProviderOptions(o.speakerOptions[key])
+		for optionKey, optionValue := range values {
+			if strings.TrimSpace(optionKey) == "" {
+				continue
+			}
+			copied[optionKey] = optionValue
+		}
+		o.speakerOptions[key] = copied
+	}
+}
+
 func (o *IdleChatOrchestrator) SetTopicStore(path string) error {
 	store, err := NewTopicStore(path)
 	if err != nil {
@@ -97,10 +118,80 @@ func (o *IdleChatOrchestrator) SetTopicStore(path string) error {
 func (o *IdleChatOrchestrator) providerForSpeaker(name string) llm.LLMProvider {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	var provider llm.LLMProvider
 	if provider, ok := o.speakerLLMs[strings.ToLower(strings.TrimSpace(name))]; ok && provider != nil {
+		return withProviderOptions(provider, o.speakerOptions[strings.ToLower(strings.TrimSpace(name))])
+	}
+	provider = o.llmProvider
+	return withProviderOptions(provider, o.speakerOptions[strings.ToLower(strings.TrimSpace(name))])
+}
+
+func (o *IdleChatOrchestrator) speakerThinkEnabled(agentName string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	options := o.speakerOptions[strings.ToLower(strings.TrimSpace(agentName))]
+	if value, ok := options["think"].(bool); ok {
+		return value
+	}
+	return defaultIdleChatThinkForSpeaker(agentName)
+}
+
+type providerOptionsWrapper struct {
+	base    llm.LLMProvider
+	options map[string]any
+}
+
+func withProviderOptions(provider llm.LLMProvider, options map[string]any) llm.LLMProvider {
+	if provider == nil || len(options) == 0 {
 		return provider
 	}
-	return o.llmProvider
+	return providerOptionsWrapper{base: provider, options: copyProviderOptions(options)}
+}
+
+func (p providerOptionsWrapper) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+	req.ProviderOptions = copyProviderOptions(req.ProviderOptions)
+	for key, value := range p.options {
+		req.ProviderOptions[key] = value
+	}
+	return p.base.Generate(ctx, req)
+}
+
+func (p providerOptionsWrapper) Name() string {
+	return p.base.Name()
+}
+
+func defaultIdleChatSpeakerOptions(participants []string) map[string]map[string]any {
+	options := map[string]map[string]any{
+		"mio":   {"think": false},
+		"shiro": {"think": false},
+	}
+	for _, participant := range participants {
+		key := strings.ToLower(strings.TrimSpace(participant))
+		if key == "" {
+			continue
+		}
+		if _, ok := options[key]; !ok {
+			options[key] = map[string]any{"think": defaultIdleChatThinkForSpeaker(key)}
+		}
+	}
+	return options
+}
+
+func defaultIdleChatThinkForSpeaker(agentName string) bool {
+	switch strings.ToLower(strings.TrimSpace(agentName)) {
+	case "mio", "shiro":
+		return false
+	default:
+		return true
+	}
+}
+
+func copyProviderOptions(options map[string]any) map[string]any {
+	copied := make(map[string]any, len(options))
+	for key, value := range options {
+		copied[key] = value
+	}
+	return copied
 }
 
 // Start はIdleChatの監視ループを開始
