@@ -51,4 +51,26 @@ func TestPhase11EventPortUsesUpdatedListener(t *testing.T) {
 	if received.Route != "" || received.JobID != "" {
 		t.Fatalf("message.received should not include route/job before decision: %#v", received)
 	}
+	if received.MessageID != "sess-2:chat:msg:0001" || received.TurnIndex != 1 {
+		t.Fatalf("message.received should include stable conversation identity: %#v", received)
+	}
+}
+
+func TestPhase11EventPortAssignsStableConversationIdentity(t *testing.T) {
+	listener := &phase11RecordingEventListener{}
+	port := newMessageEventPort(listener)
+
+	port.Emit("message.received", "user", "mio", "hello", "", "", "sess-1", "viewer", "viewer-user")
+	port.Emit("agent.response", "mio", "user", "hi", "CHAT", "job-1", "sess-1", "viewer", "viewer-user")
+	port.Emit("routing.decision", "mio", "", "CHAT", "CHAT", "job-1", "sess-1", "viewer", "viewer-user")
+
+	if listener.events[0].MessageID != "sess-1:chat:msg:0001" || listener.events[0].TurnIndex != 1 {
+		t.Fatalf("first conversation identity = %#v", listener.events[0])
+	}
+	if listener.events[1].MessageID != "sess-1:chat:msg:0002" || listener.events[1].TurnIndex != 2 {
+		t.Fatalf("second conversation identity = %#v", listener.events[1])
+	}
+	if listener.events[2].MessageID != "" || listener.events[2].TurnIndex != 0 {
+		t.Fatalf("non conversation event should not get conversation identity: %#v", listener.events[2])
+	}
 }

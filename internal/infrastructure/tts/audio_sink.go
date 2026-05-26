@@ -3,8 +3,10 @@ package tts
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +29,91 @@ func (s *NoopAudioSink) SubmitChunk(_ context.Context, _ string, _ audioChunk) e
 
 func (s *NoopAudioSink) CompleteSession(_ context.Context, _ string) error {
 	return nil
+}
+
+type asyncAudioSink struct {
+	sink     AudioSink
+	mu       sync.Mutex
+	sessions map[string]*asyncAudioSinkSession
+}
+
+type asyncAudioSinkSession struct {
+	id    string
+	queue chan audioChunk
+	once  sync.Once
+}
+
+// NewAsyncAudioSink preserves ordered local playback without making TTS synthesis
+// wait for each chunk to finish playing.
+func NewAsyncAudioSink(sink AudioSink) AudioSink {
+	if sink == nil {
+		return NewNoopAudioSink()
+	}
+	return &asyncAudioSink{
+		sink:     sink,
+		sessions: make(map[string]*asyncAudioSinkSession),
+	}
+}
+
+func (s *asyncAudioSink) SubmitChunk(ctx context.Context, sessionID string, ch audioChunk) error {
+	if s == nil || s.sink == nil {
+		return fmt.Errorf("audio sink is not configured")
+	}
+	session := s.getSession(sessionID)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case session.queue <- ch:
+		return nil
+	}
+}
+
+func (s *asyncAudioSink) CompleteSession(_ context.Context, sessionID string) error {
+	if s == nil {
+		return nil
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	s.mu.Lock()
+	session := s.sessions[sessionID]
+	delete(s.sessions, sessionID)
+	s.mu.Unlock()
+	if session != nil {
+		session.close()
+	}
+	return nil
+}
+
+func (s *asyncAudioSink) getSession(sessionID string) *asyncAudioSinkSession {
+	sessionID = strings.TrimSpace(sessionID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if session := s.sessions[sessionID]; session != nil {
+		return session
+	}
+	session := &asyncAudioSinkSession{
+		id:    sessionID,
+		queue: make(chan audioChunk, 16),
+	}
+	s.sessions[sessionID] = session
+	go s.runSession(session)
+	return session
+}
+
+func (s *asyncAudioSink) runSession(session *asyncAudioSinkSession) {
+	for ch := range session.queue {
+		if err := s.sink.SubmitChunk(context.Background(), session.id, ch); err != nil {
+			log.Printf("WARN: async audio sink submit failed session=%s chunk=%d err=%v", session.id, ch.ChunkIndex, err)
+		}
+	}
+	if err := s.sink.CompleteSession(context.Background(), session.id); err != nil {
+		log.Printf("WARN: async audio sink complete failed session=%s err=%v", session.id, err)
+	}
+}
+
+func (s *asyncAudioSinkSession) close() {
+	s.once.Do(func() {
+		close(s.queue)
+	})
 }
 
 const defaultChunkPause = 200 * time.Millisecond // 同一話者内の句間ブレイク

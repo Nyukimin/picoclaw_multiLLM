@@ -57,6 +57,9 @@ func notifyIdleChatTTSPlaybackCompleted(responseID string) bool {
 		// Unblock queued agent speech once the topic announcement has actually finished playback.
 		close(topicCh)
 	}
+	if ok {
+		clearTTSPublicSessionByResponse(responseID)
+	}
 	return ok
 }
 
@@ -103,6 +106,35 @@ func clearIdleChatTTSPendingByChan(target <-chan struct{}) {
 	idleChatTTSPendingMu.Unlock()
 	if topicCh != nil {
 		close(topicCh)
+	}
+}
+
+func clearAllIdleChatTTSPending() {
+	idleChatTTSPendingMu.Lock()
+	pending := make([]chan struct{}, 0, len(idleChatTTSPending))
+	seen := map[chan struct{}]struct{}{}
+	for _, ch := range idleChatTTSPending {
+		if _, ok := seen[ch]; ok {
+			continue
+		}
+		seen[ch] = struct{}{}
+		pending = append(pending, ch)
+	}
+	topicGates := make([]chan struct{}, 0, len(idleChatTopicGate))
+	for _, ch := range idleChatTopicGate {
+		topicGates = append(topicGates, ch)
+	}
+	idleChatTTSPending = map[string]chan struct{}{}
+	idleChatTTSPendingByResponse = map[string]chan struct{}{}
+	idleChatTopicGate = map[string]chan struct{}{}
+	idleChatTopicByTTS = map[string]string{}
+	idleChatTTSPendingMu.Unlock()
+
+	for _, ch := range pending {
+		close(ch)
+	}
+	for _, ch := range topicGates {
+		close(ch)
 	}
 }
 

@@ -23,6 +23,10 @@ func (o *IdleChatOrchestrator) reviewSessionEnd(topic, mode string, transcript [
 	}
 
 	fallbackReview, fallbackGuide := heuristicQualityReview(topic, mode, transcript, summary, loopReason)
+	loopReasonForPrompt := strings.TrimSpace(loopReason)
+	if loopReasonForPrompt == "" {
+		loopReasonForPrompt = "なし（会話は規定ターンまで完了。打ち切りとして扱わない）"
+	}
 	messages := []llm.Message{
 		{Role: "system", Content: "あなたはIdleChatの聞き手体験を編集する脚本編集者です。退屈さを検出するだけでなく、会話に残っていた面白さの芽を言語化し、次回は短く効くように補正してください。"},
 		{Role: "user", Content: fmt.Sprintf(`次のIdleChat終了ログを評価してください。
@@ -33,6 +37,7 @@ func (o *IdleChatOrchestrator) reviewSessionEnd(topic, mode string, transcript [
 - どの発話で、面白い方向へ曲がれたのに抽象論・説明・反復へ逃げたか
 - 長くせず面白くするには、どんな型にすべきか
 - 注記や打ち切り理由がある場合は、必ず原因を推定して再発防止プロンプトを出す
+- 打ち切り理由が「なし」の場合、BORING_CAUSE や MISSED_TURN に「打ち切り」と書かない
 
 出力形式:
 QUALITY: pass または fail
@@ -49,7 +54,7 @@ LENGTH_CONTROL: 2文以内、または最大120字など、短くする制約を
 %s
 
 会話ログ:
-%s`, mode, topic, strings.TrimSpace(loopReason), strings.TrimSpace(summary), body)},
+%s`, mode, topic, loopReasonForPrompt, strings.TrimSpace(summary), body)},
 	}
 
 	resp, err := o.providerForSpeaker("shiro").Generate(o.idleRunContext(), llm.GenerateRequest{
@@ -73,6 +78,10 @@ LENGTH_CONTROL: 2文以内、または最大120字など、短くする制約を
 	if review == "" {
 		return fallbackReview, fallbackGuide
 	}
+	if qualityReviewContradictsCompletion(review, loopReason) {
+		log.Printf("[IdleChat] quality review contradicted completed session, using heuristic review")
+		return fallbackReview, fallbackGuide
+	}
 	guide := extractPromptGuidance(review)
 	if guide == "" {
 		guide = fallbackGuide
@@ -81,6 +90,17 @@ LENGTH_CONTROL: 2文以内、または最大120字など、短くする制約を
 		guide = joinPromptGuides(guide, fallbackGuide)
 	}
 	return review, guide
+}
+
+func qualityReviewContradictsCompletion(review, loopReason string) bool {
+	if strings.TrimSpace(loopReason) != "" {
+		return false
+	}
+	review = strings.TrimSpace(review)
+	if review == "" {
+		return false
+	}
+	return strings.Contains(review, "打ち切り") || strings.Contains(strings.ToLower(review), "loop")
 }
 
 func normalizeQualityReview(raw string) string {

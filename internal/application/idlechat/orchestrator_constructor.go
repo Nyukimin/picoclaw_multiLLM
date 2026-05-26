@@ -53,6 +53,12 @@ func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan s
 	o.emitEvent = emit
 }
 
+func (o *IdleChatOrchestrator) SetTTSTimeoutReporter(report func(TTSTimeoutEvent)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.reportTTSTimeout = report
+}
+
 // SetForecastProvider sets a high-capability LLM for forecast topic generation and keyword extraction.
 
 func (o *IdleChatOrchestrator) SetForecastProvider(provider llm.LLMProvider) {

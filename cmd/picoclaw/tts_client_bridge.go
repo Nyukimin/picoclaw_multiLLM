@@ -28,10 +28,18 @@ func buildTTSClientBridge(
 		log.Printf("TTS browser-only mode enabled (local playback disabled)")
 	} else {
 		player := ttsinfra.NewCommandPlayer(cmds)
-		sink = ttsinfra.NewPlaybackAudioSink(player, cfg.TTS.AudioPathRoot)
+		sink = ttsinfra.NewAsyncAudioSink(ttsinfra.NewPlaybackAudioSink(player, cfg.TTS.AudioPathRoot))
 	}
 	onChunkFn := func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string) {
+		if isStaleTTSPublicSession(sessionID) {
+			log.Printf("[TTS] dropping stale idlechat chunk session=%s response=%s chunk=%d", sessionID, responseID, chunkIndex)
+			return
+		}
 		publicSessionID, publicChunkIndex := resolveTTSPublicChunk(sessionID, chunkIndex)
+		messageID, turnIndex, utteranceID := resolveTTSPublicMessage(sessionID)
+		if utteranceID == "" {
+			utteranceID = fmt.Sprintf("%s:%04d", publicSessionID, publicChunkIndex)
+		}
 		displayText = strings.TrimSpace(displayText)
 		if displayText == "" {
 			displayText = text
@@ -45,7 +53,9 @@ func buildTTSClientBridge(
 		payload, err := json.Marshal(map[string]any{
 			"session_id":   publicSessionID,
 			"response_id":  responseID,
-			"utterance_id": fmt.Sprintf("%s:%04d", publicSessionID, publicChunkIndex),
+			"message_id":   messageID,
+			"turn_index":   turnIndex,
+			"utterance_id": utteranceID,
 			"chunk_index":  publicChunkIndex,
 			"character_id": characterID,
 			"text":         text,
@@ -66,12 +76,21 @@ func buildTTSClientBridge(
 		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
 	}
 	onSessionDoneFn := func(sessionID, characterID string) {
+		if isStaleTTSPublicSession(sessionID) {
+			log.Printf("[TTS] dropping stale idlechat completion session=%s", sessionID)
+			clearTTSPublicSession(sessionID)
+			return
+		}
 		publicSessionID := resolveTTSPublicSession(sessionID)
 		responseID := resolveTTSPublicResponse(sessionID)
+		messageID, turnIndex, utteranceID := resolveTTSPublicMessage(sessionID)
 		if onChunk != nil {
 			payload, err := json.Marshal(map[string]any{
 				"session_id":   strings.TrimSpace(publicSessionID),
 				"response_id":  strings.TrimSpace(responseID),
+				"message_id":   strings.TrimSpace(messageID),
+				"turn_index":   turnIndex,
+				"utterance_id": strings.TrimSpace(utteranceID),
 				"character_id": strings.TrimSpace(characterID),
 			})
 			if err != nil {
@@ -86,7 +105,6 @@ func buildTTSClientBridge(
 				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
 			}
 		}
-		clearTTSPublicSession(sessionID)
 		if onSessionCompleted != nil {
 			onSessionCompleted(publicSessionID, characterID)
 		}

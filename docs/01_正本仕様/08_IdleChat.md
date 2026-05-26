@@ -1,7 +1,7 @@
 # IdleChat（§8）
 
 **対応仕様**: 仕様.md §8
-**ソース**: 07_IdleChat仕様/IdleChat仕様.md, 07_IdleChat仕様/未来展望セッション仕様.md
+**ソース**: 07_IdleChat仕様/IdleChat仕様.md, 07_IdleChat仕様/未来展望セッション仕様.md, 07_IdleChat仕様/会話ID仕様.md
 **最終更新**: 2026-03-26
 
 ---
@@ -204,6 +204,8 @@ Viewer は PC / ケータイ / 複数タブで同時に開ける。ただし、�
 - active ではない Viewer からの ack はログには残すが、IdleChat の待ち解除には使わない。
 - active Viewer が後から切り替わった場合、旧 Viewer は音声再生またはマイク入力を停止し、新 active Viewer だけが操作対象になる。
 - active audio viewer が未設定の場合、TTS を「聞いた」として IdleChat を進めてはいけない。
+- TTS playback ack が返らないことは音声系エラーとしてログに残す。ただし IdleChat / Forecast の会話進行やお題更新を止める要因にはしない。
+- TTS 完了待ちは短時間の best-effort とし、timeout 後は `tts_error=true` として記録して会話を継続する。
 
 ### 7.1.2 IdleChat 本文表示と TTS 同期
 
@@ -216,6 +218,7 @@ IdleChat の Viewer 本文表示は、`idlechat.message` の全文を即時描�
 - スピーカ OFF の場合、TTS chunk ごとに 500ms wait して次 chunk を表示する。
 - `tts.session_completed` は TTS 生成完了であり、ユーザーが聞いた完了や Viewer 表示完了ではない。
 - IdleChat の TTS 完了待ちは、active audio Viewer が実際に観測した response の playback ack、またはスピーカ OFF の明示 fallback 完了でのみ解除する。
+- TTS playback ack が返らない場合はエラーとして記録するが、会話進行の停止要因にはしない。
 - TTS chunk が一定時間来ない、または TTS 生成に失敗した場合のみ、fallback として `idlechat.message` の全文表示を許可する。
 - fallback は通常成功扱いではなく、fallback 表示としてログ・状態で区別できるようにする。
 - `tts.session_completed` だけを見て、観測していない response を playback 済みとして ack してはいけない。

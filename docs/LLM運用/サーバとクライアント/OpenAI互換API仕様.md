@@ -19,13 +19,20 @@ RenCrow 側は用途ごとに base URL と `model` 名を切り替える。
 
 | Use | model | Backing MLX model |
 | --- | --- | --- |
-| Chat | `Chat` | `/Users/yukimi/models/gemma-4-E4B-it-UD-MLX-4bit` |
-| Worker | `Worker` | `/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit` |
+| Chat | `Chat` | `/Users/yukimi/models/gemma-4-e4b-it-4bit` |
+| Worker | `Worker`, `Coder1`, `Coder2`, `Coder3`, `Coder4` | `/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit` |
 | Heavy | `Heavy` | `/Users/yukimi/models/Qwen3.5-122B-A10B-4bit` |
 | Wild | `Wild` | `/Users/yukimi/models/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit` |
 
-現行の公開 model 名は `Chat` / `Worker` / `Heavy` / `Wild` の 4 つ。
-`Coder` は Worker 設定内に用途名として残しているが、現行 proxy ではクライアントへ公開しない。
+現行の公開 model 名は以下。
+
+- Chat endpoint: `Chat`
+- Worker endpoint: `Worker`, `Coder1`, `Coder2`, `Coder3`, `Coder4`
+- Heavy endpoint: `Heavy`
+- Wild endpoint: `Wild`
+
+`Coder1`〜`Coder4` は Worker endpoint 上の公開 model alias であり、実体 backend model は Worker と同一。
+クライアントは用途に応じて `model` に `Worker` または `Coder1`〜`Coder4` を指定できる。
 
 ## Endpoints
 
@@ -42,6 +49,30 @@ RenCrow 側は用途ごとに base URL と `model` 名を切り替える。
   "data": [
     {
       "id": "Worker",
+      "object": "model",
+      "owned_by": "local",
+      "backend_model": "/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit"
+    },
+    {
+      "id": "Coder1",
+      "object": "model",
+      "owned_by": "local",
+      "backend_model": "/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit"
+    },
+    {
+      "id": "Coder2",
+      "object": "model",
+      "owned_by": "local",
+      "backend_model": "/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit"
+    },
+    {
+      "id": "Coder3",
+      "object": "model",
+      "owned_by": "local",
+      "backend_model": "/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit"
+    },
+    {
+      "id": "Coder4",
       "object": "model",
       "owned_by": "local",
       "backend_model": "/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit"
@@ -80,6 +111,124 @@ OpenAI互換の chat completions request を受け付ける。
 - `top_p`
 - `top_k`
 - `min_p`
+- `think`
+- `parse_reasoning`
+- `include_reasoning`
+- `separate_reasoning`
+
+## Thinking / Reasoning 成形
+
+Thinking 対応モデルでは、サーバ側が reasoning と最終回答本文を分離する。
+クライアント側で `<think>...</think>` タグを解析してはいけない。
+
+RenCrow 側はローカル OpenAI 互換 LLM に対して、OpenAI 互換 request body に以下の拡張パラメータを送る。
+public OpenAI API にはこれらの拡張パラメータを送らない。
+
+| Field | 型 | 意味 |
+| --- | --- | --- |
+| `think` | boolean | モデルに thinking を使わせるか |
+| `parse_reasoning` | boolean | サーバ側で reasoning/content を分離するか |
+| `include_reasoning` | boolean | response に reasoning を含めるか |
+| `separate_reasoning` | boolean | streaming delta も reasoning/content に分けるか |
+
+`think` が指定された場合、サーバ既定より request の値を優先する。
+RenCrow 側は `think:false` と `think:true` を話者・用途ごとに request ごと必ず明示する。
+
+ローカル OpenAI 互換 LLM に対しては、通常以下を付与する。
+
+```json
+{
+  "parse_reasoning": true,
+  "include_reasoning": false,
+  "separate_reasoning": true
+}
+```
+
+### RenCrow 側の送信方針
+
+Mio / Chat は常時 `think:false` とする。
+
+```json
+{
+  "model": "Chat",
+  "think": false,
+  "parse_reasoning": true,
+  "include_reasoning": false,
+  "separate_reasoning": true
+}
+```
+
+Shiro / IdleChat Worker は `think:false` とする。
+
+```json
+{
+  "model": "Worker",
+  "think": false,
+  "parse_reasoning": true,
+  "include_reasoning": false,
+  "separate_reasoning": true
+}
+```
+
+Shiro / 通常 Worker は `think:true` とする。
+
+```json
+{
+  "model": "Worker",
+  "think": true,
+  "parse_reasoning": true,
+  "include_reasoning": false,
+  "separate_reasoning": true
+}
+```
+
+その他モデルは原則として常時 `think:true` とする。
+
+```json
+{
+  "think": true,
+  "parse_reasoning": true,
+  "include_reasoning": false,
+  "separate_reasoning": true
+}
+```
+
+### サーバ側必須動作
+
+`think:false` が指定された場合、backend へ thinking 無効として確実に渡す。
+
+- backend の `chat_template_kwargs.enable_thinking=false` 相当に反映する
+- Qwen3 系でも thinking 出力を生成または通常本文へ混入させない
+- サーバ既定より request の `think` を優先する
+- `think:false` と `think:true` の連続呼び出しで、前回設定を持ち越さない
+
+`parse_reasoning:true` かつ `include_reasoning:false` の場合、`choices[0].message.content` には最終回答本文のみを返す。
+reasoning を返す必要がある場合は、通常本文とは別フィールドへ分離する。
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "content": "最終回答本文のみ",
+        "reasoning_content": "内部推論"
+      }
+    }
+  ]
+}
+```
+
+モデルが `<think>...</think>` を返した場合、`parse_reasoning:true` ではサーバ側で解析し、通常 `content` から除去する。
+
+- `content` に `<think>` タグを含めない
+- `include_reasoning:false` では reasoning 本文も `content` に含めない
+- クライアント側で `<think>` タグを再解析しなくてよい状態にする
+
+reasoning だけが生成され、最終本文が空になった場合、空の正常応答として扱わず、原因を追跡できる情報を残す。
+
+- サーバログで `reasoning_only` または `empty_final_content` 相当が判別できる
+- 可能なら response metadata でも判別できる
+- `finish=stop` だけで正常本文ありと誤認させない
 
 ## Response
 
@@ -87,17 +236,174 @@ non-streaming は OpenAI互換で `choices[0].message.content` を返す。
 
 streaming は `text/event-stream` の SSE 形式で `data: {...}` chunk を返す。
 
+通常 UI は `choices[0].message.content` のみを表示本文として使う。
+`include_reasoning:false` では、non-streaming と streaming のどちらでも reasoning を通常 `content` へ混ぜない。
+
+`include_reasoning:false` の non-streaming 応答例:
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "最終回答本文のみ",
+        "parse_status": "ok",
+        "parser_name": "qwen3"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}
+```
+
+`include_reasoning:true` の non-streaming 応答例:
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "最終回答本文のみ",
+        "reasoning_content": "内部推論",
+        "raw_content": "<think>内部推論</think>最終回答本文のみ",
+        "parse_status": "ok",
+        "parser_name": "qwen3"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}
+```
+
+`include_reasoning:true` の streaming では、reasoning と content を分ける。
+
+Reasoning delta:
+
+```json
+{
+  "choices": [
+    {
+      "delta": {
+        "reasoning_content": "内部推論",
+        "content": ""
+      }
+    }
+  ]
+}
+```
+
+Content delta:
+
+```json
+{
+  "choices": [
+    {
+      "delta": {
+        "reasoning_content": "",
+        "content": "最終回答本文"
+      }
+    }
+  ]
+}
+```
+
+## Client Handling
+
+RenCrow 側は以下を維持する。
+
+- Viewer 表示、TTS、口パク、会話履歴には `content` のみを使う
+- `reasoning_content` / `thinking` / `raw_content` を通常 UI や次ターン prompt へ混入させない
+- streaming では `delta.reasoning_content` を表示本文として扱わず、`delta.content` のみ連結する
+- reasoning が `content` に混入した場合は表示・TTS に流さず、discard または recovery する
+- sanitizer / recovery は保険であり、正規経路の成形責任は LLM サーバ側に置く
+
+## RenCrow 側の実装状況
+
+**ステータス**: 2026-05-24 時点の実装状況。
+
+### 実装済み
+
+- ローカル OpenAI 互換 LLM サーバ向け provider では、ThinkingBridge field を request body に付与する。
+  - `parse_reasoning:true`
+  - `include_reasoning:false`
+  - `separate_reasoning:true`
+- `think` は provider option として渡された場合に request body へ付与する。
+- IdleChat では speaker option により、Mio / Shiro も含めて `think` を request ごとに明示する。
+- public OpenAI API 向けには、ThinkingBridge 固有 field を送らない。
+- non-streaming 応答では `choices[0].message.content` を本文として扱い、`parse_status:no_reasoning` かつ untagged reasoning と判定できる場合は final answer 抽出または空化する。
+- streaming 応答では `reasoning_content` delta を表示本文として扱わず、`content` delta だけを通常本文として扱う。
+- health check request でも ThinkingBridge 安全 field を送る。
+- IdleChat の speaker 別 `think` default は以下。
+  - `mio`: `false`
+  - `shiro`: `false`
+  - その他 participant: `true`
+- IdleChat では speaker の `think` 設定に応じて system prompt 先頭へ `/think` または `/no_think` を付ける。
+- Shiro / IdleChat では、Worker 応答が空または内部推論 leak 由来で unusable な場合、Worker 再試行を待たず default provider recovery へ進む。
+- TTS 用テキストは thinking event を読み上げ対象にしない。
+
+### 実装ファイル
+
+| 項目 | ファイル |
+| --- | --- |
+| ThinkingBridge field 付与 | `internal/infrastructure/llm/providers/openai/thinking_bridge.go` |
+| OpenAI 互換 provider request / response 処理 | `internal/infrastructure/llm/providers/openai/provider.go` |
+| OpenAI 互換 response parse / sanitize | `internal/infrastructure/llm/providers/openai/response_parse.go` |
+| OpenAI 互換 streaming parse | `internal/infrastructure/llm/providers/openai/stream.go` |
+| health check field 付与 | `internal/infrastructure/health/openai_compatible.go` |
+| IdleChat speaker option / provider option 注入 | `internal/application/idlechat/orchestrator_constructor.go` |
+| IdleChat `/think` / `/no_think` prompt 指示 | `internal/application/idlechat/orchestrator_prompts.go` |
+| Shiro IdleChat recovery | `internal/application/idlechat/orchestrator_response_generation.go` |
+| IdleChat speaker `think` config default | `internal/adapter/config/config_defaults.go` |
+| TTS thinking 除外 | `internal/application/tts/text_filter.go` |
+
+### テスト状況
+
+以下の観点はテスト済み。
+
+- ローカル OpenAI 互換 provider が `parse_reasoning:true` / `include_reasoning:false` / `separate_reasoning:true` を送る。
+- provider option の `think:false` が request body に入る。
+- public OpenAI API 向けには ThinkingBridge field を送らない。
+- streaming で `reasoning_content` を通常本文へ混ぜない。
+- untagged reasoning 風 content を sanitize する。
+- health check が ThinkingBridge 安全 field を送る。
+- IdleChat の Mio / Shiro が `think:false` を provider option として渡し、system prompt に `/no_think` を付ける。
+- IdleChat のその他 participant は default で `think:true` になる。
+- Shiro / IdleChat の reasoning leak または空応答で default provider recovery へ進む。
+
+関連テスト:
+
+- `internal/infrastructure/llm/providers/openai/provider_test.go`
+- `internal/infrastructure/health/openai_compatible_test.go`
+- `internal/application/idlechat/dialogue_prompt_test.go`
+- `internal/adapter/config/config_test.go`
+- `internal/application/tts/text_filter_test.go`
+
+### 未保証・サーバ側依存
+
+以下は RenCrow 側だけでは保証できない。
+
+- backend が `think:false` を本当に thinking 無効化へ反映したこと。
+- Qwen3 系モデルが thinking を生成しないこと。
+- `<think>...</think>` や untagged reasoning が `content` に混入しないこと。
+- reasoning only / empty final content の原因がサーバ metadata で判別できること。
+- `think:false` と `think:true` を連続で切り替えたときに、LLM サーバ側で前回設定が残らないこと。
+
+RenCrow 側の sanitizer / recovery は保険であり、OpenAI 互換 API の正規応答はサーバ側で最終本文と reasoning が分離済みであることを前提にする。
+
 ## Auth
 
 現状は認証なし。RenCrow 側の API key は空文字、または任意の dummy 値でよい。
 
 ## Limits
 
-- Chat サーバ既定の `max_tokens`: `2048`
-- Worker / Heavy サーバ既定の `max_tokens`: `4096`
+- Chat サーバ既定の `max_tokens`: `16384`
+- Worker サーバ既定の `max_tokens`: `8192`
+- Heavy サーバ既定の `max_tokens`: `4096`
 - Wild サーバ既定の `max_tokens`: `2048`
 - request ごとの `max_tokens`: 指定可能
-- Chat tokenizer config の実用上限は未明示
+- Chat tokenizer config の実用上限はサーバ設定を正とする
 - Wild tokenizer config の `model_max_length`: `262144`
 - Worker は初回呼び出し時にモデルを取得するため、取得後に config を確認する
 
@@ -105,7 +411,7 @@ streaming は `text/event-stream` の SSE 形式で `data: {...}` chunk を返�
 
 - 各用途は別プロセスで常駐させる。
 - Chat プロセスは `Chat` 以外の model 名を拒否する。
-- Worker プロセスは `Worker` 以外の model 名を拒否する。
+- Worker プロセスは `Worker` / `Coder1` / `Coder2` / `Coder3` / `Coder4` を受け付け、それ以外の model 名を拒否する。
 - Heavy プロセスは `Heavy` 以外の model 名を拒否する。
 - Wild プロセスは `Wild` 以外の model 名を拒否する。
 - 各プロセス内は安定性優先で単一リクエスト処理にしている。

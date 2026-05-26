@@ -7,6 +7,10 @@
 
 ---
 
+## 関連仕様
+
+- [会話ID仕様](./会話ID仕様.md): IdleChat / Chat / Viewer / TTS / STT で使う `session_id`、`message_id`、`turn_index`、`utterance_id` 等の横断仕様
+
 ## 1. 概要
 
 IdleChat は、ユーザーが一定時間操作しないアイドル時間に **エージェント同士（Mio / Shiro 等）が自律的に雑談する** 仕組みである。通常モード（ランダムトピック）と未来展望モード（ドメイン特化）の2つのセッション形式を持つ。
@@ -236,6 +240,8 @@ Viewer は PC / ケータイ / 複数タブで同時に開ける。一方で、�
 - active ではない Viewer の ack / STT 結果は、ログ上は観測できても会話進行や IdleChat 制御には反映しない。
 - active が切り替わった場合、旧 Viewer は音声再生またはマイク入力を停止する。
 - active audio viewer が未設定の場合、TTS は再生完了扱いにしない。
+- TTS playback ack が返らないことは音声系エラーとしてログに残す。ただし IdleChat / Forecast の会話進行やお題更新を止める要因にはしない。
+- TTS 完了待ちは短時間の best-effort とし、timeout 後は `tts_error=true` として記録して会話を継続する。
 
 ### 6.1.2 IdleChat 本文表示と TTS 同期
 
@@ -248,6 +254,7 @@ IdleChat の Viewer 本文表示は、`idlechat.message` 到着時点の全文�
 - スピーカ OFF の場合、TTS chunk ごとに 500ms wait して次 chunk を表示する。
 - `tts.session_completed` は TTS 生成完了であり、再生完了・表示完了・ユーザーが聞いた完了ではない。
 - IdleChat の待ち解除は、active audio Viewer が観測した response の playback ack、またはスピーカ OFF の明示 fallback 完了に限定する。
+- TTS playback ack が返らない場合はエラーとして記録するが、会話進行の停止要因にはしない。
 - TTS chunk 未着や TTS 失敗時のみ、fallback として `idlechat.message` の全文表示を許可する。
 - fallback は通常成功扱いにせず、fallback 表示としてログ・状態で区別する。
 - `tts.session_completed` だけで、chunk を観測していない response を playback 済みとして ack してはいけない。

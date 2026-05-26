@@ -137,6 +137,29 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /viewer\.theme/);
   assert.match(js, /function switchAdjacentPanel/);
   assert.match(js, /mobilePanelSelect\.addEventListener\('change'/);
+  assert.match(idleChatJs, /function idleLiveRenderTarget\(\) \{/);
+  assert.match(idleChatJs, /document\.body && document\.body\.classList\.contains\('live-mode'\) && chat\) return chat/);
+  assert.match(idleChatJs, /const target = idleLiveRenderTarget\(\);[\s\S]*target\.appendChild\(el\);/);
+  assert.match(idleChatJs, /function consumeIdlePendingMessage\(sessionId, characterId, kind, messageId, turnIndex\)/);
+  assert.match(idleChatJs, /expectedKind === 'topic'[\s\S]*isIdleTopicEvent\(item\.ev\)/);
+  assert.match(idleChatJs, /expectedKind === 'speech'[\s\S]*!isIdleTopicEvent\(item\.ev\)/);
+  assert.match(idleChatJs, /if \(expectedKind && idx < 0\) return;/);
+  assert.match(js, /const target = typeof idleLiveRenderTarget === 'function' \? idleLiveRenderTarget\(\) : idleLiveLog;/);
+  assert.match(js, /consumeIdlePendingMessage\(sid, id, bubbleKind, messageId, turnIndex\)/);
+  assert.match(js, /\^\(今日のお題\|きょうのおだい\)\(です\)\?\[、。:：！？!\?\]\?/);
+  assert.match(css, /body\.live-mode header\{display:none\}/);
+  assert.match(css, /body\.live-mode \.mobile-panel-switch\{display:none !important\}/);
+  assert.match(css, /body\.live-mode \.live-audio-btn\{[\s\S]*z-index:80/);
+  assert.match(css, /body\.live-mode \.lipsync-stage\{[\s\S]*background:transparent;border:0;box-shadow:none;backdrop-filter:none;pointer-events:none/);
+  assert.match(css, /body\.live-mode \.chat-character-pane,\s*body\.live-mode \.chat-desk-head\{\s*display:none !important;/);
+  assert.match(css, /body\.live-mode \.chat-main-pane\{[\s\S]*align-items:flex-start;[\s\S]*justify-content:center;/);
+  assert.match(css, /body\.live-mode \.chat-main-pane\{[\s\S]*backdrop-filter:none/);
+  assert.match(css, /body\.live-mode \.chat-empty > \*\{display:none !important\}/);
+  assert.match(css, /body\.live-mode #chat\{[\s\S]*max-width:min\(1040px, calc\(100vw - 420px\)\)/);
+  assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*max-height:calc\(100dvh - 156px\);[\s\S]*overflow-y:auto/);
+  assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*overscroll-behavior:contain/);
+  assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*-webkit-overflow-scrolling:touch/);
+  assert.match(css, /\.audio-btn\{[\s\S]*touch-action:manipulation/);
   assert.match(html, /assets\/css\/tabs\/ops\.css/);
   assert.match(html, /assets\/js\/tabs\/ops\.js/);
   assert.match(html, /assets\/js\/tabs\/memory\.js/);
@@ -3608,6 +3631,7 @@ function isIdleChatSessionId(sessionId) { return String(sessionId || '').startsW
 function describeTTSAudioError(err) { return err ? String(err.message || err) : ''; }
 function ttsDisplayDelay() { return 3400; }
 ` + sourceBetween(viewerJs, 'function ttsTextFallbackDelay', 'function ttsPlaybackTailGap') +
+sourceBetween(viewerJs, 'function ttsChunkIdentityKey', 'function ttsBubbleKind') +
 sourceBetween(viewerJs, 'function createChatAudioSync', 'const chatAudioSync') + `
 globalThis.__sync = createChatAudioSync();
 globalThis.__sync.enqueueAudio({
@@ -4322,7 +4346,7 @@ test('viewer wires chat input and stt button to idlechat immediate interrupt', (
   assert.match(viewerJs, /abortSTTImmediately\('stt_button'\)/);
   assert.match(viewerJs, /function abortSTTImmediately\(reason\)/);
   assert.match(viewerJs, /if \(typeof clearSTTFinalWaitTimer === 'function'\) clearSTTFinalWaitTimer\(\)/);
-  assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !state\.idleChat\.chatActive\) return/);
+  assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !isIdleChatActiveForTTS\(\)\) return/);
   assert.match(routesGo, /\/viewer\/idlechat\/interrupt/);
   assert.match(handlersGo, /handleIdleChatInterrupt/);
 });

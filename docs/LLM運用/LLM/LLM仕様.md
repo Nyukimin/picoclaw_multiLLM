@@ -23,7 +23,7 @@
 
 | Role | Backend model | 主用途 |
 | --- | --- | --- |
-| Chat | `/Users/yukimi/models/gemma-4-E4B-it-UD-MLX-4bit` | 会話テンポ、ルミナ人格、音声 UI、自然な対話 |
+| Chat | `/Users/yukimi/models/gemma-4-e4b-it-4bit` | 会話テンポ、ルミナ人格、音声 UI、自然な対話 |
 | Worker | `/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit` | 実務処理、要約、整理、RAG、通常の画像解析、UI・資料・スクショ理解 |
 | Heavy | `/Users/yukimi/models/Qwen3.5-122B-A10B-4bit` | 深考察、前提の見直し、失敗原因分析、ローカル最終レビュー |
 | Wild | `/Users/yukimi/models/Qwen3.5-27B-heretic-8bit` | 物語生成、画像プロンプト生成、創作用の画像解析 |
@@ -81,7 +81,7 @@ Chat の例:
       "id": "Chat",
       "object": "model",
       "owned_by": "local",
-      "backend_model": "/Users/yukimi/models/gemma-4-E4B-it-UD-MLX-4bit"
+      "backend_model": "/Users/yukimi/models/gemma-4-e4b-it-4bit"
     }
   ]
 }

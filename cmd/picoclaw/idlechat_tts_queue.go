@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
@@ -14,11 +15,13 @@ type idleChatTTSItem struct {
 	bridge orchestrator.TTSBridge
 	ev     idlechat.TimelineEvent
 	done   chan struct{}
+	gen    uint64
 }
 
 var (
 	idleChatTTSOnce  sync.Once
 	idleChatTTSQueue chan idleChatTTSItem
+	idleChatTTSGen   atomic.Uint64
 )
 
 func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) <-chan struct{} {
@@ -28,7 +31,7 @@ func emitIdleChatTTSAsync(bridge orchestrator.TTSBridge, ev idlechat.TimelineEve
 	done := make(chan struct{})
 	ensureIdleChatTTSQueue()
 	select {
-	case idleChatTTSQueue <- idleChatTTSItem{bridge: bridge, ev: ev, done: done}:
+	case idleChatTTSQueue <- idleChatTTSItem{bridge: bridge, ev: ev, done: done, gen: idleChatTTSGen.Load()}:
 	default:
 		log.Printf("[IdleChat] TTS queue full; dropping speech: from=%s session=%s", ev.From, ev.SessionID)
 		close(done)
@@ -41,6 +44,10 @@ func ensureIdleChatTTSQueue() {
 		idleChatTTSQueue = make(chan idleChatTTSItem, 512)
 		go func() {
 			for item := range idleChatTTSQueue {
+				if item.gen != idleChatTTSGen.Load() {
+					close(item.done)
+					continue
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 				waitCh, ok := emitIdleChatTTS(ctx, item.bridge, item.ev)
 				if !ok || waitCh == nil {
@@ -60,4 +67,21 @@ func ensureIdleChatTTSQueue() {
 			}
 		}()
 	})
+}
+
+func resetIdleChatTTSQueue() {
+	idleChatTTSGen.Add(1)
+	resetTTSPublicSessionRoutesForIdleChat()
+	clearAllIdleChatTTSPending()
+	if idleChatTTSQueue == nil {
+		return
+	}
+	for {
+		select {
+		case item := <-idleChatTTSQueue:
+			close(item.done)
+		default:
+			return
+		}
+	}
 }

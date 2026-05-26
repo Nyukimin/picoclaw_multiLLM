@@ -91,6 +91,8 @@ func buildIdleChatRuntime(
 					chatID,
 				)
 				viewerEvent.RawContent = ev.RawContent
+				viewerEvent.MessageID = ev.MessageID
+				viewerEvent.TurnIndex = ev.TurnIndex
 				deps.eventHub.OnEvent(viewerEvent)
 			}
 			if ev.Type == "idlechat.viewer" {
@@ -99,6 +101,9 @@ func buildIdleChatRuntime(
 			return emitIdleChatTTSAsync(ttsBridge, ev)
 		})
 	}
+	idleChatOrch.SetTTSTimeoutReporter(func(ev idlechat.TTSTimeoutEvent) {
+		markIdleChatTTSTimeout(ev)
+	})
 	if deps.eventRelay != nil {
 		deps.eventRelay.SetIdleChat(idleChatOrch)
 	}

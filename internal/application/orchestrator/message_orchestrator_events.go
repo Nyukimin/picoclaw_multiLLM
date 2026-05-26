@@ -1,13 +1,18 @@
 package orchestrator
 
-import "log"
+import (
+	"log"
+	"sync"
+)
 
 type messageEventPort struct {
 	listener EventListener
+	mu       sync.Mutex
+	turns    map[string]int
 }
 
 func newMessageEventPort(listener EventListener) *messageEventPort {
-	return &messageEventPort{listener: listener}
+	return &messageEventPort{listener: listener, turns: map[string]int{}}
 }
 
 func (p *messageEventPort) SetListener(listener EventListener) {
@@ -20,7 +25,9 @@ func (p *messageEventPort) Emit(eventType, from, to, content, route, jobID, sess
 		return
 	}
 	log.Printf("[MessageOrch] emit: eventType=%s from=%s to=%s route=%s jobID=%s", eventType, from, to, route, jobID)
-	p.listener.OnEvent(NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID))
+	ev := NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID)
+	p.assignConversationIdentity(&ev)
+	p.listener.OnEvent(ev)
 }
 
 func (p *messageEventPort) EmitMessageReceived(req ProcessMessageRequest) {
@@ -33,4 +40,16 @@ func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, s
 
 func (o *MessageOrchestrator) emitMessageReceived(req ProcessMessageRequest) {
 	o.events.EmitMessageReceived(req)
+}
+
+func (p *messageEventPort) assignConversationIdentity(ev *OrchestratorEvent) {
+	if ev == nil || !isConversationMessageEvent(ev.Type) {
+		return
+	}
+	sessionID := conversationIdentitySession(ev.SessionID, ev.ChatID)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.turns[sessionID]++
+	ev.TurnIndex = p.turns[sessionID]
+	ev.MessageID = conversationMessageID(sessionID, ev.TurnIndex)
 }

@@ -19,15 +19,17 @@ const (
 	maxTurnsPerTopic               = 12
 	idleChatResponseMaxTokens      = 512
 	idleChatRetryMaxTokens         = 256
-	idleChatShiroResponseMaxTokens = 768
-	idleChatShiroRetryMaxTokens    = 384
+	idleChatShiroResponseMaxTokens = 384
+	idleChatShiroRetryMaxTokens    = 192
 	idleChatShiroSummaryMaxTokens  = 1200
 	idleChatQualityReviewMaxTokens = 900
 	speakerBreak                   = 500 * time.Millisecond  // 話者交代ブレイク（TTS完了後）
 	topicBreak                     = 1000 * time.Millisecond // 次IdleChat session/ドメイン交代ブレイク（TTS完了後）
 )
 
-var idleChatTTSWaitTimeout = 120 * time.Second
+var idleChatTTSWaitTimeout = 15 * time.Second
+
+var idleChatTTSSessionDrainTimeout = 15 * time.Second
 
 var idleChatLLMGenerateTimeout = 45 * time.Second
 
@@ -66,6 +68,17 @@ type SessionSummary struct {
 	Transcript        []string      `json:"transcript,omitempty"`
 }
 
+type ActiveTranscriptEntry struct {
+	Type      string `json:"type"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Content   string `json:"content"`
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+	TurnIndex int    `json:"turn_index"`
+	Timestamp string `json:"timestamp"`
+}
+
 type TimelineEvent struct {
 	Type       string
 	From       string
@@ -73,6 +86,8 @@ type TimelineEvent struct {
 	Content    string
 	RawContent string
 	SessionID  string
+	MessageID  string
+	TurnIndex  int
 }
 
 type PersonaRuntimeRecorder interface {
@@ -113,6 +128,7 @@ type IdleChatOrchestrator struct {
 	nextTopicAt               time.Time
 	history                   []SessionSummary
 	emitEvent                 func(TimelineEvent) <-chan struct{}
+	reportTTSTimeout          func(TTSTimeoutEvent)
 	topicStore                *TopicStore
 	topicStockBuf             *forecastTopicStock // 未来展望お題ストック
 	recentTopics              func(context.Context, int) ([]string, error)
@@ -129,6 +145,15 @@ type IdleChatOrchestrator struct {
 	interruptedSessions map[string]struct{}
 	mu                  sync.Mutex
 	wg                  sync.WaitGroup
+}
+
+type TTSTimeoutEvent struct {
+	Kind           string
+	SessionID      string
+	MessageID      string
+	TurnIndex      int
+	RemainingIndex int
+	RemainingCount int
 }
 
 type idleSessionPlan struct {
@@ -315,7 +340,7 @@ func selectIdlePersonaCanonicalResponse(match domainpersona.TriggerMatch, defini
 
 func shouldRecordPersonaTimelineEvent(ev TimelineEvent) bool {
 	switch strings.TrimSpace(ev.Type) {
-	case "idlechat.message", "idlechat.viewer", "idlechat.summary":
+	case "idlechat.message", "idlechat.viewer", "idlechat.summary", "idlechat.topic":
 		return strings.TrimSpace(ev.Content) != ""
 	default:
 		return false
@@ -356,6 +381,8 @@ func idlePersonaObservationType(ev TimelineEvent) string {
 	switch strings.TrimSpace(ev.Type) {
 	case "idlechat.summary":
 		return "idlechat_summary"
+	case "idlechat.topic":
+		return "idlechat_topic"
 	case "idlechat.viewer":
 		return "idlechat_viewer_message"
 	default:

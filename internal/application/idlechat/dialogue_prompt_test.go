@@ -96,6 +96,25 @@ func TestGenerateResponseSendsExplicitThinkOptionPerIdleSpeaker(t *testing.T) {
 	}
 }
 
+func TestGenerateResponseShiroSkipsFunCandidateAndUsesCompactMaxTokens(t *testing.T) {
+	workerProvider := &capturingIdleProvider{response: "その役割は、外から来た人が古いルールの穴を見つけることです。最初に困る場所を一つ決めると見えます。"}
+	o := NewIdleChatOrchestrator(workerProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+
+	got, err := o.generateResponse("shiro", "mio", "idle-shiro-single-candidate", 1, 1, "異世界転移者の役割")
+	if err != nil {
+		t.Fatalf("shiro generateResponse() error = %v", err)
+	}
+	if got == "" {
+		t.Fatal("shiro response should not be empty")
+	}
+	if len(workerProvider.requests) != 1 {
+		t.Fatalf("shiro should emit after primary response without fun candidate request; requests = %d, want 1", len(workerProvider.requests))
+	}
+	if got := workerProvider.requests[0].MaxTokens; got != idleChatShiroResponseMaxTokens {
+		t.Fatalf("shiro max tokens = %d, want %d", got, idleChatShiroResponseMaxTokens)
+	}
+}
+
 func TestGenerateResponseSelectsMoreFunCandidate(t *testing.T) {
 	provider := &capturingIdleProvider{responses: []string{
 		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
@@ -210,7 +229,7 @@ func TestGenerateResponseUsesDialogueMaxTokensForShiro(t *testing.T) {
 	}
 }
 
-func TestGenerateResponseRecoversShiroDialogueWithDefaultProvider(t *testing.T) {
+func TestGenerateResponseErrorsShiroDialogueWithoutDefaultProviderFallback(t *testing.T) {
 	chatProvider := &capturingIdleProvider{response: "開ける前に、宛名の消え方を見たほうがいい。封筒の端だけ濡れているなら、隠した人の癖が残ります。"}
 	workerProvider := &capturingIdleProvider{responses: []string{"", ""}}
 	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
@@ -219,17 +238,77 @@ func TestGenerateResponseRecoversShiroDialogueWithDefaultProvider(t *testing.T) 
 	})
 
 	got, err := o.generateResponse("shiro", "mio", "idle-shiro-recovery", 1, 1, "郵便と古書店")
-	if err != nil {
-		t.Fatalf("generateResponse() error = %v", err)
-	}
-	if !strings.Contains(got, "宛名の消え方") {
-		t.Fatalf("default provider recovery was not used: %q", got)
+	if err == nil {
+		t.Fatalf("generateResponse() returned fallback instead of error: %q", got)
 	}
 	if len(workerProvider.requests) < 1 {
 		t.Fatal("expected worker provider to be tried first")
 	}
-	if len(chatProvider.requests) != 1 {
-		t.Fatalf("default provider recovery requests = %d, want 1", len(chatProvider.requests))
+	if len(chatProvider.requests) != 0 {
+		t.Fatalf("default provider fallback must not be used, requests = %d", len(chatProvider.requests))
+	}
+}
+
+func TestGenerateResponseErrorsEmptyContentForAnySpeaker(t *testing.T) {
+	provider := &capturingIdleProvider{responses: []string{"", "この応答は使われないはずです。"}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+
+	got, err := o.generateResponse("mio", "shiro", "idle-empty-content-error", 0, 0, "郵便と古書店")
+	if err == nil {
+		t.Fatalf("generateResponse() returned retry/fallback instead of error: %q", got)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("empty content must fail without retry, requests=%d", len(provider.requests))
+	}
+}
+
+func TestGenerateResponseErrorsShiroReasoningLeakWithoutDefaultProviderFallback(t *testing.T) {
+	chatProvider := &capturingIdleProvider{response: "古い録音機材の部屋なら、最初に残ったノイズの正体を決めると話が締まります。みおなら、その音を誰の記憶にしますか？"}
+	workerProvider := &capturingIdleProvider{responses: []string{
+		"Okay, the user is asking me to respond as Shiro in Japanese. The task is to give one or two sentences, but first I need to analyze the context and decide what kind of concrete hook to add.",
+		"この応答は使われないはずです。",
+	}}
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{
+		"shiro": workerProvider,
+	})
+
+	got, err := o.generateResponse("shiro", "mio", "idle-shiro-reasoning-recovery", 1, 1, "古い録音機材の部屋")
+	if err == nil {
+		t.Fatalf("generateResponse() returned fallback instead of error: %q", got)
+	}
+	if len(workerProvider.requests) != 1 {
+		t.Fatalf("worker requests = %d, want 1", len(workerProvider.requests))
+	}
+	if len(chatProvider.requests) != 0 {
+		t.Fatalf("default provider fallback must not be used, requests = %d", len(chatProvider.requests))
+	}
+}
+
+func TestGenerateResponseErrorsShiroQuotedReasoningLeakWithoutDefaultProviderFallback(t *testing.T) {
+	chatProvider := &capturingIdleProvider{response: "金属の肌が彼の選択を先に語ってしまうなら、工房の隅に残った酸化銅がいちばん正直な証人かもしれません。"}
+	workerProvider := &capturingIdleProvider{responses: []string{
+		`Okay, let's see. The user wants me to respond as Shiro to Mio's latest message.
+
+Let's look at the previous response. Shiro said: "その通りかもしれないね。あの金属の肌は、もはや彼の意志を超えた素材として彼の表現を押し上げているように見える。"
+
+Need a concise Japanese final answer, but first I need to choose one hook.`,
+		"この応答は使われないはずです。",
+	}}
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o.SetSpeakerProviders(map[string]llm.LLMProvider{
+		"shiro": workerProvider,
+	})
+
+	got, err := o.generateResponse("shiro", "mio", "idle-shiro-quoted-reasoning-recovery", 7, 7, "金属の肌を持つアーティスト")
+	if err == nil {
+		t.Fatalf("generateResponse() returned fallback instead of error: %q", got)
+	}
+	if len(workerProvider.requests) != 1 {
+		t.Fatalf("worker requests = %d, want 1", len(workerProvider.requests))
+	}
+	if len(chatProvider.requests) != 0 {
+		t.Fatalf("default provider fallback must not be used, requests = %d", len(chatProvider.requests))
 	}
 }
 
@@ -361,7 +440,7 @@ func TestGenerateResponseRejectsInternalReasoningLeak(t *testing.T) {
 	}
 }
 
-func TestGenerateResponseRejectsEnglishReasoningLeak(t *testing.T) {
+func TestGenerateResponseErrorsOnShiroEnglishReasoningLeak(t *testing.T) {
 	provider := &capturingIdleProvider{
 		responses: []string{
 			"Okay, let's see. The user is asking me to respond as Shiro in two sentences. The task is to acknowledge the point and add a concrete example.",
@@ -371,17 +450,11 @@ func TestGenerateResponseRejectsEnglishReasoningLeak(t *testing.T) {
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
 
 	got, err := o.generateResponse("shiro", "mio", "idle-english-leak", 3, 3, "使い古された道具の魂")
-	if err != nil {
-		t.Fatalf("generateResponse() error = %v", err)
+	if err == nil {
+		t.Fatalf("generateResponse() returned fallback/retry response instead of error: %q", got)
 	}
-	if strings.Contains(strings.ToLower(got), "okay") || strings.Contains(strings.ToLower(got), "the user is asking") {
-		t.Fatalf("english reasoning leaked into response: %q", got)
-	}
-	if !strings.Contains(got, "道具") {
-		t.Fatalf("retry response was not used: %q", got)
-	}
-	if len(provider.requests) < 2 {
-		t.Fatalf("expected retry after English reasoning leak, requests=%d", len(provider.requests))
+	if len(provider.requests) != 1 {
+		t.Fatalf("shiro reasoning leak must fail without retry, requests=%d", len(provider.requests))
 	}
 }
 
@@ -683,8 +756,8 @@ func TestGenerateResponseKeepsOnlyFirstMessageAsSystem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateResponse() error = %v", err)
 	}
-	if len(provider.requests) != 2 {
-		t.Fatalf("requests = %d, want 2", len(provider.requests))
+	if len(provider.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(provider.requests))
 	}
 	for reqIndex, req := range provider.requests {
 		for msgIndex, msg := range req.Messages {
@@ -704,14 +777,6 @@ func TestGenerateResponseKeepsOnlyFirstMessageAsSystem(t *testing.T) {
 				t.Fatalf("request %d message %d should not be system: %#v", reqIndex, msgIndex, msg)
 			}
 		}
-	}
-	secondReq := provider.requests[1]
-	if len(secondReq.Messages) < 2 {
-		t.Fatalf("second request too short: %#v", secondReq.Messages)
-	}
-	last := secondReq.Messages[len(secondReq.Messages)-1]
-	if last.Role != "user" || !strings.Contains(last.Content, "別候補") {
-		t.Fatalf("fun candidate prompt should be a user message, got role=%q content=%q", last.Role, last.Content)
 	}
 }
 

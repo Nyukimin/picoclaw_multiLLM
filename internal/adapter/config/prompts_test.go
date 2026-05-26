@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLoadPromptsLoadsOnlyMioCharacterBundleFromWorkspace(t *testing.T) {
+func TestLoadPromptsLoadsCharacterBundlesFromWorkspace(t *testing.T) {
 	baseDir := t.TempDir()
 	workspaceDir := t.TempDir()
 
@@ -38,21 +38,21 @@ func TestLoadPromptsLoadsOnlyMioCharacterBundleFromWorkspace(t *testing.T) {
 	if !strings.Contains(p.MioPersona, "mio system") || !strings.Contains(p.MioPersona, "mio knowledge") {
 		t.Fatalf("MioPersona did not load mio bundle:\n%s", p.MioPersona)
 	}
-	if strings.Contains(p.Worker, "shiro system") || strings.Contains(p.Worker, "shiro policy") {
-		t.Fatalf("Worker should not load shiro character bundle:\n%s", p.Worker)
+	if !strings.Contains(p.Worker, "shiro system") || !strings.Contains(p.Worker, "shiro policy") {
+		t.Fatalf("Worker did not load shiro character bundle:\n%s", p.Worker)
 	}
-	if strings.Contains(p.Heavy, "kuro system") {
-		t.Fatalf("Heavy should not load kuro character bundle:\n%s", p.Heavy)
+	if !strings.Contains(p.Heavy, "kuro system") {
+		t.Fatalf("Heavy did not load kuro character bundle:\n%s", p.Heavy)
 	}
-	if strings.Contains(p.Wild, "midori system") {
-		t.Fatalf("Wild should not load midori character bundle:\n%s", p.Wild)
+	if !strings.Contains(p.Wild, "midori system") {
+		t.Fatalf("Wild did not load midori character bundle:\n%s", p.Wild)
 	}
 	if got := p.CharacterPrompts["mio"]; !strings.Contains(got, "mio routing") {
 		t.Fatalf("CharacterPrompts[mio] missing bundle content:\n%s", got)
 	}
 	for _, name := range []string{"aka", "ao", "gin", "kin"} {
-		if got := p.CharacterPrompts[name]; got != "" {
-			t.Fatalf("CharacterPrompts[%s] should not be loaded, got:\n%s", name, got)
+		if got := p.CharacterPrompts[name]; !strings.Contains(got, name+" system") {
+			t.Fatalf("CharacterPrompts[%s] missing bundle content:\n%s", name, got)
 		}
 	}
 }
@@ -79,7 +79,7 @@ func TestLoadPromptsIgnoresCharacterBundlesFromPromptsDir(t *testing.T) {
 	}
 }
 
-func TestLoadPromptsWorkspaceNonMioCharacterBundleDoesNotOverrideLegacyPrompt(t *testing.T) {
+func TestLoadPromptsWorkspaceCharacterBundleOverridesLegacyPrompt(t *testing.T) {
 	baseDir := t.TempDir()
 	workspaceDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspaceDir, "worker.md"), []byte("legacy worker"), 0o644); err != nil {
@@ -91,8 +91,8 @@ func TestLoadPromptsWorkspaceNonMioCharacterBundleDoesNotOverrideLegacyPrompt(t 
 
 	p := LoadPrompts(baseDir, workspaceDir)
 
-	if !strings.Contains(p.Worker, "legacy worker") || strings.Contains(p.Worker, "character shiro") {
-		t.Fatalf("workspace shiro bundle should not override legacy worker prompt:\n%s", p.Worker)
+	if strings.Contains(p.Worker, "legacy worker") || !strings.Contains(p.Worker, "character shiro") {
+		t.Fatalf("workspace shiro bundle should override legacy worker prompt:\n%s", p.Worker)
 	}
 }
 

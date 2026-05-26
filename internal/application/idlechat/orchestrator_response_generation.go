@@ -104,7 +104,15 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 	if firstTruncated {
 		log.Printf("[IdleChat] primary truncated (%s turn=%d): finish=%q max_tokens=%d", speaker, turn, resp.FinishReason, req.MaxTokens)
 	}
-	if !firstTruncated && !unusableIdleResponse(firstRaw, first) {
+	if firstRaw == "" && strings.TrimSpace(first) == "" {
+		log.Printf("[IdleChat] empty content rejected without fallback (%s turn=%d)", speaker, turn)
+		return "", firstRaw, fmt.Errorf("%w: speaker=%s turn=%d empty_content=true", errIdleInvalidResponse, speaker, turn)
+	}
+	if !firstTruncated && shouldRejectShiroDialogueImmediately(speaker, firstRaw, first) {
+		log.Printf("[IdleChat] shiro dialogue rejected without fallback (turn=%d): raw=%q sanitized=%q", turn, truncate(firstRaw, 180), truncate(first, 180))
+		return "", firstRaw, fmt.Errorf("%w: speaker=%s turn=%d", errIdleInvalidResponse, speaker, turn)
+	}
+	if shouldGenerateIdleFunCandidate(speaker) && !firstTruncated && !unusableIdleResponse(firstRaw, first) {
 		secondMessages := append([]llm.Message{}, messages...)
 		secondMessages = append(secondMessages, llm.Message{
 			Role:    "assistant",
@@ -224,11 +232,8 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 	}
 
 	if firstTruncated || unusableIdleResponse(firstRaw, first) {
-		if recovered, recoveredRaw, ok := o.recoverDialogueWithDefaultProvider(provider, speaker, sessionID, topic, latestOther, turn); ok {
-			return recovered, recoveredRaw, nil
-		}
 		log.Printf("[IdleChat] unusable response rejected (%s turn=%d): truncated=%t raw=%q sanitized=%q", speaker, turn, firstTruncated, truncate(firstRaw, 180), truncate(first, 180))
-		return "", firstRaw, fmt.Errorf("idlechat dialogue response unusable: speaker=%s turn=%d truncated=%t", speaker, turn, firstTruncated)
+		return "", firstRaw, fmt.Errorf("%w: speaker=%s turn=%d truncated=%t", errIdleInvalidResponse, speaker, turn, firstTruncated)
 	}
 
 	if canonical := o.applyPersonaCanonicalResponse(speaker, sessionID, first); canonical != "" {
@@ -237,33 +242,18 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 	return first, firstRaw, nil
 }
 
-func (o *IdleChatOrchestrator) recoverDialogueWithDefaultProvider(primary llm.LLMProvider, speaker, sessionID, topic, latestOther string, turn int) (string, string, bool) {
-	if o == nil || o.llmProvider == nil || primary == nil || primary == o.llmProvider || !strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
-		return "", "", false
+func shouldGenerateIdleFunCandidate(speaker string) bool {
+	return !strings.EqualFold(strings.TrimSpace(speaker), "shiro")
+}
+
+func shouldRejectShiroDialogueImmediately(speaker, raw, sanitized string) bool {
+	if !strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
+		return false
 	}
-	log.Printf("[IdleChat] shiro dialogue recovery using default provider (turn=%d)", turn)
-	retryMessages := buildIdleCompactRetryMessages(speaker, topic, latestOther, firstTurnLabel(turn))
-	resp, err := o.generateIdleLLM(o.llmProvider, llm.GenerateRequest{
-		Messages:    retryMessages,
-		MaxTokens:   idleMaxTokensForSpeaker(speaker, idleChatRetryMaxTokens),
-		Temperature: o.temperatureForSpeaker(speaker),
-	})
-	if err != nil {
-		log.Printf("[IdleChat] shiro dialogue recovery failed (turn=%d): %v", turn, err)
-		return "", "", false
+	raw = strings.TrimSpace(raw)
+	sanitized = strings.TrimSpace(sanitized)
+	if hasInternalReasoningLeak(raw) {
+		return true
 	}
-	raw := strings.TrimSpace(resp.Content)
-	if raw == "" || finishReasonLooksTruncated(resp.FinishReason) {
-		log.Printf("[IdleChat] shiro dialogue recovery unusable (turn=%d): raw=%q finish=%q", turn, truncate(raw, 180), resp.FinishReason)
-		return "", raw, false
-	}
-	sanitized := sanitizeIdleResponseForSpeaker(resp.Content, topic, speaker)
-	if unusableIdleResponse(raw, sanitized) {
-		log.Printf("[IdleChat] shiro dialogue recovery rejected (turn=%d): raw=%q sanitized=%q", turn, truncate(raw, 180), truncate(sanitized, 180))
-		return "", raw, false
-	}
-	if canonical := o.applyPersonaCanonicalResponse(speaker, sessionID, sanitized); canonical != "" {
-		return canonical, raw, true
-	}
-	return sanitized, raw, true
+	return false
 }

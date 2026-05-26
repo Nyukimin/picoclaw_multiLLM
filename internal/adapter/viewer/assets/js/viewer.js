@@ -326,6 +326,8 @@ const ttsPlayback = {
   currentChunkIndex: -1,
   currentUtteranceId: '',
   currentResponseId: '',
+  currentMessageId: '',
+  currentTurnIndex: -1,
   currentShown: false,
   fallbackActive: false,
   fallbackTimer: null,
@@ -371,9 +373,11 @@ const idleTTSSpeech = {
 };
 const idlePendingMessages = new Map();
 let idleLiveTopicKey = '';
+let idleLiveActiveSessionId = '';
+let idleLiveSnapshotKey = '';
 const idleLiveRenderedLog = [];
 if (typeof window !== 'undefined') window.__idleLiveRenderedLog = idleLiveRenderedLog;
-const IDLE_MESSAGE_FALLBACK_MS = 10000;
+const IDLE_MESSAGE_FALLBACK_MS = 15000;
 
 function loadViewerClientID() {
   const key = 'rencrow.viewer_client_id';
@@ -398,6 +402,11 @@ function loadViewerClientID() {
 
 function isThisViewerActiveAudio() {
   const activeID = String(viewerControl.activeAudioViewerId || '').trim();
+  return !activeID || activeID === viewerControl.clientId;
+}
+
+function isThisViewerActiveInput() {
+  const activeID = String(viewerControl.activeInputViewerId || '').trim();
   return !activeID || activeID === viewerControl.clientId;
 }
 
@@ -508,14 +517,14 @@ function isIdleChatSessionId(sessionId) {
   return sid.indexOf('idle-') === 0 || sid.indexOf('forecast-') === 0 || sid.indexOf('story-') === 0 || sid.indexOf('story-simple-') === 0;
 }
 
-function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId) {
+function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId, messageId, turnIndex) {
   const target = isIdleChatSessionId(sessionId) ? 'idle' : 'central';
-  setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utteranceId, responseId);
+  setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utteranceId, responseId, messageId, turnIndex);
 }
 
-function setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utteranceId, responseId) {
+function setTTSSpeechText(target, characterId, text, sessionId, chunkIndex, utteranceId, responseId, messageId, turnIndex) {
   if (target === 'idle') {
-    renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId);
+    renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId, messageId, turnIndex);
     return;
   }
   renderChatTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId);
@@ -536,7 +545,7 @@ function renderChatTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   const speech = centralTTSSpeech;
   const bubbleKind = ttsBubbleKind(speech, normalizedText, sid, normalizedChunkIndex, id);
   const f = ag(id || 'mio');
-  const key = String(utteranceId || '') || (sid + ':' + String(normalizedChunkIndex >= 0 ? normalizedChunkIndex : speech.chunkKeys.size));
+  const key = ttsChunkIdentityKey(sid, utteranceId, normalizedChunkIndex, speech.chunkKeys.size);
   if (!speech.el || speech.characterId !== id || speech.bubbleKind !== bubbleKind || shouldStartNewTTSBubble(speech, normalizedChunkIndex, key, rid)) {
     if (speech.el) speech.el.classList.remove('tts-current');
     const el = document.createElement('div');
@@ -579,13 +588,14 @@ function renderChatTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   scrollToBottom();
 }
 
-function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId) {
+function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId, messageId, turnIndex) {
   const normalizedText = String(text || '').trim();
   if (!normalizedText) {
     resetTTSSpeechBubble(idleTTSSpeech);
     return;
   }
-  if (!idleLiveLog) return;
+  const target = typeof idleLiveRenderTarget === 'function' ? idleLiveRenderTarget() : idleLiveLog;
+  if (!target) return;
 
   const id = String(characterId || '').trim().toLowerCase();
   const sid = String(sessionId || '').trim();
@@ -593,14 +603,23 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   const rid = String(responseId || '').trim();
   const speech = idleTTSSpeech;
   const bubbleKind = ttsBubbleKind(speech, normalizedText, sid, normalizedChunkIndex, id);
+  if (bubbleKind === 'topic' && document.body && document.body.classList.contains('live-mode')) {
+    return;
+  }
   const f = ag(id || 'mio');
-  const key = String(utteranceId || '') || (sid + ':' + String(normalizedChunkIndex >= 0 ? normalizedChunkIndex : speech.chunkKeys.size));
+  const key = ttsChunkIdentityKey(sid, utteranceId, normalizedChunkIndex, speech.chunkKeys.size);
   if (!speech.el || speech.characterId !== id || speech.bubbleKind !== bubbleKind || shouldStartNewTTSBubble(speech, normalizedChunkIndex, key, rid)) {
     if (speech.el) speech.el.classList.remove('tts-current');
-    const rendered = consumeIdlePendingMessage(sid, id);
-    const el = rendered && rendered.el ? rendered.el : document.createElement('div');
+    const rendered = consumeIdlePendingMessage(sid, id, bubbleKind, messageId, turnIndex);
+    if (rendered && !rendered.el && typeof appendIdleLiveMessageEvent === 'function') {
+      rendered.el = appendIdleLiveMessageEvent(rendered.ev, {pending: true});
+    }
+    const existing = !rendered && typeof findIdleLiveMessageNode === 'function'
+      ? findIdleLiveMessageNode({type: 'idlechat.message', session_id: sid, message_id: messageId, turn_index: turnIndex})
+      : null;
+    const el = rendered && rendered.el ? rendered.el : (existing || document.createElement('div'));
     const renderedWasPending = !!(rendered && rendered.el && rendered.el.classList.contains('idle-pending-tts'));
-    if (rendered && rendered.el) {
+    if ((rendered && rendered.el) || existing) {
       el.classList.remove('idle-pending-tts');
       el.classList.add('tts-current');
       el.classList.add('idle-kind-tts');
@@ -623,11 +642,12 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     speech.responseId = rid;
     speech.bubbleKind = bubbleKind;
     speech.active = true;
-    speech.preRendered = !!(rendered && rendered.el && !renderedWasPending);
+    speech.preRendered = !!(existing && !renderedWasPending);
     speech.chunkKeys = new Set();
     removeIdleLiveEmpty();
-    if (!(rendered && rendered.el)) idleLiveLog.appendChild(el);
-    trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
+    if (!(rendered && rendered.el) && !existing) target.appendChild(el);
+    if (existing && typeof sortIdleLiveMessageNodes === 'function') sortIdleLiveMessageNodes(target);
+    trimTimelineNodesFor(target, MAX_TIMELINE_NODES);
   } else {
     speech.el.classList.add('tts-current');
     speech.el.classList.toggle('shiro', id === 'shiro');
@@ -644,7 +664,7 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     speech.textEl.textContent = speech.preRendered ? current : appendCentralTTSText(current, normalizedText);
     speech.textEl.dataset.raw = speech.textEl.textContent;
   }
-  idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
+  target.scrollTop = target.scrollHeight;
 }
 
 function resetCentralTTSSpeechBubble() {
@@ -679,9 +699,19 @@ function appendCentralTTSText(current, next) {
   return left + ' ' + right;
 }
 
+function ttsChunkIdentityKey(sessionId, utteranceId, chunkIndex, fallbackIndex) {
+  const uid = String(utteranceId || '').trim();
+  const normalizedChunkIndex = Number.isFinite(chunkIndex) ? chunkIndex : -1;
+  if (uid && normalizedChunkIndex >= 0) return uid + ':chunk:' + String(normalizedChunkIndex);
+  if (uid) return uid;
+  const sid = String(sessionId || '').trim();
+  const fallback = Number.isFinite(fallbackIndex) ? fallbackIndex : 0;
+  return sid + ':' + String(normalizedChunkIndex >= 0 ? normalizedChunkIndex : fallback);
+}
+
 function ttsBubbleKind(speech, text, sessionId, chunkIndex, characterId) {
   const s = String(text || '').trim();
-  if (/^今日のお題です[、。！？!?]?/.test(s)) return 'topic';
+  if (/^(今日のお題|きょうのおだい)(です)?[、。:：！？!?]?/.test(s)) return 'topic';
   if (chunkIndex > 0 && speech.bubbleKind === 'topic' && speech.sessionId === String(sessionId || '').trim() && speech.characterId === String(characterId || '').trim().toLowerCase()) {
     return 'topic';
   }
@@ -2650,7 +2680,7 @@ function isStaleIdleChatEvent(ev) {
   if (!ev) return false;
   if (!state.idleChat.interrupted) return false;
   const type = String(ev.type || '').trim();
-  if (type === 'idlechat.message' || type === 'idlechat.summary') {
+  if (type === 'idlechat.message' || type === 'idlechat.summary' || type === 'idlechat.topic') {
     return !state.idleChat.chatActive;
   }
   if (type === 'tts.audio_chunk') {
@@ -2666,6 +2696,10 @@ function isStaleIdleChatEvent(ev) {
 
 function handleTTSAudioEvent(ev) {
   chatAudioSync.handleEvent(ev);
+}
+
+function isIdleChatActiveForTTS() {
+  return !!(state && state.idleChat && state.idleChat.chatActive);
 }
 
 function resolveTTSPlaybackURL(audioURL, audioPath) {
@@ -2684,8 +2718,10 @@ function createChatAudioSync() {
   const completedResponses = new Set();
   const acknowledgedResponses = new Set();
   const responsePlaybackCounts = new Map();
+  const responsePlaybackResults = new Map();
   const seenAudioResponses = new Set();
   const seenUtterances = new Set();
+  const blockedAckKeys = new Set();
 
   const module = {
     state,
@@ -2752,10 +2788,13 @@ function createChatAudioSync() {
     const track = String(payload.track || payload.track_id || 'default').trim() || 'default';
     const chunkIndexRaw = Number(payload.chunk_index);
     const chunkIndex = Number.isFinite(chunkIndexRaw) ? Math.floor(chunkIndexRaw) : -1;
+    const turnIndexRaw = Number(payload.turn_index);
+    const turnIndex = Number.isFinite(turnIndexRaw) ? Math.floor(turnIndexRaw) : -1;
     const characterId = String(payload.character_id || payload.speaker || '').trim().toLowerCase();
     const text = String(payload.text || payload.speech_text || '').trim();
     const displayText = String(payload.display_text || payload.viewer_text || payload.text || '').trim();
     const responseId = String(payload.response_id || '').trim();
+    const messageId = String(payload.message_id || '').trim();
     const utteranceId = String(payload.utterance_id || '').trim() || (sessionId + ':' + String(chunkIndex));
     const mode = isIdleChatSessionId(sessionId) ? 'idlechat' : 'chat';
     url = resolveTTSPlaybackURL(url, audioPath);
@@ -2777,6 +2816,8 @@ function createChatAudioSync() {
       displayText,
       responseId,
       utteranceId,
+      messageId,
+      turnIndex,
       displayOnly: !url,
       mode,
     };
@@ -2785,7 +2826,11 @@ function createChatAudioSync() {
   function handleEvent(ev) {
     const chunk = normalizeEvent(ev);
     if (!chunk) return;
-    if (chunk.mode === 'idlechat' && !state.idleChat.chatActive) return;
+    if (chunk.mode === 'idlechat' && !isIdleChatActiveForTTS()) return;
+    if (chunk.mode === 'idlechat') {
+      const activeIdleSession = String(typeof idleLiveActiveSessionId !== 'undefined' ? idleLiveActiveSessionId || '' : '').trim();
+      if (activeIdleSession && chunk.sessionId && chunk.sessionId !== activeIdleSession) return;
+    }
     if (chunk.eventType === 'session_completed') {
       if (!isThisViewerActiveAudio()) return;
       markSessionCompleted(chunk.sessionId, chunk.responseId);
@@ -2795,6 +2840,9 @@ function createChatAudioSync() {
     if (!chunk.url) {
       if (chunk.displayText) enqueueDisplayFallbackInternal(chunk);
       return;
+    }
+    if (chunk.mode === 'idlechat' && !String(viewerControl.activeAudioViewerId || '').trim() && ttsPlayback.audioEnabled) {
+      claimViewerControl('audio', 'idlechat_tts_chunk');
     }
     enqueueAudioChunkInternal(chunk);
   }
@@ -2810,6 +2858,8 @@ function createChatAudioSync() {
       displayText: String((chunk && (chunk.displayText || chunk.text)) || ''),
       responseId: String((chunk && chunk.responseId) || ''),
       utteranceId: String((chunk && chunk.utteranceId) || ''),
+      messageId: String((chunk && chunk.messageId) || ''),
+      turnIndex: Number.isFinite(chunk && chunk.turnIndex) ? chunk.turnIndex : -1,
       displayOnly: Boolean(chunk && chunk.displayOnly),
       mode: String((chunk && chunk.mode) || '').trim(),
     };
@@ -2831,8 +2881,9 @@ function createChatAudioSync() {
   }
 
   function enqueueChunkInternal(chunk) {
-    if (chunk.utteranceId && seenUtterances.has(chunk.utteranceId)) return;
-    if (chunk.utteranceId) seenUtterances.add(chunk.utteranceId);
+    const chunkKey = ttsChunkIdentityKey(chunk.sessionId, chunk.utteranceId, chunk.chunkIndex, state.seq + 1);
+    if (chunkKey && seenUtterances.has(chunkKey)) return;
+    if (chunkKey) seenUtterances.add(chunkKey);
     chunk.seq = ++state.seq;
     incrementResponsePlaybackCount(chunk.responseId);
     state.queue.push(chunk);
@@ -2881,6 +2932,15 @@ function createChatAudioSync() {
     responsePlaybackCounts.set(rid, nextCount);
   }
 
+  function recordResponsePlaybackResult(item, status, err) {
+    const responseId = String((item && item.responseId) || '').trim();
+    if (!responseId) return;
+    const normalizedStatus = String(status || '').trim();
+    if (!normalizedStatus || normalizedStatus === 'ended' || normalizedStatus === 'completed_after_playback') return;
+    if (responsePlaybackResults.has(responseId)) return;
+    responsePlaybackResults.set(responseId, {item, status: normalizedStatus, err: err || null});
+  }
+
   function maybeAcknowledgeResponsePlayback(item, status, err) {
     const responseId = String((item && item.responseId) || '').trim();
     if (!responseId) return;
@@ -2888,6 +2948,11 @@ function createChatAudioSync() {
     if ((responsePlaybackCounts.get(responseId) || 0) > 0) return;
     if (acknowledgedResponses.has(responseId)) return;
     acknowledgedResponses.add(responseId);
+    const recorded = responsePlaybackResults.get(responseId);
+    if (recorded) {
+      postTTSPlaybackAck(recorded.item || item, recorded.status || status, recorded.err || err);
+      return;
+    }
     postTTSPlaybackAck(item, status, err);
   }
 
@@ -2933,6 +2998,8 @@ function createChatAudioSync() {
     state.currentChunkIndex = -1;
     state.currentUtteranceId = '';
     state.currentResponseId = '';
+    state.currentMessageId = '';
+    state.currentTurnIndex = -1;
     state.currentShown = false;
     state.blockedFallbackUtteranceId = '';
     setNowPlayingText('', '');
@@ -2970,6 +3037,8 @@ function createChatAudioSync() {
         chunkIndex: state.currentChunkIndex,
         utteranceId: state.currentUtteranceId,
         responseId: state.currentResponseId,
+        messageId: state.currentMessageId,
+        turnIndex: state.currentTurnIndex,
       });
     }
     if (state.audio) {
@@ -3063,6 +3132,8 @@ function createChatAudioSync() {
       chunkIndex: state.currentChunkIndex,
       utteranceId: state.currentUtteranceId,
       responseId: state.currentResponseId,
+      messageId: state.currentMessageId,
+      turnIndex: state.currentTurnIndex,
     });
   }
 
@@ -3078,7 +3149,9 @@ function createChatAudioSync() {
       String((item && item.sessionId) || ''),
       Number.isFinite(item && item.chunkIndex) ? item.chunkIndex : -1,
       String((item && item.utteranceId) || ''),
-      String((item && item.responseId) || '')
+      String((item && item.responseId) || ''),
+      String((item && item.messageId) || ''),
+      Number.isFinite(item && item.turnIndex) ? item.turnIndex : -1
     );
   }
 
@@ -3130,6 +3203,19 @@ function createChatAudioSync() {
     if (key && state.blockedFallbackUtteranceId === key) return;
     state.blockedFallbackUtteranceId = key;
     showFallbackChunkInternal(item);
+    scheduleBlockedAudioAckInternal(item, new Error('browser blocked autoplay'));
+  }
+
+  function scheduleBlockedAudioAckInternal(item, err) {
+    if (!item || !item.responseId) return;
+    const key = ttsChunkIdentityKey(item.sessionId, item.utteranceId, item.chunkIndex, item.seq);
+    if (key && blockedAckKeys.has(key)) return;
+    if (key) blockedAckKeys.add(key);
+    recordResponsePlaybackResult(item, 'error', err);
+    setTimeout(function() {
+      decrementResponsePlaybackCount(item.responseId);
+      maybeAcknowledgeResponsePlayback(item, 'error', err);
+    }, ttsDisplayDelay(item));
   }
 
   function currentAudioItemInternal(fallback) {
@@ -3141,6 +3227,8 @@ function createChatAudioSync() {
       chunkIndex: state.currentChunkIndex >= 0 ? state.currentChunkIndex : (Number.isFinite(fallback && fallback.chunkIndex) ? fallback.chunkIndex : -1),
       utteranceId: state.currentUtteranceId || String((fallback && fallback.utteranceId) || ''),
       responseId: state.currentResponseId || String((fallback && fallback.responseId) || ''),
+      messageId: state.currentMessageId || String((fallback && fallback.messageId) || ''),
+      turnIndex: state.currentTurnIndex >= 0 ? state.currentTurnIndex : (Number.isFinite(fallback && fallback.turnIndex) ? fallback.turnIndex : -1),
     };
   }
 
@@ -3149,6 +3237,7 @@ function createChatAudioSync() {
     stopLipSyncInternal(item.characterId);
     if (!state.currentShown) showFallbackChunkInternal(item);
     if (err) setTTSAudioError(err);
+    recordResponsePlaybackResult(item, 'error', err);
     updateAudioButton();
     if (state.fallbackTimer) clearTimeout(state.fallbackTimer);
     state.fallbackActive = true;
@@ -3223,6 +3312,8 @@ function createChatAudioSync() {
     state.currentChunkIndex = Number.isFinite(next && next.chunkIndex) ? next.chunkIndex : -1;
     state.currentUtteranceId = String((next && next.utteranceId) || '');
     state.currentResponseId = String((next && next.responseId) || '');
+    state.currentMessageId = String((next && next.messageId) || '');
+    state.currentTurnIndex = Number.isFinite(next && next.turnIndex) ? next.turnIndex : -1;
     state.currentShown = false;
     audio.dataset.characterId = state.currentCharacterId;
     audio.src = String((next && next.url) || '');
@@ -3299,9 +3390,6 @@ async function unlockTTSAudio(options = {}) {
 
 async function toggleTTSAudio() {
   if (ttsPlayback.audioEnabled && ttsPlayback.unlocked && !ttsPlayback.blocked) {
-    if (isMobileControlViewport()) {
-      return;
-    }
     disableTTSAudio();
     return;
   }
@@ -4391,8 +4479,13 @@ function connectSTTWebSocket() {
           sttState.finalCaptionText = '';
           updateSTTCaption();
           console.log('[STT] Draft:', draftText);
-        } else if (msg.type === 'final') {
-          sttState.lastRecognitionText = String(msg.text || '').trim();
+	        } else if (msg.type === 'final') {
+	          if (!isThisViewerActiveInput()) {
+	            recordSTTCaptureEvent('final_ignored', 'inactive input viewer');
+	            updateSTTInputIndicators();
+	            return;
+	          }
+	          sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = 'final';
           sttState.finalReceived = true;
           clearSTTFinalWaitTimer();

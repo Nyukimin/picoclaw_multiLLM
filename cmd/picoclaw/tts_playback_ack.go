@@ -35,8 +35,10 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 		}
 		viewerClientID := strings.TrimSpace(req.ViewerClientID)
 		activeAudio := activeViewerControl.isActiveAudio(viewerClientID)
+		status := strings.TrimSpace(req.Status)
+		fallbackCompletion := viewerClientID != "" && activeViewerControl.snapshot().ActiveAudioViewerID == "" && status == "fallback"
 		ok := false
-		if activeAudio {
+		if activeAudio || fallbackCompletion {
 			ok = notifyIdleChatTTSPlaybackCompleted(responseID)
 		}
 		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error=%s",
@@ -45,7 +47,7 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 			strings.TrimSpace(req.UtteranceID),
 			viewerClientID,
 			activeAudio,
-			strings.TrimSpace(req.Status),
+			status,
 			ok,
 			strings.TrimSpace(req.Error),
 		)

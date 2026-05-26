@@ -9,7 +9,7 @@ LLM は用途ごとに別プロセス・別ポートで起動する。
 
 | 用途 | Base URL | model | backend_model | 主な用途 |
 | --- | --- | --- | --- | --- |
-| Chat | `http://127.0.0.1:8081` | `Chat` | `/Users/yukimi/models/gemma-4-E4B-it-UD-MLX-4bit` | 通常会話、音声 UI、軽い応答 |
+| Chat | `http://127.0.0.1:8081` | `Chat` | `/Users/yukimi/models/gemma-4-e4b-it-4bit` | 通常会話、音声 UI、軽い応答 |
 | Worker | `http://127.0.0.1:8082` | `Worker` | `/Users/yukimi/models/Qwen3-VL-30B-A3B-Thinking-4bit` | 要約、整理、RAG、実務処理 |
 | Heavy | `http://127.0.0.1:8083` | `Heavy` | `/Users/yukimi/models/Qwen3.5-122B-A10B-4bit` | 深い分析、失敗原因調査、最終レビュー |
 | Wild | `http://127.0.0.1:8084` | `Wild` | `/Users/yukimi/models/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit` | 創作、画像プロンプト、雰囲気・構図分析 |

@@ -79,6 +79,18 @@ IdleChat は Viewer / TTS / log に event を出す。
 
 `idlechat.viewer` を TTS 用に使わない。`idlechat.tts` を Viewer 表示本文として扱わない。
 
+## TTS 待ち合わせ
+
+IdleChat は TTS の完了を待って会話テンポと口パクを揃える。ただし、TTS 未完了で IdleChat 全体を永久停止させてはいけない。
+
+発話単位の TTS 待ち上限は 15 秒を基準とする。5 秒固定で打ち切る通常仕様は採用しない。15 秒以内に音声が用意できた場合は、スピーカ ON では audio playback 完了に同期して次発話へ進む。
+
+15 秒を超えた発話は、音声系 timeout として `tts_error=true` / `tts_error_kind=timeout` を記録する。表示本文は `display_only` として区切りのよいところまで描画してよいが、音声・口パク・TTS provider 成功として扱わない。
+
+session 終了時の drain は、未完了音声を無制限に待つ処理ではない。drain の UI 待ち上限は 15 秒を基準とし、残った音声は `session_audio_timeout` として閉じる。
+
+timeout 後に遅れて届いた音声は、session_id / utterance_id / chunk_index が現在の発話と一致しない限り再生しない。古い音声を次 session に持ち越してはいけない。
+
 ## 検証
 
 確認対象:
@@ -90,7 +102,7 @@ IdleChat は Viewer / TTS / log に event を出す。
 - fallback が成功扱いされない。
 - invalid response / generation error が隠れない。
 - story validator を通らない story が `invalid_story:<reason>` として残る。
-- TTS 完了待ちと break が成立する。
+- TTS 完了待ち、15 秒 timeout、display-only fallback、drain、break が成立する。
 
 主な確認:
 

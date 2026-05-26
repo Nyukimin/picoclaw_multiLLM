@@ -299,19 +299,24 @@ func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string) {
 		SessionID: sessionID,
 	})
 	// TTS に文節単位で送る（Viewer には表示しない）
-	for _, sentence := range splitStorySentences(paragraph) {
+	for idx, sentence := range splitStorySentences(paragraph) {
 		sentence = strings.TrimSpace(sentence)
 		if sentence == "" {
 			continue
 		}
-		ttsDone := o.emitTimelineEvent(TimelineEvent{
+		turnIndex := idx + 1
+		messageID := fmt.Sprintf("%s:story:%04d", sessionID, turnIndex)
+		ttsEvent := TimelineEvent{
 			Type:      "idlechat.tts",
 			From:      "mio",
 			To:        "user",
 			Content:   sentence,
 			SessionID: sessionID,
-		})
-		o.waitForTTSDone(ttsDone)
+			MessageID: messageID,
+			TurnIndex: turnIndex,
+		}
+		ttsDone := o.emitTimelineEvent(ttsEvent)
+		o.waitForTTSDoneForEvent(ttsEvent, ttsDone)
 		o.waitBreak(speakerBreak)
 	}
 }

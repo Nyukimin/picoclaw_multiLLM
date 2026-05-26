@@ -27,12 +27,12 @@ OpenAI 互換 API、管理 API、起動・停止・再起動、Viewer 連携、�
 
 - [`LLM/LLM仕様.md`](LLM/LLM仕様.md)
 - [`LLM/PromptBundle仕様.md`](LLM/PromptBundle仕様.md)
+- [`LLM/思考プロンプト自動適用システム仕様.md`](LLM/思考プロンプト自動適用システム仕様.md)
 
-LLM role、モデル割り当て、Prompt Bundle、KV キャッシュ向け固定 prefix の仕様を置く。
+LLM role、モデル割り当て、Prompt Bundle、KV キャッシュ向け固定 prefix、思考プロンプト自動適用の仕様を置く。
 
 ## Archive
 
 古い運用前提、重複文書、追加依頼書は [`../archive/LLM運用/2026-05-11/`](../archive/LLM運用/2026-05-11/) に退避した。
 
 archive 配下は履歴参照用であり、実装判断の一次参照には使わない。
-

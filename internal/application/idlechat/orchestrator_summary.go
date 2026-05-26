@@ -83,14 +83,17 @@ func isWhatIfRepetition(transcript []string) bool {
 	return repeated >= 4 && repeated*2 >= window
 }
 
-func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
+func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) <-chan struct{} {
 	if strings.TrimSpace(summary) == "" {
-		return
+		return nil
 	}
 	o.waitBreak(topicBreak)
 	spokenSummary := "今回のまとめです。\n" + strings.TrimSpace(summary)
+	turnIndex := o.nextIdleChatTurnIndex(sessionID)
+	messageID := idleChatMessageID(sessionID, turnIndex)
 	msg := domaintransport.NewMessage("mio", "user", sessionID, "", spokenSummary)
 	msg.Type = domaintransport.MessageTypeIdleChat
+	msg.Context = idleChatMessageContext(messageID, turnIndex)
 	o.memory.RecordMessage(msg)
 	ttsDone := o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.message",
@@ -98,10 +101,21 @@ func (o *IdleChatOrchestrator) speakSummary(sessionID, summary string) {
 		To:        "user",
 		Content:   spokenSummary,
 		SessionID: sessionID,
+		MessageID: messageID,
+		TurnIndex: turnIndex,
 	})
 	log.Printf("[IdleChat] Mio reading summary: %s", truncate(spokenSummary, 80))
-	o.waitForTTSDone(ttsDone)
+	o.waitForTTSDoneForEvent(TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "user",
+		Content:   spokenSummary,
+		SessionID: sessionID,
+		MessageID: messageID,
+		TurnIndex: turnIndex,
+	}, ttsDone)
 	o.waitBreak(topicBreak)
+	return ttsDone
 }
 
 func annotateLoopSummary(summary string, loopRestarted bool, loopReason string) string {
@@ -119,6 +133,9 @@ func annotateLoopSummary(summary string, loopRestarted bool, loopReason string) 
 }
 
 func loopReasonLabel(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return ""
+	}
 	switch reason {
 	case "short_template_repeat":
 		return "短周期テンプレ反復で即打ち切り"
@@ -196,6 +213,9 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 
 	msg := domaintransport.NewMessage("shiro", "idlechat_summary", sessionID, "", title+"\n"+summary)
 	msg.Type = domaintransport.MessageTypeIdleChat
+	turnIndex := o.nextIdleChatTurnIndex(sessionID)
+	messageID := idleChatMessageID(sessionID, turnIndex)
+	msg.Context = idleChatMessageContext(messageID, turnIndex)
 	o.memory.RecordMessage(msg)
 	o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.summary",
@@ -203,6 +223,8 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 		To:        "idlechat_summary",
 		Content:   title + "\n" + summary,
 		SessionID: sessionID,
+		MessageID: messageID,
+		TurnIndex: turnIndex,
 	})
 	return summary
 }

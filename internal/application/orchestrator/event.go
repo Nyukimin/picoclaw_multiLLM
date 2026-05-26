@@ -1,6 +1,10 @@
 package orchestrator
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 var jst = time.FixedZone("JST", 9*60*60)
 
@@ -17,6 +21,8 @@ type OrchestratorEvent struct {
 	To         string `json:"to,omitempty"`          // target agent
 	Content    string `json:"content"`               // message content
 	RawContent string `json:"raw_content,omitempty"` // unedited model output for diagnostics
+	MessageID  string `json:"message_id,omitempty"`  // stable message identifier within a session
+	TurnIndex  int    `json:"turn_index,omitempty"`  // stable turn order within a session
 	Route      string `json:"route,omitempty"`       // routing category
 	JobID      string `json:"job_id,omitempty"`      // task identifier
 	SessionID  string `json:"session_id,omitempty"`  // session identifier
@@ -39,4 +45,33 @@ func NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, ch
 		ChatID:    chatID,
 		Timestamp: time.Now().In(jst).Format(time.RFC3339),
 	}
+}
+
+func isConversationMessageEvent(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "message.received", "agent.response":
+		return true
+	default:
+		return false
+	}
+}
+
+func conversationIdentitySession(sessionID, chatID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		return sessionID
+	}
+	chatID = strings.TrimSpace(chatID)
+	if chatID != "" {
+		return chatID
+	}
+	return "chat"
+}
+
+func conversationMessageID(sessionID string, turnIndex int) string {
+	sessionID = conversationIdentitySession(sessionID, "")
+	if turnIndex < 1 {
+		turnIndex = 1
+	}
+	return fmt.Sprintf("%s:chat:msg:%04d", sessionID, turnIndex)
 }

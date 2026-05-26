@@ -196,9 +196,16 @@ open
 
 ### 10.3 chunk 欠番
 
-- 一定時間待つ。
+- UI 待ち上限として 15 秒を基準に待つ。
 - timeout 後、欠番を skip して次へ進む。
 - skip は viewer debug log に記録する。
+- timeout した chunk の音声が後から届いても、現在の session / utterance / chunk と一致しない場合は再生しない。
+
+### 10.4 session drain timeout
+
+- session 終了時の drain は 15 秒を基準に待つ。
+- drain timeout 後に残る音声は `session_audio_timeout` として扱い、次 session へ持ち越さない。
+- 表示本文は display-only として区切りのよい状態まで描画してよいが、音声再生成功や lipSync 成功として扱わない。
 
 ## 11. 既存実装からの移行方針
 

@@ -6,6 +6,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
 func (o *IdleChatOrchestrator) Start() {
@@ -217,6 +219,73 @@ func (o *IdleChatOrchestrator) GetHistory(limit int) []SessionSummary {
 		out = append(out, o.history[i])
 	}
 	return out
+}
+
+func (o *IdleChatOrchestrator) ActiveSessionTranscript(limit int) (string, []ActiveTranscriptEntry) {
+	o.mu.Lock()
+	sessionID := strings.TrimSpace(o.activeSessionID)
+	memory := o.memory
+	o.mu.Unlock()
+	if sessionID == "" || memory == nil {
+		return sessionID, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	entries := memory.GetUnifiedView(0)
+	out := make([]ActiveTranscriptEntry, 0, limit)
+	for _, entry := range entries {
+		msg := entry.Message
+		if strings.TrimSpace(msg.SessionID) != sessionID || msg.Type != domaintransport.MessageTypeIdleChat {
+			continue
+		}
+		messageID, turnIndex := idleChatMessageMetadata(msg, len(out)+1)
+		timestamp := strings.TrimSpace(msg.Timestamp)
+		if timestamp == "" && !entry.Timestamp.IsZero() {
+			timestamp = entry.Timestamp.In(jst).Format(time.RFC3339)
+		}
+		out = append(out, ActiveTranscriptEntry{
+			Type:      "idlechat.message",
+			From:      msg.From,
+			To:        msg.To,
+			Content:   msg.Content,
+			SessionID: sessionID,
+			MessageID: messageID,
+			TurnIndex: turnIndex,
+			Timestamp: timestamp,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return sessionID, out
+}
+
+func idleChatMessageMetadata(msg domaintransport.Message, fallbackIndex int) (string, int) {
+	turnIndex := fallbackIndex
+	if turnIndex < 1 {
+		turnIndex = 1
+	}
+	if msg.Context != nil {
+		switch v := msg.Context["turn_index"].(type) {
+		case int:
+			turnIndex = v
+		case int64:
+			turnIndex = int(v)
+		case float64:
+			turnIndex = int(v)
+		}
+		if turnIndex < 1 {
+			turnIndex = fallbackIndex
+			if turnIndex < 1 {
+				turnIndex = 1
+			}
+		}
+		if id, ok := msg.Context["message_id"].(string); ok && strings.TrimSpace(id) != "" {
+			return strings.TrimSpace(id), turnIndex
+		}
+	}
+	return idleChatMessageID(msg.SessionID, turnIndex), turnIndex
 }
 
 func (o *IdleChatOrchestrator) getHistoricalTitleThemes(limit int) []string {

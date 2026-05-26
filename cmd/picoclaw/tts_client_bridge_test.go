@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	ttsinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tts"
@@ -11,6 +12,115 @@ func TestBuildTTSClientBridge_Disabled(t *testing.T) {
 	cfg := &config.Config{}
 	if got := buildTTSClientBridge(cfg, nil, nil, nil); got != nil {
 		t.Fatal("expected nil bridge when tts is disabled")
+	}
+}
+
+func TestTTSPublicSessionRouteMarksOldIdleChatRoutesStaleOnReset(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+
+	registerTTSPublicSession("idle-old-tts", "idle-old", "idle-old:0000")
+	if isStaleTTSPublicSession("idle-old-tts") {
+		t.Fatal("newly registered route must not be stale")
+	}
+
+	resetTTSPublicSessionRoutesForIdleChat()
+	if !isStaleTTSPublicSession("idle-old-tts") {
+		t.Fatal("old route should be stale after idlechat reset")
+	}
+
+	registerTTSPublicSession("idle-new-tts", "idle-new", "idle-new:0000")
+	if isStaleTTSPublicSession("idle-new-tts") {
+		t.Fatal("route registered after reset must be current")
+	}
+	session, chunk := resolveTTSPublicChunk("idle-new-tts", 0)
+	if session != "idle-new" || chunk != 0 {
+		t.Fatalf("new route chunk = %s/%d, want idle-new/0", session, chunk)
+	}
+	if got := nextTTSPublicResponseID("idle-new"); got != "idle-new:0000" {
+		t.Fatalf("new response sequence after reset = %q, want idle-new:0000", got)
+	}
+}
+
+func TestTTSPublicSessionRouteMarksTimedOutUtteranceStale(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+
+	registerTTSPublicSessionWithMessage("idle-timeout-tts", "idle-timeout", "idle-timeout:0000", "idle-timeout:msg:0001", 1)
+	registerTTSPublicSessionWithMessage("idle-timeout-tts-next", "idle-timeout", "idle-timeout:0001", "idle-timeout:msg:0002", 2)
+
+	matched := markTTSPublicSessionTimedOut("idle-timeout", "idle-timeout:msg:0001", 1, false)
+	if len(matched) != 1 || matched[0] != "idle-timeout-tts" {
+		t.Fatalf("unexpected timed out routes: %#v", matched)
+	}
+	if !isStaleTTSPublicSession("idle-timeout-tts") {
+		t.Fatal("timed out route should be stale")
+	}
+	if isStaleTTSPublicSession("idle-timeout-tts-next") {
+		t.Fatal("next utterance in same public session must remain playable")
+	}
+}
+
+func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+	clearAllIdleChatTTSPending()
+
+	registerTTSPublicSessionWithMessage("idle-complete-tts", "idle-complete", "idle-complete:0000", "idle-complete:msg:0001", 1)
+	ch := registerIdleChatTTSPending("idle-complete-tts", "idle-complete:0000")
+
+	matched := markTTSPublicSessionTimedOut("idle-complete", "idle-complete:msg:0001", 1, false)
+	if len(matched) != 1 || matched[0] != "idle-complete-tts" {
+		t.Fatalf("route should remain matchable until playback ack, got %#v", matched)
+	}
+	clearIdleChatTTSPending("idle-complete-tts")
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup should close pending channel")
+	}
+}
+
+func TestTTSPlaybackAckClearsPublicSessionRoute(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+	clearAllIdleChatTTSPending()
+
+	registerTTSPublicSessionWithMessage("idle-ack-tts", "idle-ack", "idle-ack:0000", "idle-ack:msg:0001", 1)
+	registerIdleChatTTSPending("idle-ack-tts", "idle-ack:0000")
+
+	if !notifyIdleChatTTSPlaybackCompleted("idle-ack:0000") {
+		t.Fatal("playback ack should match pending response")
+	}
+	if got := resolveTTSPublicResponse("idle-ack-tts"); got != "" {
+		t.Fatalf("public session route should be cleared after playback ack, got response %q", got)
+	}
+}
+
+func TestResetIdleChatTTSQueueClosesPendingPlaybackWaits(t *testing.T) {
+	ch := registerIdleChatTTSPending("idle-reset-tts", "idle-reset:0000")
+	resetIdleChatTTSQueue()
+
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("reset should close pending idlechat TTS wait channel")
 	}
 }
 

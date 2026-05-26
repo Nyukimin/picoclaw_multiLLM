@@ -41,7 +41,7 @@ func LoadPrompts(baseDir, workspaceDir string) *LoadedPrompts {
 
 	// Step 2: workspace/ から読み込み（オーバーライド）
 	if workspaceDir != "" && workspaceDir != baseDir {
-		overrideCount := loadPromptsFromDir(workspaceDir, p, true, map[string]struct{}{"mio": {}})
+		overrideCount := loadPromptsFromDir(workspaceDir, p, true, nil)
 		if overrideCount > 0 {
 			log.Printf("Overridden %d prompt files from %s", overrideCount, workspaceDir)
 		}

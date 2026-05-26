@@ -87,6 +87,27 @@ func TestHeuristicQualityReviewProducesInterestGuidanceAndLengthControl(t *testi
 	}
 }
 
+func TestLoopReasonLabelEmptyDoesNotInventCutoff(t *testing.T) {
+	if got := loopReasonLabel(""); got != "" {
+		t.Fatalf("loopReasonLabel(empty) = %q, want empty", got)
+	}
+}
+
+func TestHeuristicQualityReviewCompletedSessionDoesNotInventCutoff(t *testing.T) {
+	transcript := []string{
+		"mio: 映写機の鍵が机に残ってるの、気になるよね。",
+		"shiro: その鍵は、誰が最後に上映室へ入ったかを示している。",
+		"mio: じゃあ、その人が見せたくなかった場面があるのかも。",
+		"shiro: 上映室の扉が閉じたままなら、隠されたフィルムが残っている。",
+	}
+
+	review, _ := heuristicQualityReview("映画館に残った鍵", "manual", transcript, "", "")
+
+	if strings.Contains(review, "打ち切り") {
+		t.Fatalf("completed session heuristic review must not invent cutoff:\n%s", review)
+	}
+}
+
 func TestPromptGuidesFromHistoryLoadsRecentGuidance(t *testing.T) {
 	history := []SessionSummary{
 		{PromptGuidance: "古い補正"},
@@ -107,5 +128,31 @@ func TestNormalizeQualityReviewStripsEnglishThinkPrefix(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "QUALITY: fail") {
 		t.Fatalf("normalized review should start with QUALITY: %q", got)
+	}
+}
+
+func TestReviewSessionEndRejectsFalseCutoffForCompletedSession(t *testing.T) {
+	provider := &queuedQualityProvider{responses: []string{
+		"QUALITY: fail\nBORING_CAUSE: 打ち切り注記: 反復検知で打ち切り\nINTEREST_HOOK: 映写機の鍵\nMISSED_TURN: 反復検知で打ち切りの直前で鍵を開けられた\nPROMPT_FIX: INTEREST_HOOKを場面と選択に変換する。\nLENGTH_CONTROL: 2文以内。",
+	}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	transcript := []string{
+		"mio: 映写機の鍵が机に残ってるの、気になるよね。",
+		"shiro: その鍵は、誰が最後に上映室へ入ったかを示している。",
+		"mio: じゃあ、その人が見せたくなかった場面があるのかも。",
+		"shiro: 上映室の扉が閉じたままなら、隠されたフィルムが残っている。",
+	}
+
+	review, _ := o.reviewSessionEnd("映画館に残った鍵", "manual", transcript, "要約です。", "")
+
+	if strings.Contains(review, "打ち切り") {
+		t.Fatalf("completed session review must not keep false cutoff wording:\n%s", review)
+	}
+	if len(provider.requests) == 0 {
+		t.Fatal("expected quality review request")
+	}
+	prompt := provider.requests[0].Messages[len(provider.requests[0].Messages)-1].Content
+	if !strings.Contains(prompt, "打ち切り理由: なし") {
+		t.Fatalf("quality review prompt should make non-cutoff explicit:\n%s", prompt)
 	}
 }

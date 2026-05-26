@@ -23,6 +23,9 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		if !d.idleChatOrch.IsChatActive() {
+			resetIdleChatTTSQueue()
+		}
 		if !d.idleChatOrch.IsManualMode() && !d.prepareIdleChatStart(w, r) {
 			return
 		}
@@ -51,6 +54,7 @@ func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {
 			return
 		}
 		d.idleChatOrch.StopManualMode()
+		resetIdleChatTTSQueue()
 		writeJSON(w, map[string]any{
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),
@@ -84,6 +88,7 @@ func (d *Dependencies) handleIdleChatInterrupt() http.HandlerFunc {
 			reason = strings.TrimSpace(req.Reason)
 		}
 		d.idleChatOrch.Interrupt(reason)
+		resetIdleChatTTSQueue()
 		writeJSON(w, map[string]any{
 			"ok":            true,
 			"interrupted":   true,
@@ -105,12 +110,15 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		activeSessionID, activeTranscript := d.idleChatOrch.ActiveSessionTranscript(100)
 		writeJSON(w, map[string]any{
-			"ok":            true,
-			"mode":          d.idleChatOrch.CurrentMode(),
-			"manual_mode":   d.idleChatOrch.IsManualMode(),
-			"chat_active":   d.idleChatOrch.IsChatActive(),
-			"current_topic": d.idleChatOrch.CurrentTopic(),
+			"ok":                true,
+			"mode":              d.idleChatOrch.CurrentMode(),
+			"manual_mode":       d.idleChatOrch.IsManualMode(),
+			"chat_active":       d.idleChatOrch.IsChatActive(),
+			"current_topic":     d.idleChatOrch.CurrentTopic(),
+			"active_session_id": activeSessionID,
+			"active_transcript": activeTranscript,
 		})
 	}
 }
@@ -244,13 +252,16 @@ func (d *Dependencies) handleIdleChatLogs() http.HandlerFunc {
 				limit = n
 			}
 		}
+		activeSessionID, activeTranscript := d.idleChatOrch.ActiveSessionTranscript(100)
 		writeJSON(w, map[string]any{
-			"ok":            true,
-			"mode":          d.idleChatOrch.CurrentMode(),
-			"manual_mode":   d.idleChatOrch.IsManualMode(),
-			"chat_active":   d.idleChatOrch.IsChatActive(),
-			"current_topic": d.idleChatOrch.CurrentTopic(),
-			"history":       d.idleChatOrch.GetHistory(limit),
+			"ok":                true,
+			"mode":              d.idleChatOrch.CurrentMode(),
+			"manual_mode":       d.idleChatOrch.IsManualMode(),
+			"chat_active":       d.idleChatOrch.IsChatActive(),
+			"current_topic":     d.idleChatOrch.CurrentTopic(),
+			"active_session_id": activeSessionID,
+			"active_transcript": activeTranscript,
+			"history":           d.idleChatOrch.GetHistory(limit),
 		})
 	}
 }

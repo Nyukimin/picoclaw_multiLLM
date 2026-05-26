@@ -51,6 +51,7 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 	totalTurns := 0
 
 	for domainIdx, domain := range sessionDomains {
+		ttsDrain := make([]<-chan struct{}, 0, forecastTurnsPerDomain+3)
 		select {
 		case <-o.idleRunContext().Done():
 			return totalTurns
@@ -68,18 +69,26 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 		// ドメインアナウンス
 		announce := fmt.Sprintf("%sのテーマの時間です。", domain.Name)
 		log.Printf("[Forecast] [Domain %d/%d] %s", domainIdx+1, len(sessionDomains), domain.Name)
+		announceMessageID := fmt.Sprintf("%s:domain:%04d", sessionID, domainIdx)
 
 		announceMsg := domaintransport.NewMessage("user", "mio", sessionID, "", announce)
 		announceMsg.Type = domaintransport.MessageTypeIdleChat
+		announceMsg.Context = idleChatMessageContext(announceMessageID, 0)
 		o.memory.RecordMessage(announceMsg)
-		ttsDone := o.emitTimelineEvent(TimelineEvent{
+		announceEvent := TimelineEvent{
 			Type:      "idlechat.message",
 			From:      "user",
 			To:        "mio",
 			Content:   announce,
 			SessionID: sessionID,
-		})
-		o.waitForTTSDone(ttsDone)
+			MessageID: announceMessageID,
+			TurnIndex: 0,
+		}
+		ttsDone := o.emitTimelineEvent(announceEvent)
+		if ttsDone != nil {
+			ttsDrain = append(ttsDrain, ttsDone)
+		}
+		o.waitForTTSDoneForEvent(announceEvent, ttsDone)
 
 		// ドメイン特化トピック生成: ストックから取得（空ならインライン生成）
 		displayTopic, seeds := o.popForecastTopic(domain)
@@ -91,17 +100,25 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 
 		// Viewer/TTS にはシンプルなお題を表示
 		topicAnnounce := fmt.Sprintf("お題は、%s", displayTopic)
+		topicMessageID := fmt.Sprintf("%s:topic:%04d", sessionID, domainIdx)
 		topicMsg := domaintransport.NewMessage("user", "mio", sessionID, "", topicAnnounce)
 		topicMsg.Type = domaintransport.MessageTypeIdleChat
+		topicMsg.Context = idleChatMessageContext(topicMessageID, 0)
 		o.memory.RecordMessage(topicMsg)
-		ttsDone = o.emitTimelineEvent(TimelineEvent{
+		topicEvent := TimelineEvent{
 			Type:      "idlechat.message",
 			From:      "user",
 			To:        "mio",
 			Content:   topicAnnounce,
 			SessionID: sessionID,
-		})
-		o.waitForTTSDone(ttsDone)
+			MessageID: topicMessageID,
+			TurnIndex: 0,
+		}
+		ttsDone = o.emitTimelineEvent(topicEvent)
+		if ttsDone != nil {
+			ttsDrain = append(ttsDrain, ttsDone)
+		}
+		o.waitForTTSDoneForEvent(topicEvent, ttsDone)
 		o.waitBreak(topicBreak)
 
 		// ドメイン内ターンループ（generateResponse には詳細版 llmTopic を渡す）
@@ -154,6 +171,7 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 				log.Printf("[Forecast] Generation error: %v", err)
 				genFailed = true
 				loopReason = "generation_error"
+				o.recordGenerationErrorToTimeline(speaker, nextSpeaker, sessionID, loopReason, totalTurns+1)
 				break
 			}
 			if !o.isIdleSessionActive(sessionID, 0) {
@@ -170,22 +188,31 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 
 			response = ensureTrailingPeriod(response)
 
+			turnIndex := totalTurns + 1
+			messageID := idleChatMessageID(sessionID, turnIndex)
 			msg := domaintransport.NewMessage(speaker, nextSpeaker, sessionID, "", response)
 			msg.Type = domaintransport.MessageTypeIdleChat
+			msg.Context = idleChatMessageContext(messageID, turnIndex)
 			o.memory.RecordMessage(msg)
-			ttsDone := o.emitTimelineEvent(TimelineEvent{
+			turnEvent := TimelineEvent{
 				Type:      "idlechat.message",
 				From:      speaker,
 				To:        nextSpeaker,
 				Content:   response,
 				SessionID: sessionID,
-			})
+				MessageID: messageID,
+				TurnIndex: turnIndex,
+			}
+			ttsDone := o.emitTimelineEvent(turnEvent)
+			if ttsDone != nil {
+				ttsDrain = append(ttsDrain, ttsDone)
+			}
 			transcript = append(transcript, fmt.Sprintf("%s: %s", speaker, response))
 			segmentTurns++
 			totalTurns++
 
 			log.Printf("[Forecast] [%s Turn %d] %s→%s: %s", domain.Name, turn, speaker, nextSpeaker, truncate(response, 80))
-			o.waitForTTSDone(ttsDone)
+			o.waitForTTSDoneForEvent(turnEvent, ttsDone)
 			o.waitBreak(speakerBreak)
 
 			if reason := detectLoopReason(transcript); reason != "" {
@@ -201,8 +228,11 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, start
 		if segmentTurns > 0 && o.isIdleSessionActive(sessionID, 0) {
 			summary := o.saveForecastSummary(sessionID, domain, topic, transcript, startedAt, endedAt, segmentTurns,
 				interrupted || genFailed || loopReason != "", loopReason)
-			o.speakSummary(sessionID, summary)
+			if ttsDone := o.speakSummary(sessionID, summary); ttsDone != nil {
+				ttsDrain = append(ttsDrain, ttsDone)
+			}
 		}
+		o.waitForTTSSessionDrain(sessionID, ttsDrain)
 
 		if interrupted {
 			return totalTurns

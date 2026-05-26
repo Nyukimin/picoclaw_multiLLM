@@ -30,11 +30,18 @@
 
 ## ディレクトリ構成
 
-Mio のキャラクター別プロンプトは `workspace_dir/prompts/characters/mio/` を正本にする。
+各 character のキャラクター別プロンプトは `workspace_dir/prompts/characters/<character>/` を正本にする。
 repo 側の `prompts/characters/` は参照しない。
 
 ```text
 ~/.picoclaw/workspace/prompts/characters/mio/
+~/.picoclaw/workspace/prompts/characters/shiro/
+~/.picoclaw/workspace/prompts/characters/kuro/
+~/.picoclaw/workspace/prompts/characters/midori/
+~/.picoclaw/workspace/prompts/characters/aka/
+~/.picoclaw/workspace/prompts/characters/ao/
+~/.picoclaw/workspace/prompts/characters/gin/
+~/.picoclaw/workspace/prompts/characters/kin/
 ```
 
 各 character ディレクトリには `manifest.txt` を置き、読み込む `.md` ファイルと順序を明示する。
@@ -42,7 +49,7 @@ repo 側の `prompts/characters/` は参照しない。
 例:
 
 ```text
-~/.picoclaw/workspace/prompts/characters/mio/
+~/.picoclaw/workspace/prompts/characters/<character>/
   manifest.txt
   00_system.md
   10_policy.md

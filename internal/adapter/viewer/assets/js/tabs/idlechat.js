@@ -1,21 +1,34 @@
 // IdleChat tab module: mode controls, subviews, history, and summary review.
 function removeIdleLiveEmpty() {
-  if (!idleLiveLog) return;
-  const empty = idleLiveLog.querySelector('.idle-live-empty');
+  const target = idleLiveRenderTarget();
+  if (!target) return;
+  if (target === chat) {
+    const empty = document.getElementById('empty');
+    if (empty) empty.remove();
+    return;
+  }
+  const empty = target.querySelector('.idle-live-empty');
   if (empty) empty.remove();
 }
 
+function idleLiveRenderTarget() {
+  if (document.body && document.body.classList.contains('live-mode') && chat) return chat;
+  return idleLiveLog;
+}
+
 function clearIdleLiveTimelineForTopic(ev) {
-  if (!idleLiveLog || !isIdleTopicEvent(ev)) return;
-  const key = idleTopicKey(ev);
-  if (!key || key === idleLiveTopicKey) return;
-  idleLiveTopicKey = key;
-  idlePendingMessages.clear();
-  resetTTSSpeechBubble(idleTTSSpeech);
-  if (typeof idleLiveLog.replaceChildren === 'function') idleLiveLog.replaceChildren();
+	const target = idleLiveRenderTarget();
+	if (!target || !isIdleTopicEvent(ev)) return;
+	const key = idleTopicKey(ev);
+	if (!key || key === idleLiveTopicKey) return;
+	idleLiveTopicKey = key;
+	idleLiveActiveSessionId = String((ev && (ev.session_id || ev.chat_id)) || '').trim();
+	idlePendingMessages.clear();
+	resetTTSSpeechBubble(idleTTSSpeech);
+	if (typeof target.replaceChildren === 'function') target.replaceChildren();
   else {
-    idleLiveLog.innerHTML = '';
-    if (Array.isArray(idleLiveLog.children)) idleLiveLog.children.length = 0;
+    target.innerHTML = '';
+    if (Array.isArray(target.children)) target.children.length = 0;
   }
 }
 
@@ -31,10 +44,23 @@ function recordIdleLiveRendered(kind, ev, text) {
     from: String((ev && ev.from) || ''),
     to: String((ev && ev.to) || ''),
     session_id: String((ev && (ev.session_id || ev.chat_id)) || ''),
+    message_id: String((ev && (ev.message_id || ev.messageId)) || ''),
+    turn_index: ev && (ev.turn_index ?? ev.turnIndex ?? ''),
     content: String(text || ''),
     timestamp: String((ev && ev.timestamp) || new Date().toISOString()),
   });
   while (idleLiveRenderedLog.length > 200) idleLiveRenderedLog.shift();
+}
+
+function recordIdleLiveIdentityError(reason, ev, detail) {
+  const payload = {
+    reason: String(reason || 'identity_mismatch'),
+    detail: String(detail || ''),
+  };
+  recordIdleLiveRendered('identity_error', ev, JSON.stringify(payload));
+  try {
+    console.warn('[IdleChat] conversation id mismatch:', payload, ev);
+  } catch (_) {}
 }
 
 function idlePendingQueue(sessionId) {
@@ -44,13 +70,24 @@ function idlePendingQueue(sessionId) {
 }
 
 function queueIdleMessageForTTS(ev) {
-  if (!ev || ev.type !== 'idlechat.message') return;
+  if (!ev || (ev.type !== 'idlechat.message' && ev.type !== 'idlechat.topic')) return;
   const sid = String(ev.session_id || ev.chat_id || '').trim() || 'idlechat';
-  const el = appendIdleLiveMessageEvent(ev, {pending: true});
+  if (idleLiveIdentityConflict(ev)) return;
+  const existing = findIdleLiveMessageNode(ev);
+  if (existing && !existing.classList.contains('idle-pending-tts')) return;
+  const queue = idlePendingQueue(sid);
+  const messageId = String(ev.message_id || '').trim();
+  const turnIndex = idleTurnIndex(ev);
+  if (messageId && queue.some((item) => !item.consumed && item.messageId === messageId)) return;
+  if (!messageId && turnIndex >= 0 && queue.some((item) => !item.consumed && item.turnIndex === turnIndex)) return;
+  const liveMode = document.body && document.body.classList.contains('live-mode');
+  const el = liveMode ? null : (existing || appendIdleLiveMessageEvent(ev, {pending: true}));
   const item = {
     ev,
     el,
     from: String(ev.from || '').trim().toLowerCase(),
+    messageId,
+    turnIndex,
     consumed: false,
     timer: null,
   };
@@ -60,15 +97,33 @@ function queueIdleMessageForTTS(ev) {
     item.consumed = true;
     pruneIdlePendingQueue(sid);
   }, IDLE_MESSAGE_FALLBACK_MS);
-  idlePendingQueue(sid).push(item);
+  queue.push(item);
 }
 
-function consumeIdlePendingMessage(sessionId, characterId) {
+function consumeIdlePendingMessage(sessionId, characterId, kind, messageId, turnIndex) {
   const sid = String(sessionId || '').trim() || 'idlechat';
   const queue = idlePendingMessages.get(sid);
   if (!queue || queue.length === 0) return;
   const id = String(characterId || '').trim().toLowerCase();
-  let idx = queue.findIndex((item) => !item.consumed && (!id || item.from === id));
+  const expectedKind = String(kind || '').trim().toLowerCase();
+  const expectedMessageId = String(messageId || '').trim();
+  const expectedTurnIndex = Number.isFinite(turnIndex) ? Math.floor(turnIndex) : -1;
+  let idx = -1;
+  if (expectedMessageId) {
+    idx = queue.findIndex((item) => !item.consumed && item.messageId === expectedMessageId);
+  }
+  if (idx < 0 && expectedTurnIndex >= 0) {
+    idx = queue.findIndex((item) => !item.consumed && item.turnIndex === expectedTurnIndex);
+  }
+  if (idx >= 0) {
+    // matched by stable message identity
+  } else if (expectedKind === 'topic') {
+    idx = queue.findIndex((item) => !item.consumed && isIdleTopicEvent(item.ev));
+  } else if (expectedKind === 'speech') {
+    idx = queue.findIndex((item) => !item.consumed && !isIdleTopicEvent(item.ev) && (!id || item.from === id));
+  }
+  if (expectedKind && idx < 0) return;
+  if (idx < 0) idx = queue.findIndex((item) => !item.consumed && (!id || item.from === id));
   if (idx < 0) idx = queue.findIndex((item) => !item.consumed);
   if (idx < 0) return;
   const item = queue[idx];
@@ -89,14 +144,68 @@ function pruneIdlePendingQueue(sessionId) {
 }
 
 function addIdleMsgToTimeline(ev) {
-  if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return;
-  clearIdleLiveTimelineForTopic(ev);
-  queueIdleMessageForTTS(ev);
+		if (!idleLiveRenderTarget() || !ev || (ev.type !== 'idlechat.message' && ev.type !== 'idlechat.topic')) return;
+		clearIdleLiveTimelineForTopic(ev);
+		if (isIdleTopicEvent(ev) && document.body && document.body.classList.contains('live-mode')) return;
+	const sid = String(ev.session_id || ev.chat_id || '').trim();
+	if (!isIdleTopicEvent(ev) && idleLiveActiveSessionId && sid && sid !== idleLiveActiveSessionId) return;
+	queueIdleMessageForTTS(ev);
 }
 
+function hydrateIdleLiveTranscript(sessionId, transcript) {
+	const target = idleLiveRenderTarget();
+	if (!target || !(document.body && document.body.classList.contains('live-mode'))) return;
+	const sid = String(sessionId || '').trim();
+	const rows = Array.isArray(transcript) ? transcript : [];
+	if (!sid) return;
+	const key = sid + ':' + String(rows.length) + ':' + String(rows.length ? rows[rows.length - 1].content || '' : '');
+	if (key === idleLiveSnapshotKey) return;
+	idleLiveSnapshotKey = key;
+	idleLiveActiveSessionId = sid;
+	idlePendingMessages.clear();
+	resetTTSSpeechBubble(idleTTSSpeech);
+	if (typeof target.replaceChildren === 'function') target.replaceChildren();
+	else {
+		target.innerHTML = '';
+		if (Array.isArray(target.children)) target.children.length = 0;
+	}
+		rows.forEach((row) => {
+		const ev = {
+			type: 'idlechat.message',
+			from: row.from || row.From || '',
+			to: row.to || row.To || '',
+			content: row.content || row.Content || '',
+			session_id: row.session_id || row.SessionID || sid,
+			message_id: row.message_id || row.MessageID || '',
+			turn_index: row.turn_index ?? row.TurnIndex,
+			timestamp: row.timestamp || row.Timestamp || new Date().toISOString(),
+		};
+		if (!ev.content || isIdleTopicEvent(ev)) return;
+			appendIdleLiveMessageEvent(ev, {pending: false});
+		});
+		validateIdleLiveNodeSequence(target, sid);
+	}
+
 function appendIdleLiveMessageEvent(ev, options = {}) {
-  if (!idleLiveLog || !ev || ev.type !== 'idlechat.message') return null;
+  const target = idleLiveRenderTarget();
+  if (!target || !ev || (ev.type !== 'idlechat.message' && ev.type !== 'idlechat.topic')) return null;
+  if (idleLiveIdentityConflict(ev)) return null;
   removeIdleLiveEmpty();
+  const existing = findIdleLiveMessageNode(ev);
+  if (existing) {
+    const pending = Boolean(options && options.pending);
+    if (!pending) {
+      const mc = existing.querySelector && existing.querySelector('.mc');
+      const displayContent = normalizeViewerDisplayText(ev.content);
+      if (mc && displayContent) {
+        mc.innerHTML = fmt(displayContent) + idleRawResponseBlock(ev, displayContent);
+        mc.dataset.raw = ev.content || '';
+      }
+      existing.classList.remove('idle-pending-tts');
+    }
+    sortIdleLiveMessageNodes(target);
+    return existing;
+  }
 
   const f = ag(ev.from);
   const t = ev.to ? ag(ev.to) : null;
@@ -107,6 +216,10 @@ function appendIdleLiveMessageEvent(ev, options = {}) {
   const kind = isIdleTopicEvent(ev) ? 'topic' : 'speech';
   const el = document.createElement('div');
   el.className = 'msg idle-live-item idle-kind-' + kind + (pending ? ' idle-pending-tts' : '');
+  const turnIndex = idleTurnIndex(ev);
+  if (turnIndex >= 0) el.dataset.turnIndex = String(turnIndex);
+  const messageID = String(ev.message_id || '').trim();
+  if (messageID) el.dataset.messageId = messageID;
   el.innerHTML =
     '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
     '<div class="mb"><div class="mh">' +
@@ -116,36 +229,184 @@ function appendIdleLiveMessageEvent(ev, options = {}) {
     '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
     '<div class="mc">' + (pending ? '' : fmt(displayContent) + rawBlock) + '</div></div>';
   el.querySelector('.mc').dataset.raw = ev.content || '';
-  idleLiveLog.appendChild(el);
-  recordIdleLiveRendered(kind, ev, pending ? '' : displayContent);
-  trimTimelineNodesFor(idleLiveLog, MAX_TIMELINE_NODES);
-  idleLiveLog.scrollTop = idleLiveLog.scrollHeight;
+	  target.appendChild(el);
+	  sortIdleLiveMessageNodes(target);
+	  validateIdleLiveNodeSequence(target, String(ev.session_id || ev.chat_id || '').trim());
+	  recordIdleLiveRendered(kind, ev, pending ? '' : displayContent);
+  trimTimelineNodesFor(target, MAX_TIMELINE_NODES);
+  target.scrollTop = target.scrollHeight;
   return el;
 }
 
+function idleTurnIndex(ev) {
+  const raw = ev && (ev.turn_index ?? ev.turnIndex);
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : -1;
+}
+
+function findIdleLiveMessageNode(ev) {
+  const target = idleLiveRenderTarget();
+  if (!target || !ev) return null;
+  const messageID = String(ev.message_id || ev.messageId || '').trim();
+  const turnIndex = idleTurnIndex(ev);
+  const nodes = Array.from(target.children || []);
+	  if (messageID) {
+	    const byMessage = nodes.find((node) => node && node.dataset && node.dataset.messageId === messageID);
+	    if (byMessage) return byMessage;
+	    return null;
+	  }
+  if (turnIndex >= 0) {
+    const sid = String(ev.session_id || ev.chat_id || '').trim();
+    return nodes.find((node) => {
+      if (!node || !node.dataset || String(node.dataset.turnIndex || '') !== String(turnIndex)) return false;
+      if (!sid) return true;
+      const nodeMessage = String(node.dataset.messageId || '');
+      return !nodeMessage || nodeMessage.indexOf(sid + ':') === 0;
+    }) || null;
+  }
+	  return null;
+	}
+
+function idleLiveIdentityConflict(ev) {
+  const target = idleLiveRenderTarget();
+  if (!target || !ev) return false;
+  const messageID = String(ev.message_id || ev.messageId || '').trim();
+  const turnIndex = idleTurnIndex(ev);
+  const sid = String(ev.session_id || ev.chat_id || '').trim();
+  const nodes = Array.from(target.children || []);
+  if (messageID) {
+    const byMessage = nodes.find((node) => node && node.dataset && node.dataset.messageId === messageID);
+    if (byMessage) {
+      const existingTurn = Number(byMessage.dataset && byMessage.dataset.turnIndex);
+      if (turnIndex >= 0 && Number.isFinite(existingTurn) && existingTurn !== turnIndex) {
+        recordIdleLiveIdentityError('same_message_different_turn', ev, 'existing=' + String(existingTurn) + ' incoming=' + String(turnIndex));
+        return true;
+      }
+    }
+  }
+  if (turnIndex >= 1) {
+    const byTurn = nodes.find((node) => {
+      if (!node || !node.dataset || String(node.dataset.turnIndex || '') !== String(turnIndex)) return false;
+      const nodeMessage = String(node.dataset.messageId || '');
+      if (sid && nodeMessage && nodeMessage.indexOf(sid + ':') !== 0) return false;
+      return true;
+    });
+    if (byTurn) {
+      const existingMessage = String(byTurn.dataset && byTurn.dataset.messageId || '').trim();
+      if (messageID && existingMessage && existingMessage !== messageID) {
+        recordIdleLiveIdentityError('same_turn_different_message', ev, 'existing=' + existingMessage + ' incoming=' + messageID);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function validateIdleLiveNodeSequence(target, sessionId) {
+  if (!target || !target.children) return true;
+  const sid = String(sessionId || '').trim();
+  const seenMessages = new Set();
+  const seenTurns = new Set();
+  let ok = true;
+  Array.from(target.children || []).forEach((node) => {
+    if (!node || !node.dataset) return;
+    const messageID = String(node.dataset.messageId || '').trim();
+    const turnIndex = Number(node.dataset.turnIndex);
+    if (messageID) {
+      if (seenMessages.has(messageID)) {
+        recordIdleLiveIdentityError('duplicate_message_dom', {session_id: sid, message_id: messageID, turn_index: turnIndex}, '');
+        ok = false;
+      }
+      seenMessages.add(messageID);
+    }
+    if (Number.isFinite(turnIndex) && turnIndex >= 1) {
+      if (seenTurns.has(turnIndex)) {
+        recordIdleLiveIdentityError('duplicate_turn_dom', {session_id: sid, message_id: messageID, turn_index: turnIndex}, '');
+        ok = false;
+      }
+      seenTurns.add(turnIndex);
+    }
+  });
+  return ok;
+}
+
+function sortIdleLiveMessageNodes(target) {
+  if (!target || !target.children || target.children.length < 2) return;
+  const nodes = Array.from(target.children || []);
+  const sortable = nodes.filter((node) => node && node.dataset && Number.isFinite(Number(node.dataset.turnIndex)));
+  if (sortable.length < 2) return;
+  const sorted = nodes.slice().sort((a, b) => {
+    const at = Number(a.dataset && a.dataset.turnIndex);
+    const bt = Number(b.dataset && b.dataset.turnIndex);
+    if (!Number.isFinite(at) && !Number.isFinite(bt)) return 0;
+    if (!Number.isFinite(at)) return 1;
+    if (!Number.isFinite(bt)) return -1;
+    return at - bt;
+  });
+  if (sorted.every((node, idx) => node === nodes[idx])) return;
+  if (typeof target.replaceChildren === 'function') target.replaceChildren(...sorted);
+  else if (Array.isArray(target.children)) target.children = sorted;
+}
+
 function renderIdlePendingMessageFallback(item) {
-  const ev = item && item.ev;
-  const el = item && item.el;
-  if (!ev || !el) return;
-  const mc = el.querySelector && el.querySelector('.mc');
-  if (!mc) return;
-  const displayContent = normalizeViewerDisplayText(ev.content);
-  mc.innerHTML = fmt(displayContent) + idleRawResponseBlock(ev, displayContent);
-  mc.textContent = displayContent;
-  mc.dataset.raw = ev.content || '';
-  el.classList.remove('idle-pending-tts');
-  el.classList.add('idle-fallback-tts');
-  recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_fallback' : 'speech_fallback', ev, displayContent);
+	const ev = item && item.ev;
+	let el = item && item.el;
+	if (!ev) return;
+	if (!el) {
+		el = appendIdleLiveMessageEvent(ev, {pending: false});
+		if (item) item.el = el;
+	}
+	if (!el) return;
+	const mc = el.querySelector && el.querySelector('.mc');
+	if (!mc) return;
+	const displayContent = normalizeViewerDisplayText(ev.content);
+	mc.innerHTML = fmt(displayContent) + idleRawResponseBlock(ev, displayContent);
+	mc.dataset.raw = ev.content || '';
+	el.classList.remove('idle-pending-tts');
+	el.classList.add('idle-fallback-tts');
+	el.classList.add('idle-display-only');
+	recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_fallback' : 'speech_fallback', ev, displayContent);
+}
+
+function renderIdlePendingMessageFromEvent(item) {
+	const ev = item && item.ev;
+	let el = item && item.el;
+	if (!ev) return false;
+	if (!el) {
+		el = appendIdleLiveMessageEvent(ev, {pending: false});
+		if (item) item.el = el;
+	}
+	if (!el) return false;
+	const mc = el.querySelector && el.querySelector('.mc');
+	if (!mc) return false;
+	const displayContent = normalizeViewerDisplayText(ev.content);
+	if (!displayContent) return false;
+	mc.innerHTML = fmt(displayContent) + idleRawResponseBlock(ev, displayContent);
+	mc.dataset.raw = ev.content || '';
+	el.classList.remove('idle-pending-tts');
+	recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_tts' : 'speech_tts', ev, displayContent);
+	return true;
 }
 
 function idleRawResponseBlock(ev, displayContent) {
   if (!ev || isIdleTopicEvent(ev)) return '';
+  if (!shouldShowIdleRawResponse()) return '';
   const raw = String(ev.raw_content || ev.rawContent || '').trim();
   if (!raw) return '';
   return '<div class="idle-raw-response">' +
     '<div class="idle-raw-label">編集前（テストモード）</div>' +
     '<div class="idle-raw-text">' + fmt(raw) + '</div>' +
   '</div>';
+}
+
+function shouldShowIdleRawResponse() {
+  try {
+    if (typeof window !== 'undefined' && window.__REN_CROW_SHOW_IDLE_RAW_RESPONSE) return true;
+    if (typeof window !== 'undefined' && window.location && window.location.search) {
+      return /(?:^|[?&])idle_raw=1(?:&|$)/.test(String(window.location.search || ''));
+    }
+  } catch (_) {}
+  return false;
 }
 
 function addIdleSummaryToTimeline(ev) {
@@ -172,6 +433,7 @@ function addIdleSummaryToTimeline(ev) {
 }
 
 function isIdleTopicEvent(ev) {
+  if (String((ev && ev.type) || '').trim() === 'idlechat.topic') return true;
   const content = String((ev && ev.content) || '').trim();
   return String((ev && ev.from) || '').toLowerCase() === 'user' &&
     String((ev && ev.to) || '').toLowerCase() === 'mio' &&
@@ -478,6 +740,7 @@ async function refreshIdleStatus() {
     state.idleChat.chatActive = !!d.chat_active;
     if (state.idleChat.chatActive) state.idleChat.interrupted = false;
     state.idleChat.currentTopic = d.current_topic || '';
+    hydrateIdleLiveTranscript(d.active_session_id || '', d.active_transcript || []);
     renderIdleChat();
   } catch (_) {
     idleStartBtn.disabled = true;
@@ -514,6 +777,7 @@ async function refreshIdleLogs() {
     if (state.idleChat.chatActive) state.idleChat.interrupted = false;
     state.idleChat.currentTopic = d.current_topic || '';
     state.idleChat.history = Array.isArray(d.history) ? d.history : [];
+    hydrateIdleLiveTranscript(d.active_session_id || '', d.active_transcript || []);
     renderIdleChat();
   } catch (err) {
     state.idleChat.history = [];

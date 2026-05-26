@@ -69,6 +69,29 @@ func TestTTSPlaybackAckOnlyReleasesActiveAudioViewer(t *testing.T) {
 	}
 }
 
+func TestTTSPlaybackFallbackAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
+	resetActiveViewerControlForTest()
+	ch := registerIdleChatTTSPending("idle-fallback-tts", "response-fallback-1")
+
+	reqBody, _ := json.Marshal(ttsPlaybackAckRequest{
+		ResponseID:     "response-fallback-1",
+		SessionID:      "idle-fallback-tts",
+		ViewerClientID: "pc-viewer",
+		Status:         "fallback",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/tts/playback-ack", bytes.NewReader(reqBody))
+	handleTTSPlaybackAck()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("fallback ack got HTTP %d", rec.Code)
+	}
+	select {
+	case <-ch:
+	default:
+		t.Fatal("fallback ack with viewer_client_id should release idlechat TTS pending when no active audio viewer exists")
+	}
+}
+
 func TestViewerActiveClaimHandlerBroadcastsControlEvent(t *testing.T) {
 	resetActiveViewerControlForTest()
 	var emitted []orchestrator.OrchestratorEvent

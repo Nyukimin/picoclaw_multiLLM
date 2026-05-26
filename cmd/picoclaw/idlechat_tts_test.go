@@ -363,6 +363,69 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 	}
 }
 
+func TestMarkIdleChatTTSTimeoutClosesMatchingPendingAndLeavesNextUtterance(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+	clearAllIdleChatTTSPending()
+
+	first := registerIdleChatTTSPending("idle-timeout-tts-1", "idle-timeout:0000")
+	second := registerIdleChatTTSPending("idle-timeout-tts-2", "idle-timeout:0001")
+	registerTTSPublicSessionWithMessage("idle-timeout-tts-1", "idle-timeout", "idle-timeout:0000", "idle-timeout:msg:0001", 1)
+	registerTTSPublicSessionWithMessage("idle-timeout-tts-2", "idle-timeout", "idle-timeout:0001", "idle-timeout:msg:0002", 2)
+
+	markIdleChatTTSTimeout(idlechat.TTSTimeoutEvent{
+		Kind:      "timeout",
+		SessionID: "idle-timeout",
+		MessageID: "idle-timeout:msg:0001",
+		TurnIndex: 1,
+	})
+
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("timed out utterance should close matching pending wait")
+	}
+	select {
+	case <-second:
+		t.Fatal("next utterance should remain pending")
+	default:
+	}
+}
+
+func TestMarkIdleChatTTSSessionAudioTimeoutClosesAllPendingForSession(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+	clearAllIdleChatTTSPending()
+
+	first := registerIdleChatTTSPending("idle-drain-tts-1", "idle-drain:0000")
+	second := registerIdleChatTTSPending("idle-drain-tts-2", "idle-drain:0001")
+	registerTTSPublicSessionWithMessage("idle-drain-tts-1", "idle-drain", "idle-drain:0000", "idle-drain:msg:0001", 1)
+	registerTTSPublicSessionWithMessage("idle-drain-tts-2", "idle-drain", "idle-drain:0001", "idle-drain:msg:0002", 2)
+
+	markIdleChatTTSTimeout(idlechat.TTSTimeoutEvent{
+		Kind:           "session_audio_timeout",
+		SessionID:      "idle-drain",
+		RemainingIndex: 1,
+		RemainingCount: 2,
+	})
+
+	for name, ch := range map[string]<-chan struct{}{"first": first, "second": second} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("%s pending wait should close on session audio timeout", name)
+		}
+	}
+}
+
 func TestEmitIdleChatTTS_RemovesLoopNotesFromSpeechOnly(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 	content := "今回のまとめです。\n注記: テンプレ反復で打ち切り\n\n本文を読み上げます。"
