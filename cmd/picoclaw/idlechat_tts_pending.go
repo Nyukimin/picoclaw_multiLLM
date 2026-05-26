@@ -1,12 +1,17 @@
 package main
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 type idleChatTTSPendingSnapshot struct {
-	PendingSessionCount  int `json:"pending_session_count"`
-	PendingResponseCount int `json:"pending_response_count"`
-	TopicGateCount       int `json:"topic_gate_count"`
-	TopicRouteCount      int `json:"topic_route_count"`
+	PendingSessionCount  int      `json:"pending_session_count"`
+	PendingResponseCount int      `json:"pending_response_count"`
+	PendingSessionIDs    []string `json:"pending_session_ids"`
+	PendingResponseIDs   []string `json:"pending_response_ids"`
+	TopicGateCount       int      `json:"topic_gate_count"`
+	TopicRouteCount      int      `json:"topic_route_count"`
 }
 
 var (
@@ -158,9 +163,21 @@ func waitIdleChatTopicGate(idleSessionID string) {
 func snapshotIdleChatTTSPending() idleChatTTSPendingSnapshot {
 	idleChatTTSPendingMu.Lock()
 	defer idleChatTTSPendingMu.Unlock()
+	sessionIDs := make([]string, 0, len(idleChatTTSPending))
+	for sessionID := range idleChatTTSPending {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	sort.Strings(sessionIDs)
+	responseIDs := make([]string, 0, len(idleChatTTSPendingByResponse))
+	for responseID := range idleChatTTSPendingByResponse {
+		responseIDs = append(responseIDs, responseID)
+	}
+	sort.Strings(responseIDs)
 	return idleChatTTSPendingSnapshot{
 		PendingSessionCount:  len(idleChatTTSPending),
 		PendingResponseCount: len(idleChatTTSPendingByResponse),
+		PendingSessionIDs:    sessionIDs,
+		PendingResponseIDs:   responseIDs,
 		TopicGateCount:       len(idleChatTopicGate),
 		TopicRouteCount:      len(idleChatTopicByTTS),
 	}

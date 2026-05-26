@@ -118,6 +118,7 @@ func TestIdleChatTTSPendingSnapshotCountsOutstandingRoutes(t *testing.T) {
 	clearAllIdleChatTTSPending()
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicSessionMu.Unlock()
@@ -125,6 +126,7 @@ func TestIdleChatTTSPendingSnapshotCountsOutstandingRoutes(t *testing.T) {
 		clearAllIdleChatTTSPending()
 		ttsPublicSessionMu.Lock()
 		ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+		ttsPublicStaleSessions = map[string]uint64{}
 		ttsPublicNextChunk = map[string]int{}
 		ttsPublicNextResponse = map[string]int{}
 		ttsPublicSessionMu.Unlock()
@@ -143,6 +145,12 @@ func TestIdleChatTTSPendingSnapshotCountsOutstandingRoutes(t *testing.T) {
 	if pending.PendingSessionCount != 1 || pending.PendingResponseCount != 1 || pending.TopicGateCount != 1 || pending.TopicRouteCount != 1 {
 		t.Fatalf("unexpected pending snapshot before ack: %+v", pending)
 	}
+	if len(pending.PendingSessionIDs) != 1 || pending.PendingSessionIDs[0] != internalSessionID {
+		t.Fatalf("unexpected pending session IDs before ack: %+v", pending.PendingSessionIDs)
+	}
+	if len(pending.PendingResponseIDs) != 1 || pending.PendingResponseIDs[0] != responseID {
+		t.Fatalf("unexpected pending response IDs before ack: %+v", pending.PendingResponseIDs)
+	}
 	public := snapshotTTSPublicSessions()
 	if public.RouteCount != 1 {
 		t.Fatalf("unexpected public session snapshot before ack: %+v", public)
@@ -155,6 +163,9 @@ func TestIdleChatTTSPendingSnapshotCountsOutstandingRoutes(t *testing.T) {
 	pending = snapshotIdleChatTTSPending()
 	if pending.PendingSessionCount != 0 || pending.PendingResponseCount != 0 || pending.TopicGateCount != 0 || pending.TopicRouteCount != 0 {
 		t.Fatalf("unexpected pending snapshot after ack: %+v", pending)
+	}
+	if len(pending.PendingSessionIDs) != 0 || len(pending.PendingResponseIDs) != 0 {
+		t.Fatalf("pending IDs should be empty after ack: %+v", pending)
 	}
 	public = snapshotTTSPublicSessions()
 	if public.RouteCount != 0 {
@@ -449,6 +460,7 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 func TestMarkIdleChatTTSTimeoutKeepsPendingForLateAck(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicGeneration = 0
@@ -491,6 +503,7 @@ func TestMarkIdleChatTTSTimeoutKeepsPendingForLateAck(t *testing.T) {
 func TestMarkIdleChatTTSSessionAudioTimeoutClosesAllPendingForSession(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicGeneration = 0

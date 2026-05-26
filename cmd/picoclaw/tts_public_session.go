@@ -27,6 +27,7 @@ type ttsPublicSessionSnapshot struct {
 var (
 	ttsPublicSessionMu     sync.Mutex
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk     = map[string]int{}
 	ttsPublicNextResponse  = map[string]int{}
 	ttsPublicGeneration    uint64
@@ -48,6 +49,7 @@ func registerTTSPublicSessionWithMessage(internalSessionID, publicSessionID, res
 		utteranceID = messageID + ":utt:0000"
 	}
 	ttsPublicSessionMu.Lock()
+	delete(ttsPublicStaleSessions, internalSessionID)
 	ttsPublicSessionRoutes[internalSessionID] = &ttsPublicSessionRoute{
 		publicSessionID: publicSessionID,
 		responseID:      strings.TrimSpace(responseID),
@@ -63,6 +65,11 @@ func registerTTSPublicSessionWithMessage(internalSessionID, publicSessionID, res
 func resetTTSPublicSessionRoutesForIdleChat() {
 	ttsPublicSessionMu.Lock()
 	ttsPublicGeneration++
+	for internalSessionID := range ttsPublicSessionRoutes {
+		ttsPublicStaleSessions[internalSessionID] = ttsPublicGeneration
+	}
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	pruneTTSPublicStaleSessionsLocked()
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicSessionMu.Unlock()
@@ -75,6 +82,9 @@ func isStaleTTSPublicSession(internalSessionID string) bool {
 	}
 	ttsPublicSessionMu.Lock()
 	defer ttsPublicSessionMu.Unlock()
+	if _, ok := ttsPublicStaleSessions[internalSessionID]; ok {
+		return true
+	}
 	route := ttsPublicSessionRoutes[internalSessionID]
 	return route != nil && (route.generation != ttsPublicGeneration || route.timedOut)
 }
@@ -163,6 +173,7 @@ func clearTTSPublicSession(internalSessionID string) {
 	}
 	ttsPublicSessionMu.Lock()
 	delete(ttsPublicSessionRoutes, internalSessionID)
+	delete(ttsPublicStaleSessions, internalSessionID)
 	ttsPublicSessionMu.Unlock()
 }
 
@@ -179,6 +190,18 @@ func clearTTSPublicSessionByResponse(responseID string) {
 		}
 	}
 	ttsPublicSessionMu.Unlock()
+}
+
+func pruneTTSPublicStaleSessionsLocked() {
+	if ttsPublicGeneration <= 2 {
+		return
+	}
+	minGeneration := ttsPublicGeneration - 2
+	for internalSessionID, generation := range ttsPublicStaleSessions {
+		if generation < minGeneration {
+			delete(ttsPublicStaleSessions, internalSessionID)
+		}
+	}
 }
 
 func nextTTSPublicResponseID(publicSessionID string) string {

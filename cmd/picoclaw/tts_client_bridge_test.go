@@ -18,6 +18,7 @@ func TestBuildTTSClientBridge_Disabled(t *testing.T) {
 func TestTTSPublicSessionRouteMarksOldIdleChatRoutesStaleOnReset(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicGeneration = 0
@@ -31,6 +32,9 @@ func TestTTSPublicSessionRouteMarksOldIdleChatRoutesStaleOnReset(t *testing.T) {
 	resetTTSPublicSessionRoutesForIdleChat()
 	if !isStaleTTSPublicSession("idle-old-tts") {
 		t.Fatal("old route should be stale after idlechat reset")
+	}
+	if snapshot := snapshotTTSPublicSessions(); snapshot.RouteCount != 0 || snapshot.StaleRouteCount != 0 {
+		t.Fatalf("reset should remove consumable routes from status, got %+v", snapshot)
 	}
 
 	registerTTSPublicSession("idle-new-tts", "idle-new", "idle-new:0000")
@@ -49,6 +53,7 @@ func TestTTSPublicSessionRouteMarksOldIdleChatRoutesStaleOnReset(t *testing.T) {
 func TestTTSPublicSessionRouteMarksTimedOutUtteranceStale(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicGeneration = 0
@@ -72,6 +77,7 @@ func TestTTSPublicSessionRouteMarksTimedOutUtteranceStale(t *testing.T) {
 func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicGeneration = 0
@@ -96,6 +102,7 @@ func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testin
 func TestTTSPlaybackAckClearsPublicSessionRoute(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicGeneration = 0
@@ -199,6 +206,7 @@ func TestBuildTTSClientBridge_WithoutPlaybackCommands(t *testing.T) {
 func TestTTSPublicSessionRouteKeepsLogicalSessionAndGlobalChunkOrder(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
 	ttsPublicNextChunk = map[string]int{}
 	ttsPublicNextResponse = map[string]int{}
 	ttsPublicSessionMu.Unlock()
