@@ -76,9 +76,11 @@ func notifyIdleChatTTSPlaybackCompleted(responseID string) bool {
 }
 
 func clearIdleChatTTSPending(sessionID string) {
+	clearedSessionID := ""
 	idleChatTTSPendingMu.Lock()
 	if ch, ok := idleChatTTSPending[sessionID]; ok {
 		delete(idleChatTTSPending, sessionID)
+		clearedSessionID = sessionID
 		for responseID, responseCh := range idleChatTTSPendingByResponse {
 			if responseCh == ch {
 				delete(idleChatTTSPendingByResponse, responseID)
@@ -94,14 +96,19 @@ func clearIdleChatTTSPending(sessionID string) {
 		}
 	}
 	idleChatTTSPendingMu.Unlock()
+	if clearedSessionID != "" {
+		clearTTSPublicSession(clearedSessionID)
+	}
 }
 
 func clearIdleChatTTSPendingByChan(target <-chan struct{}) {
 	idleChatTTSPendingMu.Lock()
 	var topicCh chan struct{}
+	clearedSessionID := ""
 	for sessionID, ch := range idleChatTTSPending {
 		if (<-chan struct{})(ch) == target {
 			delete(idleChatTTSPending, sessionID)
+			clearedSessionID = sessionID
 			for responseID, responseCh := range idleChatTTSPendingByResponse {
 				if responseCh == ch {
 					delete(idleChatTTSPendingByResponse, responseID)
@@ -119,13 +126,18 @@ func clearIdleChatTTSPendingByChan(target <-chan struct{}) {
 	if topicCh != nil {
 		close(topicCh)
 	}
+	if clearedSessionID != "" {
+		clearTTSPublicSession(clearedSessionID)
+	}
 }
 
 func clearAllIdleChatTTSPending() {
 	idleChatTTSPendingMu.Lock()
 	pending := make([]chan struct{}, 0, len(idleChatTTSPending))
+	sessionIDs := make([]string, 0, len(idleChatTTSPending))
 	seen := map[chan struct{}]struct{}{}
-	for _, ch := range idleChatTTSPending {
+	for sessionID, ch := range idleChatTTSPending {
+		sessionIDs = append(sessionIDs, sessionID)
 		if _, ok := seen[ch]; ok {
 			continue
 		}
@@ -147,6 +159,9 @@ func clearAllIdleChatTTSPending() {
 	}
 	for _, ch := range topicGates {
 		close(ch)
+	}
+	for _, sessionID := range sessionIDs {
+		clearTTSPublicSession(sessionID)
 	}
 }
 

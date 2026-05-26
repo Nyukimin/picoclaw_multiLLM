@@ -457,7 +457,7 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 	}
 }
 
-func TestMarkIdleChatTTSTimeoutKeepsPendingForLateAck(t *testing.T) {
+func TestMarkIdleChatTTSTimeoutConsumesPendingAsFailedPlayback(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
 	ttsPublicStaleSessions = map[string]uint64{}
@@ -481,8 +481,8 @@ func TestMarkIdleChatTTSTimeoutKeepsPendingForLateAck(t *testing.T) {
 
 	select {
 	case <-first:
-		t.Fatal("timed out utterance should remain pending for late playback ack")
-	default:
+	case <-time.After(time.Second):
+		t.Fatal("timed out utterance should be consumed as failed playback")
 	}
 	select {
 	case <-second:
@@ -490,13 +490,12 @@ func TestMarkIdleChatTTSTimeoutKeepsPendingForLateAck(t *testing.T) {
 	default:
 	}
 
-	if !notifyIdleChatTTSPlaybackCompleted("idle-timeout:0000") {
-		t.Fatal("late playback ack should still match the timed out utterance")
+	if notifyIdleChatTTSPlaybackCompleted("idle-timeout:0000") {
+		t.Fatal("late playback ack must not match an already consumed timeout")
 	}
-	select {
-	case <-first:
-	case <-time.After(time.Second):
-		t.Fatal("late playback ack should close matching pending wait")
+	public := snapshotTTSPublicSessions()
+	if public.RouteCount != 1 || public.StaleRouteCount != 0 {
+		t.Fatalf("only the next utterance route should remain after timeout, got %+v", public)
 	}
 }
 
@@ -528,6 +527,10 @@ func TestMarkIdleChatTTSSessionAudioTimeoutClosesAllPendingForSession(t *testing
 		case <-time.After(time.Second):
 			t.Fatalf("%s pending wait should close on session audio timeout", name)
 		}
+	}
+	public := snapshotTTSPublicSessions()
+	if public.RouteCount != 0 || public.StaleRouteCount != 0 {
+		t.Fatalf("session audio timeout should consume all public routes, got %+v", public)
 	}
 }
 
