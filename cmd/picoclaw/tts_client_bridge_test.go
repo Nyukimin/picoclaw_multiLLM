@@ -120,6 +120,35 @@ func TestTTSPlaybackAckClearsPublicSessionRoute(t *testing.T) {
 	}
 }
 
+func TestClearTTSPublicSequenceStateIfNoRoutes(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+
+	registerTTSPublicSession("idle-seq-tts", "idle-seq", "idle-seq:0000")
+	if got := nextTTSPublicResponseID("idle-seq"); got != "idle-seq:0000" {
+		t.Fatalf("first response = %q", got)
+	}
+	if session, chunk := resolveTTSPublicChunk("idle-seq-tts", 0); session != "idle-seq" || chunk != 0 {
+		t.Fatalf("first chunk = %s/%d", session, chunk)
+	}
+
+	clearTTSPublicSequenceStateIfNoRoutes()
+	if snapshot := snapshotTTSPublicSessions(); snapshot.NextChunkSessionCount != 1 || snapshot.NextResponseSessionCount != 1 {
+		t.Fatalf("active route must keep sequence state, got %+v", snapshot)
+	}
+
+	clearTTSPublicSession("idle-seq-tts")
+	clearTTSPublicSequenceStateIfNoRoutes()
+	if snapshot := snapshotTTSPublicSessions(); snapshot.NextChunkSessionCount != 0 || snapshot.NextResponseSessionCount != 0 {
+		t.Fatalf("sequence state should clear when no routes remain, got %+v", snapshot)
+	}
+}
+
 func TestResetIdleChatTTSQueueClosesPendingPlaybackWaits(t *testing.T) {
 	ch := registerIdleChatTTSPending("idle-reset-tts", "idle-reset:0000")
 	resetIdleChatTTSQueue()

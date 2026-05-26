@@ -110,6 +110,9 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		if !d.idleChatOrch.IsChatActive() {
+			clearTTSPublicSequenceStateIfNoRoutes()
+		}
 		activeSessionID, activeTranscript := d.idleChatOrch.ActiveSessionTranscript(100)
 		writeJSON(w, map[string]any{
 			"ok":                true,

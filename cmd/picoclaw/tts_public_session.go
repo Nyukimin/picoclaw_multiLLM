@@ -192,6 +192,18 @@ func clearTTSPublicSessionByResponse(responseID string) {
 	ttsPublicSessionMu.Unlock()
 }
 
+func clearTTSPublicSequenceStateIfNoRoutes() {
+	ttsPublicSessionMu.Lock()
+	defer ttsPublicSessionMu.Unlock()
+	for _, route := range ttsPublicSessionRoutes {
+		if route != nil && route.generation == ttsPublicGeneration && !route.timedOut {
+			return
+		}
+	}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+}
+
 func pruneTTSPublicStaleSessionsLocked() {
 	if ttsPublicGeneration <= 2 {
 		return
