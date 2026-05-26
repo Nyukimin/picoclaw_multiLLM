@@ -17,6 +17,13 @@ type ttsPublicSessionRoute struct {
 	chunkIndexes    map[int]int
 }
 
+type ttsPublicSessionSnapshot struct {
+	RouteCount               int `json:"route_count"`
+	StaleRouteCount          int `json:"stale_route_count"`
+	NextChunkSessionCount    int `json:"next_chunk_session_count"`
+	NextResponseSessionCount int `json:"next_response_session_count"`
+}
+
 var (
 	ttsPublicSessionMu     sync.Mutex
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
@@ -208,4 +215,24 @@ func isIdleChatPublicSession(sessionID string) bool {
 		strings.HasPrefix(sessionID, "forecast-") ||
 		strings.HasPrefix(sessionID, "story-") ||
 		strings.HasPrefix(sessionID, "story-simple-")
+}
+
+func snapshotTTSPublicSessions() ttsPublicSessionSnapshot {
+	ttsPublicSessionMu.Lock()
+	defer ttsPublicSessionMu.Unlock()
+	currentRoutes := 0
+	staleRoutes := 0
+	for _, route := range ttsPublicSessionRoutes {
+		if route == nil || route.generation != ttsPublicGeneration || route.timedOut {
+			staleRoutes++
+			continue
+		}
+		currentRoutes++
+	}
+	return ttsPublicSessionSnapshot{
+		RouteCount:               currentRoutes,
+		StaleRouteCount:          staleRoutes,
+		NextChunkSessionCount:    len(ttsPublicNextChunk),
+		NextResponseSessionCount: len(ttsPublicNextResponse),
+	}
 }

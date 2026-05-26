@@ -15,7 +15,7 @@ import (
 const idleChatRoute = "IDLECHAT"
 
 func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) (<-chan struct{}, bool) {
-	if bridge == nil || strings.TrimSpace(ev.Content) == "" || (ev.Type != "idlechat.message" && ev.Type != "idlechat.topic") {
+	if bridge == nil || strings.TrimSpace(ev.Content) == "" || !isIdleChatTTSEventType(ev.Type) {
 		return nil, false
 	}
 
@@ -76,4 +76,13 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		return nil, false
 	}
 	return waitCh, true
+}
+
+func isIdleChatTTSEventType(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "idlechat.message", "idlechat.topic", "idlechat.tts":
+		return true
+	default:
+		return false
+	}
 }

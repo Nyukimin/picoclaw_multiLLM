@@ -119,6 +119,8 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 			"current_topic":     d.idleChatOrch.CurrentTopic(),
 			"active_session_id": activeSessionID,
 			"active_transcript": activeTranscript,
+			"tts_pending":       snapshotIdleChatTTSPending(),
+			"tts_public":        snapshotTTSPublicSessions(),
 		})
 	}
 }

@@ -79,6 +79,89 @@ func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 	}
 }
 
+func TestEmitIdleChatTTSSendsStorySimpleTTSEvent(t *testing.T) {
+	clearAllIdleChatTTSPending()
+	t.Cleanup(clearAllIdleChatTTSPending)
+	bridge := &idleChatMockTTSBridge{}
+
+	waitCh, ok := emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.tts",
+		From:      "mio",
+		To:        "user",
+		Content:   "今夜の物語です。",
+		SessionID: "story-simple-1",
+		MessageID: "story-simple-1:story:0001",
+		TurnIndex: 1,
+	})
+
+	if !ok || waitCh == nil {
+		t.Fatal("expected idlechat.tts event to enter the TTS route")
+	}
+	if len(bridge.startReqs) != 1 {
+		t.Fatalf("expected 1 start request, got %d", len(bridge.startReqs))
+	}
+	if got := bridge.startReqs[0].ResponseID; got != "story-simple-1:0000" {
+		t.Fatalf("unexpected response id: %q", got)
+	}
+	if len(bridge.pushTexts) != 1 || bridge.pushTexts[0] != "今夜の物語です。" {
+		t.Fatalf("unexpected pushed texts: %#v", bridge.pushTexts)
+	}
+	if got := snapshotIdleChatTTSPending(); got.PendingResponseCount != 1 {
+		t.Fatalf("pending response count = %d, want 1", got.PendingResponseCount)
+	}
+	if !notifyIdleChatTTSPlaybackCompleted("story-simple-1:0000") {
+		t.Fatal("expected response id to be consumable by playback ACK")
+	}
+}
+
+func TestIdleChatTTSPendingSnapshotCountsOutstandingRoutes(t *testing.T) {
+	clearAllIdleChatTTSPending()
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicSessionMu.Unlock()
+	t.Cleanup(func() {
+		clearAllIdleChatTTSPending()
+		ttsPublicSessionMu.Lock()
+		ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+		ttsPublicNextChunk = map[string]int{}
+		ttsPublicNextResponse = map[string]int{}
+		ttsPublicSessionMu.Unlock()
+	})
+
+	const (
+		publicSessionID   = "idle-snapshot"
+		internalSessionID = "idle-snapshot-tts"
+		responseID        = "idle-snapshot:0000"
+	)
+	registerTTSPublicSessionWithMessage(internalSessionID, publicSessionID, responseID, "idle-snapshot:msg:0001", 1)
+	registerIdleChatTTSPending(internalSessionID, responseID)
+	registerIdleChatTopicGate(publicSessionID, internalSessionID)
+
+	pending := snapshotIdleChatTTSPending()
+	if pending.PendingSessionCount != 1 || pending.PendingResponseCount != 1 || pending.TopicGateCount != 1 || pending.TopicRouteCount != 1 {
+		t.Fatalf("unexpected pending snapshot before ack: %+v", pending)
+	}
+	public := snapshotTTSPublicSessions()
+	if public.RouteCount != 1 {
+		t.Fatalf("unexpected public session snapshot before ack: %+v", public)
+	}
+
+	if !notifyIdleChatTTSPlaybackCompleted(responseID) {
+		t.Fatal("expected playback completion to match pending response")
+	}
+
+	pending = snapshotIdleChatTTSPending()
+	if pending.PendingSessionCount != 0 || pending.PendingResponseCount != 0 || pending.TopicGateCount != 0 || pending.TopicRouteCount != 0 {
+		t.Fatalf("unexpected pending snapshot after ack: %+v", pending)
+	}
+	public = snapshotTTSPublicSessions()
+	if public.RouteCount != 0 {
+		t.Fatalf("unexpected public session snapshot after ack: %+v", public)
+	}
+}
+
 func TestEmitIdleChatTTS_AppendsSentencePauseForAgentMessage(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 
@@ -363,7 +446,7 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 	}
 }
 
-func TestMarkIdleChatTTSTimeoutClosesMatchingPendingAndLeavesNextUtterance(t *testing.T) {
+func TestMarkIdleChatTTSTimeoutKeepsPendingForLateAck(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
 	ttsPublicNextChunk = map[string]int{}
@@ -386,13 +469,22 @@ func TestMarkIdleChatTTSTimeoutClosesMatchingPendingAndLeavesNextUtterance(t *te
 
 	select {
 	case <-first:
-	case <-time.After(time.Second):
-		t.Fatal("timed out utterance should close matching pending wait")
+		t.Fatal("timed out utterance should remain pending for late playback ack")
+	default:
 	}
 	select {
 	case <-second:
 		t.Fatal("next utterance should remain pending")
 	default:
+	}
+
+	if !notifyIdleChatTTSPlaybackCompleted("idle-timeout:0000") {
+		t.Fatal("late playback ack should still match the timed out utterance")
+	}
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("late playback ack should close matching pending wait")
 	}
 }
 

@@ -14,13 +14,13 @@ func markIdleChatTTSTimeout(ev idlechat.TTSTimeoutEvent) {
 	}
 	kind := strings.TrimSpace(ev.Kind)
 	allForSession := kind == "session_audio_timeout"
+	if !allForSession {
+		log.Printf("[IdleChat] keeping pending TTS utterance for late ACK: session=%s message_id=%s turn_index=%d", sessionID, strings.TrimSpace(ev.MessageID), ev.TurnIndex)
+		return
+	}
 	matched := markTTSPublicSessionTimedOut(sessionID, ev.MessageID, ev.TurnIndex, allForSession)
 	for _, internalSessionID := range matched {
 		clearIdleChatTTSPending(internalSessionID)
 	}
-	if allForSession {
-		log.Printf("[IdleChat] marked pending TTS session audio timeout: session=%s matched=%d remaining_index=%d/%d", sessionID, len(matched), ev.RemainingIndex, ev.RemainingCount)
-		return
-	}
-	log.Printf("[IdleChat] marked pending TTS utterance timeout: session=%s message_id=%s turn_index=%d matched=%d", sessionID, strings.TrimSpace(ev.MessageID), ev.TurnIndex, len(matched))
+	log.Printf("[IdleChat] marked pending TTS session audio timeout: session=%s matched=%d remaining_index=%d/%d", sessionID, len(matched), ev.RemainingIndex, ev.RemainingCount)
 }

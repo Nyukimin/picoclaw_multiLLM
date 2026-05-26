@@ -3562,6 +3562,7 @@ var lipSyncActors = {};
 function setLipSyncSpeaking() {}
 function clearLipSyncSpeaking() {}
 function setCentralTTSSpeechText() {}
+function resetCentralTTSSpeechBubble() {}
 function updateAudioButton() { globalThis.__buttonState = {blocked: ttsPlayback.blocked, error: ttsPlayback.audioError}; }
 function isAutoplayBlockedError(err) { return err && err.name === 'NotAllowedError'; }
 function ttsDisplayDelay() { return 1; }
@@ -4346,7 +4347,7 @@ test('viewer wires chat input and stt button to idlechat immediate interrupt', (
   assert.match(viewerJs, /abortSTTImmediately\('stt_button'\)/);
   assert.match(viewerJs, /function abortSTTImmediately\(reason\)/);
   assert.match(viewerJs, /if \(typeof clearSTTFinalWaitTimer === 'function'\) clearSTTFinalWaitTimer\(\)/);
-  assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !isIdleChatActiveForTTS\(\)\) return/);
+  assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !isIdleChatActiveForTTS\(chunk\.sessionId\)\) return/);
   assert.match(routesGo, /\/viewer\/idlechat\/interrupt/);
   assert.match(handlersGo, /handleIdleChatInterrupt/);
 });

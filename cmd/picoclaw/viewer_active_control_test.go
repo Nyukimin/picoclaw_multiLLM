@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
@@ -24,6 +25,48 @@ func TestViewerActiveControl_LastClaimWinsPerKind(t *testing.T) {
 	input := activeViewerControl.claim("input", "pc-viewer")
 	if input.ActiveAudioViewerID != "phone-viewer" || input.ActiveInputViewerID != "pc-viewer" {
 		t.Fatalf("audio and input active IDs should be independent, got %#v", input)
+	}
+}
+
+func TestViewerActiveControl_ReleaseOnlyClearsMatchingOwner(t *testing.T) {
+	resetActiveViewerControlForTest()
+
+	activeViewerControl.claim("audio", "pc-viewer")
+	activeViewerControl.release("audio", "phone-viewer")
+	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "pc-viewer" {
+		t.Fatalf("non-owner release should not clear audio owner, got %q", got)
+	}
+	activeViewerControl.release("audio", "pc-viewer")
+	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "" {
+		t.Fatalf("owner release should clear audio owner, got %q", got)
+	}
+}
+
+func TestViewerActiveControl_StaleOwnerExpires(t *testing.T) {
+	resetActiveViewerControlForTest()
+	oldTTL := viewerActiveOwnerTTL
+	viewerActiveOwnerTTL = time.Millisecond
+	defer func() { viewerActiveOwnerTTL = oldTTL }()
+
+	activeViewerControl.claim("audio", "stale-viewer")
+	time.Sleep(2 * time.Millisecond)
+	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "" {
+		t.Fatalf("stale audio owner should expire, got %q", got)
+	}
+}
+
+func TestViewerActiveControl_HeartbeatKeepsOwnerFresh(t *testing.T) {
+	resetActiveViewerControlForTest()
+	oldTTL := viewerActiveOwnerTTL
+	viewerActiveOwnerTTL = 30 * time.Millisecond
+	defer func() { viewerActiveOwnerTTL = oldTTL }()
+
+	activeViewerControl.claim("audio", "live-viewer")
+	time.Sleep(20 * time.Millisecond)
+	activeViewerControl.heartbeat("audio", "live-viewer")
+	time.Sleep(20 * time.Millisecond)
+	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "live-viewer" {
+		t.Fatalf("heartbeat should keep audio owner, got %q", got)
 	}
 }
 
@@ -95,7 +138,7 @@ func TestTTSPlaybackFallbackAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
 func TestViewerActiveClaimHandlerBroadcastsControlEvent(t *testing.T) {
 	resetActiveViewerControlForTest()
 	var emitted []orchestrator.OrchestratorEvent
-	body := bytes.NewBufferString(`{"viewer_client_id":"phone-viewer","kind":"input","reason":"stt_start"}`)
+	body := bytes.NewBufferString(`{"viewer_client_id":"phone-viewer","kind":"input","reason":"stt_start","action":"claim"}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/viewer/active-control", body)
 
@@ -111,5 +154,22 @@ func TestViewerActiveClaimHandlerBroadcastsControlEvent(t *testing.T) {
 	}
 	if len(emitted) != 1 || emitted[0].Type != "viewer.active_control" {
 		t.Fatalf("expected viewer.active_control event, got %#v", emitted)
+	}
+}
+
+func TestViewerActiveClaimHandlerReleasesOwner(t *testing.T) {
+	resetActiveViewerControlForTest()
+	activeViewerControl.claim("audio", "pc-viewer")
+
+	body := bytes.NewBufferString(`{"viewer_client_id":"pc-viewer","kind":"audio","reason":"pagehide","action":"release"}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/active-control", body)
+	handleViewerActiveClaim(nil)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("release got HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "" {
+		t.Fatalf("release should clear active audio owner, got %q", got)
 	}
 }

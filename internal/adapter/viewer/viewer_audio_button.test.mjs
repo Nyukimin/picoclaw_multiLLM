@@ -128,18 +128,21 @@ function loadAudioHarness(options = {}) {
   assert.ok(start > 0, 'ttsPlayback block not found');
   assert.ok(end > start, 'audio handler block end not found');
   const source = timelineJs + '\n' + idleJs + '\n' + js.slice(start, end) + `
-globalThis.__viewerAudioHarness = {
-  ttsPlayback,
-  viewerControl,
+	globalThis.__viewerAudioHarness = {
+	  state,
+	  ttsPlayback,
+	  viewerControl,
   updateAudioButton,
   enqueueTTSAudio,
   toggleTTSAudio,
   setCentralTTSSpeechText,
   addIdleMsgToTimeline,
   hydrateIdleLiveTranscript,
-  chatAudioSync,
-  idleLiveRenderedLog,
-};
+	  chatAudioSync,
+	  handleViewerActiveControlEvent,
+	  isIdleChatActiveForTTS,
+	  idleLiveRenderedLog,
+	};
 `;
 
   const elements = new Map();
@@ -542,6 +545,47 @@ test('idlechat audio playback reveals the message matching the tts message id', 
   assert.equal(chat.children[0]._mc.textContent, '2番目のチャンクです。');
 });
 
+test('idlechat audio end clears the active tts marker from the spoken message', async () => {
+  const {harness, elements} = loadAudioHarness({liveMode: true});
+  const chat = elements.get('chat');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'shiro',
+    to: 'mio',
+    content: '音声終了後に再生中表示を残しません。',
+    session_id: 'idle-clear-current',
+    message_id: 'idle-clear-current:msg:0001',
+    turn_index: 1,
+    timestamp: '2026-05-09T00:00:01Z',
+  });
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'idle-clear-current',
+      response_id: 'idle-clear-current:0001',
+      message_id: 'idle-clear-current:msg:0001',
+      turn_index: 1,
+      utterance_id: 'idle-clear-current:msg:0001:utt:0000',
+      chunk_index: 0,
+      character_id: 'shiro',
+      text: '再生中の断片です。',
+      display_text: '再生中の断片です。',
+      audio_url: '/audio/idle-clear-current.wav',
+    }),
+  });
+  harness.chatAudioSync.markSessionCompleted('idle-clear-current', 'idle-clear-current:0001');
+  await Promise.resolve();
+
+  assert.equal(chat.children.length, 1);
+  assert.equal(chat.children[0].classList.contains('tts-current'), true);
+
+  harness.ttsPlayback.audio.listeners.ended();
+
+  assert.equal(chat.children[0].classList.contains('tts-current'), false);
+  assert.equal(chat.children[0]._mc.textContent, '再生中の断片です。');
+});
+
 test('live mode does not render idlechat topic tts in the central chat window', () => {
   const {harness, elements} = loadAudioHarness({liveMode: true});
   const chat = elements.get('chat');
@@ -908,6 +952,7 @@ test('idlechat audio chunk claims active audio viewer before playback ack', asyn
 
   assert.equal(fetchCalls[0].url, '/viewer/active-control');
   assert.equal(JSON.parse(fetchCalls[0].init.body).kind, 'audio');
+  assert.equal(JSON.parse(fetchCalls[0].init.body).action, 'claim');
   assert.equal(JSON.parse(fetchCalls[0].init.body).viewer_client_id, harness.viewerControl.clientId);
 
   harness.ttsPlayback.audio.listeners.ended();
@@ -915,6 +960,60 @@ test('idlechat audio chunk claims active audio viewer before playback ack', asyn
 
   assert.equal(fetchCalls.at(-1).url, '/viewer/tts/playback-ack');
   assert.equal(JSON.parse(fetchCalls.at(-1).init.body).viewer_client_id, harness.viewerControl.clientId);
+});
+
+test('idlechat tts from a new session is accepted after an interrupt state', async () => {
+  const {harness} = loadAudioHarness();
+  harness.state.idleChat.chatActive = false;
+  harness.state.idleChat.interrupted = true;
+
+  assert.equal(harness.isIdleChatActiveForTTS('forecast-new-session'), true);
+  assert.equal(harness.state.idleChat.chatActive, true);
+  assert.equal(harness.state.idleChat.interrupted, false);
+});
+
+test('turning audio off releases the active audio viewer owner', async () => {
+  const fetchCalls = [];
+  const {harness, elements} = loadAudioHarness({
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({active_audio_viewer_id: ''}),
+      });
+    },
+  });
+  const audioBtn = elements.get('audioBtn');
+
+  harness.ttsPlayback.audioEnabled = true;
+  harness.ttsPlayback.unlocked = true;
+  harness.ttsPlayback.blocked = false;
+  harness.viewerControl.activeAudioViewerId = harness.viewerControl.clientId;
+  await audioBtn.click();
+  await Promise.resolve();
+
+  assert.equal(harness.viewerControl.activeAudioViewerId, '');
+  const release = fetchCalls.find((call) => call.url === '/viewer/active-control' && JSON.parse(call.init.body).action === 'release');
+  assert.ok(release, 'audio off should release active audio owner');
+  assert.equal(JSON.parse(release.init.body).kind, 'audio');
+});
+
+test('viewer active control release event clears local audio owner', () => {
+  const {harness} = loadAudioHarness();
+  harness.viewerControl.activeAudioViewerId = harness.viewerControl.clientId;
+
+  harness.handleViewerActiveControlEvent({
+    type: 'viewer.active_control',
+    content: JSON.stringify({
+      kind: 'audio',
+      action: 'release',
+      viewer_client_id: harness.viewerControl.clientId,
+      active_audio_viewer_id: '',
+      active_input_viewer_id: '',
+    }),
+  });
+
+  assert.equal(harness.viewerControl.activeAudioViewerId, '');
 });
 
 test('idlechat playback ack waits for natural audio end after session completed', async () => {
@@ -939,6 +1038,72 @@ test('idlechat playback ack waits for natural audio end after session completed'
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, '/viewer/tts/playback-ack');
   assert.equal(JSON.parse(fetchCalls[0].init.body).status, 'ended');
+});
+
+test('idlechat playback ack keeps utterance id when session completed arrives after playback', async () => {
+  const fetchCalls = [];
+  const {harness} = loadAudioHarness({
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true});
+    },
+  });
+  harness.viewerControl.activeAudioViewerId = harness.viewerControl.clientId;
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'idle-late-complete',
+      response_id: 'idle-late-complete:0000',
+      utterance_id: 'idle-late-complete:msg:0001:utt:0000',
+      message_id: 'idle-late-complete:msg:0001',
+      turn_index: 1,
+      chunk_index: 0,
+      character_id: 'mio',
+      text: '先に再生が終わります。',
+      display_text: '先に再生が終わります。',
+      audio_url: '/audio/idle-late-complete.wav',
+    }),
+  });
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'idle-late-complete',
+      response_id: 'idle-late-complete:0001',
+      utterance_id: 'idle-late-complete:msg:0002:utt:0000',
+      message_id: 'idle-late-complete:msg:0002',
+      turn_index: 2,
+      chunk_index: 1,
+      character_id: 'shiro',
+      text: '次の音声です。',
+      display_text: '次の音声です。',
+      audio_url: '/audio/idle-late-complete-2.wav',
+    }),
+  });
+  await Promise.resolve();
+
+  harness.ttsPlayback.audio.listeners.ended();
+  await Promise.resolve();
+  assert.equal(fetchCalls.filter((call) => call.url === '/viewer/tts/playback-ack').length, 0);
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.session_completed',
+    content: JSON.stringify({
+      session_id: 'idle-late-complete',
+      response_id: 'idle-late-complete:0000',
+      utterance_id: 'idle-late-complete:msg:0001:utt:0000',
+      message_id: 'idle-late-complete:msg:0001',
+      turn_index: 1,
+      character_id: 'mio',
+    }),
+  });
+  await Promise.resolve();
+
+  const ackCalls = fetchCalls.filter((call) => call.url === '/viewer/tts/playback-ack');
+  assert.equal(ackCalls.length, 1);
+  const payload = JSON.parse(ackCalls[0].init.body);
+  assert.equal(payload.status, 'completed_after_playback');
+  assert.equal(payload.utterance_id, 'idle-late-complete:msg:0001:utt:0000');
 });
 
 test('central chat starts a new bubble after current tts speech is cleared', () => {

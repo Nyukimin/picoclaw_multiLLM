@@ -2,6 +2,13 @@ package main
 
 import "sync"
 
+type idleChatTTSPendingSnapshot struct {
+	PendingSessionCount  int `json:"pending_session_count"`
+	PendingResponseCount int `json:"pending_response_count"`
+	TopicGateCount       int `json:"topic_gate_count"`
+	TopicRouteCount      int `json:"topic_route_count"`
+}
+
 var (
 	idleChatTTSPendingMu         sync.Mutex
 	idleChatTTSPending           = map[string]chan struct{}{}
@@ -146,4 +153,15 @@ func waitIdleChatTopicGate(idleSessionID string) {
 		return
 	}
 	<-ch
+}
+
+func snapshotIdleChatTTSPending() idleChatTTSPendingSnapshot {
+	idleChatTTSPendingMu.Lock()
+	defer idleChatTTSPendingMu.Unlock()
+	return idleChatTTSPendingSnapshot{
+		PendingSessionCount:  len(idleChatTTSPending),
+		PendingResponseCount: len(idleChatTTSPendingByResponse),
+		TopicGateCount:       len(idleChatTopicGate),
+		TopicRouteCount:      len(idleChatTopicByTTS),
+	}
 }

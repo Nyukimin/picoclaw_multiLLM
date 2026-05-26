@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -35,12 +36,17 @@ func TestValidateSimpleStoryDraftAcceptsChangedProtagonistStory(t *testing.T) {
 	}
 }
 
-func TestRunSimpleStorySessionRecordsInvalidStoryWithoutBodySuccess(t *testing.T) {
+func TestRunSimpleStorySessionDoesNotDropGeneratedBodyWithLegacyValidationText(t *testing.T) {
 	provider := &queuedQualityProvider{responses: []string{
 		"【もしもの桃太郎】\nもし桃太郎がAIロボットだったら面白いです。",
-		"QUALITY: fail\nISSUES:\n- invalid story\nPROMPT_FIX: 主人公改変を事件と解決に落とす。",
+		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
 	}}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	closed := make(chan struct{})
+	close(closed)
+	o.SetEventEmitter(func(TimelineEvent) <-chan struct{} {
+		return closed
+	})
 
 	o.RunSimpleStorySession()
 
@@ -48,11 +54,11 @@ func TestRunSimpleStorySessionRecordsInvalidStoryWithoutBodySuccess(t *testing.T
 	if len(history) != 1 {
 		t.Fatalf("history count=%d, want 1", len(history))
 	}
-	if !history[0].LoopRestarted || !strings.HasPrefix(history[0].LoopReason, "invalid_story:") {
-		t.Fatalf("expected invalid_story loop reason, got %#v", history[0])
+	if history[0].LoopRestarted || history[0].LoopReason != "" {
+		t.Fatalf("legacy validation should not reject generated story body: %#v", history[0])
 	}
-	if history[0].StoryText != "" {
-		t.Fatalf("invalid story should not be stored as successful story text: %q", history[0].StoryText)
+	if history[0].StoryText == "" {
+		t.Fatal("generated story body should be stored")
 	}
 }
 
@@ -123,6 +129,46 @@ func TestRunSimpleStorySessionEmitsIntroBeforeGenerationCompletes(t *testing.T) 
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("story session did not finish")
+	}
+}
+
+func TestRunSimpleStorySessionEmitsUniqueStoryTTSMessageIDs(t *testing.T) {
+	body := strings.Repeat(strings.Join(protagonistOptions, "と")+"が村の困りごとを調べ、仲間の反応を変えながら事件を解決した。", 3)
+	provider := &queuedQualityProvider{responses: []string{
+		"【主人公たちの改変昔話】\n" + body,
+		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
+	}}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+
+	seen := map[string]bool{}
+	var ttsIDs []string
+	closed := make(chan struct{})
+	close(closed)
+	o.SetEventEmitter(func(ev TimelineEvent) <-chan struct{} {
+		if ev.Type != "idlechat.tts" {
+			return nil
+		}
+		if ev.MessageID == "" {
+			t.Fatal("story TTS message id is empty")
+		}
+		if seen[ev.MessageID] {
+			t.Fatalf("duplicate story TTS message id: %s", ev.MessageID)
+		}
+		seen[ev.MessageID] = true
+		ttsIDs = append(ttsIDs, ev.MessageID)
+		return closed
+	})
+
+	o.RunSimpleStorySession()
+
+	if len(ttsIDs) < 4 {
+		t.Fatalf("story TTS id count=%d, want at least 4: %#v", len(ttsIDs), ttsIDs)
+	}
+	for i, id := range ttsIDs {
+		want := fmt.Sprintf(":story:%04d", i+1)
+		if !strings.Contains(id, want) {
+			t.Fatalf("story TTS id[%d]=%q, want sequential suffix containing %q", i, id, want)
+		}
 	}
 }
 

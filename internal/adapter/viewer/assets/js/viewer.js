@@ -160,6 +160,7 @@ const state = {
     chatActive: false,
     interrupted: false,
     interruptedAt: 0,
+    interruptedSessionId: '',
     currentTopic: '',
     history: [],
     openIndex: -1,
@@ -415,13 +416,34 @@ function claimViewerControl(kind, reason) {
   if (normalizedKind !== 'audio' && normalizedKind !== 'input') return Promise.resolve(false);
   if (normalizedKind === 'audio') viewerControl.activeAudioViewerId = viewerControl.clientId;
   if (normalizedKind === 'input') viewerControl.activeInputViewerId = viewerControl.clientId;
+  return sendViewerControlAction(normalizedKind, 'claim', reason);
+}
+
+function heartbeatViewerControl(kind, reason) {
+  const normalizedKind = String(kind || '').trim();
+  if (normalizedKind !== 'audio' && normalizedKind !== 'input') return Promise.resolve(false);
+  return sendViewerControlAction(normalizedKind, 'heartbeat', reason);
+}
+
+function releaseViewerControl(kind, reason) {
+  const normalizedKind = String(kind || '').trim();
+  if (normalizedKind !== 'audio' && normalizedKind !== 'input') return Promise.resolve(false);
+  if (normalizedKind === 'audio' && viewerControl.activeAudioViewerId !== viewerControl.clientId) return Promise.resolve(false);
+  if (normalizedKind === 'input' && viewerControl.activeInputViewerId !== viewerControl.clientId) return Promise.resolve(false);
+  if (normalizedKind === 'audio') viewerControl.activeAudioViewerId = '';
+  if (normalizedKind === 'input') viewerControl.activeInputViewerId = '';
+  return sendViewerControlAction(normalizedKind, 'release', reason);
+}
+
+function sendViewerControlAction(kind, action, reason) {
   if (typeof fetch !== 'function') return Promise.resolve(false);
   return fetch('/viewer/active-control', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       viewer_client_id: viewerControl.clientId,
-      kind: normalizedKind,
+      kind: kind,
+      action: action,
       reason: String(reason || '').trim(),
     }),
     keepalive: true,
@@ -429,15 +451,15 @@ function claimViewerControl(kind, reason) {
     if (!res.ok) throw new Error('HTTP ' + String(res.status));
     return res.json().catch(() => ({}));
   }).then((payload) => {
-    if (payload && payload.active_audio_viewer_id) {
+    if (payload && Object.prototype.hasOwnProperty.call(payload, 'active_audio_viewer_id')) {
       viewerControl.activeAudioViewerId = String(payload.active_audio_viewer_id || '');
     }
-    if (payload && payload.active_input_viewer_id) {
+    if (payload && Object.prototype.hasOwnProperty.call(payload, 'active_input_viewer_id')) {
       viewerControl.activeInputViewerId = String(payload.active_input_viewer_id || '');
     }
     return true;
   }).catch((err) => {
-    console.warn('[ViewerActive] claim failed:', err && err.message ? err.message : err);
+    console.warn('[ViewerActive] control failed:', err && err.message ? err.message : err);
     return false;
   });
 }
@@ -450,8 +472,12 @@ function handleViewerActiveControlEvent(ev) {
   } catch (_) {
     return;
   }
-  viewerControl.activeAudioViewerId = String(payload.active_audio_viewer_id || viewerControl.activeAudioViewerId || '');
-  viewerControl.activeInputViewerId = String(payload.active_input_viewer_id || viewerControl.activeInputViewerId || '');
+  if (Object.prototype.hasOwnProperty.call(payload, 'active_audio_viewer_id')) {
+    viewerControl.activeAudioViewerId = String(payload.active_audio_viewer_id || '');
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'active_input_viewer_id')) {
+    viewerControl.activeInputViewerId = String(payload.active_input_viewer_id || '');
+  }
   const kind = String(payload.kind || '').trim();
   const owner = String(payload.viewer_client_id || '').trim();
   if (kind === 'audio' && owner && owner !== viewerControl.clientId) {
@@ -2677,29 +2703,46 @@ function ingestEvent(ev) {
 }
 
 function isStaleIdleChatEvent(ev) {
-  if (!ev) return false;
-  if (!state.idleChat.interrupted) return false;
-  const type = String(ev.type || '').trim();
-  if (type === 'idlechat.message' || type === 'idlechat.summary' || type === 'idlechat.topic') {
-    return !state.idleChat.chatActive;
-  }
-  if (type === 'tts.audio_chunk') {
-    try {
-      const payload = JSON.parse(ev.content || '{}');
-      return isIdleChatSessionId(String(payload.session_id || '')) && !state.idleChat.chatActive;
-    } catch (_) {
-      return false;
-    }
-  }
-  return false;
+	if (!ev) return false;
+	if (!state.idleChat.interrupted) return false;
+	const type = String(ev.type || '').trim();
+	if (type === 'idlechat.message' || type === 'idlechat.summary' || type === 'idlechat.topic') {
+		return isStoppedIdleChatSession(String(ev.session_id || ev.chat_id || '').trim());
+	}
+	if (type === 'tts.audio_chunk') {
+		try {
+			const payload = JSON.parse(ev.content || '{}');
+			return isStoppedIdleChatSession(String(payload.session_id || '').trim());
+		} catch (_) {
+			return false;
+		}
+	}
+	return false;
 }
 
 function handleTTSAudioEvent(ev) {
   chatAudioSync.handleEvent(ev);
 }
 
-function isIdleChatActiveForTTS() {
-  return !!(state && state.idleChat && state.idleChat.chatActive);
+function isStoppedIdleChatSession(sessionId) {
+	const sid = String(sessionId || '').trim();
+	if (!state || !state.idleChat || !state.idleChat.interrupted || state.idleChat.chatActive) return false;
+	const interruptedSessionId = String(state.idleChat.interruptedSessionId || '').trim();
+	if (!sid || !interruptedSessionId) return false;
+	return sid === interruptedSessionId;
+}
+
+function isIdleChatActiveForTTS(sessionId) {
+	if (state && state.idleChat && state.idleChat.chatActive) return true;
+	const sid = String(sessionId || '').trim();
+	if (!isIdleChatSessionId(sid) || isStoppedIdleChatSession(sid)) return false;
+	if (state && state.idleChat) {
+		state.idleChat.chatActive = true;
+		state.idleChat.interrupted = false;
+		state.idleChat.interruptedSessionId = '';
+	}
+	if (sid && typeof idleLiveActiveSessionId !== 'undefined') idleLiveActiveSessionId = sid;
+	return true;
 }
 
 function resolveTTSPlaybackURL(audioURL, audioPath) {
@@ -2766,6 +2809,10 @@ function createChatAudioSync() {
           eventType: 'session_completed',
           sessionId: String(payload.session_id || ev.session_id || '').trim(),
           responseId: String(payload.response_id || '').trim(),
+          utteranceId: String(payload.utterance_id || '').trim(),
+          messageId: String(payload.message_id || '').trim(),
+          turnIndex: Number.isFinite(Number(payload.turn_index)) ? Math.floor(Number(payload.turn_index)) : -1,
+          characterId: String(payload.character_id || payload.speaker || '').trim().toLowerCase(),
         };
       } catch (_) {
         return {
@@ -2826,14 +2873,14 @@ function createChatAudioSync() {
   function handleEvent(ev) {
     const chunk = normalizeEvent(ev);
     if (!chunk) return;
-    if (chunk.mode === 'idlechat' && !isIdleChatActiveForTTS()) return;
+		if (chunk.mode === 'idlechat' && !isIdleChatActiveForTTS(chunk.sessionId)) return;
     if (chunk.mode === 'idlechat') {
       const activeIdleSession = String(typeof idleLiveActiveSessionId !== 'undefined' ? idleLiveActiveSessionId || '' : '').trim();
       if (activeIdleSession && chunk.sessionId && chunk.sessionId !== activeIdleSession) return;
     }
     if (chunk.eventType === 'session_completed') {
       if (!isThisViewerActiveAudio()) return;
-      markSessionCompleted(chunk.sessionId, chunk.responseId);
+      markSessionCompleted(chunk);
       return;
     }
     if (!isThisViewerActiveAudio()) return;
@@ -2901,14 +2948,17 @@ function createChatAudioSync() {
     });
   }
 
-  function markSessionCompleted(sessionId, responseId) {
-    const sid = String(sessionId || '').trim();
+  function markSessionCompleted(sessionOrChunk, responseId) {
+    const chunk = sessionOrChunk && typeof sessionOrChunk === 'object'
+      ? normalizeChunk(sessionOrChunk)
+      : {sessionId: String(sessionOrChunk || '').trim(), responseId: String(responseId || '').trim()};
+    const sid = String(chunk.sessionId || '').trim();
     if (sid) completedSessions.add(sid);
-    const rid = String(responseId || '').trim();
+    const rid = String(chunk.responseId || '').trim();
     if (rid) {
       completedResponses.add(rid);
       if (seenAudioResponses.has(rid)) {
-        maybeAcknowledgeResponsePlayback({responseId: rid, sessionId: sid}, 'completed_after_playback');
+        maybeAcknowledgeResponsePlayback(chunk, 'completed_after_playback');
       }
     }
     playNextInternal();
@@ -2986,6 +3036,7 @@ function createChatAudioSync() {
   }
 
   function resetCurrentInternal() {
+    const clearingSessionId = state.currentSessionId;
     if (state.tailTimer) clearTimeout(state.tailTimer);
     state.tailTimer = null;
     state.tailActive = false;
@@ -3003,7 +3054,7 @@ function createChatAudioSync() {
     state.currentShown = false;
     state.blockedFallbackUtteranceId = '';
     setNowPlayingText('', '');
-    clearTextInternal();
+    clearTextInternal(clearingSessionId);
   }
 
   function resetIdleChatInternal() {
@@ -3052,6 +3103,7 @@ function createChatAudioSync() {
     state.blockedFallbackUtteranceId = '';
     clearTTSAudioError();
     resetCurrentInternal();
+    releaseViewerControl('audio', 'audio_disabled');
     updateAudioButton();
     startTextFallbackInternal();
   }
@@ -3155,8 +3207,13 @@ function createChatAudioSync() {
     );
   }
 
-  function clearTextInternal() {
-    setCentralTTSSpeechText('', '');
+  function clearTextInternal(sessionId) {
+    const sid = String(sessionId || '').trim();
+    if (!sid) {
+      resetCentralTTSSpeechBubble();
+      return;
+    }
+    setTTSSpeechText(isIdleChatSessionId(sid) ? 'idle' : 'central', '', '', sid);
   }
 
   function startLipSyncInternal(characterId) {
@@ -3265,7 +3322,7 @@ function createChatAudioSync() {
     state.currentShown = false;
     state.blockedFallbackUtteranceId = '';
     setNowPlayingText('', '');
-    clearTextInternal();
+    clearTextInternal(finished.sessionId);
     const delay = ttsPlaybackTailGap(finished, state.queue[0]);
     decrementResponsePlaybackCount(finished.responseId);
     maybeAcknowledgeResponsePlayback(finished, 'ended');
@@ -3415,6 +3472,25 @@ function bindMobileTTSAudioAutounlock() {
   }, {passive: true});
 }
 
+function bindViewerActiveControlLifecycle() {
+  if (typeof setInterval === 'function') {
+    setInterval(function() {
+      if (viewerControl.activeAudioViewerId === viewerControl.clientId && (ttsPlayback.audioEnabled || ttsPlayback.playing || ttsPlayback.queue.length > 0)) {
+        heartbeatViewerControl('audio', 'audio_heartbeat');
+      }
+    }, 15000);
+  }
+  const releaseAudioOwner = function() {
+    if (viewerControl.activeAudioViewerId === viewerControl.clientId) {
+      releaseViewerControl('audio', 'viewer_unload');
+    }
+  };
+  if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', releaseAudioOwner);
+    window.addEventListener('beforeunload', releaseAudioOwner);
+  }
+}
+
 function isAutoplayBlockedError(err) {
   if (!err) return false;
   const name = String(err.name || '').trim();
@@ -3539,6 +3615,7 @@ const attachmentTray = document.getElementById('attachmentTray');
 bindTTSAudioButton(audioBtn);
 bindTTSAudioButton(liveAudioBtn);
 bindMobileTTSAudioAutounlock();
+bindViewerActiveControlLifecycle();
 updateAudioButton();
 let sending = false;
 let viewerAttachments = [];
@@ -3559,6 +3636,7 @@ function interruptIdleChatForUserInput(reason) {
   state.idleChat.currentTopic = '';
   state.idleChat.interrupted = true;
   state.idleChat.interruptedAt = Date.now();
+  state.idleChat.interruptedSessionId = String(typeof idleLiveActiveSessionId !== 'undefined' ? idleLiveActiveSessionId || '' : '').trim();
   if (typeof renderIdleChat === 'function') renderIdleChat();
   if (typeof chatAudioSync !== 'undefined' && chatAudioSync && typeof chatAudioSync.resetIdleChat === 'function') {
     chatAudioSync.resetIdleChat();

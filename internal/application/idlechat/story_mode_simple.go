@@ -128,7 +128,8 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	// LLM生成が長くても、Viewer には開始直後に状態を見せる。
 	intro := fmt.Sprintf("今夜の物語です。『%s』を、主人公を%sに置き換えたら——", tale.title, protagonist)
 	transcript := []string{"mio: " + intro}
-	o.emitStoryParagraph(sessionID, intro)
+	storyUtteranceSeq := 0
+	o.emitStoryParagraph(sessionID, intro, &storyUtteranceSeq)
 
 	messages := []llm.Message{
 		{Role: "system", Content: simpleStorySystemPrompt},
@@ -175,29 +176,23 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 		}
 	}
 	body := strings.Join(bodyLines, "\n")
-	validation := validateSimpleStoryDraft(tale.title, protagonist, titleLine, body)
-	if !validation.Valid {
-		log.Printf("[SimpleStory] invalid story: %s", validation.Reason)
-		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, titleLine, "", transcript, startedAt, "invalid_story:"+validation.Reason)
-		return
-	}
 
 	if titleLine != "" {
 		titleSpeech := fmt.Sprintf("改題は『%s』。", titleLine)
 		transcript = append(transcript, "mio: "+titleSpeech)
-		o.emitStoryParagraph(sessionID, titleSpeech)
+		o.emitStoryParagraph(sessionID, titleSpeech, &storyUtteranceSeq)
 	}
 
 	// 本文を段落単位でViewerに配信
 	for _, para := range groupStoryIntoViewerParagraphs(body, 150) {
 		transcript = append(transcript, "mio: "+para)
-		o.emitStoryParagraph(sessionID, para)
+		o.emitStoryParagraph(sessionID, para, &storyUtteranceSeq)
 	}
 
 	// 締め
 	closing := fmt.Sprintf("『%s』を下敷きにした、主人公%sのお話でした。", tale.title, protagonist)
 	transcript = append(transcript, "mio: "+closing)
-	o.emitStoryParagraph(sessionID, closing)
+	o.emitStoryParagraph(sessionID, closing, &storyUtteranceSeq)
 	o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, titleLine, body, transcript, startedAt, "")
 
 	log.Printf("[SimpleStory] Session complete: %s × %s", tale.title, protagonist)
@@ -281,7 +276,7 @@ func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTit
 }
 
 // emitStoryParagraph は段落をViewer + TTSに配信する（story_mode.goから移植）
-func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string) {
+func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string, utteranceSeq *int) {
 	paragraph = strings.TrimSpace(paragraph)
 	if paragraph == "" {
 		return
@@ -299,12 +294,18 @@ func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string) {
 		SessionID: sessionID,
 	})
 	// TTS に文節単位で送る（Viewer には表示しない）
-	for idx, sentence := range splitStorySentences(paragraph) {
+	for _, sentence := range splitStorySentences(paragraph) {
 		sentence = strings.TrimSpace(sentence)
 		if sentence == "" {
 			continue
 		}
-		turnIndex := idx + 1
+		if utteranceSeq != nil {
+			(*utteranceSeq)++
+		}
+		turnIndex := 1
+		if utteranceSeq != nil && *utteranceSeq > 0 {
+			turnIndex = *utteranceSeq
+		}
 		messageID := fmt.Sprintf("%s:story:%04d", sessionID, turnIndex)
 		ttsEvent := TimelineEvent{
 			Type:      "idlechat.tts",
