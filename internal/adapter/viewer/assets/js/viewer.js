@@ -2810,6 +2810,10 @@ function resolveTTSPlaybackURL(audioURL, audioPath) {
 
 function createChatAudioSync() {
   const state = ttsPlayback;
+  // Lifecycle ownership:
+  // - completedSessions is only an IdleChat session-level start gate for buffered audio.
+  // - completedResponses / responsePlaybackCounts / responsePlaybackResults / seenAudioResponses form one response-level ACK lifecycle.
+  // - seenUtterances and blockedAckKeys are chunk-level local dedupe guards for this tab only.
   const completedSessions = new Set();
   const completedResponses = new Set();
   const acknowledgedResponses = new Set();
@@ -3054,9 +3058,20 @@ function createChatAudioSync() {
     const recorded = responsePlaybackResults.get(responseId);
     if (recorded) {
       postTTSPlaybackAck(recorded.item || item, recorded.status || status, recorded.err || err);
+      clearResponsePlaybackLifecycle(responseId);
       return;
     }
     postTTSPlaybackAck(item, status, err);
+    clearResponsePlaybackLifecycle(responseId);
+  }
+
+  function clearResponsePlaybackLifecycle(responseId) {
+    const rid = String(responseId || '').trim();
+    if (!rid) return;
+    completedResponses.delete(rid);
+    responsePlaybackCounts.delete(rid);
+    responsePlaybackResults.delete(rid);
+    seenAudioResponses.delete(rid);
   }
 
   function postTTSPlaybackAck(item, status, err) {

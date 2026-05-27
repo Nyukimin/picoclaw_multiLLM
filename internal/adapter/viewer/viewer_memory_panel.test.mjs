@@ -139,6 +139,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /Do not use this object as the source of truth for transcript, TTS ACK, utterance consumption, or session progress\./);
   assert.match(js, /Browser playback state only\. Backend owns TTS completion\/ACK truth/);
   assert.match(js, /Diagnostic render trace only\. Never drive transcript, pending TTS, ACK, or session progression from this log\./);
+  assert.match(js, /completedResponses \/ responsePlaybackCounts \/ responsePlaybackResults \/ seenAudioResponses form one response-level ACK lifecycle/);
+  assert.match(js, /seenUtterances and blockedAckKeys are chunk-level local dedupe guards/);
+  assert.match(js, /function clearResponsePlaybackLifecycle\(responseId\)/);
   assert.match(js, /function eventStructuredIDParts\(ev\)/);
   assert.match(js, /structuredIDs\.messageId/);
   assert.match(js, /rencrow\.viewer_tab_client_id/);
