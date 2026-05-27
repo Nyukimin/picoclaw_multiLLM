@@ -60,6 +60,14 @@ func HandleSandboxStatus(store SandboxLister) http.HandlerFunc {
 			return
 		}
 		if store == nil {
+			if r.URL.Query().Get("viewer_optional") == "1" {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok":     false,
+					"status": http.StatusServiceUnavailable,
+					"error":  "sandbox store unavailable",
+				})
+				return
+			}
 			http.Error(w, "sandbox store unavailable", http.StatusServiceUnavailable)
 			return
 		}

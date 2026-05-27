@@ -2570,7 +2570,7 @@ const state = {ops: {
   runtimeBlockedRoutes: [
     {label: 'Source Registry staging', path: '/viewer/source-registry?action=staging&limit=3', status: 503, ok: false, body: 'source registry unavailable'},
     {label: 'Memory Layers', path: '/viewer/memory/layers', status: 503, ok: false, body: 'memory layers unavailable'},
-    {label: 'Sandbox status', path: '/viewer/sandbox?limit=1', status: 503, ok: false, body: 'sandbox store unavailable'},
+    {label: 'Sandbox status', path: '/viewer/sandbox?limit=1&viewer_optional=1', status: 503, ok: false, body: 'sandbox store unavailable'},
     {label: 'LLM Ops status', path: '/viewer/llm-ops/status', status: 502, ok: false, body: 'upstream unreachable'},
   ],
 }};
@@ -3318,11 +3318,11 @@ globalThis.__refreshSandboxData = refreshSandboxData;
   const context = vm.createContext({
     state,
     fetch(url) {
-      assert.equal(String(url), '/viewer/sandbox?limit=20');
+      assert.equal(String(url), '/viewer/sandbox?limit=20&viewer_optional=1');
       return Promise.resolve({
-        ok: false,
-        status: 503,
-        text: () => Promise.resolve('sandbox store unavailable'),
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ok: false, status: 503, error: 'sandbox store unavailable'}),
       });
     },
     renderOps() { renderOpsCount += 1; },

@@ -21,6 +21,15 @@ func HandleVerificationUnavailable() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if r.URL.Query().Get("viewer_optional") == "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     false,
+				"status": http.StatusServiceUnavailable,
+				"error":  "verification store unavailable",
+			})
+			return
+		}
 		http.Error(w, "verification store unavailable", http.StatusServiceUnavailable)
 	}
 }

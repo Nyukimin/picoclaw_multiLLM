@@ -1820,7 +1820,7 @@ function refreshDCIData() {
 }
 
 function refreshSandboxData() {
-  fetch('/viewer/sandbox?limit=20')
+  fetch('/viewer/sandbox?limit=20&viewer_optional=1')
     .then((r) => {
       if (!r.ok) {
         return r.text().then((body) => {
@@ -1830,6 +1830,9 @@ function refreshSandboxData() {
       return r.json();
     })
     .then((data) => {
+      if (data && data.ok === false) {
+        throw new Error('HTTP ' + String(data.status || 503) + ': ' + (data.error || 'sandbox store unavailable'));
+      }
       state.ops.sandboxFetchError = '';
       state.ops.sandboxes = Array.isArray(data.sandboxes) ? data.sandboxes : [];
       state.ops.sandboxArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
@@ -2188,18 +2191,31 @@ function refreshRuntimeBlockedRouteData() {
   const routes = [
     {label: 'Source Registry staging', path: '/viewer/source-registry?action=staging&limit=3'},
     {label: 'Memory Layers', path: '/viewer/memory/layers'},
-    {label: 'Sandbox status', path: '/viewer/sandbox?limit=1'},
+    {label: 'Sandbox status', path: '/viewer/sandbox?limit=1&viewer_optional=1'},
     {label: 'LLM Ops status', path: '/viewer/llm-ops/status'},
   ];
   Promise.all(routes.map((route) => {
     return fetch(route.path, {cache: 'no-store'})
-      .then((r) => r.text().then((body) => ({
-        label: route.label,
-        path: route.path,
-        status: r.status,
-        ok: r.ok,
-        body: body || '',
-      })))
+      .then((r) => r.text().then((body) => {
+        let optional = null;
+        try { optional = body ? JSON.parse(body) : null; } catch (_) {}
+        if (r.ok && optional && optional.ok === false) {
+          return {
+            label: route.label,
+            path: route.path,
+            status: Number(optional.status || httpStatusServiceUnavailable()),
+            ok: false,
+            body: optional.error || body || '',
+          };
+        }
+        return {
+          label: route.label,
+          path: route.path,
+          status: r.status,
+          ok: r.ok,
+          body: body || '',
+        };
+      }))
       .catch((err) => ({
         label: route.label,
         path: route.path,
@@ -2213,6 +2229,10 @@ function refreshRuntimeBlockedRouteData() {
       renderOps();
     })
     .catch((err) => console.error(err));
+}
+
+function httpStatusServiceUnavailable() {
+  return 503;
 }
 
 function refreshEvidence() {
@@ -2284,7 +2304,7 @@ function refreshEvidenceSummary() {
 }
 
 function refreshVerification() {
-  fetch('/viewer/verification/recent?limit=20')
+  fetch('/viewer/verification/recent?limit=20&viewer_optional=1')
     .then((r) => {
       if (!r.ok) {
         return r.text().then((text) => {
@@ -2294,6 +2314,9 @@ function refreshVerification() {
       return r.json();
     })
     .then((data) => {
+      if (data && data.ok === false) {
+        throw new Error('HTTP ' + String(data.status || 503) + ': ' + (data.error || 'verification unavailable'));
+      }
       state.verificationFetchError = '';
       state.verificationReports = Array.isArray(data.items) ? data.items : [];
       renderEvidence();
@@ -2308,7 +2331,7 @@ function refreshVerification() {
 }
 
 function refreshVerificationSummary() {
-  fetch('/viewer/verification/summary')
+  fetch('/viewer/verification/summary?viewer_optional=1')
     .then((r) => {
       if (!r.ok) {
         return r.text().then((text) => {
@@ -2318,6 +2341,9 @@ function refreshVerificationSummary() {
       return r.json();
     })
     .then((data) => {
+      if (data && data.ok === false) {
+        throw new Error('HTTP ' + String(data.status || 503) + ': ' + (data.error || 'verification summary unavailable'));
+      }
       state.verificationSummaryFetchError = '';
       state.verificationSummary = data.summary || {status: {}, trigger_level: {}};
       renderEvidenceSummary();

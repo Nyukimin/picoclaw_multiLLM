@@ -242,6 +242,20 @@ func TestHandleSandboxStatusRequiresStore(t *testing.T) {
 	}
 }
 
+func TestHandleSandboxStatusOptionalUnavailable(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/viewer/sandbox?viewer_optional=1", nil)
+	rec := httptest.NewRecorder()
+
+	HandleSandboxStatus(nil).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":503`) || !strings.Contains(rec.Body.String(), "sandbox store unavailable") {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
 func TestHandleSandboxPromotionRequest(t *testing.T) {
 	store := &stubSandboxPromotionStore{}
 	body := []byte(`{

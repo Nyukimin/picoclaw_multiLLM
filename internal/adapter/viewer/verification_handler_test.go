@@ -95,6 +95,21 @@ func TestHandleVerificationUnavailable(t *testing.T) {
 	}
 }
 
+func TestHandleVerificationUnavailableOptional(t *testing.T) {
+	handler := HandleVerificationUnavailable()
+	req := httptest.NewRequest(http.MethodGet, "/viewer/verification/recent?viewer_optional=1", nil)
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":503`) || !strings.Contains(rec.Body.String(), "verification store unavailable") {
+		t.Fatalf("expected unavailable json body, got %s", rec.Body.String())
+	}
+}
+
 func testVerificationReport() domainverification.VerificationReport {
 	return domainverification.VerificationReport{
 		ID:           "verify_job-1",
