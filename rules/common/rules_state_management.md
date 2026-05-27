@@ -87,6 +87,18 @@ UI では、イベント受信、表示、音声再生、口パクを混同し�
 - 発話完了は次音声の再生制御に使う。本文表示完了と混同しない
 - デバッグログは観測であり、アプリ状態の代替にしない
 
+### 6.1 TTS / ACK の正本ルール
+
+TTS playback ACK は「実際に音声再生を担当している active audio owner の観測」だけを発話完了の根拠にする。
+
+- `active_audio=false` の Viewer ACK で、backend の TTS pending / response 完了 / topic gate を消化してはいけない。
+- `status=error` は診断であり、非 active Viewer から来た場合は pending 完了の根拠にしない。
+- `status=fallback` は禁止。受信した場合は明示エラーとして記録し、成功扱いしない。
+- 古い Viewer、audio disabled Viewer、non-active Viewer の ACK は観測ログとして残すだけにする。
+- pending を閉じてよいのは、active audio owner の ACK、backend timeout、stop / interrupt / session cleanup など backend 正本の経路だけ。
+- 1つの `response_id` に複数 `chunk_index` がある場合、`response_id` 単位の完了判定で chunk の未再生を隠してはいけない。
+- ACK ログには少なくとも `session_id`, `response_id`, `utterance_id`, `message_id`, `turn_index`, `chunk_index` 相当, `viewer_client_id`, `active_audio`, `status`, `error_code` を追跡可能にする。
+
 ---
 
 ## 7. 状態追加時のチェックリスト
