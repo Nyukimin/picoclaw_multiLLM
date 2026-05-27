@@ -197,6 +197,18 @@ func (o *IdleChatOrchestrator) forecastLLM() llm.LLMProvider {
 }
 
 func (o *IdleChatOrchestrator) forecastLLMInfo() (llm.LLMProvider, string) {
+	if p, label := o.forecastPrimaryLLMInfo(); p != nil {
+		return p, label
+	}
+	p := o.providerForSpeaker("mio")
+	label := "mio"
+	if p != nil && strings.TrimSpace(p.Name()) != "" {
+		label = "mio " + strings.TrimSpace(p.Name())
+	}
+	return p, label
+}
+
+func (o *IdleChatOrchestrator) forecastPrimaryLLMInfo() (llm.LLMProvider, string) {
 	o.mu.Lock()
 	p := o.forecastProvider
 	label := strings.TrimSpace(o.forecastProviderLabel)
@@ -210,10 +222,22 @@ func (o *IdleChatOrchestrator) forecastLLMInfo() (llm.LLMProvider, string) {
 		}
 		return p, label
 	}
-	p = o.providerForSpeaker("mio")
-	label = "mio"
-	if p != nil && strings.TrimSpace(p.Name()) != "" {
-		label = "mio " + strings.TrimSpace(p.Name())
+	return nil, ""
+}
+
+func (o *IdleChatOrchestrator) forecastExternalLLMInfo() (llm.LLMProvider, string) {
+	o.mu.Lock()
+	p := o.forecastExternalProvider
+	label := strings.TrimSpace(o.forecastExternalProviderLabel)
+	o.mu.Unlock()
+	if p == nil {
+		return nil, ""
+	}
+	if label == "" {
+		label = strings.TrimSpace(p.Name())
+	}
+	if label == "" {
+		label = "forecastExternalProvider"
 	}
 	return p, label
 }

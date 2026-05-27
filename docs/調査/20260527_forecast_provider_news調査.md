@@ -2,7 +2,7 @@
 
 ## 結論
 
-2026-05-27 時点の現行コードでは、Forecast 用 LLM provider は `Coder1 > Coder2 > Coder3 > Coder4 > Worker > Chat > Wild` の順で選択される。現在の live config / runtime log では `Coder1 deepseek (deepseek-coder)` が選ばれており、現行ログ上に OpenAI 429 / insufficient_quota は確認できなかった。
+2026-05-27 時点の初回調査では、Forecast 用 LLM provider は `Coder1 > Coder2 > Coder3 > Coder4 > Worker > Chat > Wild` の順で選択されていた。後続修正で Forecast 専用 policy は `Coder1 primary -> 外部LLM 1回のみ -> 明示エラー` に変更した。Worker / Chat / Wild へは落とさない。
 
 一方、Google News RSS の 400 は再現した。原因は `fetchGoogleNewsSeeds()` が検索語の空白だけを `+` に置換し、日本語などの非 ASCII 文字を percent-encode していないこと。`q=はしか感染拡大` は HTTP 400、`q=%E3%81%AF...` の percent-encoded URL は HTTP 200 だった。
 
@@ -45,7 +45,7 @@
 
 Forecast provider は `buildIdleChatRuntime()` で `selectForecastProvider()` により選ばれ、`SetForecastProvider()` で IdleChat orchestrator に渡される。
 
-現行の優先順位:
+初回調査時点の優先順位:
 
 1. Coder1
 2. Coder2
@@ -54,6 +54,14 @@ Forecast provider は `buildIdleChatRuntime()` で `selectForecastProvider()` �
 5. Worker
 6. Chat
 7. Wild
+
+後続修正後の Forecast 専用 policy:
+
+1. primary: Coder1
+2. primary が provider 作成失敗、または Generate 失敗した場合だけ external を1回試す
+3. external は Coder2 / Coder3 / Coder4 のうち最初に作成できた1つ
+4. external も失敗したら `FORECAST_TOPIC_GENERATION_FAILED` を表示
+5. Worker / Chat / Wild へは落とさない
 
 該当箇所:
 
@@ -74,13 +82,13 @@ live config では以下:
 - `coder4.enabled=true`, `provider=gemini`, `model=gemini-2.5-flash`
 - `local_llm.enabled=true`, Chat/Worker/Wild は local OpenAI-compatible
 
-したがって、現在の Forecast LLM は基本的に Coder1。Coder1 が provider 作成に失敗した場合だけ Coder2 OpenAI に進む。
+したがって、現在の Forecast LLM は基本的に Coder1。Coder1 が provider 作成または Generate に失敗した場合だけ、外部LLMを1回試す。
 
 ## OpenAI 429 について
 
 今回確認した現行ログには、`insufficient_quota`、`status 429`、OpenAI quota エラーは残っていなかった。
 
-ただし、コード上は Coder2 が enabled かつ OpenAI provider であるため、Coder1 が無効、API key 不足、provider 作成失敗、設定変更などで skip されると Coder2 OpenAI が Forecast provider になり得る。
+ただし、コード上は Coder2 が enabled かつ OpenAI provider であるため、Coder1 が無効、API key 不足、provider 作成失敗、Generate 失敗、設定変更などで失敗すると、外部LLM 1回として Coder2 OpenAI が使われ得る。
 
 429 が出る箇所は、責務上は以下の LLM 呼び出し:
 
@@ -187,10 +195,13 @@ P0 ではない。TTS/ACK 本線とは分離する。
 - `fetchGoogleNewsSeeds()` の URL 生成を `url.QueryEscape(keyword)` に変更。
 - 日本語 keyword の percent-encode テストを追加。
 - Forecast LLM error log に `phase`, `domain`, `provider`, `error_code`, `error` を出すように変更。
-- Coder1 が壊れている場合に Coder2 OpenAI へ進む provider 選択テストを追加。
+- Coder1 が壊れている場合に Coder2 OpenAI を external provider として選ぶ provider 選択テストを追加。
 - Forecast LLM 失敗時の汎用 topic / domain keyword fallback を廃止。
 - Forecast topic 生成失敗時は `FORECAST_TOPIC_GENERATION_FAILED error_code=... phase=... domain=... provider=...` を表示する。
 - Forecast topic stock 補充では、失敗 topic を保存しない。
+- Forecast provider policy を `Coder1 primary -> external 1回 -> error` に変更。
+- Forecast は Worker / Chat / Wild へ落とさない。
+- primary Generate 失敗後に external を1回だけ使うテストを追加。
 
 検証:
 

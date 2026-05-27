@@ -39,8 +39,7 @@ func TestSelectForecastProviderPrefersCoderPriorityOverWorker(t *testing.T) {
 }
 
 func TestSelectForecastProviderSkipsBrokenCoderAndUsesNextCoder(t *testing.T) {
-	worker := fakeConversationProvider{name: "worker-provider"}
-	provider, label := selectForecastProvider(&config.Config{
+	primary, primaryLabel, external, externalLabel := selectForecastProviders(&config.Config{
 		Coder1: config.CoderConfig{
 			Enabled:  true,
 			Provider: "local_openai",
@@ -52,19 +51,21 @@ func TestSelectForecastProviderSkipsBrokenCoderAndUsesNextCoder(t *testing.T) {
 			Model:    "Worker",
 			BaseURL:  "http://127.0.0.1:8082",
 		},
-	}, nil, worker, nil)
+	})
 
-	if provider == nil || provider == worker {
-		t.Fatalf("expected Coder2 provider, got %#v", provider)
+	if primary != nil || primaryLabel != "" {
+		t.Fatalf("broken Coder1 should not become primary: provider=%#v label=%q", primary, primaryLabel)
 	}
-	if !strings.Contains(label, "Coder2") {
-		t.Fatalf("unexpected label: %q", label)
+	if external == nil {
+		t.Fatal("expected Coder2 external provider")
+	}
+	if !strings.Contains(externalLabel, "Coder2") {
+		t.Fatalf("unexpected external label: %q", externalLabel)
 	}
 }
 
 func TestSelectForecastProviderSkipsBrokenCoder1AndUsesCoder2OpenAI(t *testing.T) {
-	worker := fakeConversationProvider{name: "worker-provider"}
-	provider, label := selectForecastProvider(&config.Config{
+	primary, primaryLabel, external, externalLabel := selectForecastProviders(&config.Config{
 		Coder1: config.CoderConfig{
 			Enabled:  true,
 			Provider: "local_openai",
@@ -76,17 +77,20 @@ func TestSelectForecastProviderSkipsBrokenCoder1AndUsesCoder2OpenAI(t *testing.T
 			Model:    "gpt-4o-mini",
 			APIKey:   "test-key",
 		},
-	}, nil, worker, nil)
+	})
 
-	if provider == nil || provider == worker {
-		t.Fatalf("expected Coder2 OpenAI provider, got %#v", provider)
+	if primary != nil || primaryLabel != "" {
+		t.Fatalf("broken Coder1 should not become primary: provider=%#v label=%q", primary, primaryLabel)
 	}
-	if !strings.Contains(label, "Coder2 openai") || !strings.Contains(label, "gpt-4o-mini") {
-		t.Fatalf("unexpected label: %q", label)
+	if external == nil {
+		t.Fatal("expected Coder2 OpenAI external provider")
+	}
+	if !strings.Contains(externalLabel, "Coder2 openai") || !strings.Contains(externalLabel, "gpt-4o-mini") {
+		t.Fatalf("unexpected external label: %q", externalLabel)
 	}
 }
 
-func TestSelectForecastProviderFallsBackToChatWhenNoCoderAvailable(t *testing.T) {
+func TestSelectForecastProviderDoesNotFallBackToChatWhenNoCoderAvailable(t *testing.T) {
 	chat := fakeConversationProvider{name: "chat-provider"}
 	provider, label := selectForecastProvider(&config.Config{
 		LocalLLM: config.LocalLLMConfig{
@@ -95,10 +99,10 @@ func TestSelectForecastProviderFallsBackToChatWhenNoCoderAvailable(t *testing.T)
 		},
 	}, chat, nil, nil)
 
-	if provider != chat {
-		t.Fatalf("expected Chat provider, got %#v", provider)
+	if provider != nil {
+		t.Fatalf("Forecast must not fall back to Chat provider, got %#v", provider)
 	}
-	if !strings.Contains(label, "Chat") {
+	if label != "" {
 		t.Fatalf("unexpected label: %q", label)
 	}
 }

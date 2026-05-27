@@ -47,10 +47,11 @@ func buildIdleChatRuntime(
 		"wild":  wildProvider,
 	})
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
-	if forecastProvider, label := selectForecastProvider(cfg, chatProvider, workerProvider, wildProvider); forecastProvider != nil {
+	if forecastProvider, label, externalProvider, externalLabel := selectForecastProviders(cfg); forecastProvider != nil || externalProvider != nil {
 		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
+		idleChatOrch.SetForecastExternalProviderWithLabel(externalProvider, externalLabel)
 		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
-		log.Printf("IdleChat: Forecast provider set to %s, topic stock filling", label)
+		log.Printf("IdleChat: Forecast provider set to primary=%s external=%s, topic stock filling", forecastProviderLogLabel(label), forecastProviderLogLabel(externalLabel))
 	}
 	if recentGlossaryTopics != nil {
 		idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
@@ -112,41 +113,61 @@ func buildIdleChatRuntime(
 }
 
 func selectForecastProvider(cfg *config.Config, chatProvider, workerProvider, wildProvider llm.LLMProvider) (llm.LLMProvider, string) {
-	if cfg == nil {
-		return nil, ""
+	primary, primaryLabel, external, externalLabel := selectForecastProviders(cfg)
+	if primary != nil {
+		return primary, primaryLabel
 	}
-	coderCandidates := []struct {
+	if external != nil {
+		return external, externalLabel
+	}
+	return nil, ""
+}
+
+func selectForecastProviders(cfg *config.Config) (llm.LLMProvider, string, llm.LLMProvider, string) {
+	if cfg == nil {
+		return nil, "", nil, ""
+	}
+	primary, primaryLabel := createForecastProvider("Coder1", cfg.Coder1)
+	if primary == nil {
+		log.Printf("WARN: IdleChat forecast primary unavailable: Coder1 provider=%s model=%s", cfg.Coder1.Provider, cfg.Coder1.Model)
+	}
+	for _, candidate := range []struct {
 		label string
 		cfg   config.CoderConfig
 	}{
-		{"Coder1", cfg.Coder1},
 		{"Coder2", cfg.Coder2},
 		{"Coder3", cfg.Coder3},
 		{"Coder4", cfg.Coder4},
-	}
-	for _, candidate := range coderCandidates {
-		if !candidate.cfg.Enabled {
-			continue
-		}
-		provider, err := llmfactory.CreateProvider(candidate.cfg)
-		if err != nil {
-			log.Printf("WARN: IdleChat forecast provider skipped: %s provider=%s model=%s: %v", candidate.label, candidate.cfg.Provider, candidate.cfg.Model, err)
-			continue
-		}
-		if provider != nil {
-			return provider, candidate.label + " " + candidate.cfg.Provider + " (" + forecastProviderModelLabel(candidate.cfg.Model) + ")"
+	} {
+		external, externalLabel := createForecastProvider(candidate.label, candidate.cfg)
+		if external != nil {
+			return primary, primaryLabel, external, externalLabel
 		}
 	}
-	if workerProvider != nil {
-		return workerProvider, "Worker (" + forecastProviderModelLabel(cfg.LocalLLM.WorkerModel) + ")"
+	return primary, primaryLabel, nil, ""
+}
+
+func createForecastProvider(label string, cc config.CoderConfig) (llm.LLMProvider, string) {
+	if !cc.Enabled {
+		return nil, ""
 	}
-	if chatProvider != nil {
-		return chatProvider, "Chat (" + forecastProviderModelLabel(cfg.LocalLLM.ChatModel) + ")"
+	provider, err := llmfactory.CreateProvider(cc)
+	if err != nil {
+		log.Printf("WARN: IdleChat forecast provider skipped: %s provider=%s model=%s: %v", label, cc.Provider, cc.Model, err)
+		return nil, ""
 	}
-	if wildProvider != nil {
-		return wildProvider, "Wild (" + forecastProviderModelLabel(cfg.LocalLLM.WildModel) + ")"
+	if provider == nil {
+		return nil, ""
 	}
-	return nil, ""
+	return provider, label + " " + cc.Provider + " (" + forecastProviderModelLabel(cc.Model) + ")"
+}
+
+func forecastProviderLogLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return "unavailable"
+	}
+	return label
 }
 
 func forecastProviderModelLabel(model string) string {
