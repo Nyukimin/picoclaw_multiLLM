@@ -4491,6 +4491,103 @@ globalThis.__initLiveMode = initLiveMode;
   assert.match(document.getElementById('liveTopicText').textContent, /IdleChat status unavailable: HTTP 503: idlechat status unavailable/);
 });
 
+test('viewer live mode does not start optional hidden panel refreshes', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const requested = [];
+  const intervals = [];
+  const elements = new Map();
+  const bodyClasses = new Set();
+  const bodyClassList = {
+    add(name) { bodyClasses.add(name); },
+    remove(name) { bodyClasses.delete(name); },
+    contains(name) { return bodyClasses.has(name); },
+  };
+  const document = {
+    body: {classList: bodyClassList},
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+  };
+  const optionalNames = [
+    'refreshOpsData',
+    'refreshToolHarnessData',
+    'refreshDCIData',
+    'refreshSandboxData',
+    'refreshSkillGovernanceData',
+    'refreshWorkstreamData',
+    'refreshRevenueData',
+    'refreshPersonaObservationData',
+    'refreshBrowserTraceAPIData',
+    'refreshComplexityHotspotData',
+    'refreshAIWorkflowData',
+    'refreshSuperAgentData',
+    'refreshHeavyWorkerRuntimeDiagnostics',
+    'refreshKnowledgeMemoryData',
+    'refreshRuntimeBlockedRouteData',
+    'refreshEvidence',
+    'refreshEvidenceSummary',
+    'refreshVerification',
+    'refreshVerificationSummary',
+    'refreshMemorySnapshot',
+    'refreshRecallTraces',
+  ];
+  const optionalStubs = optionalNames.map((name) => `
+function ${name}() { fetch('/optional/${name}'); }
+`).join('\n');
+  const source = `
+let derivedDirty = false;
+const state = {idleChat: {selectedMode: 'manual', selectedView: 'live'}};
+const panels = {timeline: true};
+${optionalStubs}
+function switchTab(tab) { globalThis.__switchedTab = tab; }
+function refreshDerivedViews() {}
+function bindHomeDeskControls() {}
+function bindDevelopDeskControls() {}
+function bindInstructionsDeskControls() {}
+function bindReportsDeskControls() {}
+function renderIdleChat() {}
+function setIdleSelectedMode() {}
+function setIdleSelectedView() {}
+function refreshIdleStatus() { fetch('/viewer/idlechat/status'); }
+function refreshIdleLogs() { fetch('/viewer/idlechat/logs?limit=20'); }
+function refreshViewerStatus() { fetch('/viewer/status'); }
+function refreshDebugSystem() { fetch('/viewer/debug/system'); }
+function registerWebMCPTools() {}
+function connect() {}
+function refreshLlmOpsStatus() {}
+` + sourceBetween(viewerJs, 'function initLiveMode', 'function initEvidenceFromQuery') + `
+globalThis.__initLiveMode = initLiveMode;
+globalThis.__refreshOptionalPanelData = refreshOptionalPanelData;
+globalThis.__setOptionalPanelRefreshIntervals = setOptionalPanelRefreshIntervals;
+`;
+  const context = vm.createContext({
+    document,
+    window: {location: {href: 'http://127.0.0.1:18790/viewer?mode=live'}},
+    URL,
+    setInterval(fn, ms) {
+      intervals.push({fn: fn.name || 'anonymous', ms});
+      return intervals.length;
+    },
+    fetch(url) {
+      requested.push(String(url));
+      return Promise.resolve({ok: true, json: () => Promise.resolve({ok: true})});
+    },
+    console: {error() {}, info() {}},
+  });
+
+  vm.runInContext(source, context);
+  assert.equal(context.__initLiveMode(), true);
+  context.__refreshOptionalPanelData();
+  context.__setOptionalPanelRefreshIntervals();
+
+  assert.equal(context.__switchedTab, 'timeline');
+  assert.equal(bodyClassList.contains('live-mode'), true);
+  assert.deepEqual(requested, []);
+  assert.equal(requested.some((url) => url.startsWith('/optional/')), false);
+  assert.equal(intervals.some((item) => optionalNames.includes(item.fn)), false);
+});
+
 test('viewer chat send ignores stale route alias and leaves routing to orchestrator', () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();

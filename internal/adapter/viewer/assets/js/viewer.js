@@ -2612,6 +2612,60 @@ function initLiveMode() {
   } catch (_) { return false; }
 }
 
+function shouldRefreshOptionalPanels() {
+  return !(document.body && document.body.classList && document.body.classList.contains('live-mode'));
+}
+
+function refreshOptionalPanelData() {
+  if (!shouldRefreshOptionalPanels()) return;
+  refreshOpsData();
+  refreshToolHarnessData();
+  refreshDCIData();
+  refreshSandboxData();
+  refreshSkillGovernanceData();
+  refreshWorkstreamData();
+  refreshRevenueData();
+  refreshPersonaObservationData();
+  refreshBrowserTraceAPIData();
+  refreshComplexityHotspotData();
+  refreshAIWorkflowData();
+  refreshSuperAgentData();
+  refreshHeavyWorkerRuntimeDiagnostics();
+  refreshKnowledgeMemoryData();
+  refreshRuntimeBlockedRouteData();
+  refreshEvidence();
+  refreshEvidenceSummary();
+  refreshVerification();
+  refreshVerificationSummary();
+  refreshMemorySnapshot();
+  refreshRecallTraces();
+}
+
+function setOptionalPanelRefreshIntervals() {
+  if (!shouldRefreshOptionalPanels()) return;
+  setInterval(refreshOpsData, 5000);
+  setInterval(refreshToolHarnessData, 5000);
+  setInterval(refreshDCIData, 5000);
+  setInterval(refreshSandboxData, 5000);
+  setInterval(refreshSkillGovernanceData, 5000);
+  setInterval(refreshWorkstreamData, 5000);
+  setInterval(refreshRevenueData, 5000);
+  setInterval(refreshPersonaObservationData, 5000);
+  setInterval(refreshBrowserTraceAPIData, 5000);
+  setInterval(refreshComplexityHotspotData, 5000);
+  setInterval(refreshAIWorkflowData, 5000);
+  setInterval(refreshSuperAgentData, 5000);
+  setInterval(refreshHeavyWorkerRuntimeDiagnostics, 5000);
+  setInterval(refreshKnowledgeMemoryData, 5000);
+  setInterval(refreshRuntimeBlockedRouteData, 5000);
+  setInterval(refreshEvidence, 5000);
+  setInterval(refreshEvidenceSummary, 5000);
+  setInterval(refreshVerification, 5000);
+  setInterval(refreshVerificationSummary, 5000);
+  setInterval(refreshMemorySnapshot, 15000);
+  setInterval(refreshRecallTraces, 15000);
+}
+
 function initEvidenceFromQuery() {
   try {
     const u = new URL(window.location.href);
@@ -4021,27 +4075,7 @@ if (!initLiveMode()) {
   initTabFromQuery();
 }
 initEvidenceFromQuery();
-refreshOpsData();
-refreshToolHarnessData();
-refreshDCIData();
-refreshSandboxData();
-refreshSkillGovernanceData();
-refreshWorkstreamData();
-refreshRevenueData();
-refreshPersonaObservationData();
-refreshBrowserTraceAPIData();
-refreshComplexityHotspotData();
-refreshAIWorkflowData();
-refreshSuperAgentData();
-refreshHeavyWorkerRuntimeDiagnostics();
-refreshKnowledgeMemoryData();
-refreshRuntimeBlockedRouteData();
-refreshEvidence();
-refreshEvidenceSummary();
-refreshVerification();
-refreshVerificationSummary();
-refreshMemorySnapshot();
-refreshRecallTraces();
+refreshOptionalPanelData();
 refreshViewerStatus();
 setInterval(() => {
   if (!derivedDirty) return;
@@ -4051,27 +4085,7 @@ setInterval(() => {
 setInterval(refreshViewerStatus, 5000);
 setInterval(refreshIdleStatus, 3000);
 setInterval(refreshIdleLogs, 5000);
-setInterval(refreshOpsData, 5000);
-setInterval(refreshToolHarnessData, 5000);
-setInterval(refreshDCIData, 5000);
-setInterval(refreshSandboxData, 5000);
-setInterval(refreshSkillGovernanceData, 5000);
-setInterval(refreshWorkstreamData, 5000);
-setInterval(refreshRevenueData, 5000);
-setInterval(refreshPersonaObservationData, 5000);
-setInterval(refreshBrowserTraceAPIData, 5000);
-setInterval(refreshComplexityHotspotData, 5000);
-setInterval(refreshAIWorkflowData, 5000);
-setInterval(refreshSuperAgentData, 5000);
-setInterval(refreshHeavyWorkerRuntimeDiagnostics, 5000);
-setInterval(refreshKnowledgeMemoryData, 5000);
-setInterval(refreshRuntimeBlockedRouteData, 5000);
-setInterval(refreshEvidence, 5000);
-setInterval(refreshEvidenceSummary, 5000);
-setInterval(refreshVerification, 5000);
-setInterval(refreshVerificationSummary, 5000);
-setInterval(refreshMemorySnapshot, 15000);
-setInterval(refreshRecallTraces, 15000);
+setOptionalPanelRefreshIntervals();
 setInterval(refreshDebugSystem, 5000);
 setInterval(() => {
   const panel = document.getElementById('llmOpsPanel');
