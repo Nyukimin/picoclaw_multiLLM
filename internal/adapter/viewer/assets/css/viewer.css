@@ -126,6 +126,11 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .idle-raw-response{margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;color:var(--t2)}
 .idle-raw-label{font-size:10px;font-weight:700;color:var(--warn);margin-bottom:4px}
 .idle-raw-text{font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.idle-live-item.idle-tts-error .mc{border-color:rgba(248,113,113,.48);background:rgba(248,113,113,.08)}
+.idle-tts-error-box{display:flex;flex-direction:column;gap:7px}
+.idle-tts-error-reason{color:#fecaca;font-size:12px;line-height:1.5}
+.idle-tts-error-meta{display:flex;gap:6px 10px;flex-wrap:wrap;color:var(--t2);font-size:11px;line-height:1.45}
+.idle-tts-error-meta b{color:#fecaca;font-weight:700}
 .idle-subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
 .idle-subtab{
   border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--t2);

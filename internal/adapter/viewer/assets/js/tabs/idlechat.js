@@ -63,6 +63,17 @@ function recordIdleLiveIdentityError(reason, ev, detail) {
   } catch (_) {}
 }
 
+function idleEsc(s) {
+  if (typeof esc === 'function') return esc(s);
+  return String(s || '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+}
+
 function idlePendingQueue(sessionId) {
   const sid = String(sessionId || '').trim() || 'idlechat';
   if (!idlePendingMessages.has(sid)) idlePendingMessages.set(sid, []);
@@ -93,7 +104,7 @@ function queueIdleMessageForTTS(ev) {
   };
   item.timer = setTimeout(() => {
     if (item.consumed) return;
-    renderIdlePendingMessageFallback(item);
+    renderIdlePendingTTSError(item, 'TTS_CHUNK_TIMEOUT', 'TTS chunk was not rendered before the pending display timeout.');
     item.consumed = true;
     pruneIdlePendingQueue(sid);
   }, IDLE_MESSAGE_FALLBACK_MS);
@@ -156,34 +167,22 @@ function hydrateIdleLiveTranscript(sessionId, transcript) {
 	const target = idleLiveRenderTarget();
 	if (!target || !(document.body && document.body.classList.contains('live-mode'))) return;
 	const sid = String(sessionId || '').trim();
-	const rows = Array.isArray(transcript) ? transcript : [];
 	if (!sid) return;
-	const key = sid + ':' + String(rows.length) + ':' + String(rows.length ? rows[rows.length - 1].content || '' : '');
+	const rows = Array.isArray(transcript) ? transcript : [];
+	const key = sid + ':' + String(rows.length);
 	if (key === idleLiveSnapshotKey) return;
+	const sessionChanged = idleLiveActiveSessionId && idleLiveActiveSessionId !== sid;
 	idleLiveSnapshotKey = key;
-	idleLiveActiveSessionId = sid;
-	idlePendingMessages.clear();
-	resetTTSSpeechBubble(idleTTSSpeech);
-	if (typeof target.replaceChildren === 'function') target.replaceChildren();
-	else {
-		target.innerHTML = '';
-		if (Array.isArray(target.children)) target.children.length = 0;
+	if (sessionChanged) {
+		idlePendingMessages.clear();
+		resetTTSSpeechBubble(idleTTSSpeech);
+		if (typeof target.replaceChildren === 'function') target.replaceChildren();
+		else {
+			target.innerHTML = '';
+			if (Array.isArray(target.children)) target.children.length = 0;
+		}
 	}
-		rows.forEach((row) => {
-		const ev = {
-			type: 'idlechat.message',
-			from: row.from || row.From || '',
-			to: row.to || row.To || '',
-			content: row.content || row.Content || '',
-			session_id: row.session_id || row.SessionID || sid,
-			message_id: row.message_id || row.MessageID || '',
-			turn_index: row.turn_index ?? row.TurnIndex,
-			timestamp: row.timestamp || row.Timestamp || new Date().toISOString(),
-		};
-		if (!ev.content || isIdleTopicEvent(ev)) return;
-			appendIdleLiveMessageEvent(ev, {pending: false});
-		});
-		validateIdleLiveNodeSequence(target, sid);
+	idleLiveActiveSessionId = sid;
 	}
 
 function appendIdleLiveMessageEvent(ev, options = {}) {
@@ -348,24 +347,51 @@ function sortIdleLiveMessageNodes(target) {
   else if (Array.isArray(target.children)) target.children = sorted;
 }
 
-function renderIdlePendingMessageFallback(item) {
+function idlePendingTTSErrorHTML(ev, errorCode, reason) {
+  const meta = [
+    ['error_code', errorCode || 'TTS_CHUNK_TIMEOUT'],
+    ['session_id', ev && (ev.session_id || ev.chat_id) || ''],
+    ['message_id', ev && (ev.message_id || ev.messageId) || ''],
+    ['turn_index', ev && (ev.turn_index ?? ev.turnIndex ?? '')],
+    ['from', ev && ev.from || ''],
+    ['to', ev && ev.to || ''],
+    ['elapsed_ms', String(IDLE_MESSAGE_FALLBACK_MS)],
+  ];
+  return '<div class="idle-tts-error-box">' +
+    '<div><span class="badge state-error">' + idleEsc(errorCode || 'TTS_CHUNK_TIMEOUT') + '</span></div>' +
+    '<div class="idle-tts-error-reason">' + idleEsc(reason || 'TTS chunk timeout') + '</div>' +
+    '<div class="idle-tts-error-meta">' +
+      meta.map(([k, v]) => '<span><b>' + idleEsc(k) + '</b>=' + idleEsc(String(v || '-')) + '</span>').join('') +
+    '</div>' +
+  '</div>';
+}
+
+function renderIdlePendingTTSError(item, errorCode, reason) {
 	const ev = item && item.ev;
 	let el = item && item.el;
 	if (!ev) return;
 	if (!el) {
-		el = appendIdleLiveMessageEvent(ev, {pending: false});
+		el = appendIdleLiveMessageEvent(ev, {pending: true});
 		if (item) item.el = el;
 	}
 	if (!el) return;
 	const mc = el.querySelector && el.querySelector('.mc');
 	if (!mc) return;
-	const displayContent = normalizeViewerDisplayText(ev.content);
-	mc.innerHTML = fmt(displayContent) + idleRawResponseBlock(ev, displayContent);
-	mc.dataset.raw = ev.content || '';
+	mc.innerHTML = idlePendingTTSErrorHTML(ev, errorCode, reason);
+	mc.dataset.raw = '';
 	el.classList.remove('idle-pending-tts');
-	el.classList.add('idle-fallback-tts');
-	el.classList.add('idle-display-only');
-	recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_fallback' : 'speech_fallback', ev, displayContent);
+	el.classList.add('idle-tts-error');
+	el.classList.add('idle-display-error');
+	recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_tts_error' : 'speech_tts_error', ev, JSON.stringify({
+		error_code: errorCode || 'TTS_CHUNK_TIMEOUT',
+		reason: reason || 'TTS chunk timeout',
+		session_id: ev.session_id || ev.chat_id || '',
+		message_id: ev.message_id || ev.messageId || '',
+		turn_index: ev.turn_index ?? ev.turnIndex ?? '',
+		from: ev.from || '',
+		to: ev.to || '',
+		elapsed_ms: IDLE_MESSAGE_FALLBACK_MS,
+	}));
 }
 
 function renderIdlePendingMessageFromEvent(item) {
