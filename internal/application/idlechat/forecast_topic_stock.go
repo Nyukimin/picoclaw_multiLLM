@@ -166,7 +166,7 @@ func (o *IdleChatOrchestrator) InitForecastTopicStock(path string) {
 }
 
 // popForecastTopic はストックからお題を取得し、バックグラウンドで補充をトリガーする。
-// ストックが空の場合はインラインで生成する（フォールバック）。
+// ストックが空で生成にも失敗した場合は、汎用お題ではなくエラーコード付きの明示エラーを返す。
 func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, []string) {
 	o.mu.Lock()
 	stock := o.topicStockBuf
@@ -176,7 +176,7 @@ func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, 
 		if item := stock.pop(domain.Name); item != nil {
 			topic := normalizeForecastDisplayTopic(domain, item.Topic)
 			if strings.TrimSpace(item.Topic) == "" {
-				log.Printf("[Forecast] Empty topic popped from stock: %s, falling back", domain.Name)
+				log.Printf("[Forecast] Empty topic popped from stock: %s, discarding", domain.Name)
 			} else {
 				log.Printf("[Forecast] Topic popped from stock: %s (remaining=%d)", domain.Name, stock.count(domain.Name))
 				o.refillTopicStockAsync(domain)
@@ -185,9 +185,21 @@ func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, 
 		}
 	}
 
-	// ストック空 → インライン生成（フォールバック）
+	// ストック空 → インライン生成。失敗時は汎用お題ではなく明示エラーを表示する。
 	log.Printf("[Forecast] Stock empty for %s, generating inline", domain.Name)
-	topic, seeds := o.generateForecastTopicInline(domain)
+	topic, seeds, failure := o.generateForecastTopicInline(domain)
+	if failure != nil {
+		return formatForecastTopicError(domain, failure), seeds
+	}
+	if strings.TrimSpace(topic) == "" {
+		failure = &forecastTopicFailure{
+			Phase:     "topic",
+			Domain:    strings.TrimSpace(domain.Name),
+			ErrorCode: "empty_topic",
+			Error:     "forecast topic generation returned empty topic",
+		}
+		return formatForecastTopicError(domain, failure), seeds
+	}
 	return normalizeForecastDisplayTopic(domain, topic), seeds
 }
 
@@ -208,7 +220,11 @@ func (o *IdleChatOrchestrator) refillTopicStockAsync(domain ForecastDomain) {
 	}
 	go func(d ForecastDomain) {
 		defer stock.doneFilling(d.Name)
-		topic, seeds := o.generateForecastTopicInline(d)
+		topic, seeds, failure := o.generateForecastTopicInline(d)
+		if failure != nil {
+			log.Printf("[Forecast] Stock refill skipped: %s error_code=%s phase=%s provider=%s", d.Name, failure.ErrorCode, failure.Phase, failure.Provider)
+			return
+		}
 		if topic != "" {
 			stock.push(d.Name, PreparedTopic{
 				Domain:  d,

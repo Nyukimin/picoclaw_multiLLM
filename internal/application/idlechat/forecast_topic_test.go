@@ -1,12 +1,28 @@
 package idlechat
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 )
+
+type failingForecastProvider struct {
+	err error
+}
+
+func (p failingForecastProvider) Generate(context.Context, llm.GenerateRequest) (llm.GenerateResponse, error) {
+	return llm.GenerateResponse{}, p.err
+}
+
+func (p failingForecastProvider) Name() string {
+	return "failing-forecast"
+}
 
 func TestNormalizeForecastDisplayTopicFallsBackWhenEmpty(t *testing.T) {
 	domain := ForecastDomain{Name: "技術"}
@@ -84,5 +100,57 @@ func TestForecastLLMErrorCodeClassifiesQuotaAndRateLimit(t *testing.T) {
 				t.Fatalf("forecastLLMErrorCode() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestGenerateForecastTopicReturnsFailureInsteadOfFallbackTopic(t *testing.T) {
+	o := NewIdleChatOrchestrator(
+		failingForecastProvider{err: errors.New("openai error: insufficient_quota")},
+		session.NewCentralMemory(),
+		[]string{"mio", "shiro"},
+		5,
+		10,
+		0.7,
+		nil,
+		"",
+	)
+	o.SetForecastProviderWithLabel(failingForecastProvider{err: errors.New("openai error: insufficient_quota")}, "Coder2 openai (gpt-4o-mini)")
+
+	topic, failure := o.generateForecastTopic(ForecastDomain{Name: "AI技術"}, []string{"生成AI規制の新指針"})
+	if topic != "" {
+		t.Fatalf("generateForecastTopic returned fallback topic instead of failure: %q", topic)
+	}
+	if failure == nil {
+		t.Fatal("expected failure")
+	}
+	if failure.ErrorCode != "insufficient_quota" {
+		t.Fatalf("unexpected error_code: %+v", failure)
+	}
+	display := formatForecastTopicError(ForecastDomain{Name: "AI技術"}, failure)
+	for _, want := range []string{"FORECAST_TOPIC_GENERATION_FAILED", "error_code=insufficient_quota", "phase=topic", "domain=AI技術", "provider=Coder2 openai (gpt-4o-mini)"} {
+		if !strings.Contains(display, want) {
+			t.Fatalf("display error missing %q: %s", want, display)
+		}
+	}
+}
+
+func TestExtractForecastKeywordReturnsFailureWithoutDomainFallback(t *testing.T) {
+	o := NewIdleChatOrchestrator(
+		failingForecastProvider{err: errors.New("should not be called")},
+		session.NewCentralMemory(),
+		[]string{"mio", "shiro"},
+		5,
+		10,
+		0.7,
+		nil,
+		"",
+	)
+
+	keyword, failure := o.extractForecastKeyword(ForecastDomain{Name: "医療"}, nil)
+	if keyword != "" {
+		t.Fatalf("extractForecastKeyword returned fallback keyword instead of failure: %q", keyword)
+	}
+	if failure == nil || failure.ErrorCode != "no_seed_headlines" {
+		t.Fatalf("unexpected failure: %+v", failure)
 	}
 }

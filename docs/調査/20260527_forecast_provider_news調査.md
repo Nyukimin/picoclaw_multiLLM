@@ -166,9 +166,10 @@ P0 ではない。TTS/ACK 本線とは分離する。
    - Coder1 が壊れた場合に Coder2 OpenAI に進むことをテストとログで追いやすくする。
 
 4. fallback 表示/生成の扱い見直し
-   - `generateForecastTopic()` は LLM 失敗時に fallback topic を返す。
-   - ユーザー方針上、fallback で真因を隠さないため、少なくとも error code / provider / phase をログに残す。
-   - topic stock へ fallback topic を入れるかどうかは別判断。
+   - `generateForecastTopic()` は LLM 失敗時に fallback topic を返していた。
+   - ユーザー方針上、fallback で真因を隠さない。
+   - LLM 失敗時は `FORECAST_TOPIC_GENERATION_FAILED` と `error_code` / `phase` / `domain` / `provider` を表示する。
+   - topic stock へ失敗 topic は入れない。
 
 ## 次に実装するなら
 
@@ -187,6 +188,9 @@ P0 ではない。TTS/ACK 本線とは分離する。
 - 日本語 keyword の percent-encode テストを追加。
 - Forecast LLM error log に `phase`, `domain`, `provider`, `error_code`, `error` を出すように変更。
 - Coder1 が壊れている場合に Coder2 OpenAI へ進む provider 選択テストを追加。
+- Forecast LLM 失敗時の汎用 topic / domain keyword fallback を廃止。
+- Forecast topic 生成失敗時は `FORECAST_TOPIC_GENERATION_FAILED error_code=... phase=... domain=... provider=...` を表示する。
+- Forecast topic stock 補充では、失敗 topic を保存しない。
 
 検証:
 

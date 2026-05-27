@@ -1,6 +1,7 @@
 package idlechat
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -9,17 +10,32 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 )
 
+type forecastTopicFailure struct {
+	Phase     string
+	Domain    string
+	Provider  string
+	ErrorCode string
+	Error     string
+}
+
 // generateForecastTopicInline は従来のインライン生成パイプライン。
-func (o *IdleChatOrchestrator) generateForecastTopicInline(domain ForecastDomain) (string, []string) {
+func (o *IdleChatOrchestrator) generateForecastTopicInline(domain ForecastDomain) (string, []string, *forecastTopicFailure) {
 	trendSeeds := fetchTrendSeeds(domain)
 	nhkSeeds := fetchDomainSeeds(domain, 10)
 	allHeadlines := rankForecastSeeds(domain, append(trendSeeds, nhkSeeds...))
-	keyword := o.extractForecastKeyword(domain, allHeadlines)
+	keyword, failure := o.extractForecastKeyword(domain, allHeadlines)
+	if failure != nil {
+		log.Printf("[Forecast] %s: keyword_error error_code=%s trends=%d nhk=%d", domain.Name, failure.ErrorCode, len(trendSeeds), len(nhkSeeds))
+		return "", allHeadlines, failure
+	}
 	deepSeeds := fetchGoogleNewsSeeds(keyword, 5)
 	seeds := rankForecastSeeds(domain, append(allHeadlines, deepSeeds...))
 	log.Printf("[Forecast] %s: keyword=%q trends=%d nhk=%d google=%d", domain.Name, keyword, len(trendSeeds), len(nhkSeeds), len(deepSeeds))
-	topic := o.generateForecastTopic(domain, seeds)
-	return topic, seeds
+	topic, failure := o.generateForecastTopic(domain, seeds)
+	if failure != nil {
+		return "", seeds, failure
+	}
+	return topic, seeds, nil
 }
 
 // fetchDomainSeeds は指定ドメインのRSSからシードを取得する。
@@ -126,9 +142,10 @@ func normalizeForecastDisplayTopic(domain ForecastDomain, topic string) string {
 }
 
 // generateForecastTopic はドメイン特化のトピックをLLM生成する。
-func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seeds []string) string {
+func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seeds []string) (string, *forecastTopicFailure) {
 	recentTopics := o.getRecentTopics(12)
 	pastTitleThemes := o.getHistoricalTitleThemes(500)
+	lastProviderLabel := ""
 
 	for attempt := 0; attempt < 3; attempt++ {
 		prompt := generateForecastTopicPrompt(domain, seeds, pastTitleThemes)
@@ -142,10 +159,16 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 			Temperature: 0.9 + float64(attempt)*0.05,
 		}
 		provider, providerLabel := o.forecastLLMInfo()
+		lastProviderLabel = providerLabel
+		if provider == nil {
+			err := errors.New("forecast LLM provider unavailable")
+			logForecastLLMError("topic", domain.Name, providerLabel, err)
+			return "", newForecastTopicFailure("topic", domain.Name, providerLabel, err)
+		}
 		resp, err := provider.Generate(o.idleRunContext(), req)
 		if err != nil {
 			logForecastLLMError("topic", domain.Name, providerLabel, err)
-			break
+			return "", newForecastTopicFailure("topic", domain.Name, providerLabel, err)
 		}
 		logIdleRaw(fmt.Sprintf("forecast.topic.generate attempt=%d domain=%s", attempt+1, domain.Name), resp.Content)
 		topic := normalizeIdleTopic(resp.Content, false)
@@ -160,20 +183,20 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 			log.Printf("[Forecast] Topic overlaps with past title memory, retrying: %s", truncate(topic, 80))
 			continue
 		}
-		return topic
+		return topic, nil
 	}
 
-	// フォールバック
-	if len(seeds) > 0 {
-		return fmt.Sprintf("%sの最新動向から見る今後の展望", domain.Name)
-	}
-	return fmt.Sprintf("%sの3年後を考える", domain.Name)
+	err := errors.New("forecast topic generation produced no acceptable topic")
+	logForecastLLMError("topic", domain.Name, lastProviderLabel, err)
+	return "", newForecastTopicFailure("topic", domain.Name, lastProviderLabel, err)
 }
 
 // extractForecastKeyword はNHKヘッドラインからドメインに関連する注目キーワードを1つ抽出する。
-func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, headlines []string) string {
+func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, headlines []string) (string, *forecastTopicFailure) {
 	if len(headlines) == 0 {
-		return domain.Name
+		err := errors.New("forecast keyword extraction has no seed headlines")
+		logForecastLLMError("keyword", domain.Name, "", err)
+		return "", newForecastTopicFailure("keyword", domain.Name, "", err)
 	}
 	prompt := fmt.Sprintf(`以下は「%s」分野の最新情報です。
 
@@ -189,6 +212,11 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 		{Role: "user", Content: prompt},
 	}
 	provider, providerLabel := o.forecastLLMInfo()
+	if provider == nil {
+		err := errors.New("forecast LLM provider unavailable")
+		logForecastLLMError("keyword", domain.Name, providerLabel, err)
+		return "", newForecastTopicFailure("keyword", domain.Name, providerLabel, err)
+	}
 	resp, err := provider.Generate(o.idleRunContext(), llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   30,
@@ -196,18 +224,20 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 	})
 	if err != nil {
 		logForecastLLMError("keyword", domain.Name, providerLabel, err)
-		return domain.Name
+		return "", newForecastTopicFailure("keyword", domain.Name, providerLabel, err)
 	}
 	logIdleRaw("forecast.keyword.generate", resp.Content)
 	kw := strings.TrimSpace(resp.Content)
 	if kw == "" {
-		return domain.Name
+		err := errors.New("forecast keyword extraction returned empty keyword")
+		logForecastLLMError("keyword", domain.Name, providerLabel, err)
+		return "", newForecastTopicFailure("keyword", domain.Name, providerLabel, err)
 	}
 	// 改行があれば最初の行だけ
 	if i := strings.IndexAny(kw, "\r\n"); i >= 0 {
 		kw = strings.TrimSpace(kw[:i])
 	}
-	return kw
+	return kw, nil
 }
 
 func logForecastLLMError(phase, domainName, providerLabel string, err error) {
@@ -217,6 +247,39 @@ func logForecastLLMError(phase, domainName, providerLabel string, err error) {
 		strings.TrimSpace(providerLabel),
 		forecastLLMErrorCode(err),
 		err)
+}
+
+func newForecastTopicFailure(phase, domainName, providerLabel string, err error) *forecastTopicFailure {
+	return &forecastTopicFailure{
+		Phase:     strings.TrimSpace(phase),
+		Domain:    strings.TrimSpace(domainName),
+		Provider:  strings.TrimSpace(providerLabel),
+		ErrorCode: forecastLLMErrorCode(err),
+		Error:     strings.TrimSpace(err.Error()),
+	}
+}
+
+func formatForecastTopicError(domain ForecastDomain, failure *forecastTopicFailure) string {
+	if failure == nil {
+		failure = &forecastTopicFailure{Phase: "topic", Domain: strings.TrimSpace(domain.Name), ErrorCode: "provider_error", Error: "forecast topic generation failed"}
+	}
+	domainName := strings.TrimSpace(failure.Domain)
+	if domainName == "" {
+		domainName = strings.TrimSpace(domain.Name)
+	}
+	parts := []string{
+		"FORECAST_TOPIC_GENERATION_FAILED",
+		"error_code=" + strings.TrimSpace(failure.ErrorCode),
+		"phase=" + strings.TrimSpace(failure.Phase),
+		"domain=" + domainName,
+	}
+	if provider := strings.TrimSpace(failure.Provider); provider != "" {
+		parts = append(parts, "provider="+provider)
+	}
+	if detail := strings.TrimSpace(failure.Error); detail != "" {
+		parts = append(parts, "detail="+detail)
+	}
+	return strings.Join(parts, " ")
 }
 
 func forecastLLMErrorCode(err error) string {
@@ -233,6 +296,14 @@ func forecastLLMErrorCode(err error) string {
 		return "context_canceled"
 	case strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "timeout"):
 		return "timeout"
+	case strings.Contains(msg, "no acceptable topic"):
+		return "no_valid_topic"
+	case strings.Contains(msg, "no seed headlines"):
+		return "no_seed_headlines"
+	case strings.Contains(msg, "empty keyword"):
+		return "empty_keyword"
+	case strings.Contains(msg, "provider unavailable"):
+		return "provider_unavailable"
 	default:
 		return "provider_error"
 	}
