@@ -165,6 +165,80 @@ Viewer 初期 refresh と tab 切替に触れたため、live mode で topic + 1
 
 - Smoke screenshot: `/tmp/rencrow_idlechat_tts_smoke_retry_20260527.png`
 
+## Viewer / TTS クローズ前の連続確認
+
+2026-05-27 に、Viewer 診断 refresh 整理後の追加確認として IdleChat/TTS 連続 smoke 3回と multi-tab owner 切替 1回を実行した。
+
+### IdleChat / TTS 連続 smoke 3回
+
+条件:
+
+- live mode
+- 表示対象は `#chat`
+- 各回の開始前に `/viewer/idlechat/stop` と pending 0 を確認
+- 各回で topic 系 ACK と 3発話相当の ACK を確認
+- 判定対象を ACK、pending、timeout、fallback、console/page error に分離
+
+結果:
+
+| 回 | session_id | ACK | pending | timeout | fallback | console/page error |
+| ---: | --- | ---: | --- | --- | --- | --- |
+| 1 | `forecast-1779863780` | 200 x 4 | 0 | なし | なし | 0 |
+| 2 | `idle-1779863840-topic-00` | 200 x 4 | 0 | なし | なし | 0 |
+| 3 | `idle-1779863930-topic-00` | 200 x 4 | 0 | なし | なし | 0 |
+
+証跡:
+
+- 実行結果 JSON: `/tmp/rencrow_idlechat_tts_smoke_3run_20260527.json`
+- Screenshot 1: `/tmp/rencrow_idlechat_tts_smoke_3run_20260527_1.png`
+- Screenshot 2: `/tmp/rencrow_idlechat_tts_smoke_3run_20260527_2.png`
+- Screenshot 3: `/tmp/rencrow_idlechat_tts_smoke_3run_20260527_3.png`
+
+### multi-tab owner 切替再確認
+
+条件:
+
+- Viewer A を live mode で開き、`#liveAudioBtn` で audio owner を claim
+- Viewer B を live mode で開き、`#liveAudioBtn` で audio owner を claim し直す
+- `/viewer/idlechat/start` 後、ACK sender、旧 owner の表示、pending drain を確認
+
+結果:
+
+| 観点 | 結果 |
+| --- | --- |
+| session_id | `idle-1779864080-topic-00` |
+| ACK sender | Viewer B |
+| ACK status | 200 x 4 |
+| Viewer A ACK | 0 |
+| Viewer A timeout/fallback | なし |
+| Viewer B display | `#chat` に live 本文表示 |
+| final pending | `pending_session_count=0`, `pending_response_count=0` |
+| after stop pending | `pending_session_count=0`, `pending_response_count=0` |
+| console/page error | 0 |
+
+証跡:
+
+- 実行結果 JSON: `/tmp/rencrow_idlechat_multitab_live_e2e_after_optional_20260527.json`
+- Viewer A screenshot: `/tmp/rencrow_idlechat_multitab_live_e2e_after_optional_A_20260527.png`
+- Viewer B screenshot: `/tmp/rencrow_idlechat_multitab_live_e2e_after_optional_B_20260527.png`
+
+## 現時点の合格範囲と残る観測リスク
+
+現時点で合格と言える範囲:
+
+- live mode の IdleChat 表示対象は `#chat` として確認済み。
+- Home / live mode では Sandbox / Verification の不要な診断 refresh は走らない。
+- Ops / Jobs 表示時だけ unavailable 診断を取りに行き、panel 内に HTTP 503 として表示する。
+- unavailable 503 は direct endpoint では HTTP 503 のまま残し、Viewer panel では `viewer_optional=1` により console noise にしない。
+- IdleChat/TTS は連続 3回の smoke で ACK 200、pending 0、timeout/fallback なし。
+- multi-tab owner 切替後、旧 owner 側は ACK せず timeout/fallback も出さず、新 owner 側が ACK して pending 0 になった。
+
+残る観測リスク:
+
+- ブラウザ実音声の可聴確認は headless Playwright ではなく ACK と playback end event ベースで見ている。
+- より長時間の連続運転、SSE reconnect、browser reload をまたぐ検証は今回のクローズ前確認には含めていない。
+- TTS 生成遅延が大きい場合の timeout 境界は、今回の3回連続 smoke では再現しなかったが、長時間負荷では別途見る余地がある。
+
 ## 再実行時の注意
 
 - `page.goto(..., waitUntil: 'networkidle')` は使わない。SSE や定期 refresh で待ち続ける可能性がある。
