@@ -135,6 +135,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(memoryJs, /function renderMemoryEvents/);
   assert.match(js, /function applyViewerTheme/);
   assert.match(js, /viewer\.theme/);
+  assert.match(js, /function eventStructuredIDParts\(ev\)/);
+  assert.match(js, /structuredIDs\.messageId/);
+  assert.match(js, /rencrow\.viewer_tab_client_id/);
+  assert.match(js, /sessionStorage\.setItem\(tabKey, id\)/);
   assert.match(js, /function switchAdjacentPanel/);
   assert.match(js, /mobilePanelSelect\.addEventListener\('change'/);
   assert.match(idleChatJs, /function idleLiveRenderTarget\(\) \{/);
@@ -142,8 +146,11 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(idleChatJs, /const target = idleLiveRenderTarget\(\);[\s\S]*target\.appendChild\(el\);/);
   assert.match(idleChatJs, /function consumeIdlePendingMessage\(sessionId, characterId, kind, messageId, turnIndex\)/);
   assert.match(idleChatJs, /expectedKind === 'topic'[\s\S]*isIdleTopicEvent\(item\.ev\)/);
-  assert.match(idleChatJs, /expectedKind === 'speech'[\s\S]*!isIdleTopicEvent\(item\.ev\)/);
-  assert.match(idleChatJs, /if \(expectedKind && idx < 0\) return;/);
+  assert.doesNotMatch(idleChatJs, /expectedKind === 'speech'[\s\S]*!isIdleTopicEvent\(item\.ev\)/);
+  assert.doesNotMatch(idleChatJs, /queue\.findIndex\(\(item\) => !item\.consumed && \(!id \|\| item\.from === id\)\)/);
+  assert.match(idleChatJs, /function renderIdleTTSChunkError\(chunk, errorCode, reason\)/);
+  assert.match(idleChatJs, /function idleTranscriptSnapshotKey\(sessionId, rows\)/);
+  assert.doesNotMatch(idleChatJs, /sid \+ ':' \+ String\(rows\.length\)/);
   assert.match(js, /const target = typeof idleLiveRenderTarget === 'function' \? idleLiveRenderTarget\(\) : idleLiveLog;/);
   assert.match(js, /consumeIdlePendingMessage\(sid, id, bubbleKind, messageId, turnIndex\)/);
   assert.match(js, /\^\(今日のお題\|きょうのおだい\)\(です\)\?\[、。:：！？!\?\]\?/);

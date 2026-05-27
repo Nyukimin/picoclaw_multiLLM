@@ -75,6 +75,7 @@ function fmt(s) {
 }
 
 function eventKey(ev) {
+  const structuredIDs = eventStructuredIDParts(ev);
   return [
     ev.type || '',
     ev.from || '',
@@ -84,9 +85,34 @@ function eventKey(ev) {
     ev.session_id || '',
     ev.channel || '',
     ev.chat_id || '',
+    structuredIDs.messageId,
+    structuredIDs.responseId,
+    structuredIDs.utteranceId,
+    structuredIDs.turnIndex,
+    structuredIDs.chunkIndex,
     ev.timestamp || '',
     ev.content || '',
   ].join('|');
+}
+
+function eventStructuredIDParts(ev) {
+  const parts = {
+    messageId: String((ev && (ev.message_id || ev.messageId)) || ''),
+    responseId: String((ev && (ev.response_id || ev.responseId)) || ''),
+    utteranceId: String((ev && (ev.utterance_id || ev.utteranceId)) || ''),
+    turnIndex: String(ev && (ev.turn_index ?? ev.turnIndex ?? '')),
+    chunkIndex: String(ev && (ev.chunk_index ?? ev.chunkIndex ?? '')),
+  };
+  if (!ev || !ev.content || (parts.messageId && parts.responseId && parts.utteranceId)) return parts;
+  try {
+    const payload = JSON.parse(ev.content || '{}');
+    parts.messageId = parts.messageId || String(payload.message_id || payload.messageId || '');
+    parts.responseId = parts.responseId || String(payload.response_id || payload.responseId || '');
+    parts.utteranceId = parts.utteranceId || String(payload.utterance_id || payload.utteranceId || '');
+    parts.turnIndex = parts.turnIndex || String(payload.turn_index ?? payload.turnIndex ?? '');
+    parts.chunkIndex = parts.chunkIndex || String(payload.chunk_index ?? payload.chunkIndex ?? '');
+  } catch (_) {}
+  return parts;
 }
 
 function rememberEventKey(key) {
@@ -381,22 +407,33 @@ if (typeof window !== 'undefined') window.__idleLiveRenderedLog = idleLiveRender
 const IDLE_MESSAGE_FALLBACK_MS = 15000;
 
 function loadViewerClientID() {
-  const key = 'rencrow.viewer_client_id';
+  const tabKey = 'rencrow.viewer_tab_client_id';
+  const legacyKey = 'rencrow.viewer_client_id';
   try {
-    const existing = localStorage.getItem(key);
-    if (existing) return existing;
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+      const existingTab = sessionStorage.getItem(tabKey);
+      if (existingTab) return existingTab;
+    }
   } catch (_) {}
   let id = '';
   try {
     if (crypto && typeof crypto.randomUUID === 'function') {
-      id = crypto.randomUUID();
+      id = 'viewer-tab-' + crypto.randomUUID();
     }
   } catch (_) {}
   if (!id) {
-    id = 'viewer-' + String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
+    id = 'viewer-tab-' + String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
   }
   try {
-    localStorage.setItem(key, id);
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+      sessionStorage.setItem(tabKey, id);
+      return id;
+    }
+  } catch (_) {}
+  try {
+    const existingLegacy = localStorage.getItem(legacyKey);
+    if (existingLegacy) return existingLegacy;
+    localStorage.setItem(legacyKey, id);
   } catch (_) {}
   return id;
 }
@@ -643,6 +680,20 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     const existing = !rendered && typeof findIdleLiveMessageNode === 'function'
       ? findIdleLiveMessageNode({type: 'idlechat.message', session_id: sid, message_id: messageId, turn_index: turnIndex})
       : null;
+    const liveMode = document.body && document.body.classList.contains('live-mode');
+    if (!rendered && !existing && liveMode && bubbleKind === 'speech' && !String(messageId || '').trim() && !(Number.isFinite(turnIndex) && turnIndex >= 0)) {
+      if (typeof renderIdleTTSChunkError === 'function') {
+        renderIdleTTSChunkError({
+          characterId: id,
+          sessionId: sid,
+          responseId: rid,
+          utteranceId,
+          messageId,
+          turnIndex,
+        }, 'TTS_IDENTITY_MISSING', 'TTS chunk did not include message_id or turn_index; Viewer refused speaker/first-pending matching.');
+      }
+      return;
+    }
     const el = rendered && rendered.el ? rendered.el : (existing || document.createElement('div'));
     const renderedWasPending = !!(rendered && rendered.el && rendered.el.classList.contains('idle-pending-tts'));
     if ((rendered && rendered.el) || existing) {
@@ -2736,12 +2787,6 @@ function isIdleChatActiveForTTS(sessionId) {
 	if (state && state.idleChat && state.idleChat.chatActive) return true;
 	const sid = String(sessionId || '').trim();
 	if (!isIdleChatSessionId(sid) || isStoppedIdleChatSession(sid)) return false;
-	if (state && state.idleChat) {
-		state.idleChat.chatActive = true;
-		state.idleChat.interrupted = false;
-		state.idleChat.interruptedSessionId = '';
-	}
-	if (sid && typeof idleLiveActiveSessionId !== 'undefined') idleLiveActiveSessionId = sid;
 	return true;
 }
 
@@ -3011,6 +3056,8 @@ function createChatAudioSync() {
       response_id: String((item && item.responseId) || '').trim(),
       session_id: String((item && item.sessionId) || '').trim(),
       utterance_id: String((item && item.utteranceId) || '').trim(),
+      message_id: String((item && item.messageId) || '').trim(),
+      turn_index: Number.isFinite(item && item.turnIndex) ? Math.floor(item.turnIndex) : -1,
       viewer_client_id: viewerControl.clientId,
       status: String(status || 'ended'),
       error: err ? describeTTSAudioError(err) : '',
@@ -3237,14 +3284,21 @@ function createChatAudioSync() {
     }
     if (state.audioEnabled && !state.blocked && !(head && head.displayOnly)) return;
     const next = state.queue.shift();
+    const idleChatFallback = isIdleChatPlaybackItem(next);
+    const fallbackErr = idleChatFallback ? new Error(next && next.displayOnly ? 'missing idlechat audio url' : 'idlechat audio disabled') : null;
     state.fallbackActive = true;
-    showFallbackChunkInternal(next);
+    if (idleChatFallback) {
+      renderIdlePlaybackErrorInternal(next, next && next.displayOnly ? 'TTS_AUDIO_MISSING' : 'TTS_AUDIO_DISABLED', next && next.displayOnly ? 'TTS audio chunk did not include a playable audio URL.' : 'IdleChat audio playback was disabled before this chunk could be spoken.');
+      recordResponsePlaybackResult(next, 'error', fallbackErr);
+    } else {
+      showFallbackChunkInternal(next);
+    }
     if (state.fallbackTimer) clearTimeout(state.fallbackTimer);
     state.fallbackTimer = setTimeout(function() {
       state.fallbackTimer = null;
       state.fallbackActive = false;
       decrementResponsePlaybackCount(next.responseId);
-      maybeAcknowledgeResponsePlayback(next, 'fallback');
+      maybeAcknowledgeResponsePlayback(next, idleChatFallback ? 'error' : 'fallback', fallbackErr);
       const nextHead = state.queue[0];
       if (state.blocked || (nextHead && nextHead.displayOnly)) {
         startTextFallbackInternal();
@@ -3259,7 +3313,11 @@ function createChatAudioSync() {
     const key = String(item.utteranceId || item.sessionId + ':' + String(item.chunkIndex) || item.seq || '');
     if (key && state.blockedFallbackUtteranceId === key) return;
     state.blockedFallbackUtteranceId = key;
-    showFallbackChunkInternal(item);
+    if (isIdleChatPlaybackItem(item)) {
+      renderIdlePlaybackErrorInternal(item, 'TTS_AUDIO_BLOCKED', 'Browser blocked IdleChat audio playback; Viewer did not render fallback speech text.');
+    } else {
+      showFallbackChunkInternal(item);
+    }
     scheduleBlockedAudioAckInternal(item, new Error('browser blocked autoplay'));
   }
 
@@ -3292,7 +3350,13 @@ function createChatAudioSync() {
   function handleCurrentAudioFailureInternal(err, fallback) {
     const item = currentAudioItemInternal(fallback);
     stopLipSyncInternal(item.characterId);
-    if (!state.currentShown) showFallbackChunkInternal(item);
+    if (!state.currentShown) {
+      if (isIdleChatPlaybackItem(item)) {
+        renderIdlePlaybackErrorInternal(item, 'TTS_AUDIO_PLAYBACK_ERROR', 'IdleChat audio element failed before playback could be confirmed.');
+      } else {
+        showFallbackChunkInternal(item);
+      }
+    }
     if (err) setTTSAudioError(err);
     recordResponsePlaybackResult(item, 'error', err);
     updateAudioButton();
@@ -3306,6 +3370,16 @@ function createChatAudioSync() {
       resetCurrentInternal();
       playNextInternal();
     }, ttsDisplayDelay(item));
+  }
+
+  function isIdleChatPlaybackItem(item) {
+    return !!item && (item.mode === 'idlechat' || isIdleChatSessionId(item.sessionId));
+  }
+
+  function renderIdlePlaybackErrorInternal(item, errorCode, reason) {
+    if (!isIdleChatPlaybackItem(item)) return;
+    if (typeof renderIdleTTSChunkError !== 'function') return;
+    renderIdleTTSChunkError(item, errorCode, reason);
   }
 
   function completeCurrentAudioPlaybackInternal() {

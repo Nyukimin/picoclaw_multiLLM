@@ -127,7 +127,6 @@ function consumeIdlePendingMessage(sessionId, characterId, kind, messageId, turn
   const sid = String(sessionId || '').trim() || 'idlechat';
   const queue = idlePendingMessages.get(sid);
   if (!queue || queue.length === 0) return;
-  const id = String(characterId || '').trim().toLowerCase();
   const expectedKind = String(kind || '').trim().toLowerCase();
   const expectedMessageId = String(messageId || '').trim();
   const expectedTurnIndex = Number.isFinite(turnIndex) ? Math.floor(turnIndex) : -1;
@@ -138,16 +137,9 @@ function consumeIdlePendingMessage(sessionId, characterId, kind, messageId, turn
   if (idx < 0 && expectedTurnIndex >= 0) {
     idx = queue.findIndex((item) => !item.consumed && item.turnIndex === expectedTurnIndex);
   }
-  if (idx >= 0) {
-    // matched by stable message identity
-  } else if (expectedKind === 'topic') {
+  if (idx < 0 && expectedKind === 'topic') {
     idx = queue.findIndex((item) => !item.consumed && isIdleTopicEvent(item.ev));
-  } else if (expectedKind === 'speech') {
-    idx = queue.findIndex((item) => !item.consumed && !isIdleTopicEvent(item.ev) && (!id || item.from === id));
   }
-  if (expectedKind && idx < 0) return;
-  if (idx < 0) idx = queue.findIndex((item) => !item.consumed && (!id || item.from === id));
-  if (idx < 0) idx = queue.findIndex((item) => !item.consumed);
   if (idx < 0) return;
   const item = queue[idx];
   item.consumed = true;
@@ -181,7 +173,7 @@ function hydrateIdleLiveTranscript(sessionId, transcript) {
 	const sid = String(sessionId || '').trim();
 	if (!sid) return;
 	const rows = Array.isArray(transcript) ? transcript : [];
-	const key = sid + ':' + String(rows.length);
+	const key = idleTranscriptSnapshotKey(sid, rows);
 	if (key === idleLiveSnapshotKey) return;
 	const sessionChanged = idleLiveActiveSessionId && idleLiveActiveSessionId !== sid;
 	idleLiveSnapshotKey = key;
@@ -196,6 +188,25 @@ function hydrateIdleLiveTranscript(sessionId, transcript) {
 	}
 	idleLiveActiveSessionId = sid;
 	}
+
+function idleTranscriptSnapshotKey(sessionId, rows) {
+  const sid = String(sessionId || '').trim();
+  const parts = (Array.isArray(rows) ? rows : []).map((row, index) => {
+    const r = row || {};
+    return [
+      index,
+      r.type || '',
+      r.session_id || r.chat_id || '',
+      r.message_id || r.messageId || '',
+      r.response_id || r.responseId || '',
+      r.utterance_id || r.utteranceId || '',
+      r.turn_index ?? r.turnIndex ?? '',
+      r.timestamp || '',
+      r.content || '',
+    ].map((v) => encodeURIComponent(String(v ?? ''))).join(',');
+  }).join(';');
+  return sid + ':' + String(parts.length) + ':' + parts;
+}
 
 function appendIdleLiveMessageEvent(ev, options = {}) {
   const target = idleLiveRenderTarget();
@@ -363,6 +374,8 @@ function idlePendingTTSErrorHTML(ev, errorCode, reason) {
   const meta = [
     ['error_code', errorCode || 'TTS_CHUNK_TIMEOUT'],
     ['session_id', ev && (ev.session_id || ev.chat_id) || ''],
+    ['response_id', ev && (ev.response_id || ev.responseId) || ''],
+    ['utterance_id', ev && (ev.utterance_id || ev.utteranceId) || ''],
     ['message_id', ev && (ev.message_id || ev.messageId) || ''],
     ['turn_index', ev && (ev.turn_index ?? ev.turnIndex ?? '')],
     ['from', ev && ev.from || ''],
@@ -379,31 +392,64 @@ function idlePendingTTSErrorHTML(ev, errorCode, reason) {
 }
 
 function renderIdlePendingTTSError(item, errorCode, reason) {
-	const ev = item && item.ev;
-	let el = item && item.el;
-	if (!ev) return;
-	if (!el) {
-		el = appendIdleLiveMessageEvent(ev, {pending: true});
-		if (item) item.el = el;
-	}
-	if (!el) return;
-	const mc = el.querySelector && el.querySelector('.mc');
-	if (!mc) return;
-	mc.innerHTML = idlePendingTTSErrorHTML(ev, errorCode, reason);
-	mc.dataset.raw = '';
-	el.classList.remove('idle-pending-tts');
-	el.classList.add('idle-tts-error');
-	el.classList.add('idle-display-error');
-	recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_tts_error' : 'speech_tts_error', ev, JSON.stringify({
-		error_code: errorCode || 'TTS_CHUNK_TIMEOUT',
-		reason: reason || 'TTS chunk timeout',
-		session_id: ev.session_id || ev.chat_id || '',
-		message_id: ev.message_id || ev.messageId || '',
-		turn_index: ev.turn_index ?? ev.turnIndex ?? '',
-		from: ev.from || '',
-		to: ev.to || '',
-		elapsed_ms: IDLE_MESSAGE_FALLBACK_MS,
-	}));
+  const ev = item && item.ev;
+  let el = item && item.el;
+  if (!ev) return;
+  if (!el) {
+    el = appendIdleLiveMessageEvent(ev, {pending: true});
+    if (item) item.el = el;
+  }
+  if (!el) return;
+  const mc = el.querySelector && el.querySelector('.mc');
+  if (!mc) return;
+  mc.innerHTML = idlePendingTTSErrorHTML(ev, errorCode, reason);
+  mc.dataset.raw = '';
+  el.classList.remove('idle-pending-tts');
+  el.classList.add('idle-tts-error');
+  el.classList.add('idle-display-error');
+  recordIdleLiveRendered(isIdleTopicEvent(ev) ? 'topic_tts_error' : 'speech_tts_error', ev, JSON.stringify({
+    error_code: errorCode || 'TTS_CHUNK_TIMEOUT',
+    reason: reason || 'TTS chunk timeout',
+    session_id: ev.session_id || ev.chat_id || '',
+    response_id: ev.response_id || ev.responseId || '',
+    utterance_id: ev.utterance_id || ev.utteranceId || '',
+    message_id: ev.message_id || ev.messageId || '',
+    turn_index: ev.turn_index ?? ev.turnIndex ?? '',
+    from: ev.from || '',
+    to: ev.to || '',
+    elapsed_ms: IDLE_MESSAGE_FALLBACK_MS,
+  }));
+}
+
+function renderIdleTTSChunkError(chunk, errorCode, reason) {
+  const sid = String((chunk && chunk.sessionId) || '').trim();
+  const messageId = String((chunk && chunk.messageId) || '').trim();
+  const turnIndex = Number.isFinite(chunk && chunk.turnIndex) ? Math.floor(chunk.turnIndex) : -1;
+  const ev = {
+    type: 'idlechat.message',
+    from: String((chunk && chunk.characterId) || '').trim().toLowerCase(),
+    to: '',
+    content: '',
+    session_id: sid,
+    response_id: String((chunk && chunk.responseId) || '').trim(),
+    utterance_id: String((chunk && chunk.utteranceId) || '').trim(),
+    message_id: messageId,
+    turn_index: turnIndex >= 0 ? turnIndex : '',
+    timestamp: new Date().toISOString(),
+  };
+  const el = appendIdleLiveMessageEvent(ev, {pending: true});
+  if (!el) return;
+  const item = {ev, el};
+  renderIdlePendingTTSError(item, errorCode || 'TTS_IDENTITY_MISSING', reason || 'TTS chunk did not include a stable message identity.');
+  recordIdleLiveRendered((errorCode || '') === 'TTS_IDENTITY_MISSING' ? 'tts_identity_error' : 'tts_playback_error', ev, JSON.stringify({
+    error_code: errorCode || 'TTS_IDENTITY_MISSING',
+    reason: reason || 'TTS chunk did not include a stable message identity.',
+    session_id: sid,
+    response_id: ev.response_id,
+    utterance_id: ev.utterance_id,
+    message_id: messageId,
+    turn_index: ev.turn_index,
+  }));
 }
 
 function renderIdlePendingMessageFromEvent(item) {
