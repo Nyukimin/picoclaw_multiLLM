@@ -501,6 +501,32 @@ test('idlechat tts reveals the pending message event text without rebuilding it 
   assert.equal(rendered._mc.innerHTML.includes('チャンク単位で表示します。'), false);
 });
 
+test('idlechat keeps event text after audio end before the next chunk of the same message', () => {
+  const {harness, elements} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '複数chunkでも表示本文はイベント本文のままです。',
+    session_id: 'idle-same-message-chunks',
+    message_id: 'idle-same-message-chunks:msg:0001',
+    turn_index: 1,
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+  const rendered = idleLiveLog.children[0];
+
+  harness.setCentralTTSSpeechText('mio', '複数chunkでも表示本文は', 'idle-same-message-chunks', 1, 'idle-same-message-chunks:msg:0001:utt:0000', 'idle-same-message-chunks:0001', 'idle-same-message-chunks:msg:0001', 1);
+  harness.setCentralTTSSpeechText('', '');
+  harness.setCentralTTSSpeechText('mio', 'イベント本文のままです。', 'idle-same-message-chunks', 2, 'idle-same-message-chunks:msg:0001:utt:0001', 'idle-same-message-chunks:0001', 'idle-same-message-chunks:msg:0001', 1);
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.equal(idleLiveLog.children[0], rendered);
+  assert.ok(rendered._mc.innerHTML.includes('複数chunkでも表示本文はイベント本文のままです。'));
+  assert.equal(rendered._mc.innerHTML.includes('イベント本文のままです。 イベント本文のままです。'), false);
+});
+
 test('live mode keeps pending idlechat messages hidden until tts reveals event text', () => {
   const {harness, elements} = loadAudioHarness({liveMode: true});
   const chat = elements.get('chat');

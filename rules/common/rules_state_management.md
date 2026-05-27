@@ -102,6 +102,15 @@ TTS playback ACK は「実際に音声再生を担当している active audio o
 - 1つの `response_id` に複数 `chunk_index` がある場合、`response_id` 単位の完了判定で chunk の未再生を隠してはいけない。
 - ACK ログには少なくとも `session_id`, `response_id`, `utterance_id`, `message_id`, `turn_index`, `chunk_index` 相当, `viewer_client_id`, `active_audio`, `status`, `error_code` を追跡可能にする。
 
+### 6.2 reset / clear / cleanup の責務
+
+reset 系関数は、消してよい状態の責務を限定する。
+
+- 音声再生 reset で消してよいのは、再生中 marker、active flag、current audio pointer など音声進行状態だけである
+- 表示正本、ID 対応、履歴、重複排除、診断根拠を別責務の reset で消してはいけない
+- 状態を消す場合は、所有者、寿命、再構築元を説明できること
+- 同一 `message_id` の複数 chunk では、chunk 間の audio end / reset 後も DOM 本文が増殖しないことを確認する
+
 ---
 
 ## 7. 状態追加時のチェックリスト

@@ -796,7 +796,6 @@ function resetCentralTTSSpeechBubble() {
 function resetTTSSpeechBubble(speech) {
   if (speech.el) speech.el.classList.remove('tts-current');
   speech.active = false;
-  speech.preRendered = false;
 }
 
 function shouldStartNewTTSBubble(speech, chunkIndex, key, responseId) {
