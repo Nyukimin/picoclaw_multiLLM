@@ -14,6 +14,15 @@
 - `idleLiveSnapshotKey` を `sid:length` から transcript 内容ベースに変更。
 - SSE dedupe key に `message_id` / `response_id` / `utterance_id` / `turn_index` / `chunk_index` を追加。
 
+追記2: P2 残課題も commit 単位で整理済み。
+
+- `8f43b73 docs: Viewer stateの責務境界を明示`
+  - `state` / `ttsPlayback` / `idleLiveRenderedLog` の責務境界をコードコメントとソース検査で固定。
+- `eafab07 fix: TTS応答単位の再生状態を整理`
+  - TTS sync 内部 state を session gate / response ACK lifecycle / chunk dedupe に分類し、ACK 後に response 単位の一時 state を clear。
+- `444be11 test: IdleChat描画ログを診断専用に固定`
+  - `idleLiveRenderedLog` が transcript / pending TTS / ACK / session 進行の入力に使われないことをソース検査で固定。
+
 直近の懸念である「reload 後に過去の `idlechat.message` 履歴を live TTS pending として扱い、対応する `tts.audio_chunk` が来ず `TTS_CHUNK_TIMEOUT` になる」経路は、現状ではかなり抑制されている。
 
 - live mode では `isIdleLiveHistoricalEvent()` が page boot より古い `idlechat.message` を pending 化しない。
