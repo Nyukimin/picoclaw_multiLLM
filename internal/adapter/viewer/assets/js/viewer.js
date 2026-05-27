@@ -1840,7 +1840,6 @@ function refreshSandboxData() {
       state.ops.sandboxGateLogs = [];
       if (typeof renderSandboxStatus === 'function') renderSandboxStatus();
       renderOps();
-      console.error(err);
     });
 }
 

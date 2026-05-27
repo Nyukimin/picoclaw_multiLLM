@@ -3298,6 +3298,53 @@ globalThis.__sandboxGateLogResult = document.getElementById('sandboxGateLogResul
   assert.match(context.__sandboxGateLogResult, /blocked: promotion apply state unreadable/);
 });
 
+test('viewer keeps sandbox unavailable in panel diagnostics without console error', async () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const state = {ops: {
+    sandboxFetchError: '',
+    sandboxes: [{sandbox_id: 'stale_sandbox'}],
+    sandboxArtifacts: [{artifact_id: 'stale_artifact'}],
+    sandboxPromotions: [{promotion_id: 'stale_promotion'}],
+    sandboxDecisions: [{promotion_id: 'stale_decision'}],
+    sandboxGateLogs: [{event_id: 'stale_gate'}],
+  }};
+  let renderOpsCount = 0;
+  let renderSandboxStatusCount = 0;
+  const consoleErrors = [];
+  const source = `
+` + sourceBetween(viewerJs, 'function refreshSandboxData', 'function refreshSkillGovernanceData') + `
+globalThis.__refreshSandboxData = refreshSandboxData;
+`;
+  const context = vm.createContext({
+    state,
+    fetch(url) {
+      assert.equal(String(url), '/viewer/sandbox?limit=20');
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('sandbox store unavailable'),
+      });
+    },
+    renderOps() { renderOpsCount += 1; },
+    renderSandboxStatus() { renderSandboxStatusCount += 1; },
+    console: {error(err) { consoleErrors.push(err); }},
+  });
+
+  vm.runInContext(source, context);
+  await context.__refreshSandboxData();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(state.ops.sandboxFetchError, 'HTTP 503: sandbox store unavailable');
+  assert.equal(state.ops.sandboxes.length, 0);
+  assert.equal(state.ops.sandboxArtifacts.length, 0);
+  assert.equal(state.ops.sandboxPromotions.length, 0);
+  assert.equal(state.ops.sandboxDecisions.length, 0);
+  assert.equal(state.ops.sandboxGateLogs.length, 0);
+  assert.equal(renderOpsCount, 1);
+  assert.equal(renderSandboxStatusCount, 1);
+  assert.deepEqual(consoleErrors, []);
+});
+
 test('viewer runtime cards prefer live llm ops status over local config labels', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const opsJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/ops.js', 'utf8');
