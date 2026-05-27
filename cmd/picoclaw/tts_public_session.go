@@ -228,6 +228,69 @@ func nextTTSPublicResponseID(publicSessionID string) string {
 	return publicSessionID + ":" + formatFixed4(next)
 }
 
+func nextTTSPublicResponseIDForMessage(publicSessionID, messageID string) string {
+	publicSessionID = strings.TrimSpace(publicSessionID)
+	messageID = strings.TrimSpace(messageID)
+	if publicSessionID == "" {
+		return ""
+	}
+	prefix := publicSessionID + ":"
+	if strings.HasPrefix(messageID, prefix) {
+		suffix := strings.TrimPrefix(messageID, prefix)
+		if strings.HasPrefix(suffix, "msg:") {
+			if n, ok := parseFixed4(strings.TrimPrefix(suffix, "msg:")); ok {
+				advanceTTSPublicResponseSequence(publicSessionID, n+1)
+				return publicSessionID + ":" + formatFixed4(n)
+			}
+		}
+		if _, ok := parseTrailingResponseNumber(suffix); ok {
+			return messageID
+		}
+	}
+	return nextTTSPublicResponseID(publicSessionID)
+}
+
+func advanceTTSPublicResponseSequence(publicSessionID string, next int) {
+	publicSessionID = strings.TrimSpace(publicSessionID)
+	if publicSessionID == "" || next < 0 {
+		return
+	}
+	ttsPublicSessionMu.Lock()
+	if ttsPublicNextResponse[publicSessionID] < next {
+		ttsPublicNextResponse[publicSessionID] = next
+	}
+	ttsPublicSessionMu.Unlock()
+}
+
+func parseTrailingResponseNumber(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	idx := strings.LastIndex(value, ":")
+	if idx >= 0 {
+		value = value[idx+1:]
+	}
+	return parseFixed4(value)
+}
+
+func parseFixed4(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) != 4 {
+		return 0, false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 func formatFixed4(n int) string {
 	if n < 0 {
 		n = 0

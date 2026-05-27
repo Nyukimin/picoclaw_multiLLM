@@ -100,7 +100,7 @@ func TestEmitIdleChatTTSSendsStorySimpleTTSEvent(t *testing.T) {
 	if len(bridge.startReqs) != 1 {
 		t.Fatalf("expected 1 start request, got %d", len(bridge.startReqs))
 	}
-	if got := bridge.startReqs[0].ResponseID; got != "story-simple-1:0000" {
+	if got := bridge.startReqs[0].ResponseID; got != "story-simple-1:story:0001" {
 		t.Fatalf("unexpected response id: %q", got)
 	}
 	if len(bridge.pushTexts) != 1 || bridge.pushTexts[0] != "今夜の物語です。" {
@@ -109,7 +109,7 @@ func TestEmitIdleChatTTSSendsStorySimpleTTSEvent(t *testing.T) {
 	if got := snapshotIdleChatTTSPending(); got.PendingResponseCount != 1 {
 		t.Fatalf("pending response count = %d, want 1", got.PendingResponseCount)
 	}
-	if !notifyIdleChatTTSPlaybackCompleted("story-simple-1:0000") {
+	if !notifyIdleChatTTSPlaybackCompleted("story-simple-1:story:0001") {
 		t.Fatal("expected response id to be consumable by playback ACK")
 	}
 }

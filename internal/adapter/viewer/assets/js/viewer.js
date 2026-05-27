@@ -656,8 +656,10 @@ function renderChatTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   speech.chunkKeys.add(key);
   if (speech.textEl) {
     const current = String(speech.textEl.textContent || '');
-    speech.textEl.textContent = speech.preRendered ? current : appendCentralTTSText(current, normalizedText);
-    speech.textEl.dataset.raw = speech.textEl.textContent;
+    if (!speech.preRendered) {
+      speech.textEl.textContent = appendCentralTTSText(current, normalizedText);
+      speech.textEl.dataset.raw = speech.textEl.textContent;
+    }
   }
   scrollToBottom();
 }
@@ -685,8 +687,24 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   if (!speech.el || speech.characterId !== id || speech.bubbleKind !== bubbleKind || shouldStartNewTTSBubble(speech, normalizedChunkIndex, key, rid)) {
     if (speech.el) speech.el.classList.remove('tts-current');
     const rendered = consumeIdlePendingMessage(sid, id, bubbleKind, messageId, turnIndex);
-    if (rendered && !rendered.el && typeof appendIdleLiveMessageEvent === 'function') {
-      rendered.el = appendIdleLiveMessageEvent(rendered.ev, {pending: true});
+    if (typeof isIdleSuppressedTTSMessage === 'function' && isIdleSuppressedTTSMessage(messageId)) {
+      if (rendered) rendered.consumed = true;
+      if (typeof recordIdleLiveDiagnostic === 'function') {
+        recordIdleLiveDiagnostic('speech_tts_suppressed', rendered && rendered.ev ? rendered.ev : {
+          type: 'idlechat.message',
+          session_id: sid,
+          message_id: messageId,
+          turn_index: turnIndex,
+        }, {
+          reason: 'summary speech is already represented by idlechat.summary',
+          response_id: rid,
+          utterance_id: String(utteranceId || '').trim(),
+        });
+      }
+      return;
+    }
+    if (rendered && typeof renderIdlePendingMessageFromEvent === 'function') {
+      renderIdlePendingMessageFromEvent(rendered);
     }
     const existing = !rendered && typeof findIdleLiveMessageNode === 'function'
       ? findIdleLiveMessageNode({type: 'idlechat.message', session_id: sid, message_id: messageId, turn_index: turnIndex})
@@ -702,6 +720,19 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
           messageId,
           turnIndex,
         }, 'TTS_IDENTITY_MISSING', 'TTS chunk did not include message_id or turn_index; Viewer refused speaker/first-pending matching.');
+      }
+      return;
+    }
+    if (!rendered && !existing && bubbleKind === 'speech' && (String(messageId || '').trim() || (Number.isFinite(turnIndex) && turnIndex >= 0))) {
+      if (typeof renderIdleTTSChunkError === 'function') {
+        renderIdleTTSChunkError({
+          characterId: id,
+          sessionId: sid,
+          responseId: rid,
+          utteranceId,
+          messageId,
+          turnIndex,
+        }, 'TTS_DISPLAY_SOURCE_MISSING', 'TTS chunk had a message identity but no matching idlechat.message display event; Viewer refused to use TTS text as chat body.');
       }
       return;
     }
@@ -730,7 +761,7 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     speech.responseId = rid;
     speech.bubbleKind = bubbleKind;
     speech.active = true;
-    speech.preRendered = !!(existing && !renderedWasPending);
+    speech.preRendered = !!((rendered && rendered.el) || (existing && !renderedWasPending));
     speech.chunkKeys = new Set();
     removeIdleLiveEmpty();
     if (!(rendered && rendered.el) && !existing) target.appendChild(el);
@@ -749,8 +780,10 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
   speech.chunkKeys.add(key);
   if (speech.textEl) {
     const current = String(speech.textEl.textContent || '');
-    speech.textEl.textContent = speech.preRendered ? current : appendCentralTTSText(current, normalizedText);
-    speech.textEl.dataset.raw = speech.textEl.textContent;
+    if (!speech.preRendered) {
+      speech.textEl.textContent = appendCentralTTSText(current, normalizedText);
+      speech.textEl.dataset.raw = speech.textEl.textContent;
+    }
   }
   target.scrollTop = target.scrollHeight;
 }

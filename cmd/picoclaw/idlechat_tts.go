@@ -39,7 +39,7 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 	})
 
 	publicSessionID := strings.TrimSpace(ev.SessionID)
-	responseID := nextTTSPublicResponseID(publicSessionID)
+	responseID := nextTTSPublicResponseIDForMessage(publicSessionID, ev.MessageID)
 	sessionID := fmt.Sprintf("%s-tts-%d", publicSessionID, time.Now().UnixNano())
 	registerTTSPublicSessionWithMessage(sessionID, publicSessionID, responseID, ev.MessageID, ev.TurnIndex)
 	waitCh := registerIdleChatTTSPending(sessionID, responseID)

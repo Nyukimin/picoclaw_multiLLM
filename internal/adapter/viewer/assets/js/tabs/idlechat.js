@@ -1,5 +1,6 @@
 // IdleChat tab module: mode controls, subviews, history, and summary review.
 const idleLiveBootedAtMs = Date.now();
+const idleSuppressedTTSMessageIds = new Set();
 
 function removeIdleLiveEmpty() {
   const target = idleLiveRenderTarget();
@@ -118,25 +119,39 @@ function queueIdleMessageForTTS(ev) {
   const queue = idlePendingQueue(sid);
   const messageId = String(ev.message_id || '').trim();
   const turnIndex = idleTurnIndex(ev);
+  const suppressDisplay = isIdleSummarySpeechEvent(ev);
+  if (suppressDisplay && messageId) idleSuppressedTTSMessageIds.add(messageId);
   if (messageId && queue.some((item) => !item.consumed && item.messageId === messageId)) return;
   if (!messageId && turnIndex >= 0 && queue.some((item) => !item.consumed && item.turnIndex === turnIndex)) return;
-  const el = liveMode ? null : (existing || appendIdleLiveMessageEvent(ev, {pending: true}));
+  const el = suppressDisplay ? null : (liveMode ? null : (existing || appendIdleLiveMessageEvent(ev, {pending: true})));
   const item = {
     ev,
     el,
     from: String(ev.from || '').trim().toLowerCase(),
     messageId,
     turnIndex,
+    suppressDisplay,
     consumed: false,
     timer: null,
   };
-  item.timer = setTimeout(() => {
+  item.timer = suppressDisplay ? null : setTimeout(() => {
     if (item.consumed) return;
     renderIdlePendingTTSError(item, 'TTS_CHUNK_TIMEOUT', 'TTS chunk was not rendered before the pending display timeout.');
     item.consumed = true;
     pruneIdlePendingQueue(sid);
   }, IDLE_MESSAGE_FALLBACK_MS);
   queue.push(item);
+}
+
+function isIdleSummarySpeechEvent(ev) {
+  if (!ev || ev.type !== 'idlechat.message') return false;
+  if (String(ev.to || '').trim().toLowerCase() !== 'user') return false;
+  return normalizeViewerDisplayText(ev.content).trim().startsWith('今回のまとめです。');
+}
+
+function isIdleSuppressedTTSMessage(messageId) {
+  const id = String(messageId || '').trim();
+  return !!id && idleSuppressedTTSMessageIds.has(id);
 }
 
 function clearIdleLivePendingForAudioOwnerTransfer(ownerId) {
@@ -233,6 +248,10 @@ function hydrateIdleLiveTranscript(sessionId, transcript) {
 		}
 	}
 	idleLiveActiveSessionId = sid;
+	rows.forEach((row) => {
+		if (!row || (row.type !== 'idlechat.message' && row.type !== 'idlechat.topic')) return;
+		queueIdleMessageForTTS(row);
+	});
 	}
 
 function idleTranscriptSnapshotKey(sessionId, rows) {

@@ -74,6 +74,46 @@ func TestTTSPublicSessionRouteMarksTimedOutUtteranceStale(t *testing.T) {
 	}
 }
 
+func TestNextTTSPublicResponseIDForMessageAlignsIdleChatMessageNumber(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+
+	if got := nextTTSPublicResponseIDForMessage("idle-align", "idle-align:topic"); got != "idle-align:0000" {
+		t.Fatalf("topic response id = %q, want idle-align:0000", got)
+	}
+	if got := nextTTSPublicResponseIDForMessage("idle-align", "idle-align:msg:0007"); got != "idle-align:0007" {
+		t.Fatalf("message response id = %q, want idle-align:0007", got)
+	}
+	if got := nextTTSPublicResponseID("idle-align"); got != "idle-align:0008" {
+		t.Fatalf("next response id = %q, want idle-align:0008", got)
+	}
+}
+
+func TestNextTTSPublicResponseIDForMessageKeepsForecastAnnouncementsOutOfMessageNumberSeries(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+
+	if got := nextTTSPublicResponseIDForMessage("forecast-align", "forecast-align:domain:0000"); got != "forecast-align:domain:0000" {
+		t.Fatalf("domain response id = %q, want forecast-align:domain:0000", got)
+	}
+	if got := nextTTSPublicResponseIDForMessage("forecast-align", "forecast-align:topic:0000"); got != "forecast-align:topic:0000" {
+		t.Fatalf("topic response id = %q, want forecast-align:topic:0000", got)
+	}
+	if got := nextTTSPublicResponseIDForMessage("forecast-align", "forecast-align:msg:0001"); got != "forecast-align:0001" {
+		t.Fatalf("message response id = %q, want forecast-align:0001", got)
+	}
+}
+
 func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}

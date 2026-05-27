@@ -209,18 +209,19 @@ Viewer は PC / ケータイ / 複数タブで同時に開ける。ただし、�
 
 ### 7.1.2 IdleChat 本文表示と TTS 同期
 
-IdleChat の Viewer 本文表示は、`idlechat.message` の全文を即時描画してはいけない。
-`idlechat.message` は会話イベント、履歴、pending 発話、raw_content 保持のために使い、本文表示の進行根拠は原則として `tts.audio_chunk.display_text` とする。
+IdleChat の Viewer 本文表示の正本は `idlechat.message` と `idlechat.summary` である。
+`tts.audio_chunk.display_text` は音声再生、口パク、ACK、再生中 marker のための補助情報であり、本文表示の正本ではない。
 
-- `idlechat.message` 受信時は、話者とセッションに紐づく pending 発話枠を作るだけにする。
-- Mio / Shiro の本文は、`tts.audio_chunk` が到着した chunk 単位で表示する。
-- スピーカ ON の場合、active audio Viewer で TTS 再生開始または再生確定した chunk に合わせて本文を表示する。
-- スピーカ OFF の場合、TTS chunk ごとに 500ms wait して次 chunk を表示する。
+- `idlechat.message` 受信時は、話者とセッションに紐づく pending 発話枠を作り、表示可能になった時点でも本文は `idlechat.message.content` から描画する。
+- Mio / Shiro の本文を、TTS chunk の `text` / `display_text` で埋める、置換する、再構成してはいけない。
+- `message_id` / `turn_index` の一致は、対応する発話の再生状態を付けるためだけに使う。ID 一致だけで TTS chunk に本文表示権限を与えてはいけない。
+- 対応する `idlechat.message` が無い TTS chunk は、本文を描かず診断表示またはログへ倒す。
+- スピーカ ON の場合、active audio Viewer で TTS 再生開始または再生確定した chunk に合わせて、対応する表示イベントの発話へ再生中 marker を付ける。
+- スピーカ OFF の場合でも、TTS chunk ごとに本文を補完せず、表示本文は表示イベントから取る。
 - `tts.session_completed` は TTS 生成完了であり、ユーザーが聞いた完了や Viewer 表示完了ではない。
-- IdleChat の TTS 完了待ちは、active audio Viewer が実際に観測した response の playback ack、またはスピーカ OFF の明示 fallback 完了でのみ解除する。
+- IdleChat の TTS 完了待ちは、active audio Viewer が実際に観測した response の playback ack、またはスピーカ OFF の明示 display-only 完了でのみ解除する。
 - TTS playback ack が返らない場合はエラーとして記録するが、会話進行の停止要因にはしない。
-- TTS chunk が一定時間来ない、または TTS 生成に失敗した場合のみ、fallback として `idlechat.message` の全文表示を許可する。
-- fallback は通常成功扱いではなく、fallback 表示としてログ・状態で区別できるようにする。
+- TTS chunk が一定時間来ない、または TTS 生成に失敗した場合は、TTS エラーとして診断を表示し、TTS chunk や fallback 文で本文を補完しない。
 - `tts.session_completed` だけを見て、観測していない response を playback 済みとして ack してはいけない。
 
 ### 7.2 Viewer UI
