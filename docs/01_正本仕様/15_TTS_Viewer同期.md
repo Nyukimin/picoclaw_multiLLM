@@ -1,5 +1,8 @@
 # 15. TTS / Viewer 同期 正本仕様
 
+**対応仕様**: 仕様.md §12-f / IdleChat §8
+**最終更新**: 2026-05-27
+
 この文書は RenCrow の TTS chunk、Viewer 表示、口パク、再生 ACK の正本仕様である。
 TTS / Viewer 同期に関して、`docs/STT_TTS/` 配下の一般仕様、実装メモ、過去仕様と矛盾する場合は本書を優先する。
 

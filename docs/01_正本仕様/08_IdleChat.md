@@ -1,8 +1,8 @@
 # IdleChat（§8）
 
 **対応仕様**: 仕様.md §8
-**ソース**: 07_IdleChat仕様/IdleChat仕様.md, 07_IdleChat仕様/未来展望セッション仕様.md, 07_IdleChat仕様/会話ID仕様.md
-**最終更新**: 2026-03-26
+**ソース**: 07_IdleChat仕様/IdleChat仕様.md, 07_IdleChat仕様/未来展望セッション仕様.md, 07_IdleChat仕様/会話ID仕様.md, 15_TTS_Viewer同期.md
+**最終更新**: 2026-05-27
 
 ---
 
@@ -276,7 +276,7 @@ Viewer → IdleChat: message.received → NotifyActivity() → 中断
 
 IdleChat の第3のモード。エージェントが登場人物を演じて昔話や民話を読み上げる。
 
-**ステータス**: 実装中（`feature/rencrow` ブランチ、品質チューニング段階）
+**ステータス**: 実装中（`feature/RenCrow_Start` ブランチ、品質チューニング段階）
 
 ### 8.2 パイプライン
 

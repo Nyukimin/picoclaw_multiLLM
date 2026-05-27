@@ -1,6 +1,7 @@
 # STT 正本仕様
 
-# STT 正本仕様
+**対応仕様**: 仕様.md §12-f
+**最終更新**: 2026-05-27
 
 ## 1. 目的と適用範囲
 
@@ -10,7 +11,7 @@
 - 主経路: `Browser -> /stt-ws -> voice-bridge -> Whisper /inference`
 - サーバ間連携: `voice-bridge -> Whisper`（HTTP）
 
-本仕様は STT を中心に定義し、TTS（SBV2）詳細は別仕様を参照する。
+本仕様は STT を中心に定義し、TTS / Viewer 同期は `docs/01_正本仕様/15_TTS_Viewer同期.md` を参照する。
 
 ## 2. 現状整理（2026-04時点）
 
@@ -227,9 +228,11 @@ voice-bridge の起動には以下が必要：
 
 ## 12. 参照
 
-- `docs/10_WHISPER_REMOTE_PC.md`
-- `docs/11_WIN11_HP01_SERVER_MIGRATION.md`
-- `docs/12_SBV2_TTS_現状仕様.md`
+- `docs/01_正本仕様/15_TTS_Viewer同期.md`
+- `docs/STT_TTS/README.md`
+- `docs/STT_TTS/AUDIO_Server仕様/STT/STT仕様.md`
+- `docs/STT_TTS/AUDIO_Client仕様/STT/仕様.md`
+- `docs/STT_TTS/STT_Remote_HTTPS仕様.md`
+- `docs/STT_TTS/STT_Streaming_Client仕様.md`
 - `docs/04_実装仕様_機能拡張/実装仕様_チャネル拡張_v1.md`
 - `docs/02_OpenClaw移植詳細仕様/詳細実装仕様_07_アプリ・ノード統合.md`
-- `docs/README.md`
