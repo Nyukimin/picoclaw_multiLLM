@@ -2,6 +2,10 @@
 
 本書は、RenCrow Viewer の TimeLine 文字列描画と TTS 音声再生を同期させるための仕様である。
 
+TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` とする。
+IdleChat の本文表示・TTS 同期については `docs/01_正本仕様/08_IdleChat.md` も正本とする。
+本書は一般 TTS / 通常 Chat の下位仕様であり、正本と矛盾する場合は正本を優先する。
+
 ## 1. 目的
 
 TimeLine の文字列表示と音声再生を、同じ TTS chunk 単位で必ず対応付ける。
@@ -55,6 +59,7 @@ TimeLine の文字列表示と音声再生を、同じ TTS chunk 単位で必ず
 ```json
 {
   "session_id": "chat-xxx",
+  "message_id": "chat-xxx:msg:0001",
   "utterance_id": "chat-xxx:0002",
   "speaker": "mio",
   "chunk_index": 2,
@@ -71,6 +76,7 @@ TimeLine の文字列表示と音声再生を、同じ TTS chunk 単位で必ず
 必須:
 
 - `session_id`
+- `message_id`（発話表示イベントと対応付ける場合）
 - `utterance_id`
 - `speaker`
 - `chunk_index`
@@ -87,6 +93,7 @@ TimeLine の文字列表示と音声再生を、同じ TTS chunk 単位で必ず
 ## 4. 基本ルール
 
 - `display_text` と `audio_url` / `audio_path` は同じ chunk に必ず紐づく。
+- `display_text` と `speech_text` は同じ chunk 計画から作る。別々に分割して同じ index で対応したものとして扱ってはいけない。
 - TimeLine は `display_text` を描画する。
 - 音声は同じ chunk の `audio_url` / `audio_path` を再生する。
 - 同一 `(session_id, track)` 内では `chunk_index` 順に処理する。
@@ -110,6 +117,9 @@ TimeLine の文字列表示と音声再生を、同じ TTS chunk 単位で必ず
 通常 Chat では、音声再生開始が TimeLine 表示タイミングの基準である。
 
 ## 6. IdleChat の同期仕様
+
+IdleChat の詳細な正本は `docs/01_正本仕様/08_IdleChat.md` の「IdleChat 本文表示と TTS 同期」に従う。
+IdleChat では `idlechat.message` / `idlechat.summary` が本文表示の正本であり、TTS chunk は音声再生、口パク、ACK、再生中 marker の補助情報である。
 
 IdleChat は聞き手の滑らかさを優先する。
 

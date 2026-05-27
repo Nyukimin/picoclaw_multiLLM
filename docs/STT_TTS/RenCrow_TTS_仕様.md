@@ -188,12 +188,18 @@ RenCrow_TTS Controller は、音声生成が完了した chunk ごとに `tts.au
 
 `tts.audio_chunk` は、TTS用 text、表示用 display_text、音声ファイルを結びつける同期単位である。
 
+TTS / Viewer 同期は `docs/01_正本仕様/15_TTS_Viewer同期.md` を正本とする。
+IdleChat の本文表示・TTS 同期は `docs/01_正本仕様/08_IdleChat.md` も正本とする。
+IdleChat では `idlechat.message` / `idlechat.summary` が本文表示の正本であり、TTS chunk は音声再生、口パク、ACK、再生中 marker の補助情報である。
+
 Payload 例:
 
 ```json
 {
   "session_id": "idle-123-tts-456",
   "response_id": "resp-789",
+  "message_id": "idle-123:msg:0001",
+  "turn_index": 1,
   "utterance_id": "idle-123-tts-456:0000",
   "chunk_index": 0,
   "character_id": "mio",
@@ -208,6 +214,8 @@ Payload 例:
 必須:
 
 - `session_id`
+- `message_id`
+- `turn_index`
 - `utterance_id`
 - `chunk_index`
 - `character_id`
@@ -224,7 +232,12 @@ Payload 例:
 
 `display_text` は中央チャット領域の表示対象であり、LLM出力の表記を保つ。
 
+IdleChat では `display_text` は本文表示の正本ではなく、対応する `message_id` の再生中 marker と診断の補助情報である。
+
 `utterance_id` は追跡・デバッグ用の共通IDとして推奨する。Viewer の同期保証は `tts.audio_chunk` payload 単位で成立する。
+
+`display_text` と `text` / `speech_text` は同じ chunk 計画から作る。
+別々に chunk 分割して同じ `chunk_index` で対応したものとして扱ってはいけない。
 
 ## 6. 再生順序
 
@@ -363,7 +376,8 @@ internal/adapter/viewer/viewer.html
 - final text も丸ごと1 chunkにせず、同じ分割器を通す
 - SBV2直結経路も Provider 呼び出し前に分割する
 - TTS用 `text` でも句読点を保持する
-- Viewer の中央チャット領域は `agent.response` / `idlechat.message` の全文描画ではなく、`tts.audio_chunk.display_text` を音声出力開始時に反映する
+- 通常 Chat の中央チャット領域は、必要に応じて `tts.audio_chunk.display_text` を音声出力開始時に反映する
+- IdleChat の本文表示は `idlechat.message` / `idlechat.summary` を正本とし、TTS chunk の `display_text` で本文を埋める、置換する、再構成しない
 
 ## 11. 完了条件
 
@@ -372,8 +386,9 @@ RenCrow_TTS Controller の実装完了条件:
 - LLM の長文応答が短い chunk に分割される
 - chunk ごとに SBV2 Provider が呼ばれる
 - TTS用 `text` と再生音声が一致する
-- 中央チャット領域は `display_text` を表示する
-- `text` と `display_text` が分離されている
+- 通常 Chat の中央チャット領域は `display_text` を表示できる
+- IdleChat の本文表示は `idlechat.message` / `idlechat.summary` を正本にする
+- `text` / `speech_text` と `display_text` は同じ chunk 計画から作られている
 - TTS用 `text` に句読点が保持される
 - Viewer が音声出力開始時に、該当 chunk の `display_text` を中央チャットへ反映する
 - 同一話者の連続発言は同じバルーン末尾へ追記される

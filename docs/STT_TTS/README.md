@@ -3,6 +3,9 @@
 `docs/STT_TTS` は、音声仕様を **Client仕様**（Chat視点）と **Server仕様**（提供側視点）で管理する。  
 本ページは実装着手の起点とする。
 
+TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` とする。
+`docs/STT_TTS` 配下の TTS 仕様は Client / Server / provider 別の下位仕様であり、正本と矛盾する場合は正本を優先する。
+
 ## 1. 先に決めること（実装前）
 - STT/TTS は Chat サーバ経由を維持する
 - STT/TTS は Provider 非依存契約で記述する
@@ -15,6 +18,10 @@
 4. 受け入れ基準で疎通テスト
 
 ## 3. 参照先
+
+### 正本仕様
+- `docs/01_正本仕様/15_TTS_Viewer同期.md` - TTS chunk、Viewer 表示、口パク、ACK の正本
+- `docs/01_正本仕様/08_IdleChat.md` - IdleChat 本文表示・TTS 同期の正本
 
 ### Client仕様（Chat から見た契約）
 - `docs/STT_TTS/AUDIO_Client仕様/README.md`
@@ -46,7 +53,8 @@
 - PR単位の集約判定は `docs/STT_TTS/API_DOD_CHECKLIST.md` へ記録する
 
 ## 6. 運用ルール
-- 正規仕様は `AUDIO_Client仕様` / `AUDIO_Server仕様` のみ
+- TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md`
+- `AUDIO_Client仕様` / `AUDIO_Server仕様` は Client / Server の下位仕様
 - 旧文書は削除せず `archive` へ移動
 - 仕様更新時は Client/Server を同一PRで同期
 - レビュー記録は `docs/STT_TTS/API_DOD_CHECKLIST.md` を利用する

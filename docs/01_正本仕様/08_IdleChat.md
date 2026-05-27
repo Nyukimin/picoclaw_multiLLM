@@ -212,6 +212,9 @@ Viewer は PC / ケータイ / 複数タブで同時に開ける。ただし、�
 IdleChat の Viewer 本文表示の正本は `idlechat.message` と `idlechat.summary` である。
 `tts.audio_chunk.display_text` は音声再生、口パク、ACK、再生中 marker のための補助情報であり、本文表示の正本ではない。
 
+この節は IdleChat の表示・TTS 同期に関する正本である。
+一般 TTS / ChatAudioSync 仕様と矛盾する場合、IdleChat ではこの節を優先する。
+
 - `idlechat.message` 受信時は、話者とセッションに紐づく pending 発話枠を作り、表示可能になった時点でも本文は `idlechat.message.content` から描画する。
 - Mio / Shiro の本文を、TTS chunk の `text` / `display_text` で埋める、置換する、再構成してはいけない。
 - `message_id` / `turn_index` の一致は、対応する発話の再生状態を付けるためだけに使う。ID 一致だけで TTS chunk に本文表示権限を与えてはいけない。
@@ -223,6 +226,30 @@ IdleChat の Viewer 本文表示の正本は `idlechat.message` と `idlechat.su
 - TTS playback ack が返らない場合はエラーとして記録するが、会話進行の停止要因にはしない。
 - TTS chunk が一定時間来ない、または TTS 生成に失敗した場合は、TTS エラーとして診断を表示し、TTS chunk や fallback 文で本文を補完しない。
 - `tts.session_completed` だけを見て、観測していない response を playback 済みとして ack してはいけない。
+
+#### IdleChat 通常会話の TTS chunk 契約
+
+IdleChat 通常会話の TTS chunk は、必ず `idlechat.message` の `message_id` に従属する。
+TTS chunk は本文表示の正本ではないが、音声・口パク・再生中 marker・ACK を同じ発話へ対応付けるため、次の単位を壊してはいけない。
+
+各 chunk は同一単位で以下を持つ。
+
+- `message_id`
+- `turn_index`
+- `response_id`
+- `utterance_id`
+- `chunk_index`
+- `display_text`
+- `speech_text`（現行 payload の `text` は互換 alias とする）
+- `audio_path` または `audio_url`
+
+通常会話では、`display_text` と `speech_text` は同じ chunk から生成されなければならない。
+原則として完全一致とし、読み替えが必要な場合も同一 chunk 内で理由を説明できる正規化だけを許可する。
+`display_text` と `speech_text` を別々に chunk 分割し、同じ index で対応したものとして扱ってはいけない。
+chunk 境界が一致しない場合は、TTS / 表示同期の契約違反として扱う。
+
+topic や読み上げ用の表記正規化など、表示と発話を分ける必要がある場合でも、分割単位は単一の chunk 計画から作る。
+表示本文の描画は引き続き `idlechat.message.content` を正本とし、TTS chunk の `display_text` は再生中 marker と診断のための補助情報に限定する。
 
 ### 7.2 Viewer UI
 

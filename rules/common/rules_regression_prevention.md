@@ -166,6 +166,7 @@ cache、stock、queue、pending は便利な逃げ道ではない。
 ### 5.1 表示は TTS chunk に依存させない
 
 本文表示の主たる入力は表示イベントまたは表示用 state とする。
+TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` とする。
 
 TTS chunk は以下のためのもの。
 
@@ -178,6 +179,9 @@ TTS chunk の `text` / `display_text` で本文を埋める、置換する、再
 `message_id` / `turn_index` の一致は対応付けの証拠であり、TTS chunk へ本文表示権限を与える根拠ではない。
 対応する表示イベントまたは表示用 state が無い場合は、本文を補完せず、診断表示またはログへ倒す。
 音声再生の reset / clear / cleanup で、表示正本や ID 対応の状態を消してはいけない。
+
+IdleChat 通常会話では、TTS chunk の `display_text` と `speech_text`（現行 `text`）を別々に分割して同じ `chunk_index` で対応させてはいけない。
+chunk は `message_id` に従属し、表示補助情報と音声ファイルは同じ chunk 計画から作る。
 
 ### 5.2 発話完了と表示完了を混同しない
 

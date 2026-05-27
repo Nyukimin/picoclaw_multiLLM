@@ -364,6 +364,7 @@ AI は実装中に必要と判断した場合、新規ファイルを作成し�
 責務の違う層へロジックを混ぜないこと。
 
 UI / Viewer / TTS / STT を触る場合は、次の責務表を実装前に明確にすること。
+TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` とする。
 
 | 対象 | 許可される責務 |
 | ---- | -------------- |
@@ -376,6 +377,7 @@ UI / Viewer / TTS / STT を触る場合は、次の責務表を実装前に明�
 TTS chunk の `text` / `display_text` で本文を埋める、置換する、再構成してはいけない。
 表示正本が無い場合は、本文を補完せず診断表示またはログへ倒す。
 reset / clear / cleanup で消してよいのは、その関数の責務に属する状態だけである。
+IdleChat 通常会話では、TTS chunk は `message_id` に従属し、`display_text` と `speech_text`（現行 `text`）を別々に分割して同じ `chunk_index` で対応させてはいけない。
 
 ### 7.4 コーディングAIの運用モード
 
