@@ -13,6 +13,7 @@ type ttsPlaybackAckRequest struct {
 	UtteranceID    string `json:"utterance_id"`
 	ViewerClientID string `json:"viewer_client_id,omitempty"`
 	Status         string `json:"status"`
+	ErrorCode      string `json:"error_code,omitempty"`
 	Error          string `json:"error,omitempty"`
 }
 
@@ -36,12 +37,23 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 		viewerClientID := strings.TrimSpace(req.ViewerClientID)
 		activeAudio := activeViewerControl.isActiveAudio(viewerClientID)
 		status := strings.TrimSpace(req.Status)
-		fallbackCompletion := viewerClientID != "" && activeViewerControl.snapshot().ActiveAudioViewerID == "" && status == "fallback"
+		errorCode := strings.TrimSpace(req.ErrorCode)
+		errorText := strings.TrimSpace(req.Error)
+		if status == "fallback" {
+			status = "error"
+			if errorCode == "" {
+				errorCode = "TTS_FALLBACK_ACK_REJECTED"
+			}
+			if errorText == "" {
+				errorText = "Viewer sent deprecated fallback playback ACK; treat as explicit TTS playback error"
+			}
+		}
+		explicitFailureNoActiveOwner := viewerClientID != "" && activeViewerControl.snapshot().ActiveAudioViewerID == "" && status == "error"
 		ok := false
-		if activeAudio || fallbackCompletion {
+		if activeAudio || explicitFailureNoActiveOwner {
 			ok = notifyIdleChatTTSPlaybackCompleted(responseID)
 		}
-		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error=%s",
+		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error_code=%s error=%s",
 			responseID,
 			strings.TrimSpace(req.SessionID),
 			strings.TrimSpace(req.UtteranceID),
@@ -49,9 +61,10 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 			activeAudio,
 			status,
 			ok,
-			strings.TrimSpace(req.Error),
+			errorCode,
+			errorText,
 		)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "matched": ok})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "matched": ok, "status": status, "error_code": errorCode})
 	}
 }

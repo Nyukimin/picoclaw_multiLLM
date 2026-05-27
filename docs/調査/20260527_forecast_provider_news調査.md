@@ -208,3 +208,32 @@ P0 ではない。TTS/ACK 本線とは分離する。
 - `GOCACHE=/tmp/picoclaw-go-cache go test ./internal/application/idlechat`
 - `GOCACHE=/tmp/picoclaw-go-cache go test ./cmd/picoclaw`
 - `git diff --check`
+
+## 2026-05-27 live smoke
+
+`df8319e` 反映後に `make install`、`picoclaw.service` 再起動を行い、起動ログで Forecast provider policy の反映を確認した。
+
+起動ログ:
+
+- `IdleChat: Forecast provider set to primary=Coder1 deepseek (deepseek-coder) external=Coder2 openai (gpt-4o-mini), topic stock filling`
+
+Forecast smoke:
+
+- session: `forecast-1779867061`
+- topic: `[AI技術] AI採用と年齢差別が変える雇用の信頼構造`
+- status: topic 確定、transcript 2件、pending 0
+- console error: 0
+- smoke 範囲の Forecast log では Google News RSS 400 なし
+- smoke 範囲の Forecast log では OpenAI 429 / `insufficient_quota` なし
+- smoke 範囲の Forecast log では `FORECAST_TOPIC_GENERATION_FAILED` なし
+
+失敗系:
+
+- live config を壊す fault injection は実施していない。
+- targeted test で `Coder1失敗 -> external 1回 -> external失敗なら明示エラー` を確認済み。
+
+残課題:
+
+- smoke 中に Viewer/TTS ACK 側で `status=fallback` が観測された。
+- これは Forecast provider / topic generation の失敗ではなく、Viewer の TTS playback ACK 表記の別問題として分離する。
+- 後続修正で ACK `status=fallback` は `status=error` と `error_code` に正規化する。

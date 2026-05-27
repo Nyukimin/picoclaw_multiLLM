@@ -112,7 +112,7 @@ func TestTTSPlaybackAckOnlyReleasesActiveAudioViewer(t *testing.T) {
 	}
 }
 
-func TestTTSPlaybackFallbackAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
+func TestTTSPlaybackFallbackAckIsNormalizedToErrorWhenNoActiveAudioViewer(t *testing.T) {
 	resetActiveViewerControlForTest()
 	ch := registerIdleChatTTSPending("idle-fallback-tts", "response-fallback-1")
 
@@ -128,10 +128,45 @@ func TestTTSPlaybackFallbackAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("fallback ack got HTTP %d", rec.Code)
 	}
+	var resp map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := resp["status"]; got != "error" {
+		t.Fatalf("fallback ack should be normalized to error, got %#v", got)
+	}
+	if got := resp["error_code"]; got != "TTS_FALLBACK_ACK_REJECTED" {
+		t.Fatalf("fallback ack should expose error_code, got %#v", got)
+	}
 	select {
 	case <-ch:
 	default:
-		t.Fatal("fallback ack with viewer_client_id should release idlechat TTS pending when no active audio viewer exists")
+		t.Fatal("normalized fallback error ack should release idlechat TTS pending when no active audio viewer exists")
+	}
+}
+
+func TestTTSPlaybackErrorAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
+	resetActiveViewerControlForTest()
+	ch := registerIdleChatTTSPending("idle-error-tts", "response-error-1")
+
+	reqBody, _ := json.Marshal(ttsPlaybackAckRequest{
+		ResponseID:     "response-error-1",
+		SessionID:      "idle-error-tts",
+		ViewerClientID: "pc-viewer",
+		Status:         "error",
+		ErrorCode:      "TTS_AUDIO_DISABLED",
+		Error:          "IdleChat audio playback was disabled",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/tts/playback-ack", bytes.NewReader(reqBody))
+	handleTTSPlaybackAck()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("error ack got HTTP %d", rec.Code)
+	}
+	select {
+	case <-ch:
+	default:
+		t.Fatal("explicit error ack with viewer_client_id should release idlechat TTS pending when no active audio viewer exists")
 	}
 }
 

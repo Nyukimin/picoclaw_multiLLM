@@ -3175,6 +3175,8 @@ function createChatAudioSync() {
   }
 
   function postTTSPlaybackAck(item, status, err) {
+    const normalizedStatus = normalizeTTSPlaybackAckStatus(status);
+    const errorCode = ttsPlaybackAckErrorCode(item, normalizedStatus, err);
     const payload = {
       response_id: String((item && item.responseId) || '').trim(),
       session_id: String((item && item.sessionId) || '').trim(),
@@ -3182,7 +3184,8 @@ function createChatAudioSync() {
       message_id: String((item && item.messageId) || '').trim(),
       turn_index: Number.isFinite(item && item.turnIndex) ? Math.floor(item.turnIndex) : -1,
       viewer_client_id: viewerControl.clientId,
-      status: String(status || 'ended'),
+      status: normalizedStatus,
+      error_code: errorCode,
       error: err ? describeTTSAudioError(err) : '',
     };
     if (!payload.response_id) return;
@@ -3196,6 +3199,23 @@ function createChatAudioSync() {
     }).catch((ackErr) => {
       console.warn('tts playback ack failed', ackErr);
     });
+  }
+
+  function normalizeTTSPlaybackAckStatus(status) {
+    const value = String(status || 'ended').trim();
+    if (value === 'fallback') return 'error';
+    return value || 'ended';
+  }
+
+  function ttsPlaybackAckErrorCode(item, status, err) {
+    const normalizedStatus = String(status || '').trim();
+    if (normalizedStatus !== 'error') return '';
+    const text = describeTTSAudioError(err).toLowerCase();
+    if (text.indexOf('missing idlechat audio url') >= 0) return 'TTS_AUDIO_MISSING';
+    if (text.indexOf('idlechat audio disabled') >= 0) return 'TTS_AUDIO_DISABLED';
+    if (text.indexOf('blocked autoplay') >= 0 || text.indexOf('notallowed') >= 0 || text.indexOf('did not interact') >= 0) return 'TTS_AUDIO_BLOCKED';
+    if (isIdleChatPlaybackItem(item)) return 'TTS_AUDIO_PLAYBACK_ERROR';
+    return 'TTS_PLAYBACK_ERROR';
   }
 
   function canStartChunk(chunk) {
@@ -3421,7 +3441,7 @@ function createChatAudioSync() {
       state.fallbackTimer = null;
       state.fallbackActive = false;
       decrementResponsePlaybackCount(next.responseId);
-      maybeAcknowledgeResponsePlayback(next, idleChatFallback ? 'error' : 'fallback', fallbackErr);
+      maybeAcknowledgeResponsePlayback(next, 'error', fallbackErr || new Error('tts audio fallback is not a successful playback path'));
       const nextHead = state.queue[0];
       if (state.blocked || (nextHead && nextHead.displayOnly)) {
         startTextFallbackInternal();

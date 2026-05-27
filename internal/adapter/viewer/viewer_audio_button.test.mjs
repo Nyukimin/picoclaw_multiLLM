@@ -1215,6 +1215,57 @@ test('idlechat playback ack waits for natural audio end after session completed'
   assert.equal(JSON.parse(fetchCalls[0].init.body).status, 'ended');
 });
 
+test('idlechat display-only tts sends error ack with error_code instead of fallback status', async () => {
+  const fetchCalls = [];
+  const {harness, elements, timers} = loadAudioHarness({
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true});
+    },
+  });
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'forecast-display-only',
+      response_id: 'forecast-display-only:0001',
+      utterance_id: 'forecast-display-only:topic:0000:utt:0000',
+      message_id: 'forecast-display-only:topic:0000',
+      turn_index: 2,
+      chunk_index: 0,
+      character_id: 'mio',
+      text: '音声URLなしの本文です。',
+      display_text: '音声URLなしの本文です。',
+      audio_url: '',
+    }),
+  });
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.session_completed',
+    content: JSON.stringify({
+      session_id: 'forecast-display-only',
+      response_id: 'forecast-display-only:0001',
+      utterance_id: 'forecast-display-only:topic:0000:utt:0000',
+      message_id: 'forecast-display-only:topic:0000',
+      turn_index: 2,
+      character_id: 'mio',
+    }),
+  });
+
+  assert.ok(elements.get('idleLiveLog').children.at(-1)._mc.innerHTML.includes('TTS_AUDIO_MISSING'));
+  assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.innerHTML.includes('音声URLなしの本文です。'), false);
+
+  timers.shift()();
+  await Promise.resolve();
+
+  const ack = fetchCalls.find((call) => call.url === '/viewer/tts/playback-ack');
+  assert.ok(ack, 'display-only idlechat TTS should ack as explicit playback error');
+  const payload = JSON.parse(ack.init.body);
+  assert.equal(payload.response_id, 'forecast-display-only:0001');
+  assert.equal(payload.status, 'error');
+  assert.equal(payload.error_code, 'TTS_AUDIO_MISSING');
+  assert.match(payload.error, /missing idlechat audio url/i);
+});
+
 test('idlechat playback ack keeps utterance id when session completed arrives after playback', async () => {
   const fetchCalls = [];
   const {harness} = loadAudioHarness({
