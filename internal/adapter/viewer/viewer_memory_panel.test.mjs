@@ -135,6 +135,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(memoryJs, /function renderMemoryEvents/);
   assert.match(js, /function applyViewerTheme/);
   assert.match(js, /viewer\.theme/);
+  assert.match(js, /Viewer state ownership:/);
+  assert.match(js, /Do not use this object as the source of truth for transcript, TTS ACK, utterance consumption, or session progress\./);
+  assert.match(js, /Browser playback state only\. Backend owns TTS completion\/ACK truth/);
+  assert.match(js, /Diagnostic render trace only\. Never drive transcript, pending TTS, ACK, or session progression from this log\./);
   assert.match(js, /function eventStructuredIDParts\(ev\)/);
   assert.match(js, /structuredIDs\.messageId/);
   assert.match(js, /rencrow\.viewer_tab_client_id/);

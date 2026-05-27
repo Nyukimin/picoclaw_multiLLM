@@ -125,6 +125,11 @@ function rememberEventKey(key) {
   }
 }
 
+// Viewer state ownership:
+// - UI ephemeral: DOM/display preferences, selected rows, scroll/tab/open state, transient fetch errors.
+// - Backend snapshot copy: runtime/status/log/history data fetched from Viewer endpoints; never authoritative.
+// - Dangerous derived state: queues, pending maps, dedupe keys, rendered diagnostics; keep local, bounded, and disposable.
+// Do not use this object as the source of truth for transcript, TTS ACK, utterance consumption, or session progress.
 const state = {
   logs: [],
   homeSendError: '',
@@ -338,6 +343,8 @@ const cnt = document.getElementById('cnt');
 const latestBtn = document.getElementById('latestBtn');
 const toastEl = document.getElementById('toast');
 const thinkingBubbles = {};
+// Browser playback state only. Backend owns TTS completion/ACK truth; this state only tracks this tab's audio queue,
+// current chunk, and local error display until the backend confirms or rejects playback progress.
 const ttsPlayback = {
   queue: [],
   audio: null,
@@ -402,6 +409,7 @@ const idlePendingMessages = new Map();
 let idleLiveTopicKey = '';
 let idleLiveActiveSessionId = '';
 let idleLiveSnapshotKey = '';
+// Diagnostic render trace only. Never drive transcript, pending TTS, ACK, or session progression from this log.
 const idleLiveRenderedLog = [];
 if (typeof window !== 'undefined') window.__idleLiveRenderedLog = idleLiveRenderedLog;
 const IDLE_MESSAGE_FALLBACK_MS = 15000;
