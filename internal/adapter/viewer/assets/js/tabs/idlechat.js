@@ -1,4 +1,6 @@
 // IdleChat tab module: mode controls, subviews, history, and summary review.
+const idleLiveBootedAtMs = Date.now();
+
 function removeIdleLiveEmpty() {
   const target = idleLiveRenderTarget();
   if (!target) return;
@@ -82,6 +84,7 @@ function idlePendingQueue(sessionId) {
 
 function queueIdleMessageForTTS(ev) {
   if (!ev || (ev.type !== 'idlechat.message' && ev.type !== 'idlechat.topic')) return;
+  if (isIdleLiveHistoricalEvent(ev)) return;
   const sid = String(ev.session_id || ev.chat_id || '').trim() || 'idlechat';
   if (idleLiveIdentityConflict(ev)) return;
   const existing = findIdleLiveMessageNode(ev);
@@ -109,6 +112,15 @@ function queueIdleMessageForTTS(ev) {
     pruneIdlePendingQueue(sid);
   }, IDLE_MESSAGE_FALLBACK_MS);
   queue.push(item);
+}
+
+function isIdleLiveHistoricalEvent(ev) {
+  if (!(document.body && document.body.classList.contains('live-mode'))) return false;
+  const raw = String((ev && ev.timestamp) || '').trim();
+  if (!raw) return false;
+  const eventMs = Date.parse(raw);
+  if (!Number.isFinite(eventMs)) return false;
+  return eventMs < idleLiveBootedAtMs - 2000;
 }
 
 function consumeIdlePendingMessage(sessionId, characterId, kind, messageId, turnIndex) {

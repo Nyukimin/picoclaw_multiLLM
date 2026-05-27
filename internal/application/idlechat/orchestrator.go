@@ -27,9 +27,9 @@ const (
 	topicBreak                     = 1000 * time.Millisecond // 次IdleChat session/ドメイン交代ブレイク（TTS完了後）
 )
 
-var idleChatTTSWaitTimeout = 15 * time.Second
+var idleChatTTSWaitTimeout = 60 * time.Second
 
-var idleChatTTSSessionDrainTimeout = 15 * time.Second
+var idleChatTTSSessionDrainTimeout = 60 * time.Second
 
 var idleChatLLMGenerateTimeout = 45 * time.Second
 

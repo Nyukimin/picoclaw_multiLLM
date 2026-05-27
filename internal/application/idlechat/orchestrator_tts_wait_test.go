@@ -67,14 +67,14 @@ func TestWaitForTTSDoneTimesOut(t *testing.T) {
 	}
 }
 
-func TestIdleChatTTSWaitTimeoutDefaultIsFifteenSeconds(t *testing.T) {
-	if idleChatTTSWaitTimeout != 15*time.Second {
+func TestIdleChatTTSWaitTimeoutDefaultIsSixtySeconds(t *testing.T) {
+	if idleChatTTSWaitTimeout != 60*time.Second {
 		t.Fatalf("unexpected idleChatTTSWaitTimeout: %s", idleChatTTSWaitTimeout)
 	}
 }
 
-func TestIdleChatTTSSessionDrainTimeoutDefaultIsFifteenSeconds(t *testing.T) {
-	if idleChatTTSSessionDrainTimeout != 15*time.Second {
+func TestIdleChatTTSSessionDrainTimeoutDefaultIsSixtySeconds(t *testing.T) {
+	if idleChatTTSSessionDrainTimeout != 60*time.Second {
 		t.Fatalf("unexpected idleChatTTSSessionDrainTimeout: %s", idleChatTTSSessionDrainTimeout)
 	}
 }

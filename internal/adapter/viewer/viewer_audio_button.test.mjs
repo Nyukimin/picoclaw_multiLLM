@@ -231,6 +231,10 @@ function loadAudioHarness(options = {}) {
   return {harness: context.__viewerAudioHarness, elements, timers};
 }
 
+function liveTimestamp(offsetMs = 0) {
+  return new Date(Date.now() + offsetMs).toISOString();
+}
+
 test('speaker button can turn ready audio off without stopping central chat fallback', async () => {
   const {harness, elements, timers} = loadAudioHarness();
   const audioBtn = elements.get('audioBtn');
@@ -516,7 +520,7 @@ test('idlechat audio playback reveals the message matching the tts message id', 
     session_id: 'idle-audio-match',
     message_id: 'idle-audio-match:msg:0001',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:01Z',
+    timestamp: liveTimestamp(1000),
   });
   harness.addIdleMsgToTimeline({
     type: 'idlechat.message',
@@ -526,7 +530,7 @@ test('idlechat audio playback reveals the message matching the tts message id', 
     session_id: 'idle-audio-match',
     message_id: 'idle-audio-match:msg:0002',
     turn_index: 2,
-    timestamp: '2026-05-09T00:00:02Z',
+    timestamp: liveTimestamp(2000),
   });
 
   harness.chatAudioSync.handleEvent({
@@ -564,7 +568,7 @@ test('idlechat audio end clears the active tts marker from the spoken message', 
     session_id: 'idle-clear-current',
     message_id: 'idle-clear-current:msg:0001',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:01Z',
+    timestamp: liveTimestamp(1000),
   });
   harness.chatAudioSync.handleEvent({
     type: 'tts.audio_chunk',
@@ -607,8 +611,8 @@ test('live mode does not render active transcript without tts chunks', () => {
   const chat = elements.get('chat');
 
   harness.hydrateIdleLiveTranscript('idle-current', [
-    {type: 'idlechat.message', from: 'mio', to: 'shiro', content: 'Mioが先に話します。', session_id: 'idle-current', timestamp: '2026-05-09T00:00:00Z'},
-    {type: 'idlechat.message', from: 'shiro', to: 'mio', content: 'Shiroが次に返します。', session_id: 'idle-current', timestamp: '2026-05-09T00:00:01Z'},
+    {type: 'idlechat.message', from: 'mio', to: 'shiro', content: 'Mioが先に話します。', session_id: 'idle-current', timestamp: liveTimestamp()},
+    {type: 'idlechat.message', from: 'shiro', to: 'mio', content: 'Shiroが次に返します。', session_id: 'idle-current', timestamp: liveTimestamp(1000)},
   ]);
 
   assert.equal(chat.children.length, 0);
@@ -631,7 +635,7 @@ test('live mode sorts idlechat messages by turn index even when events arrive ou
     session_id: 'idle-order-id',
     message_id: 'idle-order-id:msg:0002',
     turn_index: 2,
-    timestamp: '2026-05-09T00:00:02Z',
+    timestamp: liveTimestamp(2000),
   });
   harness.addIdleMsgToTimeline({
     type: 'idlechat.message',
@@ -641,7 +645,7 @@ test('live mode sorts idlechat messages by turn index even when events arrive ou
     session_id: 'idle-order-id',
     message_id: 'idle-order-id:msg:0001',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:01Z',
+    timestamp: liveTimestamp(1000),
   });
 
   assert.equal(chat.children.length, 0);
@@ -666,7 +670,7 @@ test('live mode deduplicates hydrate, idlechat event, and tts for the same messa
       session_id: 'idle-dedupe',
       message_id: 'idle-dedupe:msg:0001',
       turn_index: 1,
-      timestamp: '2026-05-09T00:00:01Z',
+      timestamp: liveTimestamp(1000),
     },
   ]);
   harness.addIdleMsgToTimeline({
@@ -677,7 +681,7 @@ test('live mode deduplicates hydrate, idlechat event, and tts for the same messa
     session_id: 'idle-dedupe',
     message_id: 'idle-dedupe:msg:0001',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:01Z',
+    timestamp: liveTimestamp(1000),
   });
   harness.setCentralTTSSpeechText('mio', 'TTS断片です。', 'idle-dedupe', 0, 'idle-dedupe:msg:0001:utt:0000', 'idle-dedupe:0001', 'idle-dedupe:msg:0001', 1);
 
@@ -698,7 +702,7 @@ test('live mode pending tts timeout renders traceable error instead of full resp
     session_id: 'idle-live-no-fallback',
     message_id: 'idle-live-no-fallback:msg:0001',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:01Z',
+    timestamp: liveTimestamp(1000),
   });
 
   assert.equal(chat.children.length, 0);
@@ -714,6 +718,26 @@ test('live mode pending tts timeout renders traceable error instead of full resp
   assert.ok(harness.idleLiveRenderedLog.some((item) => item.kind === 'speech_tts_error' && item.message_id === 'idle-live-no-fallback:msg:0001' && item.content.includes('TTS_CHUNK_TIMEOUT')));
 });
 
+test('live mode ignores historical idlechat messages instead of arming pending tts timeout', () => {
+  const {harness, elements, timers} = loadAudioHarness({liveMode: true});
+  const chat = elements.get('chat');
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '履歴から再送された発話です。',
+    session_id: 'idle-history-replay',
+    message_id: 'idle-history-replay:msg:0001',
+    turn_index: 1,
+    timestamp: '2026-05-09T00:00:01Z',
+  });
+
+  assert.equal(chat.children.length, 0);
+  assert.equal(timers.length, 0);
+  assert.equal(harness.idleLiveRenderedLog.some((item) => item.message_id === 'idle-history-replay:msg:0001'), false);
+});
+
 test('live mode rejects conflicting idlechat identity instead of overwriting an existing message', () => {
   const {harness, elements} = loadAudioHarness({liveMode: true});
   const chat = elements.get('chat');
@@ -727,7 +751,7 @@ test('live mode rejects conflicting idlechat identity instead of overwriting an 
       session_id: 'idle-conflict',
       message_id: 'idle-conflict:msg:0001',
       turn_index: 1,
-      timestamp: '2026-05-09T00:00:01Z',
+      timestamp: liveTimestamp(1000),
     },
   ]);
   harness.addIdleMsgToTimeline({
@@ -738,7 +762,7 @@ test('live mode rejects conflicting idlechat identity instead of overwriting an 
     session_id: 'idle-conflict',
     message_id: 'idle-conflict:msg:0001',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:01Z',
+    timestamp: liveTimestamp(1000),
   });
   harness.setCentralTTSSpeechText('mio', '正しいTTS断片です。', 'idle-conflict', 0, 'idle-conflict:msg:0001:utt:0000', 'idle-conflict:0001', 'idle-conflict:msg:0001', 1);
   harness.addIdleMsgToTimeline({
@@ -749,7 +773,7 @@ test('live mode rejects conflicting idlechat identity instead of overwriting an 
     session_id: 'idle-conflict',
     message_id: 'idle-conflict:msg:9999',
     turn_index: 1,
-    timestamp: '2026-05-09T00:00:02Z',
+    timestamp: liveTimestamp(2000),
   });
 
   assert.equal(chat.children.length, 1);
