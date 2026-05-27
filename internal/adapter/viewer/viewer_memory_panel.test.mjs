@@ -4635,6 +4635,67 @@ globalThis.__setOptionalPanelRefreshIntervals = setOptionalPanelRefreshIntervals
   assert.equal(intervals.some((item) => optionalNames.includes(item.fn)), false);
 });
 
+test('viewer home tab does not start sandbox or verification diagnostics refreshes', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const requested = [];
+  const elements = new Map();
+  const bodyClasses = new Set();
+  const document = {
+    body: {classList: {
+      add(name) { bodyClasses.add(name); },
+      remove(name) { bodyClasses.delete(name); },
+      contains(name) { return bodyClasses.has(name); },
+    }},
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new FakeElement(id));
+      return elements.get(id);
+    },
+  };
+  const source = `
+let activeViewerTab = 'home';
+function refreshOpsData() { fetch('/optional/ops'); }
+function refreshToolHarnessData() { fetch('/optional/tool-harness'); }
+function refreshDCIData() { fetch('/optional/dci'); }
+function refreshSandboxData() { fetch('/diagnostic/sandbox'); }
+function refreshSkillGovernanceData() { fetch('/optional/skill-governance'); }
+function refreshWorkstreamData() { fetch('/optional/workstream'); }
+function refreshRevenueData() { fetch('/optional/revenue'); }
+function refreshPersonaObservationData() { fetch('/optional/persona'); }
+function refreshBrowserTraceAPIData() { fetch('/optional/browser-trace'); }
+function refreshComplexityHotspotData() { fetch('/optional/complexity'); }
+function refreshAIWorkflowData() { fetch('/optional/ai-workflow'); }
+function refreshSuperAgentData() { fetch('/optional/superagent'); }
+function refreshHeavyWorkerRuntimeDiagnostics() { fetch('/optional/heavy-worker'); }
+function refreshKnowledgeMemoryData() { fetch('/optional/knowledge-memory'); }
+function refreshRuntimeBlockedRouteData() { fetch('/diagnostic/runtime-blocked-routes'); }
+function refreshEvidence() { fetch('/optional/evidence'); }
+function refreshEvidenceSummary() { fetch('/optional/evidence-summary'); }
+function refreshVerification() { fetch('/diagnostic/verification'); }
+function refreshVerificationSummary() { fetch('/diagnostic/verification-summary'); }
+function refreshMemorySnapshot() { fetch('/optional/memory-snapshot'); }
+function refreshRecallTraces() { fetch('/optional/recall-traces'); }
+` + sourceBetween(viewerJs, 'function shouldRefreshOptionalPanels', 'function initEvidenceFromQuery') + `
+globalThis.__refreshOptionalPanelData = refreshOptionalPanelData;
+`;
+  const context = vm.createContext({
+    document,
+    fetch(url) {
+      requested.push(String(url));
+      return Promise.resolve({ok: true, json: () => Promise.resolve({ok: true})});
+    },
+  });
+
+  vm.runInContext(source, context);
+  context.__refreshOptionalPanelData();
+
+  assert.equal(requested.includes('/diagnostic/sandbox'), false);
+  assert.equal(requested.includes('/diagnostic/runtime-blocked-routes'), false);
+  assert.equal(requested.includes('/diagnostic/verification'), false);
+  assert.equal(requested.includes('/diagnostic/verification-summary'), false);
+  assert.ok(requested.includes('/optional/ops'));
+  assert.ok(requested.includes('/optional/evidence'));
+});
+
 test('viewer chat send ignores stale route alias and leaves routing to orchestrator', () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();

@@ -915,6 +915,14 @@ function switchTab(tab) {
     updateSTTInputIndicators();
   }
   if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
+  if (tab === 'ops') {
+    refreshSandboxData();
+    refreshRuntimeBlockedRouteData();
+  }
+  if (tab === 'jobs') {
+    refreshVerification();
+    refreshVerificationSummary();
+  }
   renderDeskViews();
 }
 tabs.forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
@@ -2296,7 +2304,6 @@ function refreshVerification() {
       state.verificationReports = [];
       renderEvidence();
       renderDeskViews();
-      console.error(err);
     });
 }
 
@@ -2321,7 +2328,6 @@ function refreshVerificationSummary() {
       state.verificationSummary = {status: {}, trigger_level: {}};
       renderEvidenceSummary();
       renderDeskViews();
-      console.error(err);
     });
 }
 
@@ -2615,12 +2621,19 @@ function shouldRefreshOptionalPanels() {
   return !(document.body && document.body.classList && document.body.classList.contains('live-mode'));
 }
 
+function shouldRefreshOpsPanelDiagnostics() {
+  return shouldRefreshOptionalPanels() && activeViewerTab === 'ops';
+}
+
+function shouldRefreshEvidencePanelDiagnostics() {
+  return shouldRefreshOptionalPanels() && activeViewerTab === 'jobs';
+}
+
 function refreshOptionalPanelData() {
   if (!shouldRefreshOptionalPanels()) return;
   refreshOpsData();
   refreshToolHarnessData();
   refreshDCIData();
-  refreshSandboxData();
   refreshSkillGovernanceData();
   refreshWorkstreamData();
   refreshRevenueData();
@@ -2631,13 +2644,18 @@ function refreshOptionalPanelData() {
   refreshSuperAgentData();
   refreshHeavyWorkerRuntimeDiagnostics();
   refreshKnowledgeMemoryData();
-  refreshRuntimeBlockedRouteData();
   refreshEvidence();
   refreshEvidenceSummary();
-  refreshVerification();
-  refreshVerificationSummary();
   refreshMemorySnapshot();
   refreshRecallTraces();
+  if (shouldRefreshOpsPanelDiagnostics()) {
+    refreshSandboxData();
+    refreshRuntimeBlockedRouteData();
+  }
+  if (shouldRefreshEvidencePanelDiagnostics()) {
+    refreshVerification();
+    refreshVerificationSummary();
+  }
 }
 
 function setOptionalPanelRefreshIntervals() {
@@ -2645,7 +2663,7 @@ function setOptionalPanelRefreshIntervals() {
   setInterval(refreshOpsData, 5000);
   setInterval(refreshToolHarnessData, 5000);
   setInterval(refreshDCIData, 5000);
-  setInterval(refreshSandboxData, 5000);
+  setInterval(() => { if (shouldRefreshOpsPanelDiagnostics()) refreshSandboxData(); }, 5000);
   setInterval(refreshSkillGovernanceData, 5000);
   setInterval(refreshWorkstreamData, 5000);
   setInterval(refreshRevenueData, 5000);
@@ -2656,11 +2674,11 @@ function setOptionalPanelRefreshIntervals() {
   setInterval(refreshSuperAgentData, 5000);
   setInterval(refreshHeavyWorkerRuntimeDiagnostics, 5000);
   setInterval(refreshKnowledgeMemoryData, 5000);
-  setInterval(refreshRuntimeBlockedRouteData, 5000);
+  setInterval(() => { if (shouldRefreshOpsPanelDiagnostics()) refreshRuntimeBlockedRouteData(); }, 5000);
   setInterval(refreshEvidence, 5000);
   setInterval(refreshEvidenceSummary, 5000);
-  setInterval(refreshVerification, 5000);
-  setInterval(refreshVerificationSummary, 5000);
+  setInterval(() => { if (shouldRefreshEvidencePanelDiagnostics()) refreshVerification(); }, 5000);
+  setInterval(() => { if (shouldRefreshEvidencePanelDiagnostics()) refreshVerificationSummary(); }, 5000);
   setInterval(refreshMemorySnapshot, 15000);
   setInterval(refreshRecallTraces, 15000);
 }
