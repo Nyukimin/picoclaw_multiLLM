@@ -108,6 +108,63 @@ Viewer A が owner を持った状態で Viewer B が audio owner を claim し�
    - または Viewer が 404 を optional unavailable として扱い、console error にしない。
 3. 上記は TTS/ACK 本線とは別 commit にする。
 
+## Sandbox / Verification 診断 refresh 修正後の確認
+
+2026-05-27 の追加確認で、Sandbox / Verification unavailable 診断は以下の方針に整理した。
+
+- live mode と通常 Home では Sandbox / Verification 診断 refresh を自動実行しない。
+- Ops tab 表示中のみ Sandbox / runtime blocked route 診断を取得する。
+- Jobs tab 表示中のみ Verification 診断を取得する。
+- direct endpoint は unavailable を HTTP 503 として返す。
+- Viewer panel からの optional 診断取得は `viewer_optional=1` を付け、HTTP 200 の JSON wrapper で受ける。
+- panel 表示では JSON の `status=503` を `HTTP 503: ...` として明示する。
+- 503 はエラー隠蔽ではなく unavailable の明示診断として扱う。ただし Chrome console の `Failed to load resource: 503` noise にはしない。
+
+確認結果:
+
+| 観点 | 結果 |
+| --- | --- |
+| Ops tab Sandbox panel | `Sandbox status unavailable: HTTP 503: sandbox store unavailable` |
+| Ops tab blocked route panel | `sandbox promotion diff preview unavailable: HTTP 503: sandbox store unavailable` |
+| Jobs tab Verification panel | `Evidence / verification unavailable: verification: HTTP 503: verification store unavailable` |
+| console error | 0 |
+| page error | 0 |
+| direct `/viewer/sandbox?limit=20` | HTTP 503 `sandbox store unavailable` |
+| direct `/viewer/verification/recent?limit=20` | HTTP 503 `verification store unavailable` |
+| direct `/viewer/verification/summary` | HTTP 503 `verification store unavailable` |
+
+証跡:
+
+- Ops / Jobs screenshot: `/tmp/rencrow_ops_jobs_diagnostics_after_optional_20260527.png`
+
+## IdleChat / TTS smoke 再確認
+
+Viewer 初期 refresh と tab 切替に触れたため、live mode で topic + 1発話の短い smoke test を再実行した。
+
+確認結果:
+
+| 観点 | 結果 |
+| --- | --- |
+| live mode | true |
+| 表示対象 | `#chat` |
+| topic | `[AI技術] グローバルAI規制の非対称性が生む技術覇権の綱引き` |
+| 表示本文 | `AI技術のテーマの時間です。` |
+| ACK | HTTP 200 x 1 |
+| ACK response_id | `forecast-1779861560:0000` |
+| ACK message_id | `forecast-1779861560:domain:0000` |
+| ACK utterance_id | `forecast-1779861560:domain:0000:utt:0000` |
+| timeout | なし |
+| fallback | なし |
+| console error | 0 |
+| page error | 0 |
+| stop 後 pending | `pending_session_count=0`, `pending_response_count=0` |
+
+観測終了時点では次発話 `forecast-1779861560:0001` が pending だったため、最終的に `/viewer/idlechat/stop` で停止し pending 0 を確認した。topic + 1発話の smoke としては、表示、ACK、timeout/fallback 不在、停止後 drain を確認済み。
+
+証跡:
+
+- Smoke screenshot: `/tmp/rencrow_idlechat_tts_smoke_retry_20260527.png`
+
 ## 再実行時の注意
 
 - `page.goto(..., waitUntil: 'networkidle')` は使わない。SSE や定期 refresh で待ち続ける可能性がある。
