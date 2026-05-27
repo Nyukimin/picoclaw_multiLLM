@@ -48,9 +48,8 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 				errorText = "Viewer sent deprecated fallback playback ACK; treat as explicit TTS playback error"
 			}
 		}
-		explicitFailureNoActiveOwner := viewerClientID != "" && activeViewerControl.snapshot().ActiveAudioViewerID == "" && status == "error"
 		ok := false
-		if activeAudio || explicitFailureNoActiveOwner {
+		if activeAudio {
 			ok = notifyIdleChatTTSPlaybackCompleted(responseID)
 		}
 		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error_code=%s error=%s",

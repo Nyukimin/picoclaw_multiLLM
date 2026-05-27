@@ -112,7 +112,7 @@ func TestTTSPlaybackAckOnlyReleasesActiveAudioViewer(t *testing.T) {
 	}
 }
 
-func TestTTSPlaybackFallbackAckIsNormalizedToErrorWhenNoActiveAudioViewer(t *testing.T) {
+func TestTTSPlaybackFallbackAckIsNormalizedToErrorWithoutReleasingPending(t *testing.T) {
 	resetActiveViewerControlForTest()
 	ch := registerIdleChatTTSPending("idle-fallback-tts", "response-fallback-1")
 
@@ -140,12 +140,13 @@ func TestTTSPlaybackFallbackAckIsNormalizedToErrorWhenNoActiveAudioViewer(t *tes
 	}
 	select {
 	case <-ch:
+		t.Fatal("normalized fallback error ack from non-active viewer must not release idlechat TTS pending")
 	default:
-		t.Fatal("normalized fallback error ack should release idlechat TTS pending when no active audio viewer exists")
 	}
+	clearAllIdleChatTTSPending()
 }
 
-func TestTTSPlaybackErrorAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
+func TestTTSPlaybackErrorAckDoesNotReleaseWhenNoActiveAudioViewer(t *testing.T) {
 	resetActiveViewerControlForTest()
 	ch := registerIdleChatTTSPending("idle-error-tts", "response-error-1")
 
@@ -165,9 +166,10 @@ func TestTTSPlaybackErrorAckReleasesWhenNoActiveAudioViewer(t *testing.T) {
 	}
 	select {
 	case <-ch:
+		t.Fatal("explicit error ack from non-active viewer must not release idlechat TTS pending")
 	default:
-		t.Fatal("explicit error ack with viewer_client_id should release idlechat TTS pending when no active audio viewer exists")
 	}
+	clearAllIdleChatTTSPending()
 }
 
 func TestViewerActiveClaimHandlerBroadcastsControlEvent(t *testing.T) {
