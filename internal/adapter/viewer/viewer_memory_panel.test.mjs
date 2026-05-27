@@ -139,6 +139,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /Do not use this object as the source of truth for transcript, TTS ACK, utterance consumption, or session progress\./);
   assert.match(js, /Browser playback state only\. Backend owns TTS completion\/ACK truth/);
   assert.match(js, /Diagnostic render trace only\. Never drive transcript, pending TTS, ACK, or session progression from this log\./);
+  assert.match(idleChatJs, /Diagnostic write-only trace for tests\/debugging/);
+  assert.doesNotMatch(js + '\n' + idleChatJs, /idleLiveRenderedLog\.(some|find|filter|map|forEach|reduce|entries|values)/);
   assert.match(js, /completedResponses \/ responsePlaybackCounts \/ responsePlaybackResults \/ seenAudioResponses form one response-level ACK lifecycle/);
   assert.match(js, /seenUtterances and blockedAckKeys are chunk-level local dedupe guards/);
   assert.match(js, /function clearResponsePlaybackLifecycle\(responseId\)/);

@@ -41,6 +41,8 @@ function idleTopicKey(ev) {
 }
 
 function recordIdleLiveRendered(kind, ev, text) {
+  // Diagnostic write-only trace for tests/debugging. Runtime decisions must use live events,
+  // backend status/log endpoints, or explicit playback state, never this rendered history.
   idleLiveRenderedLog.push({
     kind,
     from: String((ev && ev.from) || ''),
