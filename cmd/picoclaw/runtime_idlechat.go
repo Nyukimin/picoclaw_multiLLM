@@ -48,7 +48,7 @@ func buildIdleChatRuntime(
 	})
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
 	if forecastProvider, label := selectForecastProvider(cfg, chatProvider, workerProvider, wildProvider); forecastProvider != nil {
-		idleChatOrch.SetForecastProvider(forecastProvider)
+		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
 		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
 		log.Printf("IdleChat: Forecast provider set to %s, topic stock filling", label)
 	}

@@ -1,6 +1,7 @@
 package idlechat
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,5 +51,38 @@ func TestFetchGoogleNewsRSSNonOKIncludesResponseBody(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "google news rss status 429: google news throttled") {
 		t.Fatalf("error did not include upstream body: %q", got)
+	}
+}
+
+func TestBuildGoogleNewsRSSSearchURLEncodesJapaneseKeyword(t *testing.T) {
+	got := buildGoogleNewsRSSSearchURL("はしか感染拡大")
+	if strings.Contains(got, "はしか") {
+		t.Fatalf("URL should percent-encode Japanese keyword: %s", got)
+	}
+	if !strings.Contains(got, "q=%E3%81%AF%E3%81%97%E3%81%8B%E6%84%9F%E6%9F%93%E6%8B%A1%E5%A4%A7") {
+		t.Fatalf("URL did not contain encoded query: %s", got)
+	}
+	if !strings.Contains(got, "hl=ja&gl=JP&ceid=JP:ja") {
+		t.Fatalf("URL lost locale parameters: %s", got)
+	}
+}
+
+func TestForecastLLMErrorCodeClassifiesQuotaAndRateLimit(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "quota", err: errors.New("openai error: insufficient_quota"), want: "insufficient_quota"},
+		{name: "429", err: errors.New("provider returned status 429"), want: "rate_limited"},
+		{name: "timeout", err: errors.New("request timeout"), want: "timeout"},
+		{name: "generic", err: errors.New("boom"), want: "provider_error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := forecastLLMErrorCode(tc.err); got != tc.want {
+				t.Fatalf("forecastLLMErrorCode() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

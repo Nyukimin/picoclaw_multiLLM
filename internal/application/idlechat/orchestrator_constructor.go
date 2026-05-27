@@ -62,9 +62,14 @@ func (o *IdleChatOrchestrator) SetTTSTimeoutReporter(report func(TTSTimeoutEvent
 // SetForecastProvider sets a high-capability LLM for forecast topic generation and keyword extraction.
 
 func (o *IdleChatOrchestrator) SetForecastProvider(provider llm.LLMProvider) {
+	o.SetForecastProviderWithLabel(provider, "")
+}
+
+func (o *IdleChatOrchestrator) SetForecastProviderWithLabel(provider llm.LLMProvider, label string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.forecastProvider = provider
+	o.forecastProviderLabel = strings.TrimSpace(label)
 }
 
 func (o *IdleChatOrchestrator) SetRecentTopicProvider(provider func(context.Context, int) ([]string, error)) {

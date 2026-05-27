@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -18,14 +19,18 @@ func fetchGoogleNewsSeeds(keyword string, limit int) []string {
 	if keyword == "" {
 		return nil
 	}
-	rssURL := fmt.Sprintf("https://news.google.com/rss/search?q=%s&hl=ja&gl=JP&ceid=JP:ja",
-		strings.ReplaceAll(keyword, " ", "+"))
+	rssURL := buildGoogleNewsRSSSearchURL(keyword)
 	headlines, err := fetchGoogleNewsRSS(rssURL, limit)
 	if err != nil {
 		log.Printf("[Forecast] Google News RSS failed (q=%s): %v", keyword, err)
 		return nil
 	}
 	return headlines
+}
+
+func buildGoogleNewsRSSSearchURL(keyword string) string {
+	return fmt.Sprintf("https://news.google.com/rss/search?q=%s&hl=ja&gl=JP&ceid=JP:ja",
+		url.QueryEscape(strings.TrimSpace(keyword)))
 }
 
 // fetchGoogleNewsRSS はGoogle News RSSをパースしてタイトルを取得する。

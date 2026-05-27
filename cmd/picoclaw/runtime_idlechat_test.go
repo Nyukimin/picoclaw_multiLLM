@@ -62,6 +62,30 @@ func TestSelectForecastProviderSkipsBrokenCoderAndUsesNextCoder(t *testing.T) {
 	}
 }
 
+func TestSelectForecastProviderSkipsBrokenCoder1AndUsesCoder2OpenAI(t *testing.T) {
+	worker := fakeConversationProvider{name: "worker-provider"}
+	provider, label := selectForecastProvider(&config.Config{
+		Coder1: config.CoderConfig{
+			Enabled:  true,
+			Provider: "local_openai",
+			Model:    "Worker",
+		},
+		Coder2: config.CoderConfig{
+			Enabled:  true,
+			Provider: "openai",
+			Model:    "gpt-4o-mini",
+			APIKey:   "test-key",
+		},
+	}, nil, worker, nil)
+
+	if provider == nil || provider == worker {
+		t.Fatalf("expected Coder2 OpenAI provider, got %#v", provider)
+	}
+	if !strings.Contains(label, "Coder2 openai") || !strings.Contains(label, "gpt-4o-mini") {
+		t.Fatalf("unexpected label: %q", label)
+	}
+}
+
 func TestSelectForecastProviderFallsBackToChatWhenNoCoderAvailable(t *testing.T) {
 	chat := fakeConversationProvider{name: "chat-provider"}
 	provider, label := selectForecastProvider(&config.Config{

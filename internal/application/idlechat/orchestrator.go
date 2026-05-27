@@ -102,18 +102,19 @@ type PersonaRuntimeRecorder interface {
 // IdleChatOrchestrator はアイドル時のAgent間雑談を管理
 
 type IdleChatOrchestrator struct {
-	llmProvider      llm.LLMProvider
-	speakerLLMs      map[string]llm.LLMProvider
-	forecastProvider llm.LLMProvider // 未来展望セッションの思考用（Coder2等の高性能モデル）
-	sessionContext   string          // 現在のセッション固有コンテキスト（既出テーマ等）
-	memory           *session.CentralMemory
-	participants     []string
-	intervalMin      int
-	interval         time.Duration
-	maxTurns         int
-	temperature      float64
-	personalities    map[string]string
-	speakerOptions   map[string]map[string]any
+	llmProvider           llm.LLMProvider
+	speakerLLMs           map[string]llm.LLMProvider
+	forecastProvider      llm.LLMProvider // 未来展望セッションの思考用（Coder2等の高性能モデル）
+	forecastProviderLabel string
+	sessionContext        string // 現在のセッション固有コンテキスト（既出テーマ等）
+	memory                *session.CentralMemory
+	participants          []string
+	intervalMin           int
+	interval              time.Duration
+	maxTurns              int
+	temperature           float64
+	personalities         map[string]string
+	speakerOptions        map[string]map[string]any
 
 	lastActivity              time.Time
 	chatActive                bool

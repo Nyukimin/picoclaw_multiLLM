@@ -141,9 +141,10 @@ func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seed
 			MaxTokens:   420,
 			Temperature: 0.9 + float64(attempt)*0.05,
 		}
-		resp, err := o.forecastLLM().Generate(o.idleRunContext(), req)
+		provider, providerLabel := o.forecastLLMInfo()
+		resp, err := provider.Generate(o.idleRunContext(), req)
 		if err != nil {
-			log.Printf("[Forecast] Topic generation failed: %v", err)
+			logForecastLLMError("topic", domain.Name, providerLabel, err)
 			break
 		}
 		logIdleRaw(fmt.Sprintf("forecast.topic.generate attempt=%d domain=%s", attempt+1, domain.Name), resp.Content)
@@ -187,13 +188,14 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 		{Role: "system", Content: "あなたはニュース分析の専門家です。"},
 		{Role: "user", Content: prompt},
 	}
-	resp, err := o.forecastLLM().Generate(o.idleRunContext(), llm.GenerateRequest{
+	provider, providerLabel := o.forecastLLMInfo()
+	resp, err := provider.Generate(o.idleRunContext(), llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   30,
 		Temperature: 0.5,
 	})
 	if err != nil {
-		log.Printf("[Forecast] Keyword extraction failed: %v", err)
+		logForecastLLMError("keyword", domain.Name, providerLabel, err)
 		return domain.Name
 	}
 	logIdleRaw("forecast.keyword.generate", resp.Content)
@@ -206,4 +208,32 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 		kw = strings.TrimSpace(kw[:i])
 	}
 	return kw
+}
+
+func logForecastLLMError(phase, domainName, providerLabel string, err error) {
+	log.Printf("[Forecast] LLM generation failed phase=%s domain=%s provider=%s error_code=%s error=%v",
+		strings.TrimSpace(phase),
+		strings.TrimSpace(domainName),
+		strings.TrimSpace(providerLabel),
+		forecastLLMErrorCode(err),
+		err)
+}
+
+func forecastLLMErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "insufficient_quota"):
+		return "insufficient_quota"
+	case strings.Contains(msg, "429") || strings.Contains(msg, "rate_limit") || strings.Contains(msg, "rate limited"):
+		return "rate_limited"
+	case strings.Contains(msg, "context canceled") || strings.Contains(msg, "cancelled"):
+		return "context_canceled"
+	case strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "timeout"):
+		return "timeout"
+	default:
+		return "provider_error"
+	}
 }

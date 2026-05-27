@@ -192,11 +192,28 @@ func (o *IdleChatOrchestrator) updateForecastSessionContext(domain ForecastDomai
 
 // forecastLLM は未来展望セッション用の LLM を返す。forecastProvider があればそれを、なければ mio を使う。
 func (o *IdleChatOrchestrator) forecastLLM() llm.LLMProvider {
+	p, _ := o.forecastLLMInfo()
+	return p
+}
+
+func (o *IdleChatOrchestrator) forecastLLMInfo() (llm.LLMProvider, string) {
 	o.mu.Lock()
 	p := o.forecastProvider
+	label := strings.TrimSpace(o.forecastProviderLabel)
 	o.mu.Unlock()
 	if p != nil {
-		return p
+		if label == "" {
+			label = strings.TrimSpace(p.Name())
+		}
+		if label == "" {
+			label = "forecastProvider"
+		}
+		return p, label
 	}
-	return o.providerForSpeaker("mio")
+	p = o.providerForSpeaker("mio")
+	label = "mio"
+	if p != nil && strings.TrimSpace(p.Name()) != "" {
+		label = "mio " + strings.TrimSpace(p.Name())
+	}
+	return p, label
 }
