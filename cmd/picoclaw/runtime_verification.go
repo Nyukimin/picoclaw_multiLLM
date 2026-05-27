@@ -25,6 +25,9 @@ func buildVerificationRuntime(cfg *config.Config, deps *Dependencies, l1Store *c
 	}
 	if !policy.Enabled {
 		log.Println("Verification pipeline disabled")
+		deps.verificationRecent = viewer.HandleVerificationUnavailable()
+		deps.verificationDetail = viewer.HandleVerificationUnavailable()
+		deps.verificationSummary = viewer.HandleVerificationUnavailable()
 		return verificationRuntime{}
 	}
 
@@ -50,6 +53,10 @@ func buildVerificationRuntime(cfg *config.Config, deps *Dependencies, l1Store *c
 		deps.verificationRecent = viewer.HandleVerificationRecent(store)
 		deps.verificationDetail = viewer.HandleVerificationDetail(store)
 		deps.verificationSummary = viewer.HandleVerificationSummary(store)
+	} else {
+		deps.verificationRecent = viewer.HandleVerificationUnavailable()
+		deps.verificationDetail = viewer.HandleVerificationUnavailable()
+		deps.verificationSummary = viewer.HandleVerificationUnavailable()
 	}
 	log.Printf("Verification pipeline enabled (mode=%s default_level=%s report_path=%s)", cfg.Verification.Mode, cfg.Verification.DefaultLevel, cfg.Verification.ReportPath)
 	return runtime

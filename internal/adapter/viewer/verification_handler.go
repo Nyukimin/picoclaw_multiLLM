@@ -15,6 +15,16 @@ type VerificationReportReader interface {
 	Summary(ctx context.Context) (map[string]map[string]int, error)
 }
 
+func HandleVerificationUnavailable() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		http.Error(w, "verification store unavailable", http.StatusServiceUnavailable)
+	}
+}
+
 func HandleVerificationRecent(store VerificationReportReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

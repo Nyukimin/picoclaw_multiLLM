@@ -32,7 +32,7 @@ func TestBuildVerificationRuntimeEnabledWiresPipelineAndViewerHandlers(t *testin
 	}
 }
 
-func TestBuildVerificationRuntimeDisabledPreservesHandlers(t *testing.T) {
+func TestBuildVerificationRuntimeDisabledWiresUnavailableHandlers(t *testing.T) {
 	deps := &Dependencies{}
 	cfg := &config.Config{Verification: config.VerificationConfig{Enabled: false}}
 
@@ -41,7 +41,7 @@ func TestBuildVerificationRuntimeDisabledPreservesHandlers(t *testing.T) {
 	if runtime.Pipeline != nil || runtime.Store != nil {
 		t.Fatal("disabled verification should not build runtime")
 	}
-	if deps.verificationRecent != nil || deps.verificationDetail != nil || deps.verificationSummary != nil {
-		t.Fatal("disabled verification should not wire viewer handlers")
+	if deps.verificationRecent == nil || deps.verificationDetail == nil || deps.verificationSummary == nil {
+		t.Fatal("disabled verification should wire unavailable viewer handlers")
 	}
 }

@@ -80,6 +80,21 @@ func TestHandleVerificationSummary(t *testing.T) {
 	}
 }
 
+func TestHandleVerificationUnavailable(t *testing.T) {
+	handler := HandleVerificationUnavailable()
+	req := httptest.NewRequest(http.MethodGet, "/viewer/verification/recent", nil)
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "verification store unavailable") {
+		t.Fatalf("expected unavailable body, got %s", rec.Body.String())
+	}
+}
+
 func testVerificationReport() domainverification.VerificationReport {
 	return domainverification.VerificationReport{
 		ID:           "verify_job-1",
