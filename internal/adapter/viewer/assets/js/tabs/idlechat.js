@@ -13,8 +13,15 @@ function removeIdleLiveEmpty() {
   if (empty) empty.remove();
 }
 
+function isViewerLiveMode() {
+  return !!(document.body && document.body.classList.contains('live-mode'));
+}
+
 function idleLiveRenderTarget() {
-  if (document.body && document.body.classList.contains('live-mode') && chat) return chat;
+  // Rendering target only. This is not transcript truth, ACK truth, or session truth.
+  // live mode is the theater view and uses the central chat stream; the IdleChat tab log is
+  // for normal mode only and must not be used as the live-mode observation selector.
+  if (isViewerLiveMode() && chat) return chat;
   return idleLiveLog;
 }
 
@@ -67,6 +74,10 @@ function recordIdleLiveIdentityError(reason, ev, detail) {
   } catch (_) {}
 }
 
+function recordIdleLiveDiagnostic(kind, ev, payload) {
+  recordIdleLiveRendered(kind, ev, JSON.stringify(payload || {}));
+}
+
 function idleEsc(s) {
   if (typeof esc === 'function') return esc(s);
   return String(s || '').replace(/[&<>"']/g, (ch) => ({
@@ -89,6 +100,19 @@ function queueIdleMessageForTTS(ev) {
   if (isIdleLiveHistoricalEvent(ev)) return;
   const sid = String(ev.session_id || ev.chat_id || '').trim() || 'idlechat';
   if (idleLiveIdentityConflict(ev)) return;
+  const liveMode = isViewerLiveMode();
+  if (liveMode && typeof isThisViewerActiveAudio === 'function' && !isThisViewerActiveAudio()) {
+    recordIdleLiveDiagnostic('pending_skipped', ev, {
+      error_code: 'NON_ACTIVE_AUDIO_VIEWER_PENDING_SKIPPED',
+      reason: 'Viewer is not the active audio owner; it did not arm an IdleChat TTS pending timeout.',
+      session_id: sid,
+      message_id: String(ev.message_id || '').trim(),
+      turn_index: idleTurnIndex(ev),
+      active_audio_viewer_id: String((typeof viewerControl !== 'undefined' && viewerControl && viewerControl.activeAudioViewerId) || '').trim(),
+      viewer_client_id: String((typeof viewerControl !== 'undefined' && viewerControl && viewerControl.clientId) || '').trim(),
+    });
+    return;
+  }
   const existing = findIdleLiveMessageNode(ev);
   if (existing && !existing.classList.contains('idle-pending-tts')) return;
   const queue = idlePendingQueue(sid);
@@ -96,7 +120,6 @@ function queueIdleMessageForTTS(ev) {
   const turnIndex = idleTurnIndex(ev);
   if (messageId && queue.some((item) => !item.consumed && item.messageId === messageId)) return;
   if (!messageId && turnIndex >= 0 && queue.some((item) => !item.consumed && item.turnIndex === turnIndex)) return;
-  const liveMode = document.body && document.body.classList.contains('live-mode');
   const el = liveMode ? null : (existing || appendIdleLiveMessageEvent(ev, {pending: true}));
   const item = {
     ev,
@@ -116,8 +139,29 @@ function queueIdleMessageForTTS(ev) {
   queue.push(item);
 }
 
+function clearIdleLivePendingForAudioOwnerTransfer(ownerId) {
+  if (!isViewerLiveMode() || !idlePendingMessages || idlePendingMessages.size === 0) return;
+  idlePendingMessages.forEach((queue, sid) => {
+    (queue || []).forEach((item) => {
+      if (!item || item.consumed) return;
+      item.consumed = true;
+      if (item.timer) clearTimeout(item.timer);
+      recordIdleLiveDiagnostic('pending_skipped', item.ev, {
+        error_code: 'NON_ACTIVE_AUDIO_VIEWER_PENDING_SKIPPED',
+        reason: 'Active audio owner changed before this Viewer rendered the pending IdleChat TTS chunk.',
+        session_id: String(sid || '').trim(),
+        message_id: String(item.messageId || '').trim(),
+        turn_index: Number.isFinite(item.turnIndex) ? item.turnIndex : -1,
+        active_audio_viewer_id: String(ownerId || '').trim(),
+        viewer_client_id: String((typeof viewerControl !== 'undefined' && viewerControl && viewerControl.clientId) || '').trim(),
+      });
+    });
+  });
+  idlePendingMessages.clear();
+}
+
 function isIdleLiveHistoricalEvent(ev) {
-  if (!(document.body && document.body.classList.contains('live-mode'))) return false;
+  if (!isViewerLiveMode()) return false;
   const raw = String((ev && ev.timestamp) || '').trim();
   if (!raw) return false;
   const eventMs = Date.parse(raw);

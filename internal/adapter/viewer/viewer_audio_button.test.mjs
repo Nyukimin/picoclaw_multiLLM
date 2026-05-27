@@ -138,10 +138,12 @@ function loadAudioHarness(options = {}) {
   setCentralTTSSpeechText,
   addIdleMsgToTimeline,
   hydrateIdleLiveTranscript,
-	  chatAudioSync,
-	  handleViewerActiveControlEvent,
-	  isIdleChatActiveForTTS,
-	  idleLiveRenderedLog,
+  idleLiveRenderTarget,
+  clearIdleLivePendingForAudioOwnerTransfer,
+  chatAudioSync,
+  handleViewerActiveControlEvent,
+  isIdleChatActiveForTTS,
+  idleLiveRenderedLog,
 	};
 `;
 
@@ -234,6 +236,15 @@ function loadAudioHarness(options = {}) {
 function liveTimestamp(offsetMs = 0) {
   return new Date(Date.now() + offsetMs).toISOString();
 }
+
+test('idlechat live render target is central chat only in live mode', () => {
+  const normal = loadAudioHarness();
+  assert.equal(normal.harness.idleLiveRenderTarget(), normal.elements.get('idleLiveLog'));
+
+  const live = loadAudioHarness({liveMode: true});
+  assert.equal(live.harness.idleLiveRenderTarget(), live.elements.get('chat'));
+  assert.notEqual(live.harness.idleLiveRenderTarget(), live.elements.get('idleLiveLog'));
+});
 
 test('speaker button can turn ready audio off without stopping central chat fallback', async () => {
   const {harness, elements, timers} = loadAudioHarness();
@@ -745,6 +756,68 @@ test('live mode pending tts timeout renders traceable error instead of full resp
   assert.equal(chat.children[0]._mc.innerHTML.includes('fallbackで丸ごと再表示してはいけない本文です。'), false);
   assert.equal(harness.idleLiveRenderedLog.some((item) => item.kind === 'speech_fallback' && item.message_id === 'idle-live-no-fallback:msg:0001'), false);
   assert.ok(harness.idleLiveRenderedLog.some((item) => item.kind === 'speech_tts_error' && item.message_id === 'idle-live-no-fallback:msg:0001' && item.content.includes('TTS_CHUNK_TIMEOUT')));
+});
+
+test('live mode non-active audio viewer does not arm idlechat pending timeout', () => {
+  const {harness, elements, timers} = loadAudioHarness({liveMode: true});
+  const chat = elements.get('chat');
+  harness.viewerControl.activeAudioViewerId = 'viewer-tab-other';
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '非active viewerではpendingを作りません。',
+    session_id: 'idle-non-active-owner',
+    message_id: 'idle-non-active-owner:msg:0001',
+    turn_index: 1,
+    timestamp: liveTimestamp(1000),
+  });
+
+  assert.equal(chat.children.length, 0);
+  assert.equal(timers.length, 0);
+  assert.ok(harness.idleLiveRenderedLog.some((item) =>
+    item.kind === 'pending_skipped' &&
+    item.message_id === 'idle-non-active-owner:msg:0001' &&
+    item.content.includes('NON_ACTIVE_AUDIO_VIEWER_PENDING_SKIPPED')
+  ));
+});
+
+test('live mode owner transfer clears old pending without timeout fallback display', () => {
+  const {harness, elements, timers} = loadAudioHarness({liveMode: true});
+  const chat = elements.get('chat');
+  harness.viewerControl.activeAudioViewerId = harness.viewerControl.clientId;
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'shiro',
+    to: 'mio',
+    content: 'ownerを失ったらtimeout表示しません。',
+    session_id: 'idle-owner-transfer',
+    message_id: 'idle-owner-transfer:msg:0001',
+    turn_index: 1,
+    timestamp: liveTimestamp(1000),
+  });
+  assert.equal(timers.length, 1);
+
+  harness.handleViewerActiveControlEvent({
+    type: 'viewer.active_control',
+    content: JSON.stringify({
+      kind: 'audio',
+      action: 'claim',
+      viewer_client_id: 'viewer-tab-new-owner',
+      active_audio_viewer_id: 'viewer-tab-new-owner',
+      active_input_viewer_id: '',
+    }),
+  });
+  timers[0]();
+
+  assert.equal(chat.children.length, 0);
+  assert.ok(harness.idleLiveRenderedLog.some((item) =>
+    item.kind === 'pending_skipped' &&
+    item.message_id === 'idle-owner-transfer:msg:0001' &&
+    item.content.includes('NON_ACTIVE_AUDIO_VIEWER_PENDING_SKIPPED')
+  ));
 });
 
 test('live mode ignores historical idlechat messages instead of arming pending tts timeout', () => {

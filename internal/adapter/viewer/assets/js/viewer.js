@@ -526,6 +526,9 @@ function handleViewerActiveControlEvent(ev) {
   const kind = String(payload.kind || '').trim();
   const owner = String(payload.viewer_client_id || '').trim();
   if (kind === 'audio' && owner && owner !== viewerControl.clientId) {
+    if (typeof clearIdleLivePendingForAudioOwnerTransfer === 'function') {
+      clearIdleLivePendingForAudioOwnerTransfer(owner);
+    }
     if (ttsPlayback.playing || ttsPlayback.audioEnabled || ttsPlayback.queue.length > 0) {
       chatAudioSync.disableAudio();
     }

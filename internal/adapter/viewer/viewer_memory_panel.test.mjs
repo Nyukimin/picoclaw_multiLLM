@@ -150,8 +150,10 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /sessionStorage\.setItem\(tabKey, id\)/);
   assert.match(js, /function switchAdjacentPanel/);
   assert.match(js, /mobilePanelSelect\.addEventListener\('change'/);
+  assert.match(idleChatJs, /function isViewerLiveMode\(\) \{/);
   assert.match(idleChatJs, /function idleLiveRenderTarget\(\) \{/);
-  assert.match(idleChatJs, /document\.body && document\.body\.classList\.contains\('live-mode'\) && chat\) return chat/);
+  assert.match(idleChatJs, /live mode is the theater view and uses the central chat stream/);
+  assert.match(idleChatJs, /if \(isViewerLiveMode\(\) && chat\) return chat/);
   assert.match(idleChatJs, /const target = idleLiveRenderTarget\(\);[\s\S]*target\.appendChild\(el\);/);
   assert.match(idleChatJs, /function consumeIdlePendingMessage\(sessionId, characterId, kind, messageId, turnIndex\)/);
   assert.match(idleChatJs, /expectedKind === 'topic'[\s\S]*isIdleTopicEvent\(item\.ev\)/);
