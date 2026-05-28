@@ -19,10 +19,13 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		return nil, false
 	}
 
-	displayText := formatIdleChatDisplayText(ev)
 	filtered := ttsapp.FilterSpeakableText("agent.response", idleChatRoute, formatIdleChatTTSText(ev))
 	if filtered == "" {
 		return nil, false
+	}
+	displayText := filtered
+	if isIdleChatTopicAnnouncement(ev) {
+		displayText = formatIdleChatDisplayText(ev)
 	}
 
 	voiceID, voiceProfile := idleChatVoiceForSpeaker(ev.From)

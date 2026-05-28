@@ -3,7 +3,6 @@ package idlechat
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"strings"
 	"unicode/utf8"
 
@@ -13,44 +12,54 @@ import (
 )
 
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy TopicStrategy) (string, TopicStrategy) {
-	movieMode := rand.Intn(100) < 20
+	movieMode := strategy == StrategyMovie
 	recentTopics := o.getRecentTopics(12)
 
 	var prompt string
 	var logInfo string
-	var fallbackTopic string
+	var diagnosticTopic string
+	promptReady := true
 
 	switch strategy {
 	case StrategySingleGenre:
 		var genres []string
 		var anchor topicAnchor
-		prompt, genres, anchor = generateSingleGenrePrompt(movieMode)
+		prompt, genres, anchor = generateSingleGenrePrompt(false)
 		logInfo = fmt.Sprintf("single:%v anchor=%s", genres, anchor.Value)
-		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", anchor, movieMode)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, genres, "", "", anchor)
 
 	case StrategyDoubleGenre:
 		var genres []string
 		var anchor topicAnchor
-		prompt, genres, anchor = generateDoubleGenrePrompt(movieMode)
+		prompt, genres, anchor = generateDoubleGenrePrompt(false)
 		logInfo = fmt.Sprintf("double:%v anchor=%s", genres, anchor.Value)
-		fallbackTopic = fallbackTopicForStrategy(strategy, genres, "", "", anchor, movieMode)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, genres, "", "", anchor)
 
 	case StrategyExternalStimulus:
 		var source string
-		prompt, source = generateExternalPrompt(movieMode)
+		prompt, source, promptReady = generateExternalPrompt()
 		logInfo = fmt.Sprintf("external:%s", source)
-		fallbackTopic = fallbackTopicForStrategy(strategy, nil, source, "", topicAnchor{}, movieMode)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, nil, source, "", topicAnchor{})
 
-	default:
-		// Fallback to single genre
+	case StrategyMovie:
 		var genres []string
 		var anchor topicAnchor
-		prompt, genres, anchor = generateSingleGenrePrompt(movieMode)
-		logInfo = fmt.Sprintf("single:%v anchor=%s (fallback)", genres, anchor.Value)
-		fallbackTopic = fallbackTopicForStrategy(StrategySingleGenre, genres, "", "", anchor, movieMode)
+		prompt, genres, anchor = generateMoviePrompt()
+		logInfo = fmt.Sprintf("movie:%v anchor=%s", genres, anchor.Value)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, genres, "", "", anchor)
+
+	case StrategyNews:
+		var source string
+		prompt, source, promptReady = generateNewsPrompt()
+		logInfo = fmt.Sprintf("news:%s", source)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, nil, source, "", topicAnchor{})
+
+	default:
+		log.Printf("[IdleChat] unsupported topic strategy: %s", strategy)
+		return "未対応のお題カテゴリ: " + string(strategy), strategy
 	}
 
-	if o.recentTopics != nil {
+	if promptReady && o.recentTopics != nil {
 		if glossaryTopics, err := o.recentTopics(o.ctx, 6); err != nil {
 			log.Printf("[IdleChat] glossary topics failed: %v", err)
 		} else if len(glossaryTopics) > 0 {
@@ -58,7 +67,16 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 		}
 	}
 
-	log.Printf("[IdleChat] Strategy: %s (%s, movie=%t)", strategy, logInfo, movieMode)
+	log.Printf("[IdleChat] Strategy: %s (%s)", strategy, logInfo)
+
+	if !promptReady {
+		diagnostic := normalizeIdleTopic(diagnosticTopic, movieMode)
+		if diagnostic == "" {
+			diagnostic = string(strategy) + "_seed_unavailable"
+		}
+		log.Printf("[IdleChat] Topic unavailable: strategy=%s reason=%s", strategy, logInfo)
+		return diagnostic, strategy
+	}
 
 	// トピック生成（最大3回リトライ）
 	for attempt := 0; attempt < 3; attempt++ {
@@ -89,23 +107,19 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 		return topic, strategy
 	}
 
-	// フォールバック
-	fallback := normalizeIdleTopic(fallbackTopic, movieMode)
-	if fallback == "" {
-		fallback = "予想外の切り口から考える論点"
+	diagnostic := normalizeIdleTopic(diagnosticTopic, movieMode)
+	if diagnostic == "" {
+		diagnostic = "予想外の切り口から考える論点"
 	}
-	log.Printf("[IdleChat] Topic (fallback): %s", fallback)
-	return fallback, strategy
+	log.Printf("[IdleChat] Topic (diagnostic): %s", diagnostic)
+	return diagnostic, strategy
 }
 
-func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, anchor topicAnchor, movieMode bool) string {
+func diagnosticTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, anchor topicAnchor) string {
 	anchorValue := strings.TrimSpace(anchor.Value)
 	switch strategy {
 	case StrategySingleGenre:
 		if len(genres) >= 1 && strings.TrimSpace(genres[0]) != "" {
-			if movieMode {
-				return formatMovieTopicPrompt(genres[0] + "の裏側")
-			}
 			if anchorValue != "" {
 				return fmt.Sprintf("%sを%sの視点から考える", genres[0], anchorValue)
 			}
@@ -113,9 +127,6 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 		}
 	case StrategyDoubleGenre:
 		if len(genres) >= 2 && strings.TrimSpace(genres[0]) != "" && strings.TrimSpace(genres[1]) != "" {
-			if movieMode {
-				return formatMovieTopicPrompt(genres[0] + "と" + genres[1])
-			}
 			if anchorValue != "" {
 				return fmt.Sprintf("%sと%sを%sでつなぐ", genres[0], genres[1], anchorValue)
 			}
@@ -130,20 +141,29 @@ func fallbackTopicForStrategy(strategy TopicStrategy, genres []string, source st
 			seedText = parts[1]
 		}
 		if strings.TrimSpace(seedText) != "" {
-			if movieMode {
-				return formatMovieTopicPrompt(seedText)
-			}
 			return fmt.Sprintf("「%s」から掘る盲点と前提", seedText)
 		}
 		if strings.TrimSpace(sourceName) != "" {
-			if movieMode {
-				return formatMovieTopicPrompt(sourceName + "の裏側")
-			}
 			return fmt.Sprintf("%s由来の刺激から掘る盲点と前提", sourceName)
 		}
-	}
-	if movieMode {
-		return formatMovieTopicPrompt("予想外の切り口")
+	case StrategyMovie:
+		if len(genres) >= 1 && strings.TrimSpace(genres[0]) != "" {
+			return formatMovieTopicPrompt(genres[0] + "の裏側")
+		}
+	case StrategyNews:
+		sourceName := source
+		seedText := seed
+		if strings.Contains(source, ":") {
+			parts := strings.SplitN(source, ":", 2)
+			sourceName = parts[0]
+			seedText = parts[1]
+		}
+		if strings.TrimSpace(seedText) != "" {
+			return fmt.Sprintf("「%s」の背景と影響", seedText)
+		}
+		if strings.TrimSpace(sourceName) == "news_seed_unavailable" {
+			return "news_seed_unavailable: ニュースシード未取得"
+		}
 	}
 	return "予想外の切り口から考える論点"
 }

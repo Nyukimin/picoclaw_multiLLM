@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	ttsinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tts"
 )
 
@@ -111,6 +117,76 @@ func TestNextTTSPublicResponseIDForMessageKeepsForecastAnnouncementsOutOfMessage
 	}
 	if got := nextTTSPublicResponseIDForMessage("forecast-align", "forecast-align:msg:0001"); got != "forecast-align:0001" {
 		t.Fatalf("message response id = %q, want forecast-align:0001", got)
+	}
+}
+
+func TestTTSClientBridgeIdleChatChunkPayloadIncludesCanonicalSpeechFields(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+	clearAllIdleChatTTSPending()
+	t.Cleanup(clearAllIdleChatTTSPending)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"audio_path":"/audio/idle.wav"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	var chunks []orchestrator.OrchestratorEvent
+	bridge := buildTTSClientBridge(&config.Config{
+		TTS: config.TTSConfig{
+			Enabled:     true,
+			HTTPBaseURL: srv.URL,
+			VoiceID:     "mio",
+			TimeoutMS:   15000,
+		},
+	}, func(ev orchestrator.OrchestratorEvent) {
+		chunks = append(chunks, ev)
+	}, nil, nil)
+	if bridge == nil {
+		t.Fatal("expected bridge")
+	}
+
+	registerTTSPublicSessionWithMessage("idle-canon-tts", "idle-canon", "idle-canon:0003", "idle-canon:msg:0003", 3)
+	if err := bridge.StartSession(context.Background(), orchestrator.TTSSessionStart{
+		SessionID:   "idle-canon-tts",
+		ResponseID:  "idle-canon:0003",
+		CharacterID: "mio",
+		VoiceID:     "mio",
+	}); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	displayBridge, ok := bridge.(orchestrator.TTSDisplayBridge)
+	if !ok {
+		t.Fatalf("expected display bridge, got %T", bridge)
+	}
+	if err := displayBridge.PushTextWithDisplay(context.Background(), "idle-canon-tts", "同じチャンクです。", "同じチャンクです。", nil); err != nil {
+		t.Fatalf("push text: %v", err)
+	}
+
+	if len(chunks) != 1 {
+		t.Fatalf("expected one chunk event, got %d", len(chunks))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(chunks[0].Content), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["session_id"] != "idle-canon" || payload["message_id"] != "idle-canon:msg:0003" {
+		t.Fatalf("unexpected identity payload: %#v", payload)
+	}
+	if payload["speech_text"] != "同じチャンクです。" || payload["text"] != "同じチャンクです。" || payload["display_text"] != "同じチャンクです。" {
+		t.Fatalf("speech/display fields must be present and aligned: %#v", payload)
+	}
+	if payload["track"] != "default" {
+		t.Fatalf("track = %#v, want default", payload["track"])
+	}
+	if payload["audio_path"] == "" && payload["audio_url"] == "" {
+		t.Fatalf("audio path/url missing: %#v", payload)
 	}
 }
 

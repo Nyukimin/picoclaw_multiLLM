@@ -333,6 +333,8 @@ func (o *IdleChatOrchestrator) nextIdleSessionPlanLocked() idleSessionPlan {
 		StrategySingleGenre,
 		StrategyDoubleGenre,
 		StrategyExternalStimulus,
+		StrategyMovie,
+		StrategyNews,
 	}
 	if o.autoStep < len(normalStrategies) {
 		plan := idleSessionPlan{

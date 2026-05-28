@@ -71,6 +71,9 @@ func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 	if got := bridge.pushTexts[0]; got != "おはようございます！" {
 		t.Fatalf("unexpected filtered text: %q", got)
 	}
+	if got := bridge.displayTexts[0]; got != bridge.pushTexts[0] {
+		t.Fatalf("normal idlechat chunk display_text must match speech_text: display=%q speech=%q", got, bridge.pushTexts[0])
+	}
 	if len(bridge.pushEmo) != 1 || bridge.pushEmo[0] == nil {
 		t.Fatal("expected emotion payload")
 	}

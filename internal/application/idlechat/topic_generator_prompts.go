@@ -40,6 +40,15 @@ func topicPromptFooter(movieMode bool) string {
 - 「〜って面白いんじゃない？」のような会話調は禁止
 - 体言止め、または「〜の関係」「〜を考える」のような題名調にする
 - ジャンル名だけで終わらせず、人・物・場所・場面のどれかを1つ必ず入れる
+	- 40文字以内を目安に簡潔にする`
+}
+
+func newsTopicPromptFooter() string {
+	return `回答はお題だけを1行で出力してください。
+- 質問文・感想文・呼びかけは禁止
+- 「〜って面白いんじゃない？」のような会話調は禁止
+- 見出しの単純な繰り返しではなく、論点・背景・影響のどれかが見える題名調にする
+- 任意分野や別素材との掛け合わせ、架空映画化は禁止
 - 40文字以内を目安に簡潔にする`
 }
 
@@ -107,59 +116,79 @@ func generateDoubleGenrePrompt(movieMode bool) (string, []string, topicAnchor) {
 	return buildDoubleGenrePrompt(genres, anchor, movieMode), genres, anchor
 }
 
+// generateMoviePrompt は架空映画カテゴリのプロンプトを生成する。
+func generateMoviePrompt() (string, []string, topicAnchor) {
+	genres := pickRandom(genrePool, 1)
+	anchor := pickTopicAnchor()
+	return buildSingleGenrePrompt(genres[0], anchor, true), genres, anchor
+}
+
 // generateExternalPrompt は外部刺激を使ったプロンプトを生成
-func generateExternalPrompt(movieMode bool) (string, string) {
+func generateExternalPrompt() (string, string, bool) {
 	cache := getDailyCache()
 	if cache == nil {
-		// フォールバック: 2ジャンル生成
-		p, _, _ := generateDoubleGenrePrompt(movieMode)
-		return p, "fallback"
+		return "", "external_seed_unavailable", false
 	}
 
-	// Wikipedia or News からランダム選択
 	var seed string
-	var source string
-
-	if len(cache.WikipediaSeeds) > 0 && len(cache.NewsSeeds) > 0 {
-		if rand.Intn(2) == 0 {
-			seed = cache.WikipediaSeeds[rand.Intn(len(cache.WikipediaSeeds))]
-			source = "Wikipedia"
-		} else {
-			seed = cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]
-			source = "News"
-		}
-	} else if len(cache.WikipediaSeeds) > 0 {
+	if len(cache.WikipediaSeeds) > 0 {
 		seed = cache.WikipediaSeeds[rand.Intn(len(cache.WikipediaSeeds))]
-		source = "Wikipedia"
-	} else if len(cache.NewsSeeds) > 0 {
-		seed = cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]
-		source = "News"
 	} else {
-		// フォールバック: 2ジャンル
-		p, _, _ := generateDoubleGenrePrompt(movieMode)
-		return p, "fallback"
+		return "", "external_seed_unavailable", false
 	}
 
 	genre := pickRandom(genrePool, 1)[0]
 	bannedKeywords := extractBannedKeywords()
 
-	prompt := fmt.Sprintf(`以下の外部刺激とジャンルを組み合わせた、意外性のある話題を1つ提案してください。
+	prompt := fmt.Sprintf(`以下の素材とジャンルを自然に接続した、会話向けのお題を1つ提案してください。
 
-外部刺激 (%s): %s
-組み合わせジャンル: %s
+素材: %s
+ジャンル: %s
 
 要件:
-- 予想外の切り口を優先
-- 深く考察できる具体的な話題
-- エンターテイメント性重視
+- 素材そのものの具体性を残す
+- ジャンルは混ぜるが、無理な連想ゲームにしない
+- 人・物・場所・場面のどれかが見える題名にする
+- 深く考察できる具体的な話題にする
 
 禁止事項:
 - %s に関するトピックは避ける
 - 「もし〜だったら」形式は使わない
+- 取得元、出典種別、ランダム取得、記事取得の話にしない
+- 素材を「記事」「ページ」「ニュース」「検索結果」として扱わない
 
-%s`, source, seed, genre, strings.Join(bannedKeywords, "、"), topicPromptFooter(movieMode))
+%s`, seed, genre, strings.Join(bannedKeywords, "、"), topicPromptFooter(false))
 
-	return prompt, source + ":" + seed
+	return prompt, "Wikipedia:" + seed, true
+}
+
+// generateNewsPrompt はニュース見出しを純粋に深掘りするプロンプトを生成する。
+func generateNewsPrompt() (string, string, bool) {
+	cache := getDailyCache()
+	if cache == nil || len(cache.NewsSeeds) == 0 {
+		return "", "news_seed_unavailable", false
+	}
+	seed := cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]
+	bannedKeywords := extractBannedKeywords()
+
+	prompt := fmt.Sprintf(`以下のニュース見出しを1件だけ深掘りする、会話向けのお題を1つ提案してください。
+
+ニュース見出し: %s
+
+要件:
+- このニュース自体の論点、背景、影響が見える
+- 任意分野や別テーマを混ぜない
+- 会話が発展する具体性を持たせる
+- 見出しの言い換えだけで終わらせない
+
+禁止事項:
+- %s に関するトピックは避ける
+- 「もし〜だったら」形式は使わない
+- 別素材との掛け合わせにしない
+
+%s`, seed, strings.Join(bannedKeywords, "、"), newsTopicPromptFooter())
+
+	return prompt, "News:" + seed, true
 }
 
 // extractBannedKeywords は頻出キーワードを抽出

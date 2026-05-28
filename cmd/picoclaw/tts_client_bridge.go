@@ -58,10 +58,12 @@ func buildTTSClientBridge(
 			"utterance_id": utteranceID,
 			"chunk_index":  publicChunkIndex,
 			"character_id": characterID,
+			"speech_text":  text,
 			"text":         text,
 			"display_text": displayText,
 			"audio_path":   audioPath,
 			"audio_url":    audioURL,
+			"track":        "default",
 		})
 		if err != nil {
 			log.Printf("WARN: tts chunk payload marshal failed: %v", err)

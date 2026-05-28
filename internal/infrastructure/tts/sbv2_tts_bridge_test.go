@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
@@ -53,6 +54,19 @@ func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	}
 	if readyAudioPaths[0] != "01.wav" || readyAudioPaths[1] != "02.wav" {
 		t.Fatalf("unexpected viewer audio paths: %#v", readyAudioPaths)
+	}
+}
+
+func TestDisplayChunkForSpeechChunkDoesNotIndependentlySplitDifferentText(t *testing.T) {
+	speechChunks := []string{"一つ目の音声です。", "二つ目の音声です。"}
+	displayText := "表示側だけがまったく違う境界で分割される長い文字列です。"
+	speechText := strings.Join(speechChunks, "")
+
+	if got := displayChunkForSpeechChunk(speechText, displayText, speechChunks, 0); got != speechChunks[0] {
+		t.Fatalf("first display chunk = %q, want speech chunk %q", got, speechChunks[0])
+	}
+	if got := displayChunkForSpeechChunk(speechText, displayText, speechChunks, 1); got != speechChunks[1] {
+		t.Fatalf("second display chunk = %q, want speech chunk %q", got, speechChunks[1])
 	}
 }
 

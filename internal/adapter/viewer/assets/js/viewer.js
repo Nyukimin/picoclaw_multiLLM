@@ -3027,7 +3027,7 @@ function createChatAudioSync() {
     const turnIndexRaw = Number(payload.turn_index);
     const turnIndex = Number.isFinite(turnIndexRaw) ? Math.floor(turnIndexRaw) : -1;
     const characterId = String(payload.character_id || payload.speaker || '').trim().toLowerCase();
-    const text = String(payload.text || payload.speech_text || '').trim();
+    const text = String(payload.speech_text || payload.text || '').trim();
     const displayText = String(payload.display_text || payload.viewer_text || payload.text || '').trim();
     const responseId = String(payload.response_id || '').trim();
     const messageId = String(payload.message_id || '').trim();

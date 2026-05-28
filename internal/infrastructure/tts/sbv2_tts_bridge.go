@@ -67,13 +67,9 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 		return nil
 	}
 	s := b.getOrCreateSession(sessionID)
-	displayChunks := orchestrator.SplitTTSChunks(displayText)
 	speechChunks := orchestrator.SplitTTSChunks(rawText)
 	for i, chunkText := range speechChunks {
-		displayChunk := chunkText
-		if i < len(displayChunks) && strings.TrimSpace(displayChunks[i]) != "" {
-			displayChunk = displayChunks[i]
-		}
+		displayChunk := displayChunkForSpeechChunk(rawText, displayText, speechChunks, i)
 		out, stats, err := b.synthesizeChunk(ctx, s, chunkText)
 		if err != nil {
 			return err
@@ -107,6 +103,26 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 		}
 	}
 	return nil
+}
+
+func displayChunkForSpeechChunk(rawSpeechText, rawDisplayText string, speechChunks []string, index int) string {
+	if index < 0 || index >= len(speechChunks) {
+		return ""
+	}
+	chunkText := strings.TrimSpace(speechChunks[index])
+	displayText := strings.TrimSpace(rawDisplayText)
+	speechText := strings.TrimSpace(rawSpeechText)
+	if displayText == "" || displayText == speechText {
+		return chunkText
+	}
+	if len(speechChunks) == 1 {
+		return displayText
+	}
+	// Do not independently split display text and speech text; that creates
+	// false chunk-index correspondence when the two strings have different
+	// boundaries. In multi-chunk pronunciation-normalized cases, keep the
+	// diagnostic display chunk tied to the speech chunk.
+	return chunkText
 }
 
 func (b *SBV2TTSBridge) synthesizeChunk(ctx context.Context, s *sbv2BridgeSession, chunkText string) (SynthesisOutput, wavStats, error) {

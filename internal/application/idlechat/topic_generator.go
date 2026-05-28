@@ -9,9 +9,11 @@ import (
 type TopicStrategy string
 
 const (
-	StrategySingleGenre      TopicStrategy = "single"   // 1ジャンル単体 (25%)
-	StrategyDoubleGenre      TopicStrategy = "double"   // 2ジャンル掛け合わせ (40%)
-	StrategyExternalStimulus TopicStrategy = "external" // 外部刺激 (25%)
+	StrategySingleGenre      TopicStrategy = "single"   // 1ジャンル単体
+	StrategyDoubleGenre      TopicStrategy = "double"   // 2ジャンル掛け合わせ
+	StrategyExternalStimulus TopicStrategy = "external" // 外部刺激
+	StrategyMovie            TopicStrategy = "movie"    // 架空映画深掘り
+	StrategyNews             TopicStrategy = "news"     // ニュース深掘り
 	StrategyForecast         TopicStrategy = "forecast" // 未来展望セッション
 )
 
@@ -145,16 +147,20 @@ var (
 	cacheMu    sync.RWMutex
 )
 
-// chooseStrategy は生成戦略をランダムに選択
-// single: 40%, double: 30%, external: 30%
+// chooseStrategy は通常IdleChatの生成戦略をランダムに選択
+// single/double/external/movie/news: 各20%
 func chooseStrategy() TopicStrategy {
 	r := rand.Intn(100)
 	switch {
-	case r < 40:
+	case r < 20:
 		return StrategySingleGenre
-	case r < 70:
+	case r < 40:
 		return StrategyDoubleGenre
-	default:
+	case r < 60:
 		return StrategyExternalStimulus
+	case r < 80:
+		return StrategyMovie
+	default:
+		return StrategyNews
 	}
 }
