@@ -39,6 +39,19 @@ validator は次を確認する。
 
 validator を通らない story は本文配信を続けず、`invalid_story:<reason>` として Summary / History に残す。これは fallback 成功ではない。
 
+## お題読み上げ
+
+IdleChat のお題読み上げは、カテゴリごとに置換と生成を分ける。
+この節の変換結果は読み上げ専用であり、Viewer の topic 表示、timeline、history、summary へ描画してはいけない。
+カテゴリ分岐、`今日のお題。` の前置、Viewer 描画禁止、TTS 専用化は実装コードで決定的に実装し、LLM prompt の指示で制御しない。
+
+- Single / Double / External / Movie / News / Forecast は、取得済み topic に `今日のお題。` を前置するだけの置換処理とする。
+- 上記 6 カテゴリでは topic 本文を再生成、要約、言い換えしない。カテゴリ名、内部 strategy、seed、provider 名も読み上げ本文へ入れない。
+- Story だけは、内部 topic（例: `物語: 金太郎 × 探偵`）を短いキャッチーなタイトルへ生成変換してよい。
+- Story 生成タイトルは元話と改変軸を保持し、`物語:`、カテゴリ名、解説、あらすじを出さない。
+- Story タイトル生成プロンプトは `prompts/idle_chat/story_topic_title.md` を正とする。ただし prompt は Story タイトル候補の生成だけを担当する。
+- 最終読み上げ文字列は `今日のお題。<topic_or_story_title>` の 1 発話単位とし、TTS `speech_text` としてのみ扱う。Viewer の描画正本は変換前の topic / display event とする。
+
 ## STT との境界
 
 STT input は通常 chat に流す。IdleChat に直接流さない。
