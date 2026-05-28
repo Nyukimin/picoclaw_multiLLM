@@ -107,6 +107,17 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			GlobalConcurrency: 1,
 			ModelConcurrency:  1,
 		},
+		WebwrightFetch: WebwrightFetchRuntimeConfig{
+			Enabled:           true,
+			RunnerPath:        "tools/webwright_fetch/run_webwright_fetch.py",
+			ConfigPath:        "tools/webwright_fetch/config_local_worker.yaml",
+			OutputDir:         "tmp/webwright_runs",
+			StagingOutputDir:  "tmp/webwright_staging",
+			UvxFrom:           "git+https://github.com/microsoft/Webwright.git",
+			ResponsesEndpoint: "http://192.168.1.31:8082/v1/responses/",
+			Model:             "Coder1",
+			APIKeyConfigured:  true,
+		},
 	})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
@@ -128,6 +139,12 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" {
 		t.Fatalf("unexpected local llm runtime config: %+v", body.LocalLLM)
+	}
+	if !body.WebwrightFetch.Enabled || body.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.31:8082/v1/responses" || body.WebwrightFetch.Model != "Coder1" {
+		t.Fatalf("unexpected webwright fetch runtime config: %+v", body.WebwrightFetch)
+	}
+	if !body.WebwrightFetch.APIKeyConfigured {
+		t.Fatalf("expected webwright api key configured without exposing value: %+v", body.WebwrightFetch)
 	}
 }
 

@@ -27,6 +27,9 @@ type Config struct {
 	// === MLX / local OpenAI-compatible LLM runtime ===
 	LocalLLM LocalLLMConfig `yaml:"local_llm"`
 
+	// === Optional Webwright browser-backed fetch bridge ===
+	WebwrightFetch WebwrightFetchConfig `yaml:"webwright_fetch"`
+
 	// === v5.1 プロンプト外部ファイル ===
 	PromptsDir         string         `yaml:"prompts_dir"`          // プロンプトファイルのベースディレクトリ（デフォルト）
 	WorkspaceDir       string         `yaml:"workspace_dir"`        // ユーザーカスタマイズ領域（オーバーライド）
@@ -190,6 +193,21 @@ type LocalLLMConfig struct {
 type LLMOpsConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	BaseURL string `yaml:"base_url"` // 例: http://192.168.1.31:8079
+}
+
+// WebwrightFetchConfig は RenCrow 本体から分離された Webwright 取得 bridge 設定。
+// 実行は tools/webwright_fetch/run_webwright_fetch.py が担当し、本体 runtime dependency にはしない。
+type WebwrightFetchConfig struct {
+	Enabled           bool   `yaml:"enabled"`
+	RunnerPath        string `yaml:"runner_path"`
+	ConfigPath        string `yaml:"config_path"`
+	OutputDir         string `yaml:"output_dir"`
+	StagingOutputDir  string `yaml:"staging_output_dir"`
+	UvxFrom           string `yaml:"uvx_from"`
+	Python            string `yaml:"python"`
+	ResponsesEndpoint string `yaml:"responses_endpoint"`
+	Model             string `yaml:"model"`
+	APIKey            string `yaml:"api_key"`
 }
 
 // SessionConfig はセッション設定

@@ -117,6 +117,18 @@ func cmdRun() {
 		GlobalConcurrency: cfg.LocalLLM.GlobalConcurrency,
 		ModelConcurrency:  cfg.LocalLLM.ModelConcurrency,
 	}
+	debugSystemOpts.WebwrightFetch = viewer.WebwrightFetchRuntimeConfig{
+		Enabled:           cfg.WebwrightFetch.Enabled,
+		RunnerPath:        cfg.WebwrightFetch.RunnerPath,
+		ConfigPath:        cfg.WebwrightFetch.ConfigPath,
+		OutputDir:         cfg.WebwrightFetch.OutputDir,
+		StagingOutputDir:  cfg.WebwrightFetch.StagingOutputDir,
+		UvxFrom:           cfg.WebwrightFetch.UvxFrom,
+		Python:            cfg.WebwrightFetch.Python,
+		ResponsesEndpoint: cfg.WebwrightFetch.ResponsesEndpoint,
+		Model:             cfg.WebwrightFetch.Model,
+		APIKeyConfigured:  strings.TrimSpace(cfg.WebwrightFetch.APIKey) != "",
+	}
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}

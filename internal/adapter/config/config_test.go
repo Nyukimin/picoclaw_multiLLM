@@ -838,6 +838,46 @@ local_llm:
 	}
 }
 
+func TestLoadConfig_WebwrightFetchDefaultsFromLocalWorker(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "webwright_fetch.yaml")
+
+	content := `
+server:
+  port: 8080
+session:
+  storage_dir: "./data/sessions"
+local_llm:
+  enabled: true
+  worker_base_url: "http://192.168.1.207:8082"
+webwright_fetch:
+  enabled: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.WebwrightFetch.Enabled {
+		t.Fatal("expected webwright_fetch enabled")
+	}
+	if cfg.WebwrightFetch.RunnerPath != "tools/webwright_fetch/run_webwright_fetch.py" {
+		t.Fatalf("unexpected runner path: %s", cfg.WebwrightFetch.RunnerPath)
+	}
+	if cfg.WebwrightFetch.ConfigPath != "tools/webwright_fetch/config_local_worker.yaml" {
+		t.Fatalf("unexpected config path: %s", cfg.WebwrightFetch.ConfigPath)
+	}
+	if cfg.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.207:8082/v1/responses" {
+		t.Fatalf("unexpected responses endpoint: %s", cfg.WebwrightFetch.ResponsesEndpoint)
+	}
+	if cfg.WebwrightFetch.Model != "Coder1" || cfg.WebwrightFetch.APIKey != "dummy" {
+		t.Fatalf("unexpected local webwright model/key defaults: %+v", cfg.WebwrightFetch)
+	}
+}
+
 func TestLoadConfig_AudioRouterValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "audio_router.yaml")

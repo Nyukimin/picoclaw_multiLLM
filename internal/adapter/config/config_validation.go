@@ -48,6 +48,23 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("llm_ops.base_url is required when llm_ops.enabled=true")
 		}
 	}
+	if c.WebwrightFetch.Enabled {
+		if strings.TrimSpace(c.WebwrightFetch.RunnerPath) == "" {
+			return fmt.Errorf("webwright_fetch.runner_path is required when webwright_fetch.enabled=true")
+		}
+		if strings.TrimSpace(c.WebwrightFetch.ConfigPath) == "" {
+			return fmt.Errorf("webwright_fetch.config_path is required when webwright_fetch.enabled=true")
+		}
+		if strings.TrimSpace(c.WebwrightFetch.OutputDir) == "" {
+			return fmt.Errorf("webwright_fetch.output_dir is required when webwright_fetch.enabled=true")
+		}
+		if strings.TrimSpace(c.WebwrightFetch.ResponsesEndpoint) == "" {
+			return fmt.Errorf("webwright_fetch.responses_endpoint is required when webwright_fetch.enabled=true")
+		}
+		if strings.TrimSpace(c.WebwrightFetch.Model) == "" {
+			return fmt.Errorf("webwright_fetch.model is required when webwright_fetch.enabled=true")
+		}
+	}
 
 	if !c.LocalLLM.Enabled {
 		// Ollama設定検証

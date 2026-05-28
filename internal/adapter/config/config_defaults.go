@@ -63,6 +63,37 @@ func (c *Config) setDefaults() {
 	if c.LocalLLM.ModelConcurrency <= 0 {
 		c.LocalLLM.ModelConcurrency = 1
 	}
+	if c.WebwrightFetch.RunnerPath == "" {
+		c.WebwrightFetch.RunnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+	}
+	if c.WebwrightFetch.ConfigPath == "" {
+		c.WebwrightFetch.ConfigPath = "tools/webwright_fetch/config_local_worker.yaml"
+	}
+	if c.WebwrightFetch.OutputDir == "" {
+		c.WebwrightFetch.OutputDir = "tmp/webwright_runs"
+	}
+	if c.WebwrightFetch.StagingOutputDir == "" {
+		c.WebwrightFetch.StagingOutputDir = "tmp/webwright_staging"
+	}
+	if c.WebwrightFetch.UvxFrom == "" {
+		c.WebwrightFetch.UvxFrom = "git+https://github.com/microsoft/Webwright.git"
+	}
+	if c.WebwrightFetch.ResponsesEndpoint == "" {
+		workerBase := strings.TrimRight(strings.TrimSpace(c.LocalLLM.WorkerBaseURL), "/")
+		if workerBase == "" {
+			workerBase = strings.TrimRight(strings.TrimSpace(c.LocalLLM.BaseURL), "/")
+		}
+		if workerBase == "" {
+			workerBase = "http://127.0.0.1:8082"
+		}
+		c.WebwrightFetch.ResponsesEndpoint = workerBase + "/v1/responses"
+	}
+	if c.WebwrightFetch.Model == "" {
+		c.WebwrightFetch.Model = "Coder1"
+	}
+	if c.WebwrightFetch.APIKey == "" {
+		c.WebwrightFetch.APIKey = "dummy"
+	}
 
 	if c.Log.Level == "" {
 		c.Log.Level = "info"

@@ -49,19 +49,21 @@ type DebugSystemOptions struct {
 	LLMOpsEnabled    bool
 	LLMOpsBaseURL    string
 	LocalLLM         LocalLLMRuntimeConfig
+	WebwrightFetch   WebwrightFetchRuntimeConfig
 	RuntimeReadiness RuntimeDependencyReadiness
 }
 
 type RuntimeConfig struct {
-	STTStreamURL     string                     `json:"stt_stream_url,omitempty"`
-	STTBaseURL       string                     `json:"stt_base_url,omitempty"`
-	TTSBaseURL       string                     `json:"tts_base_url,omitempty"`
-	TTSHealthPath    string                     `json:"tts_health_path,omitempty"`
-	LLMOpsConfigured bool                       `json:"llm_ops_configured"`
-	LLMOpsEnabled    bool                       `json:"llm_ops_enabled"`
-	LLMOpsBaseURL    string                     `json:"llm_ops_base_url,omitempty"`
-	LocalLLM         LocalLLMRuntimeConfig      `json:"local_llm,omitempty"`
-	RuntimeReadiness RuntimeDependencyReadiness `json:"runtime_readiness,omitempty"`
+	STTStreamURL     string                      `json:"stt_stream_url,omitempty"`
+	STTBaseURL       string                      `json:"stt_base_url,omitempty"`
+	TTSBaseURL       string                      `json:"tts_base_url,omitempty"`
+	TTSHealthPath    string                      `json:"tts_health_path,omitempty"`
+	LLMOpsConfigured bool                        `json:"llm_ops_configured"`
+	LLMOpsEnabled    bool                        `json:"llm_ops_enabled"`
+	LLMOpsBaseURL    string                      `json:"llm_ops_base_url,omitempty"`
+	LocalLLM         LocalLLMRuntimeConfig       `json:"local_llm,omitempty"`
+	WebwrightFetch   WebwrightFetchRuntimeConfig `json:"webwright_fetch,omitempty"`
+	RuntimeReadiness RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
 }
 
 type RuntimeDependencyReadiness struct {
@@ -114,6 +116,19 @@ type LocalLLMRuntimeConfig struct {
 	ModelConcurrency  int    `json:"model_concurrency,omitempty"`
 }
 
+type WebwrightFetchRuntimeConfig struct {
+	Enabled           bool   `json:"enabled"`
+	RunnerPath        string `json:"runner_path,omitempty"`
+	ConfigPath        string `json:"config_path,omitempty"`
+	OutputDir         string `json:"output_dir,omitempty"`
+	StagingOutputDir  string `json:"staging_output_dir,omitempty"`
+	UvxFrom           string `json:"uvx_from,omitempty"`
+	Python            string `json:"python,omitempty"`
+	ResponsesEndpoint string `json:"responses_endpoint,omitempty"`
+	Model             string `json:"model,omitempty"`
+	APIKeyConfigured  bool   `json:"api_key_configured"`
+}
+
 func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -130,6 +145,7 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			LLMOpsEnabled:    opts.LLMOpsEnabled,
 			LLMOpsBaseURL:    strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
 			LocalLLM:         normalizeLocalLLMRuntimeConfig(opts.LocalLLM),
+			WebwrightFetch:   normalizeWebwrightFetchRuntimeConfig(opts.WebwrightFetch),
 			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
 		})
 	}
@@ -206,6 +222,18 @@ func normalizeLocalLLMRuntimeConfig(in LocalLLMRuntimeConfig) LocalLLMRuntimeCon
 	in.WorkerModel = strings.TrimSpace(in.WorkerModel)
 	in.HeavyModel = strings.TrimSpace(in.HeavyModel)
 	in.WildModel = strings.TrimSpace(in.WildModel)
+	return in
+}
+
+func normalizeWebwrightFetchRuntimeConfig(in WebwrightFetchRuntimeConfig) WebwrightFetchRuntimeConfig {
+	in.RunnerPath = strings.TrimSpace(in.RunnerPath)
+	in.ConfigPath = strings.TrimSpace(in.ConfigPath)
+	in.OutputDir = strings.TrimSpace(in.OutputDir)
+	in.StagingOutputDir = strings.TrimSpace(in.StagingOutputDir)
+	in.UvxFrom = strings.TrimSpace(in.UvxFrom)
+	in.Python = strings.TrimSpace(in.Python)
+	in.ResponsesEndpoint = strings.TrimRight(strings.TrimSpace(in.ResponsesEndpoint), "/")
+	in.Model = strings.TrimSpace(in.Model)
 	return in
 }
 
