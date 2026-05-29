@@ -263,6 +263,14 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
   background:radial-gradient(circle at 52% 24%,rgba(143,183,255,.24),transparent 36%),
     linear-gradient(180deg,rgba(30,48,86,.62),rgba(9,16,31,.92));
 }
+.chat-character-avatar{
+  position:absolute;left:50%;bottom:44px;z-index:1;
+  width:min(104%,320px);max-height:calc(100% - 56px);
+  transform:translateX(-50%);
+  object-fit:contain;object-position:center bottom;
+  filter:drop-shadow(0 18px 32px rgba(0,0,0,.28));
+  pointer-events:none;
+}
 .chat-character-glow{
   position:absolute;left:50%;top:44%;width:150px;height:220px;transform:translate(-50%,-50%);
   border-radius:48% 48% 42% 42%;
@@ -270,7 +278,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
     linear-gradient(180deg,rgba(111,140,255,.66),rgba(21,30,54,.04));
   filter:drop-shadow(0 0 42px rgba(143,183,255,.26));opacity:.8;
 }
-.chat-character-name,.chat-character-role{position:relative;z-index:1}
+.chat-character-name,.chat-character-role{position:relative;z-index:2}
 .chat-character-name{font-size:20px;line-height:1.1;font-weight:800;color:var(--t1)}
 .chat-character-role{margin-top:6px;font-size:12px;line-height:1.6;color:var(--t2)}
 .chat-status-card{display:grid;gap:7px;border:1px solid var(--border);border-radius:14px;padding:10px;background:rgba(9,18,36,.52)}
@@ -455,7 +463,8 @@ body:not([data-viewer-tab="idlechat"]) .idle-tools{display:none}
   opacity:.9;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35));
 }
 .lipsync-actor img{
-  width:100%;height:auto;border:1px solid var(--border);border-radius:12px;background:rgba(11,11,20,.55);
+  width:100%;aspect-ratio:1/1;height:auto;border:1px solid var(--border);border-radius:12px;
+  background:rgba(11,11,20,.55);object-fit:contain;object-position:center bottom;
 }
 .lipsync-actor-name{
   font-size:9px;font-weight:700;letter-spacing:.2px;padding:1px 6px;border-radius:999px;
@@ -704,6 +713,7 @@ body.live-mode .lipsync-stage{
   background:transparent;border:0;box-shadow:none;backdrop-filter:none;pointer-events:none;
 }
 body.live-mode .lipsync-actor{width:clamp(96px,7vw,150px);max-width:150px;opacity:.78}
+body.live-mode .lipsync-actor.mio{width:clamp(150px,12vw,240px);max-width:240px;opacity:.9}
 body.live-mode .lipsync-actor-name{font-size:18px;padding:4px 14px}
 body.live-mode .tts-now-playing{display:none !important}
 body.live-mode .tts-now-playing .label{font-size:13px}
@@ -738,7 +748,19 @@ body.live-mode .live-audio-btn{
 }
 @media (max-width: 1100px){
   body.live-mode #chat{max-width:100%;padding:0 24px}
-  body.live-mode .lipsync-stage{display:none}
+  body.live-mode .lipsync-stage{
+    display:flex;
+    top:auto;
+    left:0;
+    right:0;
+    bottom:calc(70px + var(--safe-bottom));
+    transform:none;
+    align-items:flex-end;
+    padding:0 16px;
+  }
+  body.live-mode .lipsync-actor{width:clamp(72px,12vw,120px);max-width:120px}
+  body.live-mode .lipsync-actor.mio{width:clamp(104px,20vw,170px);max-width:170px}
+  body.live-mode .lipsync-actor-name{font-size:12px;padding:2px 9px}
 }
 .live-topic-bar{display:none}
 
