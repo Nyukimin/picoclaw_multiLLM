@@ -48,6 +48,7 @@ func buildIdleChatRuntime(
 	})
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
 	idleChatOrch.SetTopicGenerationConfig(idleChatTopicGenerationConfigFromRuntime(cfg.IdleChat.TopicGeneration))
+	idleChatOrch.SetDialogueInterestingnessConfig(idleChatDialogueInterestingnessConfigFromRuntime(cfg.IdleChat.DialogueInterestingness))
 	if forecastProvider, label := selectForecastProviderForRuntime(cfg, workerProvider); forecastProvider != nil {
 		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
 		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
@@ -242,6 +243,35 @@ func idleChatTopicGenerationConfigFromRuntime(cfg config.IdleChatTopicGeneration
 			Forecast: cfg.Prompts.Forecast,
 			Story:    cfg.Prompts.Story,
 			Judge:    cfg.Prompts.Judge,
+		},
+	}
+}
+
+func idleChatDialogueInterestingnessConfigFromRuntime(cfg config.IdleChatDialogueInterestingnessConfig) idlechat.DialogueInterestingnessConfig {
+	return idlechat.DialogueInterestingnessConfig{
+		Enabled:                   cfg.Enabled,
+		MaxTurnsPerTopic:          cfg.MaxTurnsPerTopic,
+		MinQualityScore:           cfg.MinQualityScore,
+		MaxQualityRetries:         cfg.MaxQualityRetries,
+		EnforcePreviousUptake:     cfg.EnforcePreviousUptake,
+		EnforceOneNewContribution: cfg.EnforceOneNewContribution,
+		EnforceCategoryAxis:       cfg.EnforceCategoryAxis,
+		ForbidMetaLeak:            cfg.ForbidMetaLeak,
+		ForbidUserQuestion:        cfg.ForbidUserQuestion,
+		Utterance: idlechat.DialogueUtteranceConfig{
+			MinRunes:              cfg.Utterance.MinRunes,
+			MaxRunes:              cfg.Utterance.MaxRunes,
+			PreferredMaxSentences: cfg.Utterance.PreferredMaxSentences,
+		},
+		PromptPaths: idlechat.DialoguePromptPaths{
+			Common:   cfg.Prompts.Common,
+			Single:   cfg.Prompts.Single,
+			Double:   cfg.Prompts.Double,
+			External: cfg.Prompts.External,
+			Movie:    cfg.Prompts.Movie,
+			News:     cfg.Prompts.News,
+			Forecast: cfg.Prompts.Forecast,
+			Story:    cfg.Prompts.Story,
 		},
 	}
 }

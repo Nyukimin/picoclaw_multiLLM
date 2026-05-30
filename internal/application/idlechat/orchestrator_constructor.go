@@ -49,6 +49,7 @@ func NewIdleChatOrchestrator(
 			LogJudgeScores:       true,
 			ProviderName:         "mio",
 		}),
+		dialogueConfig:      DefaultDialogueInterestingnessConfig(),
 		lastActivity:        time.Now(),
 		history:             make([]SessionSummary, 0, 32),
 		ctx:                 ctx,
@@ -62,6 +63,12 @@ func (o *IdleChatOrchestrator) SetTopicGenerationConfig(config TopicGenerationCo
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.topicGenerationConfig = normalizeTopicGenerationConfig(config)
+}
+
+func (o *IdleChatOrchestrator) SetDialogueInterestingnessConfig(config DialogueInterestingnessConfig) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.dialogueConfig = normalizeDialogueInterestingnessConfig(config)
 }
 
 func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan struct{}) {

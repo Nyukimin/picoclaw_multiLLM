@@ -299,16 +299,17 @@ type TransportConfig struct {
 
 // IdleChatConfig はAgent間雑談モードの設定
 type IdleChatConfig struct {
-	Enabled                 bool                          `yaml:"enabled"`                   // 雑談モードの有効化（デフォルト: false）
-	Participants            []string                      `yaml:"participants"`              // 参加Agent名（デフォルト: ["mio", "shiro"]）
-	IntervalMin             int                           `yaml:"interval_min"`              // 雑談開始までのアイドル時間・分（デフォルト: 5）
-	IntervalSec             int                           `yaml:"interval_sec"`              // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
-	MaxTurns                int                           `yaml:"max_turns"`                 // 1回の雑談の最大ターン数（デフォルト: 10）
-	Temperature             float64                       `yaml:"temperature"`               // 雑談時の温度（デフォルト: 0.8）
-	StoryDataDir            string                        `yaml:"story_data_dir"`            // 物語データJSONディレクトリ（デフォルト: "data/story"）
-	ForecastExternalEnabled bool                          `yaml:"forecast_external_enabled"` // true の場合のみ Forecast で外部 Coder API を明示利用する
-	TopicGeneration         IdleChatTopicGenerationConfig `yaml:"topic_generation"`          // お題候補生成・Judge設定
-	SpeakerLLMOptions       map[string]IdleChatLLMOptions `yaml:"speaker_llm_options"`       // 話者別LLMオプション
+	Enabled                 bool                                  `yaml:"enabled"`                   // 雑談モードの有効化（デフォルト: false）
+	Participants            []string                              `yaml:"participants"`              // 参加Agent名（デフォルト: ["mio", "shiro"]）
+	IntervalMin             int                                   `yaml:"interval_min"`              // 雑談開始までのアイドル時間・分（デフォルト: 5）
+	IntervalSec             int                                   `yaml:"interval_sec"`              // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
+	MaxTurns                int                                   `yaml:"max_turns"`                 // 1回の雑談の最大ターン数（デフォルト: 10）
+	Temperature             float64                               `yaml:"temperature"`               // 雑談時の温度（デフォルト: 0.8）
+	StoryDataDir            string                                `yaml:"story_data_dir"`            // 物語データJSONディレクトリ（デフォルト: "data/story"）
+	ForecastExternalEnabled bool                                  `yaml:"forecast_external_enabled"` // true の場合のみ Forecast で外部 Coder API を明示利用する
+	TopicGeneration         IdleChatTopicGenerationConfig         `yaml:"topic_generation"`          // お題候補生成・Judge設定
+	DialogueInterestingness IdleChatDialogueInterestingnessConfig `yaml:"dialogue_interestingness"`  // 対話演出・品質判定設定
+	SpeakerLLMOptions       map[string]IdleChatLLMOptions         `yaml:"speaker_llm_options"`       // 話者別LLMオプション
 }
 
 type IdleChatTopicGenerationConfig struct {
@@ -336,6 +337,37 @@ type IdleChatTopicGenerationPromptPaths struct {
 	Forecast string `yaml:"forecast"`
 	Story    string `yaml:"story"`
 	Judge    string `yaml:"judge"`
+}
+
+type IdleChatDialogueInterestingnessConfig struct {
+	Enabled                   bool                                       `yaml:"enabled"`
+	MaxTurnsPerTopic          int                                        `yaml:"max_turns_per_topic"`
+	MinQualityScore           int                                        `yaml:"min_quality_score"`
+	MaxQualityRetries         int                                        `yaml:"max_quality_retries"`
+	EnforcePreviousUptake     bool                                       `yaml:"enforce_previous_uptake"`
+	EnforceOneNewContribution bool                                       `yaml:"enforce_one_new_contribution"`
+	EnforceCategoryAxis       bool                                       `yaml:"enforce_category_axis"`
+	ForbidMetaLeak            bool                                       `yaml:"forbid_meta_leak"`
+	ForbidUserQuestion        bool                                       `yaml:"forbid_user_question"`
+	Utterance                 IdleChatDialogueUtteranceConfig            `yaml:"utterance"`
+	Prompts                   IdleChatDialogueInterestingnessPromptPaths `yaml:"prompts"`
+}
+
+type IdleChatDialogueUtteranceConfig struct {
+	MinRunes              int `yaml:"min_runes"`
+	MaxRunes              int `yaml:"max_runes"`
+	PreferredMaxSentences int `yaml:"preferred_max_sentences"`
+}
+
+type IdleChatDialogueInterestingnessPromptPaths struct {
+	Common   string `yaml:"common"`
+	Single   string `yaml:"single"`
+	Double   string `yaml:"double"`
+	External string `yaml:"external"`
+	Movie    string `yaml:"movie"`
+	News     string `yaml:"news"`
+	Forecast string `yaml:"forecast"`
+	Story    string `yaml:"story"`
 }
 
 type IdleChatLLMOptions struct {

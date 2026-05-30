@@ -237,9 +237,13 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 		return "会話ログがありません。"
 	}
 	body := strings.Join(transcript, "\n")
+	summaryContext := o.dialogueSummaryContext()
+	if summaryContext != "" {
+		summaryContext = "\n\n対話の内部メタ（要約の観点として使い、内部用語は出さない）:\n" + summaryContext
+	}
 	messages := []llm.Message{
 		{Role: "system", Content: o.getSystemPrompt("shiro")},
-		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。硬い報告書ではなく、読んで雰囲気が分かる短い要約にしてください。1. いちばん面白かった点 2. 何が話を前に進めたか 3. 次に広がりそうな観点、の順で自然にまとめてください。\n話題: %s\n\n%s", topic, body)},
+		{Role: "user", Content: fmt.Sprintf("次のidleChatを要約してください。硬い報告書ではなく、読んで雰囲気が分かる短い要約にしてください。1. いちばん面白かった点 2. 何が話を前に進めたか 3. 次に広がりそうな観点、の順で自然にまとめてください。\n話題: %s%s\n\n%s", topic, summaryContext, body)},
 	}
 	req := llm.GenerateRequest{Messages: messages, MaxTokens: 800, Temperature: 0.4}
 	req.MaxTokens = idleChatShiroSummaryMaxTokens
@@ -257,4 +261,28 @@ func (o *IdleChatOrchestrator) summarizeByWorker(topic string, transcript []stri
 		return truncate(body, 200)
 	}
 	return summary
+}
+
+func (o *IdleChatOrchestrator) dialogueSummaryContext() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.currentDialogueState == nil || o.currentDialoguePlan == nil {
+		return ""
+	}
+	state := *o.currentDialogueState
+	plan := *o.currentDialoguePlan
+	var parts []string
+	if plan.InterestingnessAxis != "" {
+		parts = append(parts, "interestingness_axis="+plan.InterestingnessAxis)
+	}
+	if len(state.UsedMoves) > 0 {
+		parts = append(parts, "used_moves="+strings.Join(state.UsedMoves, " / "))
+	}
+	if len(state.TensionPoints) > 0 {
+		parts = append(parts, "tension_points="+strings.Join(state.TensionPoints, " / "))
+	}
+	if len(state.ConcreteAnchors) > 0 {
+		parts = append(parts, "concrete_anchors="+strings.Join(state.ConcreteAnchors, " / "))
+	}
+	return strings.Join(parts, "\n")
 }

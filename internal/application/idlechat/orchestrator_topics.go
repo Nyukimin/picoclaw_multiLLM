@@ -78,8 +78,11 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 	result, err := generator.GenerateInterestingTopic(o.idleRunContext(), seed.Category, seed, recent)
 	if err == nil && result != nil {
 		topic := normalizeIdleTopic(result.Topic, movieMode)
+		result.Topic = topic
 		o.mu.Lock()
 		o.sessionContext = formatTopicGenerationContext(*result)
+		copied := *result
+		o.currentTopicResult = &copied
 		o.mu.Unlock()
 		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
 		return topic, strategy
@@ -90,6 +93,13 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 	if diagnostic == "" {
 		diagnostic = "TOPIC_GENERATION_FAILED error_code=" + errorCodeForTopicGeneration(err)
 	}
+	o.mu.Lock()
+	o.currentTopicResult = &TopicGenerationResult{
+		Topic:    diagnostic,
+		Category: seed.Category,
+		Strategy: string(strategy),
+	}
+	o.mu.Unlock()
 	log.Printf("[IdleChat] Topic (diagnostic): %s", diagnostic)
 	return diagnostic, strategy
 }

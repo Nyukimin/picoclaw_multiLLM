@@ -2403,6 +2403,18 @@ idle_chat:
 	if cfg.IdleChat.TopicGeneration.Prompts.Judge != "prompts/idle_chat/topic_judge.md" {
 		t.Fatalf("Expected topic judge prompt default, got %q", cfg.IdleChat.TopicGeneration.Prompts.Judge)
 	}
+	if !cfg.IdleChat.DialogueInterestingness.Enabled {
+		t.Fatal("Expected idle_chat dialogue_interestingness default enabled")
+	}
+	if cfg.IdleChat.DialogueInterestingness.MaxTurnsPerTopic != 12 {
+		t.Fatalf("Expected dialogue max_turns_per_topic 12, got %d", cfg.IdleChat.DialogueInterestingness.MaxTurnsPerTopic)
+	}
+	if cfg.IdleChat.DialogueInterestingness.MinQualityScore != 70 {
+		t.Fatalf("Expected dialogue min_quality_score 70, got %d", cfg.IdleChat.DialogueInterestingness.MinQualityScore)
+	}
+	if cfg.IdleChat.DialogueInterestingness.Prompts.Common != "prompts/idle_chat/dialogue_common.md" {
+		t.Fatalf("Expected dialogue common prompt default, got %q", cfg.IdleChat.DialogueInterestingness.Prompts.Common)
+	}
 }
 
 func TestLoadConfig_IdleChatOtherSpeakersDefaultThinkTrue(t *testing.T) {

@@ -119,6 +119,11 @@ type IdleChatOrchestrator struct {
 	personalities         map[string]string
 	speakerOptions        map[string]map[string]any
 	topicGenerationConfig TopicGenerationConfig
+	dialogueConfig        DialogueInterestingnessConfig
+	currentTopicResult    *TopicGenerationResult
+	currentDialoguePlan   *DialogueArcPlan
+	currentDialogueState  *DialogueArcState
+	lastDialogueQuality   DialogueQualityResult
 
 	lastActivity              time.Time
 	chatActive                bool

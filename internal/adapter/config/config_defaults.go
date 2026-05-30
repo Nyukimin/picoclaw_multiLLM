@@ -151,6 +151,7 @@ func (c *Config) setDefaults() {
 			c.IdleChat.Temperature = 0.8
 		}
 		c.applyIdleChatTopicGenerationDefaults()
+		c.applyIdleChatDialogueInterestingnessDefaults()
 		c.applyIdleChatSpeakerLLMDefaults()
 	}
 
@@ -839,6 +840,70 @@ func (c *Config) applyIdleChatTopicGenerationDefaults() {
 	}
 	if tg.Prompts.Judge == "" {
 		tg.Prompts.Judge = "prompts/idle_chat/topic_judge.md"
+	}
+}
+
+func (c *Config) applyIdleChatDialogueInterestingnessDefaults() {
+	d := &c.IdleChat.DialogueInterestingness
+	if !d.Enabled {
+		d.Enabled = true
+	}
+	if d.MaxTurnsPerTopic == 0 {
+		d.MaxTurnsPerTopic = 12
+	}
+	if d.MinQualityScore == 0 {
+		d.MinQualityScore = 70
+	}
+	if d.MaxQualityRetries == 0 {
+		d.MaxQualityRetries = 4
+	}
+	if !d.EnforcePreviousUptake {
+		d.EnforcePreviousUptake = true
+	}
+	if !d.EnforceOneNewContribution {
+		d.EnforceOneNewContribution = true
+	}
+	if !d.EnforceCategoryAxis {
+		d.EnforceCategoryAxis = true
+	}
+	if !d.ForbidMetaLeak {
+		d.ForbidMetaLeak = true
+	}
+	if !d.ForbidUserQuestion {
+		d.ForbidUserQuestion = true
+	}
+	if d.Utterance.MinRunes == 0 {
+		d.Utterance.MinRunes = 20
+	}
+	if d.Utterance.MaxRunes == 0 {
+		d.Utterance.MaxRunes = 160
+	}
+	if d.Utterance.PreferredMaxSentences == 0 {
+		d.Utterance.PreferredMaxSentences = 2
+	}
+	if d.Prompts.Common == "" {
+		d.Prompts.Common = "prompts/idle_chat/dialogue_common.md"
+	}
+	if d.Prompts.Single == "" {
+		d.Prompts.Single = "prompts/idle_chat/dialogue_single.md"
+	}
+	if d.Prompts.Double == "" {
+		d.Prompts.Double = "prompts/idle_chat/dialogue_double.md"
+	}
+	if d.Prompts.External == "" {
+		d.Prompts.External = "prompts/idle_chat/dialogue_external.md"
+	}
+	if d.Prompts.Movie == "" {
+		d.Prompts.Movie = "prompts/idle_chat/dialogue_movie.md"
+	}
+	if d.Prompts.News == "" {
+		d.Prompts.News = "prompts/idle_chat/dialogue_news.md"
+	}
+	if d.Prompts.Forecast == "" {
+		d.Prompts.Forecast = "prompts/idle_chat/dialogue_forecast.md"
+	}
+	if d.Prompts.Story == "" {
+		d.Prompts.Story = "prompts/idle_chat/dialogue_story.md"
 	}
 }
 

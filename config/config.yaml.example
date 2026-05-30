@@ -181,6 +181,29 @@ idle_chat:
       forecast: "prompts/idle_chat/topic_generator_forecast.md"
       story: "prompts/idle_chat/topic_generator_story.md"
       judge: "prompts/idle_chat/topic_judge.md"
+  dialogue_interestingness:
+    enabled: true
+    max_turns_per_topic: 12
+    min_quality_score: 70
+    max_quality_retries: 4
+    enforce_previous_uptake: true
+    enforce_one_new_contribution: true
+    enforce_category_axis: true
+    forbid_meta_leak: true
+    forbid_user_question: true
+    utterance:
+      min_runes: 20
+      max_runes: 160
+      preferred_max_sentences: 2
+    prompts:
+      common: "prompts/idle_chat/dialogue_common.md"
+      single: "prompts/idle_chat/dialogue_single.md"
+      double: "prompts/idle_chat/dialogue_double.md"
+      external: "prompts/idle_chat/dialogue_external.md"
+      movie: "prompts/idle_chat/dialogue_movie.md"
+      news: "prompts/idle_chat/dialogue_news.md"
+      forecast: "prompts/idle_chat/dialogue_forecast.md"
+      story: "prompts/idle_chat/dialogue_story.md"
   speaker_llm_options:
     mio:
       think: false         # NoThink

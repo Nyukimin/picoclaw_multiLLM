@@ -196,6 +196,21 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("idle_chat.topic_generation.recent_similarity_threshold must be between 0 and 1")
 			}
 		}
+		if c.IdleChat.DialogueInterestingness.Enabled {
+			d := c.IdleChat.DialogueInterestingness
+			if d.MaxTurnsPerTopic < 1 {
+				return fmt.Errorf("idle_chat.dialogue_interestingness.max_turns_per_topic must be >= 1")
+			}
+			if d.MinQualityScore < 0 || d.MinQualityScore > 100 {
+				return fmt.Errorf("idle_chat.dialogue_interestingness.min_quality_score must be between 0 and 100")
+			}
+			if d.MaxQualityRetries < 0 {
+				return fmt.Errorf("idle_chat.dialogue_interestingness.max_quality_retries must be >= 0")
+			}
+			if d.Utterance.MinRunes < 0 || d.Utterance.MaxRunes < 1 || d.Utterance.MinRunes > d.Utterance.MaxRunes {
+				return fmt.Errorf("idle_chat.dialogue_interestingness.utterance rune bounds are invalid")
+			}
+		}
 	}
 
 	// v5.0 Conversation設定検証

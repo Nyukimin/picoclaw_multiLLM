@@ -100,6 +100,24 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, gener
 
 		o.mu.Lock()
 		o.currentTopic = fmt.Sprintf("[%s] %s", domain.Name, displayTopic)
+		forecastTopicResult := TopicGenerationResult{
+			Topic:               displayTopic,
+			Category:            TopicCategoryForecast,
+			Strategy:            string(StrategyForecast),
+			InterestingnessAxis: ExpectedAxisByCategory[TopicCategoryForecast],
+			OpeningHook:         "現在の兆しを生活・仕事・創作・制度のどれかに置く",
+			Avoid:               "未来を断定せず、複数の分岐として扱う",
+		}
+		dialogueConfig := o.dialogueConfig
+		o.mu.Unlock()
+		director := NewDialogueDirector(dialogueConfig)
+		arcPlan := director.BuildArcPlan(forecastTopicResult)
+		arcState := director.NewArcState(sessionID, forecastTopicResult, arcPlan)
+		director.LogArcCreated(sessionID, arcPlan)
+		o.mu.Lock()
+		o.currentTopicResult = &forecastTopicResult
+		o.currentDialoguePlan = &arcPlan
+		o.currentDialogueState = &arcState
 		o.mu.Unlock()
 
 		// Viewer/TTS には通常 IdleChat と同じ topic イベント契約で表示する。
@@ -193,6 +211,15 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, gener
 			}
 
 			response = ensureTrailingPeriod(response)
+			o.mu.Lock()
+			currentQuality := o.lastDialogueQuality
+			o.mu.Unlock()
+			turnPlan := dialogueTurnPlanForIndex(arcPlan, segmentTurns)
+			arcState = director.UpdateArcState(arcState, response, turnPlan, currentQuality)
+			o.mu.Lock()
+			updatedState := arcState
+			o.currentDialogueState = &updatedState
+			o.mu.Unlock()
 
 			turnIndex := totalTurns + 1
 			messageID := idleChatMessageID(sessionID, turnIndex)

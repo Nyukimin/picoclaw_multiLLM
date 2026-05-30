@@ -32,9 +32,13 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 	// 追加の system 文脈は履歴や user 指示より前に集約する。
 	o.mu.Lock()
 	sc := o.sessionContext
+	dialoguePrompt, dialoguePlan, dialogueState, dialogueConfig := o.dialoguePromptContextLocked(topic, speaker, latestOther, latestSelf, turn)
 	o.mu.Unlock()
 	if sc != "" {
 		messages[0].Content += "\n\n" + sc
+	}
+	if dialoguePrompt != "" {
+		messages[0].Content += "\n\n" + dialoguePrompt
 	}
 	if o.recentTopics != nil {
 		if glossaryTopics, err := o.recentTopics(o.ctx, 5); err != nil {
@@ -242,11 +246,122 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		log.Printf("[IdleChat] unusable response rejected (%s turn=%d): truncated=%t raw=%q sanitized=%q", speaker, turn, firstTruncated, truncate(firstRaw, 180), truncate(first, 180))
 		return "", firstRaw, fmt.Errorf("%w: speaker=%s turn=%d truncated=%t", errIdleInvalidResponse, speaker, turn, firstTruncated)
 	}
+	if dialogueConfig.Enabled && dialoguePlan != nil && dialogueState != nil {
+		first, firstRaw, err = o.ensureDialogueQuality(provider, messages, speaker, sessionID, turn, topic, latestOther, latestSelf, first, firstRaw, *dialoguePlan, *dialogueState, dialogueConfig, temp)
+		if err != nil {
+			return "", firstRaw, err
+		}
+	}
 
 	if canonical := o.applyPersonaCanonicalResponse(speaker, sessionID, first); canonical != "" {
 		return canonical, firstRaw, nil
 	}
 	return first, firstRaw, nil
+}
+
+func (o *IdleChatOrchestrator) dialoguePromptContextLocked(topic, speaker, latestOther, latestSelf string, turn int) (string, *DialogueTurnPlan, *DialogueArcState, DialogueInterestingnessConfig) {
+	config := normalizeDialogueInterestingnessConfig(o.dialogueConfig)
+	if !config.Enabled || o.currentDialoguePlan == nil || o.currentDialogueState == nil {
+		return "", nil, nil, config
+	}
+	plan := *o.currentDialoguePlan
+	state := *o.currentDialogueState
+	topicResult := TopicGenerationResult{
+		Topic:               topic,
+		Category:            plan.Category,
+		Strategy:            plan.Strategy,
+		InterestingnessAxis: plan.InterestingnessAxis,
+	}
+	if o.currentTopicResult != nil {
+		topicResult = *o.currentTopicResult
+	}
+	turnPlan := dialogueTurnPlanForIndex(plan, turn)
+	prompt := BuildDialoguePrompt(DialoguePromptInput{
+		Result:             topicResult,
+		Plan:               plan,
+		State:              state,
+		TurnPlan:           turnPlan,
+		Speaker:            speaker,
+		PreviousUtterances: []string{latestOther, latestSelf},
+		Config:             config,
+	})
+	return prompt, &turnPlan, &state, config
+}
+
+func (o *IdleChatOrchestrator) ensureDialogueQuality(provider llm.LLMProvider, baseMessages []llm.Message, speaker, sessionID string, turn int, topic, latestOther, latestSelf, candidate, candidateRaw string, plan DialogueTurnPlan, state DialogueArcState, config DialogueInterestingnessConfig, temp float64) (string, string, error) {
+	checker := NewDialogueQualityChecker(config)
+	quality := checker.Check(DialogueQualityInput{
+		Category:    state.Category,
+		Utterance:   candidate,
+		LatestOther: latestOther,
+		LatestSelf:  latestSelf,
+		State:       state,
+		TurnPlan:    plan,
+		Config:      config,
+	})
+	retryCount := 0
+	if !quality.OK {
+		maxRetries := config.MaxQualityRetries
+		if maxRetries <= 0 {
+			maxRetries = 1
+		}
+		for retryAttempt := 1; retryAttempt <= maxRetries && !quality.OK; retryAttempt++ {
+			logDialogueTurnRetry(sessionID, speaker, state.Category, quality, retryAttempt)
+			retryMessages := append([]llm.Message{}, baseMessages...)
+			retryMessages = append(retryMessages, llm.Message{Role: "assistant", Content: candidate})
+			retryMessages = append(retryMessages, llm.Message{Role: "user", Content: BuildDialogueRetryPrompt(plan, quality)})
+			resp, err := o.generateIdleLLM(provider, llm.GenerateRequest{
+				Messages:    retryMessages,
+				MaxTokens:   idleMaxTokensForSpeaker(speaker, idleChatRetryMaxTokens),
+				Temperature: temp,
+			})
+			if err != nil || strings.TrimSpace(resp.Content) == "" {
+				continue
+			}
+			logIdleRaw(fmt.Sprintf("dialogue.retry_quality speaker=%s turn=%d attempt=%d", speaker, turn, retryAttempt), resp.Content)
+			retryRaw := strings.TrimSpace(resp.Content)
+			retry := sanitizeIdleResponseForSpeaker(resp.Content, topic, speaker)
+			if finishReasonLooksTruncated(resp.FinishReason) || unusableIdleResponse(retryRaw, retry) {
+				continue
+			}
+			retryQuality := checker.Check(DialogueQualityInput{
+				Category:    state.Category,
+				Utterance:   retry,
+				LatestOther: latestOther,
+				LatestSelf:  latestSelf,
+				State:       state,
+				TurnPlan:    plan,
+				Config:      config,
+			})
+			retryCount = retryAttempt
+			if retryQuality.OK || retryQuality.Score >= quality.Score {
+				candidate = retry
+				candidateRaw = retryRaw
+				quality = retryQuality
+			}
+		}
+	}
+	logDialogueTurnQuality(sessionID, speaker, state.Category, plan, quality, retryCount)
+	o.mu.Lock()
+	o.lastDialogueQuality = quality
+	o.mu.Unlock()
+	if !quality.OK {
+		return "", candidateRaw, dialogueQualityError(quality)
+	}
+	return candidate, candidateRaw, nil
+}
+
+func dialogueTurnPlanForIndex(plan DialogueArcPlan, zeroBasedTurn int) DialogueTurnPlan {
+	if len(plan.TurnPlans) == 0 {
+		return DialogueTurnPlan{TurnIndex: zeroBasedTurn + 1, Phase: dialoguePhaseForTurn(zeroBasedTurn), RequiredMove: "直前発話を受け、新しい貢献を一つ足す"}
+	}
+	if zeroBasedTurn < 0 {
+		zeroBasedTurn = 0
+	}
+	if zeroBasedTurn >= len(plan.TurnPlans) {
+		return plan.TurnPlans[len(plan.TurnPlans)-1]
+	}
+	return plan.TurnPlans[zeroBasedTurn]
 }
 
 func shouldGenerateIdleFunCandidate(speaker string) bool {

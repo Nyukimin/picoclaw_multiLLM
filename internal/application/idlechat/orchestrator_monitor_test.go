@@ -66,6 +66,7 @@ func TestRunChatSessionContinuesToTurnLimitAfterLoopWarning(t *testing.T) {
 		responses: responses,
 	}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, maxTurnsPerTopic, 0.7, nil, "")
+	o.SetDialogueInterestingnessConfig(DialogueInterestingnessConfig{Enabled: false})
 	o.mu.Lock()
 	o.chatActive = true
 	o.beginIdleRunLocked()

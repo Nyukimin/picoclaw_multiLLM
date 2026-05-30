@@ -125,6 +125,8 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	o.mu.Lock()
 	o.currentTopic = storyTopic
 	o.sessionContext = formatTopicGenerationContext(storyTopicResult)
+	copiedStoryTopic := storyTopicResult
+	o.currentTopicResult = &copiedStoryTopic
 	o.mu.Unlock()
 
 	// LLM生成が長くても、Viewer には開始直後に状態を見せる。

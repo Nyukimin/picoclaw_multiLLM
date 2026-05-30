@@ -85,6 +85,16 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 	}
 	o.mu.Lock()
 	o.currentTopic = topic
+	topicResult := o.dialogueTopicResultLocked(topic, strategy)
+	dialogueConfig := o.dialogueConfig
+	o.mu.Unlock()
+	director := NewDialogueDirector(dialogueConfig)
+	arcPlan := director.BuildArcPlan(topicResult)
+	arcState := director.NewArcState(segmentID, topicResult, arcPlan)
+	director.LogArcCreated(segmentID, arcPlan)
+	o.mu.Lock()
+	o.currentDialoguePlan = &arcPlan
+	o.currentDialogueState = &arcState
 	o.mu.Unlock()
 	log.Printf("[IdleChat] Topic: %s (%s, session=%s)", topic, strategy, segmentID)
 	ttsDrain := make([]<-chan struct{}, 0, turnLimit+2)
@@ -144,6 +154,15 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 		}
 
 		response = ensureTrailingPeriod(response)
+		o.mu.Lock()
+		currentQuality := o.lastDialogueQuality
+		o.mu.Unlock()
+		turnPlan := dialogueTurnPlanForIndex(arcPlan, turn)
+		arcState = director.UpdateArcState(arcState, response, turnPlan, currentQuality)
+		o.mu.Lock()
+		updatedState := arcState
+		o.currentDialogueState = &updatedState
+		o.mu.Unlock()
 
 		turnIndex := turn + 1
 		messageID := idleChatMessageID(segmentID, turnIndex)
@@ -213,9 +232,29 @@ func (o *IdleChatOrchestrator) runChatSession(strategy TopicStrategy) {
 	log.Printf("[IdleChat] Session %s completed (%d turns)", sessionID, segmentTurns)
 }
 
+func (o *IdleChatOrchestrator) dialogueTopicResultLocked(topic string, strategy TopicStrategy) TopicGenerationResult {
+	if o.currentTopicResult != nil && strings.TrimSpace(o.currentTopicResult.Topic) == strings.TrimSpace(topic) {
+		return *o.currentTopicResult
+	}
+	category, _ := TopicCategoryFromStrategy(strategy)
+	return TopicGenerationResult{
+		Topic:               topic,
+		Category:            category,
+		Strategy:            string(strategy),
+		InterestingnessAxis: ExpectedAxisByCategory[category],
+	}
+}
+
 func (o *IdleChatOrchestrator) idleChatTurnLimit() int {
-	if o.maxTurns <= 0 || o.maxTurns > maxTurnsPerTopic {
-		return maxTurnsPerTopic
+	o.mu.Lock()
+	dialogueMax := normalizeDialogueInterestingnessConfig(o.dialogueConfig).MaxTurnsPerTopic
+	o.mu.Unlock()
+	limit := maxTurnsPerTopic
+	if dialogueMax > 0 && dialogueMax < limit {
+		limit = dialogueMax
+	}
+	if o.maxTurns <= 0 || o.maxTurns > limit {
+		return limit
 	}
 	return o.maxTurns
 }
