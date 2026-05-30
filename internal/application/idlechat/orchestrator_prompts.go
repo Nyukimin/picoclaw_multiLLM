@@ -9,18 +9,12 @@ import (
 func buildIdleResponseGuardPrompt(speaker string, selfCtx, otherCtx []string) string {
 	_ = selfCtx
 	_ = otherCtx
-	styleGuard := "禁止: 相手名呼び（Mioさん、Shiroさん）、礼儀テンプレ（非常に興味深いですね、まさにその通りですね）、メタ発言（言い直すと、硬すぎました、評価すると）、直前文の言い換えコピー、直前の自分と同じ書き出し、同じ語句の反復。"
-	if strings.EqualFold(strings.TrimSpace(speaker), "mio") {
-		styleGuard += " Mioは敬語調（〜です、〜ます、ご懸念）は使わず、相手名を呼ばない。"
-	}
-	if strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
-		styleGuard += " ShiroはMioを名前で呼ばず、賞賛や相槌で始めず、説明の前に相手の論点を短く受ける。"
-	}
+	outputGuard := "禁止: 話者名・相手名の明記、台本形式、メタ発言（言い直すと、硬すぎました、評価すると）、直前文の言い換えコピー、直前の自分と同じ書き出し、同じ語句の反復。"
 	return fmt.Sprintf(
 		"%s の発話として、そのまま表示できる自然な日本語だけを返してください。話者名、%s:、mio:、shiro:、相手の台詞、台本形式、英語だけの応答、英語の見出し、英語での説明、候補番号、自己採点は不要です。%s 直前の言い回しをなぞらず、具体物・選択・秘密・感情の反転のどれかを一つだけ入れてください。",
 		speaker,
 		speaker,
-		styleGuard,
+		outputGuard,
 	)
 }
 
@@ -37,7 +31,7 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 			"話題: %s\n%sとして、会話の最初の発話を1〜2文で返してください。自然な日本語だけにし、話者名、mio:、shiro:、相手の台詞、台本形式、英語や説明は書かないでください。%s %s。読者の楽しみは「%s」です。具体物か小さな問いを一つ入れ、相手が次に返しやすい未決点を残してください。",
 			topic,
 			speakerOrTarget,
-			idlePromptStyleGuard(speakerOrTarget),
+			idlePromptOutputGuard(),
 			move,
 			audience,
 		)
@@ -48,7 +42,7 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 		quoteOrDash(latestOther),
 		quoteOrDash(latestSelf),
 		speakerOrTarget,
-		idlePromptStyleGuard(speakerOrTarget),
+		idlePromptOutputGuard(),
 		move,
 		audience,
 		idleTurnAdditionHint(finalTurn),
@@ -57,15 +51,8 @@ func buildIdleTurnPrompt(topic, speakerOrTarget, latestOther, latestSelf string,
 	)
 }
 
-func idlePromptStyleGuard(speaker string) string {
-	switch strings.ToLower(strings.TrimSpace(speaker)) {
-	case "shiro":
-		return "相手名呼び（Mioさん等）、礼儀テンプレ、賞賛、メタ発言、「言い直すと」は禁止。直前の相手発言を要約コピーせず、直前の自分と同じ主語・書き出しを使わない。文末は必ず完結させる。"
-	case "mio":
-		return "相手名呼び（Shiroさん等）、敬語テンプレ、メタ発言、「言い直すと」は禁止。直前の相手発言を要約コピーせず、直前の自分と同じ主語・書き出しを使わない。文末は必ず完結させる。"
-	default:
-		return "相手名呼び、礼儀テンプレ、メタ発言、直前文の要約コピーは禁止。文末は必ず完結させる。"
-	}
+func idlePromptOutputGuard() string {
+	return "話者名・相手名の明記、メタ発言、「言い直すと」、直前文の要約コピーは禁止。直前の自分と同じ主語・書き出しを使わない。文末は必ず完結させる。"
 }
 
 type idleInterestProfile struct {
@@ -314,26 +301,12 @@ func hasIdleAnalogyMarker(s string) bool {
 	return strings.Contains(lower, "まるで") || strings.Contains(lower, "みたい") || strings.Contains(lower, "ような")
 }
 
-func forecastSpeakerContract(agentName string) string {
-	switch strings.ToLower(strings.TrimSpace(agentName)) {
-	case "mio":
-		return "話し方契約（未来展望モード）: 3文まで。「確かに」「なるほど」で始めない。相手名呼び、敬語テンプレ、メタ発言は禁止。具体的な事例・数字・場面を一つ必ず使う。「まるで〜のような」比喩は禁止し、実例か問いで進める。「そんな見方があったのか」と思わせる角度から入る。語尾はタメ口（〜だよね・〜じゃん・〜なんだよね）。「〜です」「〜ます」は禁止。"
-	case "shiro":
-		return "話し方契約（未来展望モード）: 3文まで。「確かに」「なるほど」「そうですね」で始めない。Mioさん等の相手名呼び、礼儀テンプレ、賞賛、メタ発言、「非常に興味深いですね」「言い直すと」は禁止。相手の論点を「それは」「その点は」「別の角度から見ると」などで1文で受ける（直前の自分の発言で使った語句をそのまま主語・書き出しに流用しない）。賛否の対比・条件・具体的な数字のいずれかを一つ加える。抽象論は避け、現場・個人・社会への具体的な影響を述べる。締めは場面の描写か問いかけで終える。"
-	default:
-		return "話し方契約（未来展望モード）: 3文まで。「確かに」「なるほど」で始めない。具体的な事実・事例・数字を一つ加えて議論を前に進める。"
-	}
+func forecastContentContract() string {
+	return "未来展望モードの出力契約: 3文まで。具体的な事例・数字・場面を一つ必ず使う。大きな話をそのまま語らず、現場・個人・社会への具体的な影響へ落とす。賛否の対比・条件・問いのいずれかを一つ加える。"
 }
 
-func idleSpeakerContract(agentName string) string {
-	switch strings.ToLower(strings.TrimSpace(agentName)) {
-	case "mio":
-		return "話し方契約: 2〜3文まで。語尾はタメ口（〜だね・〜だよ・〜じゃん・〜なの・〜かも・〜かな・〜っていいよね・〜なんだよね）。「〜です」「〜ます」は絶対禁止。「確かに」「なるほど」「そうだよね」で文を始めない。相手名呼び、敬語テンプレ、メタ発言、「言い直すと」は禁止。驚き・共感・好奇心のリアクション（えー！・いいじゃん・それすごくない？・わかる・気になる）を適度に使ってよい。自分の小さな気持ちを1文以内で素直に見せてよい。毎回違う入口から入る。比喩は一つまで。相手の言葉をなぞらず、自分の具体例か問いで前に進める。"
-	case "shiro":
-		return "話し方契約: 2文まで。「確かに」「なるほど」「そうですね」で文を始めない。Mioさん等の相手名呼び、礼儀テンプレ、賞賛、メタ発言、「非常に興味深いですね」「言い直すと」は禁止。相手の案を「それは」「その点は」などで短く受け、条件・制約・含意のどれか一つだけ足す。抽象語を重ねず、論点を一つに絞る。雑談で数値や出典を求めて詰問しない。研究発表みたいな硬い締め方を避け、場面や身近な例に寄せる。「〜は、まるで〜のように」の書き出しは禁止。直前の自分の発言と同じ書き出し・主語で始めない。"
-	default:
-		return "話し方契約: 2文まで。相手の言葉をなぞらず、一つの論点だけ前に進める。"
-	}
+func idleContentContract() string {
+	return "IdleChat出力契約: 2〜3文まで。相手の言葉をなぞらず、一つの論点だけ前に進める。抽象語を重ねず、具体例・条件・問いのどれかを一つだけ足す。"
 }
 
 func truncate(s string, maxLen int) string {
@@ -363,17 +336,17 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 	mode := o.sessionMode
 	o.mu.Unlock()
 
-	var idleStyle string
+	var idleContract string
 	if mode == "forecast" {
-		idleStyle = forecastSpeakerContract(agentName)
+		idleContract = forecastContentContract()
 	} else {
-		idleStyle = idleSpeakerContract(agentName)
+		idleContract = idleContentContract()
 	}
 
 	if prompt, ok := o.personalities[agentName]; ok {
-		return idlePolicy + "\n\n" + prompt + "\n" + idleStyle
+		return idlePolicy + "\n\n" + prompt + "\n" + idleContract
 	}
-	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleStyle)
+	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleContract)
 }
 
 func idleChatThinkingDirective(think bool) string {

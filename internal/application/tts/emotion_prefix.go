@@ -75,6 +75,9 @@ func emotionPrefixForState(emotion *EmotionState) string {
 }
 
 func emotionPrefixForCharacterText(emotion *EmotionState, characterID, text string) string {
+	if isIdleChatTopicSpeechText(text) {
+		return "😊"
+	}
 	feature := classifyEmotionText(text)
 	speaker := strings.ToLower(strings.TrimSpace(characterID))
 	switch speaker {
@@ -100,6 +103,11 @@ func emotionPrefixForCharacterText(emotion *EmotionState, characterID, text stri
 		}
 		return emotionPrefixForStateOnly(emotion)
 	}
+}
+
+func isIdleChatTopicSpeechText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "きょうのおだい")
 }
 
 func emotionPrefixForStateOnly(emotion *EmotionState) string {

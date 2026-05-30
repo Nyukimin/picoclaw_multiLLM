@@ -64,6 +64,16 @@ func TestEnsureEmotionPrefixForCharacterUsesMioAffectionOnlyForExplicitAffection
 	}
 }
 
+func TestEnsureEmotionPrefixForTopicAnnouncementUsesBrightPrefix(t *testing.T) {
+	text := EnsureEmotionPrefixForCharacter("きょうのおだい、車輪の軌跡と乗り手の皮膚感覚。", &EmotionState{
+		PrimaryEmotion: "warm",
+		EmotionVector:  EmotionVector{Warmth: 0.85},
+	}, "user")
+	if !strings.HasPrefix(text, "😊きょうのおだい") {
+		t.Fatalf("expected topic announcement to start with bright prefix, got %q", text)
+	}
+}
+
 func TestEnsureEmotionPrefixForCharacterKeepsShiroCalmUnlessStrong(t *testing.T) {
 	base := EnsureEmotionPrefixForCharacter("少し考えてみよう。", nil, "shiro")
 	if !strings.HasPrefix(base, "😇") {

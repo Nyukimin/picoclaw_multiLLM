@@ -717,8 +717,7 @@ func TestBuildIdleTurnPromptRequiresDialogueResponse(t *testing.T) {
 		"具体物・理由・問い",
 		"自然な日本語だけ",
 		"英語や説明は書かない",
-		"相手名呼び",
-		"礼儀テンプレ",
+		"話者名・相手名",
 		"メタ発言",
 		"要約コピー",
 		"文末は必ず完結",
@@ -754,29 +753,40 @@ func TestBuildIdleTurnPromptFinalTurnClosesWithoutNewQuestion(t *testing.T) {
 
 func TestBuildIdleResponseGuardPromptBansEnglishOutput(t *testing.T) {
 	got := buildIdleResponseGuardPrompt("mio", nil, nil)
-	for _, want := range []string{"自然な日本語", "英語だけの応答", "英語の見出し", "英語での説明", "相手名呼び", "礼儀テンプレ", "言い直すと", "直前文の言い換えコピー"} {
+	for _, want := range []string{"自然な日本語", "英語だけの応答", "英語の見出し", "英語での説明", "話者名・相手名", "言い直すと", "直前文の言い換えコピー"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("guard prompt does not contain %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestShiroSystemPromptSuppressesStyleRetryCauses(t *testing.T) {
+func TestSystemPromptKeepsOutputContractWithoutToneContract(t *testing.T) {
 	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
 	got := o.getSystemPrompt("shiro")
 
 	for _, want := range []string{
-		"Mioさん",
-		"相手名呼び",
-		"礼儀テンプレ",
-		"賞賛",
-		"メタ発言",
-		"非常に興味深いですね",
-		"言い直すと",
-		"同じ書き出し",
+		"表示本文だけ",
+		"自然な日本語",
+		"英語の見出し",
+		"IdleChat出力契約",
+		"2〜3文まで",
+		"一つの論点だけ前に進める",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("shiro system prompt does not contain %q:\n%s", want, got)
+			t.Fatalf("system prompt does not contain %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"話し方契約",
+		"語尾",
+		"タメ口",
+		"敬語テンプレ",
+		"礼儀テンプレ",
+		"賞賛",
+		"非常に興味深いですね",
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("system prompt still contains tone contract %q:\n%s", banned, got)
 		}
 	}
 }

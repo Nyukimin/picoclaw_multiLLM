@@ -190,6 +190,68 @@ func TestTTSClientBridgeIdleChatChunkPayloadIncludesCanonicalSpeechFields(t *tes
 	}
 }
 
+func TestTTSClientBridgeTopicPayloadIncludesBrightTopicPrefix(t *testing.T) {
+	ttsPublicSessionMu.Lock()
+	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
+	ttsPublicStaleSessions = map[string]uint64{}
+	ttsPublicNextChunk = map[string]int{}
+	ttsPublicNextResponse = map[string]int{}
+	ttsPublicGeneration = 0
+	ttsPublicSessionMu.Unlock()
+	clearAllIdleChatTTSPending()
+	t.Cleanup(clearAllIdleChatTTSPending)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"audio_path":"/audio/topic.wav"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	var chunks []orchestrator.OrchestratorEvent
+	bridge := buildTTSClientBridge(&config.Config{
+		TTS: config.TTSConfig{
+			Enabled:     true,
+			HTTPBaseURL: srv.URL,
+			VoiceID:     "mio",
+			TimeoutMS:   15000,
+		},
+	}, func(ev orchestrator.OrchestratorEvent) {
+		chunks = append(chunks, ev)
+	}, nil, nil)
+	if bridge == nil {
+		t.Fatal("expected bridge")
+	}
+
+	registerTTSPublicSessionWithMessage("idle-topic-tts", "idle-topic", "idle-topic:0000", "idle-topic:topic", 0)
+	if err := bridge.StartSession(context.Background(), orchestrator.TTSSessionStart{
+		SessionID:   "idle-topic-tts",
+		ResponseID:  "idle-topic:0000",
+		CharacterID: "user",
+		VoiceID:     "mio",
+	}); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	displayBridge, ok := bridge.(orchestrator.TTSDisplayBridge)
+	if !ok {
+		t.Fatalf("expected display bridge, got %T", bridge)
+	}
+	topicSpeech := "きょうのおだい、車輪の軌跡と乗り手の皮膚感覚。"
+	if err := displayBridge.PushTextWithDisplay(context.Background(), "idle-topic-tts", topicSpeech, "今日のお題：車輪の軌跡と乗り手の皮膚感覚", nil); err != nil {
+		t.Fatalf("push text: %v", err)
+	}
+
+	if len(chunks) != 1 {
+		t.Fatalf("expected one chunk event, got %d", len(chunks))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(chunks[0].Content), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["speech_text"] != "😊"+topicSpeech || payload["text"] != "😊"+topicSpeech {
+		t.Fatalf("topic speech must preserve bright prefix and full topic speech text: %#v", payload)
+	}
+}
+
 func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testing.T) {
 	ttsPublicSessionMu.Lock()
 	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
