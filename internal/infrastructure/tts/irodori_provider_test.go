@@ -74,10 +74,10 @@ func TestIrodoriUploadedAudio(t *testing.T) {
 
 func TestRewriteLoopbackIrodoriFileURL(t *testing.T) {
 	got := rewriteLoopbackIrodoriFileURL(
-		"http://192.168.1.31:7860",
-		"http://127.0.0.1:7860/gradio_api/file=/tmp/sample.wav",
+		"http://192.168.1.31:7870",
+		"http://127.0.0.1:7870/gradio_api/file=/tmp/sample.wav",
 	)
-	want := "http://192.168.1.31:7860/gradio_api/file=/tmp/sample.wav"
+	want := "http://192.168.1.31:7870/gradio_api/file=/tmp/sample.wav"
 	if got != want {
 		t.Fatalf("unexpected rewritten url: got=%s want=%s", got, want)
 	}

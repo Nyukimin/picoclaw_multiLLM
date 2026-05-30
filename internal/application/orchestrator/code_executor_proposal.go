@@ -16,7 +16,7 @@ func shouldUseProposalPath(route routing.Route, target codeTarget) bool {
 	case routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
 		return true
 	}
-	return target.degradedRoute == routing.RouteCODE3
+	return false
 }
 
 // tryExecuteProposalPath はProposal生成→Worker実行パスを試行

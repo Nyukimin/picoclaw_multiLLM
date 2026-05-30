@@ -369,6 +369,7 @@ const ttsPlayback = {
   tailTimer: null,
   blockedFallbackUtteranceId: '',
   seq: 0,
+  preloadedAudio: new Map(),
 };
 const viewerControl = {
   clientId: loadViewerClientID(),
@@ -3032,6 +3033,8 @@ function createChatAudioSync() {
     const responseId = String(payload.response_id || '').trim();
     const messageId = String(payload.message_id || '').trim();
     const utteranceId = String(payload.utterance_id || '').trim() || (sessionId + ':' + String(chunkIndex));
+    const errorCode = String(payload.error_code || '').trim();
+    const error = String(payload.error || '').trim();
     const mode = isIdleChatSessionId(sessionId) ? 'idlechat' : 'chat';
     url = resolveTTSPlaybackURL(url, audioPath);
 
@@ -3054,6 +3057,8 @@ function createChatAudioSync() {
       utteranceId,
       messageId,
       turnIndex,
+      errorCode,
+      error,
       displayOnly: !url,
       mode,
     };
@@ -3096,6 +3101,8 @@ function createChatAudioSync() {
       utteranceId: String((chunk && chunk.utteranceId) || ''),
       messageId: String((chunk && chunk.messageId) || ''),
       turnIndex: Number.isFinite(chunk && chunk.turnIndex) ? chunk.turnIndex : -1,
+      errorCode: String((chunk && chunk.errorCode) || ''),
+      error: String((chunk && chunk.error) || ''),
       displayOnly: Boolean(chunk && chunk.displayOnly),
       mode: String((chunk && chunk.mode) || '').trim(),
     };
@@ -3124,6 +3131,7 @@ function createChatAudioSync() {
     incrementResponsePlaybackCount(chunk.responseId);
     state.queue.push(chunk);
     sortQueue();
+    preloadQueuedAudioInternal();
   }
 
   function sortQueue() {
@@ -3242,6 +3250,7 @@ function createChatAudioSync() {
   function ttsPlaybackAckErrorCode(item, status, err) {
     const normalizedStatus = String(status || '').trim();
     if (normalizedStatus !== 'error') return '';
+    if (item && item.errorCode) return String(item.errorCode).trim();
     const text = describeTTSAudioError(err).toLowerCase();
     if (text.indexOf('missing idlechat audio url') >= 0) return 'TTS_AUDIO_MISSING';
     if (text.indexOf('idlechat audio disabled') >= 0) return 'TTS_AUDIO_DISABLED';
@@ -3253,8 +3262,47 @@ function createChatAudioSync() {
   function canStartChunk(chunk) {
     if (!chunk) return false;
     if (chunk.mode !== 'idlechat') return true;
+    if (chunk.chunkIndex === 0) return true;
     const buffered = state.queue.filter((item) => item && item.mode === 'idlechat' && item.sessionId === chunk.sessionId && !item.displayOnly).length;
     return buffered >= 2 || completedSessions.has(chunk.sessionId);
+  }
+
+  function preloadQueuedAudioInternal() {
+    if (!state.audioEnabled || typeof Audio !== 'function') return;
+    const wanted = new Set();
+    state.queue.forEach((item) => {
+      if (!item || item.displayOnly || !item.url) return;
+      wanted.add(String(item.url));
+    });
+    for (const key of Array.from(state.preloadedAudio.keys())) {
+      if (wanted.has(key)) continue;
+      const audio = state.preloadedAudio.get(key);
+      try { if (audio) audio.removeAttribute('src'); } catch (_) {}
+      try { if (audio) audio.load(); } catch (_) {}
+      state.preloadedAudio.delete(key);
+    }
+    for (const url of wanted) {
+      if (state.preloadedAudio.has(url)) continue;
+      try {
+        const audio = new Audio();
+        audio.preload = 'auto';
+        if (typeof prepareMobileInlineAudio === 'function') prepareMobileInlineAudio(audio);
+        audio.src = url;
+        audio.load();
+        state.preloadedAudio.set(url, audio);
+      } catch (_) {
+        // Preload is an optimization only. Playback still uses the primary audio element.
+      }
+    }
+  }
+
+  function clearPreloadedAudioInternal() {
+    if (!state.preloadedAudio || typeof state.preloadedAudio.forEach !== 'function') return;
+    state.preloadedAudio.forEach((audio) => {
+      try { if (audio) audio.removeAttribute('src'); } catch (_) {}
+      try { if (audio) audio.load(); } catch (_) {}
+    });
+    state.preloadedAudio.clear();
   }
 
   function resetCurrentInternal() {
@@ -3295,6 +3343,7 @@ function createChatAudioSync() {
       }
       resetCurrentInternal();
     }
+    clearPreloadedAudioInternal();
     clearLipSyncSpeaking();
     setNowPlayingText('', '');
     clearTextInternal();
@@ -3319,6 +3368,7 @@ function createChatAudioSync() {
       try { state.audio.removeAttribute('src'); } catch (_) {}
       try { state.audio.load(); } catch (_) {}
     }
+    clearPreloadedAudioInternal();
     state.audioEnabled = false;
     state.unlocked = false;
     state.blocked = false;
@@ -3460,10 +3510,10 @@ function createChatAudioSync() {
     if (state.audioEnabled && !state.blocked && !(head && head.displayOnly)) return;
     const next = state.queue.shift();
     const idleChatFallback = isIdleChatPlaybackItem(next);
-    const fallbackErr = idleChatFallback ? new Error(next && next.displayOnly ? 'missing idlechat audio url' : 'idlechat audio disabled') : null;
+    const fallbackErr = idleChatFallback ? new Error(next && next.error ? next.error : (next && next.displayOnly ? 'missing idlechat audio url' : 'idlechat audio disabled')) : null;
     state.fallbackActive = true;
     if (idleChatFallback) {
-      renderIdlePlaybackErrorInternal(next, next && next.displayOnly ? 'TTS_AUDIO_MISSING' : 'TTS_AUDIO_DISABLED', next && next.displayOnly ? 'TTS audio chunk did not include a playable audio URL.' : 'IdleChat audio playback was disabled before this chunk could be spoken.');
+      renderIdlePlaybackErrorInternal(next, next && next.errorCode ? next.errorCode : (next && next.displayOnly ? 'TTS_AUDIO_MISSING' : 'TTS_AUDIO_DISABLED'), next && next.error ? next.error : (next && next.displayOnly ? 'TTS audio chunk did not include a playable audio URL.' : 'IdleChat audio playback was disabled before this chunk could be spoken.'));
       recordResponsePlaybackResult(next, 'error', fallbackErr);
     } else {
       showFallbackChunkInternal(next);
@@ -3622,7 +3672,11 @@ function createChatAudioSync() {
     state.currentTurnIndex = Number.isFinite(next && next.turnIndex) ? next.turnIndex : -1;
     state.currentShown = false;
     audio.dataset.characterId = state.currentCharacterId;
+    if (next && next.url && state.preloadedAudio) {
+      state.preloadedAudio.delete(String(next.url));
+    }
     audio.src = String((next && next.url) || '');
+    preloadQueuedAudioInternal();
     audio.play().then(function() {
       markAudioStarted();
       state.audioEnabled = true;

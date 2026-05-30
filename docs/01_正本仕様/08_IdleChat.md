@@ -31,7 +31,7 @@ IdleChat は、ユーザーが一定時間操作しないアイドル時間に**
 | 項目 | 通常モード | 未来展望モード |
 |------|----------|--------------|
 | トピック選択 | 通常カテゴリ（Single / Double / External / Movie / News） | 6ドメイン固定順回し |
-| 情報源 | ジャンル辞書 + Wikipedia + NHK RSS | トレンド + NHK + Google News（3段階） |
+| 情報源 | ジャンル辞書 + Wikipedia + カテゴリ付きニュースRSS（NHK / ITmedia 等） | トレンド + NHK + Google News（3段階） |
 | ターン数 | 12ターン/トピック、最大50/セッション | 100ターン/ドメイン、最大600/セッション |
 | 起動方法 | 自動（アイドル検知）/ 手動 | 手動のみ（「未来展望」ボタン） |
 | セッション形式 | 単発トピック | 番組形式（ドメインアナウンス → お題 → 議論） |
@@ -57,11 +57,13 @@ internal/application/idlechat/
 | 処理 | 担当 | 理由 |
 |------|------|------|
 | 通常トピック生成 | Mio (gemma3:4b) | 軽量・高速 |
-| 未来展望キーワード抽出 | Coder2 (GPT) | 深い文脈理解が必要 |
-| 未来展望トピック生成 | Coder2 (GPT) | 未来展望の質が重要 |
+| 未来展望キーワード抽出 | ローカル Forecast provider（local Coder / Worker） | 外部 API クレジット消費を避ける |
+| 未来展望トピック生成 | ローカル Forecast provider（local Coder / Worker） | 外部 API クレジット消費を避ける |
 | ディスカッション発話 | 各話者の LLM | ペルソナ維持 |
 | 既出テーマ抽出 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
 | まとめ生成 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
+
+Forecast で外部 Coder API を使う場合は `idle_chat.forecast_external_enabled: true` の明示設定が必要。明示設定がない場合、外部 Coder provider は選択しない。生成失敗時に別の外部 provider へ自動切替しない。
 
 通常 IdleChat では、話者ごとの LLM リクエストに `think` を常に明示する。
 既定は Mio が常時 `think: false`、Shiro は IdleChat のみ `think: false`、その他の話者/モデルは `think: true` とし、`idle_chat.speaker_llm_options` で話者ごとに切り替え可能にする。
@@ -157,6 +159,7 @@ Story タイトル生成プロンプトの正本は `prompts/idle_chat/story_top
 #### News カテゴリの契約
 
 - News は NHK RSS 等のニュースシードから 1 件を選び、そのニュースの論点、背景、影響を深掘りする。
+- News seed は `title / category / source / url` を保持できる。カテゴリ例は `general / culture / business / world / sports / tech` とし、取得元追加時も News カテゴリ内の追跡メタデータとして扱う。
 - News ではランダムジャンルを混ぜない。`News + ジャンル` は External でも News でもない曖昧な状態として禁止する。
 - News を External へ黙ってすり替えない。ニュースシード取得失敗時は、`news_seed_unavailable` 等の診断をログに残し、カテゴリ成功として扱わない。
 - News の Viewer 表示、TTS、ログには、同じ topic/category が残ること。表示だけ News、内部ログだけ External のような不一致は禁止する。
@@ -307,6 +310,7 @@ IdleChat の Viewer 本文表示の正本は `idlechat.message` と `idlechat.su
 - IdleChat の TTS 完了待ちは、active audio Viewer が実際に観測した response の playback ack、またはスピーカ OFF の明示 display-only 完了でのみ解除する。
 - TTS playback ack が返らない場合はエラーとして記録するが、会話進行の停止要因にはしない。
 - TTS chunk が一定時間来ない、または TTS 生成に失敗した場合は、TTS エラーとして診断を表示し、TTS chunk や fallback 文で本文を補完しない。
+- TTS provider への push が失敗した場合、失敗はログに残すが、IdleChat の進行制御では通常の TTS 完了と同じ扱いで pending を消化して会話を継続する。
 - `tts.session_completed` だけを見て、観測していない response を playback 済みとして ack してはいけない。
 
 #### IdleChat 通常会話の TTS chunk 契約

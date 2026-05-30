@@ -64,8 +64,14 @@ func buildOrchestratorRuntime(
 	)
 	if coderCaps := buildCoderCapabilities(nodeCaps, cfg); coderCaps != nil {
 		orch.SetCoderCapabilities(coderCaps)
-		log.Printf("Dynamic coder selection enabled (%d coders)", len(coderCaps))
+		log.Printf("Coder capability metadata loaded (%d coders); CODE uses only local coder1 unless an explicit CODE route is requested", len(coderCaps))
 	}
+	orch.SetExternalCoderPolicy(map[string]bool{
+		"coder1": coderProviderIsExternal(cfg.Coder1),
+		"coder2": coderProviderIsExternal(cfg.Coder2),
+		"coder3": coderProviderIsExternal(cfg.Coder3),
+		"coder4": coderProviderIsExternal(cfg.Coder4),
+	})
 	orch.SetEventListener(deps.eventRelay)
 	if deps.reportStore != nil {
 		orch.SetReportStore(deps.reportStore)

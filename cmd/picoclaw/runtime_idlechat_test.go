@@ -38,8 +38,8 @@ func TestSelectForecastProviderPrefersCoderPriorityOverWorker(t *testing.T) {
 	}
 }
 
-func TestSelectForecastProviderSkipsBrokenCoderAndUsesNextCoder(t *testing.T) {
-	primary, primaryLabel, external, externalLabel := selectForecastProviders(&config.Config{
+func TestSelectForecastProviderSkipsBrokenCoderAndUsesNextLocalCoder(t *testing.T) {
+	primary, primaryLabel := selectForecastProviders(&config.Config{
 		Coder1: config.CoderConfig{
 			Enabled:  true,
 			Provider: "local_openai",
@@ -53,19 +53,16 @@ func TestSelectForecastProviderSkipsBrokenCoderAndUsesNextCoder(t *testing.T) {
 		},
 	})
 
-	if primary != nil || primaryLabel != "" {
-		t.Fatalf("broken Coder1 should not become primary: provider=%#v label=%q", primary, primaryLabel)
+	if primary == nil {
+		t.Fatal("expected Coder2 local provider")
 	}
-	if external == nil {
-		t.Fatal("expected Coder2 external provider")
-	}
-	if !strings.Contains(externalLabel, "Coder2") {
-		t.Fatalf("unexpected external label: %q", externalLabel)
+	if !strings.Contains(primaryLabel, "Coder2") {
+		t.Fatalf("unexpected primary label: %q", primaryLabel)
 	}
 }
 
-func TestSelectForecastProviderSkipsBrokenCoder1AndUsesCoder2OpenAI(t *testing.T) {
-	primary, primaryLabel, external, externalLabel := selectForecastProviders(&config.Config{
+func TestSelectForecastProviderSkipsOpenAIByDefault(t *testing.T) {
+	primary, primaryLabel := selectForecastProviders(&config.Config{
 		Coder1: config.CoderConfig{
 			Enabled:  true,
 			Provider: "local_openai",
@@ -80,17 +77,37 @@ func TestSelectForecastProviderSkipsBrokenCoder1AndUsesCoder2OpenAI(t *testing.T
 	})
 
 	if primary != nil || primaryLabel != "" {
-		t.Fatalf("broken Coder1 should not become primary: provider=%#v label=%q", primary, primaryLabel)
-	}
-	if external == nil {
-		t.Fatal("expected Coder2 OpenAI external provider")
-	}
-	if !strings.Contains(externalLabel, "Coder2 openai") || !strings.Contains(externalLabel, "gpt-4o-mini") {
-		t.Fatalf("unexpected external label: %q", externalLabel)
+		t.Fatalf("OpenAI explicit use disabled by default; got provider=%#v label=%q", primary, primaryLabel)
 	}
 }
 
-func TestSelectForecastProviderDoesNotFallBackToChatWhenNoCoderAvailable(t *testing.T) {
+func TestSelectForecastProviderUsesOpenAIOnlyWhenExternalEnabled(t *testing.T) {
+	primary, primaryLabel := selectForecastProviders(&config.Config{
+		IdleChat: config.IdleChatConfig{
+			ForecastExternalEnabled: true,
+		},
+		Coder1: config.CoderConfig{
+			Enabled:  true,
+			Provider: "local_openai",
+			Model:    "Worker",
+		},
+		Coder2: config.CoderConfig{
+			Enabled:  true,
+			Provider: "openai",
+			Model:    "gpt-4o-mini",
+			APIKey:   "test-key",
+		},
+	})
+
+	if primary == nil {
+		t.Fatal("expected Coder2 OpenAI provider when external use is explicitly enabled")
+	}
+	if !strings.Contains(primaryLabel, "Coder2 openai") || !strings.Contains(primaryLabel, "gpt-4o-mini") {
+		t.Fatalf("unexpected primary label: %q", primaryLabel)
+	}
+}
+
+func TestSelectForecastProviderDoesNotUseChatWhenNoCoderAvailable(t *testing.T) {
 	chat := fakeConversationProvider{name: "chat-provider"}
 	provider, label := selectForecastProvider(&config.Config{
 		LocalLLM: config.LocalLLMConfig{
@@ -104,5 +121,44 @@ func TestSelectForecastProviderDoesNotFallBackToChatWhenNoCoderAvailable(t *test
 	}
 	if label != "" {
 		t.Fatalf("unexpected label: %q", label)
+	}
+}
+
+func TestSelectForecastProviderUsesWorkerWhenNoLocalCoderAvailableAtRuntime(t *testing.T) {
+	worker := fakeConversationProvider{name: "worker-provider"}
+	chat := fakeConversationProvider{name: "chat-provider"}
+	provider, label := selectForecastProvider(&config.Config{
+		Coder2: config.CoderConfig{
+			Enabled:  true,
+			Provider: "openai",
+			Model:    "gpt-4o-mini",
+			APIKey:   "test-key",
+		},
+	}, chat, worker, nil)
+
+	if provider != worker {
+		t.Fatalf("expected Worker local provider, got %#v", provider)
+	}
+	if label != "Worker local" {
+		t.Fatalf("unexpected label: %q", label)
+	}
+}
+
+func TestCoderProviderIsExternal(t *testing.T) {
+	tests := []struct {
+		provider string
+		want     bool
+	}{
+		{provider: "local_openai", want: false},
+		{provider: "ollama", want: false},
+		{provider: "openai", want: true},
+		{provider: "claude", want: true},
+		{provider: "deepseek", want: true},
+	}
+	for _, tt := range tests {
+		got := coderProviderIsExternal(config.CoderConfig{Provider: tt.provider})
+		if got != tt.want {
+			t.Fatalf("coderProviderIsExternal(%q)=%t, want %t", tt.provider, got, tt.want)
+		}
 	}
 }

@@ -47,11 +47,10 @@ func buildIdleChatRuntime(
 		"wild":  wildProvider,
 	})
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
-	if forecastProvider, label, externalProvider, externalLabel := selectForecastProviders(cfg); forecastProvider != nil || externalProvider != nil {
+	if forecastProvider, label := selectForecastProviderForRuntime(cfg, workerProvider); forecastProvider != nil {
 		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
-		idleChatOrch.SetForecastExternalProviderWithLabel(externalProvider, externalLabel)
 		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
-		log.Printf("IdleChat: Forecast provider set to primary=%s external=%s, topic stock filling", forecastProviderLogLabel(label), forecastProviderLogLabel(externalLabel))
+		log.Printf("IdleChat: Forecast provider set to %s, topic stock filling", forecastProviderLogLabel(label))
 	}
 	if recentGlossaryTopics != nil {
 		idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
@@ -113,38 +112,64 @@ func buildIdleChatRuntime(
 }
 
 func selectForecastProvider(cfg *config.Config, chatProvider, workerProvider, wildProvider llm.LLMProvider) (llm.LLMProvider, string) {
-	primary, primaryLabel, external, externalLabel := selectForecastProviders(cfg)
-	if primary != nil {
-		return primary, primaryLabel
-	}
-	if external != nil {
-		return external, externalLabel
-	}
-	return nil, ""
+	return selectForecastProviderForRuntime(cfg, workerProvider)
 }
 
-func selectForecastProviders(cfg *config.Config) (llm.LLMProvider, string, llm.LLMProvider, string) {
+func selectForecastProviders(cfg *config.Config) (llm.LLMProvider, string) {
 	if cfg == nil {
-		return nil, "", nil, ""
+		return nil, ""
 	}
-	primary, primaryLabel := createForecastProvider("Coder1", cfg.Coder1)
-	if primary == nil {
-		log.Printf("WARN: IdleChat forecast primary unavailable: Coder1 provider=%s model=%s", cfg.Coder1.Provider, cfg.Coder1.Model)
-	}
+	externalEnabled := cfg.IdleChat.ForecastExternalEnabled
 	for _, candidate := range []struct {
 		label string
 		cfg   config.CoderConfig
 	}{
+		{"Coder1", cfg.Coder1},
 		{"Coder2", cfg.Coder2},
 		{"Coder3", cfg.Coder3},
 		{"Coder4", cfg.Coder4},
 	} {
-		external, externalLabel := createForecastProvider(candidate.label, candidate.cfg)
-		if external != nil {
-			return primary, primaryLabel, external, externalLabel
+		if !candidate.cfg.Enabled {
+			continue
 		}
+		if !forecastCoderProviderAllowed(candidate.cfg, externalEnabled) {
+			log.Printf("IdleChat forecast provider skipped: %s provider=%s model=%s: external provider not explicitly enabled", candidate.label, candidate.cfg.Provider, candidate.cfg.Model)
+			continue
+		}
+		provider, label := createForecastProvider(candidate.label, candidate.cfg)
+		if provider == nil {
+			continue
+		}
+		return provider, label
 	}
-	return primary, primaryLabel, nil, ""
+	return nil, ""
+}
+
+func selectForecastProviderForRuntime(cfg *config.Config, workerProvider llm.LLMProvider) (llm.LLMProvider, string) {
+	provider, label := selectForecastProviders(cfg)
+	if provider != nil {
+		return provider, label
+	}
+	if workerProvider != nil {
+		return workerProvider, "Worker local"
+	}
+	return nil, ""
+}
+
+func forecastCoderProviderAllowed(cc config.CoderConfig, externalEnabled bool) bool {
+	if externalEnabled {
+		return true
+	}
+	return !coderProviderIsExternal(cc)
+}
+
+func coderProviderIsExternal(cc config.CoderConfig) bool {
+	switch strings.ToLower(strings.TrimSpace(cc.Provider)) {
+	case "local_openai", "ollama":
+		return false
+	default:
+		return true
+	}
 }
 
 func createForecastProvider(label string, cc config.CoderConfig) (llm.LLMProvider, string) {

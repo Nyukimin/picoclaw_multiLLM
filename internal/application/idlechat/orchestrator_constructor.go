@@ -72,13 +72,6 @@ func (o *IdleChatOrchestrator) SetForecastProviderWithLabel(provider llm.LLMProv
 	o.forecastProviderLabel = strings.TrimSpace(label)
 }
 
-func (o *IdleChatOrchestrator) SetForecastExternalProviderWithLabel(provider llm.LLMProvider, label string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.forecastExternalProvider = provider
-	o.forecastExternalProviderLabel = strings.TrimSpace(label)
-}
-
 func (o *IdleChatOrchestrator) SetRecentTopicProvider(provider func(context.Context, int) ([]string, error)) {
 	o.mu.Lock()
 	defer o.mu.Unlock()

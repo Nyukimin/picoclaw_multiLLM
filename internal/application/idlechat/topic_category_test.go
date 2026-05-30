@@ -84,6 +84,37 @@ func TestNewsPromptUsesNewsSeedWithoutGenreMixing(t *testing.T) {
 		Date:           "2026-05-27",
 		WikipediaSeeds: []string{"地下鉄博物館"},
 		NewsSeeds:      []string{"新しい医療制度の検討が始まる"},
+		NewsSeedItems: []NewsSeed{
+			{
+				Title:    "新しい医療制度の検討が始まる",
+				Category: "domestic",
+				Source:   "NHK",
+				URL:      "https://example.test/news/1",
+			},
+		},
+		FetchedAt: time.Now(),
+	})
+
+	prompt, source, ok := generateNewsPrompt()
+	if !ok {
+		t.Fatalf("news prompt unavailable: source=%q", source)
+	}
+	if source != "News:domestic:NHK:新しい医療制度の検討が始まる" {
+		t.Fatalf("news source = %q", source)
+	}
+	if strings.Contains(prompt, "組み合わせジャンル") || strings.Contains(prompt, "外部刺激") {
+		t.Fatalf("news prompt mixed external/genre contract: %s", prompt)
+	}
+	if !strings.Contains(prompt, "ニュース見出し") || !strings.Contains(prompt, "新しい医療制度の検討が始まる") {
+		t.Fatalf("news prompt does not focus on headline: %s", prompt)
+	}
+}
+
+func TestNewsPromptKeepsLegacyNewsSeedsCompatible(t *testing.T) {
+	withDailySeedCache(t, &DailySeedCache{
+		Date:           "2026-05-27",
+		WikipediaSeeds: []string{"地下鉄博物館"},
+		NewsSeeds:      []string{"新しい医療制度の検討が始まる"},
 		FetchedAt:      time.Now(),
 	})
 
@@ -92,13 +123,48 @@ func TestNewsPromptUsesNewsSeedWithoutGenreMixing(t *testing.T) {
 		t.Fatalf("news prompt unavailable: source=%q", source)
 	}
 	if source != "News:新しい医療制度の検討が始まる" {
-		t.Fatalf("news source = %q", source)
-	}
-	if strings.Contains(prompt, "組み合わせジャンル") || strings.Contains(prompt, "外部刺激") {
-		t.Fatalf("news prompt mixed external/genre contract: %s", prompt)
+		t.Fatalf("legacy news source = %q", source)
 	}
 	if !strings.Contains(prompt, "ニュース見出し") || !strings.Contains(prompt, "新しい医療制度の検討が始まる") {
-		t.Fatalf("news prompt does not focus on headline: %s", prompt)
+		t.Fatalf("legacy news prompt does not focus on headline: %s", prompt)
+	}
+}
+
+func TestFetchNewsSeedsFromExtractsCategorySourceAndURL(t *testing.T) {
+	const rss = `<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>新型端末の省電力技術を発表</title>
+      <link>https://example.test/tech/1</link>
+    </item>
+    <item>
+      <title>  </title>
+      <link>https://example.test/empty</link>
+    </item>
+    <item>
+      <title>生成AIの教育利用が広がる</title>
+      <link>https://example.test/tech/2</link>
+    </item>
+  </channel>
+</rss>`
+
+	got, err := parseNewsSeeds(strings.NewReader(rss), NewsSeedSource{
+		Category: "tech",
+		Name:     "Example Tech",
+		URL:      "https://example.test/rss.xml",
+	}, 1)
+	if err != nil {
+		t.Fatalf("parse news seeds: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("news seeds len = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].Title != "新型端末の省電力技術を発表" ||
+		got[0].Category != "tech" ||
+		got[0].Source != "Example Tech" ||
+		got[0].URL != "https://example.test/tech/1" {
+		t.Fatalf("news seed mismatch: %+v", got[0])
 	}
 }
 

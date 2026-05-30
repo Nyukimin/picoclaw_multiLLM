@@ -34,7 +34,8 @@ type DefaultCodeExecutor struct {
 	workerExecution  service.WorkerExecutionService
 	coderStatus      *CoderStatus // optional: coder busy state management
 	eventEmitter     func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
-	coderCaps        []capability.CoderCapability // Phase 3: nil = 静的チェーン（後方互換）
+	coderCaps        []capability.CoderCapability // 診断用。Coder 自動切替には使わない。
+	externalCoders   map[string]bool              // true の coder は明示 route でのみ使う。
 	proposalEvidence CoderProposalEvidenceRecorder
 }
 
@@ -56,9 +57,17 @@ func NewDefaultCodeExecutor(
 	}
 }
 
-// WithCapabilities は動的コーダー選択に使う能力情報を設定する（Phase 3）
+// WithCapabilities は診断用の能力情報を保持する。Coder 選択は明示 route と Coder1 既定に限定する。
 func (e *DefaultCodeExecutor) WithCapabilities(caps []capability.CoderCapability) *DefaultCodeExecutor {
 	e.coderCaps = caps
+	return e
+}
+
+func (e *DefaultCodeExecutor) WithExternalCoderPolicy(external map[string]bool) *DefaultCodeExecutor {
+	e.externalCoders = make(map[string]bool, len(external))
+	for name, isExternal := range external {
+		e.externalCoders[name] = isExternal
+	}
 	return e
 }
 
@@ -80,12 +89,9 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 
 	log.Printf("[CodeExecutor] code handoff route=%s target=%s job=%s", req.Route, target.name, req.JobID)
 
-	// 明示ルートで品質縮退が発生した場合にユーザー通知
-	e.emitDegradedRouteNotice(req, target)
 	e.emitCodeHandoffStart(req, target)
 
-	// CODE3明示ルート、または動的選択でCODE3品質へ縮退したルートは、
-	// Proposal生成が可能ならWorkerで即時実行する。
+	// CODE 系の明示ルートは、Proposal生成が可能ならWorkerで即時実行する。
 	if shouldUseProposalPath(req.Route, target) && e.workerExecution != nil {
 		if resp, handled, err := e.tryExecuteProposalPath(ctx, req, target); handled {
 			return resp, err

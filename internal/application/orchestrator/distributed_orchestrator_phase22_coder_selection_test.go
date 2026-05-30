@@ -7,13 +7,13 @@ import (
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
-func TestPhase22DistributedCoderSelectionCodeUsesFallbackChain(t *testing.T) {
+func TestPhase22DistributedCoderSelectionCodeUsesOnlyCoder1(t *testing.T) {
 	selector := newDistributedCoderSelection(nil, map[string]domaintransport.Transport{
 		"coder2": &distMockTransport{},
 	}, NewNodeSelector(), nil)
 
-	if got := selector.RouteToCoder(routing.RouteCODE); got != "coder2" {
-		t.Fatalf("expected coder2 fallback selection, got %s", got)
+	if got := selector.RouteToCoder(routing.RouteCODE); got != "" {
+		t.Fatalf("expected CODE to stay empty when coder1 is unconnected, got %s", got)
 	}
 }
 

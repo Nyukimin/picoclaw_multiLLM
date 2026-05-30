@@ -906,7 +906,7 @@ func TestMessageOrchestrator_ProcessMessage_SkillBootstrapFailureStopsRoute(t *t
 	}
 }
 
-func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T) {
+func TestMessageOrchestrator_ProcessMessage_CODERouteUsesOnlyCoder1(t *testing.T) {
 	t.Run("Coder1利用可能_Coder1を使用", func(t *testing.T) {
 		repo := newMockSessionRepository()
 		mio := &mockMioAgent{
@@ -927,7 +927,7 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		}
 	})
 
-	t.Run("Coder1なし_Coder2にフォールバック", func(t *testing.T) {
+	t.Run("Coder1なし_Coder2があってもエラー", func(t *testing.T) {
 		repo := newMockSessionRepository()
 		mio := &mockMioAgent{
 			decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route"),
@@ -935,18 +935,18 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		coder2 := &mockCoderAgent{response: "coder2 response\n```\ncode\n```"}
 
 		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, coder2, nil, nil, nil)
-		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 			SessionID: "test-session", Channel: "line", ChatID: "U1", UserMessage: "実装して",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("expected CODE route to fail when coder1 is unavailable")
 		}
-		if resp.Response != "coder2 response\n```\ncode\n```" {
-			t.Errorf("expected coder2 response, got '%s'", resp.Response)
+		if !strings.Contains(err.Error(), "CODE route requested but coder1 is unavailable") {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	t.Run("Coder1もCoder2もなし_Coder3にフォールバック", func(t *testing.T) {
+	t.Run("Coder1なし_Coder3があってもエラー", func(t *testing.T) {
 		repo := newMockSessionRepository()
 		mio := &mockMioAgent{
 			decision: routing.NewDecision(routing.RouteCODE, 0.85, "CODE route"),
@@ -954,14 +954,14 @@ func TestMessageOrchestrator_ProcessMessage_CODERoute_FallbackChain(t *testing.T
 		coder3 := &mockCoderAgent{response: "coder3 response\n```\ncode\n```"}
 
 		orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, coder3, nil, nil)
-		resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		_, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
 			SessionID: "test-session", Channel: "line", ChatID: "U1", UserMessage: "実装して",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("expected CODE route to fail when coder1 is unavailable")
 		}
-		if resp.Response != "coder3 response\n```\ncode\n```" {
-			t.Errorf("expected coder3 response, got '%s'", resp.Response)
+		if !strings.Contains(err.Error(), "CODE route requested but coder1 is unavailable") {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 

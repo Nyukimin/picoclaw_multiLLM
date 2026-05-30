@@ -714,6 +714,7 @@ body.live-mode .lipsync-stage{
 }
 body.live-mode .lipsync-actor{width:clamp(96px,7vw,150px);max-width:150px;opacity:.78}
 body.live-mode .lipsync-actor.mio{width:clamp(150px,12vw,240px);max-width:240px;opacity:.9}
+body.live-mode .lipsync-actor.shiro{width:clamp(150px,12vw,240px);max-width:240px;opacity:.9}
 body.live-mode .lipsync-actor-name{font-size:18px;padding:4px 14px}
 body.live-mode .tts-now-playing{display:none !important}
 body.live-mode .tts-now-playing .label{font-size:13px}
@@ -760,6 +761,7 @@ body.live-mode .live-audio-btn{
   }
   body.live-mode .lipsync-actor{width:clamp(72px,12vw,120px);max-width:120px}
   body.live-mode .lipsync-actor.mio{width:clamp(104px,20vw,170px);max-width:170px}
+  body.live-mode .lipsync-actor.shiro{width:clamp(104px,20vw,170px);max-width:170px}
   body.live-mode .lipsync-actor-name{font-size:12px;padding:2px 9px}
 }
 .live-topic-bar{display:none}

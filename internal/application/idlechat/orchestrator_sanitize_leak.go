@@ -245,6 +245,9 @@ func invalidIdleResponse(s string) bool {
 	if utf8.RuneCountInString(trimmed) < 12 && !hasIdleSentenceEnd(trimmed) {
 		return true
 	}
+	if looksLikeUnfinishedIdleResponse(trimmed) {
+		return true
+	}
 	first, _ := utf8.DecodeRuneInString(trimmed)
 	if unicode.IsPunct(first) || unicode.IsSymbol(first) {
 		return true
@@ -254,6 +257,26 @@ func invalidIdleResponse(s string) bool {
 		return true
 	}
 	return false
+}
+
+func looksLikeUnfinishedIdleResponse(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return true
+	}
+	trimmed = strings.TrimRightFunc(trimmed, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '」' || r == '』' || r == ')' || r == '）' || r == ']' || r == '】'
+	})
+	if trimmed == "" {
+		return true
+	}
+	last, _ := utf8.DecodeLastRuneInString(trimmed)
+	switch last {
+	case '。', '！', '？', '!', '?', '.', '…':
+		return false
+	default:
+		return true
+	}
 }
 
 func containsUnexpectedIdleScript(s string) bool {

@@ -43,7 +43,7 @@ func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	if len(provider.texts) != 2 {
 		t.Fatalf("expected 2 provider calls, got %d: %#v", len(provider.texts), provider.texts)
 	}
-	if provider.texts[0] != "今日はいい天気ですね。" || provider.texts[1] != "少し歩いてから、温かいお茶を飲みましょう。" {
+	if provider.texts[0] != "😊今日はいい天気ですね。" || provider.texts[1] != "😊少し歩いてから、温かいお茶を飲みましょう。" {
 		t.Fatalf("unexpected provider texts: %#v", provider.texts)
 	}
 	if len(readyTexts) != 2 || len(sink.chunks) != 2 {

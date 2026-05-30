@@ -65,7 +65,7 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 	if gotBody["provider_params"] == nil {
 		t.Fatalf("expected provider_params in request, got %+v", gotBody)
 	}
-	if gotBody["text"] != "こんにちは。" {
+	if gotBody["text"] != "😊こんにちは。" {
 		t.Fatalf("expected punctuated text, got %+v", gotBody["text"])
 	}
 	if gotAudioURL != "http://tts.local/cache/x.wav" {
@@ -73,6 +73,74 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 	}
 	if sink.calls != 1 {
 		t.Fatalf("expected sink submit once, got %d", sink.calls)
+	}
+}
+
+func TestRenCrowTTSBridge_SplitsTextWithSharedChunkPlan(t *testing.T) {
+	var gotTexts []string
+	var readyTexts []string
+	var readyDisplays []string
+	var readyIndexes []int
+
+	sink := &sinkStub{}
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		VoiceID:     "female_01",
+		Sink:        sink,
+		OnChunkReady: func(_, _ string, chunkIndex int, _, text, displayText, _, _ string) {
+			readyIndexes = append(readyIndexes, chunkIndex)
+			readyTexts = append(readyTexts, text)
+			readyDisplays = append(readyDisplays, displayText)
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		var gotBody map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		gotTexts = append(gotTexts, gotBody["text"].(string))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-split","audio_path":"cache\\x.wav"}`)),
+		}, nil
+	})}
+
+	err := bridge.PushTextWithDisplay(
+		context.Background(),
+		"s-split",
+		"あの砂利の積み重なりって、まるで誰かの秘密のメッセージみたいに見えたよね。そこにどんな物語が隠されてるんだろう？",
+		"あの砂利の積み重なりって、まるで誰かの秘密のメッセージみたいに見えたよね。そこにどんな物語が隠されてるんだろう？",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+
+	want := []string{
+		"😌あの砂利の積み重なりって、まるで誰かの秘密のメッセージみたいに見えたよね。",
+		"😌そこにどんな物語が隠されてるんだろう？",
+	}
+	wantDisplay := []string{
+		"あの砂利の積み重なりって、まるで誰かの秘密のメッセージみたいに見えたよね。",
+		"そこにどんな物語が隠されてるんだろう？",
+	}
+	if len(gotTexts) != len(want) {
+		t.Fatalf("expected %d synthesis requests, got %d: %#v", len(want), len(gotTexts), gotTexts)
+	}
+	for i := range want {
+		if gotTexts[i] != want[i] {
+			t.Fatalf("request text[%d] = %q, want %q", i, gotTexts[i], want[i])
+		}
+		if readyTexts[i] != want[i] || readyDisplays[i] != wantDisplay[i] {
+			t.Fatalf("ready chunk[%d] speech/display = %q/%q, want %q/%q", i, readyTexts[i], readyDisplays[i], want[i], wantDisplay[i])
+		}
+		if readyIndexes[i] != i {
+			t.Fatalf("chunk index[%d] = %d, want %d", i, readyIndexes[i], i)
+		}
+	}
+	if sink.calls != len(want) {
+		t.Fatalf("expected sink submit %d times, got %d", len(want), sink.calls)
 	}
 }
 

@@ -228,37 +228,18 @@ func (o *IdleChatOrchestrator) extractForecastKeyword(domain ForecastDomain, hea
 
 func (o *IdleChatOrchestrator) generateForecastLLM(phase, domainName string, req llm.GenerateRequest) (llm.GenerateResponse, string, error) {
 	provider, providerLabel := o.forecastPrimaryLLMInfo()
-	var primaryErr error
 	if provider != nil {
 		resp, err := provider.Generate(o.idleRunContext(), req)
 		if err == nil {
 			return resp, providerLabel, nil
 		}
-		primaryErr = err
 		logForecastLLMError(phase, domainName, providerLabel, err)
+		return llm.GenerateResponse{}, providerLabel, err
 	} else {
 		err := errors.New("forecast primary LLM provider unavailable")
-		primaryErr = err
 		logForecastLLMError(phase, domainName, providerLabel, err)
+		return llm.GenerateResponse{}, providerLabel, err
 	}
-
-	external, externalLabel := o.forecastExternalLLMInfo()
-	if external == nil {
-		err := errors.New("forecast external LLM provider unavailable")
-		logForecastLLMError(phase, domainName, externalLabel, err)
-		if primaryErr != nil {
-			return llm.GenerateResponse{}, providerLabel, primaryErr
-		}
-		return llm.GenerateResponse{}, externalLabel, err
-	}
-
-	log.Printf("[Forecast] LLM external retry phase=%s domain=%s provider=%s", strings.TrimSpace(phase), strings.TrimSpace(domainName), strings.TrimSpace(externalLabel))
-	resp, err := external.Generate(o.idleRunContext(), req)
-	if err != nil {
-		logForecastLLMError(phase, domainName, externalLabel, err)
-		return llm.GenerateResponse{}, externalLabel, err
-	}
-	return resp, externalLabel, nil
 }
 
 func logForecastLLMError(phase, domainName, providerLabel string, err error) {

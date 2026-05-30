@@ -1812,7 +1812,7 @@ tts:
       args: ["-autoexit", "{audio}"]
   irodori:
     enabled: true
-    base_url: "http://127.0.0.1:7860"
+    base_url: "http://127.0.0.1:7870"
     endpoint_path: "/api/tts"
     voice_id: "mio"
     timeout_sec: 120
@@ -1839,7 +1839,7 @@ tts:
 	if got := cfg.TTS.SBV2.BaseURL; got != "http://127.0.0.1:5000/synthesis" {
 		t.Fatalf("unexpected sbv2 base url: %s", got)
 	}
-	if got := cfg.TTS.Irodori.BaseURL; got != "http://127.0.0.1:7860" {
+	if got := cfg.TTS.Irodori.BaseURL; got != "http://127.0.0.1:7870" {
 		t.Fatalf("unexpected irodori base url: %s", got)
 	}
 	if cfg.TTS.Irodori.EndpointPath != "/api/tts" || cfg.TTS.Irodori.Checkpoint != "Aratako/Irodori-TTS-500M-v2" || cfg.TTS.Irodori.NumSteps != 16 {

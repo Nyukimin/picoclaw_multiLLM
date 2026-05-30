@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,8 @@ type idleChatMockTTSBridge struct {
 	pushEmo      []*ttsapp.EmotionState
 	endIDs       []string
 	notifyOnEnd  bool
+	pushErr      error
+	errorEvents  []string
 }
 
 func (m *idleChatMockTTSBridge) StartSession(_ context.Context, req orchestrator.TTSSessionStart) error {
@@ -29,7 +32,7 @@ func (m *idleChatMockTTSBridge) PushText(_ context.Context, sessionID string, te
 	_ = sessionID
 	m.pushTexts = append(m.pushTexts, text)
 	m.pushEmo = append(m.pushEmo, emotion)
-	return nil
+	return m.pushErr
 }
 
 func (m *idleChatMockTTSBridge) PushTextWithDisplay(_ context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
@@ -37,7 +40,7 @@ func (m *idleChatMockTTSBridge) PushTextWithDisplay(_ context.Context, sessionID
 	m.pushTexts = append(m.pushTexts, text)
 	m.displayTexts = append(m.displayTexts, displayText)
 	m.pushEmo = append(m.pushEmo, emotion)
-	return nil
+	return m.pushErr
 }
 
 func (m *idleChatMockTTSBridge) EndSession(_ context.Context, sessionID string) error {
@@ -46,6 +49,10 @@ func (m *idleChatMockTTSBridge) EndSession(_ context.Context, sessionID string) 
 		clearIdleChatTTSPending(sessionID)
 	}
 	return nil
+}
+
+func (m *idleChatMockTTSBridge) EmitIdleChatTTSError(_ context.Context, sessionID, characterID, speechText, displayText, errorCode string, cause error) {
+	m.errorEvents = append(m.errorEvents, strings.Join([]string{sessionID, characterID, speechText, displayText, errorCode, cause.Error()}, "|"))
 }
 
 func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
@@ -79,6 +86,40 @@ func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 	}
 	if len(bridge.endIDs) != 1 {
 		t.Fatalf("expected 1 end request, got %d", len(bridge.endIDs))
+	}
+}
+
+func TestEmitIdleChatTTSCompletesNormallyOnPushFailure(t *testing.T) {
+	clearAllIdleChatTTSPending()
+	t.Cleanup(clearAllIdleChatTTSPending)
+	bridge := &idleChatMockTTSBridge{pushErr: errors.New("irodori unavailable")}
+
+	waitCh, ok := emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "shiro",
+		To:        "mio",
+		Content:   "音声合成に失敗する発話です。",
+		SessionID: "idle-tts-error",
+		MessageID: "idle-tts-error:msg:0002",
+		TurnIndex: 2,
+	})
+
+	if !ok || waitCh == nil {
+		t.Fatal("expected failed push to still expose a completed wait channel")
+	}
+	if len(bridge.errorEvents) != 0 {
+		t.Fatalf("TTS provider failures should remain log-only for IdleChat processing, got error events %#v", bridge.errorEvents)
+	}
+	if len(bridge.endIDs) != 1 {
+		t.Fatalf("expected end session after push failure, got %d", len(bridge.endIDs))
+	}
+	if got := snapshotIdleChatTTSPending(); got.PendingResponseCount != 0 {
+		t.Fatalf("pending response count = %d, want 0 after log-only TTS failure", got.PendingResponseCount)
+	}
+	select {
+	case <-waitCh:
+	case <-time.After(time.Second):
+		t.Fatal("wait channel did not close after log-only TTS failure")
 	}
 }
 

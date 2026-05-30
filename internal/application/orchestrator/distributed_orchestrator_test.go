@@ -882,19 +882,19 @@ func TestDistributedOrchestrator_RouteToCoder_ConnectionAware(t *testing.T) {
 	mockMio := &distMockMioAgent{}
 	mockRepo := &distMockSessionRepo{}
 
-	t.Run("CODE_falls_back_to_connected_coder", func(t *testing.T) {
+	t.Run("CODE_requires_coder1_connection", func(t *testing.T) {
 		router := transport.NewMessageRouter()
 		defer router.Stop()
 		router.RegisterAgent("coder2", transport.NewLocalTransport())
 		memory := session.NewCentralMemory()
 
 		orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
-		if got := orch.routeToCoder(routing.RouteCODE); got != "coder2" {
-			t.Fatalf("routeToCoder(CODE) = %q, want coder2", got)
+		if got := orch.routeToCoder(routing.RouteCODE); got != "" {
+			t.Fatalf("routeToCoder(CODE) = %q, want empty", got)
 		}
 	})
 
-	t.Run("CODE_uses_ssh_connected_coder", func(t *testing.T) {
+	t.Run("CODE_does_not_use_non_default_ssh_connected_coder", func(t *testing.T) {
 		router := transport.NewMessageRouter()
 		defer router.Stop()
 		memory := session.NewCentralMemory()
@@ -903,8 +903,8 @@ func TestDistributedOrchestrator_RouteToCoder_ConnectionAware(t *testing.T) {
 			"coder3": &distMockTransport{},
 		}
 		orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, sshTransports)
-		if got := orch.routeToCoder(routing.RouteCODE); got != "coder3" {
-			t.Fatalf("routeToCoder(CODE) = %q, want coder3", got)
+		if got := orch.routeToCoder(routing.RouteCODE); got != "" {
+			t.Fatalf("routeToCoder(CODE) = %q, want empty", got)
 		}
 	})
 
@@ -927,7 +927,7 @@ func TestDistributedOrchestrator_RouteToCoder_ConnectionAware(t *testing.T) {
 	})
 }
 
-func TestDistributedOrchestrator_RouteToCoderForMessage_UsesCapability(t *testing.T) {
+func TestDistributedOrchestrator_RouteToCoderForMessage_UsesDefaultCoderOnly(t *testing.T) {
 	mockMio := &distMockMioAgent{}
 	mockRepo := &distMockSessionRepo{}
 	router := transport.NewMessageRouter()
@@ -945,8 +945,8 @@ func TestDistributedOrchestrator_RouteToCoderForMessage_UsesCapability(t *testin
 	})
 
 	got := orch.routeToCoderForMessage(routing.RouteCODE, "TTSを実装して")
-	if got != "coder3" {
-		t.Fatalf("routeToCoderForMessage(CODE,TTS) = %q, want coder3", got)
+	if got != "coder1" {
+		t.Fatalf("routeToCoderForMessage(CODE,TTS) = %q, want coder1", got)
 	}
 }
 

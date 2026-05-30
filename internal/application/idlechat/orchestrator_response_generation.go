@@ -180,9 +180,16 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		}
 		if errStyle == nil && strings.TrimSpace(respStyle.Content) != "" {
 			logIdleRaw(fmt.Sprintf("dialogue.retry_style speaker=%s turn=%d", speaker, turn), respStyle.Content)
-			first = sanitizeIdleResponseForSpeaker(respStyle.Content, topic, speaker)
-			firstRaw = strings.TrimSpace(respStyle.Content)
-			firstTruncated = finishReasonLooksTruncated(respStyle.FinishReason)
+			styleRaw := strings.TrimSpace(respStyle.Content)
+			style := sanitizeIdleResponseForSpeaker(respStyle.Content, topic, speaker)
+			styleTruncated := finishReasonLooksTruncated(respStyle.FinishReason)
+			if styleTruncated || unusableIdleResponse(styleRaw, style) {
+				log.Printf("[IdleChat] retryStyle unusable (%s turn=%d): truncated=%t raw=%q sanitized=%q", speaker, turn, styleTruncated, truncate(styleRaw, 180), truncate(style, 180))
+			} else {
+				first = style
+				firstRaw = styleRaw
+				firstTruncated = false
+			}
 		}
 	}
 	if hasPromptLeak(firstRaw) || hasPromptLeak(first) || hasInternalReasoningLeak(firstRaw) || hasInternalReasoningLeak(first) {

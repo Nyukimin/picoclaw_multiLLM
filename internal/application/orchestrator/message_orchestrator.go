@@ -267,10 +267,16 @@ func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	}
 }
 
-// SetCoderCapabilities は動的コーダー選択に使う能力情報を注入する（Phase 3）
+// SetCoderCapabilities は診断用の能力情報を注入する。Coder 選択は明示 route と Coder1 既定に限定する。
 func (o *MessageOrchestrator) SetCoderCapabilities(caps []capability.CoderCapability) {
 	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
 		executor.WithCapabilities(caps)
+	}
+}
+
+func (o *MessageOrchestrator) SetExternalCoderPolicy(external map[string]bool) {
+	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
+		executor.WithExternalCoderPolicy(external)
 	}
 }
 

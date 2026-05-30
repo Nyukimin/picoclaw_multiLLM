@@ -2,6 +2,7 @@ package idlechat
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -12,10 +13,38 @@ import (
 
 // DailySeedCache は1日1回取得する外部シードのキャッシュ
 type DailySeedCache struct {
-	Date           string    `json:"date"`
-	WikipediaSeeds []string  `json:"wikipedia_seeds"`
-	NewsSeeds      []string  `json:"news_seeds"`
-	FetchedAt      time.Time `json:"fetched_at"`
+	Date           string     `json:"date"`
+	WikipediaSeeds []string   `json:"wikipedia_seeds"`
+	NewsSeeds      []string   `json:"news_seeds"`
+	NewsSeedItems  []NewsSeed `json:"news_seed_items"`
+	FetchedAt      time.Time  `json:"fetched_at"`
+}
+
+// NewsSeed はニュース見出しに取得元カテゴリを付与したIdleChat用シード。
+type NewsSeed struct {
+	Title    string `json:"title"`
+	Category string `json:"category"`
+	Source   string `json:"source"`
+	URL      string `json:"url,omitempty"`
+}
+
+// NewsSeedSource は1つのニュースRSS取得先を表す。
+type NewsSeedSource struct {
+	Category    string
+	Name        string
+	URL         string
+	Limit       int
+	ErrorPrefix string
+}
+
+var defaultNewsSeedSources = []NewsSeedSource{
+	{Category: "general", Name: "NHK Top", URL: "https://www.nhk.or.jp/rss/news/cat0.xml", Limit: 4},
+	{Category: "culture", Name: "NHK Science/Culture", URL: "https://www.nhk.or.jp/rss/news/cat3.xml", Limit: 3},
+	{Category: "business", Name: "NHK Business", URL: "https://www.nhk.or.jp/rss/news/cat5.xml", Limit: 3},
+	{Category: "world", Name: "NHK World", URL: "https://www.nhk.or.jp/rss/news/cat6.xml", Limit: 3},
+	{Category: "sports", Name: "NHK Sports", URL: "https://www.nhk.or.jp/rss/news/cat7.xml", Limit: 3},
+	{Category: "tech", Name: "ITmedia NEWS Technology", URL: "https://rss.itmedia.co.jp/rss/2.0/news_technology.xml", Limit: 4},
+	{Category: "business", Name: "ITmedia Business", URL: "https://rss.itmedia.co.jp/rss/2.0/business.xml", Limit: 3},
 }
 
 // fetchDailySeeds は1日1回、起動時に外部シードを取得してキャッシュ
@@ -46,21 +75,23 @@ func fetchDailySeeds() error {
 		wikiSeeds = []string{} // フォールバック
 	}
 
-	// News Headlines（NHK RSS、10件）
-	newsSeeds, err := fetchNewsHeadlines(10)
+	// News Headlines（カテゴリ付きRSS）
+	newsSeedItems, err := fetchNewsSeedItems(defaultNewsSeedSources, 20)
 	if err != nil {
 		log.Printf("[IdleChat] News fetch failed: %v", err)
-		newsSeeds = []string{} // フォールバック
+		newsSeedItems = []NewsSeed{} // フォールバック
 	}
+	newsSeeds := newsSeedTitles(newsSeedItems)
 
 	dailyCache = &DailySeedCache{
 		Date:           today,
 		WikipediaSeeds: wikiSeeds,
 		NewsSeeds:      newsSeeds,
+		NewsSeedItems:  newsSeedItems,
 		FetchedAt:      time.Now(),
 	}
 
-	log.Printf("[IdleChat] Daily seeds fetched: Wikipedia=%d, News=%d", len(wikiSeeds), len(newsSeeds))
+	log.Printf("[IdleChat] Daily seeds fetched: Wikipedia=%d, News=%d categories=%s", len(wikiSeeds), len(newsSeeds), newsSeedCategorySummary(newsSeedItems))
 	return nil
 }
 
@@ -112,12 +143,67 @@ func fetchWikipediaRandom(limit int) ([]string, error) {
 
 // fetchNewsHeadlines はNHK News RSSトップニュースからヘッドラインを取得
 func fetchNewsHeadlines(limit int) ([]string, error) {
-	return fetchNewsHeadlinesFrom("https://www.nhk.or.jp/rss/news/cat0.xml", limit)
+	seeds, err := fetchNewsSeedsFrom(NewsSeedSource{
+		Category:    "general",
+		Name:        "NHK Top",
+		URL:         "https://www.nhk.or.jp/rss/news/cat0.xml",
+		ErrorPrefix: "nhk rss",
+	}, limit)
+	if err != nil {
+		return nil, err
+	}
+	return newsSeedTitles(seeds), nil
 }
 
 // fetchNewsHeadlinesFrom は指定URLのNHK RSSからヘッドラインを取得
 func fetchNewsHeadlinesFrom(rssURL string, limit int) ([]string, error) {
-	req, err := http.NewRequest("GET", rssURL, nil)
+	seeds, err := fetchNewsSeedsFrom(NewsSeedSource{
+		Category:    "general",
+		Name:        "RSS",
+		URL:         rssURL,
+		ErrorPrefix: "nhk rss",
+	}, limit)
+	if err != nil {
+		return nil, err
+	}
+	return newsSeedTitles(seeds), nil
+}
+
+func fetchNewsSeedItems(sources []NewsSeedSource, limit int) ([]NewsSeed, error) {
+	if limit <= 0 {
+		return []NewsSeed{}, nil
+	}
+
+	items := make([]NewsSeed, 0, limit)
+	var failures []string
+	for _, source := range sources {
+		sourceLimit := source.Limit
+		if sourceLimit <= 0 || sourceLimit > limit {
+			sourceLimit = limit
+		}
+		seeds, err := fetchNewsSeedsFrom(source, sourceLimit)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", source.Name, err))
+			continue
+		}
+		for _, seed := range seeds {
+			items = append(items, seed)
+			if len(items) >= limit {
+				return items, nil
+			}
+		}
+	}
+	if len(items) == 0 && len(failures) > 0 {
+		return nil, fmt.Errorf("all news rss fetches failed: %s", strings.Join(failures, "; "))
+	}
+	for _, failure := range failures {
+		log.Printf("[IdleChat] News source fetch failed: %s", failure)
+	}
+	return items, nil
+}
+
+func fetchNewsSeedsFrom(source NewsSeedSource, limit int) ([]NewsSeed, error) {
+	req, err := http.NewRequest("GET", source.URL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -131,37 +217,78 @@ func fetchNewsHeadlinesFrom(rssURL string, limit int) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, idlechatHTTPStatusError("nhk rss returned status", resp.StatusCode, resp.Body)
+		prefix := strings.TrimSpace(source.ErrorPrefix)
+		if prefix == "" {
+			prefix = "news rss"
+		}
+		return nil, idlechatHTTPStatusError(prefix+" returned status", resp.StatusCode, resp.Body)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	return parseNewsSeeds(resp.Body, source, limit)
+}
+
+func parseNewsSeeds(reader io.Reader, source NewsSeedSource, limit int) ([]NewsSeed, error) {
+	var feed struct {
+		Items []struct {
+			Title string `xml:"title"`
+			Link  string `xml:"link"`
+		} `xml:"channel>item"`
+	}
+	if err := xml.NewDecoder(reader).Decode(&feed); err != nil {
 		return nil, err
 	}
 
-	// 簡易RSSパース（<title>タグ抽出）
-	content := string(body)
-	headlines := []string{}
-
-	// <item>ブロック内の<title>を抽出
-	inItem := false
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "<item>") {
-			inItem = true
-		} else if strings.HasPrefix(line, "</item>") {
-			inItem = false
-		} else if inItem && strings.HasPrefix(line, "<title>") {
-			title := strings.TrimPrefix(line, "<title>")
-			title = strings.TrimSuffix(title, "</title>")
-			title = strings.TrimSpace(title)
-			if title != "" && len(headlines) < limit {
-				headlines = append(headlines, title)
-			}
+	seeds := make([]NewsSeed, 0, limit)
+	for _, item := range feed.Items {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			continue
+		}
+		seeds = append(seeds, NewsSeed{
+			Title:    title,
+			Category: strings.TrimSpace(source.Category),
+			Source:   strings.TrimSpace(source.Name),
+			URL:      strings.TrimSpace(item.Link),
+		})
+		if limit > 0 && len(seeds) >= limit {
+			break
 		}
 	}
+	return seeds, nil
+}
 
-	return headlines, nil
+func newsSeedTitles(seeds []NewsSeed) []string {
+	titles := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		title := strings.TrimSpace(seed.Title)
+		if title != "" {
+			titles = append(titles, title)
+		}
+	}
+	return titles
+}
+
+func newsSeedCategorySummary(seeds []NewsSeed) string {
+	if len(seeds) == 0 {
+		return "none"
+	}
+	counts := make(map[string]int)
+	var order []string
+	for _, seed := range seeds {
+		category := strings.TrimSpace(seed.Category)
+		if category == "" {
+			category = "unknown"
+		}
+		if _, ok := counts[category]; !ok {
+			order = append(order, category)
+		}
+		counts[category]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, category := range order {
+		parts = append(parts, fmt.Sprintf("%s=%d", category, counts[category]))
+	}
+	return strings.Join(parts, ",")
 }
 
 // getDailyCache は現在のキャッシュを取得（スレッドセーフ）

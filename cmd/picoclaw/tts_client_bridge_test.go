@@ -179,8 +179,8 @@ func TestTTSClientBridgeIdleChatChunkPayloadIncludesCanonicalSpeechFields(t *tes
 	if payload["session_id"] != "idle-canon" || payload["message_id"] != "idle-canon:msg:0003" {
 		t.Fatalf("unexpected identity payload: %#v", payload)
 	}
-	if payload["speech_text"] != "同じチャンクです。" || payload["text"] != "同じチャンクです。" || payload["display_text"] != "同じチャンクです。" {
-		t.Fatalf("speech/display fields must be present and aligned: %#v", payload)
+	if payload["speech_text"] != "😊同じチャンクです。" || payload["text"] != "😊同じチャンクです。" || payload["display_text"] != "同じチャンクです。" {
+		t.Fatalf("speech/display fields must preserve emotion-prefixed speech and clean display text: %#v", payload)
 	}
 	if payload["track"] != "default" {
 		t.Fatalf("track = %#v, want default", payload["track"])
@@ -315,7 +315,7 @@ func TestBuildTTSClientBridge_UsesIrodoriDirectBridge(t *testing.T) {
 			OutputDir: t.TempDir(),
 			Irodori: config.TTSIrodoriConfig{
 				Enabled: true,
-				BaseURL: "http://127.0.0.1:7860",
+				BaseURL: "http://127.0.0.1:7870",
 				VoiceID: "mio",
 			},
 		},

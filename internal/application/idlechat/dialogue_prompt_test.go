@@ -530,6 +530,40 @@ func TestInvalidIdleResponseRejectsShortUnfinishedJapaneseFragment(t *testing.T)
 	}
 }
 
+func TestInvalidIdleResponseRejectsLongUnfinishedJapaneseFragment(t *testing.T) {
+	cases := []string{
+		"商標登録の鍵がノートに隠されているなら、その鍵の所有者は発明者の死後にノートを引き継いだ人物かもしれない。それは、誰が書いたかという秘密が、実は誰かの利益になるという事実が、現",
+		"全国の地域医療機関でAI診断が保険適用され",
+		"保険適用拡大が実現すれば、地域医療の経営基盤が強化される。ただ、その結果として、医師",
+	}
+	for _, input := range cases {
+		if !invalidIdleResponse(input) {
+			t.Fatalf("expected unfinished response to be invalid: %q", input)
+		}
+	}
+}
+
+func TestGenerateResponseDoesNotAcceptUnfinishedShiroStyleRetry(t *testing.T) {
+	provider := &capturingIdleProvider{
+		responses: []string{
+			"非常に興味深いですね。封筒の価値は、誰が最後に開けるかで変わる。",
+			"商標登録の鍵がノートに隠されているなら、その鍵の所有者は発明者の死後にノートを引き継いだ人物かもしれない。それは、誰が書いたかという秘密が、実は誰かの利益になるという事実が、現",
+		},
+	}
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+
+	got, err := o.generateResponse("shiro", "mio", "idle-shiro-unfinished-style", 1, 1, "発明者の観測ノート")
+	if err != nil {
+		t.Fatalf("generateResponse() error = %v", err)
+	}
+	if strings.Contains(got, "という事実が、現") {
+		t.Fatalf("unfinished retry_style response was accepted: %q", got)
+	}
+	if got != "非常に興味深いですね。封筒の価値は、誰が最後に開けるかで変わる。" {
+		t.Fatalf("valid primary should remain when style retry is unusable, got %q", got)
+	}
+}
+
 func TestGenerateResponseErrorsWhenInternalReasoningPersists(t *testing.T) {
 	provider := &capturingIdleProvider{
 		response: "channel>thought\nユーザーは私（Mio）に対して、会話の制約を課している。\n1. **キャラクター**: Mio\n2. **目標**: 自然な返答。",
@@ -683,6 +717,11 @@ func TestBuildIdleTurnPromptRequiresDialogueResponse(t *testing.T) {
 		"具体物・理由・問い",
 		"自然な日本語だけ",
 		"英語や説明は書かない",
+		"相手名呼び",
+		"礼儀テンプレ",
+		"メタ発言",
+		"要約コピー",
+		"文末は必ず完結",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt does not contain %q:\n%s", want, got)
@@ -715,9 +754,29 @@ func TestBuildIdleTurnPromptFinalTurnClosesWithoutNewQuestion(t *testing.T) {
 
 func TestBuildIdleResponseGuardPromptBansEnglishOutput(t *testing.T) {
 	got := buildIdleResponseGuardPrompt("mio", nil, nil)
-	for _, want := range []string{"自然な日本語", "英語だけの応答", "英語の見出し", "英語での説明"} {
+	for _, want := range []string{"自然な日本語", "英語だけの応答", "英語の見出し", "英語での説明", "相手名呼び", "礼儀テンプレ", "言い直すと", "直前文の言い換えコピー"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("guard prompt does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestShiroSystemPromptSuppressesStyleRetryCauses(t *testing.T) {
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	got := o.getSystemPrompt("shiro")
+
+	for _, want := range []string{
+		"Mioさん",
+		"相手名呼び",
+		"礼儀テンプレ",
+		"賞賛",
+		"メタ発言",
+		"非常に興味深いですね",
+		"言い直すと",
+		"同じ書き出し",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("shiro system prompt does not contain %q:\n%s", want, got)
 		}
 	}
 }

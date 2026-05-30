@@ -12,7 +12,7 @@
 | 実体 | `gradio_app.py` |
 | 用途 | 日本語テキストからWAV音声を生成する |
 | プロトコル | HTTP |
-| 既定ポート | 7860 |
+| 既定ポート | 7870 |
 | API Prefix | `/gradio_api` |
 | 同時実行 | `default_concurrency_limit=1` のキュー実行 |
 | 出力形式 | WAVファイル |
@@ -29,7 +29,7 @@
 
 ```bash
 cd /Users/yukimi/Documents/Codex/2026-05-06/irodoritts-mac/Irodori-TTS
-.venv/bin/python -u gradio_app.py --server-name 0.0.0.0 --server-port 7860 --debug
+.venv/bin/python -u gradio_app.py --server-name 0.0.0.0 --server-port 7870 --debug
 ```
 
 現在のPCのLAN IP例:
@@ -41,14 +41,14 @@ cd /Users/yukimi/Documents/Codex/2026-05-06/irodoritts-mac/Irodori-TTS
 他PCからのベースURL例:
 
 ```text
-http://192.168.1.31:7860
+http://192.168.1.31:7870
 ```
 
 ヘルスチェック:
 
 ```bash
-curl -i http://192.168.1.31:7860/
-curl -s http://192.168.1.31:7860/gradio_api/info
+curl -i http://192.168.1.31:7870/
+curl -s http://192.168.1.31:7870/gradio_api/info
 ```
 
 ---
@@ -178,7 +178,7 @@ GradioのHTTP APIは、入力値を `data` 配列で渡します。順序は固�
       "visible": true,
       "value": {
         "path": "/absolute/path/to/gradio_outputs/sample_..._001.wav",
-        "url": "http://192.168.1.31:7860/gradio_api/file=...",
+        "url": "http://192.168.1.31:7870/gradio_api/file=...",
         "orig_name": "sample_..._001.wav",
         "mime_type": null
       },
@@ -201,7 +201,7 @@ GradioのHTTP APIは、入力値を `data` 配列で渡します。順序は固�
 
 音声ファイルは、返却された `data[0].value.url` をHTTP GETするか、サーバ上の `data[0].value.path` から取得します。他PCから取得する場合は `url` を使用してください。旧形式で `data[0].url` が直接返る場合もあります。
 
-Gradioが `http://127.0.0.1:7860/gradio_api/file=...` を返す場合があります。別PCまたはRenCrowサーバから取得する場合は、ホストを `192.168.1.31` に置換します。
+Gradioが `http://127.0.0.1:7870/gradio_api/file=...` を返す場合があります。別PCまたはRenCrowサーバから取得する場合は、ホストを `192.168.1.31` に置換します。
 
 ---
 
@@ -264,7 +264,7 @@ Request:
 ### 7.1 no-reference mode
 
 ```bash
-BASE_URL="http://192.168.1.31:7860"
+BASE_URL="http://192.168.1.31:7870"
 
 curl -s -X POST "$BASE_URL/gradio_api/run/_run_generation" \
   -H "Content-Type: application/json" \
@@ -301,7 +301,7 @@ curl -s -X POST "$BASE_URL/gradio_api/run/_run_generation" \
 返却JSONの `data[0].value.url` を取得してダウンロードします。旧形式では `data[0].url` の場合があります。
 
 ```bash
-curl -L "http://192.168.1.31:7860/gradio_api/file=..." -o output.wav
+curl -L "http://192.168.1.31:7870/gradio_api/file=..." -o output.wav
 ```
 
 ---
@@ -317,7 +317,7 @@ pip install gradio_client
 ```python
 from gradio_client import Client
 
-client = Client("http://192.168.1.31:7860")
+client = Client("http://192.168.1.31:7870")
 
 result = client.predict(
     checkpoint="Aratako/Irodori-TTS-500M-v2",
@@ -363,7 +363,7 @@ print(timing)
 ```python
 from gradio_client import Client, handle_file
 
-client = Client("http://192.168.1.31:7860")
+client = Client("http://192.168.1.31:7870")
 
 result = client.predict(
     checkpoint="Aratako/Irodori-TTS-500M-v2",
@@ -399,7 +399,7 @@ result = client.predict(
 ## 9. 運用上の注意
 
 - `127.0.0.1` 起動では他PCから接続できません。LAN公開時は `0.0.0.0` で起動してください。
-- macOSのファイアウォールでPythonまたはポート7860がブロックされている場合、他PCから接続できません。
+- macOSのファイアウォールでPythonまたはポート7870がブロックされている場合、他PCから接続できません。
 - LAN内公開のため認証はありません。信頼できるネットワーク内だけで利用してください。
 - キュー同時実行は1です。複数PCから同時に呼ぶと順番待ちになります。
 - 初回呼び出しはモデルロードとHugging Faceからの取得により時間がかかります。運用開始時に `_load_model` を呼ぶことを推奨します。
@@ -413,7 +413,7 @@ result = client.predict(
 2026-05-06時点で、以下のプロセスが起動していることを確認済みです。
 
 ```bash
-gradio_app.py --server-name 127.0.0.1 --server-port 7860 --debug
+gradio_app.py --server-name 127.0.0.1 --server-port 7870 --debug
 ```
 
-この状態ではローカルPCから `http://127.0.0.1:7860` にアクセスできます。他PCから使う場合は、サービスを停止して `--server-name 0.0.0.0` で再起動してください。
+この状態ではローカルPCから `http://127.0.0.1:7870` にアクセスできます。他PCから使う場合は、サービスを停止して `--server-name 0.0.0.0` で再起動してください。

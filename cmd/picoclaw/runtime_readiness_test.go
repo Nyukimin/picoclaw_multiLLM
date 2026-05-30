@@ -42,7 +42,7 @@ func TestBuildRuntimeDependencyReadinessRequiresCredentialPairs(t *testing.T) {
 
 func TestBuildRuntimeDependencyReadinessAcceptsAlternateAudioEnv(t *testing.T) {
 	t.Setenv("RENCROW_STT_URL", "wss://127.0.0.1:8443/stt/stream")
-	t.Setenv("IRODORI_BASE_URL", "http://127.0.0.1:7860")
+	t.Setenv("IRODORI_BASE_URL", "http://127.0.0.1:7870")
 
 	readiness := buildRuntimeDependencyReadiness(&config.Config{}, nil)
 	if !readiness.STTGatewayEnvPresent {

@@ -12,7 +12,7 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
 		STTBaseURL:    "https://192.168.1.31:8443/",
 		STTStreamURL:  "wss://192.168.1.31:8443/stt/stream",
-		TTSBaseURL:    "http://127.0.0.1:7860/",
+		TTSBaseURL:    "http://127.0.0.1:7870/",
 		TTSHealthPath: "/gradio_api/info",
 	})
 	req := httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil)
@@ -33,7 +33,7 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	if body.STTBaseURL != "https://192.168.1.31:8443" {
 		t.Fatalf("unexpected stt base url: %+v", body)
 	}
-	if body.TTSBaseURL != "http://127.0.0.1:7860" || body.TTSHealthPath != "/gradio_api/info" {
+	if body.TTSBaseURL != "http://127.0.0.1:7870" || body.TTSHealthPath != "/gradio_api/info" {
 		t.Fatalf("unexpected tts runtime config: %+v", body)
 	}
 }

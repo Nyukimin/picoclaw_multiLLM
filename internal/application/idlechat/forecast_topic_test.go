@@ -186,7 +186,7 @@ func TestExtractForecastKeywordReturnsFailureWithoutDomainFallback(t *testing.T)
 	}
 }
 
-func TestForecastLLMUsesExternalProviderOnceAfterPrimaryFailure(t *testing.T) {
+func TestForecastLLMReturnsPrimaryErrorWithoutExternalRetry(t *testing.T) {
 	primary := &queuedForecastProvider{
 		errs: []error{errors.New("primary failed")},
 		name: "primary",
@@ -206,39 +206,34 @@ func TestForecastLLMUsesExternalProviderOnceAfterPrimaryFailure(t *testing.T) {
 		"",
 	)
 	o.SetForecastProviderWithLabel(primary, "Coder1 local_openai (Worker)")
-	o.SetForecastExternalProviderWithLabel(external, "Coder2 openai (gpt-4o-mini)")
 
 	resp, label, err := o.generateForecastLLM("topic", "AI技術", llm.GenerateRequest{
 		Messages: []llm.Message{{Role: "user", Content: "topic"}},
 	})
-	if err != nil {
-		t.Fatalf("generateForecastLLM failed: %v", err)
+	if err == nil {
+		t.Fatal("expected primary error")
 	}
-	if resp.Content != "外部LLMの一回だけの結果" {
+	if resp.Content != "" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
-	if label != "Coder2 openai (gpt-4o-mini)" {
+	if label != "Coder1 local_openai (Worker)" {
 		t.Fatalf("unexpected provider label: %q", label)
 	}
 	if primary.requests != 1 {
 		t.Fatalf("primary requests = %d, want 1", primary.requests)
 	}
-	if external.requests != 1 {
-		t.Fatalf("external requests = %d, want 1", external.requests)
+	if external.requests != 0 {
+		t.Fatalf("external requests = %d, want 0", external.requests)
 	}
 }
 
-func TestForecastLLMReturnsErrorAfterSingleExternalFailure(t *testing.T) {
-	primary := &queuedForecastProvider{
-		errs: []error{errors.New("primary failed")},
-		name: "primary",
-	}
+func TestForecastLLMExplicitExternalProviderIsPrimary(t *testing.T) {
 	external := &queuedForecastProvider{
-		errs: []error{errors.New("external failed")},
-		name: "external",
+		responses: []string{"明示された外部LLMの結果"},
+		name:      "external",
 	}
 	o := NewIdleChatOrchestrator(
-		primary,
+		external,
 		session.NewCentralMemory(),
 		[]string{"mio", "shiro"},
 		5,
@@ -247,19 +242,21 @@ func TestForecastLLMReturnsErrorAfterSingleExternalFailure(t *testing.T) {
 		nil,
 		"",
 	)
-	o.SetForecastProviderWithLabel(primary, "Coder1 local_openai (Worker)")
-	o.SetForecastExternalProviderWithLabel(external, "Coder2 openai (gpt-4o-mini)")
+	o.SetForecastProviderWithLabel(external, "Coder2 openai (gpt-4o-mini)")
 
-	_, label, err := o.generateForecastLLM("topic", "AI技術", llm.GenerateRequest{
+	resp, label, err := o.generateForecastLLM("topic", "AI技術", llm.GenerateRequest{
 		Messages: []llm.Message{{Role: "user", Content: "topic"}},
 	})
-	if err == nil {
-		t.Fatal("expected error")
+	if err != nil {
+		t.Fatalf("generateForecastLLM failed: %v", err)
+	}
+	if resp.Content != "明示された外部LLMの結果" {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
 	if label != "Coder2 openai (gpt-4o-mini)" {
 		t.Fatalf("unexpected provider label: %q", label)
 	}
-	if primary.requests != 1 || external.requests != 1 {
-		t.Fatalf("requests primary=%d external=%d, want 1 each", primary.requests, external.requests)
+	if external.requests != 1 {
+		t.Fatalf("external requests = %d, want 1", external.requests)
 	}
 }

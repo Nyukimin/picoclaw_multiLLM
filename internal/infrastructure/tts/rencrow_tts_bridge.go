@@ -107,73 +107,79 @@ func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID st
 	if utf8.RuneCountInString(rawText) > defaultMaxTextLength {
 		return invalidRequestError("text exceeds max_text_length")
 	}
-	text = ensureTTSPunctuation(rawText)
+	plan := planTTSChunks(rawText, displayText)
+	if len(plan) == 0 {
+		return nil
+	}
 
 	session := b.getOrCreateSession(sessionID)
 	characterID := session.characterID
 	responseID := session.responseID
 	voiceID := chooseNonEmpty(session.voiceID, b.cfg.VoiceID)
 
-	payload := map[string]any{
-		"text":     text,
-		"voice_id": fallbackVoiceID(voiceID, emotion),
-	}
-	if speed, ok := extractSpeechSpeed(emotion); ok {
-		if speed <= 0 {
-			return invalidRequestError("speed must be > 0")
+	for _, item := range plan {
+		speechText := ttsapp.EnsureEmotionPrefixForCharacter(item.SpeechText, emotion, characterID)
+		payload := map[string]any{
+			"text":     speechText,
+			"voice_id": fallbackVoiceID(voiceID, emotion),
 		}
-		payload["speed"] = speed
-	}
-	if pitch, ok := extractSpeechPitch(emotion); ok {
-		payload["pitch"] = pitch
-	}
-	if len(b.cfg.ProviderParams) > 0 {
-		filtered, err := filterProviderParams(b.cfg.ProviderParams)
+		if speed, ok := extractSpeechSpeed(emotion); ok {
+			if speed <= 0 {
+				return invalidRequestError("speed must be > 0")
+			}
+			payload["speed"] = speed
+		}
+		if pitch, ok := extractSpeechPitch(emotion); ok {
+			payload["pitch"] = pitch
+		}
+		if len(b.cfg.ProviderParams) > 0 {
+			filtered, err := filterProviderParams(b.cfg.ProviderParams)
+			if err != nil {
+				return invalidRequestError(err.Error())
+			}
+			if len(filtered) > 0 {
+				payload["provider_params"] = filtered
+			}
+		}
+
+		reqBody, err := json.Marshal(payload)
 		if err != nil {
-			return invalidRequestError(err.Error())
+			return fmt.Errorf("marshal /synthesis request: %w", err)
 		}
-		if len(filtered) > 0 {
-			payload["provider_params"] = filtered
-		}
-	}
-
-	reqBody, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal /synthesis request: %w", err)
-	}
-	body, err := b.postSynthesisWithRetry(ctx, reqBody, sessionID, session.nextChunk)
-	if err != nil {
-		return err
-	}
-
-	var out struct {
-		RequestID string `json:"request_id"`
-		AudioPath string `json:"audio_path"`
-		AudioURL  string `json:"audio_url"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return fmt.Errorf("decode /synthesis response: %w", err)
-	}
-	if strings.TrimSpace(out.AudioPath) == "" && strings.TrimSpace(out.AudioURL) == "" {
-		return fmt.Errorf("/synthesis response missing audio_path/audio_url")
-	}
-
-	audioURL := resolveAudioURL(mediaBaseURL(b.cfg.HTTPBaseURL), out.AudioPath, out.AudioURL)
-	ch := audioChunk{
-		ChunkIndex: session.nextChunk,
-		Text:       text,
-		AudioPath:  out.AudioPath,
-		AudioURL:   audioURL,
-		PauseAfter: chunkPauseForText(text),
-	}
-	session.nextChunk++
-
-	if b.cfg.OnChunkReady != nil {
-		b.cfg.OnChunkReady(sessionID, responseID, ch.ChunkIndex, characterID, text, strings.TrimSpace(displayText), ch.AudioPath, ch.AudioURL)
-	}
-	if b.cfg.Sink != nil {
-		if err := b.cfg.Sink.SubmitChunk(ctx, sessionID, ch); err != nil {
+		body, err := b.postSynthesisWithRetry(ctx, reqBody, sessionID, session.nextChunk)
+		if err != nil {
 			return err
+		}
+
+		var out struct {
+			RequestID string `json:"request_id"`
+			AudioPath string `json:"audio_path"`
+			AudioURL  string `json:"audio_url"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil {
+			return fmt.Errorf("decode /synthesis response: %w", err)
+		}
+		if strings.TrimSpace(out.AudioPath) == "" && strings.TrimSpace(out.AudioURL) == "" {
+			return fmt.Errorf("/synthesis response missing audio_path/audio_url")
+		}
+
+		audioURL := resolveAudioURL(mediaBaseURL(b.cfg.HTTPBaseURL), out.AudioPath, out.AudioURL)
+		ch := audioChunk{
+			ChunkIndex: session.nextChunk,
+			Text:       speechText,
+			AudioPath:  out.AudioPath,
+			AudioURL:   audioURL,
+			PauseAfter: chunkPauseForText(speechText),
+		}
+		session.nextChunk++
+
+		if b.cfg.OnChunkReady != nil {
+			b.cfg.OnChunkReady(sessionID, responseID, ch.ChunkIndex, characterID, speechText, strings.TrimSpace(item.DisplayText), ch.AudioPath, ch.AudioURL)
+		}
+		if b.cfg.Sink != nil {
+			if err := b.cfg.Sink.SubmitChunk(ctx, sessionID, ch); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

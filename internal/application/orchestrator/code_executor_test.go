@@ -181,7 +181,7 @@ func TestCodeExecutor_CODE3_WithProposalRecordsSkillChangeEvidence(t *testing.T)
 	}
 }
 
-func TestCodeExecutor_CODEDynamicSelectsCODE3_UsesProposalPath(t *testing.T) {
+func TestCodeExecutor_CODEDoesNotDynamicSelectCODE3(t *testing.T) {
 	testProposal := proposal.NewProposal(
 		"Test plan",
 		`[{"type": "file_edit", "action": "create", "target": "dynamic-code3.txt", "content": "ok"}]`,
@@ -209,18 +209,15 @@ func TestCodeExecutor_CODEDynamicSelectsCODE3_UsesProposalPath(t *testing.T) {
 		JobID:     jobID.String(),
 	}
 
-	resp, err := executor.ExecuteCode(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+	_, err := executor.ExecuteCode(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected CODE route to fail when coder1 is unavailable")
 	}
-	if !resp.Handled {
-		t.Fatal("CODE dynamically selected as CODE3 quality should use Proposal path")
+	if !strings.Contains(err.Error(), "CODE route requested but coder1 is unavailable") {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Response == "" {
-		t.Fatal("Expected non-empty response")
-	}
-	if workerService.calls != 1 {
-		t.Fatalf("worker ExecuteProposal calls=%d, want 1", workerService.calls)
+	if workerService.calls != 0 {
+		t.Fatalf("worker ExecuteProposal calls=%d, want 0", workerService.calls)
 	}
 }
 
@@ -276,9 +273,9 @@ func TestCodeExecutor_CODE_ReleasesCoderStatusAfterGenerateError(t *testing.T) {
 	}
 }
 
-func TestCodeExecutor_DegradedRouteNoticeDoesNotMeanProposalHandled(t *testing.T) {
+func TestCodeExecutor_ExplicitRouteDoesNotUseLowerCoder(t *testing.T) {
 	var events []codeExecutorEvent
-	coder2 := &mockCoderAgent{response: "degraded generate response"}
+	coder2 := &mockCoderAgent{response: "unexpected coder2 response"}
 	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, nil, nil, recordingCodeEventEmitter(&events)).WithCapabilities([]capability.CoderCapability{
 		{Name: "coder2", Quality: 4, Available: true},
 	})
@@ -293,26 +290,15 @@ func TestCodeExecutor_DegradedRouteNoticeDoesNotMeanProposalHandled(t *testing.T
 		JobID:     jobID.String(),
 	}
 
-	resp, err := executor.ExecuteCode(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
+	_, err := executor.ExecuteCode(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected CODE3 to fail when coder3 is unavailable")
 	}
-	if resp.Handled {
-		t.Fatal("degraded route notice must not mark Generate path as proposal-handled")
+	if !strings.Contains(err.Error(), "CODE3 route requested but no coder3 available") {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Response != "degraded generate response" {
-		t.Fatalf("Response=%q, want degraded generate response", resp.Response)
-	}
-
-	notice, ok := findCodeExecutorEvent(events, "agent.notice", "shiro", "mio")
-	if !ok {
-		t.Fatal("Expected degraded route notice event")
-	}
-	if notice.route != routing.RouteCODE3.String() {
-		t.Fatalf("notice route=%q, want %q", notice.route, routing.RouteCODE3.String())
-	}
-	if !strings.Contains(notice.content, routing.RouteCODE3.String()) || !strings.Contains(notice.content, routing.RouteCODE2.String()) {
-		t.Fatalf("notice content=%q should include requested and degraded routes", notice.content)
+	if _, ok := findCodeExecutorEvent(events, "agent.notice", "shiro", "mio"); ok {
+		t.Fatalf("explicit route must not emit degraded notice: %#v", events)
 	}
 }
 
@@ -422,10 +408,8 @@ func TestCodeExecutor_GenerateErrorDoesNotEmitShiroSuccess(t *testing.T) {
 	}
 }
 
-// TestCodeExecutor_CODE_GenericRoute_Fallback はCODE汎用ルートのフォールバックテスト
-func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
-	// coder1がnilの場合にcoder2にフォールバック
-	coder2 := &mockCoderAgent{response: "CODE2 fallback response"}
+func TestCodeExecutor_CODE_GenericRouteUsesOnlyCoder1(t *testing.T) {
+	coder2 := &mockCoderAgent{response: "unexpected coder2 response"}
 
 	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, nil, nil, noopEventEmitter)
 
@@ -439,14 +423,60 @@ func TestCodeExecutor_CODE_GenericRoute_Fallback(t *testing.T) {
 		JobID:     jobID.String(),
 	}
 
+	_, err := executor.ExecuteCode(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected CODE route to fail when coder1 is unavailable")
+	}
+	if !strings.Contains(err.Error(), "CODE route requested but coder1 is unavailable") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCodeExecutor_CODE_GenericRouteBlocksExternalCoder1(t *testing.T) {
+	coder1 := &mockCoderAgent{response: "unexpected external response"}
+	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, nil, noopEventEmitter).
+		WithExternalCoderPolicy(map[string]bool{"coder1": true})
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	_, err := executor.ExecuteCode(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected CODE route to require explicit route for external coder1")
+	}
+	if !strings.Contains(err.Error(), "uses an external provider") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCodeExecutor_CODE1_ExplicitRouteAllowsExternalCoder1(t *testing.T) {
+	coder1 := &mockCoderAgent{response: "explicit coder1 response"}
+	executor := NewDefaultCodeExecutor(coder1, nil, nil, nil, nil, nil, noopEventEmitter).
+		WithExternalCoderPolicy(map[string]bool{"coder1": true})
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "user message", "test", "chat-1"),
+		Route:     routing.RouteCODE1,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
 	resp, err := executor.ExecuteCode(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-
-	// coder1がnilならcoder2にフォールバック
-	if resp.Response != "CODE2 fallback response" {
-		t.Errorf("Expected fallback to coder2, got '%s'", resp.Response)
+	if resp.Response != "explicit coder1 response" {
+		t.Fatalf("unexpected response: %q", resp.Response)
 	}
 }
 

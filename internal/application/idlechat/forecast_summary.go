@@ -224,20 +224,3 @@ func (o *IdleChatOrchestrator) forecastPrimaryLLMInfo() (llm.LLMProvider, string
 	}
 	return nil, ""
 }
-
-func (o *IdleChatOrchestrator) forecastExternalLLMInfo() (llm.LLMProvider, string) {
-	o.mu.Lock()
-	p := o.forecastExternalProvider
-	label := strings.TrimSpace(o.forecastExternalProviderLabel)
-	o.mu.Unlock()
-	if p == nil {
-		return nil, ""
-	}
-	if label == "" {
-		label = strings.TrimSpace(p.Name())
-	}
-	if label == "" {
-		label = "forecastExternalProvider"
-	}
-	return p, label
-}

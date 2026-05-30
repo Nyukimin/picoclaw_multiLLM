@@ -165,10 +165,20 @@ func generateExternalPrompt() (string, string, bool) {
 // generateNewsPrompt はニュース見出しを純粋に深掘りするプロンプトを生成する。
 func generateNewsPrompt() (string, string, bool) {
 	cache := getDailyCache()
-	if cache == nil || len(cache.NewsSeeds) == 0 {
+	if cache == nil || (len(cache.NewsSeedItems) == 0 && len(cache.NewsSeeds) == 0) {
 		return "", "news_seed_unavailable", false
 	}
-	seed := cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]
+
+	var seed NewsSeed
+	if len(cache.NewsSeedItems) > 0 {
+		seed = cache.NewsSeedItems[rand.Intn(len(cache.NewsSeedItems))]
+	} else {
+		seed = NewsSeed{Title: cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]}
+	}
+	title := strings.TrimSpace(seed.Title)
+	if title == "" {
+		return "", "news_seed_unavailable", false
+	}
 	bannedKeywords := extractBannedKeywords()
 
 	prompt := fmt.Sprintf(`以下のニュース見出しを1件だけ深掘りする、会話向けのお題を1つ提案してください。
@@ -186,9 +196,19 @@ func generateNewsPrompt() (string, string, bool) {
 - 「もし〜だったら」形式は使わない
 - 別素材との掛け合わせにしない
 
-%s`, seed, strings.Join(bannedKeywords, "、"), newsTopicPromptFooter())
+%s`, title, strings.Join(bannedKeywords, "、"), newsTopicPromptFooter())
 
-	return prompt, "News:" + seed, true
+	return prompt, newsSeedSourceLabel(seed), true
+}
+
+func newsSeedSourceLabel(seed NewsSeed) string {
+	title := strings.TrimSpace(seed.Title)
+	category := strings.TrimSpace(seed.Category)
+	source := strings.TrimSpace(seed.Source)
+	if category == "" || source == "" {
+		return "News:" + title
+	}
+	return fmt.Sprintf("News:%s:%s:%s", category, source, title)
 }
 
 // extractBannedKeywords は頻出キーワードを抽出

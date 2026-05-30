@@ -81,6 +81,7 @@ class FakeElement {
 
 class FakeAudio {
   constructor() {
+    FakeAudio.instances.push(this);
     this.listeners = {};
     this.dataset = {};
     this.attributes = {};
@@ -117,9 +118,11 @@ class FakeAudio {
   }
 }
 FakeAudio.playOutcomes = [];
+FakeAudio.instances = [];
 
 function loadAudioHarness(options = {}) {
   FakeAudio.playOutcomes = [...(options.playOutcomes || [])];
+  FakeAudio.instances = [];
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const idleJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/idlechat.js', 'utf8');
@@ -345,6 +348,34 @@ test('autoplay blocked idlechat audio sends failed playback ack without dropping
   assert.equal(payload.status, 'error');
   assert.match(payload.error, /blocked autoplay|did not interact/i);
   assert.equal(harness.ttsPlayback.queue.length, 1);
+});
+
+test('idlechat first audio chunk starts before second chunk or session completion', async () => {
+  const {harness} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/first.wav', 'mio', 'idle-fast-start', 'default', 0, 'first speech', '一つ目です。', 'idle-fast-start:0000', 'idle-fast-start:utt:0000');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.currentChunkIndex, 0);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(harness.ttsPlayback.queue.length, 0);
+});
+
+test('tts queue preloads the next audio chunk without starting it', async () => {
+  const {harness} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/first.wav', 'mio', 'preload-session', 'default', 0, 'first speech', '一つ目です。', '', 'preload-0');
+  harness.enqueueTTSAudio('/audio/second.wav', 'mio', 'preload-session', 'default', 1, 'second speech', '二つ目です。', '', 'preload-1');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.currentChunkIndex, 0);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  const preloaded = FakeAudio.instances.find((audio) => audio !== harness.ttsPlayback.audio && audio.src === '/audio/second.wav');
+  assert.ok(preloaded, 'expected queued audio to be preloaded');
+  assert.equal(preloaded.preload, 'auto');
+  assert.equal(preloaded.paused, true);
 });
 
 test('audio error does not start the next tts chunk until fallback delay completes', async () => {
@@ -1134,30 +1165,32 @@ test('tts chunk is shown when audio play resolves even if media events are misse
   assert.equal(elements.get('chat').children.at(-1)._mc.textContent, '末尾の表示です。');
 });
 
-test('idlechat waits for two chunks before starting audio sync', async () => {
+test('idlechat starts first chunk immediately and preloads following chunks', async () => {
   const {harness, elements} = loadAudioHarness();
 
   harness.enqueueTTSAudio('/audio/idle-0.wav', 'mio', 'idle-session-1', 'default', 0, '最初です。', '最初です。', '', 'idle-0');
   await Promise.resolve();
 
-  assert.equal(harness.ttsPlayback.playing, false);
-  assert.equal(harness.ttsPlayback.queue.length, 1);
-  assert.equal(elements.get('idleLiveLog').children.length, 0);
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(harness.ttsPlayback.queue.length, 0);
+  assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.textContent, '最初です。');
 
   harness.enqueueTTSAudio('/audio/idle-1.wav', 'mio', 'idle-session-1', 'default', 1, '次です。', '次です。', '', 'idle-1');
   await Promise.resolve();
 
   assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.ok(FakeAudio.instances.find((audio) => audio !== harness.ttsPlayback.audio && audio.src === '/audio/idle-1.wav'));
   assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.textContent, '最初です。');
 });
 
-test('idlechat starts a single buffered chunk after session completed', async () => {
+test('idlechat starts a single chunk before session completed', async () => {
   const {harness, elements} = loadAudioHarness();
 
   harness.enqueueTTSAudio('/audio/idle-only.wav', 'shiro', 'idle-session-done', 'default', 0, '一つだけです。', '一つだけです。', '', 'idle-only');
   await Promise.resolve();
-  assert.equal(harness.ttsPlayback.playing, false);
-  assert.equal(elements.get('idleLiveLog').children.length, 0);
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(elements.get('idleLiveLog').children.at(-1)._mc.textContent, '一つだけです。');
 
   harness.chatAudioSync.markSessionCompleted('idle-session-done');
   await Promise.resolve();

@@ -72,11 +72,13 @@ internal/application/idlechat/
 | 処理 | 担当 | 理由 |
 |---|---|---|
 | 通常トピック生成 | Mio (gemma3:4b) | 軽量・高速 |
-| 未来展望キーワード抽出 | Coder2 (GPT) | 深い文脈理解が必要 |
-| 未来展望トピック生成 | Coder2 (GPT) | 未来展望の質が重要 |
+| 未来展望キーワード抽出 | ローカル Forecast provider（local Coder / Worker） | 外部 API クレジット消費を避ける |
+| 未来展望トピック生成 | ローカル Forecast provider（local Coder / Worker） | 外部 API クレジット消費を避ける |
 | ディスカッション発話 | 各話者の LLM | ペルソナ維持 |
 | 既出テーマ抽出 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
 | まとめ生成 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
+
+Forecast で外部 Coder API を使う場合は `idle_chat.forecast_external_enabled: true` の明示設定が必要。明示設定がない場合、外部 Coder provider は選択しない。生成失敗時に別の外部 provider へ自動切替しない。
 
 通常 IdleChat では、話者ごとの LLM リクエストに `think` を常に明示する。
 既定は Mio が常時 `think: false`、Shiro は IdleChat のみ `think: false`、その他の話者/モデルは `think: true` とし、`idle_chat.speaker_llm_options` で話者ごとに切り替え可能にする。
@@ -170,6 +172,7 @@ IdleChat のお題は、ユーザー観測・ログ・E2E 評価では次の 7 �
 - External は provider 名、取得経路、記事・ページ・検索結果などのメタ語を出さず、素材とジャンルを自然に接続する。
 - Movie は必ず `「〜」ってどんな映画？` の形にする。
 - News はニュースの論点・背景・影響を扱い、ランダムジャンルや外部素材と混ぜない。
+- News seed は `title / category / source / url` を保持できる。カテゴリ例は `general / culture / business / world / sports / tech` とし、取得元追加時も News カテゴリ内の追跡メタデータとして扱う。
 - Forecast は将来変化の問いとして、対象領域と変化先が分かる題名にする。
 - Story は元話、視点変更、語り直しの軸が分かる題名にする。
 
@@ -293,6 +296,7 @@ IdleChat の Viewer 本文表示は、`idlechat.message` 到着時点の全文�
 - `tts.session_completed` は TTS 生成完了であり、再生完了・表示完了・ユーザーが聞いた完了ではない。
 - IdleChat の待ち解除は、active audio Viewer が観測した response の playback ack、またはスピーカ OFF の明示 fallback 完了に限定する。
 - TTS playback ack が返らない場合はエラーとして記録するが、会話進行の停止要因にはしない。
+- TTS provider への push が失敗した場合、失敗はログに残すが、IdleChat の進行制御では通常の TTS 完了と同じ扱いで pending を消化して会話を継続する。
 - TTS chunk 未着や TTS 失敗時のみ、fallback として `idlechat.message` の全文表示を許可する。
 - fallback は通常成功扱いにせず、fallback 表示としてログ・状態で区別する。
 - `tts.session_completed` だけで、chunk を観測していない response を playback 済みとして ack してはいけない。

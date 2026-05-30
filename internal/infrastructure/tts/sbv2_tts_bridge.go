@@ -54,23 +54,22 @@ func (b *SBV2TTSBridge) StartSession(_ context.Context, req orchestrator.TTSSess
 	return nil
 }
 
-func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text string, _ *ttsapp.EmotionState) error {
-	return b.PushTextWithDisplay(ctx, sessionID, text, text, nil)
+func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+	return b.PushTextWithDisplay(ctx, sessionID, text, text, emotion)
 }
 
-func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, _ *ttsapp.EmotionState) error {
+func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
 	if b.cfg.Provider == nil {
 		return fmt.Errorf("sbv2 provider is not configured")
 	}
-	rawText := strings.TrimSpace(text)
-	if rawText == "" {
+	plan := planTTSChunks(text, displayText)
+	if len(plan) == 0 {
 		return nil
 	}
 	s := b.getOrCreateSession(sessionID)
-	speechChunks := orchestrator.SplitTTSChunks(rawText)
-	for i, chunkText := range speechChunks {
-		displayChunk := displayChunkForSpeechChunk(rawText, displayText, speechChunks, i)
-		out, stats, err := b.synthesizeChunk(ctx, s, chunkText)
+	for _, item := range plan {
+		speechText := ttsapp.EnsureEmotionPrefixForCharacter(item.SpeechText, emotion, s.characterID)
+		out, stats, err := b.synthesizeChunk(ctx, s, speechText)
 		if err != nil {
 			return err
 		}
@@ -82,19 +81,19 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 			stats.DurationMS,
 			stats.RMS,
 			stats.Peak,
-			chunkText,
+			speechText,
 			localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
 		)
 		ch := audioChunk{
 			ChunkIndex: s.nextChunk,
-			Text:       chunkText,
+			Text:       speechText,
 			AudioPath:  localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
 			AudioURL:   "",
-			PauseAfter: chunkPauseForText(chunkText),
+			PauseAfter: chunkPauseForText(speechText),
 		}
 		s.nextChunk++
 		if b.cfg.OnChunkReady != nil {
-			b.cfg.OnChunkReady(sessionID, s.responseID, ch.ChunkIndex, s.characterID, ch.Text, displayChunk, ch.AudioPath, ch.AudioURL)
+			b.cfg.OnChunkReady(sessionID, s.responseID, ch.ChunkIndex, s.characterID, ch.Text, item.DisplayText, ch.AudioPath, ch.AudioURL)
 		}
 		if b.cfg.Sink != nil {
 			if err := b.cfg.Sink.SubmitChunk(ctx, sessionID, ch); err != nil {
@@ -103,26 +102,6 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 		}
 	}
 	return nil
-}
-
-func displayChunkForSpeechChunk(rawSpeechText, rawDisplayText string, speechChunks []string, index int) string {
-	if index < 0 || index >= len(speechChunks) {
-		return ""
-	}
-	chunkText := strings.TrimSpace(speechChunks[index])
-	displayText := strings.TrimSpace(rawDisplayText)
-	speechText := strings.TrimSpace(rawSpeechText)
-	if displayText == "" || displayText == speechText {
-		return chunkText
-	}
-	if len(speechChunks) == 1 {
-		return displayText
-	}
-	// Do not independently split display text and speech text; that creates
-	// false chunk-index correspondence when the two strings have different
-	// boundaries. In multi-chunk pronunciation-normalized cases, keep the
-	// diagnostic display chunk tied to the speech chunk.
-	return chunkText
 }
 
 func (b *SBV2TTSBridge) synthesizeChunk(ctx context.Context, s *sbv2BridgeSession, chunkText string) (SynthesisOutput, wavStats, error) {

@@ -69,9 +69,19 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		err := displayBridge.PushTextWithDisplay(ctx, sessionID, filtered, displayText, &emotion)
 		if err != nil {
 			log.Printf("[IdleChat] TTS push failed: %v", err)
+			if endErr := bridge.EndSession(ctx, sessionID); endErr != nil {
+				log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
+			}
+			clearIdleChatTTSPending(sessionID)
+			return waitCh, true
 		}
 	} else if err := bridge.PushText(ctx, sessionID, filtered, &emotion); err != nil {
 		log.Printf("[IdleChat] TTS push failed: %v", err)
+		if endErr := bridge.EndSession(ctx, sessionID); endErr != nil {
+			log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
+		}
+		clearIdleChatTTSPending(sessionID)
+		return waitCh, true
 	}
 	if err := bridge.EndSession(ctx, sessionID); err != nil {
 		clearIdleChatTTSPending(sessionID)
