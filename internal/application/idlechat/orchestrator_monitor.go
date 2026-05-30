@@ -344,12 +344,18 @@ func (o *IdleChatOrchestrator) nextIdleSessionPlanLocked() idleSessionPlan {
 		o.autoStep++
 		return plan
 	}
-	domain := forecastDomains[o.forecastStep%len(forecastDomains)]
-	o.forecastStep = (o.forecastStep + 1) % len(forecastDomains)
+	if o.autoStep == len(normalStrategies) {
+		domain := forecastDomains[o.forecastStep%len(forecastDomains)]
+		o.forecastStep = (o.forecastStep + 1) % len(forecastDomains)
+		o.autoStep++
+		return idleSessionPlan{
+			mode:   "forecast",
+			domain: &domain,
+		}
+	}
 	o.autoStep = 0
 	return idleSessionPlan{
-		mode:   "forecast",
-		domain: &domain,
+		mode: "story-simple",
 	}
 }
 

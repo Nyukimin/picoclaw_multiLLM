@@ -111,8 +111,8 @@ IdleChat のお題は、ユーザー観測・ログ・E2E 評価では次の 7 �
 | Forecast | `forecast` | 6 ドメイン固定順の未来展望セッション | 未来展望モード |
 | Story | `story` / `story-simple` | 昔話・童話を改変して朗読する物語セッション | Story モード |
 
-通常 IdleChat の自動ローテーションおよび通常評価では、`single → double → external → movie → news` の順で最低 1 巡できること。
-`forecast` と `story` はモード別カテゴリとして扱い、手動起動または専用 E2E で個別に検証できること。
+通常 IdleChat の自動ローテーションおよび通常評価では、`single → double → external → movie → news → forecast → story-simple` の順で最低 1 巡できること。
+`forecast` と `story` はモード別カテゴリとして扱うが、自動ローテーションにも含め、手動起動または専用 E2E でも個別に検証できること。
 
 #### お題サンプル正本
 
@@ -181,7 +181,7 @@ Story タイトル生成プロンプトの正本は `prompts/idle_chat/story_top
 このカテゴリ仕様は、次をすべて満たす場合のみ正当とする。
 
 - 正本、参照元仕様、実装、Viewer、E2E のカテゴリ一覧が `single / double / external / movie / news / forecast / story` で一致している。
-- 通常 IdleChat の自動または強制評価で、`single → double → external → movie → news` を 1 巡できる。
+- 通常 IdleChat の自動または強制評価で、`single → double → external → movie → news → forecast → story-simple` を 1 巡できる。
 - 各 session の topic/category/strategy が、Viewer 表示、履歴、ログ、TTS イベントで追跡できる。
 - News は news seed 1 件から生成され、display topic と内部 category が `news` のまま保持される。
 - Movie は category/strategy として `movie` を持ち、`movie=true` の隠し属性だけで表現されない。

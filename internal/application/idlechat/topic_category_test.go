@@ -8,16 +8,18 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 )
 
-func TestNextIdleSessionPlanCoversCanonicalNormalCategories(t *testing.T) {
+func TestNextIdleSessionPlanCoversCanonicalSevenCategories(t *testing.T) {
 	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
 
-	var got []TopicStrategy
+	var got []idleSessionPlan
+	var gotStrategies []TopicStrategy
 	for i := 0; i < 5; i++ {
 		plan := o.nextIdleSessionPlanLocked()
 		if plan.mode != "idle" {
 			t.Fatalf("plan %d mode = %q, want idle", i, plan.mode)
 		}
-		got = append(got, plan.strategy)
+		got = append(got, plan)
+		gotStrategies = append(gotStrategies, plan.strategy)
 	}
 
 	want := []TopicStrategy{
@@ -27,13 +29,28 @@ func TestNextIdleSessionPlanCoversCanonicalNormalCategories(t *testing.T) {
 		StrategyMovie,
 		StrategyNews,
 	}
-	if len(got) != len(want) {
-		t.Fatalf("strategies len = %d, want %d", len(got), len(want))
+	if len(gotStrategies) != len(want) {
+		t.Fatalf("strategies len = %d, want %d", len(gotStrategies), len(want))
 	}
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("strategy %d = %q, want %q; got=%v", i, got[i], want[i], got)
+		if gotStrategies[i] != want[i] {
+			t.Fatalf("strategy %d = %q, want %q; got=%v", i, gotStrategies[i], want[i], gotStrategies)
 		}
+	}
+
+	forecastPlan := o.nextIdleSessionPlanLocked()
+	if forecastPlan.mode != "forecast" || forecastPlan.domain == nil {
+		t.Fatalf("sixth plan = %+v, want forecast with domain", forecastPlan)
+	}
+
+	storyPlan := o.nextIdleSessionPlanLocked()
+	if storyPlan.mode != "story-simple" {
+		t.Fatalf("seventh plan mode = %q, want story-simple", storyPlan.mode)
+	}
+
+	resetPlan := o.nextIdleSessionPlanLocked()
+	if resetPlan.mode != "idle" || resetPlan.strategy != StrategySingleGenre {
+		t.Fatalf("rotation reset plan = %+v, want idle/single", resetPlan)
 	}
 }
 
