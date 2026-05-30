@@ -307,7 +307,35 @@ type IdleChatConfig struct {
 	Temperature             float64                       `yaml:"temperature"`               // 雑談時の温度（デフォルト: 0.8）
 	StoryDataDir            string                        `yaml:"story_data_dir"`            // 物語データJSONディレクトリ（デフォルト: "data/story"）
 	ForecastExternalEnabled bool                          `yaml:"forecast_external_enabled"` // true の場合のみ Forecast で外部 Coder API を明示利用する
+	TopicGeneration         IdleChatTopicGenerationConfig `yaml:"topic_generation"`          // お題候補生成・Judge設定
 	SpeakerLLMOptions       map[string]IdleChatLLMOptions `yaml:"speaker_llm_options"`       // 話者別LLMオプション
+}
+
+type IdleChatTopicGenerationConfig struct {
+	Enabled                   bool                               `yaml:"enabled"`
+	CandidatesPerAttempt      int                                `yaml:"candidates_per_attempt"`
+	MaxAttempts               int                                `yaml:"max_attempts"`
+	JudgeEnabled              bool                               `yaml:"judge_enabled"`
+	MinJudgeTotal             int                                `yaml:"min_judge_total"`
+	MinCategoryFit            int                                `yaml:"min_category_fit"`
+	MinSafety                 int                                `yaml:"min_safety"`
+	RecentTopicWindow         int                                `yaml:"recent_topic_window"`
+	RecentSimilarityThreshold float64                            `yaml:"recent_similarity_threshold"`
+	LogCandidates             bool                               `yaml:"log_candidates"`
+	LogJudgeScores            bool                               `yaml:"log_judge_scores"`
+	Prompts                   IdleChatTopicGenerationPromptPaths `yaml:"prompts"`
+}
+
+type IdleChatTopicGenerationPromptPaths struct {
+	Common   string `yaml:"common"`
+	Single   string `yaml:"single"`
+	Double   string `yaml:"double"`
+	External string `yaml:"external"`
+	Movie    string `yaml:"movie"`
+	News     string `yaml:"news"`
+	Forecast string `yaml:"forecast"`
+	Story    string `yaml:"story"`
+	Judge    string `yaml:"judge"`
 }
 
 type IdleChatLLMOptions struct {

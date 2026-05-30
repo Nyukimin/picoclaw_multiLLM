@@ -28,16 +28,27 @@ func NewIdleChatOrchestrator(
 	_ = storyDataDir // unused
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
-		llmProvider:         llmProvider,
-		speakerLLMs:         make(map[string]llm.LLMProvider),
-		speakerOptions:      defaultIdleChatSpeakerOptions(participants),
-		memory:              memory,
-		participants:        participants,
-		intervalMin:         intervalMin,
-		interval:            time.Duration(intervalMin) * time.Minute,
-		maxTurns:            maxTurns,
-		temperature:         temperature,
-		personalities:       personalities,
+		llmProvider:    llmProvider,
+		speakerLLMs:    make(map[string]llm.LLMProvider),
+		speakerOptions: defaultIdleChatSpeakerOptions(participants),
+		memory:         memory,
+		participants:   participants,
+		intervalMin:    intervalMin,
+		interval:       time.Duration(intervalMin) * time.Minute,
+		maxTurns:       maxTurns,
+		temperature:    temperature,
+		personalities:  personalities,
+		topicGenerationConfig: normalizeTopicGenerationConfig(TopicGenerationConfig{
+			Enabled:              true,
+			CandidatesPerAttempt: 5,
+			MaxAttempts:          3,
+			JudgeEnabled:         true,
+			RecentTopicWindow:    12,
+			RecentSimilarity:     RecentTopicSimilarityThreshold,
+			LogCandidates:        true,
+			LogJudgeScores:       true,
+			ProviderName:         "mio",
+		}),
 		lastActivity:        time.Now(),
 		history:             make([]SessionSummary, 0, 32),
 		ctx:                 ctx,
@@ -45,6 +56,12 @@ func NewIdleChatOrchestrator(
 		runCtx:              ctx,
 		interruptedSessions: make(map[string]struct{}),
 	}
+}
+
+func (o *IdleChatOrchestrator) SetTopicGenerationConfig(config TopicGenerationConfig) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.topicGenerationConfig = normalizeTopicGenerationConfig(config)
 }
 
 func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan struct{}) {

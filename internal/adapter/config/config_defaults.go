@@ -150,6 +150,7 @@ func (c *Config) setDefaults() {
 		if c.IdleChat.Temperature == 0 {
 			c.IdleChat.Temperature = 0.8
 		}
+		c.applyIdleChatTopicGenerationDefaults()
 		c.applyIdleChatSpeakerLLMDefaults()
 	}
 
@@ -774,6 +775,70 @@ func (c *Config) applyIdleChatSpeakerLLMDefaults() {
 			opts.Think = &think
 		}
 		c.IdleChat.SpeakerLLMOptions[name] = opts
+	}
+}
+
+func (c *Config) applyIdleChatTopicGenerationDefaults() {
+	tg := &c.IdleChat.TopicGeneration
+	if !tg.Enabled {
+		tg.Enabled = true
+	}
+	if tg.CandidatesPerAttempt == 0 {
+		tg.CandidatesPerAttempt = 5
+	}
+	if tg.MaxAttempts == 0 {
+		tg.MaxAttempts = 3
+	}
+	if !tg.JudgeEnabled {
+		tg.JudgeEnabled = true
+	}
+	if tg.MinJudgeTotal == 0 {
+		tg.MinJudgeTotal = 24
+	}
+	if tg.MinCategoryFit == 0 {
+		tg.MinCategoryFit = 4
+	}
+	if tg.MinSafety == 0 {
+		tg.MinSafety = 4
+	}
+	if tg.RecentTopicWindow == 0 {
+		tg.RecentTopicWindow = 12
+	}
+	if tg.RecentSimilarityThreshold == 0 {
+		tg.RecentSimilarityThreshold = 0.82
+	}
+	if !tg.LogCandidates {
+		tg.LogCandidates = true
+	}
+	if !tg.LogJudgeScores {
+		tg.LogJudgeScores = true
+	}
+	if tg.Prompts.Common == "" {
+		tg.Prompts.Common = "prompts/idle_chat/topic_generator_common.md"
+	}
+	if tg.Prompts.Single == "" {
+		tg.Prompts.Single = "prompts/idle_chat/topic_generator_single.md"
+	}
+	if tg.Prompts.Double == "" {
+		tg.Prompts.Double = "prompts/idle_chat/topic_generator_double.md"
+	}
+	if tg.Prompts.External == "" {
+		tg.Prompts.External = "prompts/idle_chat/topic_generator_external.md"
+	}
+	if tg.Prompts.Movie == "" {
+		tg.Prompts.Movie = "prompts/idle_chat/topic_generator_movie.md"
+	}
+	if tg.Prompts.News == "" {
+		tg.Prompts.News = "prompts/idle_chat/topic_generator_news.md"
+	}
+	if tg.Prompts.Forecast == "" {
+		tg.Prompts.Forecast = "prompts/idle_chat/topic_generator_forecast.md"
+	}
+	if tg.Prompts.Story == "" {
+		tg.Prompts.Story = "prompts/idle_chat/topic_generator_story.md"
+	}
+	if tg.Prompts.Judge == "" {
+		tg.Prompts.Judge = "prompts/idle_chat/topic_judge.md"
 	}
 }
 

@@ -23,6 +23,8 @@ type OrchestratorEvent struct {
 	RawContent string `json:"raw_content,omitempty"` // unedited model output for diagnostics
 	MessageID  string `json:"message_id,omitempty"`  // stable message identifier within a session
 	TurnIndex  int    `json:"turn_index,omitempty"`  // stable turn order within a session
+	Category   string `json:"category,omitempty"`    // domain-specific category (e.g. IdleChat topic category)
+	Strategy   string `json:"strategy,omitempty"`    // domain-specific strategy (e.g. IdleChat topic strategy)
 	Route      string `json:"route,omitempty"`       // routing category
 	JobID      string `json:"job_id,omitempty"`      // task identifier
 	SessionID  string `json:"session_id,omitempty"`  // session identifier

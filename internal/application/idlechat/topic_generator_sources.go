@@ -26,6 +26,7 @@ type NewsSeed struct {
 	Category string `json:"category"`
 	Source   string `json:"source"`
 	URL      string `json:"url,omitempty"`
+	Summary  string `json:"summary,omitempty"`
 }
 
 // NewsSeedSource は1つのニュースRSS取得先を表す。

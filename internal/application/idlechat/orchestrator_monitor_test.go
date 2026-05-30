@@ -11,7 +11,10 @@ import (
 )
 
 func TestRunChatSessionDoesNotSwitchTopicWithinSingleIdleSession(t *testing.T) {
-	responses := []string{"郵便と古書店"}
+	responses := []string{
+		topicCandidatesJSON("郵便と古書店に残る、宛先不明の手紙の扱い方", "観察"),
+		topicJudgeJSON("郵便と古書店に残る、宛先不明の手紙の扱い方"),
+	}
 	for i := 0; i < maxTurnsPerTopic*2; i++ {
 		responses = append(responses, fmt.Sprintf("古書店の棚に残った手紙を手がかりに、二人が同じ謎を少しずつ見る返答です。番号%dの具体物で話を前に進めます。", i+1))
 	}
@@ -40,10 +43,17 @@ func TestRunChatSessionDoesNotSwitchTopicWithinSingleIdleSession(t *testing.T) {
 	if got := countTopicGenerationRequests(provider.requests); got != 1 {
 		t.Fatalf("topic generation requests = %d, want 1", got)
 	}
+	if !containsRequestSystemPrompt(provider.requests, "【最初に拾うべき面白さ】") ||
+		!containsRequestSystemPrompt(provider.requests, "【避ける退屈な展開】") {
+		t.Fatalf("topic internal guidance was not injected into dialogue prompt: %+v", provider.requests)
+	}
 }
 
 func TestRunChatSessionContinuesToTurnLimitAfterLoopWarning(t *testing.T) {
-	responses := []string{"映画館に残った鍵"}
+	responses := []string{
+		topicCandidatesJSON("映画館に残った鍵の使い道", "観察"),
+		topicJudgeJSON("映画館に残った鍵の使い道"),
+	}
 	for i := 0; i < maxTurnsPerTopic*2; i++ {
 		responses = append(responses, fmt.Sprintf("もし鍵が古い映写機を開ける合図だったら、二人は暗い客席で同じ場面をもう一度見ることになります。番号%dの手がかりが次へ進みます。", i+1))
 	}
@@ -78,7 +88,8 @@ func TestRunChatSessionContinuesToTurnLimitAfterLoopWarning(t *testing.T) {
 func TestRunChatSessionRecordsGenerationErrorInConversationHistory(t *testing.T) {
 	provider := &capturingIdleProvider{
 		responses: []string{
-			"郵便と古書店",
+			topicCandidatesJSON("郵便と古書店に残る、宛先不明の手紙の扱い方", "観察"),
+			topicJudgeJSON("郵便と古書店に残る、宛先不明の手紙の扱い方"),
 			"",
 			"",
 			"",
@@ -166,6 +177,9 @@ func TestEmitTopicUsesTopicEventOutsideConversationTurns(t *testing.T) {
 	if emitted[0].MessageID != "idle-topic-contract:topic" || emitted[0].TurnIndex != 0 {
 		t.Fatalf("topic identity = %+v", emitted[0])
 	}
+	if emitted[0].Category != TopicCategoryExternal || emitted[0].Strategy != StrategyExternalStimulus {
+		t.Fatalf("topic trace fields = category=%q strategy=%q", emitted[0].Category, emitted[0].Strategy)
+	}
 	o.mu.Lock()
 	o.activeSessionID = "idle-topic-contract"
 	o.mu.Unlock()
@@ -178,9 +192,29 @@ func TestEmitTopicUsesTopicEventOutsideConversationTurns(t *testing.T) {
 func countTopicGenerationRequests(requests []llm.GenerateRequest) int {
 	count := 0
 	for _, req := range requests {
-		if len(req.Messages) > 0 && req.Messages[0].Role == "system" && req.Messages[0].Content == idleTopicGeneratorSystemPrompt() {
+		if len(req.Messages) > 0 && req.Messages[0].Role == "system" && req.Messages[0].Content == topicGeneratorSystemPrompt() {
 			count++
 		}
 	}
 	return count
+}
+
+func topicCandidatesJSON(topic, axis string) string {
+	return fmt.Sprintf(`{"candidates":[{"topic":%q,"interestingness_axis":%q,"opening_hook":"最初に具体物の扱いを拾う","avoid":"抽象論だけで終わらせない","rationale":"二人の見方が分かれる"}]}`, topic, axis)
+}
+
+func topicJudgeJSON(topic string) string {
+	return fmt.Sprintf(`{"winner_topic":%q,"scores":[{"topic":%q,"category_fit":5,"concreteness":5,"curiosity":5,"conversation_potential":5,"axis_strength":5,"novelty":5,"safety":5,"total":35,"reason":"会話が続く"}],"reject_reason_summary":""}`, topic, topic)
+}
+
+func containsRequestSystemPrompt(requests []llm.GenerateRequest, text string) bool {
+	for _, req := range requests {
+		if len(req.Messages) == 0 {
+			continue
+		}
+		if req.Messages[0].Role == "system" && strings.Contains(req.Messages[0].Content, text) {
+			return true
+		}
+	}
+	return false
 }

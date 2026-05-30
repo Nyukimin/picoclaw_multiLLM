@@ -47,6 +47,7 @@ type SessionSummary struct {
 	SessionID         string        `json:"session_id"`
 	Title             string        `json:"title"`
 	Topic             string        `json:"topic"`
+	Category          TopicCategory `json:"category,omitempty"`
 	Strategy          TopicStrategy `json:"strategy"` // 生成戦略（旧 Category）
 	Summary           string        `json:"summary"`
 	QualityReview     string        `json:"quality_review,omitempty"`
@@ -88,6 +89,8 @@ type TimelineEvent struct {
 	SessionID  string
 	MessageID  string
 	TurnIndex  int
+	Category   TopicCategory
+	Strategy   TopicStrategy
 }
 
 type PersonaRuntimeRecorder interface {
@@ -115,6 +118,7 @@ type IdleChatOrchestrator struct {
 	temperature           float64
 	personalities         map[string]string
 	speakerOptions        map[string]map[string]any
+	topicGenerationConfig TopicGenerationConfig
 
 	lastActivity              time.Time
 	chatActive                bool

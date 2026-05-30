@@ -159,6 +159,28 @@ idle_chat:
   interval_sec: 300      # 雑談開始までのアイドル時間（秒、指定時は interval_min より優先）
   max_turns: 10           # 1回の雑談最大ターン数
   temperature: 0.8        # 雑談時の温度
+  topic_generation:
+    enabled: true
+    candidates_per_attempt: 5
+    max_attempts: 3
+    judge_enabled: true
+    min_judge_total: 24
+    min_category_fit: 4
+    min_safety: 4
+    recent_topic_window: 12
+    recent_similarity_threshold: 0.82
+    log_candidates: true
+    log_judge_scores: true
+    prompts:
+      common: "prompts/idle_chat/topic_generator_common.md"
+      single: "prompts/idle_chat/topic_generator_single.md"
+      double: "prompts/idle_chat/topic_generator_double.md"
+      external: "prompts/idle_chat/topic_generator_external.md"
+      movie: "prompts/idle_chat/topic_generator_movie.md"
+      news: "prompts/idle_chat/topic_generator_news.md"
+      forecast: "prompts/idle_chat/topic_generator_forecast.md"
+      story: "prompts/idle_chat/topic_generator_story.md"
+      judge: "prompts/idle_chat/topic_judge.md"
   speaker_llm_options:
     mio:
       think: false         # NoThink

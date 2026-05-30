@@ -145,43 +145,33 @@ func normalizeForecastDisplayTopic(domain ForecastDomain, topic string) string {
 func (o *IdleChatOrchestrator) generateForecastTopic(domain ForecastDomain, seeds []string) (string, *forecastTopicFailure) {
 	recentTopics := o.getRecentTopics(12)
 	pastTitleThemes := o.getHistoricalTitleThemes(500)
-	lastProviderLabel := ""
-
-	for attempt := 0; attempt < 3; attempt++ {
-		prompt := generateForecastTopicPrompt(domain, seeds, pastTitleThemes)
-		messages := []llm.Message{
-			{Role: "system", Content: o.getSystemPrompt("mio")},
-			{Role: "user", Content: prompt},
-		}
-		req := llm.GenerateRequest{
-			Messages:    messages,
-			MaxTokens:   420,
-			Temperature: 0.9 + float64(attempt)*0.05,
-		}
-		resp, providerLabel, err := o.generateForecastLLM("topic", domain.Name, req)
-		lastProviderLabel = providerLabel
-		if err != nil {
-			return "", newForecastTopicFailure("topic", domain.Name, providerLabel, err)
-		}
-		logIdleRaw(fmt.Sprintf("forecast.topic.generate attempt=%d domain=%s", attempt+1, domain.Name), resp.Content)
-		topic := normalizeIdleTopic(resp.Content, false)
-		if topic == "" {
-			continue
-		}
-		if topicTooSimilar(topic, recentTopics) {
-			log.Printf("[Forecast] Topic too similar, retrying: %s", truncate(topic, 80))
-			continue
-		}
-		if topicTooSimilar(topic, pastTitleThemes) {
-			log.Printf("[Forecast] Topic overlaps with past title memory, retrying: %s", truncate(topic, 80))
-			continue
-		}
-		return topic, nil
+	provider, providerLabel := o.forecastPrimaryLLMInfo()
+	if provider == nil {
+		err := errors.New("forecast primary LLM provider unavailable")
+		logForecastLLMError("topic", domain.Name, providerLabel, err)
+		return "", newForecastTopicFailure("topic", domain.Name, providerLabel, err)
+	}
+	recent := recentTopicRecords(append(recentTopics, pastTitleThemes...))
+	seed := TopicSeed{
+		Category:       TopicCategoryForecast,
+		ForecastDomain: domain.Name,
+		TrendKeywords:  append([]string(nil), seeds...),
+	}
+	o.mu.Lock()
+	topicGenerationConfig := o.topicGenerationConfig
+	o.mu.Unlock()
+	topicGenerationConfig.ProviderName = providerLabel
+	generator := NewTopicGenerator(provider, topicGenerationConfig)
+	result, err := generator.GenerateInterestingTopic(o.idleRunContext(), TopicCategoryForecast, seed, recent)
+	if err == nil && result != nil {
+		return normalizeForecastDisplayTopic(domain, result.Topic), nil
 	}
 
-	err := errors.New("forecast topic generation produced no acceptable topic")
-	logForecastLLMError("topic", domain.Name, lastProviderLabel, err)
-	return "", newForecastTopicFailure("topic", domain.Name, lastProviderLabel, err)
+	if err == nil {
+		err = errors.New("forecast topic generation produced no acceptable topic")
+	}
+	logForecastLLMError("topic", domain.Name, providerLabel, err)
+	return "", newForecastTopicFailure("topic", domain.Name, providerLabel, err)
 }
 
 // extractForecastKeyword はNHKヘッドラインからドメインに関連する注目キーワードを1つ抽出する。

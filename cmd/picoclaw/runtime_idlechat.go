@@ -47,6 +47,7 @@ func buildIdleChatRuntime(
 		"wild":  wildProvider,
 	})
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
+	idleChatOrch.SetTopicGenerationConfig(idleChatTopicGenerationConfigFromRuntime(cfg.IdleChat.TopicGeneration))
 	if forecastProvider, label := selectForecastProviderForRuntime(cfg, workerProvider); forecastProvider != nil {
 		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
 		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
@@ -92,6 +93,8 @@ func buildIdleChatRuntime(
 				viewerEvent.RawContent = ev.RawContent
 				viewerEvent.MessageID = ev.MessageID
 				viewerEvent.TurnIndex = ev.TurnIndex
+				viewerEvent.Category = string(ev.Category)
+				viewerEvent.Strategy = string(ev.Strategy)
 				deps.eventHub.OnEvent(viewerEvent)
 			}
 			if ev.Type == "idlechat.viewer" {
@@ -213,4 +216,32 @@ func idleChatProviderOptionsFromConfig(options map[string]config.IdleChatLLMOpti
 		out[key] = map[string]any{"think": *opts.Think}
 	}
 	return out
+}
+
+func idleChatTopicGenerationConfigFromRuntime(cfg config.IdleChatTopicGenerationConfig) idlechat.TopicGenerationConfig {
+	return idlechat.TopicGenerationConfig{
+		Enabled:              cfg.Enabled,
+		CandidatesPerAttempt: cfg.CandidatesPerAttempt,
+		MaxAttempts:          cfg.MaxAttempts,
+		JudgeEnabled:         cfg.JudgeEnabled,
+		MinJudgeTotal:        cfg.MinJudgeTotal,
+		MinCategoryFit:       cfg.MinCategoryFit,
+		MinSafety:            cfg.MinSafety,
+		RecentTopicWindow:    cfg.RecentTopicWindow,
+		RecentSimilarity:     cfg.RecentSimilarityThreshold,
+		LogCandidates:        cfg.LogCandidates,
+		LogJudgeScores:       cfg.LogJudgeScores,
+		ProviderName:         "mio",
+		PromptPaths: idlechat.TopicGenerationPromptPaths{
+			Common:   cfg.Prompts.Common,
+			Single:   cfg.Prompts.Single,
+			Double:   cfg.Prompts.Double,
+			External: cfg.Prompts.External,
+			Movie:    cfg.Prompts.Movie,
+			News:     cfg.Prompts.News,
+			Forecast: cfg.Prompts.Forecast,
+			Story:    cfg.Prompts.Story,
+			Judge:    cfg.Prompts.Judge,
+		},
+	}
 }

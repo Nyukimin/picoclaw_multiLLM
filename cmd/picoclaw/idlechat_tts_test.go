@@ -262,6 +262,38 @@ func TestEmitIdleChatTTS_FormatsTopicAnnouncement(t *testing.T) {
 	}
 }
 
+func TestNonStorySpeechTopicDoesNotRewrite(t *testing.T) {
+	for _, strategy := range []idlechat.TopicStrategy{
+		idlechat.StrategySingleGenre,
+		idlechat.StrategyDoubleGenre,
+		idlechat.StrategyExternalStimulus,
+		idlechat.StrategyMovie,
+		idlechat.StrategyNews,
+		idlechat.StrategyForecast,
+	} {
+		t.Run(string(strategy), func(t *testing.T) {
+			bridge := &idleChatMockTTSBridge{}
+			topic := "盆栽と都市計画に共通する、成長を待つための設計"
+			_, _ = emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+				Type:      "idlechat.topic",
+				From:      "user",
+				To:        "mio",
+				Content:   "今日のお題（" + string(strategy) + "）: " + topic,
+				SessionID: "idle-topic-no-rewrite",
+				Category:  idlechat.TopicCategoryNews,
+				Strategy:  strategy,
+			})
+			if len(bridge.pushTexts) != 1 {
+				t.Fatalf("expected 1 push text, got %d", len(bridge.pushTexts))
+			}
+			want := "きょうのおだい、" + topic + "。"
+			if bridge.pushTexts[0] != want {
+				t.Fatalf("speech topic was rewritten: got %q want %q", bridge.pushTexts[0], want)
+			}
+		})
+	}
+}
+
 func TestEmitIdleChatTTS_StripsSpeakerLabelsFromDisplayAndSpeech(t *testing.T) {
 	bridge := &idleChatMockTTSBridge{}
 

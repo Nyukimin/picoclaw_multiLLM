@@ -184,6 +184,18 @@ func (c *Config) Validate() error {
 		if c.IdleChat.Temperature < 0 || c.IdleChat.Temperature > 2.0 {
 			return fmt.Errorf("idle_chat.temperature must be between 0 and 2.0")
 		}
+		if c.IdleChat.TopicGeneration.Enabled {
+			tg := c.IdleChat.TopicGeneration
+			if tg.CandidatesPerAttempt < 1 {
+				return fmt.Errorf("idle_chat.topic_generation.candidates_per_attempt must be >= 1")
+			}
+			if tg.MaxAttempts < 1 {
+				return fmt.Errorf("idle_chat.topic_generation.max_attempts must be >= 1")
+			}
+			if tg.RecentSimilarityThreshold < 0 || tg.RecentSimilarityThreshold > 1 {
+				return fmt.Errorf("idle_chat.topic_generation.recent_similarity_threshold must be between 0 and 1")
+			}
+		}
 	}
 
 	// v5.0 Conversation設定検証

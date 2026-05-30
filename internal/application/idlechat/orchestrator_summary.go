@@ -185,6 +185,7 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 		SessionID:       sessionID,
 		Title:           title,
 		Topic:           topic,
+		Category:        categoryForSummaryStrategy(strategy),
 		Strategy:        strategy,
 		Summary:         summary,
 		QualityReview:   qualityReview,

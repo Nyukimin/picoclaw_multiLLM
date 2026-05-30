@@ -102,21 +102,23 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, gener
 		o.currentTopic = fmt.Sprintf("[%s] %s", domain.Name, displayTopic)
 		o.mu.Unlock()
 
-		// Viewer/TTS にはシンプルなお題を表示
-		topicAnnounce := fmt.Sprintf("お題は、%s", displayTopic)
+		// Viewer/TTS には通常 IdleChat と同じ topic イベント契約で表示する。
+		topicAnnounce := fmt.Sprintf("今日のお題（%s）: %s", StrategyForecast, displayTopic)
 		topicMessageID := fmt.Sprintf("%s:topic:%04d", sessionID, domainIdx)
 		topicMsg := domaintransport.NewMessage("user", "mio", sessionID, "", topicAnnounce)
 		topicMsg.Type = domaintransport.MessageTypeIdleChat
 		topicMsg.Context = idleChatMessageContext(topicMessageID, 0)
 		o.memory.RecordMessage(topicMsg)
 		topicEvent := TimelineEvent{
-			Type:      "idlechat.message",
+			Type:      "idlechat.topic",
 			From:      "user",
 			To:        "mio",
 			Content:   topicAnnounce,
 			SessionID: sessionID,
 			MessageID: topicMessageID,
 			TurnIndex: 0,
+			Category:  TopicCategoryForecast,
+			Strategy:  StrategyForecast,
 		}
 		ttsDone = o.emitTimelineEvent(topicEvent)
 		if ttsDone != nil {

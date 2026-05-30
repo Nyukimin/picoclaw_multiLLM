@@ -21,6 +21,7 @@ func (o *IdleChatOrchestrator) saveForecastSummary(sessionID string, domain Fore
 		SessionID:       sessionID,
 		Title:           title,
 		Topic:           fullTopic,
+		Category:        TopicCategoryForecast,
 		Strategy:        TopicStrategy(fmt.Sprintf("forecast/%s", domain.Name)),
 		Summary:         summary,
 		QualityReview:   qualityReview,

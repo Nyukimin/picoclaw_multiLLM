@@ -120,9 +120,11 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 
 	log.Printf("[SimpleStory] Generating: %s × %s", tale.title, protagonist)
 
-	storyTopic := fmt.Sprintf("物語: %s × %s", tale.title, protagonist)
+	storyTopicResult := buildSimpleStoryTopicResult(tale.title, protagonist)
+	storyTopic := storyTopicResult.Topic
 	o.mu.Lock()
 	o.currentTopic = storyTopic
+	o.sessionContext = formatTopicGenerationContext(storyTopicResult)
 	o.mu.Unlock()
 
 	// LLM生成が長くても、Viewer には開始直後に状態を見せる。
@@ -236,6 +238,37 @@ func containsAnyStoryMetaText(text string) bool {
 		strings.Contains(text, "条件:")
 }
 
+func buildSimpleStoryTopicResult(sourceTitle, protagonist string) TopicGenerationResult {
+	sourceTitle = strings.TrimSpace(sourceTitle)
+	protagonist = strings.TrimSpace(protagonist)
+	topic := fmt.Sprintf("%sを、主人公%sの視点で語り直す物語", sourceTitle, protagonist)
+	candidate := TopicCandidate{
+		Topic:               topic,
+		InterestingnessAxis: ExpectedAxisByCategory[TopicCategoryStory],
+		OpeningHook:         fmt.Sprintf("%sの骨格を残しつつ、%sなら何を見落とさないかを拾う", sourceTitle, protagonist),
+		Avoid:               "元話のあらすじ紹介だけで終わらせない",
+	}
+	seed := TopicSeed{
+		Category:       TopicCategoryStory,
+		StoryBase:      sourceTitle,
+		StoryTransform: protagonist,
+	}
+	if err := ValidateTopicCandidate(TopicCategoryStory, seed, candidate); err != nil {
+		log.Printf("[SimpleStory] story topic contract violation: %v", err)
+	}
+	return TopicGenerationResult{
+		Topic:               candidate.Topic,
+		Category:            TopicCategoryStory,
+		Strategy:            StrategyFromCategory(TopicCategoryStory),
+		InterestingnessAxis: candidate.InterestingnessAxis,
+		OpeningHook:         candidate.OpeningHook,
+		Avoid:               candidate.Avoid,
+		Seed:                seed,
+		Candidates:          []TopicCandidate{candidate},
+		Provider:            "story-simple",
+	}
+}
+
 func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTitle, protagonist, storyTitle, storyText string, transcript []string, startedAt time.Time, loopReason string) {
 	endedAt := time.Now().In(jst)
 	summary := fmt.Sprintf("物語モード: %sを主人公%sでリメイク。", sourceTitle, protagonist)
@@ -244,6 +277,7 @@ func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTit
 		SessionID:       sessionID,
 		Title:           fmt.Sprintf("%d月%d日の%s", endedAt.Month(), endedAt.Day(), topic),
 		Topic:           topic,
+		Category:        TopicCategoryStory,
 		Strategy:        TopicStrategy("story-simple"),
 		Summary:         summary,
 		QualityReview:   qualityReview,

@@ -26,6 +26,7 @@ func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) <-chan struct
 func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, strategy TopicStrategy) <-chan struct{} {
 	content := fmt.Sprintf("今日のお題（%s）: %s", strategy, topic)
 	messageID := idleChatTopicMessageID(sessionID)
+	category, _ := TopicCategoryFromStrategy(strategy)
 	return o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.topic",
 		From:      "user",
@@ -34,6 +35,8 @@ func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, stra
 		SessionID: sessionID,
 		MessageID: messageID,
 		TurnIndex: 0,
+		Category:  category,
+		Strategy:  strategy,
 	})
 }
 

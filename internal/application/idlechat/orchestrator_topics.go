@@ -3,10 +3,10 @@ package idlechat
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
@@ -14,57 +14,44 @@ import (
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy TopicStrategy) (string, TopicStrategy) {
 	movieMode := strategy == StrategyMovie
 	recentTopics := o.getRecentTopics(12)
+	recent := recentTopicRecords(recentTopics)
 
-	var prompt string
 	var logInfo string
 	var diagnosticTopic string
-	promptReady := true
+	seed, promptReady := buildTopicSeedForStrategy(strategy)
 
 	switch strategy {
 	case StrategySingleGenre:
-		var genres []string
-		var anchor topicAnchor
-		prompt, genres, anchor = generateSingleGenrePrompt(false)
-		logInfo = fmt.Sprintf("single:%v anchor=%s", genres, anchor.Value)
-		diagnosticTopic = diagnosticTopicForStrategy(strategy, genres, "", "", anchor)
+		logInfo = fmt.Sprintf("single:%s", seed.Genre1)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, []string{seed.Genre1}, "", "", topicAnchor{})
 
 	case StrategyDoubleGenre:
-		var genres []string
-		var anchor topicAnchor
-		prompt, genres, anchor = generateDoubleGenrePrompt(false)
-		logInfo = fmt.Sprintf("double:%v anchor=%s", genres, anchor.Value)
-		diagnosticTopic = diagnosticTopicForStrategy(strategy, genres, "", "", anchor)
+		logInfo = fmt.Sprintf("double:%s,%s", seed.Genre1, seed.Genre2)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, []string{seed.Genre1, seed.Genre2}, "", "", topicAnchor{})
 
 	case StrategyExternalStimulus:
-		var source string
-		prompt, source, promptReady = generateExternalPrompt()
+		source := "external_seed_unavailable"
+		if seed.ExternalMaterial != nil {
+			source = "Wikipedia:" + seed.ExternalMaterial.Title
+		}
 		logInfo = fmt.Sprintf("external:%s", source)
 		diagnosticTopic = diagnosticTopicForStrategy(strategy, nil, source, "", topicAnchor{})
 
 	case StrategyMovie:
-		var genres []string
-		var anchor topicAnchor
-		prompt, genres, anchor = generateMoviePrompt()
-		logInfo = fmt.Sprintf("movie:%v anchor=%s", genres, anchor.Value)
-		diagnosticTopic = diagnosticTopicForStrategy(strategy, genres, "", "", anchor)
+		logInfo = fmt.Sprintf("movie:%s", seed.Genre1)
+		diagnosticTopic = diagnosticTopicForStrategy(strategy, []string{seed.Genre1}, "", "", topicAnchor{})
 
 	case StrategyNews:
-		var source string
-		prompt, source, promptReady = generateNewsPrompt()
+		source := "news_seed_unavailable"
+		if seed.News != nil {
+			source = newsSeedSourceLabel(*seed.News)
+		}
 		logInfo = fmt.Sprintf("news:%s", source)
 		diagnosticTopic = diagnosticTopicForStrategy(strategy, nil, source, "", topicAnchor{})
 
 	default:
 		log.Printf("[IdleChat] unsupported topic strategy: %s", strategy)
 		return "未対応のお題カテゴリ: " + string(strategy), strategy
-	}
-
-	if promptReady && o.recentTopics != nil {
-		if glossaryTopics, err := o.recentTopics(o.ctx, 6); err != nil {
-			log.Printf("[IdleChat] glossary topics failed: %v", err)
-		} else if len(glossaryTopics) > 0 {
-			prompt += "\n\n最近語彙メモ:\n- " + strings.Join(glossaryTopics, "\n- ") + "\n上の語彙は、最近の時事語彙や固有名詞の種です。詳細断言ではなく、お題の発想補助として軽く使ってください。"
-		}
 	}
 
 	log.Printf("[IdleChat] Strategy: %s (%s)", strategy, logInfo)
@@ -78,41 +65,108 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 		return diagnostic, strategy
 	}
 
-	// トピック生成（最大3回リトライ）
-	for attempt := 0; attempt < 3; attempt++ {
-		messages := []llm.Message{
-			{Role: "system", Content: idleTopicGeneratorSystemPrompt()},
-			{Role: "user", Content: prompt},
-		}
-		req := llm.GenerateRequest{
-			Messages:    messages,
-			MaxTokens:   420,
-			Temperature: 0.9 + float64(attempt)*0.05, // 高めの温度で多様性確保
-		}
-		resp, err := o.providerForSpeaker("mio").Generate(o.idleRunContext(), req)
-		if err != nil {
-			log.Printf("[IdleChat] topic generation failed: %v", err)
-			break
-		}
-		logIdleRaw(fmt.Sprintf("topic.generate attempt=%d strategy=%s", attempt+1, strategy), resp.Content)
-		topic := normalizeIdleTopic(resp.Content, movieMode)
-		if topic == "" {
-			continue
-		}
-		if topicTooSimilar(topic, recentTopics) {
-			log.Printf("[IdleChat] topic too similar to recent history, retrying: %s", truncate(topic, 80))
-			continue
-		}
+	o.mu.Lock()
+	topicGenerationConfig := o.topicGenerationConfig
+	o.mu.Unlock()
+	if !topicGenerationConfig.Enabled {
+		topicGenerationConfig.Enabled = true
+	}
+	if topicGenerationConfig.ProviderName == "" {
+		topicGenerationConfig.ProviderName = "mio"
+	}
+	generator := NewTopicGenerator(o.providerForSpeaker("mio"), topicGenerationConfig)
+	result, err := generator.GenerateInterestingTopic(o.idleRunContext(), seed.Category, seed, recent)
+	if err == nil && result != nil {
+		topic := normalizeIdleTopic(result.Topic, movieMode)
+		o.mu.Lock()
+		o.sessionContext = formatTopicGenerationContext(*result)
+		o.mu.Unlock()
 		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
 		return topic, strategy
 	}
+	log.Printf("[IdleChat] topic generation failed: strategy=%s error=%v", strategy, err)
 
 	diagnostic := normalizeIdleTopic(diagnosticTopic, movieMode)
 	if diagnostic == "" {
-		diagnostic = "予想外の切り口から考える論点"
+		diagnostic = "TOPIC_GENERATION_FAILED error_code=" + errorCodeForTopicGeneration(err)
 	}
 	log.Printf("[IdleChat] Topic (diagnostic): %s", diagnostic)
 	return diagnostic, strategy
+}
+
+func buildTopicSeedForStrategy(strategy TopicStrategy) (TopicSeed, bool) {
+	switch strategy {
+	case StrategySingleGenre:
+		genres := pickRandom(genrePool, 1)
+		return TopicSeed{Category: TopicCategorySingle, Genre1: genres[0]}, true
+	case StrategyDoubleGenre:
+		genres := pickRandom(genrePool, 2)
+		return TopicSeed{Category: TopicCategoryDouble, Genre1: genres[0], Genre2: genres[1]}, true
+	case StrategyExternalStimulus:
+		cache := getDailyCache()
+		if cache == nil || len(cache.WikipediaSeeds) == 0 {
+			return TopicSeed{Category: TopicCategoryExternal}, false
+		}
+		title := cache.WikipediaSeeds[rand.Intn(len(cache.WikipediaSeeds))]
+		genre := pickRandom(genrePool, 1)[0]
+		return TopicSeed{
+			Category: TopicCategoryExternal,
+			Genre1:   genre,
+			ExternalMaterial: &ExternalMaterialSeed{
+				Title:    title,
+				Provider: "Wikipedia",
+				Category: "wikipedia_random",
+			},
+		}, true
+	case StrategyMovie:
+		genres := pickRandom(genrePool, 1)
+		return TopicSeed{Category: TopicCategoryMovie, Genre1: genres[0]}, true
+	case StrategyNews:
+		cache := getDailyCache()
+		if cache == nil || (len(cache.NewsSeedItems) == 0 && len(cache.NewsSeeds) == 0) {
+			return TopicSeed{Category: TopicCategoryNews}, false
+		}
+		if len(cache.NewsSeedItems) > 0 {
+			seed := cache.NewsSeedItems[rand.Intn(len(cache.NewsSeedItems))]
+			return TopicSeed{Category: TopicCategoryNews, News: &seed}, true
+		}
+		seed := NewsSeed{Title: cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]}
+		return TopicSeed{Category: TopicCategoryNews, News: &seed}, true
+	default:
+		category, err := TopicCategoryFromStrategy(strategy)
+		if err != nil {
+			return TopicSeed{}, false
+		}
+		return TopicSeed{Category: category}, true
+	}
+}
+
+func recentTopicRecords(topics []string) []RecentTopic {
+	out := make([]RecentTopic, 0, len(topics))
+	for _, topic := range topics {
+		topic = strings.TrimSpace(topic)
+		if topic != "" {
+			out = append(out, RecentTopic{Topic: topic})
+		}
+	}
+	return out
+}
+
+func formatTopicGenerationContext(result TopicGenerationResult) string {
+	var parts []string
+	if axis := strings.TrimSpace(result.InterestingnessAxis); axis != "" {
+		parts = append(parts, "【このtopicの面白さの軸】\n"+axis)
+	}
+	if hook := strings.TrimSpace(result.OpeningHook); hook != "" {
+		parts = append(parts, "【最初に拾うべき面白さ】\n"+hook)
+	}
+	if avoid := strings.TrimSpace(result.Avoid); avoid != "" {
+		parts = append(parts, "【避ける退屈な展開】\n"+avoid)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "IdleChat topic internal guidance:\n" + strings.Join(parts, "\n\n") + "\n\nこの内部メタは発話にそのまま出さない。"
 }
 
 func diagnosticTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, anchor topicAnchor) string {

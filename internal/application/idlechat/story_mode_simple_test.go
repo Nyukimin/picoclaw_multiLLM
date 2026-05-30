@@ -36,6 +36,22 @@ func TestValidateSimpleStoryDraftAcceptsChangedProtagonistStory(t *testing.T) {
 	}
 }
 
+func TestSimpleStoryTopicKeepsBaseAndTransform(t *testing.T) {
+	result := buildSimpleStoryTopicResult("桃太郎", "AIロボット")
+	if result.Category != TopicCategoryStory {
+		t.Fatalf("category = %q, want story", result.Category)
+	}
+	if result.Strategy != "story-simple" {
+		t.Fatalf("strategy = %q, want story-simple", result.Strategy)
+	}
+	if !strings.Contains(result.Topic, "桃太郎") || !strings.Contains(result.Topic, "AIロボット") || !strings.Contains(result.Topic, "語り直") {
+		t.Fatalf("story topic lost base or transform axis: %q", result.Topic)
+	}
+	if err := ValidateTopicCandidate(TopicCategoryStory, result.Seed, result.Candidates[0]); err != nil {
+		t.Fatalf("story topic candidate should satisfy contract: %v", err)
+	}
+}
+
 func TestRunSimpleStorySessionDoesNotDropGeneratedBodyWithLegacyValidationText(t *testing.T) {
 	provider := &queuedQualityProvider{responses: []string{
 		"【もしもの桃太郎】\nもし桃太郎がAIロボットだったら面白いです。",

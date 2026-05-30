@@ -2388,6 +2388,21 @@ idle_chat:
 	if cfg.IdleChat.SpeakerLLMOptions["shiro"].Think == nil || *cfg.IdleChat.SpeakerLLMOptions["shiro"].Think {
 		t.Fatalf("Expected idle_chat speaker shiro think default false, got %#v", cfg.IdleChat.SpeakerLLMOptions["shiro"].Think)
 	}
+	if !cfg.IdleChat.TopicGeneration.Enabled {
+		t.Fatal("Expected idle_chat topic_generation default enabled")
+	}
+	if cfg.IdleChat.TopicGeneration.CandidatesPerAttempt != 5 {
+		t.Fatalf("Expected topic_generation candidates_per_attempt 5, got %d", cfg.IdleChat.TopicGeneration.CandidatesPerAttempt)
+	}
+	if cfg.IdleChat.TopicGeneration.MaxAttempts != 3 {
+		t.Fatalf("Expected topic_generation max_attempts 3, got %d", cfg.IdleChat.TopicGeneration.MaxAttempts)
+	}
+	if !cfg.IdleChat.TopicGeneration.JudgeEnabled {
+		t.Fatal("Expected topic_generation judge_enabled default true")
+	}
+	if cfg.IdleChat.TopicGeneration.Prompts.Judge != "prompts/idle_chat/topic_judge.md" {
+		t.Fatalf("Expected topic judge prompt default, got %q", cfg.IdleChat.TopicGeneration.Prompts.Judge)
+	}
 }
 
 func TestLoadConfig_IdleChatOtherSpeakersDefaultThinkTrue(t *testing.T) {

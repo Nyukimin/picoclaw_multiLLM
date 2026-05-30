@@ -165,6 +165,38 @@ func TestGenerateForecastTopicReturnsFailureInsteadOfFallbackTopic(t *testing.T)
 	}
 }
 
+func TestGenerateForecastTopicUsesInterestingJudge(t *testing.T) {
+	provider := &queuedForecastProvider{
+		responses: []string{
+			topicCandidatesJSON("AI技術が、個人の記憶整理をどう変えるか", "変化の分岐"),
+			topicJudgeJSON("AI技術が、個人の記憶整理をどう変えるか"),
+		},
+		name: "forecast-local",
+	}
+	o := NewIdleChatOrchestrator(
+		provider,
+		session.NewCentralMemory(),
+		[]string{"mio", "shiro"},
+		5,
+		10,
+		0.7,
+		nil,
+		"",
+	)
+	o.SetForecastProviderWithLabel(provider, "Coder1 local_openai (Worker)")
+
+	topic, failure := o.generateForecastTopic(ForecastDomain{Name: "AI技術"}, []string{"生成AI規制の新指針"})
+	if failure != nil {
+		t.Fatalf("unexpected failure: %+v", failure)
+	}
+	if topic != "AI技術が、個人の記憶整理をどう変えるか" {
+		t.Fatalf("topic = %q", topic)
+	}
+	if provider.requests != 2 {
+		t.Fatalf("provider requests = %d, want candidates + judge", provider.requests)
+	}
+}
+
 func TestExtractForecastKeywordReturnsFailureWithoutDomainFallback(t *testing.T) {
 	o := NewIdleChatOrchestrator(
 		failingForecastProvider{err: errors.New("should not be called")},
