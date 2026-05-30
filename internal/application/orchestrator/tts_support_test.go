@@ -60,6 +60,25 @@ func TestSplitTTSChunksKeepsNaturalSentenceTogether(t *testing.T) {
 	}
 }
 
+func TestSplitTTSChunksKeepsClosingQuoteWithQuestion(t *testing.T) {
+	text := "例えば、AIが提示したデータを見て、生徒の「なぜ？」に寄り添うような対話が鍵になりそうだよ。"
+
+	chunks := SplitTTSChunks(text)
+
+	want := []string{
+		"例えば、AIが提示したデータを見て、生徒の「なぜ？」",
+		"に寄り添うような対話が鍵になりそうだよ。",
+	}
+	if len(chunks) != len(want) {
+		t.Fatalf("expected %d chunks, got %d: %#v", len(want), len(chunks), chunks)
+	}
+	for i := range want {
+		if chunks[i] != want[i] {
+			t.Fatalf("chunk[%d] = %q, want %q", i, chunks[i], want[i])
+		}
+	}
+}
+
 func TestTTSStreamForwarderFinalizeSplitsUnemittedFinalText(t *testing.T) {
 	bridge := &recordingTTSBridge{}
 	forwarder := newTTSStreamForwarder(bridge, "s1", routing.RouteCHAT, "agent.response", "tts:")

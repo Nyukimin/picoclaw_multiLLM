@@ -82,7 +82,7 @@ func emotionPrefixForCharacterText(emotion *EmotionState, characterID, text stri
 		if feature != "" {
 			return prefixForFeature(feature, true)
 		}
-		if fromState := emotionPrefixForStateOnly(emotion); fromState != "" && fromState != "😌" && fromState != "😇" {
+		if fromState := emotionPrefixForMioStateOnly(emotion); fromState != "" && fromState != "😌" && fromState != "😇" {
 			return fromState
 		}
 		return "😊"
@@ -136,12 +136,43 @@ func emotionPrefixForStateOnly(emotion *EmotionState) string {
 	}
 }
 
+func emotionPrefixForMioStateOnly(emotion *EmotionState) string {
+	if emotion == nil {
+		return "😊"
+	}
+	primary := strings.ToLower(strings.TrimSpace(emotion.PrimaryEmotion))
+	if primary == "" {
+		return "😊"
+	}
+	v := emotion.EmotionVector
+	switch primary {
+	case "alert":
+		if v.Alertness >= 0.78 {
+			return "😰"
+		}
+		return "😮"
+	case "serious":
+		return "🤔"
+	case "cheerful":
+		if v.Cheerfulness >= 0.78 {
+			return "😆"
+		}
+		return "😊"
+	case "warm":
+		return "😊"
+	case "calm":
+		return "😊"
+	default:
+		return "😊"
+	}
+}
+
 func classifyEmotionText(text string) string {
 	lower := strings.ToLower(text)
 	switch {
 	case containsAny(lower, "ありがとう", "嬉しい", "楽しい", "最高", "よかった", "すごい", "素敵", "いいね", "やった", "成功", "できました", "完了", "thank"):
 		return "joy"
-	case containsAny(lower, "好き", "かわいい", "大切", "安心", "あたたか", "寄り添", "親し"):
+	case containsAny(lower, "好き", "かわいい", "大切", "親し"):
 		return "affection"
 	case containsAny(lower, "ごめん", "すみません", "申し訳", "お願い", "頼む", "助けて"):
 		return "plead"

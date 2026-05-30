@@ -704,7 +704,8 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
       }
       return;
     }
-    if (rendered && typeof renderIdlePendingMessageFromEvent === 'function') {
+    const renderedWasPending = !!(rendered && (!rendered.el || (rendered.el.classList && rendered.el.classList.contains('idle-pending-tts'))));
+    if (rendered && !renderedWasPending && typeof renderIdlePendingMessageFromEvent === 'function') {
       renderIdlePendingMessageFromEvent(rendered);
     }
     const existing = !rendered && typeof findIdleLiveMessageNode === 'function'
@@ -738,7 +739,6 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
       return;
     }
     const el = rendered && rendered.el ? rendered.el : (existing || document.createElement('div'));
-    const renderedWasPending = !!(rendered && rendered.el && rendered.el.classList.contains('idle-pending-tts'));
     if ((rendered && rendered.el) || existing) {
       el.classList.remove('idle-pending-tts');
       el.classList.add('tts-current');
@@ -755,6 +755,9 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
           '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
         '</div><div class="mc"></div></div>';
     }
+    const elMessageID = String(messageId || '').trim();
+    if (elMessageID) el.dataset.messageId = elMessageID;
+    if (Number.isFinite(turnIndex) && turnIndex >= 0) el.dataset.turnIndex = String(Math.floor(turnIndex));
     speech.el = el;
     speech.textEl = el.querySelector('.mc');
     speech.characterId = id;
@@ -762,11 +765,11 @@ function renderIdleTTSSpeechText(characterId, text, sessionId, chunkIndex, utter
     speech.responseId = rid;
     speech.bubbleKind = bubbleKind;
     speech.active = true;
-    speech.preRendered = !!((rendered && rendered.el) || (existing && !renderedWasPending));
+    speech.preRendered = !!((rendered && rendered.el && !renderedWasPending) || (existing && !renderedWasPending));
     speech.chunkKeys = new Set();
     removeIdleLiveEmpty();
     if (!(rendered && rendered.el) && !existing) target.appendChild(el);
-    if (existing && typeof sortIdleLiveMessageNodes === 'function') sortIdleLiveMessageNodes(target);
+    if (typeof sortIdleLiveMessageNodes === 'function') sortIdleLiveMessageNodes(target);
     trimTimelineNodesFor(target, MAX_TIMELINE_NODES);
   } else {
     speech.el.classList.add('tts-current');
@@ -817,7 +820,15 @@ function appendCentralTTSText(current, next) {
   if (/\s$/.test(left) || /^\s/.test(next)) return left + right;
   if (/[、]$/.test(left)) return left + right;
   if (/[「『（(［\[]$/.test(left) || /^[、。！？!?）」』）)\]］]/.test(right)) return left + right;
+  if (isCJKBoundary(left, right)) return left + right;
   return left + ' ' + right;
+}
+
+function isCJKBoundary(left, right) {
+  const l = String(left || '').trim().slice(-1);
+  const r = String(right || '').trim().slice(0, 1);
+  if (!l || !r) return false;
+  return /[\u3040-\u30ff\u3400-\u9fff]/.test(l) && /[\u3040-\u30ff\u3400-\u9fff]/.test(r);
 }
 
 function ttsChunkIdentityKey(sessionId, utteranceId, chunkIndex, fallbackIndex) {

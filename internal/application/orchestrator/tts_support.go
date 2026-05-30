@@ -255,7 +255,7 @@ func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 		case isTTSHardBoundary(r):
 			lastHard = end
 			if runeCount >= ttsChunkMinRunes {
-				return splitTTSChunk(trimmed, end)
+				return splitTTSChunk(trimmed, extendTTSChunkCut(trimmed, end))
 			}
 		case isTTSSoftBoundary(r):
 			lastSoft = end
@@ -272,7 +272,7 @@ func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 	}
 
 	if lastHard > 0 && runeCount >= ttsChunkMinRunes {
-		return splitTTSChunk(trimmed, lastHard)
+		return splitTTSChunk(trimmed, extendTTSChunkCut(trimmed, lastHard))
 	}
 	if final {
 		return splitTTSChunk(trimmed, len(trimmed))
@@ -320,6 +320,33 @@ func splitTTSChunk(text string, cut int) (chunk, rest string, ok bool) {
 		return "", rest, false
 	}
 	return chunk, rest, true
+}
+
+func extendTTSChunkCut(text string, cut int) int {
+	if cut <= 0 || cut >= len(text) {
+		return cut
+	}
+	extended := cut
+	for extended < len(text) {
+		r, size := utf8.DecodeRuneInString(text[extended:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if !isTTSClosingBoundary(r) {
+			break
+		}
+		extended += size
+	}
+	return extended
+}
+
+func isTTSClosingBoundary(r rune) bool {
+	switch r {
+	case '」', '』', '）', ')', '］', ']', '】', '〉', '》':
+		return true
+	default:
+		return false
+	}
 }
 
 func isTTSHardBoundary(r rune) bool {

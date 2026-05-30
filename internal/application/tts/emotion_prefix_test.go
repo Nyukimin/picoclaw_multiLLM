@@ -43,6 +43,27 @@ func TestEnsureEmotionPrefixForCharacterUsesMioBrightBaseAndLargeSwing(t *testin
 	}
 }
 
+func TestEnsureEmotionPrefixForCharacterKeepsMioWarmStateBright(t *testing.T) {
+	text := EnsureEmotionPrefixForCharacter("その瞬間、乗り手の心の中もきっと大きな変化があったんじゃないかな。", &EmotionState{
+		PrimaryEmotion: "warm",
+		EmotionVector:  EmotionVector{Warmth: 0.80, Cheerfulness: 0.40},
+	}, "mio")
+	if !strings.HasPrefix(text, "😊") {
+		t.Fatalf("expected Mio warm state to keep bright base, got %q", text)
+	}
+}
+
+func TestEnsureEmotionPrefixForCharacterUsesMioAffectionOnlyForExplicitAffection(t *testing.T) {
+	ordinarySupport := EnsureEmotionPrefixForCharacter("生徒のなぜに寄り添うような対話が鍵になりそうだよ。", nil, "mio")
+	if !strings.HasPrefix(ordinarySupport, "🤔") {
+		t.Fatalf("expected ordinary supportive thinking text not to become affection, got %q", ordinarySupport)
+	}
+	explicitAffection := EnsureEmotionPrefixForCharacter("その気持ち、すごく大切で好きだよ。", nil, "mio")
+	if !strings.HasPrefix(explicitAffection, "🥰") {
+		t.Fatalf("expected explicit affection to use affection prefix, got %q", explicitAffection)
+	}
+}
+
 func TestEnsureEmotionPrefixForCharacterKeepsShiroCalmUnlessStrong(t *testing.T) {
 	base := EnsureEmotionPrefixForCharacter("少し考えてみよう。", nil, "shiro")
 	if !strings.HasPrefix(base, "😇") {
