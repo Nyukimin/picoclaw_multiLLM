@@ -12,6 +12,7 @@ type llmRuntimeProviders struct {
 	Primary            primaryLLMProviders
 	Chat               llm.LLMProvider
 	Worker             llm.LLMProvider
+	ChatWorker         llm.LLMProvider
 	Heavy              llm.LLMProvider
 	Wild               llm.LLMProvider
 	WorkerToolProvider llm.ToolCallingProvider
@@ -32,6 +33,7 @@ func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 		Primary:            primaryProviders,
 		Chat:               primaryProviders.Chat,
 		Worker:             primaryProviders.Worker,
+		ChatWorker:         primaryProviders.ChatWorker,
 		Heavy:              primaryProviders.Heavy,
 		Wild:               primaryProviders.Wild,
 		WorkerToolProvider: workerToolProvider,

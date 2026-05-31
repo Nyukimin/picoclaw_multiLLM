@@ -33,6 +33,15 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func firstNonNilLLMProvider(values ...llm.LLMProvider) llm.LLMProvider {
+	for _, v := range values {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
 func maxDuration(values ...time.Duration) time.Duration {
 	var max time.Duration
 	for _, v := range values {

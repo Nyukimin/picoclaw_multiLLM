@@ -19,6 +19,7 @@ func buildIdleChatRuntime(
 	deps *Dependencies,
 	chatProvider llm.LLMProvider,
 	workerProvider llm.LLMProvider,
+	chatWorkerProvider llm.LLMProvider,
 	heavyProvider llm.LLMProvider,
 	wildProvider llm.LLMProvider,
 	centralMemory *domainsession.CentralMemory,
@@ -42,7 +43,7 @@ func buildIdleChatRuntime(
 	idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
 	idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":   chatProvider,
-		"shiro": workerProvider,
+		"shiro": firstNonNilLLMProvider(chatWorkerProvider, workerProvider),
 		"kuro":  heavyProvider,
 		"wild":  wildProvider,
 	})

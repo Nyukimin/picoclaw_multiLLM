@@ -44,6 +44,9 @@ func (c *Config) setDefaults() {
 	if c.LocalLLM.WorkerModel == "" {
 		c.LocalLLM.WorkerModel = "Worker"
 	}
+	if c.LocalLLM.ChatWorkerModel == "" {
+		c.LocalLLM.ChatWorkerModel = "ChatWorker"
+	}
 	if c.LocalLLM.HeavyModel == "" {
 		c.LocalLLM.HeavyModel = "Heavy"
 	}

@@ -13,10 +13,11 @@ import (
 )
 
 type primaryLLMProviders struct {
-	Chat   llm.LLMProvider
-	Worker llm.LLMProvider
-	Heavy  llm.LLMProvider
-	Wild   llm.LLMProvider
+	Chat       llm.LLMProvider
+	Worker     llm.LLMProvider
+	ChatWorker llm.LLMProvider
+	Heavy      llm.LLMProvider
+	Wild       llm.LLMProvider
 }
 
 const (
@@ -35,21 +36,24 @@ func buildPrimaryLLMProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 		wildTimeout := localLLMTimeoutForAlias(cfg, "Wild")
 		chat := buildLocalAliasProvider(cfg, "Chat", cfg.LocalLLM.ChatModel, chatTimeout, global)
 		worker := buildLocalAliasProvider(cfg, "Worker", cfg.LocalLLM.WorkerModel, workerTimeout, global)
+		chatWorker := buildLocalAliasProvider(cfg, "ChatWorker", cfg.LocalLLM.ChatWorkerModel, workerTimeout, global)
 		heavy := buildLocalAliasProvider(cfg, "Heavy", localLLMModelForAlias(cfg, "Heavy"), heavyTimeout, global)
 		wild := buildLocalAliasProvider(cfg, "Wild", cfg.LocalLLM.WildModel, wildTimeout, global)
 		if cfg.LocalLLMWarmupEnabled() {
 			go warmPrimaryLLMProviders(context.Background(), map[string]llm.LLMProvider{
-				"Chat":   chat,
-				"Worker": worker,
-				"Heavy":  heavy,
-				"Wild":   wild,
+				"Chat":       chat,
+				"Worker":     worker,
+				"ChatWorker": chatWorker,
+				"Heavy":      heavy,
+				"Wild":       wild,
 			}, maxDuration(chatTimeout, workerTimeout, heavyTimeout, wildTimeout))
 		}
 		return primaryLLMProviders{
-			Chat:   wrapPrimaryLLMProvider(cfg, "chat", chat, contextBudgetRecorder),
-			Worker: wrapPrimaryLLMProvider(cfg, "worker", worker, contextBudgetRecorder),
-			Heavy:  wrapPrimaryLLMProvider(cfg, "heavy", heavy, contextBudgetRecorder),
-			Wild:   wrapPrimaryLLMProvider(cfg, "wild", wild, contextBudgetRecorder),
+			Chat:       wrapPrimaryLLMProvider(cfg, "chat", chat, contextBudgetRecorder),
+			Worker:     wrapPrimaryLLMProvider(cfg, "worker", worker, contextBudgetRecorder),
+			ChatWorker: wrapPrimaryLLMProvider(cfg, "chatworker", chatWorker, contextBudgetRecorder),
+			Heavy:      wrapPrimaryLLMProvider(cfg, "heavy", heavy, contextBudgetRecorder),
+			Wild:       wrapPrimaryLLMProvider(cfg, "wild", wild, contextBudgetRecorder),
 		}
 	}
 
@@ -60,10 +64,11 @@ func buildPrimaryLLMProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 	}
 	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
 	return primaryLLMProviders{
-		Chat:   wrapPrimaryLLMProvider(cfg, "chat", chatRawProvider, contextBudgetRecorder),
-		Worker: wrapPrimaryLLMProvider(cfg, "worker", workerRawProvider, contextBudgetRecorder),
-		Heavy:  wrapPrimaryLLMProvider(cfg, "heavy", workerRawProvider, contextBudgetRecorder),
-		Wild:   wrapPrimaryLLMProvider(cfg, "wild", workerRawProvider, contextBudgetRecorder),
+		Chat:       wrapPrimaryLLMProvider(cfg, "chat", chatRawProvider, contextBudgetRecorder),
+		Worker:     wrapPrimaryLLMProvider(cfg, "worker", workerRawProvider, contextBudgetRecorder),
+		ChatWorker: wrapPrimaryLLMProvider(cfg, "chatworker", workerRawProvider, contextBudgetRecorder),
+		Heavy:      wrapPrimaryLLMProvider(cfg, "heavy", workerRawProvider, contextBudgetRecorder),
+		Wild:       wrapPrimaryLLMProvider(cfg, "wild", workerRawProvider, contextBudgetRecorder),
 	}
 }
 
@@ -102,7 +107,7 @@ func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
 	switch strings.ToLower(strings.TrimSpace(alias)) {
 	case "chat":
 		return firstNonEmpty(cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.BaseURL)
-	case "worker":
+	case "worker", "chatworker":
 		return firstNonEmpty(cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.BaseURL)
 	case "heavy":
 		return firstNonEmpty(cfg.LocalLLM.HeavyBaseURL, cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.BaseURL)
@@ -122,6 +127,8 @@ func localLLMModelForAlias(cfg *config.Config, alias string) string {
 		return cfg.LocalLLM.ChatModel
 	case "worker":
 		return cfg.LocalLLM.WorkerModel
+	case "chatworker":
+		return cfg.LocalLLM.ChatWorkerModel
 	case "heavy":
 		if strings.TrimSpace(cfg.LocalLLM.HeavyBaseURL) == "" && strings.TrimSpace(cfg.LocalLLM.WorkerBaseURL) != "" {
 			return cfg.LocalLLM.WorkerModel

@@ -180,6 +180,7 @@ type LocalLLMConfig struct {
 	APIKey            string `yaml:"api_key"`
 	ChatModel         string `yaml:"chat_model"`
 	WorkerModel       string `yaml:"worker_model"`
+	ChatWorkerModel   string `yaml:"chat_worker_model"`
 	HeavyModel        string `yaml:"heavy_model"`
 	WildModel         string `yaml:"wild_model"`
 	TimeoutSec        int    `yaml:"timeout_sec"`

@@ -669,6 +669,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		deps,
 		llmRuntime.Chat,
 		llmRuntime.Worker,
+		llmRuntime.ChatWorker,
 		llmRuntime.Heavy,
 		llmRuntime.Wild,
 		sessionRuntime.CentralMemory,

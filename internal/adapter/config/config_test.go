@@ -824,7 +824,7 @@ local_llm:
 	if cfg.LocalLLM.Provider != "local_openai" {
 		t.Fatalf("unexpected local_llm provider: %s", cfg.LocalLLM.Provider)
 	}
-	if cfg.LocalLLM.ChatModel != "Chat" || cfg.LocalLLM.WorkerModel != "Worker" || cfg.LocalLLM.HeavyModel != "Heavy" || cfg.LocalLLM.WildModel != "Wild" {
+	if cfg.LocalLLM.ChatModel != "Chat" || cfg.LocalLLM.WorkerModel != "Worker" || cfg.LocalLLM.ChatWorkerModel != "ChatWorker" || cfg.LocalLLM.HeavyModel != "Heavy" || cfg.LocalLLM.WildModel != "Wild" {
 		t.Fatalf("unexpected model aliases: %+v", cfg.LocalLLM)
 	}
 	if cfg.LocalLLM.TimeoutSec != 120 {

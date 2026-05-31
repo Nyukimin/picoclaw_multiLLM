@@ -29,6 +29,7 @@ local_llm:
   api_key: ""
   chat_model: "Chat"
   worker_model: "Worker"
+  chat_worker_model: "ChatWorker" # IdleChat shiro用。Workerより短い出力capを使う。
   heavy_model: "Heavy"
   wild_model: "Wild"
   timeout_sec: 120
