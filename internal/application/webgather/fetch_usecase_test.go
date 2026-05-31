@@ -110,6 +110,31 @@ func TestFetchURLDoesNotStageExtractFailure(t *testing.T) {
 	}
 }
 
+func TestFetchURLDoesNotStageCredentialLikeText(t *testing.T) {
+	staging := &captureStaging{}
+	usecase := NewUseCase(fakeFetcher{artifact: modulewebgather.FetchArtifact{
+		FinalURL:    "https://example.com/a",
+		StatusCode:  200,
+		ContentType: "text/plain",
+		RawBytes:    64,
+		FetchedAt:   time.Now().UTC(),
+	}}, fakeExtractor{doc: modulewebgather.ExtractedDocument{
+		Text:      "public article\nAuthorization: Bearer abcdefghijklmnop\nmore text",
+		Extractor: "plain_text",
+		Meta:      map[string]any{},
+	}}, staging)
+	resp, err := usecase.FetchURL(context.Background(), modulewebgather.FetchRequest{URL: "https://example.com/a"})
+	if err == nil {
+		t.Fatal("expected blocked_by_policy")
+	}
+	if staging.called {
+		t.Fatal("credential-like content must not be staged")
+	}
+	if resp.ErrorCode != modulewebgather.ErrBlockedByPolicy {
+		t.Fatalf("unexpected error response: %+v", resp)
+	}
+}
+
 func TestFetchURLStagesIntoL1AndDoesNotPromotePending(t *testing.T) {
 	ctx := context.Background()
 	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

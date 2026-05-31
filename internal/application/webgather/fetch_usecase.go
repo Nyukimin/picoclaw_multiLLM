@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -62,6 +63,11 @@ func (u *UseCase) FetchURL(ctx context.Context, req modulewebgather.FetchRequest
 	if doc.Text == "" {
 		err := modulewebgather.NewError(modulewebgather.ErrEmptyContent, "extracted content is empty")
 		log.Printf("web_gather.fetch_failed url=%s final_url=%s error_code=%s elapsed_ms=%d", modulewebgather.SafeURLForLog(req.URL), modulewebgather.SafeURLForLog(artifact.FinalURL), modulewebgather.ErrEmptyContent, artifact.Elapsed.Milliseconds())
+		return failure(req.URL, err, diagnosticsFromArtifact(req, artifact, nil)), err
+	}
+	if containsCredentialLikeText(doc.Text) {
+		err := modulewebgather.NewError(modulewebgather.ErrBlockedByPolicy, "extracted content appears to contain credential material")
+		log.Printf("web_gather.fetch_failed url=%s final_url=%s error_code=%s elapsed_ms=%d", modulewebgather.SafeURLForLog(req.URL), modulewebgather.SafeURLForLog(artifact.FinalURL), modulewebgather.ErrBlockedByPolicy, artifact.Elapsed.Milliseconds())
 		return failure(req.URL, err, diagnosticsFromArtifact(req, artifact, nil)), err
 	}
 	log.Printf("web_gather.extract_completed url=%s final_url=%s extractor=%s extracted_chars=%d", modulewebgather.SafeURLForLog(req.URL), modulewebgather.SafeURLForLog(artifact.FinalURL), doc.Extractor, len([]rune(doc.Text)))
@@ -232,6 +238,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+var credentialLikeTextRE = regexp.MustCompile(`(?i)(authorization|set-cookie|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]|\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
+
+func containsCredentialLikeText(text string) bool {
+	return credentialLikeTextRE.MatchString(text)
 }
 
 func ensureSHA256Prefix(hash string) string {

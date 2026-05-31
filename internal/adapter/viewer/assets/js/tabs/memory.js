@@ -355,6 +355,94 @@ function renderMemoryEvents() {
       });
     }
   }
+  if (typeof renderWebGatherDiagnostics === 'function') renderWebGatherDiagnostics();
+}
+
+function webGatherStagingItems() {
+  const items = Array.isArray(state.memory.sourceRegistryStaging) ? state.memory.sourceRegistryStaging : [];
+  return items.filter((item) => {
+    const meta = item.Meta || item.meta || {};
+    const sourceID = String(item.SourceID || item.source_id || '');
+    return meta.tool === 'rencrow-web-gather' ||
+      meta.fetcher === 'web_gather' ||
+      meta.security_warning_source === 'web_gather' ||
+      sourceID.startsWith('web:');
+  });
+}
+
+function webGatherSourceEntries() {
+  const entries = Array.isArray(state.memory.sourceRegistry) ? state.memory.sourceRegistry : [];
+  return entries.filter((entry) => String(entry.kind || entry.Kind || '') === 'web_gather');
+}
+
+function webGatherSearchEntries() {
+  const entries = Array.isArray(state.memory.searchCache) ? state.memory.searchCache : [];
+  return entries.filter((entry) => {
+    const provider = String(entry.Provider || entry.provider || '');
+    const urls = entry.SourceURLs || entry.source_urls || [];
+    return provider === 'searxng' || provider === 'local_cache' || (Array.isArray(urls) && urls.some((u) => String(u).startsWith('http')));
+  });
+}
+
+function webGatherFailureCounts(entries) {
+  const counts = {blocked: 0, timeout: 0, extraction_failed: 0, failed: 0};
+  entries.forEach((entry) => {
+    const status = String(entry.last_status || entry.LastStatus || '');
+    const err = String(entry.last_error || entry.LastError || '').toLowerCase();
+    if (status !== 'error' && !err) return;
+    counts.failed += 1;
+    if (err.includes('timeout') || err.includes('timed out')) counts.timeout += 1;
+    if (err.includes('blocked') || err.includes('captcha') || err.includes('bot challenge')) counts.blocked += 1;
+    if (err.includes('extract') || err.includes('empty content') || err.includes('unsupported content')) counts.extraction_failed += 1;
+  });
+  return counts;
+}
+
+function renderWebGatherDiagnostics() {
+  const summaryBody = document.getElementById('webGatherSummaryBody');
+  const recentBody = document.getElementById('webGatherRecentBody');
+  if (!summaryBody && !recentBody) return;
+  const staging = webGatherStagingItems();
+  const sources = webGatherSourceEntries();
+  const searches = webGatherSearchEntries();
+  const failures = webGatherFailureCounts(sources);
+  const latestSearch = searches.length ? searches[0] : null;
+  const rows = [
+    ['recent search query', latestSearch ? short(latestSearch.RawQuery || latestSearch.raw_query || latestSearch.NormalizedQuery || latestSearch.normalized_query || '-', 160) : '-'],
+    ['search provider', latestSearch ? (latestSearch.Provider || latestSearch.provider || '-') : '-'],
+    ['search result count', latestSearch ? String((latestSearch.SourceURLs || latestSearch.source_urls || []).length || '-') : '0'],
+    ['staging count', String(staging.length)],
+    ['fetch success / failed', String(staging.length) + ' / ' + String(failures.failed)],
+    ['blocked / timeout / extraction_failed', String(failures.blocked) + ' / ' + String(failures.timeout) + ' / ' + String(failures.extraction_failed)],
+  ];
+  if (summaryBody) {
+    summaryBody.innerHTML = '';
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + esc(row[0]) + '</td><td class="code">' + esc(row[1]) + '</td>';
+      summaryBody.appendChild(tr);
+    });
+  }
+  if (recentBody) {
+    recentBody.innerHTML = '';
+    if (staging.length === 0) {
+      recentBody.innerHTML = '<tr><td colspan="5" class="small">No Web Gather staging items</td></tr>';
+      return;
+    }
+    staging.slice(0, 8).forEach((item) => {
+      const warnings = sourceRegistryWarningCount(item);
+      const warningLabel = warnings > 0 ? '<span class="badge warn">' + esc(String(warnings)) + '</span>' : '<span class="badge">0</span>';
+      const id = esc(item.id || item.ID || '');
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + esc(item.validation_status || item.ValidationStatus || '-') + '</td>' +
+        '<td class="code">' + esc(short(item.source_id || item.SourceID || item.source_url || item.SourceURL || '-', 58)) + '</td>' +
+        '<td>' + esc(short(item.summary_draft || item.SummaryDraft || item.raw_text || item.RawText || '-', 110)) + '</td>' +
+        '<td>' + warningLabel + '</td>' +
+        '<td><button class="ctl-btn" onclick="validateSourceRegistryStaging(&quot;' + id + '&quot;)">Validate</button></td>';
+      recentBody.appendChild(tr);
+    });
+  }
 }
 
 function knowledgeMemoryID(type, item) {
@@ -828,6 +916,7 @@ function renderSourceRegistry() {
       '<td><button class="ctl-btn" onclick="runSourceRegistryEntry(&quot;' + esc(s.source_id || '') + '&quot;)">Run</button></td>';
     body.appendChild(tr);
   });
+  if (typeof renderWebGatherDiagnostics === 'function') renderWebGatherDiagnostics();
 }
 
 function renderSourceRegistryRunStatus() {
@@ -893,6 +982,7 @@ function renderSourceRegistryStaging() {
       '</td>';
     body.appendChild(tr);
   });
+  if (typeof renderWebGatherDiagnostics === 'function') renderWebGatherDiagnostics();
 }
 
 function setSourceRegistryStagingStatus(message, warn) {

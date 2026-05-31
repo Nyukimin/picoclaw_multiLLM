@@ -73,6 +73,8 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="recallPackCount"/);
   assert.match(html, /id="userMemoryCount"/);
   assert.match(html, /id="searchCacheBody"/);
+  assert.match(html, /id="webGatherSummaryBody"/);
+  assert.match(html, /id="webGatherRecentBody"/);
   assert.match(html, /id="knowledgeMemoryBody"/);
   assert.match(html, /id="knowledgeMemoryDetail"/);
   assert.match(html, /id="knowledgeMemoryTypeFilter"/);
@@ -1301,6 +1303,45 @@ globalThis.__body = document.getElementById('sourceRegistryStagingBody').innerHT
 
   assert.match(context.__body, /creative_knowledge:ck_1/);
   assert.match(context.__body, /news_knowledge:news_1/);
+});
+
+test('viewer renders web gather diagnostics from search cache and staging', () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  searchCache: [{Provider: 'searxng', RawQuery: 'RenCrow queue timeout', SourceURLs: ['https://example.com/a', 'https://example.com/b']}],
+  sourceRegistry: [{kind: 'web_gather', source_id: 'web:bad', last_status: 'error', last_error: 'request timed out'}],
+  sourceRegistryStaging: [{id: 'stg_web', validation_status: 'pending', source_id: 'web:example', summary_draft: 'web gather item', meta: {fetcher: 'web_gather', security_warnings: ['warn']}}],
+}};
+` + sourceBetween(memoryJs, 'function eventPayloadSummary', 'function sourceRegistryStagingReviewSummary') + `
+renderWebGatherDiagnostics();
+globalThis.__summary = document.getElementById('webGatherSummaryBody').innerHTML;
+globalThis.__recent = document.getElementById('webGatherRecentBody').innerHTML;
+`;
+  const context = vm.createContext({document, validateSourceRegistryStaging() {}});
+  vm.runInContext(source, context);
+
+  assert.match(context.__summary, /RenCrow queue timeout/);
+  assert.match(context.__summary, /searxng/);
+  assert.match(context.__summary, /blocked \/ timeout \/ extraction_failed/);
+  assert.match(context.__summary, /0 \/ 1 \/ 0/);
+  assert.match(context.__recent, /web:example/);
+  assert.match(context.__recent, /web gather item/);
+  assert.match(context.__recent, /Validate/);
 });
 
 test('viewer renders source registry fetch errors as visible state', async () => {
