@@ -73,9 +73,9 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 		topicGenerationConfig.Enabled = true
 	}
 	if topicGenerationConfig.ProviderName == "" {
-		topicGenerationConfig.ProviderName = "mio"
+		topicGenerationConfig.ProviderName = "chatworker"
 	}
-	generator := NewTopicGenerator(o.providerForSpeaker("mio"), topicGenerationConfig)
+	generator := NewTopicGenerator(o.providerForSpeaker("chatworker"), topicGenerationConfig)
 	result, err := generator.GenerateInterestingTopic(o.idleRunContext(), seed.Category, seed, recent)
 	if err == nil && result != nil {
 		topic := normalizeIdleTopic(result.Topic, movieMode)

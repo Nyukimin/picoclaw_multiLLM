@@ -15,5 +15,3 @@ category = double
 悪い方向:
 潮汐と郵便制度について
 海と手紙の不思議な関係
-
-interestingness_axis は必ず "接続" にする。

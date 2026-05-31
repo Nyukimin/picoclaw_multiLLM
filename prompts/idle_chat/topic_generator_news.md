@@ -19,5 +19,3 @@ category = news
 医療制度のニュースについて
 医療制度と古書店を組み合わせた話
 NHKの記事から考える医療制度
-
-interestingness_axis は必ず "現実の影響" にする。

@@ -16,5 +16,3 @@ category = single
 悪い方向:
 記憶について考える
 古書店の魅力
-
-interestingness_axis は必ず "観察" にする。

@@ -17,5 +17,3 @@ category = external
 Wikipediaで見つけた地下鉄博物館について
 ランダム記事と織物の話
 検索結果から考える音声案内
-
-interestingness_axis は必ず "偶然の意味化" にする。

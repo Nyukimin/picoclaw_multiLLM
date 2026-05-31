@@ -15,13 +15,15 @@ import (
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
 	localCfg := localRuntimeConfigFromAppConfig(cfg)
 	aliasConfig := modulellm.LocalAliasConfig{
-		Alias:       strings.TrimSpace(alias),
-		Provider:    modulellm.NormalizeLocalProvider(localLLMProviderFromConfig(cfg)),
-		BaseURL:     modulellm.LocalBaseURLForAlias(localCfg, alias),
-		Model:       modulellm.LocalModelForAlias(localCfg, alias),
-		Timeout:     modulellm.LocalTimeoutForAlias(localCfg, alias),
-		Concurrency: localLLMConcurrencyFromConfig(cfg),
-		NumCtx:      modulellm.LocalOllamaNumCtxForAlias(alias),
+		Alias:        strings.TrimSpace(alias),
+		Provider:     modulellm.NormalizeLocalProvider(localLLMProviderFromConfig(cfg)),
+		BaseURL:      modulellm.LocalBaseURLForAlias(localCfg, alias),
+		Model:        modulellm.LocalModelForAlias(localCfg, alias),
+		Timeout:      modulellm.LocalTimeoutForAlias(localCfg, alias),
+		QueueTimeout: modulellm.LocalQueueTimeoutForAlias(alias),
+		QueuePolicy:  modulellm.LocalQueuePolicyWait,
+		Concurrency:  localLLMConcurrencyFromConfig(cfg),
+		NumCtx:       modulellm.LocalOllamaNumCtxForAlias(alias),
 	}
 	if model != "" {
 		aliasConfig.Model = model
@@ -45,7 +47,12 @@ func buildLocalAliasProviderFromConfig(cfg *config.Config, aliasConfig modulellm
 		raw = openai.NewOpenAIProviderWithOptions(apiKey, aliasConfig.Model, aliasConfig.BaseURL, aliasConfig.Timeout)
 	}
 	modelSem := make(chan struct{}, aliasConfig.Concurrency)
-	return llmmiddleware.NewLimitedProvider(raw, "local-"+aliasConfig.Alias+"-"+aliasConfig.Model, global, modelSem)
+	return llmmiddleware.NewLimitedProviderWithOptions(raw, "local-"+aliasConfig.Alias+"-"+aliasConfig.Model, global, modelSem, llmmiddleware.LimitedProviderOptions{
+		Alias:             aliasConfig.Alias,
+		QueueTimeout:      aliasConfig.QueueTimeout,
+		GenerationTimeout: aliasConfig.Timeout,
+		QueuePolicy:       aliasConfig.QueuePolicy,
+	})
 }
 
 func firstNonEmpty(values ...string) string {

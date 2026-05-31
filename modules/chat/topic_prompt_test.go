@@ -14,6 +14,7 @@ func TestBuildTopicGenerationPromptIncludesCategoryRulesAndRetry(t *testing.T) {
 	}
 	for _, want := range []string{
 		"candidates 配列に 2 件",
+		"topic 文字列だけの配列",
 		"category = double",
 		"seed.genre_1 と seed.genre_2 の両方",
 		"再生成条件",
@@ -22,6 +23,9 @@ func TestBuildTopicGenerationPromptIncludesCategoryRulesAndRetry(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "opening_hook") || strings.Contains(prompt, "rationale") || strings.Contains(prompt, "interestingness_axis") {
+		t.Fatalf("generation prompt should not request shaping fields:\n%s", prompt)
 	}
 }
 

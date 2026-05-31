@@ -133,6 +133,9 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 		invalids := make([]InvalidCandidateDiagnostic, 0)
 		for _, candidate := range candidates {
 			candidate.Topic = normalizeIdleTopic(candidate.Topic, normalized == TopicCategoryMovie)
+			if strings.TrimSpace(candidate.InterestingnessAxis) == "" {
+				candidate.InterestingnessAxis = modulechat.ExpectedAxisByCategory[normalized]
+			}
 			if err := modulechat.ValidateTopicCandidate(normalized, seed, candidate); err != nil {
 				invalids = append(invalids, InvalidCandidateDiagnostic{Topic: candidate.Topic, Error: err.Error()})
 				continue

@@ -8,6 +8,7 @@ Mio と Shiro が自律的に雑談したとき、12ターン程度で自然に�
 - カテゴリ判定、最終採用、Viewer表示、TTS読み上げ、ログ記録は実装コードが担当します。
 - 出力は JSON のみ。
 - candidates 配列に {candidate_count} 件を返す。
+- candidates は topic 文字列だけの配列にする。
 - topic は1行。
 - topic には説明文を含めない。
 - topic にカテゴリ名、内部 strategy、provider 名、取得経路、seed ID を出さない。
@@ -29,12 +30,6 @@ recent_topics:
 出力形式:
 {
   "candidates": [
-    {
-      "topic": "...",
-      "interestingness_axis": "...",
-      "opening_hook": "このお題で最初に拾うべき面白さを20〜60字で書く",
-      "avoid": "このお題で避けるべき退屈な展開を20〜60字で書く",
-      "rationale": "なぜ会話が続くかを短く書く"
-    }
+    "..."
   ]
 }

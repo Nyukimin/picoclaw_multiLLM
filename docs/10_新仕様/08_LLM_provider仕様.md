@@ -44,6 +44,8 @@ local OpenAI-compatible provider は Chat / Worker / Heavy / Wild の主経路�
 
 `Chat` / `Worker` / `Wild` alias は runtime provider assembly で解決する。repo example の model 名と live runtime の model 名が違う場合は、live config と `/viewer/runtime-config` を優先して確認する。
 
+timeout は queue wait と generation elapsed を分けて設計する。server-side queue に任せるだけでは timeout 原因を切り分けできないため、RenCrow 側の client queue、queue timeout、generation timeout、phase 別ログ契約は `45_LLMクライアントキューTimeout仕様.md` を正とする。
+
 OpenAI-compatible embedding は conversation summarizer、profile extractor、Recall / KB の補助に使う。Embedding provider と Chat/Worker provider を混同しない。
 
 ## raw log / thinking bridge

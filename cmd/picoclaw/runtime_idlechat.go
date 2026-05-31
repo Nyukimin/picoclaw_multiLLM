@@ -243,7 +243,7 @@ func idleChatTopicGenerationConfigFromRuntime(cfg config.IdleChatTopicGeneration
 		RecentSimilarity:     cfg.RecentSimilarityThreshold,
 		LogCandidates:        cfg.LogCandidates,
 		LogJudgeScores:       cfg.LogJudgeScores,
-		ProviderName:         "mio",
+		ProviderName:         "chatworker",
 		PromptPaths: idlechat.TopicGenerationPromptPaths{
 			Common:   cfg.Prompts.Common,
 			Single:   cfg.Prompts.Single,

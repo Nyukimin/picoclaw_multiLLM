@@ -21,6 +21,8 @@ IdleChat では speaker ごとに LLM provider を分ける。
 
 IdleChat は request payload の `metadata` で用途判定しない。用途の切り分けは alias で行う。system prompt 内の `/no_think` や `この会話はidleChatです` は thinking / 表示本文制御のための指示であり、max_tokens cap の routing 根拠にしない。
 
+LLM 呼び出しの queue wait と generation timeout は分けて扱う。特に Mio は `Chat` alias の短い体感応答が必要なため、本文生成で timeout が出た場合は `queue` 待ちと `generate` 実行時間を混同しない。詳細は `45_LLMクライアントキューTimeout仕様.md` を参照する。
+
 ## モード
 
 | モード | 目的 | 主担当 |

@@ -48,7 +48,7 @@ func NewIdleChatOrchestrator(
 			RecentSimilarity:     modulechat.RecentTopicSimilarityThreshold,
 			LogCandidates:        true,
 			LogJudgeScores:       true,
-			ProviderName:         "mio",
+			ProviderName:         "chatworker",
 		}),
 		dialogueConfig:      DefaultDialogueInterestingnessConfig(),
 		lastActivity:        time.Now(),

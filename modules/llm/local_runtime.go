@@ -14,6 +14,17 @@ const (
 	LocalWildTimeout    = 15 * time.Second
 	LocalHeavyTimeout   = 30 * time.Second
 
+	LocalChatQueueTimeout       = 1 * time.Second
+	LocalChatWorkerQueueTimeout = 2 * time.Second
+	LocalWorkerQueueTimeout     = 5 * time.Second
+	LocalHeavyQueueTimeout      = 5 * time.Second
+	LocalWildQueueTimeout       = 2 * time.Second
+	LocalDefaultQueueTimeout    = 5 * time.Second
+
+	LocalQueuePolicyWait   = "wait"
+	LocalQueuePolicyReject = "reject"
+	LocalQueuePolicyLatest = "latest"
+
 	LocalOllamaDefaultNumCtx = 32768
 	LegacyOllamaChatNumCtx   = 32768
 	LegacyOllamaWorkerNumCtx = 16384
@@ -35,24 +46,28 @@ type LocalRuntimeConfig struct {
 }
 
 type LocalAliasConfig struct {
-	Alias       string
-	Provider    string
-	BaseURL     string
-	Model       string
-	Timeout     time.Duration
-	Concurrency int
-	NumCtx      int
+	Alias        string
+	Provider     string
+	BaseURL      string
+	Model        string
+	Timeout      time.Duration
+	QueueTimeout time.Duration
+	QueuePolicy  string
+	Concurrency  int
+	NumCtx       int
 }
 
 func BuildLocalAliasConfig(cfg LocalRuntimeConfig, alias string) LocalAliasConfig {
 	return LocalAliasConfig{
-		Alias:       strings.TrimSpace(alias),
-		Provider:    NormalizeLocalProvider(cfg.Provider),
-		BaseURL:     LocalBaseURLForAlias(cfg, alias),
-		Model:       LocalModelForAlias(cfg, alias),
-		Timeout:     LocalTimeoutForAlias(cfg, alias),
-		Concurrency: cfg.ModelConcurrency,
-		NumCtx:      LocalOllamaNumCtxForAlias(alias),
+		Alias:        strings.TrimSpace(alias),
+		Provider:     NormalizeLocalProvider(cfg.Provider),
+		BaseURL:      LocalBaseURLForAlias(cfg, alias),
+		Model:        LocalModelForAlias(cfg, alias),
+		Timeout:      LocalTimeoutForAlias(cfg, alias),
+		QueueTimeout: LocalQueueTimeoutForAlias(alias),
+		QueuePolicy:  LocalQueuePolicyWait,
+		Concurrency:  cfg.ModelConcurrency,
+		NumCtx:       LocalOllamaNumCtxForAlias(alias),
 	}
 }
 
@@ -92,6 +107,23 @@ func LocalTimeoutForAlias(cfg LocalRuntimeConfig, alias string) time.Duration {
 		return LocalDefaultTimeout
 	}
 	return time.Duration(cfg.TimeoutSec) * time.Second
+}
+
+func LocalQueueTimeoutForAlias(alias string) time.Duration {
+	switch strings.ToLower(strings.TrimSpace(alias)) {
+	case RoleChat:
+		return LocalChatQueueTimeout
+	case RoleWorker:
+		return LocalWorkerQueueTimeout
+	case "chatworker":
+		return LocalChatWorkerQueueTimeout
+	case RoleWild:
+		return LocalWildQueueTimeout
+	case RoleHeavy:
+		return LocalHeavyQueueTimeout
+	default:
+		return LocalDefaultQueueTimeout
+	}
 }
 
 func LocalBaseURLForAlias(cfg LocalRuntimeConfig, alias string) string {

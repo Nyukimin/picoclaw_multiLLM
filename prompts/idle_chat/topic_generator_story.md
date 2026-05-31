@@ -16,5 +16,3 @@ category = story
 悪い方向:
 新しい桃太郎
 鬼がかわいそうな話
-
-interestingness_axis は必ず "視点反転" にする。

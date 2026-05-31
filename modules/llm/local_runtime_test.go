@@ -63,6 +63,21 @@ func TestLocalTimeoutForAliasUsesRoleSpecificTimeouts(t *testing.T) {
 	}
 }
 
+func TestLocalQueueTimeoutForAliasUsesRoleSpecificTimeouts(t *testing.T) {
+	cases := map[string]time.Duration{
+		"Chat":       time.Second,
+		"ChatWorker": 2 * time.Second,
+		"Wild":       2 * time.Second,
+		"Heavy":      5 * time.Second,
+		"Worker":     5 * time.Second,
+	}
+	for alias, want := range cases {
+		if got := LocalQueueTimeoutForAlias(alias); got != want {
+			t.Fatalf("%s queue timeout = %s, want %s", alias, got, want)
+		}
+	}
+}
+
 func TestBuildLocalAliasConfigNormalizesProviderAndConcurrency(t *testing.T) {
 	got := BuildLocalAliasConfig(LocalRuntimeConfig{
 		Provider:         "ollama",
@@ -72,6 +87,9 @@ func TestBuildLocalAliasConfigNormalizesProviderAndConcurrency(t *testing.T) {
 	}, "Chat")
 
 	if got.Provider != LocalProviderOllama || got.Model != "chat-model" || got.Concurrency != 2 || got.NumCtx != LocalOllamaDefaultNumCtx {
+		t.Fatalf("unexpected alias config: %+v", got)
+	}
+	if got.QueueTimeout != LocalChatQueueTimeout || got.QueuePolicy != LocalQueuePolicyWait {
 		t.Fatalf("unexpected alias config: %+v", got)
 	}
 }

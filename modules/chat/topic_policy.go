@@ -78,9 +78,9 @@ type RecentTopic struct {
 
 type TopicCandidate struct {
 	Topic               string `json:"topic"`
-	InterestingnessAxis string `json:"interestingness_axis"`
-	OpeningHook         string `json:"opening_hook"`
-	Avoid               string `json:"avoid"`
+	InterestingnessAxis string `json:"interestingness_axis,omitempty"`
+	OpeningHook         string `json:"opening_hook,omitempty"`
+	Avoid               string `json:"avoid,omitempty"`
 	Rationale           string `json:"rationale,omitempty"`
 }
 

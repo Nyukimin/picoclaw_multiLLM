@@ -6,7 +6,25 @@ import (
 )
 
 type topicCandidatesEnvelope struct {
-	Candidates []TopicCandidate `json:"candidates"`
+	Candidates []topicCandidateJSON `json:"candidates"`
+}
+
+type topicCandidateJSON struct {
+	TopicCandidate
+}
+
+func (c *topicCandidateJSON) UnmarshalJSON(data []byte) error {
+	var topic string
+	if err := json.Unmarshal(data, &topic); err == nil {
+		c.Topic = topic
+		return nil
+	}
+	var obj TopicCandidate
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	c.TopicCandidate = obj
+	return nil
 }
 
 func ParseTopicCandidates(raw string) ([]TopicCandidate, error) {
@@ -21,7 +39,11 @@ func ParseTopicCandidates(raw string) ([]TopicCandidate, error) {
 	if len(env.Candidates) == 0 {
 		return nil, ErrTopicGenerationNoCandidates
 	}
-	return env.Candidates, nil
+	out := make([]TopicCandidate, 0, len(env.Candidates))
+	for _, candidate := range env.Candidates {
+		out = append(out, candidate.TopicCandidate)
+	}
+	return out, nil
 }
 
 func ParseTopicJudgeResult(raw string) (TopicJudgeResult, error) {
