@@ -10,6 +10,7 @@ import (
 	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
 	infrahealth "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/health"
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
 )
 
 type healthChecker interface {
@@ -93,7 +94,7 @@ func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
 			return checks
 		}
 		seen[key] = struct{}{}
-		timeout := localLLMTimeoutForAlias(cfg, role)
+		timeout := modulellm.LocalTimeoutForAlias(localRuntimeConfigFromAppConfig(cfg), role)
 		return append(checks, infrahealth.NewOpenAICompatibleChatCheck(role, baseURL, model, cfg.LocalLLM.APIKey, timeout))
 	}
 
@@ -101,7 +102,7 @@ func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
 	checks = add(checks, "Chat", cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.ChatModel)
 	checks = add(checks, "Worker", cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.WorkerModel)
 	if strings.TrimSpace(cfg.LocalLLM.HeavyBaseURL) != "" {
-		checks = add(checks, "Heavy", cfg.LocalLLM.HeavyBaseURL, localLLMModelForAlias(cfg, "heavy"))
+		checks = add(checks, "Heavy", cfg.LocalLLM.HeavyBaseURL, modulellm.LocalModelForAlias(localRuntimeConfigFromAppConfig(cfg), "heavy"))
 	}
 	if cfg.LocalLLMWarmupEnabled() {
 		checks = add(checks, "Wild", cfg.LocalLLM.WildBaseURL, cfg.LocalLLM.WildModel)

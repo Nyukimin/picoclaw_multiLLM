@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
-	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
@@ -23,23 +21,21 @@ type primaryLLMProviders struct {
 
 const (
 	localLLMDefaultTimeout = modulellm.LocalDefaultTimeout
-	localLLMChatTimeout    = modulellm.LocalChatTimeout
-	localLLMWildTimeout    = modulellm.LocalWildTimeout
-	localLLMHeavyTimeout   = modulellm.LocalHeavyTimeout
 )
 
 func buildPrimaryLLMProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) primaryLLMProviders {
 	plan := modulellm.BuildPrimaryProviderPlan(primaryRuntimeConfigFromAppConfig(cfg))
 	if plan.Mode == modulellm.PrimaryModeLocal {
 		global := make(chan struct{}, cfg.LocalLLM.GlobalConcurrency)
-		chatTimeout := localLLMTimeoutForAlias(cfg, "Chat")
-		workerTimeout := localLLMTimeoutForAlias(cfg, "Worker")
-		heavyTimeout := localLLMTimeoutForAlias(cfg, "Heavy")
-		wildTimeout := localLLMTimeoutForAlias(cfg, "Wild")
+		localCfg := localRuntimeConfigFromAppConfig(cfg)
+		chatTimeout := modulellm.LocalTimeoutForAlias(localCfg, "Chat")
+		workerTimeout := modulellm.LocalTimeoutForAlias(localCfg, "Worker")
+		heavyTimeout := modulellm.LocalTimeoutForAlias(localCfg, "Heavy")
+		wildTimeout := modulellm.LocalTimeoutForAlias(localCfg, "Wild")
 		chat := buildLocalAliasProvider(cfg, "Chat", cfg.LocalLLM.ChatModel, chatTimeout, global)
 		worker := buildLocalAliasProvider(cfg, "Worker", cfg.LocalLLM.WorkerModel, workerTimeout, global)
 		chatWorker := buildLocalAliasProvider(cfg, "ChatWorker", cfg.LocalLLM.ChatWorkerModel, workerTimeout, global)
-		heavy := buildLocalAliasProvider(cfg, "Heavy", localLLMModelForAlias(cfg, "Heavy"), heavyTimeout, global)
+		heavy := buildLocalAliasProvider(cfg, "Heavy", modulellm.LocalModelForAlias(localCfg, "Heavy"), heavyTimeout, global)
 		wild := buildLocalAliasProvider(cfg, "Wild", cfg.LocalLLM.WildModel, wildTimeout, global)
 		if cfg.LocalLLMWarmupEnabled() {
 			go warmPrimaryLLMProviders(context.Background(), map[string]llm.LLMProvider{
@@ -83,71 +79,6 @@ func wrapPrimaryLLMProvider(cfg *config.Config, name string, provider llm.LLMPro
 	}
 	budgeted := llmmiddleware.NewContextBudgetProvider(provider, name, policy, contextBudgetRecorder)
 	return llmmiddleware.NewRawLogProvider(llmmiddleware.NewDateTimeProvider(budgeted), name)
-}
-
-func localLLMTimeoutForAlias(cfg *config.Config, alias string) time.Duration {
-	if cfg == nil {
-		return localLLMDefaultTimeout
-	}
-	switch strings.ToLower(strings.TrimSpace(alias)) {
-	case "chat":
-		return localLLMChatTimeout
-	case "wild":
-		return localLLMWildTimeout
-	case "heavy":
-		return localLLMHeavyTimeout
-	case "worker", "chatworker":
-		if cfg.LocalLLM.TimeoutSec <= 0 {
-			return localLLMDefaultTimeout
-		}
-		return time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
-	default:
-		if cfg.LocalLLM.TimeoutSec <= 0 {
-			return localLLMDefaultTimeout
-		}
-		return time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
-	}
-}
-
-func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
-	if cfg == nil {
-		return ""
-	}
-	switch strings.ToLower(strings.TrimSpace(alias)) {
-	case "chat":
-		return firstNonEmpty(cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.BaseURL)
-	case "worker", "chatworker":
-		return firstNonEmpty(cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.BaseURL)
-	case "heavy":
-		return firstNonEmpty(cfg.LocalLLM.HeavyBaseURL, cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.BaseURL)
-	case "wild":
-		return firstNonEmpty(cfg.LocalLLM.WildBaseURL, cfg.LocalLLM.BaseURL)
-	default:
-		return firstNonEmpty(cfg.LocalLLM.BaseURL)
-	}
-}
-
-func localLLMModelForAlias(cfg *config.Config, alias string) string {
-	if cfg == nil {
-		return ""
-	}
-	switch strings.ToLower(strings.TrimSpace(alias)) {
-	case "chat":
-		return cfg.LocalLLM.ChatModel
-	case "worker":
-		return cfg.LocalLLM.WorkerModel
-	case "chatworker":
-		return cfg.LocalLLM.ChatWorkerModel
-	case "heavy":
-		if strings.TrimSpace(cfg.LocalLLM.HeavyBaseURL) == "" && strings.TrimSpace(cfg.LocalLLM.WorkerBaseURL) != "" {
-			return cfg.LocalLLM.WorkerModel
-		}
-		return cfg.LocalLLM.HeavyModel
-	case "wild":
-		return cfg.LocalLLM.WildModel
-	default:
-		return ""
-	}
 }
 
 func localRuntimeConfigFromAppConfig(cfg *config.Config) modulellm.LocalRuntimeConfig {

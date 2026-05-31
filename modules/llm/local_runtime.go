@@ -73,6 +73,16 @@ func LocalTimeoutForAlias(cfg LocalRuntimeConfig, alias string) time.Duration {
 	switch strings.ToLower(strings.TrimSpace(alias)) {
 	case RoleChat:
 		return LocalChatTimeout
+	case RoleWorker:
+		if cfg.TimeoutSec <= 0 {
+			return LocalDefaultTimeout
+		}
+		return time.Duration(cfg.TimeoutSec) * time.Second
+	case "chatworker":
+		if cfg.TimeoutSec <= 0 {
+			return LocalDefaultTimeout
+		}
+		return time.Duration(cfg.TimeoutSec) * time.Second
 	case RoleWild:
 		return LocalWildTimeout
 	case RoleHeavy:
@@ -90,6 +100,8 @@ func LocalBaseURLForAlias(cfg LocalRuntimeConfig, alias string) string {
 		return FirstNonEmpty(cfg.ChatBaseURL, cfg.BaseURL)
 	case RoleWorker:
 		return FirstNonEmpty(cfg.WorkerBaseURL, cfg.BaseURL)
+	case "chatworker":
+		return FirstNonEmpty(cfg.WorkerBaseURL, cfg.BaseURL)
 	case RoleHeavy:
 		return FirstNonEmpty(cfg.HeavyBaseURL, cfg.WorkerBaseURL, cfg.BaseURL)
 	case RoleWild:
@@ -104,6 +116,8 @@ func LocalModelForAlias(cfg LocalRuntimeConfig, alias string) string {
 	case RoleChat:
 		return cfg.ChatModel
 	case RoleWorker:
+		return cfg.WorkerModel
+	case "chatworker":
 		return cfg.WorkerModel
 	case RoleHeavy:
 		if strings.TrimSpace(cfg.HeavyBaseURL) == "" && strings.TrimSpace(cfg.WorkerBaseURL) != "" {

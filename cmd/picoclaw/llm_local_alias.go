@@ -13,12 +13,13 @@ import (
 )
 
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
+	localCfg := localRuntimeConfigFromAppConfig(cfg)
 	aliasConfig := modulellm.LocalAliasConfig{
 		Alias:       strings.TrimSpace(alias),
 		Provider:    modulellm.NormalizeLocalProvider(localLLMProviderFromConfig(cfg)),
-		BaseURL:     localLLMBaseURLForAlias(cfg, alias),
-		Model:       localLLMModelForAlias(cfg, alias),
-		Timeout:     localLLMTimeoutForAlias(cfg, alias),
+		BaseURL:     modulellm.LocalBaseURLForAlias(localCfg, alias),
+		Model:       modulellm.LocalModelForAlias(localCfg, alias),
+		Timeout:     modulellm.LocalTimeoutForAlias(localCfg, alias),
 		Concurrency: localLLMConcurrencyFromConfig(cfg),
 		NumCtx:      modulellm.LocalOllamaNumCtxForAlias(alias),
 	}

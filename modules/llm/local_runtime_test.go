@@ -15,10 +15,11 @@ func TestLocalBaseURLForAliasUsesRoleOverride(t *testing.T) {
 	}
 
 	cases := map[string]string{
-		"Chat":   "http://192.168.1.31:8081",
-		"Worker": "http://192.168.1.31:8082",
-		"Heavy":  "http://192.168.1.31:8083",
-		"Wild":   "http://192.168.1.31:8084",
+		"Chat":       "http://192.168.1.31:8081",
+		"Worker":     "http://192.168.1.31:8082",
+		"ChatWorker": "http://192.168.1.31:8082",
+		"Heavy":      "http://192.168.1.31:8083",
+		"Wild":       "http://192.168.1.31:8084",
 	}
 	for alias, want := range cases {
 		if got := LocalBaseURLForAlias(cfg, alias); got != want {
@@ -41,15 +42,19 @@ func TestLocalHeavyFallsBackToWorkerBaseAndModel(t *testing.T) {
 	if got := LocalModelForAlias(cfg, "Heavy"); got != "Worker" {
 		t.Fatalf("heavy model = %s", got)
 	}
+	if got := LocalModelForAlias(cfg, "ChatWorker"); got != "Worker" {
+		t.Fatalf("chatworker model = %s", got)
+	}
 }
 
 func TestLocalTimeoutForAliasUsesRoleSpecificTimeouts(t *testing.T) {
 	cfg := LocalRuntimeConfig{TimeoutSec: 120}
 	cases := map[string]time.Duration{
-		"Chat":   10 * time.Second,
-		"Wild":   15 * time.Second,
-		"Heavy":  30 * time.Second,
-		"Worker": 120 * time.Second,
+		"Chat":       10 * time.Second,
+		"ChatWorker": 120 * time.Second,
+		"Wild":       15 * time.Second,
+		"Heavy":      30 * time.Second,
+		"Worker":     120 * time.Second,
 	}
 	for alias, want := range cases {
 		if got := LocalTimeoutForAlias(cfg, alias); got != want {

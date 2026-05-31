@@ -13,6 +13,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
 )
 
 // Version 情報（go build -ldflags で注入）
@@ -105,13 +106,13 @@ func cmdRun() {
 	debugSystemOpts.LocalLLM = viewer.LocalLLMRuntimeConfig{
 		Enabled:           cfg.LocalLLM.Enabled,
 		Provider:          cfg.LocalLLM.Provider,
-		ChatBaseURL:       localLLMBaseURLForAlias(cfg, "chat"),
-		WorkerBaseURL:     localLLMBaseURLForAlias(cfg, "worker"),
-		HeavyBaseURL:      localLLMBaseURLForAlias(cfg, "heavy"),
-		WildBaseURL:       localLLMBaseURLForAlias(cfg, "wild"),
+		ChatBaseURL:       modulellm.LocalBaseURLForAlias(localRuntimeConfigFromAppConfig(cfg), "chat"),
+		WorkerBaseURL:     modulellm.LocalBaseURLForAlias(localRuntimeConfigFromAppConfig(cfg), "worker"),
+		HeavyBaseURL:      modulellm.LocalBaseURLForAlias(localRuntimeConfigFromAppConfig(cfg), "heavy"),
+		WildBaseURL:       modulellm.LocalBaseURLForAlias(localRuntimeConfigFromAppConfig(cfg), "wild"),
 		ChatModel:         cfg.LocalLLM.ChatModel,
 		WorkerModel:       cfg.LocalLLM.WorkerModel,
-		HeavyModel:        localLLMModelForAlias(cfg, "heavy"),
+		HeavyModel:        modulellm.LocalModelForAlias(localRuntimeConfigFromAppConfig(cfg), "heavy"),
 		WildModel:         cfg.LocalLLM.WildModel,
 		TimeoutSec:        cfg.LocalLLM.TimeoutSec,
 		GlobalConcurrency: cfg.LocalLLM.GlobalConcurrency,
