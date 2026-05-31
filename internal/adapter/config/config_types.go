@@ -702,6 +702,7 @@ type TTSConfig struct {
 	TLSSkipVerify    bool                `yaml:"tls_skip_verify"`
 	TimeoutMS        int                 `yaml:"timeout_ms"`
 	VoiceID          string              `yaml:"voice_id"`
+	Speed            float64             `yaml:"speed"`
 	ProviderParams   map[string]any      `yaml:"provider_params"`
 	ProviderPriority []string            `yaml:"provider_priority"` // e.g. irodori
 	PlaybackCommands []TTSCommandConfig  `yaml:"playback_commands"`

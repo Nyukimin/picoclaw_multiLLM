@@ -17,6 +17,7 @@ import (
 type RenCrowTTSBridgeConfig struct {
 	HTTPBaseURL        string
 	VoiceID            string
+	Speed              float64
 	TLSSkipVerify      bool
 	RequestTimeout     time.Duration
 	ProviderParams     map[string]any
@@ -108,6 +109,7 @@ func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID st
 		payload, err := moduletts.BuildSynthesisPayload(moduletts.SynthesisPayloadInput{
 			Text:           speechText,
 			DefaultVoiceID: voiceID,
+			Speed:          b.cfg.Speed,
 			Emotion:        emotion,
 			ProviderParams: b.cfg.ProviderParams,
 		})

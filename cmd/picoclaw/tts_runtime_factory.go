@@ -34,7 +34,7 @@ func buildPrimaryTTSProvider(cfg *config.Config) (ttsProviderSelection, bool) {
 	if !ok {
 		return ttsProviderSelection{}, false
 	}
-	sel, ok := buildTTSProviderFromPlan(plan)
+	sel, ok := buildTTSProviderFromPlan(plan, cfg.TTS.Speed)
 	if !ok {
 		return ttsProviderSelection{}, false
 	}
@@ -56,7 +56,7 @@ func buildTTSProviders(cfg *config.Config, includeUnavailable bool) []ttsinfra.P
 	plans := moduletts.BuildRuntimeProviderPlans(ttsRuntimeConfigFromAppConfig(cfg), includeUnavailable)
 	providers := make([]ttsinfra.Provider, 0, len(plans))
 	for _, plan := range plans {
-		sel, ok := buildTTSProviderFromPlan(plan)
+		sel, ok := buildTTSProviderFromPlan(plan, cfg.TTS.Speed)
 		if ok {
 			providers = append(providers, sel.Provider)
 		}
@@ -69,10 +69,10 @@ func buildTTSProviderByName(cfg *config.Config, name string, includeUnavailable 
 	if !ok {
 		return ttsProviderSelection{}, false
 	}
-	return buildTTSProviderFromPlan(plan)
+	return buildTTSProviderFromPlan(plan, cfg.TTS.Speed)
 }
 
-func buildTTSProviderFromPlan(plan moduletts.RuntimeProviderPlan) (ttsProviderSelection, bool) {
+func buildTTSProviderFromPlan(plan moduletts.RuntimeProviderPlan, speed float64) (ttsProviderSelection, bool) {
 	if !plan.Available {
 		return ttsProviderSelection{
 			Provider: ttsinfra.NewUnavailableProvider(plan.Name, plan.Unavailable),
@@ -81,7 +81,7 @@ func buildTTSProviderFromPlan(plan moduletts.RuntimeProviderPlan) (ttsProviderSe
 	}
 	switch plan.Name {
 	case moduletts.RuntimeProviderIrodori:
-		return buildIrodoriTTSProviderFromPlan(plan.Irodori)
+		return buildIrodoriTTSProviderFromPlan(plan.Irodori, speed)
 	}
 	return ttsProviderSelection{}, false
 }

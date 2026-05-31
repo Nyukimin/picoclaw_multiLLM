@@ -24,6 +24,7 @@ var AllowedProviderParamKeys = map[string]struct{}{
 type SynthesisPayloadInput struct {
 	Text           string
 	DefaultVoiceID string
+	Speed          float64
 	Emotion        *EmotionState
 	ProviderParams map[string]any
 }
@@ -33,7 +34,7 @@ func BuildSynthesisPayload(input SynthesisPayloadInput) (map[string]any, error) 
 		"text":     strings.TrimSpace(input.Text),
 		"voice_id": FallbackVoiceID(input.DefaultVoiceID, input.Emotion),
 	}
-	if speed, ok := SpeechSpeed(input.Emotion); ok {
+	if speed, ok := SpeechSpeed(input.Speed, input.Emotion); ok {
 		if speed <= 0 {
 			return nil, fmt.Errorf("speed must be > 0")
 		}
@@ -66,7 +67,10 @@ func FallbackVoiceID(defaultVoiceID string, emotion *EmotionState) string {
 	return defaultVoiceID
 }
 
-func SpeechSpeed(emotion *EmotionState) (float64, bool) {
+func SpeechSpeed(speed float64, emotion *EmotionState) (float64, bool) {
+	if speed > 0 {
+		return speed, true
+	}
 	if emotion == nil || emotion.Prosody.Speed == 0 {
 		return 0, false
 	}

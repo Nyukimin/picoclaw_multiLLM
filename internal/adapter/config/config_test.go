@@ -1854,6 +1854,9 @@ tts:
 	if cfg.TTS.TimeoutMS != 15000 {
 		t.Fatalf("unexpected tts timeout: %d", cfg.TTS.TimeoutMS)
 	}
+	if cfg.TTS.Speed != 1.2 {
+		t.Fatalf("unexpected tts speed: %v", cfg.TTS.Speed)
+	}
 	if !cfg.TTS.TLSSkipVerify {
 		t.Fatal("expected tts tls_skip_verify=true")
 	}
@@ -1968,6 +1971,9 @@ tts:
 	}
 	if !cfg.TTS.TLSSkipVerify {
 		t.Fatal("expected tls_skip_verify to auto-enable for local https")
+	}
+	if cfg.TTS.Speed != 1.2 {
+		t.Fatalf("unexpected tts speed: %v", cfg.TTS.Speed)
 	}
 }
 

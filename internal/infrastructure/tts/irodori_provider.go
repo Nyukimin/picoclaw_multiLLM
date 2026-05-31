@@ -19,6 +19,7 @@ type IrodoriConfig struct {
 	EndpointPath          string
 	VoiceID               string
 	VoiceName             string
+	Speed                 float64
 	ReferenceAudio        string
 	ReferenceAudioURL     string
 	Timeout               time.Duration
@@ -83,7 +84,7 @@ func (p *IrodoriProvider) Synthesize(ctx context.Context, in SynthesisInput) (Sy
 	voiceID := resolveIrodoriVoiceID(moduletts.ChooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID))
 	voice := resolveIrodoriVoiceName(moduletts.ChooseNonEmpty(in.VoiceProfile.VoiceID, p.cfg.VoiceName, p.voiceID))
 	style := resolveIrodoriStyle(in.Emotion)
-	payload := irodoriSynthesisPayload(voice, style, text)
+	payload := irodoriSynthesisPayload(voice, style, text, p.cfg.Speed)
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return SynthesisOutput{}, fmt.Errorf("marshal irodori request: %w", err)

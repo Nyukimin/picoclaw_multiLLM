@@ -5,8 +5,8 @@ import (
 	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
-func buildIrodoriTTSProviderFromPlan(plan moduletts.IrodoriProviderPlan) (ttsProviderSelection, bool) {
-	provider := ttsinfra.NewIrodoriProvider(irodoriConfigFromPlan(plan))
+func buildIrodoriTTSProviderFromPlan(plan moduletts.IrodoriProviderPlan, speed float64) (ttsProviderSelection, bool) {
+	provider := ttsinfra.NewIrodoriProvider(irodoriConfigFromPlan(plan, speed))
 	return ttsProviderSelection{
 		Provider: provider,
 		Name:     moduletts.RuntimeProviderIrodori,
@@ -15,12 +15,13 @@ func buildIrodoriTTSProviderFromPlan(plan moduletts.IrodoriProviderPlan) (ttsPro
 	}, true
 }
 
-func irodoriConfigFromPlan(plan moduletts.IrodoriProviderPlan) ttsinfra.IrodoriConfig {
+func irodoriConfigFromPlan(plan moduletts.IrodoriProviderPlan, speed float64) ttsinfra.IrodoriConfig {
 	return ttsinfra.IrodoriConfig{
 		BaseURL:               plan.BaseURL,
 		EndpointPath:          plan.EndpointPath,
 		VoiceID:               plan.VoiceID,
 		VoiceName:             plan.VoiceName,
+		Speed:                 speed,
 		ReferenceAudio:        plan.ReferenceAudio,
 		ReferenceAudioURL:     plan.ReferenceAudioURL,
 		Timeout:               plan.Timeout,

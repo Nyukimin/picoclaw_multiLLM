@@ -21,14 +21,15 @@ func TestIrodoriProvider_SynthesizeBinaryWAV(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/tts":
 			var payload struct {
-				Voice string `json:"voice"`
-				Style string `json:"style"`
-				Text  string `json:"text"`
+				Voice string  `json:"voice"`
+				Style string  `json:"style"`
+				Text  string  `json:"text"`
+				Speed float64 `json:"speed"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload.Voice != "Mio" || payload.Style != "neutral" || payload.Text != "hello。" {
+			if payload.Voice != "Mio" || payload.Style != "neutral" || payload.Text != "hello。" || payload.Speed != 1.2 {
 				t.Fatalf("unexpected irodori payload: %+v", payload)
 			}
 			body := `{"audio_url":"http://irodori.local/audio/sample.wav"}`
@@ -140,13 +141,14 @@ func TestIrodoriProvider_UsesConfiguredEndpointPathAndStyle(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		var payload struct {
-			Style string `json:"style"`
+			Style string  `json:"style"`
+			Speed float64 `json:"speed"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.Style != "urgent" {
-			t.Fatalf("expected urgent style, got %q", payload.Style)
+		if payload.Style != "urgent" || payload.Speed != 1.2 {
+			t.Fatalf("expected urgent style and default speed, got %+v", payload)
 		}
 		body := `{"audio":{"url":"/audio/out.wav"}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(body)), Header: make(http.Header)}, nil

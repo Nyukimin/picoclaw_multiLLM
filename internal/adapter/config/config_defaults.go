@@ -591,6 +591,9 @@ func (c *Config) setDefaults() {
 	if c.TTS.VoiceID == "" {
 		c.TTS.VoiceID = "mio"
 	}
+	if c.TTS.Speed <= 0 {
+		c.TTS.Speed = 1.2
+	}
 	if c.TTS.Irodori.VoiceID == "" {
 		c.TTS.Irodori.VoiceID = c.TTS.VoiceID
 	}

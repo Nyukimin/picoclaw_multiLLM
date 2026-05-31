@@ -45,12 +45,14 @@ type IrodoriSynthesisPayloadInput struct {
 	Voice string
 	Style string
 	Text  string
+	Speed float64
 }
 
 type IrodoriSynthesisPayload struct {
-	Voice string `json:"voice"`
-	Style string `json:"style"`
-	Text  string `json:"text"`
+	Voice string  `json:"voice"`
+	Style string  `json:"style"`
+	Text  string  `json:"text"`
+	Speed float64 `json:"speed,omitempty"`
 }
 
 type IrodoriUploadedAudioFileData struct {
@@ -184,11 +186,15 @@ func ResolveIrodoriStyle(emotion IrodoriStyleEmotion) string {
 }
 
 func BuildIrodoriSynthesisPayload(input IrodoriSynthesisPayloadInput) IrodoriSynthesisPayload {
-	return IrodoriSynthesisPayload{
+	payload := IrodoriSynthesisPayload{
 		Voice: strings.TrimSpace(input.Voice),
 		Style: strings.TrimSpace(input.Style),
 		Text:  EnsureTTSPunctuation(input.Text),
 	}
+	if input.Speed > 0 {
+		payload.Speed = input.Speed
+	}
+	return payload
 }
 
 func BuildIrodoriUploadedAudioFileData(referenceAudio string) any {

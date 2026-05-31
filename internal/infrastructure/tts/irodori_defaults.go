@@ -4,6 +4,9 @@ import moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 
 func withIrodoriDefaults(cfg IrodoriConfig) IrodoriConfig {
 	cfg.EndpointPath = moduletts.IrodoriEndpointPath(cfg.EndpointPath)
+	if cfg.Speed <= 0 {
+		cfg.Speed = 1.2
+	}
 	applyIrodoriRunGenerationConfig(&cfg, moduletts.ApplyIrodoriRunGenerationDefaults(irodoriRunGenerationConfigFromConfig(cfg)))
 	return cfg
 }
@@ -27,11 +30,12 @@ func resolveIrodoriStyle(emotion EmotionState) string {
 	})
 }
 
-func irodoriSynthesisPayload(voice, style, text string) moduletts.IrodoriSynthesisPayload {
+func irodoriSynthesisPayload(voice, style, text string, speed float64) moduletts.IrodoriSynthesisPayload {
 	return moduletts.BuildIrodoriSynthesisPayload(moduletts.IrodoriSynthesisPayloadInput{
 		Voice: voice,
 		Style: style,
 		Text:  text,
+		Speed: speed,
 	})
 }
 

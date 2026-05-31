@@ -110,6 +110,7 @@ func buildTTSClientBridge(
 	bridge := ttsinfra.NewRenCrowTTSBridge(ttsinfra.RenCrowTTSBridgeConfig{
 		HTTPBaseURL:        cfg.TTS.HTTPBaseURL,
 		VoiceID:            cfg.TTS.VoiceID,
+		Speed:              cfg.TTS.Speed,
 		TLSSkipVerify:      cfg.TTS.TLSSkipVerify,
 		RequestTimeout:     time.Duration(cfg.TTS.TimeoutMS) * time.Millisecond,
 		ProviderParams:     cfg.TTS.ProviderParams,

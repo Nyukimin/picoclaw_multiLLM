@@ -6,6 +6,7 @@ func TestBuildSynthesisPayloadUsesEmotionVoiceAndProsody(t *testing.T) {
 	got, err := BuildSynthesisPayload(SynthesisPayloadInput{
 		Text:           " hello ",
 		DefaultVoiceID: "default",
+		Speed:          1.2,
 		Emotion: &EmotionState{
 			ReasonTrace: ReasonTrace{VoiceProfile: "lumina_male"},
 			Prosody:     Prosody{Speed: 1.1, Pitch: -0.2},
@@ -14,7 +15,7 @@ func TestBuildSynthesisPayloadUsesEmotionVoiceAndProsody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSynthesisPayload() error = %v", err)
 	}
-	if got["text"] != "hello" || got["voice_id"] != "male_01" || got["speed"] != 1.1 || got["pitch"] != -0.2 {
+	if got["text"] != "hello" || got["voice_id"] != "male_01" || got["speed"] != 1.2 || got["pitch"] != -0.2 {
 		t.Fatalf("BuildSynthesisPayload() = %#v", got)
 	}
 }
@@ -27,6 +28,21 @@ func TestBuildSynthesisPayloadRejectsInvalidSpeed(t *testing.T) {
 	})
 	if err == nil || err.Error() != "speed must be > 0" {
 		t.Fatalf("BuildSynthesisPayload() error = %v", err)
+	}
+}
+
+func TestBuildSynthesisPayloadUsesExplicitSpeedOverride(t *testing.T) {
+	got, err := BuildSynthesisPayload(SynthesisPayloadInput{
+		Text:           "hello",
+		DefaultVoiceID: "default",
+		Speed:          1.2,
+		Emotion:        &EmotionState{Prosody: Prosody{Speed: 0.6}},
+	})
+	if err != nil {
+		t.Fatalf("BuildSynthesisPayload() error = %v", err)
+	}
+	if got["speed"] != 1.2 {
+		t.Fatalf("BuildSynthesisPayload() = %#v", got)
 	}
 }
 
