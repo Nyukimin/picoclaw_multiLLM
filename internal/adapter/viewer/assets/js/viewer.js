@@ -413,7 +413,7 @@ let idleLiveSnapshotKey = '';
 // Diagnostic render trace only. Never drive transcript, pending TTS, ACK, or session progression from this log.
 const idleLiveRenderedLog = [];
 if (typeof window !== 'undefined') window.__idleLiveRenderedLog = idleLiveRenderedLog;
-const IDLE_MESSAGE_FALLBACK_MS = 15000;
+const IDLE_MESSAGE_FALLBACK_MS = 60000;
 
 function loadViewerClientID() {
   const tabKey = 'rencrow.viewer_tab_client_id';

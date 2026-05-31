@@ -487,7 +487,7 @@ test('idlechat pending message shows traceable tts error instead of fallback tex
   assert.equal(idleLiveLog.children.length, 1);
   assert.equal(idleLiveLog.children[0]._mc.textContent, '');
   assert.equal(idleLiveLog.children[0]._mc.innerHTML.includes('編集前（テストモード）'), false);
-  assert.equal(timers.at(-1).ms, 15000);
+  assert.equal(timers.at(-1).ms, 60000);
 
   timers.at(-1)();
 
@@ -865,7 +865,7 @@ test('live mode pending tts timeout renders traceable error instead of full resp
   });
 
   assert.equal(chat.children.length, 0);
-  assert.equal(timers.at(-1).ms, 15000);
+  assert.equal(timers.at(-1).ms, 60000);
 
   timers.at(-1)();
 

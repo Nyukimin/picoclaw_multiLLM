@@ -90,9 +90,9 @@ Viewer のスピーカボタンが OFF の場合、音声を再生しないた�
 
 TTS は provider の初回ロード、GPU / CPU 負荷、queue 待ち、長文分割、ネットワーク、browser audio playback により 5 秒を超えることがある。5 秒以内に必ず返ることを前提にしてはいけない。
 
-発話単位の UI 待ち上限は 15 秒を基準とする。15 秒以内に TTS audio chunk が到着し、再生可能な場合は、スピーカ ON では browser audio playback の再生完了に同期して次へ進む。
+発話単位の UI 待ち上限は 60 秒を基準とする。60 秒以内に TTS audio chunk が到着し、再生可能な場合は、スピーカ ON では browser audio playback の再生完了に同期して次へ進む。
 
-15 秒を超えた場合、その発話の音声は `tts_error=true` / `tts_error_kind=timeout` として扱う。表示本文がある場合は `display_only` として描画を完了してよいが、音声・口パク・TTS provider 成功として扱ってはいけない。
+60 秒を超えた場合、その発話の音声は `tts_error=true` / `tts_error_kind=timeout` として扱う。表示本文がある場合は `display_only` として描画を完了してよいが、音声・口パク・TTS provider 成功として扱ってはいけない。
 
 timeout 後に遅れて到着した audio chunk は、session_id / utterance_id / chunk_index で古い発話のものとして識別し、現在の発話や次 session の音声として再生してはいけない。
 
@@ -100,7 +100,7 @@ timeout 後に遅れて到着した audio chunk は、session_id / utterance_id 
 
 session drain は「全音声を必ず待ち切る処理」ではなく、session 境界を乱さないための短い後始末時間である。
 
-session 終了時に未完了 TTS がある場合、drain の UI 待ち上限は 15 秒を基準とする。15 秒を超えて残る音声は `session_audio_timeout` として閉じ、次 session へ進む。
+session 終了時に未完了 TTS がある場合、drain の UI 待ち上限は 60 秒を基準とする。60 秒を超えて残る音声は `session_audio_timeout` として閉じ、次 session へ進む。
 
 drain timeout 時も、Viewer 表示本文は区切りのよい状態まで描画してよい。ただし、音声成功扱い、口パク成功扱い、別 session への音声持ち越しは行わない。
 

@@ -10,8 +10,8 @@
 
 ### 2.1 実装対象
 
-- IdleChat の発話単位 TTS 待ち timeout を 5 秒から 15 秒へ変更する。
-- IdleChat の session drain timeout を 45 秒から 15 秒へ変更する。
+- IdleChat の発話単位 TTS 待ち timeout を 5 秒から 60 秒へ変更する。
+- IdleChat の session drain timeout を 45 秒から 60 秒へ変更する。
 - timeout 時に `tts_error=true` だけでなく `tts_error_kind=timeout` を記録できるようにする。
 - session drain timeout 時に `session_audio_timeout` を記録できるようにする。
 - timeout 後に遅れて届いた古い TTS audio を、現在 session / utterance / chunk の音声として再生しない。
@@ -22,7 +22,7 @@
 
 - TTS provider 自体の高速化。
 - Irodori / SBV2 / RenCrow_TTS server の推論実装変更。
-- TTS HTTP `/synthesis` の低レベル timeout 30 秒、WS chunk 待ち 15 秒、WS session 完了待ち 20 秒の契約変更。
+- TTS HTTP `/synthesis` の低レベル timeout 30 秒、WS chunk 待ち 60 秒、WS session 完了待ち 20 秒の契約変更。
 - STT の streaming / final wait timeout 変更。
 - Viewer UI の大規模再設計。
 - IdleChat の story / forecast 生成品質改善。
@@ -48,8 +48,8 @@
 
 | 項目 | 現行 | 本仕様 |
 | --- | --- | --- |
-| 発話単位 TTS 待ち | `idleChatTTSWaitTimeout = 5s` | `15s` |
-| session drain | `idleChatTTSSessionDrainTimeout = 45s` | `15s` |
+| 発話単位 TTS 待ち | `idleChatTTSWaitTimeout = 5s` | `60s` |
+| session drain | `idleChatTTSSessionDrainTimeout = 45s` | `60s` |
 | 発話 timeout 記録 | log に `tts_error=true` | `tts_error=true` + `tts_error_kind=timeout` |
 | drain timeout 記録 | log に `tts_error=true` | `session_audio_timeout` |
 | timeout 後の表示 | 実装依存 | `display_only` として本文表示は完了可 |
@@ -59,9 +59,9 @@
 
 | ファイル | 責務 |
 | --- | --- |
-| `internal/application/idlechat/orchestrator.go` | IdleChat timeout 定数。発話単位 / drain の既定値を 15 秒へ変更 |
+| `internal/application/idlechat/orchestrator.go` | IdleChat timeout 定数。発話単位 / drain の既定値を 60 秒へ変更 |
 | `internal/application/idlechat/orchestrator_monitor.go` | `waitForTTSDone` / `waitForTTSSessionDrain` の timeout log / 状態記録 |
-| `internal/application/idlechat/orchestrator_tts_wait_test.go` | 発話 timeout / drain timeout / 15 秒既定値の contract test |
+| `internal/application/idlechat/orchestrator_tts_wait_test.go` | 発話 timeout / drain timeout / 60 秒既定値の contract test |
 | `internal/application/idlechat/orchestrator_summary.go` | summary 発話で timeout が display-only / error 記録になることを確認 |
 | `internal/application/idlechat/forecast_session_runner.go` | forecast session の TTS wait / drain が同じ契約に従うことを確認 |
 | `internal/application/idlechat/story_mode_simple.go` | story 発話の TTS wait が同じ契約に従うことを確認 |
@@ -76,7 +76,7 @@
 
 ### 6.1 発話単位 timeout
 
-発話単位で 15 秒以内に TTS done channel が close しない場合、該当発話を音声 timeout として扱う。
+発話単位で 60 秒以内に TTS done channel が close しない場合、該当発話を音声 timeout として扱う。
 
 必須記録:
 
@@ -90,7 +90,7 @@
 
 ### 6.2 session drain timeout
 
-session 終了時に未完了 TTS がある場合、drain は 15 秒だけ待つ。15 秒を超えて残る音声は session 境界で閉じる。
+session 終了時に未完了 TTS がある場合、drain は 60 秒だけ待つ。60 秒を超えて残る音声は session 境界で閉じる。
 
 必須記録:
 
@@ -126,9 +126,9 @@ timeout 後に遅れて届いた audio chunk は、現在の session / utterance
 
 先に以下の失敗 test を追加または更新する。
 
-1. 発話単位 timeout の既定値が 15 秒である。
+1. 発話単位 timeout の既定値が 60 秒である。
 2. `waitForTTSDone` が timeout 時に `tts_error_kind=timeout` を記録する。
-3. session drain timeout の既定値が 15 秒である。
+3. session drain timeout の既定値が 60 秒である。
 4. `waitForTTSSessionDrain` が timeout 時に `session_audio_timeout` を記録する。
 5. timeout 後の stale audio が次 session で再生対象にならない。
 6. timeout 時も display-only 表示が本文の session / utterance 境界を壊さない。
@@ -137,7 +137,7 @@ timeout 後に遅れて届いた audio chunk は、現在の session / utterance
 
 最小変更で次を実装する。
 
-- timeout 定数を 15 秒へ変更する。
+- timeout 定数を 60 秒へ変更する。
 - timeout log / event に `tts_error_kind=timeout` と `session_audio_timeout` を追加する。
 - done channel / audio event の session 境界判定を補強する。
 - Viewer 側で現在 session と一致しない TTS event を再生しない。
@@ -168,8 +168,8 @@ UI / Viewer の動作を変える場合は、最低 1 セッションを browser
 
 確認内容:
 
-- TTS が 15 秒以内に完了した発話は、スピーカ ON で audio playback 完了後に次へ進む。
-- TTS が 15 秒を超えた発話は、音声エラーとして記録される。
+- TTS が 60 秒以内に完了した発話は、スピーカ ON で audio playback 完了後に次へ進む。
+- TTS が 60 秒を超えた発話は、音声エラーとして記録される。
 - timeout した発話の本文は display-only として区切りよく表示される。
 - drain timeout 後、次 session へ進める。
 - 遅れて届いた古い音声が次 session で再生されない。
@@ -184,13 +184,13 @@ timeout は silent にしない。
 発話 timeout log 例:
 
 ```text
-[IdleChat] TTS completion wait timed out after 15s; continuing conversation (tts_error=true tts_error_kind=timeout session=<session_id> utterance=<utterance_id>)
+[IdleChat] TTS completion wait timed out after 60s; continuing conversation (tts_error=true tts_error_kind=timeout session=<session_id> utterance=<utterance_id>)
 ```
 
 drain timeout log 例:
 
 ```text
-[IdleChat] TTS session drain timed out after 15s; continuing next session (session=<session_id> remaining_index=<n>/<total> session_audio_timeout=true)
+[IdleChat] TTS session drain timed out after 60s; continuing next session (session=<session_id> remaining_index=<n>/<total> session_audio_timeout=true)
 ```
 
 Viewer では、通常本文と音声状態を混同しない。表示できるなら `display_only` / `TTS audio timeout` / `session audio timeout` のいずれかを debug / Ops / IdleChat history に残す。
