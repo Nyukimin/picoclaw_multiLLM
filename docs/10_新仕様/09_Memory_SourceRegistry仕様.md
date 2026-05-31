@@ -16,6 +16,7 @@ Memory / Source Registry は、会話記憶、外部ソース、知識、検証�
 | DuckDB | archive、thread summary、parquet export | `internal/infrastructure/persistence/conversation/duckdb_*.go` |
 | RealConversationManager | recall、thread、archive、KB の統合 facade | `internal/infrastructure/persistence/conversation/real_manager_*.go` |
 | Source Registry | 外部ソース登録、sweep、stage、validate、promote | `internal/application/sourcefetcher`, `internal/adapter/viewer/source_registry_handler.go` |
+| Web Gather | 外部 API key に依存しない Web 検索候補取得、fetch、本文抽出、staging | `46_Web情報収集ツール仕様.md`, `modules/webgather`, `internal/application/webgather` |
 | OperationMemory | runtime-readable な運用記憶、日次ノート | `operation_memory_dir`（既定: `~/.picoclaw/rencrow/memory`）, `internal/infrastructure/persistence/memory` |
 | session repository | session state と distributed session の永続化 | `internal/domain/session`, `internal/infrastructure/persistence/session`, `cmd/picoclaw/runtime_sessions.go` |
 | Glossary / RSS | RSS/Atom 由来の topic / glossary 文脈 | `internal/glossary`, `cmd/glossary` |
@@ -75,6 +76,8 @@ session repository は session state を保存する境界であり、RecallPack
 Web search result や外部ソースは、Source Registry / KB として保存される。
 
 保存、stage、validate、promote は別フェーズである。正式な memory / knowledge として扱うには検証済み状態が必要である。
+
+RenCrow の常用 Web 情報収集は `46_Web情報収集ツール仕様.md` を正とする。検索候補取得、URL fetch、本文抽出、staging を分離し、外部 API key を前提にしない。取得結果は pending staging として扱い、validate / promote を通さず正式 memory / knowledge にしてはいけない。
 
 `cmd/kb-admin`、`cmd/vocabulary`、`cmd/picoclaw/cli_knowledge.go` は Knowledge DB の初期投入・確認・運用補助である。CLI から投入する場合も、未検証外部データを直接 confirmed memory として扱わない。
 

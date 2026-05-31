@@ -102,6 +102,18 @@ func DefaultRegistry() Registry {
 		"web_search": {
 			RequiredFields: []string{"query"},
 		},
+		"web_gather.fetch": {
+			RequiredFields: []string{"url"},
+			OptionalFields: []string{"fetch_provider", "extractor", "namespace", "source_id", "store_staging", "refresh", "policy"},
+		},
+		"web_gather.search": {
+			RequiredFields: []string{"query"},
+			OptionalFields: []string{"provider", "limit", "language", "freshness", "namespace", "refresh"},
+		},
+		"web_gather.search_and_fetch": {
+			RequiredFields: []string{"query"},
+			OptionalFields: []string{"provider", "limit", "max_fetches", "language", "freshness", "namespace", "refresh", "fetch_provider", "extractor", "store_staging", "policy"},
+		},
 		"subagent": {
 			RequiredFields: []string{"agent", "message"},
 		},

@@ -114,6 +114,65 @@ func TestRunSourceStagesValidatesAndPromotesSelectedRSS(t *testing.T) {
 	}
 }
 
+func TestRunSourceWebGatherStagesPendingWithoutAutoPromote(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><head><title>Web Gather Source</title><meta name="description" content="source summary"></head><body><article><h1>Web Gather Source</h1><p>Collected article body for pending review.</p></article></body></html>`))
+	}))
+	defer srv.Close()
+
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "web:test",
+		URL:           srv.URL,
+		Kind:          conversationpersistence.L1SourceKindWebGather,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "web page",
+		Enabled:       true,
+		Meta: map[string]interface{}{
+			"namespace":       "kb:web",
+			"allow_localhost": true,
+		},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+
+	result, err := RunSource(ctx, store, "web:test", now, SweepOptions{LimitPerSource: 5, MinimumTrustScore: 0.5})
+	if err != nil {
+		t.Fatalf("RunSource failed: %v", err)
+	}
+	if result.Sources != 1 || result.Staged != 1 || result.Validated != 0 || result.PromotedNews != 0 || result.PromotedKnowledge != 0 {
+		t.Fatalf("unexpected run result: %+v", result)
+	}
+	items, err := store.RecentStagingItems(ctx, conversationpersistence.L1StagingStatusPending, 10)
+	if err != nil {
+		t.Fatalf("RecentStagingItems failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected pending staging item, got %+v", items)
+	}
+	if items[0].Kind != conversationpersistence.L1StagingKindExternalFetch || items[0].SourceID != "web:test" || items[0].ValidationStatus != conversationpersistence.L1StagingStatusPending {
+		t.Fatalf("unexpected staging item: %+v", items[0])
+	}
+	if items[0].Meta["fetcher"] != "web_gather" || items[0].Meta["auto_promote"] != false || items[0].Meta["review_required"] != true {
+		t.Fatalf("expected web_gather review metadata, got %#v", items[0].Meta)
+	}
+	news, err := store.RecentNewsItems(ctx, "web", 10)
+	if err != nil {
+		t.Fatalf("RecentNewsItems failed: %v", err)
+	}
+	if len(news) != 0 {
+		t.Fatalf("web_gather source must not auto promote news: %+v", news)
+	}
+}
+
 func TestRunSourceAddsPromptInjectionWarningsToStagingMeta(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)

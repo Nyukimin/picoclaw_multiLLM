@@ -52,6 +52,8 @@ func main() {
 		cmdEvidence()
 	case "source-registry":
 		cmdSourceRegistry()
+	case "web-gather":
+		cmdWebGather()
 	case "knowledge":
 		cmdKnowledge()
 	case "help", "-h", "--help":

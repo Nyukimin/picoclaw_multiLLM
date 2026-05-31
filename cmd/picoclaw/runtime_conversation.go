@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	webgatherapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/webgather"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
+	webgatherinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/webgather"
 )
 
 type conversationRuntime struct {
@@ -109,6 +111,17 @@ func buildConversationRuntime(
 		log.Printf("ToolRunner web_search cache enabled via Conversation L1")
 	}
 	if l1Store != nil {
+		webGatherUseCase := webgatherapp.NewUseCase(
+			webgatherinfra.NewHTTPFetcher(),
+			webgatherinfra.NewBasicExtractor(),
+			webgatherapp.NewL1StagingWriter(l1Store),
+		)
+		webGatherSearchUseCase := webgatherapp.NewSearchUseCase(webgatherapp.NewL1SearchCache(l1Store), nil)
+		webGatherSearchAndFetchUseCase := webgatherapp.NewSearchAndFetchUseCase(webGatherSearchUseCase, webGatherUseCase)
+		workerToolRunnerV2.WithWebGatherFetcher(webGatherUseCase)
+		workerToolRunnerV2.WithWebGatherSearcher(webGatherSearchUseCase)
+		workerToolRunnerV2.WithWebGatherSearchAndFetcher(webGatherSearchAndFetchUseCase)
+		log.Printf("ToolRunner web_gather.fetch/search/search_and_fetch enabled via Conversation L1")
 		startSourceRegistrySweeper(l1Store)
 	}
 	if realMgr != nil {

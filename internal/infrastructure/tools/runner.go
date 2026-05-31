@@ -11,6 +11,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/toolharness"
+	modulewebgather "github.com/Nyukimin/picoclaw_multiLLM/modules/webgather"
 )
 
 var validToolName = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
@@ -24,6 +25,18 @@ type ToolFuncV2 func(ctx context.Context, args map[string]interface{}) (*tool.To
 type WebSearchCache interface {
 	GetFreshWebSearchCache(ctx context.Context, query string) ([]GoogleSearchItem, bool, error)
 	SaveWebSearchCache(ctx context.Context, query string, items []GoogleSearchItem, ttl time.Duration) error
+}
+
+type WebGatherFetcher interface {
+	FetchURL(ctx context.Context, req modulewebgather.FetchRequest) (modulewebgather.FetchResponse, error)
+}
+
+type WebGatherSearcher interface {
+	Search(ctx context.Context, req modulewebgather.SearchRequest) (modulewebgather.SearchResponse, error)
+}
+
+type WebGatherSearchAndFetcher interface {
+	SearchAndFetch(ctx context.Context, req modulewebgather.SearchAndFetchRequest) (modulewebgather.SearchAndFetchResponse, error)
 }
 
 // ToolRunner はツール実行の実装（V1 + V2 対応）
@@ -45,8 +58,11 @@ type ToolRunnerConfig struct {
 	AllowedWritePaths    []string                // file_write 許可パス（空=全許可）
 	DisableWebSearch     bool                    // web_search を登録しない（会話モード安全ポリシー）
 	WebSearchCache       WebSearchCache          // nil = web_search cache 無効
-	ToolHarnessRecorder  toolharness.Recorder    // nil = mediation event 永続化なし
-	DisableToolHarness   bool                    // true = ToolRunner内の入力調停を無効化する
+	WebGatherFetcher     WebGatherFetcher        // nil = web_gather.fetch 無効
+	WebGatherSearcher    WebGatherSearcher       // nil = web_gather.search 無効
+	WebGatherSearchFetch WebGatherSearchAndFetcher
+	ToolHarnessRecorder  toolharness.Recorder // nil = mediation event 永続化なし
+	DisableToolHarness   bool                 // true = ToolRunner内の入力調停を無効化する
 
 	// Phase 4: Shiro ツール共有
 	ToolRegistry capability.ToolRegistry // nil = register_tool 無効
@@ -74,6 +90,24 @@ func NewToolRunner(config ToolRunnerConfig) *ToolRunner {
 
 func (r *ToolRunner) WithWebSearchCache(cache WebSearchCache) *ToolRunner {
 	r.config.WebSearchCache = cache
+	return r
+}
+
+func (r *ToolRunner) WithWebGatherFetcher(fetcher WebGatherFetcher) *ToolRunner {
+	r.config.WebGatherFetcher = fetcher
+	r.registerTools()
+	return r
+}
+
+func (r *ToolRunner) WithWebGatherSearcher(searcher WebGatherSearcher) *ToolRunner {
+	r.config.WebGatherSearcher = searcher
+	r.registerTools()
+	return r
+}
+
+func (r *ToolRunner) WithWebGatherSearchAndFetcher(searchAndFetcher WebGatherSearchAndFetcher) *ToolRunner {
+	r.config.WebGatherSearchFetch = searchAndFetcher
+	r.registerTools()
 	return r
 }
 

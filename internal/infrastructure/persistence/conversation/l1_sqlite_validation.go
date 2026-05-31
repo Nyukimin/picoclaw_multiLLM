@@ -38,7 +38,8 @@ func validateL1StagingStatus(status string) error {
 func validateL1SourceKind(kind string) error {
 	switch kind {
 	case L1SourceKindRSS, L1SourceKindAtom, L1SourceKindOfficialAPI, L1SourceKindGitHub,
-		L1SourceKindHuggingFace, L1SourceKindPyPI, L1SourceKindMediaWiki, L1SourceKindSearchFallback:
+		L1SourceKindHuggingFace, L1SourceKindPyPI, L1SourceKindMediaWiki, L1SourceKindSearchFallback,
+		L1SourceKindWebGather:
 		return nil
 	default:
 		return fmt.Errorf("invalid l1 source registry kind: %s", kind)

@@ -61,6 +61,15 @@ func (r *ToolRunner) registerOptionalTools() {
 	if !r.config.DisableWebSearch {
 		r.toolsV2["web_search"] = r.executeWebSearchV2 // 構造化データ対応
 	}
+	if r.config.WebGatherFetcher != nil {
+		r.toolsV2["web_gather.fetch"] = r.executeWebGatherFetchV2
+	}
+	if r.config.WebGatherSearcher != nil {
+		r.toolsV2["web_gather.search"] = r.executeWebGatherSearchV2
+	}
+	if r.config.WebGatherSearchFetch != nil {
+		r.toolsV2["web_gather.search_and_fetch"] = r.executeWebGatherSearchAndFetchV2
+	}
 
 	// Phase 4: register_tool（ToolRegistry が有効な場合のみ登録）
 	if r.config.ToolRegistry != nil {
@@ -126,6 +135,83 @@ func (r *ToolRunner) registerToolMetadata() {
 				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{"type": "string", "description": "検索クエリ"},
+				},
+				"required": []any{"query"},
+			},
+		}
+	}
+	if r.config.WebGatherFetcher != nil {
+		r.metadata["web_gather.fetch"] = tool.ToolMetadata{
+			ToolID: "web_gather.fetch", Version: "0.1.0", Category: "query",
+			Description: "公開 URL を fetch / extract し、必要に応じて pending L1 staging に保存する",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url":            map[string]any{"type": "string"},
+					"fetch_provider": map[string]any{"type": "string", "enum": []any{"http", "webwright"}},
+					"extractor":      map[string]any{"type": "string", "enum": []any{"go_readability", "html_basic", "plain_text", "json_text"}},
+					"namespace":      map[string]any{"type": "string"},
+					"source_id":      map[string]any{"type": "string"},
+					"store_staging":  map[string]any{"type": "boolean"},
+					"refresh":        map[string]any{"type": "boolean"},
+					"policy": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"request_timeout_ms": map[string]any{"type": "integer"},
+							"max_body_bytes":     map[string]any{"type": "integer"},
+							"max_redirects":      map[string]any{"type": "integer"},
+						},
+					},
+				},
+				"required": []any{"url"},
+			},
+		}
+	}
+	if r.config.WebGatherSearcher != nil {
+		r.metadata["web_gather.search"] = tool.ToolMetadata{
+			ToolID: "web_gather.search", Version: "0.1.0", Category: "query",
+			Description: "Web Gather の検索候補を返す。Phase 2 では local_cache と明示 SearXNG provider を扱う。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query":     map[string]any{"type": "string"},
+					"provider":  map[string]any{"type": "string", "enum": []any{"local_cache", "searxng"}},
+					"limit":     map[string]any{"type": "integer"},
+					"language":  map[string]any{"type": "string"},
+					"freshness": map[string]any{"type": "string", "enum": []any{"any", "day", "week", "month"}},
+					"namespace": map[string]any{"type": "string"},
+					"refresh":   map[string]any{"type": "boolean"},
+				},
+				"required": []any{"query"},
+			},
+		}
+	}
+	if r.config.WebGatherSearchFetch != nil {
+		r.metadata["web_gather.search_and_fetch"] = tool.ToolMetadata{
+			ToolID: "web_gather.search_and_fetch", Version: "0.1.0", Category: "query",
+			Description: "検索候補を取得し、上位 URL を fetch / extract して必要に応じて pending L1 staging に保存する。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query":          map[string]any{"type": "string"},
+					"provider":       map[string]any{"type": "string", "enum": []any{"local_cache", "searxng"}},
+					"limit":          map[string]any{"type": "integer"},
+					"max_fetches":    map[string]any{"type": "integer"},
+					"language":       map[string]any{"type": "string"},
+					"freshness":      map[string]any{"type": "string", "enum": []any{"any", "day", "week", "month"}},
+					"namespace":      map[string]any{"type": "string"},
+					"refresh":        map[string]any{"type": "boolean"},
+					"fetch_provider": map[string]any{"type": "string", "enum": []any{"http", "webwright"}},
+					"extractor":      map[string]any{"type": "string", "enum": []any{"go_readability", "html_basic", "plain_text", "json_text"}},
+					"store_staging":  map[string]any{"type": "boolean"},
+					"policy": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"request_timeout_ms": map[string]any{"type": "integer"},
+							"max_body_bytes":     map[string]any{"type": "integer"},
+							"max_redirects":      map[string]any{"type": "integer"},
+						},
+					},
 				},
 				"required": []any{"query"},
 			},

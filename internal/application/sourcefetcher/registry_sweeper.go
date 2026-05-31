@@ -7,11 +7,14 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	domainsecurity "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/security"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
+	webgatherinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/webgather"
+	modulewebgather "github.com/Nyukimin/picoclaw_multiLLM/modules/webgather"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -65,7 +68,9 @@ func SweepDueSources(ctx context.Context, store RegistryStore, now time.Time, op
 	result := SweepResult{Sources: len(sources)}
 	parser := gofeed.NewParser()
 	for _, source := range sources {
-		if source.Kind != conversationpersistence.L1SourceKindRSS && source.Kind != conversationpersistence.L1SourceKindAtom {
+		if source.Kind == conversationpersistence.L1SourceKindWebGather {
+			err = sweepWebGatherSource(ctx, store, source, now, &result)
+		} else if source.Kind != conversationpersistence.L1SourceKindRSS && source.Kind != conversationpersistence.L1SourceKindAtom {
 			err = sweepHTTPSource(ctx, store, source, trustScores, now, &result)
 		} else {
 			err = sweepFeedSource(ctx, store, parser, source, trustScores, now, opts, &result)
@@ -120,7 +125,9 @@ func RunSource(ctx context.Context, store interface {
 		return result, err
 	}
 	parser := gofeed.NewParser()
-	if selected.Kind != conversationpersistence.L1SourceKindRSS && selected.Kind != conversationpersistence.L1SourceKindAtom {
+	if selected.Kind == conversationpersistence.L1SourceKindWebGather {
+		err = sweepWebGatherSource(ctx, store, *selected, now, &result)
+	} else if selected.Kind != conversationpersistence.L1SourceKindRSS && selected.Kind != conversationpersistence.L1SourceKindAtom {
 		err = sweepHTTPSource(ctx, store, *selected, trustScores, now, &result)
 	} else {
 		err = sweepFeedSource(ctx, store, parser, *selected, trustScores, now, opts, &result)
@@ -134,6 +141,94 @@ func RunSource(ctx context.Context, store interface {
 		return result, err
 	}
 	return result, nil
+}
+
+func sweepWebGatherSource(ctx context.Context, store RegistryStore, source conversationpersistence.L1SourceRegistryEntry, now time.Time, result *SweepResult) error {
+	policy := modulewebgather.DefaultFetchPolicy()
+	if boolFromMeta(source.Meta, "allow_localhost", false) {
+		policy.AllowLocalhost = true
+	}
+	if n := int64FromMeta(source.Meta, "request_timeout_ms", 0); n > 0 {
+		policy.RequestTimeout = time.Duration(n) * time.Millisecond
+	}
+	if n := int64FromMeta(source.Meta, "max_body_bytes", 0); n > 0 {
+		policy.MaxBodyBytes = n
+	}
+	if n := int64FromMeta(source.Meta, "max_redirects", -1); n >= 0 {
+		policy.MaxRedirects = int(n)
+	}
+	normalizedURL, err := modulewebgather.NormalizeURL(source.URL, policy.AllowLocalhost)
+	if err != nil {
+		return err
+	}
+	artifact, err := webgatherinfra.NewHTTPFetcher().Fetch(ctx, normalizedURL, policy)
+	if err != nil {
+		return err
+	}
+	extractorName := stringFromMeta(source.Meta, "extractor", modulewebgather.DefaultExtractor)
+	doc, err := webgatherinfra.NewBasicExtractor().Extract(ctx, artifact, extractorName)
+	if err != nil {
+		return err
+	}
+	raw := strings.TrimSpace(doc.Text)
+	if raw == "" {
+		return fmt.Errorf("web gather extracted content is empty")
+	}
+	namespace := stringFromMeta(source.Meta, "namespace", "kb:web")
+	category := stringFromMeta(source.Meta, "category", "web")
+	domain := stringFromMeta(source.Meta, "domain", category)
+	title := firstNonEmpty(stringFromMeta(source.Meta, "title", ""), doc.Title, source.SourceID)
+	summary := firstNonEmpty(doc.Excerpt, modulewebgather.TextPreview(raw, 240), title)
+	keywords := doc.Keywords
+	if len(keywords) == 0 {
+		keywords = []string{"web_gather", category}
+	}
+	meta := map[string]interface{}{
+		"fetcher":                 "web_gather",
+		"category":                category,
+		"domain":                  domain,
+		"namespace":               namespace,
+		"title":                   title,
+		"final_url":               artifact.FinalURL,
+		"http_status":             artifact.StatusCode,
+		"content_type":            artifact.ContentType,
+		"fetch_provider":          "http",
+		"extractor":               doc.Extractor,
+		"requested_extractor":     extractorName,
+		"raw_hash":                modulewebgather.SHA256Text(raw),
+		"raw_bytes":               artifact.RawBytes,
+		"extracted_chars":         len([]rune(raw)),
+		"review_required":         true,
+		"auto_promote":            false,
+		"security_warning_source": "web_gather",
+	}
+	for k, v := range doc.Meta {
+		if _, exists := meta[k]; !exists {
+			meta[k] = v
+		}
+	}
+	warnings := domainsecurity.DetectPromptInjectionWarnings(raw)
+	if len(warnings) > 0 {
+		meta["security_warnings"] = warnings
+		result.Warnings += len(warnings)
+	}
+	staged, err := store.StageSourceRegistryFetch(ctx, source.SourceID, conversationpersistence.L1SourceFetchPayload{
+		SourceURL:    firstNonEmpty(doc.CanonicalURL, artifact.FinalURL, normalizedURL),
+		FetchedAt:    firstNonZeroTime(artifact.FetchedAt, now),
+		PublishedAt:  firstNonZeroTime(doc.PublishedAt, now),
+		RawText:      raw,
+		SummaryDraft: summary,
+		Keywords:     nonEmpty(keywords...),
+		Meta:         meta,
+	})
+	if err != nil {
+		return err
+	}
+	if staged.ID == "" {
+		return fmt.Errorf("web gather source staged empty item id")
+	}
+	result.Staged++
+	return nil
 }
 
 func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversationpersistence.L1SourceRegistryEntry, trustScores map[string]float64, now time.Time, result *SweepResult) error {
@@ -359,6 +454,53 @@ func stringFromMeta(meta map[string]interface{}, key string, def string) string 
 		return strings.TrimSpace(value)
 	}
 	return def
+}
+
+func boolFromMeta(meta map[string]interface{}, key string, def bool) bool {
+	if meta == nil {
+		return def
+	}
+	if value, ok := meta[key].(bool); ok {
+		return value
+	}
+	if value, ok := meta[key].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true", "1", "yes", "on":
+			return true
+		case "false", "0", "no", "off":
+			return false
+		}
+	}
+	return def
+}
+
+func int64FromMeta(meta map[string]interface{}, key string, def int64) int64 {
+	if meta == nil {
+		return def
+	}
+	switch value := meta[key].(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		if err == nil {
+			return parsed
+		}
+	}
+	return def
+}
+
+func firstNonZeroTime(values ...time.Time) time.Time {
+	for _, value := range values {
+		if !value.IsZero() {
+			return value.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func sourceRegistryMetaWithWarnings(meta map[string]interface{}, raw string) (map[string]interface{}, int) {

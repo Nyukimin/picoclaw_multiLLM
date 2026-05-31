@@ -45,6 +45,7 @@ Commands:
   logs      Show logs (use --follow to stream)
   evidence  List/show/summarize execution evidence
   source-registry  List/register L1 source registry entries
+  web-gather  Fetch public web pages into pending L1 staging
   knowledge  Import Knowledge DB seed data
   help      Show this help message
 
