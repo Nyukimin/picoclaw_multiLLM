@@ -145,6 +145,7 @@ function loadAudioHarness(options = {}) {
   idleLiveRenderTarget,
   clearIdleLivePendingForAudioOwnerTransfer,
   chatAudioSync,
+  resolveTTSPlaybackURL,
   handleViewerActiveControlEvent,
   isIdleChatActiveForTTS,
   idleLiveRenderedLog,
@@ -173,7 +174,7 @@ function loadAudioHarness(options = {}) {
     console: {error() {}, warn() {}},
     window: {
       addEventListener() {},
-      location: {protocol: 'http:', search: options.search || ''},
+      location: {protocol: options.protocol || 'http:', href: (options.protocol || 'http:') + '//viewer.local/viewer', search: options.search || ''},
       history: null,
       innerWidth: options.mobile ? 390 : 1280,
       matchMedia: options.mobile
@@ -188,6 +189,7 @@ function loadAudioHarness(options = {}) {
       removeItem: (key) => localStore.delete(key),
     },
     HTMLMediaElement: {HAVE_CURRENT_DATA: 2},
+    URL,
     Audio: FakeAudio,
     state: {
       idleChat: {
@@ -248,6 +250,14 @@ test('idlechat live render target is central chat only in live mode', () => {
   const live = loadAudioHarness({liveMode: true});
   assert.equal(live.harness.idleLiveRenderTarget(), live.elements.get('chat'));
   assert.notEqual(live.harness.idleLiveRenderTarget(), live.elements.get('idleLiveLog'));
+});
+
+test('tts playback url uses same-origin proxy for absolute audio urls', () => {
+  const {harness} = loadAudioHarness();
+
+  const got = harness.resolveTTSPlaybackURL('http://192.168.1.207:7870/audio/sample.wav', '');
+
+  assert.equal(got, '/viewer/tts/audio?url=http%3A%2F%2F192.168.1.207%3A7870%2Faudio%2Fsample.wav');
 });
 
 test('speaker button can turn ready audio off without stopping central chat fallback', async () => {

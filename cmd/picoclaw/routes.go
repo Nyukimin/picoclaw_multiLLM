@@ -33,7 +33,7 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/mio-lipsync-open.svg", viewer.HandleMioLipSyncOpen)
 	mux.HandleFunc("/viewer/shiro-lipsync-closed.svg", viewer.HandleShiroLipSyncClosed)
 	mux.HandleFunc("/viewer/shiro-lipsync-open.svg", viewer.HandleShiroLipSyncOpen)
-	mux.HandleFunc("/viewer/tts/audio", handleLocalTTSAudio(cfg.TTS.OutputDir))
+	mux.HandleFunc("/viewer/tts/audio", handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL))
 	mux.HandleFunc("/viewer/tts/playback-ack", handleTTSPlaybackAck())
 	mux.HandleFunc("/viewer/active-control", handleViewerActiveClaim(dependencies.eventHub.OnEvent))
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)

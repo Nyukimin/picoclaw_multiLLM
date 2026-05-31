@@ -2944,8 +2944,13 @@ function isIdleChatActiveForTTS(sessionId) {
 
 function resolveTTSPlaybackURL(audioURL, audioPath) {
   const url = String(audioURL || '').trim();
-  if (window.location.protocol === 'https:' && url.startsWith('http://') && audioPath) {
-    return '/viewer/tts/audio?path=' + encodeURIComponent(audioPath);
+  if (url) {
+    try {
+      const parsed = new URL(url, window.location.href);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return '/viewer/tts/audio?url=' + encodeURIComponent(parsed.href);
+      }
+    } catch (_) {}
   }
   if (url) return url;
   if (audioPath) return '/viewer/tts/audio?path=' + encodeURIComponent(audioPath);

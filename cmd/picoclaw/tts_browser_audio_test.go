@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,6 +52,40 @@ func TestHandleLocalTTSAudio(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != "RIFF" {
 		t.Fatalf("unexpected body: %q", body)
+	}
+}
+
+func TestHandleTTSAudio_ProxiesConfiguredRemoteAudioURL(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/chunk.wav" {
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("RIFF"))
+	}))
+	defer upstream.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/tts/audio?url="+url.QueryEscape(upstream.URL+"/audio/chunk.wav"), nil)
+	rec := httptest.NewRecorder()
+
+	handleTTSAudio(t.TempDir(), upstream.URL)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if body := rec.Body.String(); body != "RIFF" {
+		t.Fatalf("unexpected body: %q", body)
+	}
+}
+
+func TestHandleTTSAudio_RejectsPublicRemoteAudioURL(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/viewer/tts/audio?url="+url.QueryEscape("https://example.com/audio.wav"), nil)
+	rec := httptest.NewRecorder()
+
+	handleTTSAudio(t.TempDir(), "http://127.0.0.1:7870")(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
 
