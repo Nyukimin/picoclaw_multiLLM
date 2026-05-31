@@ -4,8 +4,10 @@ import (
 	"log"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
 )
 
 type llmRuntimeProviders struct {
@@ -20,6 +22,7 @@ type llmRuntimeProviders struct {
 	Coder2             *coderAdapter
 	Coder3             *coderAdapter
 	Coder4             *coderAdapter
+	ModuleProviders    map[string]modulellm.Provider
 }
 
 func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) llmRuntimeProviders {
@@ -29,6 +32,7 @@ func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 		log.Fatalf("worker provider %s does not support tool calling", primaryProviders.Worker.Name())
 	}
 	coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter := setupCoders(cfg)
+	moduleProviders := modulebridge.NewLLMRoleProviders(primaryProviders.Chat, primaryProviders.Worker, primaryProviders.Heavy, primaryProviders.Wild)
 	return llmRuntimeProviders{
 		Primary:            primaryProviders,
 		Chat:               primaryProviders.Chat,
@@ -41,5 +45,6 @@ func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 		Coder2:             coder2Adapter,
 		Coder3:             coder3Adapter,
 		Coder4:             coder4Adapter,
+		ModuleProviders:    wrapModuleLLMProvidersWithHealthChecks(cfg, moduleProviders),
 	}
 }

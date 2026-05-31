@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type SBV2Config struct {
@@ -62,7 +62,7 @@ func (p *SBV2Provider) Synthesize(ctx context.Context, in SynthesisInput) (Synth
 		return p.synthesizeEditor(ctx, in)
 	}
 
-	voice := resolveSBV2VoiceParams(chooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID))
+	voice := resolveSBV2VoiceParams(moduletts.ChooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.voiceURL(in.Text, voice), nil)
 	if err != nil {
 		return SynthesisOutput{}, fmt.Errorf("build request: %w", err)
@@ -89,36 +89,14 @@ func (p *SBV2Provider) Synthesize(ctx context.Context, in SynthesisInput) (Synth
 	}, nil
 }
 
-type sbv2VoiceParams struct {
-	Name      string
-	ModelID   int
-	SpeakerID int
-	Style     string
-}
+type sbv2VoiceParams = moduletts.SBV2VoiceParams
 
 func resolveSBV2VoiceParams(name string) sbv2VoiceParams {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	switch normalized {
-	case "shi-gozaki", "shigozaki", "shin-gozaki", "shingozaki", "shiro", "male_01", "male":
-		return sbv2VoiceParams{Name: "shi-gozaki", ModelID: 6, SpeakerID: 0, Style: "Neutral"}
-	case "amitaro", "mio", "female_01", "female", "":
-		return sbv2VoiceParams{Name: "amitaro", ModelID: 0, SpeakerID: 0, Style: "Neutral"}
-	default:
-		return sbv2VoiceParams{Name: strings.TrimSpace(name), ModelID: 0, SpeakerID: 0, Style: "Neutral"}
-	}
+	return moduletts.ResolveSBV2VoiceParams(name)
 }
 
 func (p *SBV2Provider) voiceURL(text string, voice sbv2VoiceParams) string {
-	base := strings.TrimRight(p.baseURL, "/")
-	if !strings.HasSuffix(strings.ToLower(base), "/voice") {
-		base += "/voice"
-	}
-	q := make(url.Values, 4)
-	q.Set("text", ensureTTSPunctuation(text))
-	q.Set("model_id", strconv.Itoa(voice.ModelID))
-	q.Set("speaker_id", strconv.Itoa(voice.SpeakerID))
-	q.Set("style", voice.Style)
-	return base + "?" + q.Encode()
+	return moduletts.SBV2VoiceURL(p.baseURL, text, voice)
 }
 
 type sbv2ModelInfo struct {
@@ -140,7 +118,7 @@ func (p *SBV2Provider) isEditorAPI() bool {
 
 func (p *SBV2Provider) synthesizeEditor(ctx context.Context, in SynthesisInput) (SynthesisOutput, error) {
 	text := ensureTTSPunctuation(in.Text)
-	requestedSpeaker := chooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID)
+	requestedSpeaker := moduletts.ChooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID)
 	voice, err := p.resolveEditorVoice(ctx, requestedSpeaker)
 	if err != nil {
 		return SynthesisOutput{}, err
@@ -151,13 +129,13 @@ func (p *SBV2Provider) synthesizeEditor(ctx context.Context, in SynthesisInput) 
 		return SynthesisOutput{}, err
 	}
 
-	payload := map[string]any{
-		"model":        voice.Model,
-		"modelFile":    voice.ModelFile,
-		"text":         text,
-		"moraToneList": moraToneList,
-		"speaker":      voice.Speaker,
-	}
+	payload := moduletts.BuildSBV2EditorSynthesisPayload(moduletts.SBV2EditorSynthesisPayloadInput{
+		Model:        voice.Model,
+		ModelFile:    voice.ModelFile,
+		Text:         text,
+		MoraToneList: moraToneList,
+		Speaker:      voice.Speaker,
+	})
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return SynthesisOutput{}, fmt.Errorf("marshal editor synthesis request: %w", err)
@@ -200,7 +178,7 @@ func (p *SBV2Provider) resolveEditorVoice(ctx context.Context, requestedSpeaker 
 			continue
 		}
 		for _, speaker := range model.Speakers {
-			if equalFoldTrim(speaker, requestedSpeaker) || equalFoldTrim(model.Name, requestedSpeaker) {
+			if moduletts.EqualFoldTrim(speaker, requestedSpeaker) || moduletts.EqualFoldTrim(model.Name, requestedSpeaker) {
 				return sbv2ResolvedVoice{
 					Model:     model.Name,
 					ModelFile: model.Files[0],
@@ -260,7 +238,7 @@ func (p *SBV2Provider) fetchModelInfos(ctx context.Context) ([]sbv2ModelInfo, er
 }
 
 func (p *SBV2Provider) fetchMoraToneList(ctx context.Context, text string) ([]map[string]any, error) {
-	reqBody, err := json.Marshal(map[string]any{"text": text})
+	reqBody, err := json.Marshal(moduletts.BuildSBV2G2PRequestPayload(text))
 	if err != nil {
 		return nil, fmt.Errorf("marshal g2p request: %w", err)
 	}
@@ -291,15 +269,7 @@ func (p *SBV2Provider) fetchMoraToneList(ctx context.Context, text string) ([]ma
 }
 
 func (p *SBV2Provider) editorURL(endpoint string) string {
-	base := strings.TrimRight(p.baseURL, "/")
-	switch endpoint {
-	case "models_info":
-		return strings.TrimSuffix(base, "/synthesis") + "/models_info"
-	case "g2p":
-		return strings.TrimSuffix(base, "/synthesis") + "/g2p"
-	default:
-		return base
-	}
+	return moduletts.SBV2EditorURL(p.baseURL, endpoint)
 }
 
 func saveEditorWAV(body io.Reader, outputDir, prefix string) (string, error) {
@@ -342,51 +312,11 @@ func rejectSilentWAV(path string) error {
 }
 
 func sanitizeAudioPrefix(prefix string) string {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		return ""
-	}
-	var b strings.Builder
-	for _, r := range prefix {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_':
-			b.WriteRune(r)
-		}
-	}
-	return strings.Trim(b.String(), "-_")
+	return moduletts.SanitizeAudioPrefix(prefix)
 }
 
 func ensureTTSPunctuation(text string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return ""
-	}
-	last, _ := utf8.DecodeLastRuneInString(text)
-	switch last {
-	case '。', '！', '？', '!', '?', '.', '…', '♪', '、', ',', '」', '』', ')', '）':
-		return text
-	default:
-		return text + "。"
-	}
-}
-
-func equalFoldTrim(a, b string) bool {
-	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
-}
-
-func chooseNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
+	return moduletts.EnsureTTSPunctuation(text)
 }
 
 func chunkPauseForText(text string) string {

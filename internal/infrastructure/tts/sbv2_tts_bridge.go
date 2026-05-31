@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type SBV2TTSBridgeConfig struct {
@@ -54,11 +53,11 @@ func (b *SBV2TTSBridge) StartSession(_ context.Context, req orchestrator.TTSSess
 	return nil
 }
 
-func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error {
 	return b.PushTextWithDisplay(ctx, sessionID, text, text, emotion)
 }
 
-func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
+func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *moduletts.EmotionState) error {
 	if b.cfg.Provider == nil {
 		return fmt.Errorf("sbv2 provider is not configured")
 	}
@@ -68,7 +67,7 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 	}
 	s := b.getOrCreateSession(sessionID)
 	for _, item := range plan {
-		speechText := ttsapp.EnsureEmotionPrefixForCharacter(item.SpeechText, emotion, s.characterID)
+		speechText := moduletts.EnsureEmotionPrefixForCharacter(item.SpeechText, emotion, s.characterID)
 		out, stats, err := b.synthesizeChunk(ctx, s, speechText)
 		if err != nil {
 			return err
@@ -142,27 +141,10 @@ func (b *SBV2TTSBridge) synthesizeChunk(ctx context.Context, s *sbv2BridgeSessio
 }
 
 func localAudioPathForViewer(outputDir, audioPath string) string {
-	outputDir = strings.TrimSpace(outputDir)
-	audioPath = strings.TrimSpace(audioPath)
-	if outputDir == "" || audioPath == "" {
-		return audioPath
+	if rel, ok := moduletts.LocalAudioRelPath(outputDir, audioPath); ok {
+		return rel
 	}
-	base, err := filepath.Abs(outputDir)
-	if err != nil {
-		return audioPath
-	}
-	candidate := audioPath
-	if !filepath.IsAbs(candidate) {
-		candidate, err = filepath.Abs(candidate)
-		if err != nil {
-			return audioPath
-		}
-	}
-	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(candidate))
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return audioPath
-	}
-	return filepath.ToSlash(rel)
+	return strings.TrimSpace(audioPath)
 }
 
 func (b *SBV2TTSBridge) EndSession(ctx context.Context, sessionID string) error {

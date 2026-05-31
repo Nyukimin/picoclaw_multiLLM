@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type ttsPlaybackAckRequest struct {
@@ -35,35 +37,32 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 			return
 		}
 		viewerClientID := strings.TrimSpace(req.ViewerClientID)
-		activeAudio := activeViewerControl.isActiveAudio(viewerClientID)
-		status := strings.TrimSpace(req.Status)
-		errorCode := strings.TrimSpace(req.ErrorCode)
-		errorText := strings.TrimSpace(req.Error)
-		if status == "fallback" {
-			status = "error"
-			if errorCode == "" {
-				errorCode = "TTS_FALLBACK_ACK_REJECTED"
-			}
-			if errorText == "" {
-				errorText = "Viewer sent deprecated fallback playback ACK; treat as explicit TTS playback error"
-			}
-		}
+		activeAudio := activeViewerControl.IsActiveAudio(viewerClientID)
 		ok := false
-		if activeAudio {
+		if moduletts.ShouldConsumePendingForPlaybackAck(activeAudio) {
 			ok = notifyIdleChatTTSPlaybackCompleted(responseID)
 		}
+		receipt := moduletts.BuildPlaybackAckReceipt(moduletts.PlaybackAckInput{
+			ResponseID:     req.ResponseID,
+			SessionID:      req.SessionID,
+			UtteranceID:    req.UtteranceID,
+			ViewerClientID: req.ViewerClientID,
+			Status:         req.Status,
+			ErrorCode:      req.ErrorCode,
+			Error:          req.Error,
+		}, activeAudio, ok)
 		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error_code=%s error=%s",
-			responseID,
-			strings.TrimSpace(req.SessionID),
-			strings.TrimSpace(req.UtteranceID),
-			viewerClientID,
-			activeAudio,
-			status,
-			ok,
-			errorCode,
-			errorText,
+			receipt.ResponseID,
+			receipt.SessionID,
+			receipt.UtteranceID,
+			receipt.ViewerClientID,
+			receipt.ActiveAudio,
+			receipt.Status,
+			receipt.Matched,
+			receipt.ErrorCode,
+			receipt.Error,
 		)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "matched": ok, "status": status, "error_code": errorCode})
+		_ = json.NewEncoder(w).Encode(receipt)
 	}
 }

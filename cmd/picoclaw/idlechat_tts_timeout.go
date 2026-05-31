@@ -2,25 +2,29 @@ package main
 
 import (
 	"log"
-	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func markIdleChatTTSTimeout(ev idlechat.TTSTimeoutEvent) {
-	sessionID := strings.TrimSpace(ev.SessionID)
-	if sessionID == "" {
+	consumption := ttsPublicSessions.MarkTimeout(moduletts.PlaybackTimeoutInput{
+		Kind:           ev.Kind,
+		SessionID:      ev.SessionID,
+		MessageID:      ev.MessageID,
+		TurnIndex:      ev.TurnIndex,
+		RemainingIndex: ev.RemainingIndex,
+		RemainingCount: ev.RemainingCount,
+	})
+	if consumption.SessionID == "" {
 		return
 	}
-	kind := strings.TrimSpace(ev.Kind)
-	allForSession := kind == "session_audio_timeout"
-	matched := markTTSPublicSessionTimedOut(sessionID, ev.MessageID, ev.TurnIndex, allForSession)
-	for _, internalSessionID := range matched {
+	for _, internalSessionID := range consumption.MatchedInternalSessionIDs {
 		clearIdleChatTTSPending(internalSessionID)
 	}
-	if allForSession {
-		log.Printf("[IdleChat] consumed pending TTS session audio timeout: session=%s matched=%d remaining_index=%d/%d", sessionID, len(matched), ev.RemainingIndex, ev.RemainingCount)
+	if consumption.AllForSession {
+		log.Printf("[IdleChat] consumed pending TTS session audio timeout: session=%s matched=%d remaining_index=%d/%d", consumption.SessionID, consumption.MatchedCount, consumption.RemainingIndex, consumption.RemainingCount)
 		return
 	}
-	log.Printf("[IdleChat] consumed pending TTS utterance timeout: session=%s message_id=%s turn_index=%d matched=%d", sessionID, strings.TrimSpace(ev.MessageID), ev.TurnIndex, len(matched))
+	log.Printf("[IdleChat] consumed pending TTS utterance timeout: session=%s message_id=%s turn_index=%d matched=%d", consumption.SessionID, consumption.MessageID, consumption.TurnIndex, consumption.MatchedCount)
 }

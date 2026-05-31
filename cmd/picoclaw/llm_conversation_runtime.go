@@ -1,65 +1,55 @@
 package main
 
 import (
-	"fmt"
-	"strings"
-	"time"
-
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
 )
 
 func buildConversationTextProvider(cfg *config.Config, providers primaryLLMProviders) (llm.LLMProvider, string) {
-	if cfg.LocalLLM.Enabled && providers.Worker != nil {
-		return providers.Worker, "local_llm Worker"
-	}
-	summaryModel := strings.TrimSpace(cfg.Conversation.SummaryModel)
-	if summaryModel == "" {
-		summaryModel = cfg.Ollama.Model
-	}
-	if summaryModel == "" {
+	plan := modulellm.BuildConversationTextProviderPlan(conversationRuntimeConfigFromAppConfig(cfg, providers.Worker != nil))
+	if plan.Unavailable != "" {
 		return nil, ""
 	}
-	summaryProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, summaryModel, 32768)
-	return llmmiddleware.NewRawLogProvider(summaryProvider, "conversation-summary"), fmt.Sprintf("%s (model: %s)", cfg.Ollama.BaseURL, summaryModel)
+	if plan.UseWorker {
+		return providers.Worker, plan.Description
+	}
+	summaryProvider := ollama.NewOllamaProviderWithNumCtx(plan.BaseURL, plan.Model, plan.NumCtx)
+	return llmmiddleware.NewRawLogProvider(summaryProvider, plan.RawLogName), plan.Description
 }
 
 func buildConversationEmbedder(cfg *config.Config) (conversation.EmbeddingProvider, string) {
-	model := strings.TrimSpace(cfg.Conversation.EmbedModel)
-	if model == "" {
+	plan := modulellm.BuildConversationEmbedderPlan(conversationRuntimeConfigFromAppConfig(cfg, false))
+	if plan.Unavailable != "" {
 		return nil, ""
 	}
-	embedProvider := strings.ToLower(strings.TrimSpace(cfg.Conversation.EmbedProvider))
-	embedBaseURL := strings.TrimSpace(cfg.Conversation.EmbedBaseURL)
-	if embedProvider == "ollama" {
-		if embedBaseURL == "" {
-			embedBaseURL = cfg.Ollama.BaseURL
-		}
-		return ollama.NewOllamaEmbedder(embedBaseURL, model),
-			fmt.Sprintf("conversation embedding ollama: %s (model: %s)", embedBaseURL, model)
+	switch plan.Provider {
+	case modulellm.ConversationEmbedProviderOpenAI, modulellm.ConversationEmbedProviderLocalLLM:
+		return openai.NewOpenAIEmbedderWithOptions(cfg.LocalLLM.APIKey, plan.Model, plan.BaseURL, plan.Timeout), plan.Description
+	default:
+		return ollama.NewOllamaEmbedder(plan.BaseURL, plan.Model), plan.Description
 	}
-	timeout := time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+}
+
+func conversationRuntimeConfigFromAppConfig(cfg *config.Config, primaryWorkerReady bool) modulellm.ConversationRuntimeConfig {
+	if cfg == nil {
+		return modulellm.ConversationRuntimeConfig{PrimaryWorkerReady: primaryWorkerReady}
 	}
-	if embedProvider == "openai" {
-		if embedBaseURL == "" {
-			embedBaseURL = cfg.LocalLLM.BaseURL
-		}
-		return openai.NewOpenAIEmbedderWithOptions(cfg.LocalLLM.APIKey, model, embedBaseURL, timeout),
-			fmt.Sprintf("conversation embedding openai: %s (model: %s)", embedBaseURL, model)
+	return modulellm.ConversationRuntimeConfig{
+		LocalEnabled:       cfg.LocalLLM.Enabled,
+		LocalProvider:      cfg.LocalLLM.Provider,
+		LocalBaseURL:       cfg.LocalLLM.BaseURL,
+		LocalTimeoutSec:    cfg.LocalLLM.TimeoutSec,
+		PrimaryWorkerReady: primaryWorkerReady,
+		OllamaBaseURL:      cfg.Ollama.BaseURL,
+		OllamaModel:        cfg.Ollama.Model,
+		SummaryModel:       cfg.Conversation.SummaryModel,
+		EmbedProvider:      cfg.Conversation.EmbedProvider,
+		EmbedBaseURL:       cfg.Conversation.EmbedBaseURL,
+		EmbedModel:         cfg.Conversation.EmbedModel,
 	}
-	if cfg.LocalLLM.Enabled && cfg.LocalLLM.Provider != "ollama" {
-		return openai.NewOpenAIEmbedderWithOptions(cfg.LocalLLM.APIKey, model, cfg.LocalLLM.BaseURL, timeout),
-			fmt.Sprintf("local_llm embedding: %s (model: %s)", cfg.LocalLLM.BaseURL, model)
-	}
-	baseURL := cfg.Ollama.BaseURL
-	if cfg.LocalLLM.Enabled && cfg.LocalLLM.Provider == "ollama" {
-		baseURL = cfg.LocalLLM.BaseURL
-	}
-	return ollama.NewOllamaEmbedder(baseURL, model), fmt.Sprintf("%s (model: %s)", baseURL, model)
 }

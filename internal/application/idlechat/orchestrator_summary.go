@@ -9,6 +9,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func detectLoopReason(transcript []string) string {
@@ -181,11 +182,12 @@ func (o *IdleChatOrchestrator) saveSummary(sessionID, topic string, strategy Top
 	summary = annotateLoopSummary(summary, loopRestarted, loopReason)
 	qualityReview, promptGuidance := o.reviewSessionEnd(topic, string(strategy), transcript, summary, loopReason)
 	title := fmt.Sprintf("%d月%d日の%sの話題まとめ", endedAt.Month(), endedAt.Day(), truncate(topic, 24))
+	category, _ := modulechat.NormalizeTopicCategory(string(strategy))
 	record := SessionSummary{
 		SessionID:       sessionID,
 		Title:           title,
 		Topic:           topic,
-		Category:        categoryForSummaryStrategy(strategy),
+		Category:        category,
 		Strategy:        strategy,
 		Summary:         summary,
 		QualityReview:   qualityReview,

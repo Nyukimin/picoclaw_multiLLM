@@ -9,28 +9,46 @@ import (
 	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
 )
 
 func buildLocalAliasProvider(cfg *config.Config, alias, model string, timeout time.Duration, global chan struct{}) llm.LLMProvider {
-	var raw llm.LLMProvider
-	baseURL := localLLMBaseURLForAlias(cfg, alias)
-	switch cfg.LocalLLM.Provider {
-	case "ollama":
-		raw = ollama.NewOllamaProviderWithNumCtx(baseURL, model, 32768)
-	default:
-		raw = openai.NewOpenAIProviderWithOptions(cfg.LocalLLM.APIKey, model, baseURL, timeout)
+	aliasConfig := modulellm.LocalAliasConfig{
+		Alias:       strings.TrimSpace(alias),
+		Provider:    modulellm.NormalizeLocalProvider(localLLMProviderFromConfig(cfg)),
+		BaseURL:     localLLMBaseURLForAlias(cfg, alias),
+		Model:       localLLMModelForAlias(cfg, alias),
+		Timeout:     localLLMTimeoutForAlias(cfg, alias),
+		Concurrency: localLLMConcurrencyFromConfig(cfg),
+		NumCtx:      modulellm.LocalOllamaNumCtxForAlias(alias),
 	}
-	modelSem := make(chan struct{}, cfg.LocalLLM.ModelConcurrency)
-	return llmmiddleware.NewLimitedProvider(raw, "local-"+alias+"-"+model, global, modelSem)
+	if model != "" {
+		aliasConfig.Model = model
+	}
+	if timeout > 0 {
+		aliasConfig.Timeout = timeout
+	}
+	return buildLocalAliasProviderFromConfig(cfg, aliasConfig, global)
+}
+
+func buildLocalAliasProviderFromConfig(cfg *config.Config, aliasConfig modulellm.LocalAliasConfig, global chan struct{}) llm.LLMProvider {
+	var raw llm.LLMProvider
+	switch aliasConfig.Provider {
+	case modulellm.LocalProviderOllama:
+		raw = ollama.NewOllamaProviderWithNumCtx(aliasConfig.BaseURL, aliasConfig.Model, aliasConfig.NumCtx)
+	default:
+		apiKey := ""
+		if cfg != nil {
+			apiKey = cfg.LocalLLM.APIKey
+		}
+		raw = openai.NewOpenAIProviderWithOptions(apiKey, aliasConfig.Model, aliasConfig.BaseURL, aliasConfig.Timeout)
+	}
+	modelSem := make(chan struct{}, aliasConfig.Concurrency)
+	return llmmiddleware.NewLimitedProvider(raw, "local-"+aliasConfig.Alias+"-"+aliasConfig.Model, global, modelSem)
 }
 
 func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
+	return modulellm.FirstNonEmpty(values...)
 }
 
 func firstNonNilLLMProvider(values ...llm.LLMProvider) llm.LLMProvider {
@@ -43,11 +61,19 @@ func firstNonNilLLMProvider(values ...llm.LLMProvider) llm.LLMProvider {
 }
 
 func maxDuration(values ...time.Duration) time.Duration {
-	var max time.Duration
-	for _, v := range values {
-		if v > max {
-			max = v
-		}
+	return modulellm.MaxDuration(values...)
+}
+
+func localLLMProviderFromConfig(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
 	}
-	return max
+	return cfg.LocalLLM.Provider
+}
+
+func localLLMConcurrencyFromConfig(cfg *config.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.LocalLLM.ModelConcurrency
 }

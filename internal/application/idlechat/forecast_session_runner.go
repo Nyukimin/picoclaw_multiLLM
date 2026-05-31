@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 // RunForecastSession は6ドメインを順に回す未来展望セッションを実行する。
@@ -104,7 +105,7 @@ func (o *IdleChatOrchestrator) runForecastSessionDomains(sessionID string, gener
 			Topic:               displayTopic,
 			Category:            TopicCategoryForecast,
 			Strategy:            string(StrategyForecast),
-			InterestingnessAxis: ExpectedAxisByCategory[TopicCategoryForecast],
+			InterestingnessAxis: modulechat.ExpectedAxisByCategory[TopicCategoryForecast],
 			OpeningHook:         "現在の兆しを生活・仕事・創作・制度のどれかに置く",
 			Avoid:               "未来を断定せず、複数の分岐として扱う",
 		}

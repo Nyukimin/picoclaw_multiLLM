@@ -56,7 +56,7 @@ func (p *RawLogProvider) Generate(ctx context.Context, req domainllm.GenerateReq
 		switch strings.ToLower(strings.TrimSpace(p.Name())) {
 		case "chat":
 			writeChatRaw("generate", p.Name(), strings.TrimSpace(resp.FinishReason), req.MaxTokens, len(req.Messages), resp.Content)
-		case "worker":
+		case "worker", "chatworker":
 			writeWorkerRaw("generate", p.Name(), strings.TrimSpace(resp.FinishReason), req.MaxTokens, len(req.Messages), resp.Content)
 		}
 	}
@@ -87,7 +87,7 @@ func (p *RawLogProvider) Chat(ctx context.Context, req domainllm.ChatRequest) (d
 		switch strings.ToLower(strings.TrimSpace(p.Name())) {
 		case "chat":
 			writeChatRaw("chat", p.Name(), strings.TrimSpace(resp.FinishReason), 0, len(req.Messages), resp.Message.Content)
-		case "worker":
+		case "worker", "chatworker":
 			writeWorkerRaw("chat", p.Name(), strings.TrimSpace(resp.FinishReason), 0, len(req.Messages), resp.Message.Content)
 		}
 	}

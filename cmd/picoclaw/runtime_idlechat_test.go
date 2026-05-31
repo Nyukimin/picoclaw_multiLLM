@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func TestSelectForecastProviderPrefersCoderPriorityOverWorker(t *testing.T) {
@@ -139,7 +140,7 @@ func TestSelectForecastProviderUsesWorkerWhenNoLocalCoderAvailableAtRuntime(t *t
 	if provider != worker {
 		t.Fatalf("expected Worker local provider, got %#v", provider)
 	}
-	if label != "Worker local" {
+	if label != modulechat.ForecastWorkerFallbackLabel {
 		t.Fatalf("unexpected label: %q", label)
 	}
 }

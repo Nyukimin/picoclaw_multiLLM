@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func TestSplitTTSChunksSplitsLongFinalText(t *testing.T) {
@@ -98,7 +98,7 @@ func (b *recordingTTSBridge) StartSession(context.Context, TTSSessionStart) erro
 	return nil
 }
 
-func (b *recordingTTSBridge) PushText(_ context.Context, _ string, text string, _ *ttsapp.EmotionState) error {
+func (b *recordingTTSBridge) PushText(_ context.Context, _ string, text string, _ *moduletts.EmotionState) error {
 	b.texts = append(b.texts, text)
 	return nil
 }

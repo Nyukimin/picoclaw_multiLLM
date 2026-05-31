@@ -8,6 +8,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type distributedTTSLifecycle struct {
@@ -37,20 +38,27 @@ func (l *distributedTTSLifecycle) StartSessionForRoute(ctx context.Context, req 
 		return ""
 	}
 	ttsSessionID := fmt.Sprintf("%s-%s", req.SessionID, jobID.String())
-	ttsCtx := buildTTSContext(decision.Route, "normal", false)
-	voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
+	plan, ok := moduletts.BuildRouteTTSPlan(moduletts.RouteTTSPlanInput{
+		Route:      string(decision.Route),
+		SessionID:  ttsSessionID,
+		ResponseID: jobID.String(),
+		Urgency:    "normal",
+	})
+	if !ok {
+		return ""
+	}
 	startReq := TTSSessionStart{
-		SessionID:             ttsSessionID,
-		ResponseID:            jobID.String(),
-		CharacterID:           speakerForRoute(decision.Route),
-		VoiceID:               voiceID,
-		SpeechMode:            speechModeForRoute(decision.Route),
-		Event:                 eventForRoute(decision.Route),
-		Urgency:               ttsCtx.Urgency,
-		ConversationMode:      ttsCtx.ConversationMode,
-		UserAttentionRequired: ttsCtx.UserAttentionRequired,
-		Context:               ttsCtx,
-		VoiceProfile:          voiceProfile,
+		SessionID:             plan.SessionID,
+		ResponseID:            plan.ResponseID,
+		CharacterID:           plan.CharacterID,
+		VoiceID:               plan.VoiceID,
+		SpeechMode:            plan.SpeechMode,
+		Event:                 plan.Event,
+		Urgency:               plan.Urgency,
+		ConversationMode:      plan.ConversationMode,
+		UserAttentionRequired: plan.UserAttentionRequired,
+		Context:               emotionContextFromRouteTTS(plan.Context),
+		VoiceProfile:          plan.VoiceProfile,
 	}
 	if err := l.ttsBridge.StartSession(ctx, startReq); err != nil {
 		log.Printf("[DistributedOrch] TTS start degraded: %v", err)

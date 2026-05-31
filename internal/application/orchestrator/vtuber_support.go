@@ -6,8 +6,8 @@ import (
 	"math"
 	"strings"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func buildVTuberRequest(
@@ -15,7 +15,7 @@ func buildVTuberRequest(
 	route routing.Route,
 	sessionID string,
 	text string,
-	ctx ttsapp.EmotionContext,
+	ctx moduletts.EmotionContext,
 	voiceProfile string,
 ) (VTuberEmotionRequest, bool) {
 	filtered, emotion := buildTTSPayload(eventType, route, text, ctx, voiceProfile)
@@ -47,7 +47,7 @@ func pushVTuber(ctx context.Context, bridge VTuberBridge, req VTuberEmotionReque
 	}
 }
 
-func vtuberValence(state *ttsapp.EmotionState) float64 {
+func vtuberValence(state *moduletts.EmotionState) float64 {
 	if state == nil {
 		return 0
 	}
@@ -57,7 +57,7 @@ func vtuberValence(state *ttsapp.EmotionState) float64 {
 	return clampRange((pos-neg)*1.4, -1, 1)
 }
 
-func vtuberArousal(state *ttsapp.EmotionState) float64 {
+func vtuberArousal(state *moduletts.EmotionState) float64 {
 	if state == nil {
 		return 0
 	}
@@ -65,7 +65,7 @@ func vtuberArousal(state *ttsapp.EmotionState) float64 {
 	return clampRange((v.Alertness*0.7)+(v.Expressiveness*0.3), 0, 1)
 }
 
-func vtuberIntensity(state *ttsapp.EmotionState) float64 {
+func vtuberIntensity(state *moduletts.EmotionState) float64 {
 	if state == nil {
 		return 0
 	}
@@ -75,7 +75,7 @@ func vtuberIntensity(state *ttsapp.EmotionState) float64 {
 	return clampRange(raw, 0, 1)
 }
 
-func vtuberEmotionLabel(state *ttsapp.EmotionState) string {
+func vtuberEmotionLabel(state *moduletts.EmotionState) string {
 	if state == nil {
 		return "neutral"
 	}

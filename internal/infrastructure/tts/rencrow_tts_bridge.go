@@ -9,30 +9,10 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
-
-var allowedProviderParamKeys = map[string]struct{}{
-	"model_name":     {},
-	"model_file":     {},
-	"speaker_id":     {},
-	"speaker_name":   {},
-	"style":          {},
-	"style_weight":   {},
-	"language":       {},
-	"sdp_ratio":      {},
-	"noise":          {},
-	"noise_w":        {},
-	"split_interval": {},
-	"line_split":     {},
-	"length":         {},
-}
-
-const defaultMaxTextLength = 1000
-const defaultSynthesisTimeout = 30 * time.Second
 
 type RenCrowTTSBridgeConfig struct {
 	HTTPBaseURL        string
@@ -60,15 +40,14 @@ type RenCrowTTSBridge struct {
 }
 
 func NewRenCrowTTSBridge(cfg RenCrowTTSBridgeConfig) *RenCrowTTSBridge {
-	if strings.TrimSpace(cfg.VoiceID) == "" {
-		cfg.VoiceID = "female_01"
-	}
-	if cfg.RequestTimeout <= 0 {
-		cfg.RequestTimeout = defaultSynthesisTimeout
-	}
-	if cfg.ProviderParams == nil {
-		cfg.ProviderParams = map[string]any{}
-	}
+	defaults := moduletts.ApplyRenCrowBridgeConfigDefaults(moduletts.RenCrowBridgeConfigDefaultsInput{
+		VoiceID:        cfg.VoiceID,
+		RequestTimeout: cfg.RequestTimeout,
+		ProviderParams: cfg.ProviderParams,
+	})
+	cfg.VoiceID = defaults.VoiceID
+	cfg.RequestTimeout = defaults.RequestTimeout
+	cfg.ProviderParams = defaults.ProviderParams
 	transport := &http.Transport{}
 	if cfg.TLSSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -81,31 +60,38 @@ func NewRenCrowTTSBridge(cfg RenCrowTTSBridgeConfig) *RenCrowTTSBridge {
 }
 
 func (b *RenCrowTTSBridge) StartSession(_ context.Context, req orchestrator.TTSSessionStart) error {
-	if strings.TrimSpace(req.SessionID) == "" {
-		return fmt.Errorf("session_id is required")
+	start, err := moduletts.BuildRenCrowSessionStart(moduletts.RenCrowSessionStartInput{
+		SessionID:      req.SessionID,
+		CharacterID:    req.CharacterID,
+		ResponseID:     req.ResponseID,
+		RequestedVoice: req.VoiceID,
+		DefaultVoice:   b.cfg.VoiceID,
+	})
+	if err != nil {
+		return err
 	}
 	b.mu.Lock()
-	b.sessions[req.SessionID] = &renCrowTTSSession{
-		characterID: strings.TrimSpace(req.CharacterID),
-		responseID:  strings.TrimSpace(req.ResponseID),
-		voiceID:     chooseNonEmpty(req.VoiceID, b.cfg.VoiceID),
+	b.sessions[start.SessionID] = &renCrowTTSSession{
+		characterID: start.CharacterID,
+		responseID:  start.ResponseID,
+		voiceID:     start.VoiceID,
 		nextChunk:   0,
 	}
 	b.mu.Unlock()
 	return nil
 }
 
-func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+func (b *RenCrowTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error {
 	return b.PushTextWithDisplay(ctx, sessionID, text, text, emotion)
 }
 
-func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
-	rawText := strings.TrimSpace(text)
-	if rawText == "" {
-		return nil
+func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *moduletts.EmotionState) error {
+	rawText, empty, err := moduletts.PrepareRenCrowSpeechText(text)
+	if err != nil {
+		return invalidRequestError(err.Error())
 	}
-	if utf8.RuneCountInString(rawText) > defaultMaxTextLength {
-		return invalidRequestError("text exceeds max_text_length")
+	if empty {
+		return nil
 	}
 	plan := planTTSChunks(rawText, displayText)
 	if len(plan) == 0 {
@@ -115,31 +101,18 @@ func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID st
 	session := b.getOrCreateSession(sessionID)
 	characterID := session.characterID
 	responseID := session.responseID
-	voiceID := chooseNonEmpty(session.voiceID, b.cfg.VoiceID)
+	voiceID := moduletts.ChooseNonEmpty(session.voiceID, b.cfg.VoiceID)
 
 	for _, item := range plan {
-		speechText := ttsapp.EnsureEmotionPrefixForCharacter(item.SpeechText, emotion, characterID)
-		payload := map[string]any{
-			"text":     speechText,
-			"voice_id": fallbackVoiceID(voiceID, emotion),
-		}
-		if speed, ok := extractSpeechSpeed(emotion); ok {
-			if speed <= 0 {
-				return invalidRequestError("speed must be > 0")
-			}
-			payload["speed"] = speed
-		}
-		if pitch, ok := extractSpeechPitch(emotion); ok {
-			payload["pitch"] = pitch
-		}
-		if len(b.cfg.ProviderParams) > 0 {
-			filtered, err := filterProviderParams(b.cfg.ProviderParams)
-			if err != nil {
-				return invalidRequestError(err.Error())
-			}
-			if len(filtered) > 0 {
-				payload["provider_params"] = filtered
-			}
+		speechText := moduletts.EnsureEmotionPrefixForCharacter(item.SpeechText, emotion, characterID)
+		payload, err := moduletts.BuildSynthesisPayload(moduletts.SynthesisPayloadInput{
+			Text:           speechText,
+			DefaultVoiceID: voiceID,
+			Emotion:        emotion,
+			ProviderParams: b.cfg.ProviderParams,
+		})
+		if err != nil {
+			return invalidRequestError(err.Error())
 		}
 
 		reqBody, err := json.Marshal(payload)
@@ -159,7 +132,7 @@ func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID st
 		if err := json.Unmarshal(body, &out); err != nil {
 			return fmt.Errorf("decode /synthesis response: %w", err)
 		}
-		if strings.TrimSpace(out.AudioPath) == "" && strings.TrimSpace(out.AudioURL) == "" {
+		if !moduletts.HasRenCrowSynthesisAudioOutput(out.AudioPath, out.AudioURL) {
 			return fmt.Errorf("/synthesis response missing audio_path/audio_url")
 		}
 

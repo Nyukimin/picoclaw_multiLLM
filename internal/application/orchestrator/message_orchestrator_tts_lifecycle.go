@@ -7,6 +7,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type messageTTSLifecycle struct {
@@ -35,20 +36,27 @@ func (l *messageTTSLifecycle) StartSessionForRoute(ctx context.Context, req Proc
 	if l.ttsBridge == nil || ttsSessionID == "" {
 		return
 	}
-	ttsCtx := buildTTSContext(decision.Route, "normal", false)
-	voiceID, voiceProfile := voiceForSpeaker(speakerForRoute(decision.Route))
+	plan, ok := moduletts.BuildRouteTTSPlan(moduletts.RouteTTSPlanInput{
+		Route:      string(decision.Route),
+		SessionID:  ttsSessionID,
+		ResponseID: jobID.String(),
+		Urgency:    "normal",
+	})
+	if !ok {
+		return
+	}
 	startReq := TTSSessionStart{
-		SessionID:             ttsSessionID,
-		ResponseID:            jobID.String(),
-		CharacterID:           speakerForRoute(decision.Route),
-		VoiceID:               voiceID,
-		SpeechMode:            speechModeForRoute(decision.Route),
-		Event:                 eventForRoute(decision.Route),
-		Urgency:               ttsCtx.Urgency,
-		ConversationMode:      ttsCtx.ConversationMode,
-		UserAttentionRequired: ttsCtx.UserAttentionRequired,
-		Context:               ttsCtx,
-		VoiceProfile:          voiceProfile,
+		SessionID:             plan.SessionID,
+		ResponseID:            plan.ResponseID,
+		CharacterID:           plan.CharacterID,
+		VoiceID:               plan.VoiceID,
+		SpeechMode:            plan.SpeechMode,
+		Event:                 plan.Event,
+		Urgency:               plan.Urgency,
+		ConversationMode:      plan.ConversationMode,
+		UserAttentionRequired: plan.UserAttentionRequired,
+		Context:               emotionContextFromRouteTTS(plan.Context),
+		VoiceProfile:          plan.VoiceProfile,
 	}
 	if err := l.ttsBridge.StartSession(ctx, startReq); err != nil {
 		log.Printf("[MessageOrch] TTS route update degraded: %v", err)
@@ -89,16 +97,5 @@ func (l *messageTTSLifecycle) Push(ctx context.Context, sessionID string, route 
 	req, ok := buildVTuberRequest(eventType, route, sessionID, text, ttsCtx, voiceProfile)
 	if ok {
 		pushVTuber(ctx, l.vtuberBridge, req, "[MessageOrch] VTuber push degraded:")
-	}
-}
-
-func speechModeForRoute(route routing.Route) string {
-	switch route {
-	case routing.RouteOPS:
-		return "report"
-	case routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH:
-		return "report"
-	default:
-		return "conversational"
 	}
 }

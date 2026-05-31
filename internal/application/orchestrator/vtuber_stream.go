@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type vtuberStreamForwarder struct {
@@ -13,11 +13,10 @@ type vtuberStreamForwarder struct {
 	sessionID    string
 	route        routing.Route
 	eventType    string
-	ttsCtx       ttsapp.EmotionContext
+	ttsCtx       moduletts.EmotionContext
 	voiceProfile string
 	logPrefix    string
-	pending      strings.Builder
-	emitted      bool
+	chunker      moduletts.StreamChunker
 }
 
 func newVTuberStreamForwarder(bridge VTuberBridge, sessionID string, route routing.Route, eventType, logPrefix string) *vtuberStreamForwarder {
@@ -40,14 +39,7 @@ func (f *vtuberStreamForwarder) OnToken(ctx context.Context, token string) {
 	if f == nil || token == "" {
 		return
 	}
-	f.pending.WriteString(token)
-	for {
-		chunk, rest, ok := nextTTSChunk(f.pending.String(), false)
-		if !ok {
-			return
-		}
-		f.pending.Reset()
-		f.pending.WriteString(rest)
+	for _, chunk := range f.chunker.AcceptToken(token) {
 		f.emit(ctx, chunk)
 	}
 }
@@ -56,16 +48,9 @@ func (f *vtuberStreamForwarder) Finalize(ctx context.Context, finalText string) 
 	if f == nil {
 		return
 	}
-	if f.emitted {
-		chunk, _, ok := nextTTSChunk(f.pending.String(), true)
-		if ok {
-			f.pending.Reset()
-			f.emit(ctx, chunk)
-		}
-		return
+	for _, chunk := range f.chunker.FinalizeOne(finalText) {
+		f.emit(ctx, chunk)
 	}
-	f.pending.Reset()
-	f.emit(ctx, finalText)
 }
 
 func (f *vtuberStreamForwarder) emit(ctx context.Context, text string) {
@@ -74,5 +59,4 @@ func (f *vtuberStreamForwarder) emit(ctx context.Context, text string) {
 		return
 	}
 	pushVTuber(ctx, f.bridge, req, f.logPrefix)
-	f.emitted = true
 }

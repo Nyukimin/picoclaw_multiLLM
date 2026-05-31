@@ -5,19 +5,11 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
-
-type viewerActiveControl struct {
-	mu                  sync.RWMutex
-	activeAudioViewerID string
-	activeInputViewerID string
-	activeAudioUpdated  time.Time
-	activeInputUpdated  time.Time
-}
 
 type viewerActiveClaimRequest struct {
 	ViewerClientID string `json:"viewer_client_id"`
@@ -26,120 +18,12 @@ type viewerActiveClaimRequest struct {
 	Action         string `json:"action,omitempty"`
 }
 
-type viewerActiveControlSnapshot struct {
-	ActiveAudioViewerID string `json:"active_audio_viewer_id"`
-	ActiveInputViewerID string `json:"active_input_viewer_id"`
-}
-
-var activeViewerControl = &viewerActiveControl{}
-
 var viewerActiveOwnerTTL = 90 * time.Second
 
-func (c *viewerActiveControl) claim(kind, viewerClientID string) viewerActiveControlSnapshot {
-	id := strings.TrimSpace(viewerClientID)
-	kind = strings.TrimSpace(kind)
-	now := time.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pruneExpiredLocked(now)
-	switch kind {
-	case "audio":
-		c.activeAudioViewerID = id
-		c.activeAudioUpdated = now
-	case "input":
-		c.activeInputViewerID = id
-		c.activeInputUpdated = now
-	}
-	return viewerActiveControlSnapshot{
-		ActiveAudioViewerID: c.activeAudioViewerID,
-		ActiveInputViewerID: c.activeInputViewerID,
-	}
-}
-
-func (c *viewerActiveControl) heartbeat(kind, viewerClientID string) viewerActiveControlSnapshot {
-	id := strings.TrimSpace(viewerClientID)
-	kind = strings.TrimSpace(kind)
-	now := time.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pruneExpiredLocked(now)
-	switch kind {
-	case "audio":
-		if id != "" && c.activeAudioViewerID == id {
-			c.activeAudioUpdated = now
-		}
-	case "input":
-		if id != "" && c.activeInputViewerID == id {
-			c.activeInputUpdated = now
-		}
-	}
-	return viewerActiveControlSnapshot{
-		ActiveAudioViewerID: c.activeAudioViewerID,
-		ActiveInputViewerID: c.activeInputViewerID,
-	}
-}
-
-func (c *viewerActiveControl) release(kind, viewerClientID string) viewerActiveControlSnapshot {
-	id := strings.TrimSpace(viewerClientID)
-	kind = strings.TrimSpace(kind)
-	now := time.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pruneExpiredLocked(now)
-	switch kind {
-	case "audio":
-		if id != "" && c.activeAudioViewerID == id {
-			c.activeAudioViewerID = ""
-			c.activeAudioUpdated = time.Time{}
-		}
-	case "input":
-		if id != "" && c.activeInputViewerID == id {
-			c.activeInputViewerID = ""
-			c.activeInputUpdated = time.Time{}
-		}
-	}
-	return viewerActiveControlSnapshot{
-		ActiveAudioViewerID: c.activeAudioViewerID,
-		ActiveInputViewerID: c.activeInputViewerID,
-	}
-}
-
-func (c *viewerActiveControl) isActiveAudio(viewerClientID string) bool {
-	id := strings.TrimSpace(viewerClientID)
-	now := time.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pruneExpiredLocked(now)
-	return id != "" && c.activeAudioViewerID != "" && c.activeAudioViewerID == id
-}
-
-func (c *viewerActiveControl) snapshot() viewerActiveControlSnapshot {
-	now := time.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pruneExpiredLocked(now)
-	return viewerActiveControlSnapshot{
-		ActiveAudioViewerID: c.activeAudioViewerID,
-		ActiveInputViewerID: c.activeInputViewerID,
-	}
-}
-
-func (c *viewerActiveControl) pruneExpiredLocked(now time.Time) {
-	if viewerActiveOwnerTTL <= 0 || now.IsZero() {
-		return
-	}
-	if c.activeAudioViewerID != "" && !c.activeAudioUpdated.IsZero() && now.Sub(c.activeAudioUpdated) > viewerActiveOwnerTTL {
-		c.activeAudioViewerID = ""
-		c.activeAudioUpdated = time.Time{}
-	}
-	if c.activeInputViewerID != "" && !c.activeInputUpdated.IsZero() && now.Sub(c.activeInputUpdated) > viewerActiveOwnerTTL {
-		c.activeInputViewerID = ""
-		c.activeInputUpdated = time.Time{}
-	}
-}
+var activeViewerControl = moduletts.NewViewerActiveControlStore(viewerActiveOwnerTTL)
 
 func resetActiveViewerControlForTest() {
-	activeViewerControl = &viewerActiveControl{}
+	activeViewerControl = moduletts.NewViewerActiveControlStore(viewerActiveOwnerTTL)
 }
 
 func handleViewerActiveClaim(emit func(orchestrator.OrchestratorEvent)) http.HandlerFunc {
@@ -160,7 +44,7 @@ func handleViewerActiveClaim(emit func(orchestrator.OrchestratorEvent)) http.Han
 			return
 		}
 		kind := strings.TrimSpace(req.Kind)
-		if kind != "audio" && kind != "input" {
+		if kind != moduletts.ViewerActiveKindAudio && kind != moduletts.ViewerActiveKindInput {
 			http.Error(w, "kind must be audio or input", http.StatusBadRequest)
 			return
 		}
@@ -168,14 +52,14 @@ func handleViewerActiveClaim(emit func(orchestrator.OrchestratorEvent)) http.Han
 		if action == "" {
 			action = "claim"
 		}
-		var snapshot viewerActiveControlSnapshot
+		var snapshot moduletts.ViewerActiveControlSnapshot
 		switch action {
 		case "claim":
-			snapshot = activeViewerControl.claim(kind, viewerID)
+			snapshot = activeViewerControl.Claim(kind, viewerID)
 		case "heartbeat":
-			snapshot = activeViewerControl.heartbeat(kind, viewerID)
+			snapshot = activeViewerControl.Heartbeat(kind, viewerID)
 		case "release":
-			snapshot = activeViewerControl.release(kind, viewerID)
+			snapshot = activeViewerControl.Release(kind, viewerID)
 		default:
 			http.Error(w, "action must be claim, heartbeat, or release", http.StatusBadRequest)
 			return

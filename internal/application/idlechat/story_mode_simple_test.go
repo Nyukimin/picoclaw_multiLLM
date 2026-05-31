@@ -10,6 +10,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type blockingStoryProvider struct {
@@ -47,7 +48,7 @@ func TestSimpleStoryTopicKeepsBaseAndTransform(t *testing.T) {
 	if !strings.Contains(result.Topic, "桃太郎") || !strings.Contains(result.Topic, "AIロボット") || !strings.Contains(result.Topic, "語り直") {
 		t.Fatalf("story topic lost base or transform axis: %q", result.Topic)
 	}
-	if err := ValidateTopicCandidate(TopicCategoryStory, result.Seed, result.Candidates[0]); err != nil {
+	if err := modulechat.ValidateTopicCandidate(TopicCategoryStory, result.Seed, result.Candidates[0]); err != nil {
 		t.Fatalf("story topic candidate should satisfy contract: %v", err)
 	}
 }

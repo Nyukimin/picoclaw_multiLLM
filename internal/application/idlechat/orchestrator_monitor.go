@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func (o *IdleChatOrchestrator) monitorLoop() {
@@ -236,12 +237,12 @@ func (o *IdleChatOrchestrator) dialogueTopicResultLocked(topic string, strategy 
 	if o.currentTopicResult != nil && strings.TrimSpace(o.currentTopicResult.Topic) == strings.TrimSpace(topic) {
 		return *o.currentTopicResult
 	}
-	category, _ := TopicCategoryFromStrategy(strategy)
+	category, _ := modulechat.NormalizeTopicCategory(string(strategy))
 	return TopicGenerationResult{
 		Topic:               topic,
 		Category:            category,
 		Strategy:            string(strategy),
-		InterestingnessAxis: ExpectedAxisByCategory[category],
+		InterestingnessAxis: modulechat.ExpectedAxisByCategory[category],
 	}
 }
 

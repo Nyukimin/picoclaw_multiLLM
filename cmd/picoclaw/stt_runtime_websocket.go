@@ -9,33 +9,35 @@ import (
 	"time"
 
 	sttinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/stt"
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 	"golang.org/x/net/websocket"
 )
 
 func resolveSTTWebSocketHandler(sttProviderURL, sttGatewayURL string) http.Handler {
-	sttWSHandler := handleSTTWebSocket(sttProviderURL)
-	if strings.TrimSpace(sttGatewayURL) != "" {
-		sttWSHandler = handleSTTWebSocketProxy(sttGatewayURL)
+	plan := modulestt.BuildWebSocketHandlerPlan(false, sttProviderURL, sttGatewayURL)
+	if plan.Mode == modulestt.WebSocketModeGateway {
+		return handleSTTWebSocketProxy(plan.GatewayURL)
 	}
-	return sttWSHandler
+	return handleSTTWebSocket(plan.ProviderURL)
 }
 
 func resolveSTTWebSocketHandlerWithProvider(provider sttinfra.Provider, sttProviderURL, sttGatewayURL string) http.Handler {
-	sttWSHandler := handleSTTWebSocketProvider(provider)
-	if provider == nil {
-		sttWSHandler = handleSTTWebSocket(sttProviderURL)
+	plan := modulestt.BuildWebSocketHandlerPlan(provider != nil, sttProviderURL, sttGatewayURL)
+	switch plan.Mode {
+	case modulestt.WebSocketModeGateway:
+		return handleSTTWebSocketProxy(plan.GatewayURL)
+	case modulestt.WebSocketModeProvider:
+		return handleSTTWebSocketProvider(provider)
+	default:
+		return handleSTTWebSocket(plan.ProviderURL)
 	}
-	if strings.TrimSpace(sttGatewayURL) != "" {
-		sttWSHandler = handleSTTWebSocketProxy(sttGatewayURL)
-	}
-	return sttWSHandler
 }
 
 func registerSTTRoutes(mux *http.ServeMux, sttWSHandler http.Handler) {
 	// Primary endpoint is /stt. Keep /stt-ws and /ws for backward compatibility.
-	mux.Handle("/stt", sttWSHandler)
-	mux.Handle("/stt-ws", sttWSHandler)
-	mux.Handle("/ws", sttWSHandler)
+	for _, path := range modulestt.WebSocketRoutePaths {
+		mux.Handle(path, sttWSHandler)
+	}
 }
 
 // handleSTTWebSocketProxy は /stt を voice-bridge（STT Gateway）へ透過プロキシする。
@@ -79,15 +81,7 @@ func handleSTTWebSocketProxy(gatewayURL string) http.Handler {
 }
 
 func isSTTTextFramePayload(payload []byte) bool {
-	if len(payload) == 0 {
-		return true
-	}
-	switch payload[0] {
-	case '{', '[', '"':
-		return json.Valid(payload)
-	default:
-		return false
-	}
+	return modulestt.IsWebSocketTextFramePayload(payload)
 }
 
 func handleSTTWebSocket(sttProviderURL string) http.Handler {
@@ -101,28 +95,18 @@ func handleSTTWebSocket(sttProviderURL string) http.Handler {
 
 		autoFinalTimeout := sttFinalTimeoutFromEnv()
 		silenceThreshold := sttSilenceAbsThresholdFromEnv()
-		adaptiveInferTimeout := sttHTTPTimeoutFromEnv()
-		speechStarted := false
-		lastDraft := ""
-		lastDraftAt := time.Time{}
-		lastVoiceAt := time.Time{}
-		inferCooldownUntil := time.Time{}
-		lastTimeoutNotice := time.Time{}
-		timeoutStreak := 0
-		successStreak := 0
+		draftState := modulestt.DraftState{}
+		adaptiveState := modulestt.AdaptiveTimeoutState{
+			Timeout: sttHTTPTimeoutFromEnv(),
+		}
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			var payload []byte
 			if err := websocket.Message.Receive(conn, &payload); err != nil {
 				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					if speechStarted && strings.TrimSpace(lastDraft) != "" && !lastDraftAt.IsZero() && time.Since(lastDraftAt) >= autoFinalTimeout {
-						_ = sendSTTEvent(conn, map[string]any{
-							"type": "final",
-							"text": strings.TrimSpace(lastDraft),
-						})
-						lastDraft = ""
-						lastDraftAt = time.Time{}
-						speechStarted = false
+					if finalText, ok := modulestt.FinalTextAfterDraftTimeout(draftState, time.Now(), autoFinalTimeout); ok {
+						_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+						draftState = modulestt.ResetDraftAfterFinal(draftState, false)
 					}
 					continue
 				}
@@ -135,104 +119,63 @@ func handleSTTWebSocket(sttProviderURL string) http.Handler {
 			control, isControl := parseSTTControlMessage(payload)
 			if isControl {
 				if control == "final_pending" {
-					finalText := strings.TrimSpace(lastDraft)
-					if finalText != "" {
-						_ = sendSTTEvent(conn, map[string]any{
-							"type": "final",
-							"text": finalText,
-						})
-						lastDraft = ""
-						lastDraftAt = time.Time{}
-						speechStarted = false
+					if finalText, ok := modulestt.FinalTextForPending(draftState); ok {
+						_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+						draftState = modulestt.ResetDraftAfterFinal(draftState, false)
 					}
 				}
 				continue
 			}
 			audioPayload := normalizeSTTAudioPayload(payload)
 			if isLikelySilentWAV(audioPayload, silenceThreshold) {
-				if speechStarted && strings.TrimSpace(lastDraft) != "" && !lastVoiceAt.IsZero() && time.Since(lastVoiceAt) >= autoFinalTimeout {
-					_ = sendSTTEvent(conn, map[string]any{
-						"type": "final",
-						"text": strings.TrimSpace(lastDraft),
-					})
-					lastDraft = ""
-					lastDraftAt = time.Time{}
-					lastVoiceAt = time.Time{}
-					speechStarted = false
+				if finalText, ok := modulestt.FinalTextAfterSilence(draftState, time.Now(), autoFinalTimeout); ok {
+					_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+					draftState = modulestt.ResetDraftAfterFinal(draftState, true)
 				}
 				continue
 			}
-			lastVoiceAt = time.Now()
-			if !inferCooldownUntil.IsZero() && time.Now().Before(inferCooldownUntil) {
+			draftState = modulestt.MarkVoiceObserved(draftState, time.Now())
+			if modulestt.InferenceInCooldown(adaptiveState, time.Now()) {
 				continue
 			}
-			if !speechStarted {
-				speechStarted = true
-				_ = sendSTTEvent(conn, map[string]any{"type": "speech_start"})
+			var started bool
+			draftState, started = modulestt.MarkSpeechStarted(draftState)
+			if started {
+				_ = sendSTTEvent(conn, modulestt.BuildSpeechStartEvent())
 			}
 
-			text, err := sttInferViaHTTP(sttProviderURL, audioPayload, adaptiveInferTimeout)
+			text, err := sttInferViaHTTP(sttProviderURL, audioPayload, adaptiveState.Timeout)
 			if err != nil {
 				if isSTTTimeoutErr(err) {
-					timeoutStreak++
-					successStreak = 0
-					if timeoutStreak >= 2 {
-						adaptiveInferTimeout = adjustAdaptiveSTTTimeout(adaptiveInferTimeout, 300*time.Millisecond, 1200*time.Millisecond, 3200*time.Millisecond)
-					}
-					inferCooldownUntil = time.Now().Add(800 * time.Millisecond)
-					if speechStarted && strings.TrimSpace(lastDraft) != "" {
+					update := modulestt.ApplyTimeoutFailure(adaptiveState, time.Now(), 1200*time.Millisecond, 3200*time.Millisecond)
+					adaptiveState = update.State
+					if finalText, ok := modulestt.FinalTextOnProviderError(draftState); ok {
 						// Fail-open: if provider stalls, finalize with the latest draft so UX does not hang.
-						_ = sendSTTEvent(conn, map[string]any{
-							"type": "final",
-							"text": strings.TrimSpace(lastDraft),
-						})
-						lastDraft = ""
-						lastDraftAt = time.Time{}
-						lastVoiceAt = time.Time{}
-						speechStarted = false
+						_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+						draftState = modulestt.ResetDraftAfterFinal(draftState, true)
 					}
 					// Keep UI informative without error spam when provider stalls.
-					if time.Since(lastTimeoutNotice) > 3*time.Second {
-						lastTimeoutNotice = time.Now()
-						_ = sendSTTEvent(conn, map[string]any{
-							"type": "status",
-							"text": "stt provider timeout (retrying)",
-						})
+					if update.ShouldSendNotice {
+						_ = sendSTTEvent(conn, modulestt.BuildTimeoutStatusEvent())
 					}
 					continue
 				}
-				if speechStarted && strings.TrimSpace(lastDraft) != "" {
+				if finalText, ok := modulestt.FinalTextOnProviderError(draftState); ok {
 					// Fail-open: if provider stalls, finalize with the latest draft so UX does not hang.
-					_ = sendSTTEvent(conn, map[string]any{
-						"type": "final",
-						"text": strings.TrimSpace(lastDraft),
-					})
-					lastDraft = ""
-					lastDraftAt = time.Time{}
-					lastVoiceAt = time.Time{}
-					speechStarted = false
+					_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+					draftState = modulestt.ResetDraftAfterFinal(draftState, true)
 					continue
 				}
 				_ = sendSTTError(conn, "stt inference failed: "+err.Error())
 				continue
 			}
-			normalized := strings.TrimSpace(text)
+			normalized := modulestt.NormalizeTranscriptText(text)
 			if normalized == "" {
 				continue
 			}
-			successStreak++
-			timeoutStreak = 0
-			if successStreak >= 4 {
-				adaptiveInferTimeout = adjustAdaptiveSTTTimeout(adaptiveInferTimeout, -100*time.Millisecond, 1200*time.Millisecond, 3200*time.Millisecond)
-				successStreak = 0
-			}
-			inferCooldownUntil = time.Time{}
-			lastDraft = normalized
-			lastDraftAt = time.Now()
-			_ = sendSTTEvent(conn, map[string]any{
-				"type": "draft",
-				"text": normalized,
-			})
+			adaptiveState = modulestt.ApplyInferenceSuccess(adaptiveState, time.Now(), 1200*time.Millisecond, 3200*time.Millisecond)
+			draftState = modulestt.ApplyDraftTranscript(draftState, normalized, time.Now())
+			_ = sendSTTEvent(conn, modulestt.BuildDraftEvent(normalized))
 		}
 	})
 }
@@ -244,32 +187,19 @@ func handleSTTWebSocketProvider(provider sttinfra.Provider) http.Handler {
 			_ = sendSTTError(conn, "stt provider is not configured")
 			return
 		}
-		_ = sendSTTEvent(conn, map[string]any{
-			"type":       "session_info",
-			"session_id": sttinfra.NextEventID(time.Now()),
-			"provider":   provider.Name(),
-		})
-		_ = sendSTTEvent(conn, map[string]any{
-			"type":        "ready",
-			"sample_rate": 16000,
-		})
+		sendSTTSessionReady(conn, provider.Name())
 
 		autoFinalTimeout := sttFinalTimeoutFromEnv()
 		silenceThreshold := sttSilenceAbsThresholdFromEnv()
-		speechStarted := false
-		lastDraft := ""
-		lastDraftAt := time.Time{}
-		lastVoiceAt := time.Time{}
+		draftState := modulestt.DraftState{}
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			var payload []byte
 			if err := websocket.Message.Receive(conn, &payload); err != nil {
 				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					if speechStarted && strings.TrimSpace(lastDraft) != "" && !lastDraftAt.IsZero() && time.Since(lastDraftAt) >= autoFinalTimeout {
-						_ = sendSTTEvent(conn, map[string]any{"type": "final", "text": strings.TrimSpace(lastDraft)})
-						lastDraft = ""
-						lastDraftAt = time.Time{}
-						speechStarted = false
+					if finalText, ok := modulestt.FinalTextAfterDraftTimeout(draftState, time.Now(), autoFinalTimeout); ok {
+						_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+						draftState = modulestt.ResetDraftAfterFinal(draftState, false)
 					}
 					continue
 				}
@@ -281,85 +211,54 @@ func handleSTTWebSocketProvider(provider sttinfra.Provider) http.Handler {
 			control, isControl := parseSTTControlMessage(payload)
 			if isControl {
 				if control == "final_pending" {
-					finalText := strings.TrimSpace(lastDraft)
-					if finalText != "" {
-						_ = sendSTTEvent(conn, map[string]any{"type": "final", "text": finalText})
-						lastDraft = ""
-						lastDraftAt = time.Time{}
-						speechStarted = false
+					if finalText, ok := modulestt.FinalTextForPending(draftState); ok {
+						_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+						draftState = modulestt.ResetDraftAfterFinal(draftState, false)
 					}
 				}
 				continue
 			}
 			audioPayload := normalizeSTTAudioPayload(payload)
 			if isLikelySilentWAV(audioPayload, silenceThreshold) {
-				if speechStarted && strings.TrimSpace(lastDraft) != "" && !lastVoiceAt.IsZero() && time.Since(lastVoiceAt) >= autoFinalTimeout {
-					_ = sendSTTEvent(conn, map[string]any{"type": "final", "text": strings.TrimSpace(lastDraft)})
-					lastDraft = ""
-					lastDraftAt = time.Time{}
-					lastVoiceAt = time.Time{}
-					speechStarted = false
+				if finalText, ok := modulestt.FinalTextAfterSilence(draftState, time.Now(), autoFinalTimeout); ok {
+					_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+					draftState = modulestt.ResetDraftAfterFinal(draftState, true)
 				}
 				continue
 			}
-			lastVoiceAt = time.Now()
-			if !speechStarted {
-				speechStarted = true
-				_ = sendSTTEvent(conn, map[string]any{"type": "speech_start"})
+			draftState = modulestt.MarkVoiceObserved(draftState, time.Now())
+			var started bool
+			draftState, started = modulestt.MarkSpeechStarted(draftState)
+			if started {
+				_ = sendSTTEvent(conn, modulestt.BuildSpeechStartEvent())
 			}
 			result, err := provider.Transcribe(context.Background(), audioPayload)
 			if err != nil {
-				if speechStarted && strings.TrimSpace(lastDraft) != "" {
-					_ = sendSTTEvent(conn, map[string]any{"type": "final", "text": strings.TrimSpace(lastDraft)})
-					lastDraft = ""
-					lastDraftAt = time.Time{}
-					lastVoiceAt = time.Time{}
-					speechStarted = false
+				if finalText, ok := modulestt.FinalTextOnProviderError(draftState); ok {
+					_ = sendSTTEvent(conn, modulestt.BuildFinalEvent(finalText))
+					draftState = modulestt.ResetDraftAfterFinal(draftState, true)
 					continue
 				}
 				_ = sendSTTError(conn, "stt inference failed: "+err.Error())
 				continue
 			}
-			normalized := strings.TrimSpace(result.Text)
+			normalized := modulestt.NormalizeTranscriptText(result.Text)
 			if normalized == "" {
 				continue
 			}
-			lastDraft = normalized
-			lastDraftAt = time.Now()
-			_ = sendSTTEvent(conn, map[string]any{"type": "draft", "text": normalized})
+			draftState = modulestt.ApplyDraftTranscript(draftState, normalized, time.Now())
+			_ = sendSTTEvent(conn, modulestt.BuildDraftEvent(normalized))
 		}
 	})
 }
 
 func sendSTTSessionReady(conn *websocket.Conn, provider string) {
-	_ = sendSTTEvent(conn, map[string]any{
-		"type":       "session_info",
-		"session_id": sttinfra.NextEventID(time.Now()),
-		"provider":   strings.TrimSpace(provider),
-	})
-	_ = sendSTTEvent(conn, map[string]any{
-		"type":        "ready",
-		"sample_rate": 16000,
-	})
+	_ = sendSTTEvent(conn, modulestt.BuildSessionInfoEvent(sttinfra.NextEventID(time.Now()), provider))
+	_ = sendSTTEvent(conn, modulestt.BuildReadyEvent())
 }
 
 func parseSTTControlMessage(payload []byte) (string, bool) {
-	if len(payload) == 0 {
-		return "", false
-	}
-	lead := payload[0]
-	if lead != '{' && lead != '[' && lead != '"' {
-		return "", false
-	}
-	var obj map[string]any
-	if err := json.Unmarshal(payload, &obj); err != nil {
-		return "", false
-	}
-	msgType, _ := obj["type"].(string)
-	if strings.TrimSpace(msgType) != "" {
-		return strings.TrimSpace(msgType), true
-	}
-	return "", false
+	return modulestt.ParseControlMessage(payload)
 }
 
 func sendSTTEvent(conn *websocket.Conn, event map[string]any) error {
@@ -371,8 +270,5 @@ func sendSTTEvent(conn *websocket.Conn, event map[string]any) error {
 }
 
 func sendSTTError(conn *websocket.Conn, message string) error {
-	return sendSTTEvent(conn, map[string]any{
-		"type":  "error",
-		"error": strings.TrimSpace(message),
-	})
+	return sendSTTEvent(conn, modulestt.BuildErrorEvent(message))
 }

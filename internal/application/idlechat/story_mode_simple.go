@@ -10,6 +10,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 // simpleStoryTales は簡易版物語生成で使う昔話リスト。
@@ -246,7 +247,7 @@ func buildSimpleStoryTopicResult(sourceTitle, protagonist string) TopicGeneratio
 	topic := fmt.Sprintf("%sを、主人公%sの視点で語り直す物語", sourceTitle, protagonist)
 	candidate := TopicCandidate{
 		Topic:               topic,
-		InterestingnessAxis: ExpectedAxisByCategory[TopicCategoryStory],
+		InterestingnessAxis: modulechat.ExpectedAxisByCategory[TopicCategoryStory],
 		OpeningHook:         fmt.Sprintf("%sの骨格を残しつつ、%sなら何を見落とさないかを拾う", sourceTitle, protagonist),
 		Avoid:               "元話のあらすじ紹介だけで終わらせない",
 	}
@@ -255,13 +256,13 @@ func buildSimpleStoryTopicResult(sourceTitle, protagonist string) TopicGeneratio
 		StoryBase:      sourceTitle,
 		StoryTransform: protagonist,
 	}
-	if err := ValidateTopicCandidate(TopicCategoryStory, seed, candidate); err != nil {
+	if err := modulechat.ValidateTopicCandidate(TopicCategoryStory, seed, candidate); err != nil {
 		log.Printf("[SimpleStory] story topic contract violation: %v", err)
 	}
 	return TopicGenerationResult{
 		Topic:               candidate.Topic,
 		Category:            TopicCategoryStory,
-		Strategy:            StrategyFromCategory(TopicCategoryStory),
+		Strategy:            modulechat.StrategyFromTopicCategory(TopicCategoryStory),
 		InterestingnessAxis: candidate.InterestingnessAxis,
 		OpeningHook:         candidate.OpeningHook,
 		Avoid:               candidate.Avoid,

@@ -1,125 +1,92 @@
 package main
 
 import (
-	"fmt"
-	"net/url"
-	"strings"
-	"time"
-
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	sttinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/stt"
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 func sttStreamURLFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if raw := strings.TrimSpace(cfg.STT.StreamURL); raw != "" {
-		return raw
-	}
-	return inferSTTStreamURLFromProviderURL(cfg.STT.ProviderURL)
+	return modulestt.StreamURL(sttRuntimeURLConfigFromAppConfig(cfg, ""))
 }
 
 func inferSTTStreamURLFromProviderURL(providerURL string) string {
-	u, err := url.Parse(strings.TrimSpace(providerURL))
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return ""
-	}
-	scheme := "ws"
-	if strings.EqualFold(u.Scheme, "https") {
-		scheme = "wss"
-	}
-	return fmt.Sprintf("%s://%s/ws/transcribe", scheme, u.Host)
+	return modulestt.InferStreamURLFromProviderURL(providerURL)
 }
 
 func inferSTTBaseURL(ttsBaseURL, sttProviderURL string) string {
-	if base := extractBaseFromProviderURL(sttProviderURL); base != "" {
-		return base
-	}
-	u, err := url.Parse(strings.TrimSpace(ttsBaseURL))
-	if err != nil || u.Scheme == "" || u.Hostname() == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s://%s:%d", u.Scheme, u.Hostname(), 8080)
+	return modulestt.InferBaseURL(modulestt.RuntimeURLConfig{
+		TTSBaseURL:  ttsBaseURL,
+		ProviderURL: sttProviderURL,
+	})
 }
 
 func extractBaseFromProviderURL(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+	return modulestt.ExtractBaseFromProviderURL(raw)
 }
 
 func inferSTTProviderURL(ttsBaseURL, sttProviderURL string) string {
-	raw := strings.TrimSpace(sttProviderURL)
-	if raw != "" {
-		return raw
-	}
-	base := inferSTTBaseURL(ttsBaseURL, sttProviderURL)
-	if base == "" {
-		return ""
-	}
-	return strings.TrimRight(base, "/") + "/inference"
+	return modulestt.InferLegacyInferenceProviderURL(ttsBaseURL, sttProviderURL)
 }
 
 func inferSTTBaseURLFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if strings.TrimSpace(cfg.STT.ProviderURL) != "" {
-		return extractBaseFromProviderURL(cfg.STT.ProviderURL)
-	}
-	host := strings.TrimSpace(cfg.Server.Host)
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-	scheme := "http"
-	if cfg.Server.TLS.Enabled {
-		scheme = "https"
-	}
-	port := cfg.Server.Port
-	if port <= 0 {
-		port = 8080
-	}
-	return fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	return modulestt.InferBaseURL(sttRuntimeURLConfigFromAppConfig(cfg, ""))
 }
 
 func inferSTTProviderURLFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if strings.EqualFold(strings.TrimSpace(cfg.STT.Provider), sttinfra.ProviderExternalHTTP) || strings.TrimSpace(cfg.STT.ProviderURL) != "" {
-		if strings.TrimSpace(cfg.STT.ProviderURL) != "" {
-			return strings.TrimSpace(cfg.STT.ProviderURL)
-		}
-	}
-	return strings.TrimRight(inferSTTBaseURLFromConfig(cfg), "/") + "/stt/file"
+	return modulestt.InferProviderURL(sttRuntimeURLConfigFromAppConfig(cfg, ""))
 }
 
 func buildSTTProvider(cfg *config.Config) sttinfra.Provider {
-	if cfg == nil {
-		return nil
-	}
-	if !cfg.STT.Enabled {
+	plan, ok := modulestt.BuildRuntimeProviderPlan(sttRuntimeConfigFromAppConfig(cfg))
+	if !ok {
 		return nil
 	}
 	providerCfg := sttinfra.Config{
-		Enabled:         cfg.STT.Enabled,
-		Provider:        cfg.STT.Provider,
-		Language:        cfg.STT.Language,
-		Model:           cfg.STT.Model,
-		Timeout:         time.Duration(cfg.STT.TimeoutMS) * time.Millisecond,
-		SaveAudio:       cfg.STT.Debug.SaveAudio,
-		BusyPolicy:      cfg.STT.BusyPolicy,
-		ExternalHTTPURL: cfg.STT.ProviderURL,
+		Enabled:         plan.Enabled,
+		Provider:        plan.Provider,
+		Language:        plan.Language,
+		Model:           plan.Model,
+		Timeout:         plan.Timeout,
+		SaveAudio:       plan.SaveAudio,
+		BusyPolicy:      plan.BusyPolicy,
+		ExternalHTTPURL: plan.ExternalHTTPURL,
 	}
 	return sttinfra.NewProvider(providerCfg)
 }
 
 func inferSTTGatewayURL(sttGatewayURL, rencrowSTTURL string) string {
-	if v := strings.TrimSpace(sttGatewayURL); v != "" {
-		return v
+	return modulestt.InferGatewayURL(sttGatewayURL, rencrowSTTURL)
+}
+
+func sttRuntimeConfigFromAppConfig(cfg *config.Config) modulestt.RuntimeConfig {
+	if cfg == nil {
+		return modulestt.RuntimeConfig{}
 	}
-	return strings.TrimSpace(rencrowSTTURL)
+	return modulestt.RuntimeConfig{
+		Enabled:        cfg.STT.Enabled,
+		Provider:       cfg.STT.Provider,
+		Language:       cfg.STT.Language,
+		Model:          cfg.STT.Model,
+		TimeoutMS:      cfg.STT.TimeoutMS,
+		BusyPolicy:     cfg.STT.BusyPolicy,
+		ProviderURL:    cfg.STT.ProviderURL,
+		SaveAudio:      cfg.STT.Debug.SaveAudio,
+		SaveTranscript: cfg.STT.Debug.SaveTranscript,
+	}
+}
+
+func sttRuntimeURLConfigFromAppConfig(cfg *config.Config, ttsBaseURL string) modulestt.RuntimeURLConfig {
+	if cfg == nil {
+		return modulestt.RuntimeURLConfig{TTSBaseURL: ttsBaseURL}
+	}
+	return modulestt.RuntimeURLConfig{
+		Provider:    cfg.STT.Provider,
+		ProviderURL: cfg.STT.ProviderURL,
+		StreamURL:   cfg.STT.StreamURL,
+		TTSBaseURL:  ttsBaseURL,
+		ServerHost:  cfg.Server.Host,
+		ServerPort:  cfg.Server.Port,
+		TLSEnabled:  cfg.Server.TLS.Enabled,
+	}
 }

@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
@@ -29,7 +29,7 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 		},
 		Sink: sink,
 		OnChunkReady: func(_, _ string, _ int, _, _, _, audioPath, audioURL string) {
-			gotAudioURL = chooseNonEmpty(audioURL, audioPath)
+			gotAudioURL = moduletts.ChooseNonEmpty(audioURL, audioPath)
 		},
 	})
 	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
@@ -52,7 +52,7 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("start session failed: %v", err)
 	}
-	if err := bridge.PushText(context.Background(), "session-1", "こんにちは", &ttsapp.EmotionState{}); err != nil {
+	if err := bridge.PushText(context.Background(), "session-1", "こんにちは", &moduletts.EmotionState{}); err != nil {
 		t.Fatalf("push text failed: %v", err)
 	}
 
@@ -351,8 +351,8 @@ func TestCT_SY_002C_SpeedLessOrEqualZeroReturnsInvalidRequest(t *testing.T) {
 		}, nil
 	})}
 
-	err := bridge.PushText(context.Background(), "s-speed", "test", &ttsapp.EmotionState{
-		Prosody: ttsapp.Prosody{Speed: -0.1},
+	err := bridge.PushText(context.Background(), "s-speed", "test", &moduletts.EmotionState{
+		Prosody: moduletts.Prosody{Speed: -0.1},
 	})
 	if err == nil {
 		t.Fatal("expected invalid_request error for speed <= 0")

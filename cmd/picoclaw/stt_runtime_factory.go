@@ -5,8 +5,10 @@ import (
 	"os"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	sttinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/stt"
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 // This file is the integration boundary for RenCrow_STT.
@@ -20,6 +22,7 @@ type sttRuntime struct {
 	GatewayURL   string
 	WSHandler    http.Handler
 	DebugOptions viewer.DebugSystemOptions
+	Module       modulestt.Provider
 }
 
 func buildSTTRuntime(cfg *config.Config) sttRuntime {
@@ -32,6 +35,7 @@ func buildSTTRuntime(cfg *config.Config) sttRuntime {
 		ProviderURL: providerURL,
 		GatewayURL:  gatewayURL,
 		WSHandler:   resolveSTTWebSocketHandlerWithProvider(provider, providerURL, gatewayURL),
+		Module:      modulebridge.NewRuntimeSTTProviderAdapter(provider),
 		DebugOptions: viewer.DebugSystemOptions{
 			TTSBaseURL:    inferTTSDebugBaseURLFromConfig(cfg),
 			TTSHealthPath: inferTTSDebugHealthPathFromConfig(cfg),

@@ -3,16 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 func sttInferViaHTTP(providerURL string, wav []byte, timeout time.Duration) (string, error) {
@@ -61,36 +61,21 @@ func sttInferViaHTTP(providerURL string, wav []byte, timeout time.Duration) (str
 }
 
 func adjustAdaptiveSTTTimeout(cur, delta, minV, maxV time.Duration) time.Duration {
-	next := cur + delta
-	if next < minV {
-		return minV
-	}
-	if next > maxV {
-		return maxV
-	}
-	return next
+	return modulestt.AdjustAdaptiveTimeout(cur, delta, minV, maxV)
 }
 
 func sttHTTPTimeoutFromEnv() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("STT_TIMEOUT_MS"))
 	if raw == "" {
-		return 3000 * time.Millisecond
+		return modulestt.DefaultHTTPTimeout
 	}
 	ms, err := strconv.Atoi(raw)
-	if err != nil || ms < 300 {
-		return 3000 * time.Millisecond
+	if err != nil {
+		return modulestt.DefaultHTTPTimeout
 	}
-	return time.Duration(ms) * time.Millisecond
+	return modulestt.HTTPTimeoutFromMilliseconds(ms)
 }
 
 func isSTTTimeoutErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "client.timeout exceeded") || strings.Contains(msg, "context deadline exceeded")
+	return modulestt.IsTimeoutError(err)
 }

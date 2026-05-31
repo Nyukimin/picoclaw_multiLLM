@@ -8,6 +8,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func NewIdleChatOrchestrator(
@@ -44,7 +45,7 @@ func NewIdleChatOrchestrator(
 			MaxAttempts:          3,
 			JudgeEnabled:         true,
 			RecentTopicWindow:    12,
-			RecentSimilarity:     RecentTopicSimilarityThreshold,
+			RecentSimilarity:     modulechat.RecentTopicSimilarityThreshold,
 			LogCandidates:        true,
 			LogJudgeScores:       true,
 			ProviderName:         "mio",
@@ -153,12 +154,16 @@ func (o *IdleChatOrchestrator) SetTopicStore(path string) error {
 func (o *IdleChatOrchestrator) providerForSpeaker(name string) llm.LLMProvider {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	var provider llm.LLMProvider
-	if provider, ok := o.speakerLLMs[strings.ToLower(strings.TrimSpace(name))]; ok && provider != nil {
-		return withProviderOptions(provider, o.speakerOptions[strings.ToLower(strings.TrimSpace(name))])
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "shiro" {
+		if provider, ok := o.speakerLLMs["chatworker"]; ok && provider != nil {
+			return withProviderOptions(provider, o.speakerOptions["chatworker"])
+		}
 	}
-	provider = o.llmProvider
-	return withProviderOptions(provider, o.speakerOptions[strings.ToLower(strings.TrimSpace(name))])
+	if provider, ok := o.speakerLLMs[key]; ok && provider != nil {
+		return withProviderOptions(provider, o.speakerOptions[key])
+	}
+	return withProviderOptions(o.llmProvider, o.speakerOptions[key])
 }
 
 func (o *IdleChatOrchestrator) speakerThinkEnabled(agentName string) bool {
@@ -197,8 +202,9 @@ func (p providerOptionsWrapper) Name() string {
 
 func defaultIdleChatSpeakerOptions(participants []string) map[string]map[string]any {
 	options := map[string]map[string]any{
-		"mio":   {"think": false},
-		"shiro": {"think": false},
+		"mio":        {"think": false},
+		"shiro":      {"think": false},
+		"chatworker": {"think": false},
 	}
 	for _, participant := range participants {
 		key := strings.ToLower(strings.TrimSpace(participant))
@@ -214,7 +220,7 @@ func defaultIdleChatSpeakerOptions(participants []string) map[string]map[string]
 
 func defaultIdleChatThinkForSpeaker(agentName string) bool {
 	switch strings.ToLower(strings.TrimSpace(agentName)) {
-	case "mio", "shiro":
+	case "mio", "shiro", "chatworker":
 		return false
 	default:
 		return true

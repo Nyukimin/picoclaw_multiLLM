@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 // pickRandom はスライスからn個をランダムに選択
@@ -165,16 +167,11 @@ func generateExternalPrompt() (string, string, bool) {
 // generateNewsPrompt はニュース見出しを純粋に深掘りするプロンプトを生成する。
 func generateNewsPrompt() (string, string, bool) {
 	cache := getDailyCache()
-	if cache == nil || (len(cache.NewsSeedItems) == 0 && len(cache.NewsSeeds) == 0) {
+	topicSeed, ok := modulechat.SelectNewsTopicSeed(cache, rand.Int())
+	if !ok || topicSeed.News == nil {
 		return "", "news_seed_unavailable", false
 	}
-
-	var seed NewsSeed
-	if len(cache.NewsSeedItems) > 0 {
-		seed = cache.NewsSeedItems[rand.Intn(len(cache.NewsSeedItems))]
-	} else {
-		seed = NewsSeed{Title: cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]}
-	}
+	seed := *topicSeed.News
 	title := strings.TrimSpace(seed.Title)
 	if title == "" {
 		return "", "news_seed_unavailable", false
@@ -202,13 +199,7 @@ func generateNewsPrompt() (string, string, bool) {
 }
 
 func newsSeedSourceLabel(seed NewsSeed) string {
-	title := strings.TrimSpace(seed.Title)
-	category := strings.TrimSpace(seed.Category)
-	source := strings.TrimSpace(seed.Source)
-	if category == "" || source == "" {
-		return "News:" + title
-	}
-	return fmt.Sprintf("News:%s:%s:%s", category, source, title)
+	return modulechat.NewsSeedSourceLabel(seed)
 }
 
 // extractBannedKeywords は頻出キーワードを抽出

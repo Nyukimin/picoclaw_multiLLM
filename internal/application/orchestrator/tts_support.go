@@ -6,60 +6,45 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 const (
-	defaultTTSVoiceID      = "mio"
 	defaultTTSVoiceProfile = "lumina_female"
-	maleTTSVoiceID         = "male_01"
-	maleTTSVoiceProfile    = "lumina_male"
-	ttsChunkMinRunes       = 6
-	ttsChunkMaxRunes       = 64
+	ttsChunkMinRunes       = moduletts.TTSChunkMinRunes
+	ttsChunkMaxRunes       = moduletts.TTSChunkMaxRunes
 )
 
-func buildTTSContext(route routing.Route, urgency string, attention bool) ttsapp.EmotionContext {
-	timeOfDay := "day"
-	hour := time.Now().Hour()
-	if hour < 6 || hour >= 21 {
-		timeOfDay = "night"
-	}
-	return ttsapp.EmotionContext{
-		ConversationMode:      conversationModeForRoute(route),
-		TimeOfDay:             timeOfDay,
-		Urgency:               chooseNonEmpty(urgency, "normal"),
-		UserAttentionRequired: attention,
+func buildTTSContext(route routing.Route, urgency string, attention bool) moduletts.EmotionContext {
+	ctx := moduletts.BuildRouteTTSContext(string(route), urgency, attention, time.Now())
+	return emotionContextFromRouteTTS(ctx)
+}
+
+func emotionContextFromRouteTTS(ctx moduletts.RouteTTSContext) moduletts.EmotionContext {
+	return moduletts.EmotionContext{
+		ConversationMode:      ctx.ConversationMode,
+		TimeOfDay:             ctx.TimeOfDay,
+		Urgency:               ctx.Urgency,
+		UserAttentionRequired: ctx.UserAttentionRequired,
 	}
 }
 
 func eventForRoute(route routing.Route) string {
-	switch route {
-	case routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH, routing.RouteOPS:
-		return "analysis_report"
-	default:
-		return "conversation"
-	}
+	return moduletts.EventForRoute(string(route))
 }
 
 func conversationModeForRoute(route routing.Route) string {
-	switch route {
-	case routing.RoutePLAN, routing.RouteANALYZE, routing.RouteRESEARCH, routing.RouteOPS:
-		return "report"
-	default:
-		return "chat"
-	}
+	return moduletts.ConversationModeForRoute(string(route))
 }
 
-func buildTTSPayload(eventType string, route routing.Route, text string, ctx ttsapp.EmotionContext, voiceProfile string) (string, *ttsapp.EmotionState) {
-	filtered := ttsapp.FilterSpeakableText(eventType, string(route), text)
+func buildTTSPayload(eventType string, route routing.Route, text string, ctx moduletts.EmotionContext, voiceProfile string) (string, *moduletts.EmotionState) {
+	filtered := moduletts.FilterSpeakableText(eventType, string(route), text)
 	if filtered == "" {
 		return "", nil
 	}
-	emotion := ttsapp.PlanEmotion(ttsapp.EmotionInput{
+	emotion := moduletts.PlanEmotion(moduletts.EmotionInput{
 		Event:        eventForRoute(route),
 		Text:         filtered,
 		Context:      ctx,
@@ -69,37 +54,22 @@ func buildTTSPayload(eventType string, route routing.Route, text string, ctx tts
 }
 
 func voiceForSpeaker(speaker string) (voiceID, voiceProfile string) {
-	switch strings.ToLower(strings.TrimSpace(speaker)) {
-	case "shiro":
-		return maleTTSVoiceID, maleTTSVoiceProfile
-	default:
-		return defaultTTSVoiceID, defaultTTSVoiceProfile
-	}
+	return moduletts.RouteVoiceForSpeaker(speaker)
 }
 
 func speakerForRoute(route routing.Route) string {
-	switch route {
-	case routing.RouteOPS, routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3:
-		return "shiro"
-	case routing.RouteWILD:
-		return "wild"
-	default:
-		return "mio"
-	}
+	return moduletts.SpeakerForRoute(string(route))
 }
 
 func chooseNonEmpty(v, def string) string {
-	if strings.TrimSpace(v) == "" {
-		return def
-	}
-	return v
+	return moduletts.ChooseNonEmpty(v, def)
 }
 
-func pushTTS(ctx context.Context, bridge TTSBridge, sessionID, text string, emotion *ttsapp.EmotionState, prefix string) {
+func pushTTS(ctx context.Context, bridge TTSBridge, sessionID, text string, emotion *moduletts.EmotionState, prefix string) {
 	pushTTSWithDisplay(ctx, bridge, sessionID, text, text, emotion, prefix)
 }
 
-func pushTTSWithDisplay(ctx context.Context, bridge TTSBridge, sessionID, speechText, displayText string, emotion *ttsapp.EmotionState, prefix string) {
+func pushTTSWithDisplay(ctx context.Context, bridge TTSBridge, sessionID, speechText, displayText string, emotion *moduletts.EmotionState, prefix string) {
 	if bridge == nil || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(speechText) == "" {
 		return
 	}
@@ -119,11 +89,10 @@ type ttsStreamForwarder struct {
 	sessionID    string
 	route        routing.Route
 	eventType    string
-	ttsCtx       ttsapp.EmotionContext
+	ttsCtx       moduletts.EmotionContext
 	voiceProfile string
 	logPrefix    string
-	pending      strings.Builder
-	emitted      bool
+	chunker      moduletts.StreamChunker
 	queue        chan string
 	wg           sync.WaitGroup
 	mu           sync.Mutex
@@ -171,14 +140,7 @@ func (f *ttsStreamForwarder) OnToken(ctx context.Context, token string) {
 	if f == nil || token == "" {
 		return
 	}
-	f.pending.WriteString(token)
-	for {
-		chunk, rest, ok := nextTTSChunk(f.pending.String(), false)
-		if !ok {
-			return
-		}
-		f.pending.Reset()
-		f.pending.WriteString(rest)
+	for _, chunk := range f.chunker.AcceptToken(token) {
 		f.emit(ctx, chunk)
 	}
 }
@@ -188,22 +150,12 @@ func (f *ttsStreamForwarder) Finalize(ctx context.Context, finalText string) {
 		return
 	}
 	defer f.closeAndDrain()
-	if f.emitted {
-		f.emitChunks(ctx, f.pending.String())
-		f.pending.Reset()
-		return
-	}
-	f.pending.Reset()
-	f.emitChunks(ctx, finalText)
-}
-
-func (f *ttsStreamForwarder) emitChunks(ctx context.Context, text string) {
-	for _, chunk := range SplitTTSChunks(text) {
+	for _, chunk := range f.chunker.FinalizeAll(finalText) {
 		f.emit(ctx, chunk)
 	}
 }
 
-func pushTTSTextChunks(ctx context.Context, bridge TTSBridge, sessionID string, route routing.Route, eventType, text string, ttsCtx ttsapp.EmotionContext, voiceProfile string, prefix string) {
+func pushTTSTextChunks(ctx context.Context, bridge TTSBridge, sessionID string, route routing.Route, eventType, text string, ttsCtx moduletts.EmotionContext, voiceProfile string, prefix string) {
 	for _, displayChunk := range SplitTTSChunks(text) {
 		filtered, emotion := buildTTSPayload(eventType, route, displayChunk, ttsCtx, voiceProfile)
 		if filtered == "" {
@@ -225,7 +177,6 @@ func (f *ttsStreamForwarder) emit(_ context.Context, text string) {
 		return
 	}
 	q <- text
-	f.emitted = true
 }
 
 func (f *ttsStreamForwarder) closeAndDrain() {
@@ -239,130 +190,33 @@ func (f *ttsStreamForwarder) closeAndDrain() {
 }
 
 func nextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
-	trimmed := strings.TrimLeftFunc(text, unicode.IsSpace)
-	if trimmed == "" {
-		return "", "", false
-	}
-
-	lastHard := -1
-	lastSoft := -1
-	lastSpace := -1
-	runeCount := 0
-	for i, r := range trimmed {
-		runeCount++
-		end := i + utf8.RuneLen(r)
-		switch {
-		case isTTSHardBoundary(r):
-			lastHard = end
-			if runeCount >= ttsChunkMinRunes {
-				return splitTTSChunk(trimmed, extendTTSChunkCut(trimmed, end))
-			}
-		case isTTSSoftBoundary(r):
-			lastSoft = end
-		case unicode.IsSpace(r):
-			lastSpace = end
-		}
-		if runeCount >= ttsChunkMaxRunes {
-			cut := chooseTTSChunkCut(lastHard, lastSoft, lastSpace)
-			if cut > 0 {
-				return splitTTSChunk(trimmed, cut)
-			}
-			return splitTTSChunk(trimmed, end)
-		}
-	}
-
-	if lastHard > 0 && runeCount >= ttsChunkMinRunes {
-		return splitTTSChunk(trimmed, extendTTSChunkCut(trimmed, lastHard))
-	}
-	if final {
-		return splitTTSChunk(trimmed, len(trimmed))
-	}
-	return "", trimmed, false
+	return moduletts.NextTTSChunk(text, final)
 }
 
 func SplitTTSChunks(text string) []string {
-	remaining := text
-	chunks := make([]string, 0, 4)
-	for {
-		chunk, rest, ok := nextTTSChunk(remaining, true)
-		if !ok {
-			break
-		}
-		chunks = append(chunks, chunk)
-		if strings.TrimSpace(rest) == "" || rest == remaining {
-			break
-		}
-		remaining = rest
-	}
-	return chunks
+	return moduletts.SplitTTSChunks(text)
 }
 
 func chooseTTSChunkCut(lastHard, lastSoft, lastSpace int) int {
-	switch {
-	case lastHard > 0:
-		return lastHard
-	case lastSoft > 0:
-		return lastSoft
-	case lastSpace > 0:
-		return lastSpace
-	default:
-		return 0
-	}
+	return moduletts.ChooseTTSChunkCut(lastHard, lastSoft, lastSpace)
 }
 
 func splitTTSChunk(text string, cut int) (chunk, rest string, ok bool) {
-	if cut <= 0 || cut > len(text) {
-		return "", text, false
-	}
-	chunk = strings.TrimSpace(text[:cut])
-	rest = strings.TrimLeftFunc(text[cut:], unicode.IsSpace)
-	if chunk == "" {
-		return "", rest, false
-	}
-	return chunk, rest, true
+	return moduletts.SplitTTSChunk(text, cut)
 }
 
 func extendTTSChunkCut(text string, cut int) int {
-	if cut <= 0 || cut >= len(text) {
-		return cut
-	}
-	extended := cut
-	for extended < len(text) {
-		r, size := utf8.DecodeRuneInString(text[extended:])
-		if r == utf8.RuneError && size == 0 {
-			break
-		}
-		if !isTTSClosingBoundary(r) {
-			break
-		}
-		extended += size
-	}
-	return extended
+	return moduletts.ExtendTTSChunkCut(text, cut)
 }
 
 func isTTSClosingBoundary(r rune) bool {
-	switch r {
-	case '」', '』', '）', ')', '］', ']', '】', '〉', '》':
-		return true
-	default:
-		return false
-	}
+	return moduletts.IsTTSClosingBoundary(r)
 }
 
 func isTTSHardBoundary(r rune) bool {
-	switch r {
-	case '。', '！', '？', '.', '!', '?', '\n':
-		return true
-	default:
-		return false
-	}
+	return moduletts.IsTTSHardBoundary(r)
 }
 
 func isTTSSoftBoundary(r rune) bool {
-	switch r {
-	case '、', '，', ',', ';', '；', ':', '：':
-		return true
-	default:
-		return false
-	}
+	return moduletts.IsTTSSoftBoundary(r)
 }

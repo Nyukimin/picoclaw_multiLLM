@@ -3,7 +3,7 @@ package orchestrator
 import (
 	"context"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 // TTSSessionStart describes one TTS streaming session metadata.
@@ -17,14 +17,14 @@ type TTSSessionStart struct {
 	Urgency               string
 	ConversationMode      string
 	UserAttentionRequired bool
-	Context               ttsapp.EmotionContext
+	Context               moduletts.EmotionContext
 	VoiceProfile          string
 }
 
 // TTSBridge streams response text to an external TTS server.
 type TTSBridge interface {
 	StartSession(ctx context.Context, req TTSSessionStart) error
-	PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error
+	PushText(ctx context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error
 	EndSession(ctx context.Context, sessionID string) error
 }
 
@@ -32,5 +32,5 @@ type TTSBridge interface {
 // Speech text may be normalized for pronunciation; display text must stay close
 // to the LLM/user-facing wording.
 type TTSDisplayBridge interface {
-	PushTextWithDisplay(ctx context.Context, sessionID string, speechText string, displayText string, emotion *ttsapp.EmotionState) error
+	PushTextWithDisplay(ctx context.Context, sessionID string, speechText string, displayText string, emotion *moduletts.EmotionState) error
 }

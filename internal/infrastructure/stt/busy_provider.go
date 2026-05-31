@@ -2,7 +2,8 @@ package stt
 
 import (
 	"context"
-	"strings"
+
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 type busyPolicyProvider struct {
@@ -27,16 +28,13 @@ func NewBusyPolicyProvider(inner Provider, policy string) Provider {
 	if inner == nil {
 		return nil
 	}
-	normalized := strings.ToLower(strings.TrimSpace(policy))
-	if normalized == "" {
-		normalized = BusyPolicyQueueLatest
-	}
+	plan := modulestt.BuildBusyPolicyPlan(policy)
 	p := &busyPolicyProvider{
 		inner:  inner,
-		policy: normalized,
+		policy: plan.Policy,
 		sem:    make(chan struct{}, 1),
 	}
-	if normalized == BusyPolicyQueueLatest {
+	if plan.UsesQueue {
 		p.queue = make(chan transcribeRequest, 1)
 		go p.runQueue()
 	}

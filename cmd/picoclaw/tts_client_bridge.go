@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	ttsinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func buildTTSClientBridge(
@@ -40,42 +40,32 @@ func buildTTSClientBridge(
 		if utteranceID == "" {
 			utteranceID = fmt.Sprintf("%s:%04d", publicSessionID, publicChunkIndex)
 		}
-		displayText = strings.TrimSpace(displayText)
-		if displayText == "" {
-			displayText = text
-		}
+		payload := moduletts.BuildAudioChunkEventPayload(moduletts.AudioChunkEventPayloadInput{
+			SessionID:   publicSessionID,
+			ResponseID:  responseID,
+			MessageID:   messageID,
+			TurnIndex:   turnIndex,
+			UtteranceID: utteranceID,
+			ChunkIndex:  publicChunkIndex,
+			CharacterID: characterID,
+			SpeechText:  text,
+			DisplayText: displayText,
+			AudioPath:   audioPath,
+			AudioURL:    audioURL,
+		})
 		if onChunkReady != nil {
-			onChunkReady(publicSessionID, characterID, displayText)
+			onChunkReady(payload.SessionID, payload.CharacterID, payload.DisplayText)
 		}
 		if onChunk == nil {
 			return
 		}
-		payload, err := json.Marshal(map[string]any{
-			"session_id":   publicSessionID,
-			"response_id":  responseID,
-			"message_id":   messageID,
-			"turn_index":   turnIndex,
-			"utterance_id": utteranceID,
-			"chunk_index":  publicChunkIndex,
-			"character_id": characterID,
-			"speech_text":  text,
-			"text":         text,
-			"display_text": displayText,
-			"audio_path":   audioPath,
-			"audio_url":    audioURL,
-			"track":        "default",
-		})
+		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
 			log.Printf("WARN: tts chunk payload marshal failed: %v", err)
 			return
 		}
-		channel := "viewer"
-		chatID := "viewer-user"
-		if isIdleChatPublicSession(publicSessionID) {
-			channel = "idlechat"
-			chatID = strings.TrimSpace(publicSessionID)
-		}
-		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
+		route := moduletts.PlaybackEventRouteForSession(payload.SessionID)
+		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payloadJSON), "TTS", "", payload.SessionID, route.Channel, route.ChatID))
 	}
 	onSessionDoneFn := func(sessionID, characterID string) {
 		if isStaleTTSPublicSession(sessionID) {
@@ -86,29 +76,25 @@ func buildTTSClientBridge(
 		publicSessionID := resolveTTSPublicSession(sessionID)
 		responseID := resolveTTSPublicResponse(sessionID)
 		messageID, turnIndex, utteranceID := resolveTTSPublicMessage(sessionID)
+		payload := moduletts.BuildSessionCompletedEventPayload(moduletts.SessionCompletedEventPayloadInput{
+			SessionID:   publicSessionID,
+			ResponseID:  responseID,
+			MessageID:   messageID,
+			TurnIndex:   turnIndex,
+			UtteranceID: utteranceID,
+			CharacterID: characterID,
+		})
 		if onChunk != nil {
-			payload, err := json.Marshal(map[string]any{
-				"session_id":   strings.TrimSpace(publicSessionID),
-				"response_id":  strings.TrimSpace(responseID),
-				"message_id":   strings.TrimSpace(messageID),
-				"turn_index":   turnIndex,
-				"utterance_id": strings.TrimSpace(utteranceID),
-				"character_id": strings.TrimSpace(characterID),
-			})
+			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
 				log.Printf("WARN: tts session completed payload marshal failed: %v", err)
 			} else {
-				channel := "viewer"
-				chatID := "viewer-user"
-				if isIdleChatPublicSession(publicSessionID) {
-					channel = "idlechat"
-					chatID = strings.TrimSpace(publicSessionID)
-				}
-				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payload), "TTS", "", publicSessionID, channel, chatID))
+				route := moduletts.PlaybackEventRouteForSession(payload.SessionID)
+				onChunk(orchestrator.NewEvent("tts.session_completed", "tts", "user", string(payloadJSON), "TTS", "", payload.SessionID, route.Channel, route.ChatID))
 			}
 		}
 		if onSessionCompleted != nil {
-			onSessionCompleted(publicSessionID, characterID)
+			onSessionCompleted(payload.SessionID, payload.CharacterID)
 		}
 	}
 	if sel, ok := buildPrimaryTTSProvider(cfg); ok {

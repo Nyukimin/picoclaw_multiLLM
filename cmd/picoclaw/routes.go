@@ -8,6 +8,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 func registerChannelRoutes(mux *http.ServeMux, dependencies *Dependencies) {
@@ -71,11 +72,13 @@ func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *
 }
 
 func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, dependencies *Dependencies) {
-	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave("tmp/client_stt_log.txt"))
-	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave("tmp/client_stt_input_latest.wav", "tmp/stt_inputs"))
-	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest("scripts/stt_e2e_probe.py", "tmp/client_stt_input_latest.wav", "tmp/stt_e2e_from_mic_latest.json"))
+	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave(modulestt.DefaultViewerClientLogPath))
+	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave(modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerArchiveDir))
+	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest(modulestt.DefaultViewerAutoTestScriptPath, modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerAutoTestOutputPath))
 	mux.HandleFunc("/viewer/stt/admin/restart", viewer.HandleSTTRestart(viewer.STTAdminOptions{BaseURL: sttRuntime.DebugOptions.STTBaseURL}))
+	dependencies.moduleSTTViewerInput = newSTTViewerInputObserver(sttRuntime)
 	registerSTTRuntimeRoutes(mux, sttRuntime)
+	registerModuleRoutes(mux, dependencies, sttRuntime)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 }
 

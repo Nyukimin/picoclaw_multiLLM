@@ -1,22 +1,14 @@
 package tts
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func parseSynthesisError(body []byte) (string, string) {
-	var out struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return "", ""
-	}
-	return normalizeErrorCode(out.Error.Code), strings.TrimSpace(out.Error.Message)
+	return moduletts.ParseSynthesisError(body)
 }
 
 func invalidRequestError(message string) error {
@@ -24,7 +16,5 @@ func invalidRequestError(message string) error {
 }
 
 func normalizeErrorCode(code string) string {
-	code = strings.TrimSpace(strings.ToUpper(code))
-	code = strings.ReplaceAll(code, "-", "_")
-	return code
+	return moduletts.NormalizeSynthesisErrorCode(code)
 }

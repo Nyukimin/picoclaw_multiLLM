@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 	"unicode/utf8"
+
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type DialogueDirector struct {
@@ -18,7 +20,7 @@ func NewDialogueDirector(config DialogueInterestingnessConfig) *DialogueDirector
 func (d *DialogueDirector) BuildArcPlan(result TopicGenerationResult) DialogueArcPlan {
 	category := result.Category
 	if category == "" {
-		category, _ = TopicCategoryFromStrategy(TopicStrategy(result.Strategy))
+		category, _ = modulechat.NormalizeTopicCategory(result.Strategy)
 	}
 	spec := dialogueCategorySpec(category)
 	turnCount := d.config.MaxTurnsPerTopic
@@ -46,7 +48,7 @@ func (d *DialogueDirector) BuildArcPlan(result TopicGenerationResult) DialogueAr
 		TurnPlans: buildDialogueTurnPlans(turnCount, spec),
 	}
 	if plan.InterestingnessAxis == "" {
-		plan.InterestingnessAxis = ExpectedAxisByCategory[category]
+		plan.InterestingnessAxis = modulechat.ExpectedAxisByCategory[category]
 	}
 	return plan
 }

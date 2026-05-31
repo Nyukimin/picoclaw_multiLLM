@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type IrodoriConfig struct {
@@ -78,14 +80,10 @@ func (p *IrodoriProvider) Synthesize(ctx context.Context, in SynthesisInput) (Sy
 	if text == "" {
 		return SynthesisOutput{}, fmt.Errorf("text is required")
 	}
-	voiceID := resolveIrodoriVoiceID(chooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID))
-	voice := resolveIrodoriVoiceName(chooseNonEmpty(in.VoiceProfile.VoiceID, p.cfg.VoiceName, p.voiceID))
+	voiceID := resolveIrodoriVoiceID(moduletts.ChooseNonEmpty(in.VoiceProfile.VoiceID, p.voiceID))
+	voice := resolveIrodoriVoiceName(moduletts.ChooseNonEmpty(in.VoiceProfile.VoiceID, p.cfg.VoiceName, p.voiceID))
 	style := resolveIrodoriStyle(in.Emotion)
-	payload := map[string]any{
-		"voice": voice,
-		"style": style,
-		"text":  ensureTTSPunctuation(text),
-	}
+	payload := irodoriSynthesisPayload(voice, style, text)
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return SynthesisOutput{}, fmt.Errorf("marshal irodori request: %w", err)

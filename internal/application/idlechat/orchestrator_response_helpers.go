@@ -14,7 +14,8 @@ func firstTurnLabel(turn int) string {
 }
 
 func idleMaxTokensForSpeaker(speaker string, defaultMax int) int {
-	if strings.EqualFold(strings.TrimSpace(speaker), "shiro") {
+	switch strings.ToLower(strings.TrimSpace(speaker)) {
+	case "shiro", "chatworker":
 		if defaultMax <= idleChatRetryMaxTokens {
 			return idleChatShiroRetryMaxTokens
 		}

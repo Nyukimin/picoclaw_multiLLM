@@ -7,8 +7,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"strings"
 	"time"
+
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 type Handler struct {
@@ -52,16 +53,12 @@ func (h *Handler) ChatInput(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, result)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"type":            "user_input",
-		"source":          "local_stt",
-		"input_type":      "voice",
-		"provider":        result.Provider,
-		"text":            result.Text,
-		"confidence_note": nil,
-		"event_id":        result.EventID,
-		"error_code":      emptyToNil(result.ErrorCode),
-	})
+	writeJSON(w, http.StatusOK, modulestt.BuildChatInputEnvelope(modulestt.ChatInputEnvelopeInput{
+		Provider:  result.Provider,
+		Text:      result.Text,
+		EventID:   result.EventID,
+		ErrorCode: result.ErrorCode,
+	}))
 }
 
 func (h *Handler) transcribeMultipart(ctx context.Context, r *http.Request) (Result, int) {
@@ -89,19 +86,21 @@ func (h *Handler) transcribeMultipart(ctx context.Context, r *http.Request) (Res
 		if errors.As(err, &sttErr) {
 			result.ErrorCode = sttErr.Code
 			result.Message = sttErr.Message
-			return result, statusForError(sttErr.Code)
+			return result, modulestt.StatusForHandlerError(sttErr.Code)
 		}
 		result.ErrorCode = ErrorProviderFailure
 		result.Message = err.Error()
 		return result, http.StatusBadGateway
 	}
-	if strings.TrimSpace(result.Language) == "" {
-		result.Language = "ja"
-	}
-	if strings.TrimSpace(result.Text) == "" && strings.TrimSpace(result.ErrorCode) == "" {
-		result.ErrorCode = ErrorNoSpeechDetected
-		result.Message = "音声が検出されませんでした。"
-	}
+	decision := modulestt.NormalizeHandlerResult(modulestt.HandlerResultInput{
+		Text:      result.Text,
+		Language:  result.Language,
+		ErrorCode: result.ErrorCode,
+		Message:   result.Message,
+	})
+	result.Language = decision.Language
+	result.ErrorCode = decision.ErrorCode
+	result.Message = decision.Message
 	return result, http.StatusOK
 }
 
@@ -124,30 +123,8 @@ func readMultipartWAV(r *http.Request) ([]byte, error) {
 	return wav, nil
 }
 
-func statusForError(code string) int {
-	switch code {
-	case ErrorInvalidAudio:
-		return http.StatusBadRequest
-	case ErrorProviderTimeout:
-		return http.StatusGatewayTimeout
-	case ErrorProviderBusy:
-		return http.StatusTooManyRequests
-	case ErrorProviderFailure:
-		return http.StatusBadGateway
-	default:
-		return http.StatusOK
-	}
-}
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func emptyToNil(v string) any {
-	if strings.TrimSpace(v) == "" {
-		return nil
-	}
-	return strings.TrimSpace(v)
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy TopicStrategy) (string, TopicStrategy) {
@@ -114,36 +115,16 @@ func buildTopicSeedForStrategy(strategy TopicStrategy) (TopicSeed, bool) {
 		return TopicSeed{Category: TopicCategoryDouble, Genre1: genres[0], Genre2: genres[1]}, true
 	case StrategyExternalStimulus:
 		cache := getDailyCache()
-		if cache == nil || len(cache.WikipediaSeeds) == 0 {
-			return TopicSeed{Category: TopicCategoryExternal}, false
-		}
-		title := cache.WikipediaSeeds[rand.Intn(len(cache.WikipediaSeeds))]
 		genre := pickRandom(genrePool, 1)[0]
-		return TopicSeed{
-			Category: TopicCategoryExternal,
-			Genre1:   genre,
-			ExternalMaterial: &ExternalMaterialSeed{
-				Title:    title,
-				Provider: "Wikipedia",
-				Category: "wikipedia_random",
-			},
-		}, true
+		return modulechat.SelectExternalTopicSeed(cache, rand.Int(), genre)
 	case StrategyMovie:
 		genres := pickRandom(genrePool, 1)
 		return TopicSeed{Category: TopicCategoryMovie, Genre1: genres[0]}, true
 	case StrategyNews:
 		cache := getDailyCache()
-		if cache == nil || (len(cache.NewsSeedItems) == 0 && len(cache.NewsSeeds) == 0) {
-			return TopicSeed{Category: TopicCategoryNews}, false
-		}
-		if len(cache.NewsSeedItems) > 0 {
-			seed := cache.NewsSeedItems[rand.Intn(len(cache.NewsSeedItems))]
-			return TopicSeed{Category: TopicCategoryNews, News: &seed}, true
-		}
-		seed := NewsSeed{Title: cache.NewsSeeds[rand.Intn(len(cache.NewsSeeds))]}
-		return TopicSeed{Category: TopicCategoryNews, News: &seed}, true
+		return modulechat.SelectNewsTopicSeed(cache, rand.Int())
 	default:
-		category, err := TopicCategoryFromStrategy(strategy)
+		category, err := modulechat.NormalizeTopicCategory(string(strategy))
 		if err != nil {
 			return TopicSeed{}, false
 		}
@@ -152,14 +133,7 @@ func buildTopicSeedForStrategy(strategy TopicStrategy) (TopicSeed, bool) {
 }
 
 func recentTopicRecords(topics []string) []RecentTopic {
-	out := make([]RecentTopic, 0, len(topics))
-	for _, topic := range topics {
-		topic = strings.TrimSpace(topic)
-		if topic != "" {
-			out = append(out, RecentTopic{Topic: topic})
-		}
-	}
-	return out
+	return modulechat.RecentTopicRecords(topics)
 }
 
 func formatTopicGenerationContext(result TopicGenerationResult) string {

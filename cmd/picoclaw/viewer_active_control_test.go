@@ -14,15 +14,15 @@ import (
 func TestViewerActiveControl_LastClaimWinsPerKind(t *testing.T) {
 	resetActiveViewerControlForTest()
 
-	first := activeViewerControl.claim("audio", "pc-viewer")
+	first := activeViewerControl.Claim("audio", "pc-viewer")
 	if first.ActiveAudioViewerID != "pc-viewer" {
 		t.Fatalf("expected first audio viewer, got %q", first.ActiveAudioViewerID)
 	}
-	second := activeViewerControl.claim("audio", "phone-viewer")
+	second := activeViewerControl.Claim("audio", "phone-viewer")
 	if second.ActiveAudioViewerID != "phone-viewer" {
 		t.Fatalf("expected later audio viewer to win, got %q", second.ActiveAudioViewerID)
 	}
-	input := activeViewerControl.claim("input", "pc-viewer")
+	input := activeViewerControl.Claim("input", "pc-viewer")
 	if input.ActiveAudioViewerID != "phone-viewer" || input.ActiveInputViewerID != "pc-viewer" {
 		t.Fatalf("audio and input active IDs should be independent, got %#v", input)
 	}
@@ -31,41 +31,47 @@ func TestViewerActiveControl_LastClaimWinsPerKind(t *testing.T) {
 func TestViewerActiveControl_ReleaseOnlyClearsMatchingOwner(t *testing.T) {
 	resetActiveViewerControlForTest()
 
-	activeViewerControl.claim("audio", "pc-viewer")
-	activeViewerControl.release("audio", "phone-viewer")
-	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "pc-viewer" {
+	activeViewerControl.Claim("audio", "pc-viewer")
+	activeViewerControl.Release("audio", "phone-viewer")
+	if got := activeViewerControl.Snapshot().ActiveAudioViewerID; got != "pc-viewer" {
 		t.Fatalf("non-owner release should not clear audio owner, got %q", got)
 	}
-	activeViewerControl.release("audio", "pc-viewer")
-	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "" {
+	activeViewerControl.Release("audio", "pc-viewer")
+	if got := activeViewerControl.Snapshot().ActiveAudioViewerID; got != "" {
 		t.Fatalf("owner release should clear audio owner, got %q", got)
 	}
 }
 
 func TestViewerActiveControl_StaleOwnerExpires(t *testing.T) {
-	resetActiveViewerControlForTest()
 	oldTTL := viewerActiveOwnerTTL
 	viewerActiveOwnerTTL = time.Millisecond
-	defer func() { viewerActiveOwnerTTL = oldTTL }()
+	resetActiveViewerControlForTest()
+	defer func() {
+		viewerActiveOwnerTTL = oldTTL
+		resetActiveViewerControlForTest()
+	}()
 
-	activeViewerControl.claim("audio", "stale-viewer")
+	activeViewerControl.Claim("audio", "stale-viewer")
 	time.Sleep(2 * time.Millisecond)
-	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "" {
+	if got := activeViewerControl.Snapshot().ActiveAudioViewerID; got != "" {
 		t.Fatalf("stale audio owner should expire, got %q", got)
 	}
 }
 
 func TestViewerActiveControl_HeartbeatKeepsOwnerFresh(t *testing.T) {
-	resetActiveViewerControlForTest()
 	oldTTL := viewerActiveOwnerTTL
-	viewerActiveOwnerTTL = 30 * time.Millisecond
-	defer func() { viewerActiveOwnerTTL = oldTTL }()
+	viewerActiveOwnerTTL = 200 * time.Millisecond
+	resetActiveViewerControlForTest()
+	defer func() {
+		viewerActiveOwnerTTL = oldTTL
+		resetActiveViewerControlForTest()
+	}()
 
-	activeViewerControl.claim("audio", "live-viewer")
+	activeViewerControl.Claim("audio", "live-viewer")
 	time.Sleep(20 * time.Millisecond)
-	activeViewerControl.heartbeat("audio", "live-viewer")
+	activeViewerControl.Heartbeat("audio", "live-viewer")
 	time.Sleep(20 * time.Millisecond)
-	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "live-viewer" {
+	if got := activeViewerControl.Snapshot().ActiveAudioViewerID; got != "live-viewer" {
 		t.Fatalf("heartbeat should keep audio owner, got %q", got)
 	}
 }
@@ -73,7 +79,7 @@ func TestViewerActiveControl_HeartbeatKeepsOwnerFresh(t *testing.T) {
 func TestTTSPlaybackAckOnlyReleasesActiveAudioViewer(t *testing.T) {
 	resetActiveViewerControlForTest()
 	ch := registerIdleChatTTSPending("idle-active-tts", "response-active-1")
-	activeViewerControl.claim("audio", "pc-viewer")
+	activeViewerControl.Claim("audio", "pc-viewer")
 
 	reqBody, _ := json.Marshal(ttsPlaybackAckRequest{
 		ResponseID:     "response-active-1",
@@ -186,7 +192,7 @@ func TestViewerActiveClaimHandlerBroadcastsControlEvent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("claim got HTTP %d: %s", rec.Code, rec.Body.String())
 	}
-	if got := activeViewerControl.snapshot().ActiveInputViewerID; got != "phone-viewer" {
+	if got := activeViewerControl.Snapshot().ActiveInputViewerID; got != "phone-viewer" {
 		t.Fatalf("expected active input viewer, got %q", got)
 	}
 	if len(emitted) != 1 || emitted[0].Type != "viewer.active_control" {
@@ -196,7 +202,7 @@ func TestViewerActiveClaimHandlerBroadcastsControlEvent(t *testing.T) {
 
 func TestViewerActiveClaimHandlerReleasesOwner(t *testing.T) {
 	resetActiveViewerControlForTest()
-	activeViewerControl.claim("audio", "pc-viewer")
+	activeViewerControl.Claim("audio", "pc-viewer")
 
 	body := bytes.NewBufferString(`{"viewer_client_id":"pc-viewer","kind":"audio","reason":"pagehide","action":"release"}`)
 	rec := httptest.NewRecorder()
@@ -206,7 +212,7 @@ func TestViewerActiveClaimHandlerReleasesOwner(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("release got HTTP %d: %s", rec.Code, rec.Body.String())
 	}
-	if got := activeViewerControl.snapshot().ActiveAudioViewerID; got != "" {
+	if got := activeViewerControl.Snapshot().ActiveAudioViewerID; got != "" {
 		t.Fatalf("release should clear active audio owner, got %q", got)
 	}
 }

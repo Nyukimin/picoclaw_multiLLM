@@ -8,25 +8,16 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func shouldRetrySynthesis(code string, attempt int) bool {
-	switch normalizeErrorCode(code) {
-	case "ENGINE_UNAVAILABLE":
-		return attempt < 2
-	case "SYNTHESIS_FAILED":
-		return attempt < 1
-	default:
-		return false
-	}
+	return moduletts.ShouldRetrySynthesis(code, attempt)
 }
 
 func backoffForAttempt(attempt int) time.Duration {
-	if attempt < 0 {
-		attempt = 0
-	}
-	base := 200 * time.Millisecond
-	return time.Duration(1<<attempt) * base
+	return moduletts.SynthesisBackoffForAttempt(attempt)
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {
@@ -84,15 +75,8 @@ func (b *RenCrowTTSBridge) postSynthesisWithRetry(ctx context.Context, reqBody [
 }
 
 func shouldRetryTransportError(err error, attempt int) bool {
-	if attempt >= 2 || err == nil {
+	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	if msg == "" {
-		return false
-	}
-	return strings.Contains(msg, "connection reset by peer") ||
-		strings.Contains(msg, "connection refused") ||
-		strings.Contains(msg, "client.timeout exceeded") ||
-		strings.Contains(msg, "timeout")
+	return moduletts.ShouldRetrySynthesisTransportError(err.Error(), attempt)
 }

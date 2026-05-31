@@ -9,14 +9,14 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type idleChatMockTTSBridge struct {
 	startReqs    []orchestrator.TTSSessionStart
 	pushTexts    []string
 	displayTexts []string
-	pushEmo      []*ttsapp.EmotionState
+	pushEmo      []*moduletts.EmotionState
 	endIDs       []string
 	notifyOnEnd  bool
 	pushErr      error
@@ -28,14 +28,14 @@ func (m *idleChatMockTTSBridge) StartSession(_ context.Context, req orchestrator
 	return nil
 }
 
-func (m *idleChatMockTTSBridge) PushText(_ context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+func (m *idleChatMockTTSBridge) PushText(_ context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error {
 	_ = sessionID
 	m.pushTexts = append(m.pushTexts, text)
 	m.pushEmo = append(m.pushEmo, emotion)
 	return m.pushErr
 }
 
-func (m *idleChatMockTTSBridge) PushTextWithDisplay(_ context.Context, sessionID string, text string, displayText string, emotion *ttsapp.EmotionState) error {
+func (m *idleChatMockTTSBridge) PushTextWithDisplay(_ context.Context, sessionID string, text string, displayText string, emotion *moduletts.EmotionState) error {
 	_ = sessionID
 	m.pushTexts = append(m.pushTexts, text)
 	m.displayTexts = append(m.displayTexts, displayText)
@@ -160,20 +160,10 @@ func TestEmitIdleChatTTSSendsStorySimpleTTSEvent(t *testing.T) {
 
 func TestIdleChatTTSPendingSnapshotCountsOutstandingRoutes(t *testing.T) {
 	clearAllIdleChatTTSPending()
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	t.Cleanup(func() {
 		clearAllIdleChatTTSPending()
-		ttsPublicSessionMu.Lock()
-		ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-		ttsPublicStaleSessions = map[string]uint64{}
-		ttsPublicNextChunk = map[string]int{}
-		ttsPublicNextResponse = map[string]int{}
-		ttsPublicSessionMu.Unlock()
+		resetTTSPublicSessionStateForTest()
 	})
 
 	const (
@@ -506,14 +496,12 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 		}
 	}
 
-	idleChatTTSPendingMu.Lock()
 	var responseIDs []string
-	for responseID := range idleChatTTSPendingByResponse {
+	for _, responseID := range snapshotIdleChatTTSPending().PendingResponseIDs {
 		if strings.HasPrefix(responseID, "idle-prefetch-1:") {
 			responseIDs = append(responseIDs, responseID)
 		}
 	}
-	idleChatTTSPendingMu.Unlock()
 	if len(responseIDs) != 2 {
 		t.Fatalf("expected 2 pending playback responses, got %d", len(responseIDs))
 	}
@@ -534,13 +522,7 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 }
 
 func TestMarkIdleChatTTSTimeoutConsumesPendingAsFailedPlayback(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	clearAllIdleChatTTSPending()
 
 	first := registerIdleChatTTSPending("idle-timeout-tts-1", "idle-timeout:0000")
@@ -576,13 +558,7 @@ func TestMarkIdleChatTTSTimeoutConsumesPendingAsFailedPlayback(t *testing.T) {
 }
 
 func TestMarkIdleChatTTSSessionAudioTimeoutClosesAllPendingForSession(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	clearAllIdleChatTTSPending()
 
 	first := registerIdleChatTTSPending("idle-drain-tts-1", "idle-drain:0000")

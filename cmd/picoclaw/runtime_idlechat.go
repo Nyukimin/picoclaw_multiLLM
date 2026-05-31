@@ -12,6 +12,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	llmfactory "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/factory"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func buildIdleChatRuntime(
@@ -42,10 +43,11 @@ func buildIdleChatRuntime(
 	)
 	idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
 	idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
-		"mio":   chatProvider,
-		"shiro": firstNonNilLLMProvider(chatWorkerProvider, workerProvider),
-		"kuro":  heavyProvider,
-		"wild":  wildProvider,
+		"mio":        chatProvider,
+		"shiro":      firstNonNilLLMProvider(chatWorkerProvider, workerProvider),
+		"chatworker": namedLLMProvider{name: "ChatWorker", inner: workerProvider},
+		"kuro":       heavyProvider,
+		"wild":       wildProvider,
 	})
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
 	idleChatOrch.SetTopicGenerationConfig(idleChatTopicGenerationConfigFromRuntime(cfg.IdleChat.TopicGeneration))
@@ -124,24 +126,14 @@ func selectForecastProviders(cfg *config.Config) (llm.LLMProvider, string) {
 	if cfg == nil {
 		return nil, ""
 	}
-	externalEnabled := cfg.IdleChat.ForecastExternalEnabled
-	for _, candidate := range []struct {
-		label string
-		cfg   config.CoderConfig
-	}{
-		{"Coder1", cfg.Coder1},
-		{"Coder2", cfg.Coder2},
-		{"Coder3", cfg.Coder3},
-		{"Coder4", cfg.Coder4},
-	} {
-		if !candidate.cfg.Enabled {
+	plans := modulechat.BuildForecastProviderPlans(forecastCoderCandidatesFromRuntime(cfg), cfg.IdleChat.ForecastExternalEnabled)
+	for _, plan := range plans {
+		cc := forecastCoderConfigByLabel(cfg, plan.Label)
+		if !plan.Allowed {
+			log.Printf("IdleChat forecast provider skipped: %s provider=%s model=%s: %s", plan.Label, plan.Coder.Provider, plan.Coder.Model, plan.SkipReason)
 			continue
 		}
-		if !forecastCoderProviderAllowed(candidate.cfg, externalEnabled) {
-			log.Printf("IdleChat forecast provider skipped: %s provider=%s model=%s: external provider not explicitly enabled", candidate.label, candidate.cfg.Provider, candidate.cfg.Model)
-			continue
-		}
-		provider, label := createForecastProvider(candidate.label, candidate.cfg)
+		provider, label := createForecastProvider(plan.Label, cc)
 		if provider == nil {
 			continue
 		}
@@ -156,25 +148,13 @@ func selectForecastProviderForRuntime(cfg *config.Config, workerProvider llm.LLM
 		return provider, label
 	}
 	if workerProvider != nil {
-		return workerProvider, "Worker local"
+		return workerProvider, modulechat.ForecastWorkerFallbackLabel
 	}
 	return nil, ""
 }
 
-func forecastCoderProviderAllowed(cc config.CoderConfig, externalEnabled bool) bool {
-	if externalEnabled {
-		return true
-	}
-	return !coderProviderIsExternal(cc)
-}
-
 func coderProviderIsExternal(cc config.CoderConfig) bool {
-	switch strings.ToLower(strings.TrimSpace(cc.Provider)) {
-	case "local_openai", "ollama":
-		return false
-	default:
-		return true
-	}
+	return modulechat.CoderProviderIsExternal(cc.Provider)
 }
 
 func createForecastProvider(label string, cc config.CoderConfig) (llm.LLMProvider, string) {
@@ -189,33 +169,63 @@ func createForecastProvider(label string, cc config.CoderConfig) (llm.LLMProvide
 	if provider == nil {
 		return nil, ""
 	}
-	return provider, label + " " + cc.Provider + " (" + forecastProviderModelLabel(cc.Model) + ")"
+	return provider, modulechat.BuildForecastProviderLabel(label, idleChatCoderProviderConfigFromRuntime(cc))
 }
 
 func forecastProviderLogLabel(label string) string {
-	label = strings.TrimSpace(label)
-	if label == "" {
-		return "unavailable"
-	}
-	return label
+	return modulechat.ForecastProviderLogLabel(label)
 }
 
 func forecastProviderModelLabel(model string) string {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return "configured provider"
-	}
-	return model
+	return modulechat.ForecastProviderModelLabel(model)
 }
 
 func idleChatProviderOptionsFromConfig(options map[string]config.IdleChatLLMOptions) map[string]map[string]any {
-	out := make(map[string]map[string]any, len(options))
+	return modulechat.IdleChatProviderOptions(idleChatProviderOptionsConfigFromRuntime(options))
+}
+
+func idleChatCoderProviderConfigFromRuntime(cc config.CoderConfig) modulechat.IdleChatCoderProviderConfig {
+	return modulechat.IdleChatCoderProviderConfig{
+		Enabled:  cc.Enabled,
+		Provider: cc.Provider,
+		Model:    cc.Model,
+	}
+}
+
+func forecastCoderCandidatesFromRuntime(cfg *config.Config) []modulechat.ForecastCoderCandidate {
+	if cfg == nil {
+		return nil
+	}
+	return []modulechat.ForecastCoderCandidate{
+		{Label: "Coder1", Coder: idleChatCoderProviderConfigFromRuntime(cfg.Coder1)},
+		{Label: "Coder2", Coder: idleChatCoderProviderConfigFromRuntime(cfg.Coder2)},
+		{Label: "Coder3", Coder: idleChatCoderProviderConfigFromRuntime(cfg.Coder3)},
+		{Label: "Coder4", Coder: idleChatCoderProviderConfigFromRuntime(cfg.Coder4)},
+	}
+}
+
+func forecastCoderConfigByLabel(cfg *config.Config, label string) config.CoderConfig {
+	if cfg == nil {
+		return config.CoderConfig{}
+	}
+	switch modulechat.ForecastCoderLabelIndex(label) {
+	case 0:
+		return cfg.Coder1
+	case 1:
+		return cfg.Coder2
+	case 2:
+		return cfg.Coder3
+	case 3:
+		return cfg.Coder4
+	default:
+		return config.CoderConfig{}
+	}
+}
+
+func idleChatProviderOptionsConfigFromRuntime(options map[string]config.IdleChatLLMOptions) map[string]modulechat.IdleChatLLMOptions {
+	out := make(map[string]modulechat.IdleChatLLMOptions, len(options))
 	for name, opts := range options {
-		key := strings.ToLower(strings.TrimSpace(name))
-		if key == "" || opts.Think == nil {
-			continue
-		}
-		out[key] = map[string]any{"think": *opts.Think}
+		out[name] = modulechat.IdleChatLLMOptions{Think: opts.Think}
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) <-chan struct{} {
@@ -26,7 +27,7 @@ func (o *IdleChatOrchestrator) emitTimelineEvent(ev TimelineEvent) <-chan struct
 func (o *IdleChatOrchestrator) emitTopicToTimeline(sessionID, topic string, strategy TopicStrategy) <-chan struct{} {
 	content := fmt.Sprintf("今日のお題（%s）: %s", strategy, topic)
 	messageID := idleChatTopicMessageID(sessionID)
-	category, _ := TopicCategoryFromStrategy(strategy)
+	category, _ := modulechat.NormalizeTopicCategory(string(strategy))
 	return o.emitTimelineEvent(TimelineEvent{
 		Type:      "idlechat.topic",
 		From:      "user",

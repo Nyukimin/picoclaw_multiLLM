@@ -2,48 +2,16 @@ package main
 
 import (
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
-	"strings"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func buildLocalTTSAudioURL(outputDir, audioPath string) string {
-	rel, ok := localTTSAudioRelPath(outputDir, audioPath)
-	if !ok {
-		return ""
-	}
-	return "/viewer/tts/audio?path=" + url.QueryEscape(rel)
+	return moduletts.BuildLocalAudioURL(outputDir, audioPath)
 }
 
 func localTTSAudioRelPath(outputDir, audioPath string) (string, bool) {
-	baseDir, ok := normalizeLocalTTSAudioBase(outputDir)
-	if !ok {
-		return "", false
-	}
-	audioPath = strings.TrimSpace(audioPath)
-	if audioPath == "" {
-		return "", false
-	}
-
-	candidate := audioPath
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(baseDir, filepath.FromSlash(candidate))
-	}
-	candidate, err := filepath.Abs(candidate)
-	if err != nil {
-		return "", false
-	}
-
-	rel, err := filepath.Rel(baseDir, candidate)
-	if err != nil {
-		return "", false
-	}
-	rel = filepath.Clean(rel)
-	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", false
-	}
-	return filepath.ToSlash(rel), true
+	return moduletts.LocalAudioRelPath(outputDir, audioPath)
 }
 
 func handleLocalTTSAudio(outputDir string) http.HandlerFunc {
@@ -63,28 +31,9 @@ func handleLocalTTSAudio(outputDir string) http.HandlerFunc {
 }
 
 func normalizeLocalTTSAudioBase(outputDir string) (string, bool) {
-	outputDir = strings.TrimSpace(outputDir)
-	if outputDir == "" {
-		return "", false
-	}
-	absDir, err := filepath.Abs(outputDir)
-	if err != nil {
-		return "", false
-	}
-	return filepath.Clean(absDir), true
+	return moduletts.NormalizeLocalAudioBase(outputDir)
 }
 
 func resolveLocalTTSAudioPath(baseDir, rawRelPath string) (string, bool) {
-	rawRelPath = strings.TrimSpace(rawRelPath)
-	if rawRelPath == "" {
-		return "", false
-	}
-	rawRelPath = filepath.Clean(filepath.FromSlash(rawRelPath))
-	if rawRelPath == "." || rawRelPath == ".." || filepath.IsAbs(rawRelPath) {
-		return "", false
-	}
-	if strings.HasPrefix(rawRelPath, ".."+string(os.PathSeparator)) {
-		return "", false
-	}
-	return filepath.Join(baseDir, rawRelPath), true
+	return moduletts.ResolveLocalAudioPath(baseDir, rawRelPath)
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	aiworkflowapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/aiworkflow"
 	browsertraceapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/browsertrace"
@@ -43,6 +44,10 @@ import (
 	personainfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/transport"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
+	moduleworker "github.com/Nyukimin/picoclaw_multiLLM/modules/worker"
 )
 
 // Dependencies はアプリケーション依存関係
@@ -199,6 +204,13 @@ type Dependencies struct {
 	sshTransports                  map[string]domaintransport.Transport        // v4 SSH transports
 	heartbeatSvc                   *heartbeat.HeartbeatService                 // heartbeat service
 	toolRegistry                   capdomain.ToolRegistry                      // Phase 4: Shiro ツール共有用 ToolRegistry
+	moduleChatService              chatModuleService                           // module contract view of Chat service
+	moduleLLMProviders             map[string]modulellm.Provider               // module contract view of LLM providers
+	moduleTTSProvider              moduletts.Provider                          // module contract view of primary TTS provider
+	moduleTTSPlayback              moduletts.PlaybackStateObserver             // module contract view of Viewer playback state
+	moduleSTTViewerInput           modulestt.ViewerInputObserver               // module contract view of Viewer STT input state
+	moduleWorkerExecutor           moduleworker.Executor                       // module contract view of Worker executor
+	moduleHealth                   http.HandlerFunc                            // module boundary health API
 }
 
 type idleChatStartGate interface {
@@ -273,6 +285,12 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
 
 	deps := &Dependencies{}
+	deps.moduleLLMProviders = llmRuntime.ModuleProviders
+	deps.moduleWorkerExecutor = modulebridge.NewRuntimeWorkerExecutor(workerExecutionService)
+	deps.moduleTTSPlayback = ttsPlaybackStateObserver{}
+	if ttsSel, ok := buildPrimaryTTSProvider(cfg); ok {
+		deps.moduleTTSProvider = ttsSel.Module
+	}
 	deps.glossaryRecent = glossaryRuntime.RecentHandler
 	deps.toolRegistry = runtimeToolRegistry
 	if toolRuntime.ToolMediationRecorder != nil {

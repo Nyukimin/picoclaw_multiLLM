@@ -22,13 +22,7 @@ func TestBuildTTSClientBridge_Disabled(t *testing.T) {
 }
 
 func TestTTSPublicSessionRouteMarksOldIdleChatRoutesStaleOnReset(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 
 	registerTTSPublicSession("idle-old-tts", "idle-old", "idle-old:0000")
 	if isStaleTTSPublicSession("idle-old-tts") {
@@ -57,13 +51,7 @@ func TestTTSPublicSessionRouteMarksOldIdleChatRoutesStaleOnReset(t *testing.T) {
 }
 
 func TestTTSPublicSessionRouteMarksTimedOutUtteranceStale(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 
 	registerTTSPublicSessionWithMessage("idle-timeout-tts", "idle-timeout", "idle-timeout:0000", "idle-timeout:msg:0001", 1)
 	registerTTSPublicSessionWithMessage("idle-timeout-tts-next", "idle-timeout", "idle-timeout:0001", "idle-timeout:msg:0002", 2)
@@ -81,13 +69,7 @@ func TestTTSPublicSessionRouteMarksTimedOutUtteranceStale(t *testing.T) {
 }
 
 func TestNextTTSPublicResponseIDForMessageAlignsIdleChatMessageNumber(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 
 	if got := nextTTSPublicResponseIDForMessage("idle-align", "idle-align:topic"); got != "idle-align:0000" {
 		t.Fatalf("topic response id = %q, want idle-align:0000", got)
@@ -101,13 +83,7 @@ func TestNextTTSPublicResponseIDForMessageAlignsIdleChatMessageNumber(t *testing
 }
 
 func TestNextTTSPublicResponseIDForMessageKeepsForecastAnnouncementsOutOfMessageNumberSeries(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 
 	if got := nextTTSPublicResponseIDForMessage("forecast-align", "forecast-align:domain:0000"); got != "forecast-align:domain:0000" {
 		t.Fatalf("domain response id = %q, want forecast-align:domain:0000", got)
@@ -121,13 +97,7 @@ func TestNextTTSPublicResponseIDForMessageKeepsForecastAnnouncementsOutOfMessage
 }
 
 func TestTTSClientBridgeIdleChatChunkPayloadIncludesCanonicalSpeechFields(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	clearAllIdleChatTTSPending()
 	t.Cleanup(clearAllIdleChatTTSPending)
 
@@ -191,13 +161,7 @@ func TestTTSClientBridgeIdleChatChunkPayloadIncludesCanonicalSpeechFields(t *tes
 }
 
 func TestTTSClientBridgeTopicPayloadIncludesBrightTopicPrefix(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	clearAllIdleChatTTSPending()
 	t.Cleanup(clearAllIdleChatTTSPending)
 
@@ -253,13 +217,7 @@ func TestTTSClientBridgeTopicPayloadIncludesBrightTopicPrefix(t *testing.T) {
 }
 
 func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	clearAllIdleChatTTSPending()
 
 	registerTTSPublicSessionWithMessage("idle-complete-tts", "idle-complete", "idle-complete:0000", "idle-complete:msg:0001", 1)
@@ -278,13 +236,7 @@ func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testin
 }
 
 func TestTTSPlaybackAckClearsPublicSessionRoute(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 	clearAllIdleChatTTSPending()
 
 	registerTTSPublicSessionWithMessage("idle-ack-tts", "idle-ack", "idle-ack:0000", "idle-ack:msg:0001", 1)
@@ -299,13 +251,7 @@ func TestTTSPlaybackAckClearsPublicSessionRoute(t *testing.T) {
 }
 
 func TestClearTTSPublicSequenceStateIfNoRoutes(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicGeneration = 0
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 
 	registerTTSPublicSession("idle-seq-tts", "idle-seq", "idle-seq:0000")
 	if got := nextTTSPublicResponseID("idle-seq"); got != "idle-seq:0000" {
@@ -411,12 +357,7 @@ func TestBuildTTSClientBridge_WithoutPlaybackCommands(t *testing.T) {
 }
 
 func TestTTSPublicSessionRouteKeepsLogicalSessionAndGlobalChunkOrder(t *testing.T) {
-	ttsPublicSessionMu.Lock()
-	ttsPublicSessionRoutes = map[string]*ttsPublicSessionRoute{}
-	ttsPublicStaleSessions = map[string]uint64{}
-	ttsPublicNextChunk = map[string]int{}
-	ttsPublicNextResponse = map[string]int{}
-	ttsPublicSessionMu.Unlock()
+	resetTTSPublicSessionStateForTest()
 
 	registerTTSPublicSession("idle-1-tts-a", "idle-1", "idle-1:0000")
 	registerTTSPublicSession("idle-1-tts-b", "idle-1", "idle-1:0001")

@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 const idleChatRoute = "IDLECHAT"
@@ -19,7 +18,7 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		return nil, false
 	}
 
-	filtered := ttsapp.FilterSpeakableText("agent.response", idleChatRoute, formatIdleChatTTSText(ev))
+	filtered := moduletts.FilterSpeakableText("agent.response", idleChatRoute, formatIdleChatTTSText(ev))
 	if filtered == "" {
 		return nil, false
 	}
@@ -28,63 +27,74 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		displayText = formatIdleChatDisplayText(ev)
 	}
 
-	voiceID, voiceProfile := idleChatVoiceForSpeaker(ev.From)
-	characterID := normalizeIdleChatCharacterID(ev.From)
-	emotion := ttsapp.PlanEmotion(ttsapp.EmotionInput{
-		Event: "conversation",
-		Text:  filtered,
-		Context: ttsapp.EmotionContext{
-			ConversationMode: "chat",
-			TimeOfDay:        idleChatTimeOfDay(),
-			Urgency:          "normal",
-		},
-		VoiceProfile: voiceProfile,
-	})
-
 	publicSessionID := strings.TrimSpace(ev.SessionID)
 	responseID := nextTTSPublicResponseIDForMessage(publicSessionID, ev.MessageID)
-	sessionID := fmt.Sprintf("%s-tts-%d", publicSessionID, time.Now().UnixNano())
-	registerTTSPublicSessionWithMessage(sessionID, publicSessionID, responseID, ev.MessageID, ev.TurnIndex)
-	waitCh := registerIdleChatTTSPending(sessionID, responseID)
-	if err := bridge.StartSession(ctx, orchestrator.TTSSessionStart{
-		SessionID:        sessionID,
-		ResponseID:       responseID,
-		CharacterID:      characterID,
-		VoiceID:          voiceID,
-		SpeechMode:       "conversational",
-		Event:            "conversation",
-		ConversationMode: "chat",
-		Context: ttsapp.EmotionContext{
-			ConversationMode: "chat",
-			TimeOfDay:        idleChatTimeOfDay(),
-			Urgency:          "normal",
+	plan, ok := moduletts.BuildIdleChatTTSPlan(moduletts.IdleChatTTSPlanInput{
+		PublicSessionID: publicSessionID,
+		ResponseID:      responseID,
+		MessageID:       ev.MessageID,
+		TurnIndex:       ev.TurnIndex,
+		Speaker:         ev.From,
+		SpeechText:      filtered,
+		DisplayText:     displayText,
+		TimeOfDay:       idleChatTimeOfDay(),
+		Now:             time.Now(),
+	})
+	if !ok {
+		return nil, false
+	}
+	emotion := moduletts.PlanEmotion(moduletts.EmotionInput{
+		Event: plan.Event,
+		Text:  plan.SpeechText,
+		Context: moduletts.EmotionContext{
+			ConversationMode: plan.ConversationMode,
+			TimeOfDay:        plan.TimeOfDay,
+			Urgency:          plan.Urgency,
 		},
-		VoiceProfile: voiceProfile,
+		VoiceProfile: plan.VoiceProfile,
+	})
+
+	registerTTSPublicSessionWithMessage(plan.SessionID, plan.PublicSessionID, plan.ResponseID, plan.MessageID, plan.TurnIndex)
+	waitCh := registerIdleChatTTSPending(plan.SessionID, plan.ResponseID)
+	if err := bridge.StartSession(ctx, orchestrator.TTSSessionStart{
+		SessionID:        plan.SessionID,
+		ResponseID:       plan.ResponseID,
+		CharacterID:      plan.CharacterID,
+		VoiceID:          plan.VoiceID,
+		SpeechMode:       plan.SpeechMode,
+		Event:            plan.Event,
+		ConversationMode: plan.ConversationMode,
+		Context: moduletts.EmotionContext{
+			ConversationMode: plan.ConversationMode,
+			TimeOfDay:        plan.TimeOfDay,
+			Urgency:          plan.Urgency,
+		},
+		VoiceProfile: plan.VoiceProfile,
 	}); err != nil {
-		clearIdleChatTTSPending(sessionID)
+		clearIdleChatTTSPending(plan.SessionID)
 		log.Printf("[IdleChat] TTS start failed: %v", err)
 		return nil, false
 	}
 	if displayBridge, ok := bridge.(orchestrator.TTSDisplayBridge); ok {
-		err := displayBridge.PushTextWithDisplay(ctx, sessionID, filtered, displayText, &emotion)
+		err := displayBridge.PushTextWithDisplay(ctx, plan.SessionID, plan.SpeechText, plan.DisplayText, &emotion)
 		if err != nil {
 			log.Printf("[IdleChat] TTS push failed: %v", err)
-			if endErr := bridge.EndSession(ctx, sessionID); endErr != nil {
+			if endErr := bridge.EndSession(ctx, plan.SessionID); endErr != nil {
 				log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
 			}
-			clearIdleChatTTSPending(sessionID)
+			clearIdleChatTTSPending(plan.SessionID)
 			return waitCh, true
 		}
-	} else if err := bridge.PushText(ctx, sessionID, filtered, &emotion); err != nil {
+	} else if err := bridge.PushText(ctx, plan.SessionID, plan.SpeechText, &emotion); err != nil {
 		log.Printf("[IdleChat] TTS push failed: %v", err)
-		if endErr := bridge.EndSession(ctx, sessionID); endErr != nil {
+		if endErr := bridge.EndSession(ctx, plan.SessionID); endErr != nil {
 			log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
 		}
-		clearIdleChatTTSPending(sessionID)
+		clearIdleChatTTSPending(plan.SessionID)
 		return waitCh, true
 	}
-	if err := bridge.EndSession(ctx, sessionID); err != nil {
-		clearIdleChatTTSPending(sessionID)
+	if err := bridge.EndSession(ctx, plan.SessionID); err != nil {
+		clearIdleChatTTSPending(plan.SessionID)
 		log.Printf("[IdleChat] TTS end failed: %v", err)
 		return nil, false
 	}
@@ -92,10 +102,5 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 }
 
 func isIdleChatTTSEventType(eventType string) bool {
-	switch strings.TrimSpace(eventType) {
-	case "idlechat.message", "idlechat.topic", "idlechat.tts":
-		return true
-	default:
-		return false
-	}
+	return moduletts.IsIdleChatTTSEventType(eventType)
 }

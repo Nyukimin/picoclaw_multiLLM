@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func (p *IrodoriProvider) referenceAudioFileData(ctx context.Context) (any, error) {
@@ -133,14 +135,5 @@ func (p *IrodoriProvider) uploadFile(ctx context.Context, r io.Reader, fileName 
 }
 
 func irodoriUploadedAudio(referenceAudio string) any {
-	referenceAudio = strings.TrimSpace(referenceAudio)
-	if referenceAudio == "" {
-		return nil
-	}
-	return map[string]any{
-		"path": referenceAudio,
-		"meta": map[string]any{
-			"_type": "gradio.FileData",
-		},
-	}
+	return moduletts.BuildIrodoriUploadedAudioFileData(referenceAudio)
 }

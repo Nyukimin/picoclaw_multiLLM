@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
@@ -14,23 +13,16 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/transport"
+	moduleworker "github.com/Nyukimin/picoclaw_multiLLM/modules/worker"
 )
 
 func localAgentEnabled(agentName string, coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter *coderAdapter) bool {
-	switch agentName {
-	case "mio", "shiro":
-		return true
-	case "coder1":
-		return coder1Adapter != nil
-	case "coder2":
-		return coder2Adapter != nil
-	case "coder3":
-		return coder3Adapter != nil
-	case "coder4":
-		return coder4Adapter != nil
-	default:
-		return true
-	}
+	return moduleworker.LocalAgentEnabled(agentName, moduleworker.LocalAgentAvailability{
+		Coder1: coder1Adapter != nil,
+		Coder2: coder2Adapter != nil,
+		Coder3: coder3Adapter != nil,
+		Coder4: coder4Adapter != nil,
+	})
 }
 
 type sshTransportConnector interface {
@@ -60,18 +52,7 @@ func markAgentUnavailable(store *viewer.MonitorStore, agentName, reason string) 
 }
 
 func formatAgentUnavailableReason(prefix string, err error) string {
-	msg := strings.TrimSpace(prefix)
-	if err == nil {
-		return msg
-	}
-	detail := strings.TrimSpace(err.Error())
-	if detail == "" {
-		return msg
-	}
-	if msg == "" {
-		return detail
-	}
-	return msg + ": " + detail
+	return moduleworker.FormatAgentUnavailableReason(prefix, err)
 }
 
 func distributedAgentAvailable(
@@ -80,12 +61,12 @@ func distributedAgentAvailable(
 	sshTransports map[string]domaintransport.Transport,
 ) bool {
 	if _, ok := localTransports[agentName]; ok {
-		return true
+		return moduleworker.DistributedAgentAvailable(agentName, true, false)
 	}
 	if _, ok := sshTransports[agentName]; ok {
-		return true
+		return moduleworker.DistributedAgentAvailable(agentName, false, true)
 	}
-	return false
+	return moduleworker.DistributedAgentAvailable(agentName, false, false)
 }
 
 func (d *Dependencies) ensureLocalTransport(agentName string) *transport.LocalTransport {
@@ -251,10 +232,7 @@ func newLocalAgentError(agentName string, msg domaintransport.Message, errMsg st
 }
 
 func localCoderReplyTarget(msg domaintransport.Message) string {
-	if strings.EqualFold(strings.TrimSpace(msg.From), "shiro") {
-		return "mio"
-	}
-	return msg.From
+	return moduleworker.LocalCoderReplyTarget(msg.From)
 }
 
 func (d *Dependencies) emitLocalAgentNote(from, to, content string, msg domaintransport.Message) {

@@ -2,41 +2,24 @@ package idlechat
 
 import (
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 // DailySeedCache は1日1回取得する外部シードのキャッシュ
-type DailySeedCache struct {
-	Date           string     `json:"date"`
-	WikipediaSeeds []string   `json:"wikipedia_seeds"`
-	NewsSeeds      []string   `json:"news_seeds"`
-	NewsSeedItems  []NewsSeed `json:"news_seed_items"`
-	FetchedAt      time.Time  `json:"fetched_at"`
-}
+type DailySeedCache = modulechat.DailySeedCache
 
 // NewsSeed はニュース見出しに取得元カテゴリを付与したIdleChat用シード。
-type NewsSeed struct {
-	Title    string `json:"title"`
-	Category string `json:"category"`
-	Source   string `json:"source"`
-	URL      string `json:"url,omitempty"`
-	Summary  string `json:"summary,omitempty"`
-}
+type NewsSeed = modulechat.NewsSeed
 
 // NewsSeedSource は1つのニュースRSS取得先を表す。
-type NewsSeedSource struct {
-	Category    string
-	Name        string
-	URL         string
-	Limit       int
-	ErrorPrefix string
-}
+type NewsSeedSource = modulechat.NewsSeedSource
 
 var defaultNewsSeedSources = []NewsSeedSource{
 	{Category: "general", Name: "NHK Top", URL: "https://www.nhk.or.jp/rss/news/cat0.xml", Limit: 4},
@@ -229,67 +212,15 @@ func fetchNewsSeedsFrom(source NewsSeedSource, limit int) ([]NewsSeed, error) {
 }
 
 func parseNewsSeeds(reader io.Reader, source NewsSeedSource, limit int) ([]NewsSeed, error) {
-	var feed struct {
-		Items []struct {
-			Title string `xml:"title"`
-			Link  string `xml:"link"`
-		} `xml:"channel>item"`
-	}
-	if err := xml.NewDecoder(reader).Decode(&feed); err != nil {
-		return nil, err
-	}
-
-	seeds := make([]NewsSeed, 0, limit)
-	for _, item := range feed.Items {
-		title := strings.TrimSpace(item.Title)
-		if title == "" {
-			continue
-		}
-		seeds = append(seeds, NewsSeed{
-			Title:    title,
-			Category: strings.TrimSpace(source.Category),
-			Source:   strings.TrimSpace(source.Name),
-			URL:      strings.TrimSpace(item.Link),
-		})
-		if limit > 0 && len(seeds) >= limit {
-			break
-		}
-	}
-	return seeds, nil
+	return modulechat.ParseNewsSeeds(reader, source, limit)
 }
 
 func newsSeedTitles(seeds []NewsSeed) []string {
-	titles := make([]string, 0, len(seeds))
-	for _, seed := range seeds {
-		title := strings.TrimSpace(seed.Title)
-		if title != "" {
-			titles = append(titles, title)
-		}
-	}
-	return titles
+	return modulechat.NewsSeedTitles(seeds)
 }
 
 func newsSeedCategorySummary(seeds []NewsSeed) string {
-	if len(seeds) == 0 {
-		return "none"
-	}
-	counts := make(map[string]int)
-	var order []string
-	for _, seed := range seeds {
-		category := strings.TrimSpace(seed.Category)
-		if category == "" {
-			category = "unknown"
-		}
-		if _, ok := counts[category]; !ok {
-			order = append(order, category)
-		}
-		counts[category]++
-	}
-	parts := make([]string, 0, len(order))
-	for _, category := range order {
-		parts = append(parts, fmt.Sprintf("%s=%d", category, counts[category]))
-	}
-	return strings.Join(parts, ",")
+	return modulechat.NewsSeedCategorySummary(seeds)
 }
 
 // getDailyCache は現在のキャッシュを取得（スレッドセーフ）

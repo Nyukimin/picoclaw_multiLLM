@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type TopicGenerationConfig struct {
@@ -56,19 +57,19 @@ func normalizeTopicGenerationConfig(config TopicGenerationConfig) TopicGeneratio
 		config.MaxAttempts = 3
 	}
 	if config.MinJudgeTotal <= 0 {
-		config.MinJudgeTotal = MinJudgeTotal
+		config.MinJudgeTotal = modulechat.MinJudgeTotal
 	}
 	if config.MinCategoryFit <= 0 {
-		config.MinCategoryFit = MinCategoryFit
+		config.MinCategoryFit = modulechat.MinCategoryFit
 	}
 	if config.MinSafety <= 0 {
-		config.MinSafety = MinSafety
+		config.MinSafety = modulechat.MinSafety
 	}
 	if config.RecentTopicWindow <= 0 {
 		config.RecentTopicWindow = 12
 	}
 	if config.RecentSimilarity <= 0 {
-		config.RecentSimilarity = RecentTopicSimilarityThreshold
+		config.RecentSimilarity = modulechat.RecentTopicSimilarityThreshold
 	}
 	return config
 }
@@ -77,16 +78,16 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 	if g == nil || g.llm == nil {
 		return nil, fmt.Errorf("%w: topic generator provider unavailable", ErrTopicGenerationFailed)
 	}
-	normalized, err := NormalizeTopicCategory(string(category))
+	normalized, err := modulechat.NormalizeTopicCategory(string(category))
 	if err != nil {
 		return nil, err
 	}
 	seed.Category = normalized
 	seed.RecentTopics = recent
-	if err := ValidateSeedForCategory(normalized, seed); err != nil {
+	if err := modulechat.ValidateSeedForCategory(normalized, seed); err != nil {
 		logTopicDiagnostic(TopicGenerationDiagnostic{
 			Category:     string(normalized),
-			Strategy:     StrategyFromCategory(normalized),
+			Strategy:     modulechat.StrategyFromTopicCategory(normalized),
 			ErrorCode:    errorCodeForTopicGeneration(err),
 			ErrorMessage: err.Error(),
 			SeedSummary:  summarizeTopicSeed(seed),
@@ -113,7 +114,7 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 			lastErr = err
 			logTopicDiagnostic(TopicGenerationDiagnostic{
 				Category:     string(normalized),
-				Strategy:     StrategyFromCategory(normalized),
+				Strategy:     modulechat.StrategyFromTopicCategory(normalized),
 				Attempt:      attempt,
 				ErrorCode:    errorCodeForTopicGeneration(err),
 				ErrorMessage: err.Error(),
@@ -122,7 +123,7 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 			continue
 		}
 		logIdleRaw(fmt.Sprintf("topic.candidates.generate attempt=%d category=%s", attempt, normalized), resp.Content)
-		candidates, err := ParseTopicCandidates(resp.Content)
+		candidates, err := modulechat.ParseTopicCandidates(resp.Content)
 		if err != nil {
 			lastErr = err
 			continue
@@ -132,11 +133,11 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 		invalids := make([]InvalidCandidateDiagnostic, 0)
 		for _, candidate := range candidates {
 			candidate.Topic = normalizeIdleTopic(candidate.Topic, normalized == TopicCategoryMovie)
-			if err := ValidateTopicCandidate(normalized, seed, candidate); err != nil {
+			if err := modulechat.ValidateTopicCandidate(normalized, seed, candidate); err != nil {
 				invalids = append(invalids, InvalidCandidateDiagnostic{Topic: candidate.Topic, Error: err.Error()})
 				continue
 			}
-			if err := CheckRecentTopicSimilarity(candidate.Topic, recent, g.config.RecentSimilarity); err != nil {
+			if err := modulechat.CheckRecentTopicSimilarity(candidate.Topic, recent, g.config.RecentSimilarity); err != nil {
 				invalids = append(invalids, InvalidCandidateDiagnostic{Topic: candidate.Topic, Error: err.Error()})
 				continue
 			}
@@ -146,7 +147,7 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 			lastErr = ErrTopicGenerationNoCandidates
 			logTopicDiagnostic(TopicGenerationDiagnostic{
 				Category:          string(normalized),
-				Strategy:          StrategyFromCategory(normalized),
+				Strategy:          modulechat.StrategyFromTopicCategory(normalized),
 				Attempt:           attempt,
 				ErrorCode:         ErrTopicGenerationNoCandidates.Error(),
 				SeedSummary:       summarizeTopicSeed(seed),
@@ -161,18 +162,18 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 			lastErr = err
 			continue
 		}
-		if err := ValidateTopicCandidate(normalized, seed, winner); err != nil {
+		if err := modulechat.ValidateTopicCandidate(normalized, seed, winner); err != nil {
 			lastErr = err
 			continue
 		}
-		if err := CheckRecentTopicSimilarity(winner.Topic, recent, g.config.RecentSimilarity); err != nil {
+		if err := modulechat.CheckRecentTopicSimilarity(winner.Topic, recent, g.config.RecentSimilarity); err != nil {
 			lastErr = err
 			continue
 		}
 		result := &TopicGenerationResult{
 			Topic:               winner.Topic,
 			Category:            normalized,
-			Strategy:            StrategyFromCategory(normalized),
+			Strategy:            modulechat.StrategyFromTopicCategory(normalized),
 			InterestingnessAxis: winner.InterestingnessAxis,
 			OpeningHook:         winner.OpeningHook,
 			Avoid:               winner.Avoid,
@@ -186,7 +187,7 @@ func (g *TopicGenerator) GenerateInterestingTopic(ctx context.Context, category 
 	}
 	logTopicDiagnostic(TopicGenerationDiagnostic{
 		Category:     string(normalized),
-		Strategy:     StrategyFromCategory(normalized),
+		Strategy:     modulechat.StrategyFromTopicCategory(normalized),
 		Attempt:      g.config.MaxAttempts,
 		ErrorCode:    ErrTopicGenerationFailed.Error(),
 		ErrorMessage: strings.TrimSpace(fmt.Sprint(lastErr)),
@@ -222,15 +223,15 @@ func (g *TopicGenerator) JudgeCandidates(ctx context.Context, category TopicCate
 		return TopicCandidate{}, nil, err
 	}
 	logIdleRaw(fmt.Sprintf("topic.judge category=%s", category), resp.Content)
-	judge, err := ParseTopicJudgeResult(resp.Content)
+	judge, err := modulechat.ParseTopicJudgeResult(resp.Content)
 	if err != nil {
 		return TopicCandidate{}, nil, err
 	}
-	winner, score, err := ValidateJudgeResultWithThresholds(judge, candidates, g.config.MinJudgeTotal, g.config.MinCategoryFit, g.config.MinSafety)
+	winner, score, err := modulechat.ValidateJudgeResultWithThresholds(judge, candidates, g.config.MinJudgeTotal, g.config.MinCategoryFit, g.config.MinSafety)
 	if err != nil {
 		logTopicDiagnostic(TopicGenerationDiagnostic{
 			Category:     string(category),
-			Strategy:     StrategyFromCategory(category),
+			Strategy:     modulechat.StrategyFromTopicCategory(category),
 			ErrorCode:    errorCodeForTopicGeneration(err),
 			ErrorMessage: err.Error(),
 			WinnerTopic:  judge.WinnerTopic,

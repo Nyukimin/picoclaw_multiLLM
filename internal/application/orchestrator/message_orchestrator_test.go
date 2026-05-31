@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	appverification "github.com/Nyukimin/picoclaw_multiLLM/internal/application/verification"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
@@ -22,6 +21,7 @@ import (
 	domainsuperagent "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/superagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domainverification "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/verification"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 // mockSessionRepository はテスト用のSessionRepository（エラー注入対応）
@@ -327,7 +327,7 @@ func (m *mockResponseVerifier) VerifyResponse(_ context.Context, req appverifica
 type mockTTSBridge struct {
 	startReqs []TTSSessionStart
 	pushes    []string
-	emotions  []*ttsapp.EmotionState
+	emotions  []*moduletts.EmotionState
 	ended     []string
 	startErr  error
 }
@@ -337,7 +337,7 @@ func (m *mockTTSBridge) StartSession(ctx context.Context, req TTSSessionStart) e
 	return m.startErr
 }
 
-func (m *mockTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *ttsapp.EmotionState) error {
+func (m *mockTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error {
 	m.pushes = append(m.pushes, text)
 	m.emotions = append(m.emotions, emotion)
 	return nil

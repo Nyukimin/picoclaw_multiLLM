@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 const (
@@ -38,18 +40,16 @@ type Config struct {
 }
 
 func (c Config) WithDefaults() Config {
-	if strings.TrimSpace(c.Provider) == "" {
-		c.Provider = ProviderExternalHTTP
-	}
-	if strings.TrimSpace(c.Language) == "" {
-		c.Language = "ja"
-	}
-	if c.Timeout <= 0 {
-		c.Timeout = 8 * time.Second
-	}
-	if strings.TrimSpace(c.BusyPolicy) == "" {
-		c.BusyPolicy = BusyPolicyQueueLatest
-	}
+	defaults := modulestt.ApplyProviderDefaults(modulestt.ProviderDefaultsConfig{
+		Provider:   c.Provider,
+		Language:   c.Language,
+		Timeout:    c.Timeout,
+		BusyPolicy: c.BusyPolicy,
+	})
+	c.Provider = defaults.Provider
+	c.Language = defaults.Language
+	c.Timeout = defaults.Timeout
+	c.BusyPolicy = defaults.BusyPolicy
 	return c
 }
 

@@ -3,12 +3,12 @@ package orchestrator
 import (
 	"testing"
 
-	ttsapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/tts"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 func TestBuildVTuberRequest_ChatRouteUsesMio(t *testing.T) {
-	req, ok := buildVTuberRequest("agent.response", routing.RouteCHAT, "sess1", "ありがとう、完了しました。", ttsapp.EmotionContext{}, "lumina_female")
+	req, ok := buildVTuberRequest("agent.response", routing.RouteCHAT, "sess1", "ありがとう、完了しました。", moduletts.EmotionContext{}, "lumina_female")
 	if !ok {
 		t.Fatalf("expected vtuber request")
 	}
@@ -24,7 +24,7 @@ func TestBuildVTuberRequest_ChatRouteUsesMio(t *testing.T) {
 }
 
 func TestBuildVTuberRequest_OpsRouteUsesShiro(t *testing.T) {
-	ctx := ttsapp.EmotionContext{Urgency: "high", UserAttentionRequired: true}
+	ctx := moduletts.EmotionContext{Urgency: "high", UserAttentionRequired: true}
 	req, ok := buildVTuberRequest("agent.response", routing.RouteOPS, "sess2", "警告です。注意してください。", ctx, "lumina_male")
 	if !ok {
 		t.Fatalf("expected vtuber request")

@@ -1,58 +1,50 @@
 package main
 
 import (
-	"strings"
-	"time"
-
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	ttsinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tts"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
-func buildIrodoriTTSProvider(cfg *config.Config, includeUnavailable bool) (ttsProviderSelection, bool) {
-	if cfg != nil && cfg.TTS.Irodori.Enabled && strings.TrimSpace(cfg.TTS.Irodori.BaseURL) != "" {
-		provider := ttsinfra.NewIrodoriProvider(ttsinfra.IrodoriConfig{
-			BaseURL:               cfg.TTS.Irodori.BaseURL,
-			EndpointPath:          cfg.TTS.Irodori.EndpointPath,
-			VoiceID:               cfg.TTS.Irodori.VoiceID,
-			VoiceName:             cfg.TTS.Irodori.VoiceName,
-			ReferenceAudio:        cfg.TTS.Irodori.ReferenceAudio,
-			ReferenceAudioURL:     cfg.TTS.Irodori.ReferenceAudioURL,
-			Timeout:               time.Duration(cfg.TTS.Irodori.TimeoutSec) * time.Second,
-			Checkpoint:            cfg.TTS.Irodori.Checkpoint,
-			ModelDevice:           cfg.TTS.Irodori.ModelDevice,
-			ModelPrecision:        cfg.TTS.Irodori.ModelPrecision,
-			CodecDevice:           cfg.TTS.Irodori.CodecDevice,
-			CodecPrecision:        cfg.TTS.Irodori.CodecPrecision,
-			EnableWatermark:       cfg.TTS.Irodori.EnableWatermark,
-			NumSteps:              cfg.TTS.Irodori.NumSteps,
-			NumCandidates:         cfg.TTS.Irodori.NumCandidates,
-			SeedRaw:               cfg.TTS.Irodori.SeedRaw,
-			CFGGuidanceMode:       cfg.TTS.Irodori.CFGGuidanceMode,
-			CFGScaleText:          cfg.TTS.Irodori.CFGScaleText,
-			CFGScaleSpeaker:       cfg.TTS.Irodori.CFGScaleSpeaker,
-			CFGScaleRaw:           cfg.TTS.Irodori.CFGScaleRaw,
-			CFGMinT:               cfg.TTS.Irodori.CFGMinT,
-			CFGMaxT:               cfg.TTS.Irodori.CFGMaxT,
-			ContextKVCache:        cfg.TTS.Irodori.ContextKVCache,
-			TruncationFactorRaw:   cfg.TTS.Irodori.TruncationFactorRaw,
-			RescaleKRaw:           cfg.TTS.Irodori.RescaleKRaw,
-			RescaleSigmaRaw:       cfg.TTS.Irodori.RescaleSigmaRaw,
-			SpeakerKVScaleRaw:     cfg.TTS.Irodori.SpeakerKVScaleRaw,
-			SpeakerKVMinTRaw:      cfg.TTS.Irodori.SpeakerKVMinTRaw,
-			SpeakerKVMaxLayersRaw: cfg.TTS.Irodori.SpeakerKVMaxLayersRaw,
-		})
-		return ttsProviderSelection{
-			Provider: provider,
-			Name:     "irodori",
-			BaseURL:  cfg.TTS.Irodori.BaseURL,
-			Endpoint: cfg.TTS.Irodori.EndpointPath,
-		}, true
+func buildIrodoriTTSProviderFromPlan(plan moduletts.IrodoriProviderPlan) (ttsProviderSelection, bool) {
+	provider := ttsinfra.NewIrodoriProvider(irodoriConfigFromPlan(plan))
+	return ttsProviderSelection{
+		Provider: provider,
+		Name:     moduletts.RuntimeProviderIrodori,
+		BaseURL:  plan.BaseURL,
+		Endpoint: plan.EndpointPath,
+	}, true
+}
+
+func irodoriConfigFromPlan(plan moduletts.IrodoriProviderPlan) ttsinfra.IrodoriConfig {
+	return ttsinfra.IrodoriConfig{
+		BaseURL:               plan.BaseURL,
+		EndpointPath:          plan.EndpointPath,
+		VoiceID:               plan.VoiceID,
+		VoiceName:             plan.VoiceName,
+		ReferenceAudio:        plan.ReferenceAudio,
+		ReferenceAudioURL:     plan.ReferenceAudioURL,
+		Timeout:               plan.Timeout,
+		Checkpoint:            plan.Checkpoint,
+		ModelDevice:           plan.ModelDevice,
+		ModelPrecision:        plan.ModelPrecision,
+		CodecDevice:           plan.CodecDevice,
+		CodecPrecision:        plan.CodecPrecision,
+		EnableWatermark:       plan.EnableWatermark,
+		NumSteps:              plan.NumSteps,
+		NumCandidates:         plan.NumCandidates,
+		SeedRaw:               plan.SeedRaw,
+		CFGGuidanceMode:       plan.CFGGuidanceMode,
+		CFGScaleText:          plan.CFGScaleText,
+		CFGScaleSpeaker:       plan.CFGScaleSpeaker,
+		CFGScaleRaw:           plan.CFGScaleRaw,
+		CFGMinT:               plan.CFGMinT,
+		CFGMaxT:               plan.CFGMaxT,
+		ContextKVCache:        plan.ContextKVCache,
+		TruncationFactorRaw:   plan.TruncationFactorRaw,
+		RescaleKRaw:           plan.RescaleKRaw,
+		RescaleSigmaRaw:       plan.RescaleSigmaRaw,
+		SpeakerKVScaleRaw:     plan.SpeakerKVScaleRaw,
+		SpeakerKVMinTRaw:      plan.SpeakerKVMinTRaw,
+		SpeakerKVMaxLayersRaw: plan.SpeakerKVMaxLayersRaw,
 	}
-	if includeUnavailable {
-		return ttsProviderSelection{
-			Provider: ttsinfra.NewUnavailableProvider("irodori", "irodori is not configured"),
-			Name:     "irodori",
-		}, true
-	}
-	return ttsProviderSelection{}, false
 }

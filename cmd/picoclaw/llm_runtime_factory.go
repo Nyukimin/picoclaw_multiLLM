@@ -10,6 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	llmmiddleware "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/middleware"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/ollama"
+	modulellm "github.com/Nyukimin/picoclaw_multiLLM/modules/llm"
 )
 
 type primaryLLMProviders struct {
@@ -21,14 +22,15 @@ type primaryLLMProviders struct {
 }
 
 const (
-	localLLMDefaultTimeout = 120 * time.Second
-	localLLMChatTimeout    = 10 * time.Second
-	localLLMWildTimeout    = 15 * time.Second
-	localLLMHeavyTimeout   = 30 * time.Second
+	localLLMDefaultTimeout = modulellm.LocalDefaultTimeout
+	localLLMChatTimeout    = modulellm.LocalChatTimeout
+	localLLMWildTimeout    = modulellm.LocalWildTimeout
+	localLLMHeavyTimeout   = modulellm.LocalHeavyTimeout
 )
 
 func buildPrimaryLLMProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) primaryLLMProviders {
-	if cfg.LocalLLM.Enabled {
+	plan := modulellm.BuildPrimaryProviderPlan(primaryRuntimeConfigFromAppConfig(cfg))
+	if plan.Mode == modulellm.PrimaryModeLocal {
 		global := make(chan struct{}, cfg.LocalLLM.GlobalConcurrency)
 		chatTimeout := localLLMTimeoutForAlias(cfg, "Chat")
 		workerTimeout := localLLMTimeoutForAlias(cfg, "Worker")
@@ -57,12 +59,10 @@ func buildPrimaryLLMProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 		}
 	}
 
-	chatRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, cfg.Ollama.Model, 32768)
-	workerModel := strings.TrimSpace(cfg.Ollama.WorkerModel)
-	if workerModel == "" {
-		workerModel = cfg.Ollama.Model
-	}
-	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(cfg.Ollama.BaseURL, workerModel, 16384)
+	chatRole := plan.Roles[modulellm.PrimaryRoleChat]
+	workerRole := plan.Roles[modulellm.PrimaryRoleWorker]
+	chatRawProvider := ollama.NewOllamaProviderWithNumCtx(chatRole.BaseURL, chatRole.Model, chatRole.NumCtx)
+	workerRawProvider := ollama.NewOllamaProviderWithNumCtx(workerRole.BaseURL, workerRole.Model, workerRole.NumCtx)
 	return primaryLLMProviders{
 		Chat:       wrapPrimaryLLMProvider(cfg, "chat", chatRawProvider, contextBudgetRecorder),
 		Worker:     wrapPrimaryLLMProvider(cfg, "worker", workerRawProvider, contextBudgetRecorder),
@@ -86,6 +86,9 @@ func wrapPrimaryLLMProvider(cfg *config.Config, name string, provider llm.LLMPro
 }
 
 func localLLMTimeoutForAlias(cfg *config.Config, alias string) time.Duration {
+	if cfg == nil {
+		return localLLMDefaultTimeout
+	}
 	switch strings.ToLower(strings.TrimSpace(alias)) {
 	case "chat":
 		return localLLMChatTimeout
@@ -93,11 +96,17 @@ func localLLMTimeoutForAlias(cfg *config.Config, alias string) time.Duration {
 		return localLLMWildTimeout
 	case "heavy":
 		return localLLMHeavyTimeout
+	case "worker", "chatworker":
+		if cfg.LocalLLM.TimeoutSec <= 0 {
+			return localLLMDefaultTimeout
+		}
+		return time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
+	default:
+		if cfg.LocalLLM.TimeoutSec <= 0 {
+			return localLLMDefaultTimeout
+		}
+		return time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
 	}
-	if cfg == nil || cfg.LocalLLM.TimeoutSec <= 0 {
-		return localLLMDefaultTimeout
-	}
-	return time.Duration(cfg.LocalLLM.TimeoutSec) * time.Second
 }
 
 func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
@@ -114,7 +123,7 @@ func localLLMBaseURLForAlias(cfg *config.Config, alias string) string {
 	case "wild":
 		return firstNonEmpty(cfg.LocalLLM.WildBaseURL, cfg.LocalLLM.BaseURL)
 	default:
-		return cfg.LocalLLM.BaseURL
+		return firstNonEmpty(cfg.LocalLLM.BaseURL)
 	}
 }
 
@@ -138,5 +147,40 @@ func localLLMModelForAlias(cfg *config.Config, alias string) string {
 		return cfg.LocalLLM.WildModel
 	default:
 		return ""
+	}
+}
+
+func localRuntimeConfigFromAppConfig(cfg *config.Config) modulellm.LocalRuntimeConfig {
+	if cfg == nil {
+		return modulellm.LocalRuntimeConfig{}
+	}
+	return modulellm.LocalRuntimeConfig{
+		Provider:         cfg.LocalLLM.Provider,
+		BaseURL:          cfg.LocalLLM.BaseURL,
+		ChatBaseURL:      cfg.LocalLLM.ChatBaseURL,
+		WorkerBaseURL:    cfg.LocalLLM.WorkerBaseURL,
+		HeavyBaseURL:     cfg.LocalLLM.HeavyBaseURL,
+		WildBaseURL:      cfg.LocalLLM.WildBaseURL,
+		ChatModel:        cfg.LocalLLM.ChatModel,
+		WorkerModel:      cfg.LocalLLM.WorkerModel,
+		HeavyModel:       cfg.LocalLLM.HeavyModel,
+		WildModel:        cfg.LocalLLM.WildModel,
+		TimeoutSec:       cfg.LocalLLM.TimeoutSec,
+		ModelConcurrency: cfg.LocalLLM.ModelConcurrency,
+	}
+}
+
+func primaryRuntimeConfigFromAppConfig(cfg *config.Config) modulellm.PrimaryRuntimeConfig {
+	if cfg == nil {
+		return modulellm.PrimaryRuntimeConfig{}
+	}
+	return modulellm.PrimaryRuntimeConfig{
+		LocalEnabled: cfg.LocalLLM.Enabled,
+		Local:        localRuntimeConfigFromAppConfig(cfg),
+		LegacyOllama: modulellm.LegacyOllamaRuntimeConfig{
+			BaseURL:     cfg.Ollama.BaseURL,
+			ChatModel:   cfg.Ollama.Model,
+			WorkerModel: cfg.Ollama.WorkerModel,
+		},
 	}
 }

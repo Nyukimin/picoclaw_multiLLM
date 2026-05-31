@@ -59,12 +59,20 @@ func TestIrodoriProvider_SynthesizeBinaryWAV(t *testing.T) {
 }
 
 func TestIrodoriUploadedAudio(t *testing.T) {
-	got := irodoriUploadedAudio("/tmp/reference.wav").(map[string]any)
-	if got["path"] != "/tmp/reference.wav" {
-		t.Fatalf("unexpected uploaded audio path: %#v", got)
+	raw, err := json.Marshal(irodoriUploadedAudio("/tmp/reference.wav"))
+	if err != nil {
+		t.Fatalf("marshal uploaded audio: %v", err)
 	}
-	meta, ok := got["meta"].(map[string]any)
-	if !ok || meta["_type"] != "gradio.FileData" {
+	var got struct {
+		Path string `json:"path"`
+		Meta struct {
+			Type string `json:"_type"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode uploaded audio: %v", err)
+	}
+	if got.Path != "/tmp/reference.wav" || got.Meta.Type != "gradio.FileData" {
 		t.Fatalf("unexpected uploaded audio meta: %#v", got)
 	}
 	if irodoriUploadedAudio("") != nil {

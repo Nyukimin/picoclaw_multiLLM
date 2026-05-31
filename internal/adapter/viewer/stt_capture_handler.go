@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
 type sttLogSaveRequest struct {
@@ -89,8 +91,7 @@ func HandleSTTInputWAVSave(latestPath, archiveDir string) http.HandlerFunc {
 			http.Error(w, "write failed", http.StatusInternalServerError)
 			return
 		}
-		ts := time.Now().Format("20060102_150405")
-		archivePath := filepath.Join(archiveDir, fmt.Sprintf("client_stt_input_%s.wav", ts))
+		archivePath := modulestt.BuildViewerInputArchivePath(archiveDir, time.Now())
 		if err := os.WriteFile(archivePath, body, 0o644); err != nil {
 			http.Error(w, "archive write failed", http.StatusInternalServerError)
 			return

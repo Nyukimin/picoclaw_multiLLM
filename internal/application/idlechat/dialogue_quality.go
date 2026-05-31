@@ -6,6 +6,8 @@ import (
 	"log"
 	"strings"
 	"unicode/utf8"
+
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type IdleDialogueQualityReason string
@@ -194,8 +196,8 @@ func hasDialogueMetaLeak(text string) bool {
 }
 
 func hasExternalMetaLeak(text string) bool {
-	for _, term := range ExternalForbiddenTerms {
-		if containsTopicTerm(text, term) {
+	for _, term := range modulechat.ExternalForbiddenTerms {
+		if modulechat.ContainsTopicTerm(text, term) {
 			return true
 		}
 	}
@@ -203,8 +205,8 @@ func hasExternalMetaLeak(text string) bool {
 }
 
 func hasDialogueUptake(utterance, latestOther string) bool {
-	utteranceNorm := NormalizeTopicForSimilarity(utterance)
-	otherNorm := NormalizeTopicForSimilarity(latestOther)
+	utteranceNorm := modulechat.NormalizeTopicForSimilarity(utterance)
+	otherNorm := modulechat.NormalizeTopicForSimilarity(latestOther)
 	for _, token := range strings.Fields(otherNorm) {
 		if utf8.RuneCountInString(token) >= 2 && strings.Contains(utteranceNorm, token) {
 			return true
@@ -217,10 +219,10 @@ func lacksNewContribution(utterance, latestOther, latestSelf string) bool {
 	if utf8.RuneCountInString(strings.TrimSpace(utterance)) < 12 {
 		return true
 	}
-	if strings.TrimSpace(latestOther) != "" && textSimilarity(NormalizeTopicForSimilarity(utterance), NormalizeTopicForSimilarity(latestOther)) > 0.72 {
+	if strings.TrimSpace(latestOther) != "" && textSimilarity(modulechat.NormalizeTopicForSimilarity(utterance), modulechat.NormalizeTopicForSimilarity(latestOther)) > 0.72 {
 		return true
 	}
-	if strings.TrimSpace(latestSelf) != "" && textSimilarity(NormalizeTopicForSimilarity(utterance), NormalizeTopicForSimilarity(latestSelf)) > 0.72 {
+	if strings.TrimSpace(latestSelf) != "" && textSimilarity(modulechat.NormalizeTopicForSimilarity(utterance), modulechat.NormalizeTopicForSimilarity(latestSelf)) > 0.72 {
 		return true
 	}
 	return false
@@ -278,7 +280,7 @@ func satisfiesTurnMove(requiredMove, utterance string) bool {
 func mentionsTopicToken(utterance, topic string) bool {
 	topic = strings.ReplaceAll(topic, "「", "")
 	topic = strings.ReplaceAll(topic, "」ってどんな映画？", "")
-	for _, token := range strings.Fields(NormalizeTopicForSimilarity(topic)) {
+	for _, token := range strings.Fields(modulechat.NormalizeTopicForSimilarity(topic)) {
 		if utf8.RuneCountInString(token) >= 2 && strings.Contains(utterance, token) {
 			return true
 		}
