@@ -6,6 +6,21 @@ IdleChat は、ユーザー操作がない時間にエージェント同士が�
 
 Viewer と TTS を通じてリアルタイム表示・読み上げを行うが、raw response、view data、audio trigger は別契約として扱う。
 
+## LLM alias
+
+IdleChat では speaker ごとに LLM provider を分ける。
+
+| speaker | 役割 | LLM alias |
+| --- | --- | --- |
+| Mio | 通常の会話側 participant | `Chat` |
+| Shiro | Worker persona の会話側 participant | `ChatWorker` |
+| Kuro | heavy participant | `Heavy` |
+| Wild | wild participant | `Wild` |
+
+`ChatWorker` は Worker サーバ上の alias であり、backing model と prompt は通常の `Worker` と同じである。違いは出力長 cap だけで、IdleChat の Shiro 発話は `ChatWorker=1024` を使う。通常の Shiro / Worker Core / Coder 検証は `Worker=4096` を使う。
+
+IdleChat は request payload の `metadata` で用途判定しない。用途の切り分けは alias で行う。system prompt 内の `/no_think` や `この会話はidleChatです` は thinking / 表示本文制御のための指示であり、max_tokens cap の routing 根拠にしない。
+
 ## モード
 
 | モード | 目的 | 主担当 |

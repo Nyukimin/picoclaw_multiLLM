@@ -14,6 +14,19 @@ RenCrow は Chat / Worker / Coder の三分割を最重要境界として扱う�
 | Worker | Shiro / Worker Core | 実行可否判断、Coder 選定、patch / command 実行、ログ記録、安全境界管理 | ユーザー向け自然対話の最終表現、Coder の提案生成 |
 | Coder | Aka / Ao / Gin / Kin | plan / patch / proposal 生成、設計説明、複数案提示 | 採用決定、正本ブランチ管理、破壊的操作の直接実行 |
 
+## LLM alias 境界
+
+Shiro は用途によって LLM alias を分ける。
+
+| 用途 | character | LLM alias | max_tokens cap | 備考 |
+| --- | --- | --- | ---: | --- |
+| 通常 Worker / OPS / Coder 検証 | Shiro | `Worker` | 4096 | Worker Core として長めの検証・説明を許可する。 |
+| IdleChat 内の Shiro 発話 | Shiro | `ChatWorker` | 1024 | backing model と prompt は Worker と同じ。雑談用に出力長だけ短くする。 |
+
+`Shiro = Worker` と `Shiro = ChatWorker` は競合ではない。同じ Shiro persona が、通常作業では `Worker`、IdleChat では `ChatWorker` を使うという用途別 alias である。
+
+`ChatWorker` は Worker 実行権限や Coder 選定の別人格ではない。IdleChat の発話生成に限定して使い、patch / shell / git / tool execution の責務は通常の `Worker` 境界に残す。
+
 ## 不変ルール
 
 Coder は破壊的操作を直接実行しない。
