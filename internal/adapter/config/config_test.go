@@ -873,8 +873,40 @@ webwright_fetch:
 	if cfg.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.207:8082/v1/responses" {
 		t.Fatalf("unexpected responses endpoint: %s", cfg.WebwrightFetch.ResponsesEndpoint)
 	}
+	if cfg.WebwrightFetch.UvxFrom != "" {
+		t.Fatalf("uvx_from must be opt-in, got %s", cfg.WebwrightFetch.UvxFrom)
+	}
 	if cfg.WebwrightFetch.Model != "Coder1" || cfg.WebwrightFetch.APIKey != "dummy" {
 		t.Fatalf("unexpected local webwright model/key defaults: %+v", cfg.WebwrightFetch)
+	}
+}
+
+func TestLoadConfig_WebwrightFetchKeepsExplicitUvxFrom(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "webwright_fetch_uvx.yaml")
+
+	content := `
+server:
+  port: 8080
+session:
+  storage_dir: "./data/sessions"
+local_llm:
+  enabled: true
+  worker_base_url: "http://192.168.1.207:8082"
+webwright_fetch:
+  enabled: true
+  uvx_from: "git+https://github.com/microsoft/Webwright.git"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.WebwrightFetch.UvxFrom != "git+https://github.com/microsoft/Webwright.git" {
+		t.Fatalf("explicit uvx_from should be preserved, got %s", cfg.WebwrightFetch.UvxFrom)
 	}
 }
 

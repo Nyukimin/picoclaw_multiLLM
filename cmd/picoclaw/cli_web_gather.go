@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -251,6 +253,12 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		if !deps.WebwrightFetch.Enabled && !req.DryRun {
 			fmt.Fprintln(errOut, "webwright_fetch.enabled=true is required for web-gather webwright-fetch")
 			return 1
+		}
+		if !req.DryRun {
+			if err := checkWebwrightResponsesEndpoint(context.Background(), deps.WebwrightFetch.ResponsesEndpoint); err != nil {
+				fmt.Fprintf(errOut, "web-gather webwright-fetch preflight failed: %v\n", err)
+				return 1
+			}
 		}
 		runner := deps.CommandRunner
 		if runner == nil {
@@ -778,6 +786,27 @@ func buildWebGatherWebwrightCommand(cfg config.WebwrightFetchConfig, req webGath
 		args = append(args, "--dry-run")
 	}
 	return "python3", args, nil
+}
+
+func checkWebwrightResponsesEndpoint(ctx context.Context, endpoint string) error {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return errors.New("webwright_fetch.responses_endpoint is required")
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("invalid webwright_fetch.responses_endpoint: %s", endpoint)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported webwright_fetch.responses_endpoint scheme: %s", u.Scheme)
+	}
+	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", u.Host)
+	if err != nil {
+		return fmt.Errorf("responses endpoint is not reachable: %s: %w", endpoint, err)
+	}
+	_ = conn.Close()
+	return nil
 }
 
 func execWebGatherCommand(ctx context.Context, command string, args []string, out io.Writer, errOut io.Writer) int {

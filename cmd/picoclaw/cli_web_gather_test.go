@@ -289,6 +289,23 @@ func TestRunWebGatherCommandWebwrightFetchRequiresEnabledForExecution(t *testing
 	}
 }
 
+func TestRunWebGatherCommandWebwrightFetchPreflightsResponsesEndpoint(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"webwright-fetch", "--task", "collect page"}, webGatherCLIDeps{
+		WebwrightFetch: config.WebwrightFetchConfig{
+			Enabled:           true,
+			ResponsesEndpoint: "http://127.0.0.1:1/v1/responses",
+		},
+		CommandRunner: func(context.Context, string, []string, io.Writer, io.Writer) int {
+			t.Fatal("runner must not be called when responses endpoint is unreachable")
+			return 0
+		},
+	}, &out, &errOut)
+	if code != 1 || !strings.Contains(errOut.String(), "preflight failed") || !strings.Contains(errOut.String(), "responses endpoint is not reachable") {
+		t.Fatalf("expected preflight error, code=%d stderr=%s", code, errOut.String())
+	}
+}
+
 func TestRunWebGatherCommandImportWebwrightJSONLStagesPending(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

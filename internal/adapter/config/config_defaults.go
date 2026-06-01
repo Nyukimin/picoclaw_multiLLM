@@ -78,9 +78,6 @@ func (c *Config) setDefaults() {
 	if c.WebwrightFetch.StagingOutputDir == "" {
 		c.WebwrightFetch.StagingOutputDir = "tmp/webwright_staging"
 	}
-	if c.WebwrightFetch.UvxFrom == "" {
-		c.WebwrightFetch.UvxFrom = "git+https://github.com/microsoft/Webwright.git"
-	}
 	if c.WebwrightFetch.ResponsesEndpoint == "" {
 		workerBase := strings.TrimRight(strings.TrimSpace(c.LocalLLM.WorkerBaseURL), "/")
 		if workerBase == "" {

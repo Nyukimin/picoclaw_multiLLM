@@ -551,6 +551,8 @@ SearXNG は self-hosted endpoint を必須とする。CLI では `--searxng-url`
 
 `webwright-fetch` は `webwright_fetch.runner_path` の Python wrapper を明示実行するだけで、RenCrow 本体 runtime に Webwright / Playwright を必須 dependency として組み込まない。実行時は `webwright_fetch.enabled=true` を必須とする。`--dry-run` は設定確認用として enabled=false でも許可する。
 
+`webwright_fetch.uvx_from` は外部取得を伴うため opt-in とし、既定では空にする。Webwright が別途インストール済みの Python を使う場合は `webwright_fetch.python` を指定する。`webwright-fetch` の実行前には `webwright_fetch.responses_endpoint` の TCP 到達性を preflight し、到達不能なら Webwright を起動せず失敗理由を CLI に出す。
+
 stdout:
 
 - 成功時は staging id、URL、raw hash、warning 件数を表示

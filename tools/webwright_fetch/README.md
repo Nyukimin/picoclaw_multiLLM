@@ -47,6 +47,8 @@ python tools/webwright_fetch/run_webwright_fetch.py \
   --uvx-from "git+https://github.com/microsoft/Webwright.git"
 ```
 
+`uvx` は外部 package 取得を伴うため、RenCrow config の `webwright_fetch.uvx_from` は既定では空のままにする。`uvx` を使う場合だけ明示設定する。
+
 RenCrow のローカル Responses API を使う場合:
 
 ```bash
@@ -101,6 +103,8 @@ picoclaw web-gather import-webwright-jsonl tmp/webwright_staging/ai_policy.jsonl
 ```
 
 取り込み時も `webwright_fetch` 由来 metadata、`pending`、`auto_promote=false`、credential-like text の拒否を確認する。
+
+`picoclaw web-gather webwright-fetch` は実行前に `webwright_fetch.responses_endpoint` の TCP 到達性を確認する。local Worker Responses API が起動していない場合は Webwright を起動せず、preflight error として終了する。
 
 ## 出力ポリシー
 
