@@ -4,17 +4,26 @@ import (
 	"context"
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	comfyuiinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/comfyui"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persona"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/routing"
 )
+
+func durationSeconds(sec int) time.Duration {
+	if sec <= 0 {
+		return 0
+	}
+	return time.Duration(sec) * time.Second
+}
 
 type agentRuntime struct {
 	Mio   *agent.MioAgent
@@ -69,6 +78,12 @@ func buildAgentRuntime(
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, shiroSubagentManager)
 	heavyAgent := agent.NewHeavyAgent(heavyProvider, cfg.Prompts.Heavy)
 	wildAgent := agent.NewWildAgent(wildProvider, cfg.Prompts.Wild)
+	wildAgent.WithImageGenerator(comfyuiinfra.NewClient(comfyuiinfra.Config{
+		BaseURL:      cfg.ComfyUI.BaseURL,
+		ClientID:     cfg.ComfyUI.ClientID,
+		PollInterval: durationSeconds(cfg.ComfyUI.PollIntervalSec),
+		Timeout:      durationSeconds(cfg.ComfyUI.TimeoutSec),
+	}))
 	if convEngine != nil {
 		shiroAgent.WithConversationEngine(convEngine)
 		heavyAgent.WithConversationEngine(convEngine)

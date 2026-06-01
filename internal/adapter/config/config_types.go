@@ -33,6 +33,9 @@ type Config struct {
 	// === Web Gather public web collection tool ===
 	WebGather WebGatherConfig `yaml:"web_gather"`
 
+	// === ComfyUI image generation backend ===
+	ComfyUI ComfyUIConfig `yaml:"comfyui"`
+
 	// === v5.1 プロンプト外部ファイル ===
 	PromptsDir         string         `yaml:"prompts_dir"`          // プロンプトファイルのベースディレクトリ（デフォルト）
 	WorkspaceDir       string         `yaml:"workspace_dir"`        // ユーザーカスタマイズ領域（オーバーライド）
@@ -219,6 +222,14 @@ type WebwrightFetchConfig struct {
 type WebGatherConfig struct {
 	SearXNGBaseURL string `yaml:"searxng_base_url"`
 	YaCyBaseURL    string `yaml:"yacy_base_url"`
+}
+
+// ComfyUIConfig is the Wild-owned image generation backend.
+type ComfyUIConfig struct {
+	BaseURL         string `yaml:"base_url"`
+	ClientID        string `yaml:"client_id"`
+	PollIntervalSec int    `yaml:"poll_interval_sec"`
+	TimeoutSec      int    `yaml:"timeout_sec"`
 }
 
 // SessionConfig はセッション設定

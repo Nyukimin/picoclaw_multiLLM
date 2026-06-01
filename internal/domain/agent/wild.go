@@ -20,6 +20,30 @@ type WildAgent struct {
 	llmProvider        llm.LLMProvider
 	systemPrompt       string
 	conversationEngine conversation.ConversationEngine
+	imageGenerator     ImageGenerator
+}
+
+type ImageGenerator interface {
+	GenerateImage(ctx context.Context, prompt string) (ImageGenerationResult, error)
+}
+
+type ImageGenerationResult struct {
+	PromptID string
+	ImageURL string
+	Filename string
+}
+
+func (r ImageGenerationResult) FormatForUser() string {
+	imageURL := strings.TrimSpace(r.ImageURL)
+	promptID := strings.TrimSpace(r.PromptID)
+	switch {
+	case imageURL != "" && promptID != "":
+		return "ComfyUI image generated.\n\nprompt_id: " + promptID + "\nimage_url: " + imageURL + "\n\n![generated image](" + imageURL + ")"
+	case imageURL != "":
+		return "ComfyUI image generated.\n\nimage_url: " + imageURL + "\n\n![generated image](" + imageURL + ")"
+	default:
+		return "ComfyUI image generation completed."
+	}
 }
 
 func NewWildAgent(llmProvider llm.LLMProvider, systemPrompt string) *WildAgent {
@@ -34,8 +58,20 @@ func (w *WildAgent) WithConversationEngine(engine conversation.ConversationEngin
 	return w
 }
 
+func (w *WildAgent) WithImageGenerator(generator ImageGenerator) *WildAgent {
+	w.imageGenerator = generator
+	return w
+}
+
 func (w *WildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
 	userMessage := stripWildCommand(t.UserMessage())
+	if w.imageGenerator != nil && isComfyUIImageGenerationRequest(userMessage) {
+		result, err := w.imageGenerator.GenerateImage(ctx, userMessage)
+		if err != nil {
+			return "", err
+		}
+		return result.FormatForUser(), nil
+	}
 	messages := []llm.Message{}
 	if w.conversationEngine != nil {
 		recallPack, err := w.conversationEngine.BeginTurn(ctx, t.ChatID(), userMessage)
@@ -67,6 +103,31 @@ func (w *WildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
 		}
 	}
 	return response, nil
+}
+
+func isComfyUIImageGenerationRequest(message string) bool {
+	msg := strings.ToLower(strings.TrimSpace(message))
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "画像プロンプト") || strings.Contains(msg, "prompt only") || strings.Contains(msg, "プロンプトを作") {
+		return false
+	}
+	generationKeywords := []string{
+		"画像生成",
+		"画像を生成",
+		"絵を生成",
+		"生成して",
+		"generate image",
+		"text-to-image",
+	}
+	hasImageContext := strings.Contains(msg, "画像") || strings.Contains(msg, "絵") || strings.Contains(msg, "image") || strings.Contains(msg, "comfyui")
+	for _, keyword := range generationKeywords {
+		if strings.Contains(msg, keyword) && hasImageContext {
+			return true
+		}
+	}
+	return false
 }
 
 func stripWildCommand(message string) string {

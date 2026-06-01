@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -76,4 +77,105 @@ func TestWildAgentGenerateAppliesWildRecallRoleFilter(t *testing.T) {
 	if strings.Contains(got, "worker plan") || strings.Contains(got, "worker report") {
 		t.Fatalf("worker recall should be filtered for wild, got:\n%s", got)
 	}
+}
+
+func TestWildAgentGenerateUsesImageGeneratorForImageGeneration(t *testing.T) {
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			t.Fatal("LLM provider should not be called for ComfyUI image generation")
+			return llm.GenerateResponse{}, nil
+		},
+	}
+	imageTool := &mockWildImageGenerator{
+		result: ImageGenerationResult{
+			PromptID: "prompt-1",
+			ImageURL: "http://comfy.local/view?filename=out.png&type=output",
+		},
+	}
+	wild := NewWildAgent(provider, "creative system").WithImageGenerator(imageTool)
+
+	resp, err := wild.Generate(context.Background(), task.NewTask(task.NewJobID(), "/wild ComfyUIでMioの画像生成をして", "viewer", "viewer-user"))
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !imageTool.called {
+		t.Fatal("image generator should be called")
+	}
+	if !strings.Contains(imageTool.prompt, "Mio") {
+		t.Fatalf("image generator prompt should preserve user request, got %q", imageTool.prompt)
+	}
+	if !strings.Contains(resp, "prompt-1") || !strings.Contains(resp, "http://comfy.local/view?filename=out.png&type=output") {
+		t.Fatalf("unexpected response: %q", resp)
+	}
+}
+
+func TestWildAgentGenerateFallsBackToLLMForImagePromptOnly(t *testing.T) {
+	var called bool
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			called = true
+			return llm.GenerateResponse{Content: "prompt text"}, nil
+		},
+	}
+	imageTool := &mockWildImageGenerator{}
+	wild := NewWildAgent(provider, "creative system").WithImageGenerator(imageTool)
+
+	resp, err := wild.Generate(context.Background(), task.NewTask(task.NewJobID(), "/wild 森の魔女の画像プロンプトを作って", "viewer", "viewer-user"))
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !called {
+		t.Fatal("LLM provider should be called for prompt generation")
+	}
+	if imageTool.called {
+		t.Fatal("image generator should not be called for prompt-only request")
+	}
+	if resp != "prompt text" {
+		t.Fatalf("response = %q", resp)
+	}
+}
+
+func TestWildAgentGenerateFallsBackToLLMForComfyUIDocumentQuestion(t *testing.T) {
+	var called bool
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			called = true
+			return llm.GenerateResponse{Content: "spec summary"}, nil
+		},
+	}
+	imageTool := &mockWildImageGenerator{}
+	wild := NewWildAgent(provider, "creative system").WithImageGenerator(imageTool)
+
+	resp, err := wild.Generate(context.Background(), task.NewTask(task.NewJobID(), "/wild ComfyUI仕様を説明して", "viewer", "viewer-user"))
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if !called {
+		t.Fatal("LLM provider should be called for ComfyUI documentation question")
+	}
+	if imageTool.called {
+		t.Fatal("image generator should not be called for ComfyUI documentation question")
+	}
+	if resp != "spec summary" {
+		t.Fatalf("response = %q", resp)
+	}
+}
+
+type mockWildImageGenerator struct {
+	called bool
+	prompt string
+	result ImageGenerationResult
+	err    error
+}
+
+func (m *mockWildImageGenerator) GenerateImage(ctx context.Context, prompt string) (ImageGenerationResult, error) {
+	m.called = true
+	m.prompt = prompt
+	if m.err != nil {
+		return ImageGenerationResult{}, m.err
+	}
+	if m.result.ImageURL == "" {
+		return ImageGenerationResult{}, errors.New("missing result")
+	}
+	return m.result, nil
 }
