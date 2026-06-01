@@ -1,17 +1,22 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/sourcefetcher"
 	webgatherapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/webgather"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	webgatherinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/webgather"
@@ -35,6 +40,10 @@ func cmdWebGather() {
 		Fetcher:        usecase,
 		SearchCache:    webgatherapp.NewL1SearchCache(store),
 		SourceRegistry: store,
+		SourceRunner:   store,
+		StagingStore:   store,
+		WebwrightFetch: cfg.WebwrightFetch,
+		CommandRunner:  execWebGatherCommand,
 		SearXNGBaseURL: strings.TrimSpace(cfg.WebGather.SearXNGBaseURL),
 	}, os.Stdout, os.Stderr)
 	if code != 0 {
@@ -54,16 +63,31 @@ type webGatherSourceRegistry interface {
 	SaveSourceRegistryEntry(ctx context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error)
 }
 
+type webGatherSourceRunner interface {
+	sourcefetcher.RegistryStore
+	sourcefetcher.RegistrySourceLister
+}
+
+type webGatherStagingStore interface {
+	SaveStagingItem(ctx context.Context, item conversationpersistence.L1StagingItem) (*conversationpersistence.L1StagingItem, error)
+}
+
+type webGatherCommandRunner func(ctx context.Context, command string, args []string, out io.Writer, errOut io.Writer) int
+
 type webGatherCLIDeps struct {
 	Fetcher        webGatherFetcher
 	SearchCache    webgatherapp.SearchCache
 	SourceRegistry webGatherSourceRegistry
+	SourceRunner   webGatherSourceRunner
+	StagingStore   webGatherStagingStore
+	WebwrightFetch config.WebwrightFetchConfig
+	CommandRunner  webGatherCommandRunner
 	SearXNGBaseURL string
 }
 
 func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url] ...")
+		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url|run-source|webwright-fetch|import-webwright-jsonl] ...")
 		return 2
 	}
 	subcmd := strings.ToLower(strings.TrimSpace(args[0]))
@@ -196,9 +220,78 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		}
 		fmt.Fprintf(out, "registered web gather source: %s\n", saved.SourceID)
 		return 0
+	case "run-source":
+		sourceID, jsonOut, err := parseWebGatherRunSourceArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 2
+		}
+		if deps.SourceRunner == nil {
+			fmt.Fprintln(errOut, "web gather source runner is not configured")
+			return 1
+		}
+		result, err := runWebGatherSource(context.Background(), deps.SourceRunner, sourceID, time.Now().UTC())
+		if err != nil {
+			fmt.Fprintf(errOut, "web-gather run-source failed: %v\n", err)
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{"result": sourceRegistrySweepResultCLI(result)}, false)
+			return 0
+		}
+		fmt.Fprintf(out, "web gather source run complete: sources=%d staged=%d warnings=%d failed=%d\n",
+			result.Sources, result.Staged, result.Warnings, result.Failed)
+		return 0
+	case "webwright-fetch":
+		req, err := parseWebGatherWebwrightFetchArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 2
+		}
+		if !deps.WebwrightFetch.Enabled && !req.DryRun {
+			fmt.Fprintln(errOut, "webwright_fetch.enabled=true is required for web-gather webwright-fetch")
+			return 1
+		}
+		runner := deps.CommandRunner
+		if runner == nil {
+			runner = execWebGatherCommand
+		}
+		command, commandArgs, err := buildWebGatherWebwrightCommand(deps.WebwrightFetch, req)
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 2
+		}
+		return runner(context.Background(), command, commandArgs, out, errOut)
+	case "import-webwright-jsonl":
+		path, jsonOut, err := parseWebGatherImportWebwrightJSONLArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(errOut, "%v\n", err)
+			return 2
+		}
+		if deps.StagingStore == nil {
+			fmt.Fprintln(errOut, "web gather staging store is not configured")
+			return 1
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to open webwright staging jsonl: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		imported, err := importWebwrightStagingJSONL(context.Background(), deps.StagingStore, f)
+		if err != nil {
+			fmt.Fprintf(errOut, "failed to import webwright staging jsonl: %v\n", err)
+			return 1
+		}
+		if jsonOut {
+			writeJSONCLI(out, map[string]any{"imported": imported}, false)
+			return 0
+		}
+		fmt.Fprintf(out, "imported webwright staging items: %d\n", imported)
+		return 0
 	default:
 		fmt.Fprintf(errOut, "unknown web-gather subcommand: %s\n", subcmd)
-		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url] ...")
+		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url|run-source|webwright-fetch|import-webwright-jsonl] ...")
 		return 2
 	}
 }
@@ -557,6 +650,273 @@ func parseWebGatherRegisterURLArgs(args []string) (conversationpersistence.L1Sou
 		return entry, jsonOut, errors.New("license-note is required")
 	}
 	return entry, jsonOut, nil
+}
+
+func parseWebGatherRunSourceArgs(args []string) (string, bool, error) {
+	sourceID := ""
+	jsonOut := false
+	for _, raw := range args {
+		arg := strings.TrimSpace(raw)
+		switch arg {
+		case "":
+			continue
+		case "--json":
+			jsonOut = true
+		default:
+			if strings.HasPrefix(arg, "--") {
+				return "", jsonOut, fmt.Errorf("unknown web-gather run-source option: %s", arg)
+			}
+			if sourceID != "" {
+				return "", jsonOut, errors.New("web-gather run-source accepts exactly one source_id")
+			}
+			sourceID = arg
+		}
+	}
+	if sourceID == "" {
+		return "", jsonOut, errors.New("source_id is required")
+	}
+	return sourceID, jsonOut, nil
+}
+
+func runWebGatherSource(ctx context.Context, runner webGatherSourceRunner, sourceID string, now time.Time) (sourcefetcher.SweepResult, error) {
+	entries, err := runner.ListSourceRegistryEntries(ctx, false)
+	if err != nil {
+		return sourcefetcher.SweepResult{}, err
+	}
+	for _, entry := range entries {
+		if entry.SourceID != sourceID {
+			continue
+		}
+		if entry.Kind != conversationpersistence.L1SourceKindWebGather {
+			return sourcefetcher.SweepResult{}, fmt.Errorf("source_id %s is not a web_gather source: %s", sourceID, entry.Kind)
+		}
+		return sourcefetcher.RunSource(ctx, runner, sourceID, now, sourcefetcher.SweepOptions{
+			LimitPerSource:    1,
+			MinimumTrustScore: 0.5,
+		})
+	}
+	return sourcefetcher.SweepResult{}, fmt.Errorf("source registry entry not found: %s", sourceID)
+}
+
+type webGatherWebwrightFetchRequest struct {
+	Task     string
+	StartURL string
+	TaskID   string
+	DryRun   bool
+}
+
+func parseWebGatherWebwrightFetchArgs(args []string) (webGatherWebwrightFetchRequest, error) {
+	var req webGatherWebwrightFetchRequest
+	for i := 0; i < len(args); i++ {
+		arg := strings.TrimSpace(args[i])
+		switch arg {
+		case "":
+			continue
+		case "--dry-run":
+			req.DryRun = true
+		case "--task", "--start-url", "--task-id":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return req, fmt.Errorf("%s requires a value", arg)
+			}
+			value := strings.TrimSpace(args[i+1])
+			i++
+			switch arg {
+			case "--task":
+				req.Task = value
+			case "--start-url":
+				req.StartURL = value
+			case "--task-id":
+				req.TaskID = value
+			}
+		default:
+			return req, fmt.Errorf("unknown web-gather webwright-fetch option: %s", arg)
+		}
+	}
+	if strings.TrimSpace(req.Task) == "" {
+		return req, errors.New("--task is required")
+	}
+	return req, nil
+}
+
+func buildWebGatherWebwrightCommand(cfg config.WebwrightFetchConfig, req webGatherWebwrightFetchRequest) (string, []string, error) {
+	runnerPath := strings.TrimSpace(cfg.RunnerPath)
+	if runnerPath == "" {
+		runnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+	}
+	args := []string{
+		runnerPath,
+		"--task", req.Task,
+	}
+	if outputDir := strings.TrimSpace(cfg.OutputDir); outputDir != "" {
+		args = append(args, "--output-dir", outputDir)
+	}
+	if configPath := strings.TrimSpace(cfg.ConfigPath); configPath != "" {
+		args = append(args, "-c", configPath)
+	}
+	if python := strings.TrimSpace(cfg.Python); python != "" {
+		args = append(args, "--python", python)
+	}
+	if uvxFrom := strings.TrimSpace(cfg.UvxFrom); uvxFrom != "" {
+		args = append(args, "--uvx-from", uvxFrom)
+	}
+	if endpoint := strings.TrimSpace(cfg.ResponsesEndpoint); endpoint != "" {
+		args = append(args, "--local-responses-endpoint", endpoint)
+	}
+	if model := strings.TrimSpace(cfg.Model); model != "" {
+		args = append(args, "--local-model", model)
+	}
+	if apiKey := strings.TrimSpace(cfg.APIKey); apiKey != "" {
+		args = append(args, "--local-api-key", apiKey)
+	}
+	if strings.TrimSpace(req.StartURL) != "" {
+		args = append(args, "--start-url", strings.TrimSpace(req.StartURL))
+	}
+	if strings.TrimSpace(req.TaskID) != "" {
+		args = append(args, "--task-id", strings.TrimSpace(req.TaskID))
+	}
+	if req.DryRun {
+		args = append(args, "--dry-run")
+	}
+	return "python3", args, nil
+}
+
+func execWebGatherCommand(ctx context.Context, command string, args []string, out io.Writer, errOut io.Writer) int {
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
+		fmt.Fprintf(errOut, "failed to run %s: %v\n", command, err)
+		return 127
+	}
+	return 0
+}
+
+func parseWebGatherImportWebwrightJSONLArgs(args []string) (string, bool, error) {
+	path := ""
+	jsonOut := false
+	for _, raw := range args {
+		arg := strings.TrimSpace(raw)
+		switch arg {
+		case "":
+			continue
+		case "--json":
+			jsonOut = true
+		default:
+			if strings.HasPrefix(arg, "--") {
+				return "", jsonOut, fmt.Errorf("unknown web-gather import-webwright-jsonl option: %s", arg)
+			}
+			if path != "" {
+				return "", jsonOut, errors.New("web-gather import-webwright-jsonl accepts exactly one path")
+			}
+			path = arg
+		}
+	}
+	if path == "" {
+		return "", jsonOut, errors.New("path is required")
+	}
+	return path, jsonOut, nil
+}
+
+func importWebwrightStagingJSONL(ctx context.Context, store webGatherStagingStore, reader io.Reader) (int, error) {
+	if store == nil {
+		return 0, errors.New("web gather staging store is required")
+	}
+	if reader == nil {
+		return 0, errors.New("webwright staging JSONL reader is required")
+	}
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	imported := 0
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var item conversationpersistence.L1StagingItem
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			return imported, fmt.Errorf("invalid webwright staging JSONL at line %d: %w", lineNo, err)
+		}
+		if err := validateWebwrightStagingItem(item); err != nil {
+			return imported, fmt.Errorf("invalid webwright staging item at line %d: %w", lineNo, err)
+		}
+		item.ValidationStatus = conversationpersistence.L1StagingStatusPending
+		if _, err := store.SaveStagingItem(ctx, item); err != nil {
+			return imported, fmt.Errorf("failed to save webwright staging item at line %d: %w", lineNo, err)
+		}
+		imported++
+	}
+	if err := scanner.Err(); err != nil {
+		return imported, fmt.Errorf("failed to scan webwright staging JSONL: %w", err)
+	}
+	return imported, nil
+}
+
+func validateWebwrightStagingItem(item conversationpersistence.L1StagingItem) error {
+	if strings.TrimSpace(item.Kind) != conversationpersistence.L1StagingKindExternalFetch {
+		return fmt.Errorf("kind must be %s", conversationpersistence.L1StagingKindExternalFetch)
+	}
+	status := strings.TrimSpace(item.ValidationStatus)
+	if status != "" && status != conversationpersistence.L1StagingStatusPending {
+		return fmt.Errorf("validation_status must be pending")
+	}
+	if webGatherCredentialLikeText(item.RawText) {
+		return errors.New("raw_text appears to contain credential material")
+	}
+	if item.Meta == nil {
+		return errors.New("meta is required")
+	}
+	if !boolMeta(item.Meta, "webwright") && stringMetaForWebGatherCLI(item.Meta, "tool") != "webwright_fetch" {
+		return errors.New("meta must identify webwright_fetch")
+	}
+	if !boolMeta(item.Meta, "review_required") {
+		return errors.New("meta.review_required must be true")
+	}
+	if boolMeta(item.Meta, "auto_promote") {
+		return errors.New("meta.auto_promote must be false")
+	}
+	return nil
+}
+
+func boolMeta(meta map[string]interface{}, key string) bool {
+	value, ok := meta[key]
+	if !ok {
+		return false
+	}
+	if b, ok := value.(bool); ok {
+		return b
+	}
+	if s, ok := value.(string); ok {
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "true", "1", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func stringMetaForWebGatherCLI(meta map[string]interface{}, key string) string {
+	value, ok := meta[key]
+	if !ok {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+var webGatherCredentialLikeTextRE = regexp.MustCompile(`(?i)(authorization|set-cookie|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]|\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
+
+func webGatherCredentialLikeText(text string) bool {
+	return webGatherCredentialLikeTextRE.MatchString(text)
 }
 
 func loadWebGatherStore(configPath string) (*config.Config, *conversationpersistence.L1SQLiteStore, error) {

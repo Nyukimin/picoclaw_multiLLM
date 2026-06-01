@@ -78,6 +78,12 @@ python tools/webwright_fetch/run_webwright_fetch.py \
 Webwright の `report.json` を L1 staging JSONL へ変換:
 
 ```bash
+picoclaw web-gather webwright-fetch \
+  --task "Collect the public article title, summary, and key facts" \
+  --start-url "https://example.com/article" \
+  --task-id ai_policy \
+  --dry-run
+
 python tools/webwright_fetch/webwright_to_staging.py \
   --input tmp/webwright_runs/default/ai_policy/report.json \
   --output tmp/webwright_staging/ai_policy.jsonl \
@@ -87,6 +93,14 @@ python tools/webwright_fetch/webwright_to_staging.py \
 ```
 
 出力 JSONL は `conversation.L1StagingItem` の Go JSON field 名に合わせる。
+
+変換済み JSONL を RenCrow L1 staging へ取り込む:
+
+```bash
+picoclaw web-gather import-webwright-jsonl tmp/webwright_staging/ai_policy.jsonl --json
+```
+
+取り込み時も `webwright_fetch` 由来 metadata、`pending`、`auto_promote=false`、credential-like text の拒否を確認する。
 
 ## 出力ポリシー
 

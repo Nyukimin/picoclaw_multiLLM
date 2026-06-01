@@ -538,9 +538,18 @@ Phase 2 search command:
 ```bash
 picoclaw web-gather search <query> --provider searxng [options]
 picoclaw web-gather search-and-fetch <query> --provider searxng [options]
+picoclaw web-gather run-source <source_id> [--json]
+picoclaw web-gather webwright-fetch --task <task> [--start-url <url>] [--task-id <id>] [--dry-run]
+picoclaw web-gather import-webwright-jsonl <path> [--json]
 ```
 
 SearXNG は self-hosted endpoint を必須とする。CLI では `--searxng-url` を指定できる。未指定時は `config.yaml` の `web_gather.searxng_base_url` を使い、CLI option は config より優先する。
+
+`run-source` は Source Registry に登録済みの `kind=web_gather` source だけを実行する。fetch / extract の結果は `pending` staging に保存し、validate / promote は自動実行しない。RSS / Atom / PyPI など他 kind の source は `web-gather run-source` では拒否し、`source-registry sweep` または Viewer の Source Registry 操作に分ける。
+
+`import-webwright-jsonl` は `tools/webwright_fetch/webwright_to_staging.py` が出力した JSONL を L1 staging に取り込む。`Kind=external_fetch`、`ValidationStatus=pending`、`Meta.webwright=true` または `Meta.tool=webwright_fetch`、`Meta.review_required=true`、`Meta.auto_promote=false` を必須とする。raw text に credential-like 文字列がある item は保存しない。
+
+`webwright-fetch` は `webwright_fetch.runner_path` の Python wrapper を明示実行するだけで、RenCrow 本体 runtime に Webwright / Playwright を必須 dependency として組み込まない。実行時は `webwright_fetch.enabled=true` を必須とする。`--dry-run` は設定確認用として enabled=false でも許可する。
 
 stdout:
 
