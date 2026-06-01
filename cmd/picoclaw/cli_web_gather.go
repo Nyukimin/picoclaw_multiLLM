@@ -89,11 +89,23 @@ type webGatherCLIDeps struct {
 
 func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url|run-source|webwright-fetch|import-webwright-jsonl] ...")
+		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url|run-source|webwright-fetch|import-webwright-jsonl|doctor] ...")
 		return 2
 	}
 	subcmd := strings.ToLower(strings.TrimSpace(args[0]))
 	switch subcmd {
+	case "doctor":
+		jsonOut := hasFlag(args[1:], "--json")
+		result := runWebGatherDoctor(context.Background(), deps)
+		if jsonOut {
+			writeJSONCLI(out, result, false)
+		} else {
+			writeWebGatherDoctorText(out, result)
+		}
+		if !result.OK {
+			return 1
+		}
+		return 0
 	case "url":
 		req, jsonOut, err := parseWebGatherURLArgs(args[1:])
 		if err != nil {
@@ -299,7 +311,7 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		return 0
 	default:
 		fmt.Fprintf(errOut, "unknown web-gather subcommand: %s\n", subcmd)
-		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url|run-source|webwright-fetch|import-webwright-jsonl] ...")
+		fmt.Fprintln(errOut, "usage: picoclaw web-gather [url|search|search-and-fetch|register-url|run-source|webwright-fetch|import-webwright-jsonl|doctor] ...")
 		return 2
 	}
 }
@@ -807,6 +819,84 @@ func checkWebwrightResponsesEndpoint(ctx context.Context, endpoint string) error
 	}
 	_ = conn.Close()
 	return nil
+}
+
+type webGatherDoctorResult struct {
+	OK     bool                   `json:"ok"`
+	Checks []webGatherDoctorCheck `json:"checks"`
+}
+
+type webGatherDoctorCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func runWebGatherDoctor(ctx context.Context, deps webGatherCLIDeps) webGatherDoctorResult {
+	result := webGatherDoctorResult{OK: true}
+	add := func(name string, ok bool, status string, detail string) {
+		if !ok {
+			result.OK = false
+		}
+		result.Checks = append(result.Checks, webGatherDoctorCheck{Name: name, Status: status, Detail: detail})
+	}
+	if deps.StagingStore == nil {
+		add("l1_staging_store", false, "fail", "staging store is not configured")
+	} else {
+		add("l1_staging_store", true, "ok", "configured")
+	}
+	if strings.TrimSpace(deps.SearXNGBaseURL) == "" {
+		add("searxng", true, "skipped", "web_gather.searxng_base_url is not configured")
+	} else {
+		add("searxng", true, "ok", deps.SearXNGBaseURL)
+	}
+	if !deps.WebwrightFetch.Enabled {
+		add("webwright_enabled", true, "skipped", "webwright_fetch.enabled=false")
+		return result
+	}
+	add("webwright_enabled", true, "ok", "enabled")
+	runnerPath := strings.TrimSpace(deps.WebwrightFetch.RunnerPath)
+	if runnerPath == "" {
+		runnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+	}
+	if st, err := os.Stat(runnerPath); err != nil {
+		add("webwright_runner", false, "fail", err.Error())
+	} else if st.IsDir() {
+		add("webwright_runner", false, "fail", runnerPath+" is a directory")
+	} else {
+		add("webwright_runner", true, "ok", runnerPath)
+	}
+	python := strings.TrimSpace(deps.WebwrightFetch.Python)
+	if python == "" {
+		python = "python3"
+	}
+	if resolved, err := exec.LookPath(python); err != nil {
+		add("webwright_python", false, "fail", err.Error())
+	} else {
+		add("webwright_python", true, "ok", resolved)
+	}
+	if strings.TrimSpace(deps.WebwrightFetch.UvxFrom) == "" {
+		add("webwright_uvx_from", true, "ok", "disabled; external package fetch is opt-in")
+	} else {
+		add("webwright_uvx_from", true, "ok", deps.WebwrightFetch.UvxFrom)
+	}
+	if err := checkWebwrightResponsesEndpoint(ctx, deps.WebwrightFetch.ResponsesEndpoint); err != nil {
+		add("webwright_responses_endpoint", false, "fail", err.Error())
+	} else {
+		add("webwright_responses_endpoint", true, "ok", deps.WebwrightFetch.ResponsesEndpoint)
+	}
+	return result
+}
+
+func writeWebGatherDoctorText(out io.Writer, result webGatherDoctorResult) {
+	fmt.Fprintf(out, "web-gather doctor: ok=%v\n", result.OK)
+	for _, check := range result.Checks {
+		if strings.TrimSpace(check.Detail) == "" {
+			fmt.Fprintf(out, "- %s: %s\n", check.Name, check.Status)
+			continue
+		}
+		fmt.Fprintf(out, "- %s: %s (%s)\n", check.Name, check.Status, check.Detail)
+	}
 }
 
 func execWebGatherCommand(ctx context.Context, command string, args []string, out io.Writer, errOut io.Writer) int {

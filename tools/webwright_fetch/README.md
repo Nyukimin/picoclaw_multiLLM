@@ -106,6 +106,14 @@ picoclaw web-gather import-webwright-jsonl tmp/webwright_staging/ai_policy.jsonl
 
 `picoclaw web-gather webwright-fetch` は実行前に `webwright_fetch.responses_endpoint` の TCP 到達性を確認する。local Worker Responses API が起動していない場合は Webwright を起動せず、preflight error として終了する。
 
+実行前診断:
+
+```bash
+picoclaw web-gather doctor --json
+```
+
+`doctor` は L1 staging store、SearXNG 設定、Webwright runner、Python、`uvx_from`、Responses endpoint 到達性を確認する。Webwright が disabled の場合は skipped として扱う。
+
 ## 出力ポリシー
 
 - `Kind`: `external_fetch`

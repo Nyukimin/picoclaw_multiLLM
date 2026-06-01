@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -303,6 +304,88 @@ func TestRunWebGatherCommandWebwrightFetchPreflightsResponsesEndpoint(t *testing
 	}, &out, &errOut)
 	if code != 1 || !strings.Contains(errOut.String(), "preflight failed") || !strings.Contains(errOut.String(), "responses endpoint is not reachable") {
 		t.Fatalf("expected preflight error, code=%d stderr=%s", code, errOut.String())
+	}
+}
+
+func TestRunWebGatherCommandDoctorReportsSkippedWebwright(t *testing.T) {
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"doctor", "--json"}, webGatherCLIDeps{
+		StagingStore: store,
+		WebwrightFetch: config.WebwrightFetchConfig{
+			Enabled: false,
+		},
+	}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"ok":true`) || !strings.Contains(out.String(), `"status":"skipped"`) {
+		t.Fatalf("expected skipped doctor JSON, got %s", out.String())
+	}
+}
+
+func TestRunWebGatherCommandDoctorFailsUnreachableWebwrightEndpoint(t *testing.T) {
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"doctor"}, webGatherCLIDeps{
+		StagingStore: store,
+		WebwrightFetch: config.WebwrightFetchConfig{
+			Enabled:           true,
+			RunnerPath:        "tools/webwright_fetch/run_webwright_fetch.py",
+			Python:            "python3",
+			ResponsesEndpoint: "http://127.0.0.1:1/v1/responses",
+		},
+	}, &out, &errOut)
+	if code != 1 || !strings.Contains(out.String(), "webwright_responses_endpoint: fail") {
+		t.Fatalf("expected doctor endpoint failure, code=%d stdout=%s stderr=%s", code, out.String(), errOut.String())
+	}
+}
+
+func TestRunWebGatherCommandDoctorPassesReachableWebwrightEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	runnerPath := filepath.Join(dir, "run_webwright_fetch.py")
+	if err := os.WriteFile(runnerPath, []byte("#!/usr/bin/env python3\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile runner failed: %v", err)
+	}
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(dir, "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"doctor"}, webGatherCLIDeps{
+		StagingStore: store,
+		WebwrightFetch: config.WebwrightFetchConfig{
+			Enabled:           true,
+			RunnerPath:        runnerPath,
+			Python:            "python3",
+			ResponsesEndpoint: "http://" + listener.Addr().String() + "/v1/responses",
+		},
+	}, &out, &errOut)
+	if code != 0 || !strings.Contains(out.String(), "webwright_responses_endpoint: ok") {
+		t.Fatalf("expected doctor success, code=%d stdout=%s stderr=%s", code, out.String(), errOut.String())
 	}
 }
 

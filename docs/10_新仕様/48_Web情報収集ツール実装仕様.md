@@ -541,6 +541,7 @@ picoclaw web-gather search-and-fetch <query> --provider searxng [options]
 picoclaw web-gather run-source <source_id> [--json]
 picoclaw web-gather webwright-fetch --task <task> [--start-url <url>] [--task-id <id>] [--dry-run]
 picoclaw web-gather import-webwright-jsonl <path> [--json]
+picoclaw web-gather doctor [--json]
 ```
 
 SearXNG は self-hosted endpoint を必須とする。CLI では `--searxng-url` を指定できる。未指定時は `config.yaml` の `web_gather.searxng_base_url` を使い、CLI option は config より優先する。
@@ -552,6 +553,8 @@ SearXNG は self-hosted endpoint を必須とする。CLI では `--searxng-url`
 `webwright-fetch` は `webwright_fetch.runner_path` の Python wrapper を明示実行するだけで、RenCrow 本体 runtime に Webwright / Playwright を必須 dependency として組み込まない。実行時は `webwright_fetch.enabled=true` を必須とする。`--dry-run` は設定確認用として enabled=false でも許可する。
 
 `webwright_fetch.uvx_from` は外部取得を伴うため opt-in とし、既定では空にする。Webwright が別途インストール済みの Python を使う場合は `webwright_fetch.python` を指定する。`webwright-fetch` の実行前には `webwright_fetch.responses_endpoint` の TCP 到達性を preflight し、到達不能なら Webwright を起動せず失敗理由を CLI に出す。
+
+`doctor` は L1 staging store、SearXNG 設定有無、Webwright enabled 状態、runner path、Python、`uvx_from` opt-in 状態、Responses endpoint 到達性を確認する。Webwright disabled は skipped とし、enabled かつ endpoint 到達不能など常用実行を阻害する状態は fail とする。
 
 stdout:
 
