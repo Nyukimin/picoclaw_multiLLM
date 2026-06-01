@@ -128,5 +128,6 @@ func (p *IrodoriProvider) Synthesize(ctx context.Context, in SynthesisInput) (Sy
 		Provider:      "irodori",
 		VoiceID:       voiceID,
 		AudioFilePath: audioPath,
+		AudioURL:      audioURL,
 	}, nil
 }

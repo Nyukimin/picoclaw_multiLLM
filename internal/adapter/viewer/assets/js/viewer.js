@@ -21,8 +21,8 @@ const RC = {
 const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3', 'coder4'];
 const ROLE_TARGETS = [
   {id:'mio', role:'Chat', alias:'Chat', use:'会話テンポ / ルミナ人格 / 音声UI'},
-  {id:'shiro', role:'Worker', alias:'Worker', use:'実務処理 / 要約 / RAG / 画像解析'},
-  {id:'coder1', role:'Wild', alias:'Wild', use:'物語生成 / 画像プロンプト / 雰囲気抽出'},
+  {id:'shiro', role:'Worker', alias:'Worker', use:'実務処理 / 要約 / RAG'},
+  {id:'coder1', role:'Wild', alias:'Wild', use:'画像解析 / 画像生成 / ComfyUI / 雰囲気抽出'},
   {id:'coder2', role:'Coder', alias:'Worker', use:'実装 / 検証 / 差分整理'},
   {id:'coder3', role:'Coder', alias:'Worker', use:'実装 / 調査 / テスト補助'},
   {id:'coder4', role:'Coder', alias:'Worker', use:'実装 / レビュー / 仕上げ'},

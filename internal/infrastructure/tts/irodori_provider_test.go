@@ -53,6 +53,9 @@ func TestIrodoriProvider_SynthesizeBinaryWAV(t *testing.T) {
 	if out.Provider != "irodori" || out.VoiceID != "mio" {
 		t.Fatalf("unexpected output: %+v", out)
 	}
+	if out.AudioURL != "http://irodori.local/audio/sample.wav" {
+		t.Fatalf("unexpected audio url: %q", out.AudioURL)
+	}
 	got, err := os.ReadFile(out.AudioFilePath)
 	if err != nil || string(got) != "RIFFirodori" {
 		t.Fatalf("unexpected wav output: err=%v got=%q", err, string(got))

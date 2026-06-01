@@ -87,7 +87,7 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 			ChunkIndex: s.nextChunk,
 			Text:       speechText,
 			AudioPath:  localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
-			AudioURL:   "",
+			AudioURL:   strings.TrimSpace(out.AudioURL),
 			PauseAfter: chunkPauseForText(speechText),
 		}
 		s.nextChunk++

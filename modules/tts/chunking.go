@@ -8,7 +8,11 @@ import (
 
 const (
 	TTSChunkMinRunes = 6
-	TTSChunkMaxRunes = 64
+	// Keep synthesis chunks short enough for realtime-ish playback. Long single
+	// sentences can take tens of seconds to generate even when they are natural.
+	TTSChunkTargetRunes          = 34
+	TTSChunkMaxRunes             = 44
+	TTSChunkSoftBoundaryMinRunes = 18
 )
 
 func NextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
@@ -19,7 +23,9 @@ func NextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 
 	lastHard := -1
 	lastSoft := -1
+	lastSoftRunes := 0
 	lastSpace := -1
+	lastSpaceRunes := 0
 	runeCount := 0
 	for i, r := range trimmed {
 		runeCount++
@@ -32,11 +38,16 @@ func NextTTSChunk(text string, final bool) (chunk, rest string, ok bool) {
 			}
 		case IsTTSSoftBoundary(r):
 			lastSoft = end
+			lastSoftRunes = runeCount
 		case unicode.IsSpace(r):
 			lastSpace = end
+			lastSpaceRunes = runeCount
+		}
+		if runeCount >= TTSChunkTargetRunes && lastSoft > 0 && lastSoftRunes >= TTSChunkSoftBoundaryMinRunes {
+			return SplitTTSChunk(trimmed, lastSoft)
 		}
 		if runeCount >= TTSChunkMaxRunes {
-			cut := ChooseTTSChunkCut(lastHard, lastSoft, lastSpace)
+			cut := chooseTTSChunkCutForLatency(lastHard, lastSoft, lastSoftRunes, lastSpace, lastSpaceRunes)
 			if cut > 0 {
 				return SplitTTSChunk(trimmed, cut)
 			}
@@ -68,6 +79,19 @@ func SplitTTSChunks(text string) []string {
 		remaining = rest
 	}
 	return chunks
+}
+
+func chooseTTSChunkCutForLatency(lastHard, lastSoft, lastSoftRunes, lastSpace, lastSpaceRunes int) int {
+	switch {
+	case lastHard > 0:
+		return lastHard
+	case lastSoft > 0 && lastSoftRunes >= TTSChunkSoftBoundaryMinRunes:
+		return lastSoft
+	case lastSpace > 0 && lastSpaceRunes >= TTSChunkSoftBoundaryMinRunes:
+		return lastSpace
+	default:
+		return 0
+	}
 }
 
 func ChooseTTSChunkCut(lastHard, lastSoft, lastSpace int) int {

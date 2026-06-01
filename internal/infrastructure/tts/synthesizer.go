@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-type EmotionState struct{
+type EmotionState struct {
 	Emotion        string         `json:"emotion"`
 	Intensity      float64        `json:"intensity"`
 	Speed          float64        `json:"speed"`
@@ -21,18 +21,19 @@ type VoiceProfile struct {
 }
 
 type SynthesisInput struct {
-	Text        string
-	Emotion     EmotionState
+	Text         string
+	Emotion      EmotionState
 	VoiceProfile VoiceProfile
-	OutputDir   string
-	FilePrefix  string
+	OutputDir    string
+	FilePrefix   string
 }
 
 type SynthesisOutput struct {
-	Provider     string `json:"provider"`
-	VoiceID      string `json:"voice_id,omitempty"`
+	Provider      string `json:"provider"`
+	VoiceID       string `json:"voice_id,omitempty"`
 	AudioFilePath string `json:"audio_file_path"`
-	DurationMS   int    `json:"audio_duration_ms,omitempty"`
+	AudioURL      string `json:"audio_url,omitempty"`
+	DurationMS    int    `json:"audio_duration_ms,omitempty"`
 }
 
 type Provider interface {
@@ -72,4 +73,3 @@ func (s *FallbackSynthesizer) Synthesize(ctx context.Context, in SynthesisInput)
 	}
 	return SynthesisOutput{}, fmt.Errorf("%w: %v", ErrSynthesisFailed, lastErr)
 }
-

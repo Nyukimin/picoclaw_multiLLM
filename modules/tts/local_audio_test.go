@@ -1,6 +1,7 @@
 package tts
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -28,6 +29,27 @@ func TestLocalAudioRelPathHandlesRelativeInput(t *testing.T) {
 	got, ok := LocalAudioRelPath(outputDir, "nested/chunk.wav")
 	if !ok || got != "nested/chunk.wav" {
 		t.Fatalf("LocalAudioRelPath() = %q,%t", got, ok)
+	}
+}
+
+func TestLocalAudioRelPathCollapsesRelativeOutputDirPath(t *testing.T) {
+	cwd := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	outputDir := filepath.Join("workspace", "tts")
+	audioPath := filepath.Join("workspace", "tts", "sample.wav")
+	got, ok := LocalAudioRelPath(outputDir, audioPath)
+	if !ok || got != "sample.wav" {
+		t.Fatalf("LocalAudioRelPath() = %q,%t, want sample.wav,true", got, ok)
 	}
 }
 

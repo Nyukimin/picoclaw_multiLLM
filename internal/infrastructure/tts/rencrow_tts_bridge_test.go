@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -73,6 +75,40 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 	}
 	if sink.calls != 1 {
 		t.Fatalf("expected sink submit once, got %d", sink.calls)
+	}
+}
+
+func TestRenCrowTTSBridge_NormalizesLocalAudioPathForViewer(t *testing.T) {
+	outputDir := t.TempDir()
+	audioPath := filepath.Join(outputDir, "viewer-tts-1.wav")
+	var gotAudioPath string
+	var gotAudioURL string
+
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		OutputDir:   outputDir,
+		VoiceID:     "female_01",
+		OnChunkReady: func(_, _ string, _ int, _, _, _, audioPath, audioURL string) {
+			gotAudioPath = audioPath
+			gotAudioURL = audioURL
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-local","audio_path":` + strconv.Quote(audioPath) + `}`)),
+		}, nil
+	})}
+
+	if err := bridge.PushText(context.Background(), "session-local", "こんにちは", nil); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+	if gotAudioPath != "viewer-tts-1.wav" {
+		t.Fatalf("audio_path = %q, want viewer-tts-1.wav", gotAudioPath)
+	}
+	if gotAudioURL != "" {
+		t.Fatalf("audio_url = %q, want empty for local viewer audio", gotAudioURL)
 	}
 }
 

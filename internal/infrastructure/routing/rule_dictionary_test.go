@@ -196,6 +196,18 @@ func TestRuleDictionary_Match_WildKeywords(t *testing.T) {
 			message: "参考にする画像検索をして",
 		},
 		{
+			name:    "画像解析",
+			message: "添付画像を解析して、写っている内容を説明して",
+		},
+		{
+			name:    "画像分析",
+			message: "この写真を分析して",
+		},
+		{
+			name:    "スクショ解析",
+			message: "このスクショを解析して",
+		},
+		{
 			name:    "創作用の画像解析",
 			message: "このスクショから雰囲気・構図・衣装・質感を抽出して",
 		},

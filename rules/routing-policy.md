@@ -145,6 +145,9 @@ RenCrow では、入力を以下のカテゴリへ分類する。
 - 差分比較
 - 影響範囲の見積もり
 
+除外：
+- 画像解析、画像分析、写真・スクショ・添付画像の内容理解は `ANALYZE` ではなく `WILD` とする。
+
 担当：
 - 原則 Coder
 - 軽い読解だけなら Chat でも可
@@ -181,6 +184,8 @@ RenCrow では、入力を以下のカテゴリへ分類する。
 
 除外：
 - 画像検索は `WILD` とする。画像検索は創作・生成・視覚参照の前処理であり、通常の外部情報調査 `RESEARCH` と混同しない。
+- ComfyUI を利用する処理は必ず `WILD` とする。画像生成、画像編集、ControlNet、detailer、workflow 操作を Worker / Coder / Research に流さない。
+- 画像解析、画像分析、添付画像・写真・スクショの内容理解は必ず `WILD` とする。視覚入力の解析は Worker の RAG / 要約とは分ける。
 
 担当：
 - 原則 Coder
@@ -252,7 +257,10 @@ RenCrow では、入力を以下のカテゴリへ分類する。
 - 創作
 - 画像検索
 - 画像生成
+- 画像解析
+- 画像分析
 - 画像プロンプト
+- ComfyUI を利用する処理
 - 雰囲気抽出
 - 構図・衣装・質感などの視覚解釈
 
@@ -260,6 +268,8 @@ RenCrow では、入力を以下のカテゴリへ分類する。
 - Wild
 
 実行方針：
+- ComfyUI 利用エージェントは Wild 固定とする。
+- 画像解析・画像分析も Wild 固定とし、Worker / ANALYZE / RESEARCH へ流さない。
 - 画像生成は ComfyUI を既定 backend とする。
 - ComfyUI API 仕様は `docs/10_新仕様/48_ComfyUI_RenCrow_API仕様.md` を参照する。
 - 任意 workflow JSON をそのまま ComfyUI に渡さず、RenCrow 側で検証済み workflow template を使う。

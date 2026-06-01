@@ -6,7 +6,9 @@
 
 RenCrow の画像生成は、ローカル ComfyUI を既定 backend とする。
 
-画像検索、画像生成、画像プロンプト、構図・衣装・質感などの視覚系タスクは `WILD` route で扱う。
+ComfyUI を利用するエージェントは `Wild` 固定とする。画像生成、画像編集、ControlNet、detailer、workflow 操作は Worker / Coder / Research に流さない。
+
+画像検索、画像生成、画像解析、画像分析、画像プロンプト、構図・衣装・質感などの視覚系タスクは `WILD` route で扱う。
 
 ## 2. ComfyUI 接続先
 

@@ -54,6 +54,25 @@ func TestSplitTTSChunksKeepsNaturalSentenceTogether(t *testing.T) {
 	}
 }
 
+func TestSplitTTSChunksUsesSoftBoundaryBeforeLongSentenceGetsSlow(t *testing.T) {
+	text := "この会話では、少女の「冷たさ＝痛み」という具体的な気づきが、幻想の館の謎を解く鍵となり、物語を深めていきました。"
+
+	chunks := SplitTTSChunks(text)
+
+	want := []string{
+		"この会話では、少女の「冷たさ＝痛み」という具体的な気づきが、",
+		"幻想の館の謎を解く鍵となり、物語を深めていきました。",
+	}
+	if len(chunks) != len(want) {
+		t.Fatalf("expected %d chunks, got %d: %#v", len(want), len(chunks), chunks)
+	}
+	for i := range want {
+		if chunks[i] != want[i] {
+			t.Fatalf("chunk[%d] = %q, want %q", i, chunks[i], want[i])
+		}
+	}
+}
+
 func TestSplitTTSChunksKeepsClosingQuoteWithQuestion(t *testing.T) {
 	text := "例えば、AIが提示したデータを見て、生徒の「なぜ？」に寄り添うような対話が鍵になりそうだよ。"
 

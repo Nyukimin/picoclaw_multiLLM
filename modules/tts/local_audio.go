@@ -29,7 +29,11 @@ func LocalAudioRelPath(outputDir, audioPath string) (string, bool) {
 
 	candidate := audioPath
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(baseDir, filepath.FromSlash(candidate))
+		if absCandidate, err := filepath.Abs(filepath.FromSlash(candidate)); err == nil && isPathWithinBase(baseDir, absCandidate) {
+			candidate = absCandidate
+		} else {
+			candidate = filepath.Join(baseDir, filepath.FromSlash(candidate))
+		}
 	}
 	candidate, err := filepath.Abs(candidate)
 	if err != nil {
@@ -45,6 +49,15 @@ func LocalAudioRelPath(outputDir, audioPath string) (string, bool) {
 		return "", false
 	}
 	return filepath.ToSlash(rel), true
+}
+
+func isPathWithinBase(baseDir, candidate string) bool {
+	rel, err := filepath.Rel(baseDir, candidate)
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 func NormalizeLocalAudioBase(outputDir string) (string, bool) {

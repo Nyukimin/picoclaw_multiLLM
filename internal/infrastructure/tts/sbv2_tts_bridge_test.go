@@ -17,14 +17,16 @@ func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	var readyTexts []string
 	var readyIndexes []int
 	var readyAudioPaths []string
+	var readyAudioURLs []string
 	bridge := NewSBV2TTSBridge(SBV2TTSBridgeConfig{
 		Provider:  provider,
 		Sink:      sink,
 		OutputDir: t.TempDir(),
-		OnChunkReady: func(_, _ string, chunkIndex int, _, text, _, audioPath, _ string) {
+		OnChunkReady: func(_, _ string, chunkIndex int, _, text, _, audioPath, audioURL string) {
 			readyIndexes = append(readyIndexes, chunkIndex)
 			readyTexts = append(readyTexts, text)
 			readyAudioPaths = append(readyAudioPaths, audioPath)
+			readyAudioURLs = append(readyAudioURLs, audioURL)
 		},
 	})
 	if err := bridge.StartSession(context.Background(), orchestrator.TTSSessionStart{
@@ -54,6 +56,9 @@ func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	}
 	if readyAudioPaths[0] != "01.wav" || readyAudioPaths[1] != "02.wav" {
 		t.Fatalf("unexpected viewer audio paths: %#v", readyAudioPaths)
+	}
+	if readyAudioURLs[0] != "http://tts.local/audio/01.wav" || readyAudioURLs[1] != "http://tts.local/audio/02.wav" {
+		t.Fatalf("unexpected viewer audio urls: %#v", readyAudioURLs)
 	}
 }
 
@@ -87,6 +92,7 @@ func (p *recordingProvider) Synthesize(_ context.Context, in SynthesisInput) (Sy
 	return SynthesisOutput{
 		Provider:      p.Name(),
 		AudioFilePath: path,
+		AudioURL:      fmt.Sprintf("http://tts.local/audio/%02d.wav", len(p.texts)),
 	}, nil
 }
 

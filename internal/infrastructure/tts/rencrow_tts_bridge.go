@@ -16,6 +16,7 @@ import (
 
 type RenCrowTTSBridgeConfig struct {
 	HTTPBaseURL        string
+	OutputDir          string
 	VoiceID            string
 	Speed              float64
 	TLSSkipVerify      bool
@@ -138,11 +139,15 @@ func (b *RenCrowTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID st
 			return fmt.Errorf("/synthesis response missing audio_path/audio_url")
 		}
 
+		audioPath := localAudioPathForViewer(b.cfg.OutputDir, out.AudioPath)
 		audioURL := resolveAudioURL(mediaBaseURL(b.cfg.HTTPBaseURL), out.AudioPath, out.AudioURL)
+		if strings.TrimSpace(out.AudioURL) == "" && audioPath != strings.TrimSpace(out.AudioPath) {
+			audioURL = ""
+		}
 		ch := audioChunk{
 			ChunkIndex: session.nextChunk,
 			Text:       speechText,
-			AudioPath:  out.AudioPath,
+			AudioPath:  audioPath,
 			AudioURL:   audioURL,
 			PauseAfter: chunkPauseForText(speechText),
 		}
