@@ -11,11 +11,12 @@ import (
 // EventHub broadcasts orchestrator events to connected SSE clients.
 // Implements orchestrator.EventListener.
 type EventHub struct {
-	mu      sync.RWMutex
-	clients map[chan []byte]struct{}
-	history []orchestrator.OrchestratorEvent
-	maxHist int
-	nextSeq int64
+	mu                  sync.RWMutex
+	clients             map[chan []byte]struct{}
+	history             []orchestrator.OrchestratorEvent
+	maxHist             int
+	nextSeq             int64
+	clientCountListener func(int)
 }
 
 // NewEventHub creates a new EventHub with the given history capacity.
@@ -61,6 +62,29 @@ func (h *EventHub) broadcast(data []byte) {
 	}
 }
 
+// ClientCount returns the current number of connected SSE clients.
+func (h *EventHub) ClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
+}
+
+// SetClientCountListener installs a callback invoked when the SSE client count changes.
+func (h *EventHub) SetClientCountListener(listener func(int)) {
+	h.mu.Lock()
+	h.clientCountListener = listener
+	h.mu.Unlock()
+}
+
+func (h *EventHub) notifyClientCountChanged(count int) {
+	h.mu.RLock()
+	listener := h.clientCountListener
+	h.mu.RUnlock()
+	if listener != nil {
+		listener(count)
+	}
+}
+
 // Subscribe registers a new SSE client and returns its event channel.
 func (h *EventHub) Subscribe() chan []byte {
 	ch := make(chan []byte, 64)
@@ -69,6 +93,7 @@ func (h *EventHub) Subscribe() chan []byte {
 	clientCount := len(h.clients)
 	h.mu.Unlock()
 	log.Printf("[EventHub] Subscribe: new client connected (total clients=%d)", clientCount)
+	h.notifyClientCountChanged(clientCount)
 	return ch
 }
 
@@ -80,6 +105,7 @@ func (h *EventHub) Unsubscribe(ch chan []byte) {
 	h.mu.Unlock()
 	close(ch)
 	log.Printf("[EventHub] Unsubscribe: client disconnected (remaining clients=%d)", clientCount)
+	h.notifyClientCountChanged(clientCount)
 }
 
 // History returns a copy of recent events.

@@ -4206,11 +4206,45 @@ function registerWebMCPTools() {
   }
 }
 
+let viewerEventSource = null;
+let viewerEventReconnectTimer = null;
+let viewerEventWatchdogTimer = null;
+
+function scheduleViewerEventReconnect() {
+  if (viewerEventReconnectTimer || typeof setTimeout !== 'function') return;
+  viewerEventReconnectTimer = setTimeout(() => {
+    viewerEventReconnectTimer = null;
+    if (viewerEventSource && viewerEventSource.readyState === EventSource.OPEN) return;
+    if (viewerEventSource) {
+      try { viewerEventSource.close(); } catch (_) {}
+      viewerEventSource = null;
+    }
+    connect();
+  }, 3000);
+}
+
+function ensureViewerEventWatchdog() {
+  if (viewerEventWatchdogTimer || typeof setInterval !== 'function') return;
+  viewerEventWatchdogTimer = setInterval(() => {
+    if (!viewerEventSource || viewerEventSource.readyState === EventSource.CLOSED) {
+      viewerEventSource = null;
+      scheduleViewerEventReconnect();
+    }
+  }, 5000);
+}
+
 function connect() {
+  if (viewerEventSource && viewerEventSource.readyState !== EventSource.CLOSED) return;
+  ensureViewerEventWatchdog();
   const es = new EventSource('/viewer/events');
+  viewerEventSource = es;
   const dot = document.getElementById('dot');
   const stxt = document.getElementById('stxt');
   es.onopen = () => {
+    if (viewerEventReconnectTimer) {
+      clearTimeout(viewerEventReconnectTimer);
+      viewerEventReconnectTimer = null;
+    }
     dot.className = 'dot';
     stxt.textContent = 'Connected';
   };
@@ -4221,8 +4255,8 @@ function connect() {
   es.onerror = () => {
     dot.className = 'dot off';
     stxt.textContent = 'Reconnecting...';
-    es.close();
-    setTimeout(connect, 3000);
+    if (es.readyState === EventSource.CLOSED && viewerEventSource === es) viewerEventSource = null;
+    scheduleViewerEventReconnect();
   };
 }
 

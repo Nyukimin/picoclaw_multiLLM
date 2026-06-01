@@ -54,8 +54,14 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		VoiceProfile: plan.VoiceProfile,
 	})
 
+	expectPlaybackAck := hasIdleChatViewerClients()
 	registerTTSPublicSessionWithMessage(plan.SessionID, plan.PublicSessionID, plan.ResponseID, plan.MessageID, plan.TurnIndex)
-	waitCh := registerIdleChatTTSPending(plan.SessionID, plan.ResponseID)
+	var waitCh <-chan struct{}
+	if expectPlaybackAck {
+		waitCh = registerIdleChatTTSPending(plan.SessionID, plan.ResponseID)
+	} else {
+		log.Printf("[IdleChat] TTS playback wait skipped because no Viewer SSE clients are connected: session=%s response=%s", plan.SessionID, plan.ResponseID)
+	}
 	if err := bridge.StartSession(ctx, orchestrator.TTSSessionStart{
 		SessionID:        plan.SessionID,
 		ResponseID:       plan.ResponseID,
@@ -71,7 +77,11 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		},
 		VoiceProfile: plan.VoiceProfile,
 	}); err != nil {
-		clearIdleChatTTSPending(plan.SessionID)
+		if expectPlaybackAck {
+			clearIdleChatTTSPending(plan.SessionID)
+		} else {
+			clearTTSPublicSession(plan.SessionID)
+		}
 		log.Printf("[IdleChat] TTS start failed: %v", err)
 		return nil, false
 	}
@@ -82,7 +92,11 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 			if endErr := bridge.EndSession(ctx, plan.SessionID); endErr != nil {
 				log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
 			}
-			clearIdleChatTTSPending(plan.SessionID)
+			if expectPlaybackAck {
+				clearIdleChatTTSPending(plan.SessionID)
+			} else {
+				clearTTSPublicSession(plan.SessionID)
+			}
 			return waitCh, true
 		}
 	} else if err := bridge.PushText(ctx, plan.SessionID, plan.SpeechText, &emotion); err != nil {
@@ -90,13 +104,24 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		if endErr := bridge.EndSession(ctx, plan.SessionID); endErr != nil {
 			log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
 		}
-		clearIdleChatTTSPending(plan.SessionID)
+		if expectPlaybackAck {
+			clearIdleChatTTSPending(plan.SessionID)
+		} else {
+			clearTTSPublicSession(plan.SessionID)
+		}
 		return waitCh, true
 	}
 	if err := bridge.EndSession(ctx, plan.SessionID); err != nil {
-		clearIdleChatTTSPending(plan.SessionID)
+		if expectPlaybackAck {
+			clearIdleChatTTSPending(plan.SessionID)
+		} else {
+			clearTTSPublicSession(plan.SessionID)
+		}
 		log.Printf("[IdleChat] TTS end failed: %v", err)
 		return nil, false
+	}
+	if !expectPlaybackAck {
+		clearTTSPublicSession(plan.SessionID)
 	}
 	return waitCh, true
 }

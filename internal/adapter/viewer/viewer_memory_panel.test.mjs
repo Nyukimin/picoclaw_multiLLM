@@ -208,6 +208,14 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(js, /function setTTSSpeechText/);
   assert.match(js, /function renderChatTTSSpeechText/);
   assert.match(js, /function renderIdleTTSSpeechText/);
+  assert.match(js, /let viewerEventSource = null/);
+  assert.match(js, /let viewerEventWatchdogTimer = null/);
+  assert.match(js, /function scheduleViewerEventReconnect/);
+  assert.match(js, /function ensureViewerEventWatchdog/);
+  assert.match(js, /viewerEventSource && viewerEventSource\.readyState !== EventSource\.CLOSED/);
+  assert.match(js, /setInterval\(\(\) => \{/);
+  assert.match(js, /scheduleViewerEventReconnect\(\);/);
+  assert.doesNotMatch(sourceBetween(js, 'es.onerror = () => {', '};\n}'), /es\.close\(\);\s*setTimeout\(connect, 3000\)/);
   assert.match(opsJs, /function renderLlmMemoryStatus/);
   assert.match(opsJs, /Available RAM/);
   assert.match(opsJs, /Swap Used/);

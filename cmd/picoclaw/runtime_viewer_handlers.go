@@ -38,6 +38,8 @@ func buildViewerRuntimeHandlers(
 
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub
+	setIdleChatViewerClientCount(hub.ClientCount)
+	hub.SetClientCountListener(handleIdleChatViewerClientCountChanged)
 	if cfg.ViewerLog.Enabled {
 		eventLogPath := cfg.ViewerLog.Path
 		if eventLogStore, err := viewer.NewEventLogStore(eventLogPath); err != nil {

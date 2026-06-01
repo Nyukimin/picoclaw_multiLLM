@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
+
+var sseHeartbeatInterval = 15 * time.Second
 
 func (h *EventHub) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -44,11 +47,22 @@ func (h *EventHub) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher.Flush()
 
+	var heartbeat <-chan time.Time
+	var ticker *time.Ticker
+	if sseHeartbeatInterval > 0 {
+		ticker = time.NewTicker(sseHeartbeatInterval)
+		defer ticker.Stop()
+		heartbeat = ticker.C
+	}
+
 	// Stream new events
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat:
+			fmt.Fprint(w, ": heartbeat\n\n")
+			flusher.Flush()
 		case data := <-ch:
 			var ev orchestrator.OrchestratorEvent
 			if err := json.Unmarshal(data, &ev); err == nil && ev.Seq > 0 {

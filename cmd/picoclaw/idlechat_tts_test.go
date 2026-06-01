@@ -89,6 +89,70 @@ func TestEmitIdleChatTTSSendsMessage(t *testing.T) {
 	}
 }
 
+func TestEmitIdleChatTTSSkipsPlaybackWaitWhenNoViewerClients(t *testing.T) {
+	clearAllIdleChatTTSPending()
+	resetTTSPublicSessionStateForTest()
+	setIdleChatViewerClientCount(func() int { return 0 })
+	t.Cleanup(func() {
+		setIdleChatViewerClientCount(nil)
+		clearAllIdleChatTTSPending()
+		resetTTSPublicSessionStateForTest()
+	})
+
+	bridge := &idleChatMockTTSBridge{}
+	waitCh, ok := emitIdleChatTTS(context.Background(), bridge, idlechat.TimelineEvent{
+		Type:      "idlechat.message",
+		From:      "mio",
+		To:        "shiro",
+		Content:   "Viewerなしでも音声生成待ちは積みません。",
+		SessionID: "idle-no-viewer",
+		MessageID: "idle-no-viewer:msg:0001",
+		TurnIndex: 1,
+	})
+
+	if !ok {
+		t.Fatal("expected TTS route to run")
+	}
+	if waitCh != nil {
+		t.Fatal("no Viewer clients should not create a playback wait channel")
+	}
+	if len(bridge.startReqs) != 1 || len(bridge.pushTexts) != 1 || len(bridge.endIDs) != 1 {
+		t.Fatalf("expected TTS bridge to receive start/push/end, got start=%d push=%d end=%d", len(bridge.startReqs), len(bridge.pushTexts), len(bridge.endIDs))
+	}
+	if got := snapshotIdleChatTTSPending(); got.PendingSessionCount != 0 || got.PendingResponseCount != 0 {
+		t.Fatalf("pending should stay empty without Viewer clients: %+v", got)
+	}
+	if got := resolveTTSPublicResponse(bridge.startReqs[0].SessionID); got != "" {
+		t.Fatalf("public route should be cleared after no-viewer TTS, got %q", got)
+	}
+}
+
+func TestIdleChatViewerDisconnectClearsPlaybackWaits(t *testing.T) {
+	clearAllIdleChatTTSPending()
+	resetTTSPublicSessionStateForTest()
+	t.Cleanup(func() {
+		clearAllIdleChatTTSPending()
+		resetTTSPublicSessionStateForTest()
+	})
+
+	waitCh := registerIdleChatTTSPending("idle-disconnect-tts", "idle-disconnect:0001")
+	registerTTSPublicSessionWithMessage("idle-disconnect-tts", "idle-disconnect", "idle-disconnect:0001", "idle-disconnect:msg:0001", 1)
+
+	handleIdleChatViewerClientCountChanged(0)
+
+	select {
+	case <-waitCh:
+	case <-time.After(time.Second):
+		t.Fatal("viewer disconnect should close pending TTS wait channel")
+	}
+	if got := snapshotIdleChatTTSPending(); got.PendingSessionCount != 0 || got.PendingResponseCount != 0 {
+		t.Fatalf("pending should be cleared after viewer disconnect: %+v", got)
+	}
+	if got := resolveTTSPublicResponse("idle-disconnect-tts"); got != "" {
+		t.Fatalf("public session route should be cleared, got %q", got)
+	}
+}
+
 func TestEmitIdleChatTTSCompletesNormallyOnPushFailure(t *testing.T) {
 	clearAllIdleChatTTSPending()
 	t.Cleanup(clearAllIdleChatTTSPending)

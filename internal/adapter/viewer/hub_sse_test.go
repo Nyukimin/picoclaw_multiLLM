@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
@@ -34,6 +36,50 @@ func TestHandleSSE_UsesLastEventIDForHistoryReplay(t *testing.T) {
 	}
 }
 
+func TestHandleSSE_SendsHeartbeatComment(t *testing.T) {
+	prev := sseHeartbeatInterval
+	sseHeartbeatInterval = time.Millisecond
+	defer func() { sseHeartbeatInterval = prev }()
+
+	hub := NewEventHub(10)
+	req := httptest.NewRequest(http.MethodGet, "/viewer/events", nil)
+	rec := httptest.NewRecorder()
+
+	ctx, cancel := context.WithCancel(req.Context())
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+	req = req.WithContext(ctx)
+
+	hub.HandleSSE(rec, req)
+	if !strings.Contains(rec.Body.String(), ": heartbeat") {
+		t.Fatalf("expected SSE heartbeat comment, got: %s", rec.Body.String())
+	}
+}
+
+func TestEventHubReportsClientCountChanges(t *testing.T) {
+	hub := NewEventHub(10)
+	var counts []int
+	hub.SetClientCountListener(func(count int) {
+		counts = append(counts, count)
+	})
+
+	first := hub.Subscribe()
+	second := hub.Subscribe()
+	if got := hub.ClientCount(); got != 2 {
+		t.Fatalf("client count = %d, want 2", got)
+	}
+	hub.Unsubscribe(first)
+	hub.Unsubscribe(second)
+	if got := hub.ClientCount(); got != 0 {
+		t.Fatalf("client count = %d, want 0", got)
+	}
+	if got, want := strings.Join(intsToStrings(counts), ","), "1,2,1,0"; got != want {
+		t.Fatalf("client count notifications = %s, want %s", got, want)
+	}
+}
+
 func TestHandleSSE_DoesNotReplayTransientTTSAudioHistory(t *testing.T) {
 	hub := NewEventHub(10)
 	hub.OnEvent(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", `{"session_id":"s1","chunk_index":0,"character_id":"mio","audio_url":"http://example/audio.wav"}`, "TTS", "", "s1", "viewer", "viewer-user"))
@@ -56,6 +102,14 @@ func TestHandleSSE_DoesNotReplayTransientTTSAudioHistory(t *testing.T) {
 	if !strings.Contains(body, "visible response") {
 		t.Fatalf("non-transient history should still replay, got: %s", body)
 	}
+}
+
+func intsToStrings(values []int) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, strconv.Itoa(value))
+	}
+	return out
 }
 
 func TestHandleSSE_DoesNotReplayIdleChatLiveHistory(t *testing.T) {
