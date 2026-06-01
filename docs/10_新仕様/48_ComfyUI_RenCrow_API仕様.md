@@ -235,5 +235,11 @@ CUDA out of memory:
 詳細な workflow JSON と ComfyUI 側 runtime 情報は以下を参照する。
 
 ```text
-tmp/ComfyUI_RenCrow_API_Spec.md
+docs/ComfyUI/ComfyUI_RenCrow_API_Spec.md
+```
+
+正本仕様は以下を参照する。
+
+```text
+docs/01_正本仕様/16_ComfyUI画像生成_正本仕様.md
 ```
