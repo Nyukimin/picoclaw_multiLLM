@@ -147,11 +147,5 @@ func inferTTSDebugBaseURLFromConfig(cfg *config.Config) string {
 }
 
 func inferTTSDebugHealthPathFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if cfg.TTS.Irodori.Enabled && strings.TrimSpace(cfg.TTS.Irodori.BaseURL) != "" && strings.Contains(strings.TrimSpace(cfg.TTS.Irodori.BaseURL), ":7870") {
-		return "/gradio_api/info"
-	}
 	return ""
 }

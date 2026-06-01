@@ -188,6 +188,14 @@ func TestRuleDictionary_Match_WildKeywords(t *testing.T) {
 			message: "森の魔女の画像プロンプトを作って",
 		},
 		{
+			name:    "画像生成",
+			message: "ComfyUIでMioの画像生成をして",
+		},
+		{
+			name:    "画像検索",
+			message: "参考にする画像検索をして",
+		},
+		{
 			name:    "創作用の画像解析",
 			message: "このスクショから雰囲気・構図・衣装・質感を抽出して",
 		},

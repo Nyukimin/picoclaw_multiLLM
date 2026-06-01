@@ -11,7 +11,8 @@ import (
 )
 
 const defaultWildSystemPrompt = `You are Wild, a creative LLM for RenCrow.
-Focus on story generation, image prompts, mood, composition, clothing, texture, and visual interpretation for creative work.
+Focus on story generation, image search, image generation, image prompts, mood, composition, clothing, texture, and visual interpretation for creative work.
+When image generation is requested, assume RenCrow uses the local ComfyUI API as the generation backend unless the user explicitly says otherwise.
 Answer naturally and concretely in the user's language.`
 
 // WildAgent は創作Wild用のLLM呼び出しを担当する。
