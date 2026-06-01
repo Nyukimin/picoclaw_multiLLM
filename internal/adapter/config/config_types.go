@@ -30,6 +30,9 @@ type Config struct {
 	// === Optional Webwright browser-backed fetch bridge ===
 	WebwrightFetch WebwrightFetchConfig `yaml:"webwright_fetch"`
 
+	// === Web Gather public web collection tool ===
+	WebGather WebGatherConfig `yaml:"web_gather"`
+
 	// === v5.1 プロンプト外部ファイル ===
 	PromptsDir         string         `yaml:"prompts_dir"`          // プロンプトファイルのベースディレクトリ（デフォルト）
 	WorkspaceDir       string         `yaml:"workspace_dir"`        // ユーザーカスタマイズ領域（オーバーライド）
@@ -209,6 +212,12 @@ type WebwrightFetchConfig struct {
 	ResponsesEndpoint string `yaml:"responses_endpoint"`
 	Model             string `yaml:"model"`
 	APIKey            string `yaml:"api_key"`
+}
+
+// WebGatherConfig は公開 Web 情報収集ツールの任意 provider 設定。
+// SearXNG は self-hosted endpoint を明示した場合だけ有効化する。
+type WebGatherConfig struct {
+	SearXNGBaseURL string `yaml:"searxng_base_url"`
 }
 
 // SessionConfig はセッション設定

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	webgatherapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/webgather"
@@ -11,6 +12,7 @@ import (
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/tools"
 	webgatherinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/webgather"
+	modulewebgather "github.com/Nyukimin/picoclaw_multiLLM/modules/webgather"
 )
 
 type conversationRuntime struct {
@@ -116,7 +118,11 @@ func buildConversationRuntime(
 			webgatherinfra.NewBasicExtractor(),
 			webgatherapp.NewL1StagingWriter(l1Store),
 		)
-		webGatherSearchUseCase := webgatherapp.NewSearchUseCase(webgatherapp.NewL1SearchCache(l1Store), nil)
+		webGatherProviders := map[string]modulewebgather.SearchProvider{}
+		if searxngBaseURL := strings.TrimSpace(cfg.WebGather.SearXNGBaseURL); searxngBaseURL != "" {
+			webGatherProviders["searxng"] = webgatherinfra.NewSearXNGProvider(searxngBaseURL)
+		}
+		webGatherSearchUseCase := webgatherapp.NewSearchUseCase(webgatherapp.NewL1SearchCache(l1Store), webGatherProviders)
 		webGatherSearchAndFetchUseCase := webgatherapp.NewSearchAndFetchUseCase(webGatherSearchUseCase, webGatherUseCase)
 		workerToolRunnerV2.WithWebGatherFetcher(webGatherUseCase)
 		workerToolRunnerV2.WithWebGatherSearcher(webGatherSearchUseCase)

@@ -20,7 +20,7 @@ import (
 
 func cmdWebGather() {
 	configPath := getConfigPath()
-	store, err := loadWebGatherStore(configPath)
+	cfg, store, err := loadWebGatherStore(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize web gather store: %v\n", err)
 		os.Exit(1)
@@ -35,6 +35,7 @@ func cmdWebGather() {
 		Fetcher:        usecase,
 		SearchCache:    webgatherapp.NewL1SearchCache(store),
 		SourceRegistry: store,
+		SearXNGBaseURL: strings.TrimSpace(cfg.WebGather.SearXNGBaseURL),
 	}, os.Stdout, os.Stderr)
 	if code != 0 {
 		os.Exit(code)
@@ -57,6 +58,7 @@ type webGatherCLIDeps struct {
 	Fetcher        webGatherFetcher
 	SearchCache    webgatherapp.SearchCache
 	SourceRegistry webGatherSourceRegistry
+	SearXNGBaseURL string
 }
 
 func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, errOut io.Writer) int {
@@ -96,6 +98,13 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 			fmt.Fprintf(errOut, "%v\n", err)
 			return 2
 		}
+		if strings.TrimSpace(searxngURL) == "" {
+			searxngURL = deps.SearXNGBaseURL
+		}
+		if req.Provider == "searxng" && strings.TrimSpace(searxngURL) == "" {
+			fmt.Fprintln(errOut, "web_gather.searxng_base_url or --searxng-url is required when --provider searxng")
+			return 2
+		}
 		providers := map[string]modulewebgather.SearchProvider{}
 		if strings.TrimSpace(searxngURL) != "" {
 			providers["searxng"] = webgatherinfra.NewSearXNGProvider(searxngURL)
@@ -126,6 +135,13 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		req, searxngURL, jsonOut, err := parseWebGatherSearchAndFetchArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(errOut, "%v\n", err)
+			return 2
+		}
+		if strings.TrimSpace(searxngURL) == "" {
+			searxngURL = deps.SearXNGBaseURL
+		}
+		if req.Provider == "searxng" && strings.TrimSpace(searxngURL) == "" {
+			fmt.Fprintln(errOut, "web_gather.searxng_base_url or --searxng-url is required when --provider searxng")
 			return 2
 		}
 		if deps.Fetcher == nil {
@@ -330,9 +346,6 @@ func parseWebGatherSearchArgs(args []string) (modulewebgather.SearchRequest, str
 	if strings.TrimSpace(req.Query) == "" {
 		return req, searxngURL, jsonOut, errors.New("query is required")
 	}
-	if req.Provider == "searxng" && strings.TrimSpace(searxngURL) == "" {
-		return req, searxngURL, jsonOut, errors.New("--searxng-url is required when --provider searxng")
-	}
 	return req, searxngURL, jsonOut, nil
 }
 
@@ -437,9 +450,6 @@ func parseWebGatherSearchAndFetchArgs(args []string) (modulewebgather.SearchAndF
 	}
 	if strings.TrimSpace(req.Query) == "" {
 		return req, searxngURL, jsonOut, errors.New("query is required")
-	}
-	if req.Provider == "searxng" && strings.TrimSpace(searxngURL) == "" {
-		return req, searxngURL, jsonOut, errors.New("--searxng-url is required when --provider searxng")
 	}
 	return req, searxngURL, jsonOut, nil
 }
@@ -549,17 +559,21 @@ func parseWebGatherRegisterURLArgs(args []string) (conversationpersistence.L1Sou
 	return entry, jsonOut, nil
 }
 
-func loadWebGatherStore(configPath string) (*conversationpersistence.L1SQLiteStore, error) {
+func loadWebGatherStore(configPath string) (*config.Config, *conversationpersistence.L1SQLiteStore, error) {
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p := strings.TrimSpace(cfg.Conversation.L1SQLitePath)
 	if p == "" {
-		return nil, errors.New("conversation.l1_sqlite_path is required for web-gather CLI")
+		return nil, nil, errors.New("conversation.l1_sqlite_path is required for web-gather CLI")
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return conversationpersistence.NewL1SQLiteStore(p)
+	store, err := conversationpersistence.NewL1SQLiteStore(p)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, store, nil
 }

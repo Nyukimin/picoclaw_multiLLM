@@ -533,6 +533,15 @@ options:
 --dry-run                      fetch まで行い staging 保存しない
 ```
 
+Phase 2 search command:
+
+```bash
+picoclaw web-gather search <query> --provider searxng [options]
+picoclaw web-gather search-and-fetch <query> --provider searxng [options]
+```
+
+SearXNG は self-hosted endpoint を必須とする。CLI では `--searxng-url` を指定できる。未指定時は `config.yaml` の `web_gather.searxng_base_url` を使い、CLI option は config より優先する。
+
 stdout:
 
 - 成功時は staging id、URL、raw hash、warning 件数を表示
@@ -600,7 +609,7 @@ Tool harness の `ToolError` に mapping する場合、timeout は `TIMEOUT`、
 
 ### `web_gather.search`
 
-Phase 2 で実装する。Phase 1 では metadata だけ定義しても tool 登録しない。
+Phase 2 で実装する。Worker runtime は `config.yaml` の `web_gather.searxng_base_url` が空でない場合だけ SearXNG provider を登録する。未設定時の `provider=searxng` は設定エラーとして扱い、外部検索 API や fallback provider へ黙って切り替えない。
 
 input:
 

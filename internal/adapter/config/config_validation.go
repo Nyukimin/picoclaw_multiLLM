@@ -65,6 +65,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("webwright_fetch.model is required when webwright_fetch.enabled=true")
 		}
 	}
+	if strings.TrimSpace(c.WebGather.SearXNGBaseURL) != "" {
+		base := strings.TrimSpace(c.WebGather.SearXNGBaseURL)
+		if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+			return fmt.Errorf("web_gather.searxng_base_url must start with http:// or https://")
+		}
+	}
 
 	if !c.LocalLLM.Enabled {
 		// Ollama設定検証

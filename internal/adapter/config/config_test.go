@@ -878,6 +878,70 @@ webwright_fetch:
 	}
 }
 
+func TestLoadConfig_WebGatherSearXNGBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "web_gather.yaml")
+
+	content := `
+server:
+  port: 8080
+session:
+  storage_dir: "./data/sessions"
+local_llm:
+  enabled: true
+  provider: local_openai
+  base_url: "http://127.0.0.1:8081"
+  chat_model: Chat
+  worker_model: Worker
+  heavy_model: Heavy
+  wild_model: Wild
+  timeout_sec: 30
+web_gather:
+  searxng_base_url: "http://127.0.0.1:8888"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.WebGather.SearXNGBaseURL != "http://127.0.0.1:8888" {
+		t.Fatalf("unexpected web gather config: %+v", cfg.WebGather)
+	}
+}
+
+func TestLoadConfig_WebGatherRejectsInvalidSearXNGBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "web_gather_invalid.yaml")
+
+	content := `
+server:
+  port: 8080
+session:
+  storage_dir: "./data/sessions"
+local_llm:
+  enabled: true
+  provider: local_openai
+  base_url: "http://127.0.0.1:8081"
+  chat_model: Chat
+  worker_model: Worker
+  heavy_model: Heavy
+  wild_model: Wild
+  timeout_sec: 30
+web_gather:
+  searxng_base_url: "127.0.0.1:8888"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := LoadConfig(configPath); err == nil || !strings.Contains(err.Error(), "web_gather.searxng_base_url") {
+		t.Fatalf("expected web gather validation error, got %v", err)
+	}
+}
+
 func TestLoadConfig_AudioRouterValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "audio_router.yaml")

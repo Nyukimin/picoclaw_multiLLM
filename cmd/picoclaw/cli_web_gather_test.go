@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -94,8 +96,31 @@ func TestRunWebGatherCommandFailureShowsErrorCode(t *testing.T) {
 func TestRunWebGatherCommandSearchRequiresSearXNGURL(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runWebGatherCommand([]string{"search", "ren crow", "--provider", "searxng"}, webGatherCLIDeps{}, &out, &errOut)
-	if code != 2 || !strings.Contains(errOut.String(), "--searxng-url is required") {
+	if code != 2 || !strings.Contains(errOut.String(), "web_gather.searxng_base_url or --searxng-url is required") {
 		t.Fatalf("expected searxng url usage error, code=%d stderr=%s", code, errOut.String())
+	}
+}
+
+func TestRunWebGatherCommandSearchUsesConfiguredSearXNGURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search" || r.URL.Query().Get("q") != "ren crow" {
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"url":"https://example.com","title":"Example","content":"Snippet","engine":"test"}]}`))
+	}))
+	defer server.Close()
+
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"search", "ren crow", "--provider", "searxng", "--json"}, webGatherCLIDeps{
+		SearchCache:    fakeWebGatherSearchCache{},
+		SearXNGBaseURL: server.URL,
+	}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"provider": "searxng"`) || !strings.Contains(out.String(), `"url": "https://example.com"`) {
+		t.Fatalf("expected searxng JSON response, got %s", out.String())
 	}
 }
 
@@ -116,7 +141,7 @@ func TestRunWebGatherCommandSearchAndFetchLocalCacheJSON(t *testing.T) {
 func TestRunWebGatherCommandSearchAndFetchRequiresSearXNGURL(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runWebGatherCommand([]string{"search-and-fetch", "ren crow", "--provider", "searxng"}, webGatherCLIDeps{Fetcher: &fakeWebGatherFetcher{}}, &out, &errOut)
-	if code != 2 || !strings.Contains(errOut.String(), "--searxng-url is required") {
+	if code != 2 || !strings.Contains(errOut.String(), "web_gather.searxng_base_url or --searxng-url is required") {
 		t.Fatalf("expected searxng url usage error, code=%d stderr=%s", code, errOut.String())
 	}
 }

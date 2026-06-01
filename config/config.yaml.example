@@ -80,6 +80,11 @@ google_search_worker:
   api_key: "${GOOGLE_API_KEY_WORKER}"
   search_engine_id: "${GOOGLE_SEARCH_ENGINE_ID_WORKER}"
 
+# Web 情報収集ツール
+# SearXNG は self-hosted endpoint を明示した場合だけ Worker tool / CLI で有効化される。
+web_gather:
+  searxng_base_url: ""
+
 # セッション設定
 session:
   storage_dir: "./sessions"
