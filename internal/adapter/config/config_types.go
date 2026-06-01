@@ -218,6 +218,7 @@ type WebwrightFetchConfig struct {
 // SearXNG は self-hosted endpoint を明示した場合だけ有効化する。
 type WebGatherConfig struct {
 	SearXNGBaseURL string `yaml:"searxng_base_url"`
+	YaCyBaseURL    string `yaml:"yacy_base_url"`
 }
 
 // SessionConfig はセッション設定

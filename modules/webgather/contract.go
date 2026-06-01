@@ -102,6 +102,7 @@ type FetchArtifact struct {
 	Redirects    []string
 	FetchedAt    time.Time
 	ProviderName string
+	Meta         map[string]any
 }
 
 type ExtractedDocument struct {

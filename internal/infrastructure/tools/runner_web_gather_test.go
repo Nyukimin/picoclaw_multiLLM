@@ -69,6 +69,24 @@ func TestToolRunner_WebGatherFetchV2(t *testing.T) {
 	}
 }
 
+func TestToolRunner_WebGatherFetchV2AllowsWebwrightProvider(t *testing.T) {
+	fetcher := &fakeWebGatherToolFetcher{resp: modulewebgather.FetchResponse{Status: "ok", URL: "https://example.com"}}
+	runner := NewToolRunner(ToolRunnerConfig{WebGatherFetcher: fetcher})
+	resp, err := runner.ExecuteV2(context.Background(), "web_gather.fetch", map[string]any{
+		"url":            "https://example.com",
+		"fetch_provider": "webwright",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteV2 failed: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got %v", resp.Error)
+	}
+	if fetcher.req.FetchProvider != "webwright" {
+		t.Fatalf("expected webwright fetch provider, got %+v", fetcher.req)
+	}
+}
+
 func TestToolRunner_WebGatherFetchMetadataRegistered(t *testing.T) {
 	runner := NewToolRunner(ToolRunnerConfig{WebGatherFetcher: &fakeWebGatherToolFetcher{}})
 	metas, err := runner.ListTools(context.Background())
@@ -111,6 +129,28 @@ func TestToolRunner_WebGatherSearchV2(t *testing.T) {
 	}
 	if searcher.req.Query != "RenCrow" || searcher.req.Limit != 3 {
 		t.Fatalf("unexpected request: %+v", searcher.req)
+	}
+}
+
+func TestToolRunner_WebGatherSearchV2AllowsFeedProviders(t *testing.T) {
+	searcher := &fakeWebGatherToolSearcher{resp: modulewebgather.SearchResponse{
+		Query:       "https://example.com/feed.xml",
+		Provider:    "rss_atom",
+		Diagnostics: map[string]any{"error": ""},
+	}}
+	runner := NewToolRunner(ToolRunnerConfig{WebGatherSearcher: searcher})
+	resp, err := runner.ExecuteV2(context.Background(), "web_gather.search", map[string]any{
+		"query":    "https://example.com/feed.xml",
+		"provider": "rss_atom",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteV2 failed: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got %v", resp.Error)
+	}
+	if searcher.req.Provider != "rss_atom" {
+		t.Fatalf("expected rss_atom provider, got %+v", searcher.req)
 	}
 }
 
@@ -157,6 +197,29 @@ func TestToolRunner_WebGatherSearchAndFetchV2(t *testing.T) {
 	}
 	if searchAndFetcher.req.Query != "RenCrow" || searchAndFetcher.req.MaxFetches != 2 || searchAndFetcher.req.StoreStaging {
 		t.Fatalf("unexpected request: %+v", searchAndFetcher.req)
+	}
+}
+
+func TestToolRunner_WebGatherSearchAndFetchV2AllowsWebwrightProvider(t *testing.T) {
+	searchAndFetcher := &fakeWebGatherToolSearchAndFetcher{resp: modulewebgather.SearchAndFetchResponse{
+		Query:       "RenCrow",
+		Provider:    "local_cache",
+		Diagnostics: map[string]any{"error": ""},
+	}}
+	runner := NewToolRunner(ToolRunnerConfig{WebGatherSearchFetch: searchAndFetcher})
+	resp, err := runner.ExecuteV2(context.Background(), "web_gather.search_and_fetch", map[string]any{
+		"query":          "RenCrow",
+		"provider":       "local_cache",
+		"fetch_provider": "webwright",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteV2 failed: %v", err)
+	}
+	if resp.IsError() {
+		t.Fatalf("expected success, got %v", resp.Error)
+	}
+	if searchAndFetcher.req.FetchProvider != "webwright" {
+		t.Fatalf("expected webwright fetch provider, got %+v", searchAndFetcher.req)
 	}
 }
 

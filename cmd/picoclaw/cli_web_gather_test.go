@@ -75,6 +75,30 @@ func TestRunWebGatherCommandURLJSON(t *testing.T) {
 	}
 }
 
+func TestRunWebGatherCommandURLAllowsWebwrightFetchProvider(t *testing.T) {
+	fetcher := &fakeWebGatherFetcher{resp: modulewebgather.FetchResponse{Status: "ok", URL: "https://example.com"}}
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"url", "https://example.com", "--fetch-provider", "webwright", "--json"}, webGatherCLIDeps{Fetcher: fetcher}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("expected success, code=%d stderr=%s", code, errOut.String())
+	}
+	if fetcher.req.FetchProvider != "webwright" {
+		t.Fatalf("expected webwright fetch provider, got %+v", fetcher.req)
+	}
+}
+
+func TestRunWebGatherCommandURLAllowsRefresh(t *testing.T) {
+	fetcher := &fakeWebGatherFetcher{resp: modulewebgather.FetchResponse{Status: "ok", URL: "https://example.com"}}
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"url", "https://example.com", "--refresh"}, webGatherCLIDeps{Fetcher: fetcher}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("expected success, code=%d stderr=%s", code, errOut.String())
+	}
+	if !fetcher.req.Refresh {
+		t.Fatalf("expected refresh request, got %+v", fetcher.req)
+	}
+}
+
 func TestRunWebGatherCommandUsageError(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runWebGatherCommand([]string{"url"}, webGatherCLIDeps{Fetcher: &fakeWebGatherFetcher{}}, &out, &errOut)
@@ -104,6 +128,14 @@ func TestRunWebGatherCommandSearchRequiresSearXNGURL(t *testing.T) {
 	code := runWebGatherCommand([]string{"search", "ren crow", "--provider", "searxng"}, webGatherCLIDeps{}, &out, &errOut)
 	if code != 2 || !strings.Contains(errOut.String(), "web_gather.searxng_base_url or --searxng-url is required") {
 		t.Fatalf("expected searxng url usage error, code=%d stderr=%s", code, errOut.String())
+	}
+}
+
+func TestRunWebGatherCommandSearchRequiresYaCyURL(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := runWebGatherCommand([]string{"search", "ren crow", "--provider", "yacy"}, webGatherCLIDeps{}, &out, &errOut)
+	if code != 2 || !strings.Contains(errOut.String(), "web_gather.yacy_base_url or --yacy-url is required") {
+		t.Fatalf("expected yacy config error, code=%d stderr=%s", code, errOut.String())
 	}
 }
 

@@ -43,6 +43,28 @@ CREATE TABLE IF NOT EXISTS l1_search_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_l1_search_cache_expires ON l1_search_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_l1_search_cache_retrieved ON l1_search_cache(retrieved_at DESC);
+CREATE TABLE IF NOT EXISTS l1_web_gather_fetch_cache (
+	cache_key TEXT PRIMARY KEY,
+	url TEXT NOT NULL,
+	fetch_provider TEXT NOT NULL,
+	extractor TEXT NOT NULL,
+	status TEXT NOT NULL,
+	response_json TEXT NOT NULL,
+	error_code TEXT NOT NULL DEFAULT '',
+	retrieved_at TIMESTAMP NOT NULL,
+	expires_at TIMESTAMP NOT NULL,
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_web_gather_fetch_cache_expires ON l1_web_gather_fetch_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_l1_web_gather_fetch_cache_url ON l1_web_gather_fetch_cache(url, fetch_provider, extractor);
+CREATE TABLE IF NOT EXISTS l1_web_gather_rate_state (
+	domain TEXT PRIMARY KEY,
+	last_fetch_at TIMESTAMP NOT NULL,
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l1_web_gather_rate_state_updated ON l1_web_gather_rate_state(updated_at DESC);
 CREATE TABLE IF NOT EXISTS l1_event_log (
 	id TEXT PRIMARY KEY,
 	event_type TEXT NOT NULL,

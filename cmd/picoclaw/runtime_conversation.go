@@ -117,10 +117,18 @@ func buildConversationRuntime(
 			webgatherinfra.NewHTTPFetcher(),
 			webgatherinfra.NewBasicExtractor(),
 			webgatherapp.NewL1StagingWriter(l1Store),
-		)
+		).WithFetchCache(webgatherapp.NewL1FetchCache(l1Store))
+		if cfg.WebwrightFetch.Enabled {
+			webGatherUseCase.WithFetchProvider("webwright", webgatherinfra.NewWebwrightFetcher(webwrightFetcherConfigFromRuntime(cfg.WebwrightFetch)))
+		}
 		webGatherProviders := map[string]modulewebgather.SearchProvider{}
+		webGatherProviders["rss_atom"] = webgatherinfra.NewFeedDiscoveryProvider()
+		webGatherProviders["sitemap"] = webgatherinfra.NewFeedDiscoveryProvider()
 		if searxngBaseURL := strings.TrimSpace(cfg.WebGather.SearXNGBaseURL); searxngBaseURL != "" {
 			webGatherProviders["searxng"] = webgatherinfra.NewSearXNGProvider(searxngBaseURL)
+		}
+		if yacyBaseURL := strings.TrimSpace(cfg.WebGather.YaCyBaseURL); yacyBaseURL != "" {
+			webGatherProviders["yacy"] = webgatherinfra.NewYaCyProvider(yacyBaseURL)
 		}
 		webGatherSearchUseCase := webgatherapp.NewSearchUseCase(webgatherapp.NewL1SearchCache(l1Store), webGatherProviders)
 		webGatherSearchAndFetchUseCase := webgatherapp.NewSearchAndFetchUseCase(webGatherSearchUseCase, webGatherUseCase)

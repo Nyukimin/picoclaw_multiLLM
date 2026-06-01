@@ -37,7 +37,10 @@ func cmdWebGather() {
 		webgatherinfra.NewHTTPFetcher(),
 		webgatherinfra.NewBasicExtractor(),
 		webgatherapp.NewL1StagingWriter(store),
-	)
+	).WithFetchCache(webgatherapp.NewL1FetchCache(store))
+	if cfg.WebwrightFetch.Enabled {
+		usecase.WithFetchProvider("webwright", webgatherinfra.NewWebwrightFetcher(webwrightFetcherConfigFromRuntime(cfg.WebwrightFetch)))
+	}
 	code := runWebGatherCommand(os.Args[2:], webGatherCLIDeps{
 		Fetcher:        usecase,
 		SearchCache:    webgatherapp.NewL1SearchCache(store),
@@ -47,9 +50,25 @@ func cmdWebGather() {
 		WebwrightFetch: cfg.WebwrightFetch,
 		CommandRunner:  execWebGatherCommand,
 		SearXNGBaseURL: strings.TrimSpace(cfg.WebGather.SearXNGBaseURL),
+		YaCyBaseURL:    strings.TrimSpace(cfg.WebGather.YaCyBaseURL),
 	}, os.Stdout, os.Stderr)
 	if code != 0 {
 		os.Exit(code)
+	}
+}
+
+func webwrightFetcherConfigFromRuntime(cfg config.WebwrightFetchConfig) webgatherinfra.WebwrightFetcherConfig {
+	return webgatherinfra.WebwrightFetcherConfig{
+		Enabled:           cfg.Enabled,
+		RunnerPath:        cfg.RunnerPath,
+		ConfigPath:        cfg.ConfigPath,
+		OutputDir:         cfg.OutputDir,
+		StagingOutputDir:  cfg.StagingOutputDir,
+		UvxFrom:           cfg.UvxFrom,
+		Python:            cfg.Python,
+		ResponsesEndpoint: cfg.ResponsesEndpoint,
+		Model:             cfg.Model,
+		APIKey:            cfg.APIKey,
 	}
 }
 
@@ -85,6 +104,7 @@ type webGatherCLIDeps struct {
 	WebwrightFetch config.WebwrightFetchConfig
 	CommandRunner  webGatherCommandRunner
 	SearXNGBaseURL string
+	YaCyBaseURL    string
 }
 
 func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, errOut io.Writer) int {
@@ -131,7 +151,7 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		}
 		return 0
 	case "search":
-		req, searxngURL, jsonOut, err := parseWebGatherSearchArgs(args[1:])
+		req, searxngURL, yacyURL, jsonOut, err := parseWebGatherSearchArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(errOut, "%v\n", err)
 			return 2
@@ -139,13 +159,25 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		if strings.TrimSpace(searxngURL) == "" {
 			searxngURL = deps.SearXNGBaseURL
 		}
+		if strings.TrimSpace(yacyURL) == "" {
+			yacyURL = deps.YaCyBaseURL
+		}
 		if req.Provider == "searxng" && strings.TrimSpace(searxngURL) == "" {
 			fmt.Fprintln(errOut, "web_gather.searxng_base_url or --searxng-url is required when --provider searxng")
 			return 2
 		}
+		if req.Provider == "yacy" && strings.TrimSpace(yacyURL) == "" {
+			fmt.Fprintln(errOut, "web_gather.yacy_base_url or --yacy-url is required when --provider yacy")
+			return 2
+		}
 		providers := map[string]modulewebgather.SearchProvider{}
+		providers["rss_atom"] = webgatherinfra.NewFeedDiscoveryProvider()
+		providers["sitemap"] = webgatherinfra.NewFeedDiscoveryProvider()
 		if strings.TrimSpace(searxngURL) != "" {
 			providers["searxng"] = webgatherinfra.NewSearXNGProvider(searxngURL)
+		}
+		if strings.TrimSpace(yacyURL) != "" {
+			providers["yacy"] = webgatherinfra.NewYaCyProvider(yacyURL)
 		}
 		searcher := webgatherapp.NewSearchUseCase(deps.SearchCache, providers)
 		resp, err := searcher.Search(context.Background(), req)
@@ -170,7 +202,7 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		}
 		return 0
 	case "search-and-fetch":
-		req, searxngURL, jsonOut, err := parseWebGatherSearchAndFetchArgs(args[1:])
+		req, searxngURL, yacyURL, jsonOut, err := parseWebGatherSearchAndFetchArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(errOut, "%v\n", err)
 			return 2
@@ -178,8 +210,15 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 		if strings.TrimSpace(searxngURL) == "" {
 			searxngURL = deps.SearXNGBaseURL
 		}
+		if strings.TrimSpace(yacyURL) == "" {
+			yacyURL = deps.YaCyBaseURL
+		}
 		if req.Provider == "searxng" && strings.TrimSpace(searxngURL) == "" {
 			fmt.Fprintln(errOut, "web_gather.searxng_base_url or --searxng-url is required when --provider searxng")
+			return 2
+		}
+		if req.Provider == "yacy" && strings.TrimSpace(yacyURL) == "" {
+			fmt.Fprintln(errOut, "web_gather.yacy_base_url or --yacy-url is required when --provider yacy")
 			return 2
 		}
 		if deps.Fetcher == nil {
@@ -187,8 +226,13 @@ func runWebGatherCommand(args []string, deps webGatherCLIDeps, out io.Writer, er
 			return 1
 		}
 		providers := map[string]modulewebgather.SearchProvider{}
+		providers["rss_atom"] = webgatherinfra.NewFeedDiscoveryProvider()
+		providers["sitemap"] = webgatherinfra.NewFeedDiscoveryProvider()
 		if strings.TrimSpace(searxngURL) != "" {
 			providers["searxng"] = webgatherinfra.NewSearXNGProvider(searxngURL)
+		}
+		if strings.TrimSpace(yacyURL) != "" {
+			providers["yacy"] = webgatherinfra.NewYaCyProvider(yacyURL)
 		}
 		searcher := webgatherapp.NewSearchUseCase(deps.SearchCache, providers)
 		usecase := webgatherapp.NewSearchAndFetchUseCase(searcher, deps.Fetcher)
@@ -337,7 +381,9 @@ func parseWebGatherURLArgs(args []string) (modulewebgather.FetchRequest, bool, e
 			req.Policy.AllowLocalhost = true
 		case "--dry-run":
 			req.DryRun = true
-		case "--namespace", "--source-id", "--extractor", "--timeout-sec", "--max-body-bytes", "--max-redirects", "--license-note":
+		case "--refresh":
+			req.Refresh = true
+		case "--namespace", "--source-id", "--fetch-provider", "--extractor", "--timeout-sec", "--max-body-bytes", "--max-redirects", "--license-note":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 				return req, jsonOut, fmt.Errorf("%s requires a value", arg)
 			}
@@ -348,6 +394,12 @@ func parseWebGatherURLArgs(args []string) (modulewebgather.FetchRequest, bool, e
 				req.Namespace = value
 			case "--source-id":
 				req.SourceID = value
+			case "--fetch-provider":
+				value = strings.ToLower(value)
+				if !isAllowedWebGatherFetchProvider(value) {
+					return req, jsonOut, fmt.Errorf("unsupported fetch provider: %s", value)
+				}
+				req.FetchProvider = value
 			case "--extractor":
 				if !isAllowedWebGatherExtractor(value) {
 					return req, jsonOut, fmt.Errorf("unsupported extractor: %s", value)
@@ -400,7 +452,16 @@ func isAllowedWebGatherExtractor(value string) bool {
 	}
 }
 
-func parseWebGatherSearchArgs(args []string) (modulewebgather.SearchRequest, string, bool, error) {
+func isAllowedWebGatherFetchProvider(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "http", "webwright":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseWebGatherSearchArgs(args []string) (modulewebgather.SearchRequest, string, string, bool, error) {
 	req := modulewebgather.SearchRequest{
 		Provider:  modulewebgather.DefaultSearchProvider,
 		Limit:     modulewebgather.DefaultSearchLimit,
@@ -409,6 +470,7 @@ func parseWebGatherSearchArgs(args []string) (modulewebgather.SearchRequest, str
 		Namespace: "kb:research",
 	}
 	searxngURL := ""
+	yacyURL := ""
 	jsonOut := false
 	querySet := false
 	for i := 0; i < len(args); i++ {
@@ -418,22 +480,22 @@ func parseWebGatherSearchArgs(args []string) (modulewebgather.SearchRequest, str
 			jsonOut = true
 		case "--refresh":
 			req.Refresh = true
-		case "--provider", "--limit", "--language", "--freshness", "--namespace", "--searxng-url":
+		case "--provider", "--limit", "--language", "--freshness", "--namespace", "--searxng-url", "--yacy-url":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
-				return req, searxngURL, jsonOut, fmt.Errorf("%s requires a value", arg)
+				return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("%s requires a value", arg)
 			}
 			value := strings.TrimSpace(args[i+1])
 			i++
 			switch arg {
 			case "--provider":
 				if !isAllowedWebGatherSearchProvider(value) {
-					return req, searxngURL, jsonOut, fmt.Errorf("unsupported search provider: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("unsupported search provider: %s", value)
 				}
 				req.Provider = value
 			case "--limit":
 				n, err := strconv.Atoi(value)
 				if err != nil || n <= 0 {
-					return req, searxngURL, jsonOut, fmt.Errorf("invalid --limit: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("invalid --limit: %s", value)
 				}
 				req.Limit = n
 			case "--language":
@@ -444,25 +506,27 @@ func parseWebGatherSearchArgs(args []string) (modulewebgather.SearchRequest, str
 				req.Namespace = value
 			case "--searxng-url":
 				searxngURL = value
+			case "--yacy-url":
+				yacyURL = value
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
-				return req, searxngURL, jsonOut, fmt.Errorf("unknown web-gather search option: %s", arg)
+				return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("unknown web-gather search option: %s", arg)
 			}
 			if querySet {
-				return req, searxngURL, jsonOut, errors.New("web-gather search accepts exactly one query")
+				return req, searxngURL, yacyURL, jsonOut, errors.New("web-gather search accepts exactly one query")
 			}
 			req.Query = arg
 			querySet = true
 		}
 	}
 	if strings.TrimSpace(req.Query) == "" {
-		return req, searxngURL, jsonOut, errors.New("query is required")
+		return req, searxngURL, yacyURL, jsonOut, errors.New("query is required")
 	}
-	return req, searxngURL, jsonOut, nil
+	return req, searxngURL, yacyURL, jsonOut, nil
 }
 
-func parseWebGatherSearchAndFetchArgs(args []string) (modulewebgather.SearchAndFetchRequest, string, bool, error) {
+func parseWebGatherSearchAndFetchArgs(args []string) (modulewebgather.SearchAndFetchRequest, string, string, bool, error) {
 	req := modulewebgather.SearchAndFetchRequest{
 		Provider:        modulewebgather.DefaultSearchProvider,
 		Limit:           modulewebgather.DefaultSearchLimit,
@@ -477,6 +541,7 @@ func parseWebGatherSearchAndFetchArgs(args []string) (modulewebgather.SearchAndF
 		Policy:          modulewebgather.DefaultFetchPolicy(),
 	}
 	searxngURL := ""
+	yacyURL := ""
 	jsonOut := false
 	querySet := false
 	for i := 0; i < len(args); i++ {
@@ -489,28 +554,28 @@ func parseWebGatherSearchAndFetchArgs(args []string) (modulewebgather.SearchAndF
 		case "--no-store-staging":
 			req.StoreStaging = false
 			req.StoreStagingSet = true
-		case "--provider", "--limit", "--max-fetches", "--language", "--freshness", "--namespace", "--searxng-url", "--fetch-provider", "--extractor", "--timeout-sec", "--max-body-bytes", "--max-redirects":
+		case "--provider", "--limit", "--max-fetches", "--language", "--freshness", "--namespace", "--searxng-url", "--yacy-url", "--fetch-provider", "--extractor", "--timeout-sec", "--max-body-bytes", "--max-redirects":
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
-				return req, searxngURL, jsonOut, fmt.Errorf("%s requires a value", arg)
+				return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("%s requires a value", arg)
 			}
 			value := strings.TrimSpace(args[i+1])
 			i++
 			switch arg {
 			case "--provider":
 				if !isAllowedWebGatherSearchProvider(value) {
-					return req, searxngURL, jsonOut, fmt.Errorf("unsupported search provider: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("unsupported search provider: %s", value)
 				}
 				req.Provider = value
 			case "--limit":
 				n, err := strconv.Atoi(value)
 				if err != nil || n <= 0 {
-					return req, searxngURL, jsonOut, fmt.Errorf("invalid --limit: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("invalid --limit: %s", value)
 				}
 				req.Limit = n
 			case "--max-fetches":
 				n, err := strconv.Atoi(value)
 				if err != nil || n <= 0 {
-					return req, searxngURL, jsonOut, fmt.Errorf("invalid --max-fetches: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("invalid --max-fetches: %s", value)
 				}
 				req.MaxFetches = n
 			case "--language":
@@ -521,55 +586,58 @@ func parseWebGatherSearchAndFetchArgs(args []string) (modulewebgather.SearchAndF
 				req.Namespace = value
 			case "--searxng-url":
 				searxngURL = value
+			case "--yacy-url":
+				yacyURL = value
 			case "--fetch-provider":
-				if value != "http" {
-					return req, searxngURL, jsonOut, fmt.Errorf("unsupported fetch provider for Phase 2: %s", value)
+				value = strings.ToLower(value)
+				if !isAllowedWebGatherFetchProvider(value) {
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("unsupported fetch provider: %s", value)
 				}
 				req.FetchProvider = value
 			case "--extractor":
 				if !isAllowedWebGatherExtractor(value) {
-					return req, searxngURL, jsonOut, fmt.Errorf("unsupported extractor: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("unsupported extractor: %s", value)
 				}
 				req.Extractor = value
 			case "--timeout-sec":
 				sec, err := strconv.Atoi(value)
 				if err != nil || sec <= 0 {
-					return req, searxngURL, jsonOut, fmt.Errorf("invalid --timeout-sec: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("invalid --timeout-sec: %s", value)
 				}
 				req.Policy.RequestTimeout = time.Duration(sec) * time.Second
 			case "--max-body-bytes":
 				n, err := strconv.ParseInt(value, 10, 64)
 				if err != nil || n <= 0 {
-					return req, searxngURL, jsonOut, fmt.Errorf("invalid --max-body-bytes: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("invalid --max-body-bytes: %s", value)
 				}
 				req.Policy.MaxBodyBytes = n
 			case "--max-redirects":
 				n, err := strconv.Atoi(value)
 				if err != nil || n < 0 {
-					return req, searxngURL, jsonOut, fmt.Errorf("invalid --max-redirects: %s", value)
+					return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("invalid --max-redirects: %s", value)
 				}
 				req.Policy.MaxRedirects = n
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
-				return req, searxngURL, jsonOut, fmt.Errorf("unknown web-gather search-and-fetch option: %s", arg)
+				return req, searxngURL, yacyURL, jsonOut, fmt.Errorf("unknown web-gather search-and-fetch option: %s", arg)
 			}
 			if querySet {
-				return req, searxngURL, jsonOut, errors.New("web-gather search-and-fetch accepts exactly one query")
+				return req, searxngURL, yacyURL, jsonOut, errors.New("web-gather search-and-fetch accepts exactly one query")
 			}
 			req.Query = arg
 			querySet = true
 		}
 	}
 	if strings.TrimSpace(req.Query) == "" {
-		return req, searxngURL, jsonOut, errors.New("query is required")
+		return req, searxngURL, yacyURL, jsonOut, errors.New("query is required")
 	}
-	return req, searxngURL, jsonOut, nil
+	return req, searxngURL, yacyURL, jsonOut, nil
 }
 
 func isAllowedWebGatherSearchProvider(value string) bool {
 	switch strings.TrimSpace(value) {
-	case "local_cache", "searxng":
+	case "local_cache", "searxng", "rss_atom", "sitemap", "yacy":
 		return true
 	default:
 		return false

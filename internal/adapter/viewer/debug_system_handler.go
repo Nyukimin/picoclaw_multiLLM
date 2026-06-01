@@ -50,6 +50,7 @@ type DebugSystemOptions struct {
 	LLMOpsBaseURL    string
 	LocalLLM         LocalLLMRuntimeConfig
 	WebwrightFetch   WebwrightFetchRuntimeConfig
+	WebGather        WebGatherRuntimeConfig
 	RuntimeReadiness RuntimeDependencyReadiness
 }
 
@@ -63,6 +64,7 @@ type RuntimeConfig struct {
 	LLMOpsBaseURL    string                      `json:"llm_ops_base_url,omitempty"`
 	LocalLLM         LocalLLMRuntimeConfig       `json:"local_llm,omitempty"`
 	WebwrightFetch   WebwrightFetchRuntimeConfig `json:"webwright_fetch,omitempty"`
+	WebGather        WebGatherRuntimeConfig      `json:"web_gather,omitempty"`
 	RuntimeReadiness RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
 }
 
@@ -129,6 +131,16 @@ type WebwrightFetchRuntimeConfig struct {
 	APIKeyConfigured  bool   `json:"api_key_configured"`
 }
 
+type WebGatherRuntimeConfig struct {
+	SearXNGConfigured bool   `json:"searxng_configured"`
+	SearXNGBaseURL    string `json:"searxng_base_url,omitempty"`
+	YaCyConfigured    bool   `json:"yacy_configured"`
+	YaCyBaseURL       string `json:"yacy_base_url,omitempty"`
+	FetchCache        bool   `json:"fetch_cache"`
+	FailureCache      bool   `json:"failure_cache"`
+	RateState         bool   `json:"rate_state"`
+}
+
 func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -146,6 +158,7 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			LLMOpsBaseURL:    strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
 			LocalLLM:         normalizeLocalLLMRuntimeConfig(opts.LocalLLM),
 			WebwrightFetch:   normalizeWebwrightFetchRuntimeConfig(opts.WebwrightFetch),
+			WebGather:        normalizeWebGatherRuntimeConfig(opts.WebGather),
 			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
 		})
 	}
@@ -234,6 +247,14 @@ func normalizeWebwrightFetchRuntimeConfig(in WebwrightFetchRuntimeConfig) Webwri
 	in.Python = strings.TrimSpace(in.Python)
 	in.ResponsesEndpoint = strings.TrimRight(strings.TrimSpace(in.ResponsesEndpoint), "/")
 	in.Model = strings.TrimSpace(in.Model)
+	return in
+}
+
+func normalizeWebGatherRuntimeConfig(in WebGatherRuntimeConfig) WebGatherRuntimeConfig {
+	in.SearXNGBaseURL = strings.TrimRight(strings.TrimSpace(in.SearXNGBaseURL), "/")
+	in.YaCyBaseURL = strings.TrimRight(strings.TrimSpace(in.YaCyBaseURL), "/")
+	in.SearXNGConfigured = in.SearXNGConfigured || in.SearXNGBaseURL != ""
+	in.YaCyConfigured = in.YaCyConfigured || in.YaCyBaseURL != ""
 	return in
 }
 

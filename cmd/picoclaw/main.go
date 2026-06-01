@@ -132,6 +132,13 @@ func cmdRun() {
 		Model:             cfg.WebwrightFetch.Model,
 		APIKeyConfigured:  strings.TrimSpace(cfg.WebwrightFetch.APIKey) != "",
 	}
+	debugSystemOpts.WebGather = viewer.WebGatherRuntimeConfig{
+		SearXNGBaseURL: strings.TrimSpace(cfg.WebGather.SearXNGBaseURL),
+		YaCyBaseURL:    strings.TrimSpace(cfg.WebGather.YaCyBaseURL),
+		FetchCache:     true,
+		FailureCache:   true,
+		RateState:      true,
+	}
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}

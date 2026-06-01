@@ -36,6 +36,27 @@ type L1SearchCacheEntry struct {
 	UpdatedAt       time.Time
 }
 
+type L1WebGatherFetchCacheEntry struct {
+	CacheKey      string
+	URL           string
+	FetchProvider string
+	Extractor     string
+	Status        string
+	ResponseJSON  string
+	ErrorCode     string
+	RetrievedAt   time.Time
+	ExpiresAt     time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type L1WebGatherRateState struct {
+	Domain      string
+	LastFetchAt time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type L1EventLogEntry struct {
 	ID        string
 	EventType string

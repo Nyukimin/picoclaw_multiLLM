@@ -102,10 +102,10 @@ func webGatherFetchRequestFromArgs(args map[string]any) (modulewebgather.FetchRe
 		return req, fmt.Errorf("'url' is required")
 	}
 	if value, ok := args["fetch_provider"].(string); ok && strings.TrimSpace(value) != "" {
-		req.FetchProvider = strings.TrimSpace(value)
+		req.FetchProvider = strings.ToLower(strings.TrimSpace(value))
 	}
-	if req.FetchProvider != "http" {
-		return req, fmt.Errorf("unsupported fetch_provider for Phase 1: %s", req.FetchProvider)
+	if !isAllowedWebGatherToolFetchProvider(req.FetchProvider) {
+		return req, fmt.Errorf("unsupported fetch_provider: %s", req.FetchProvider)
 	}
 	if value, ok := args["extractor"].(string); ok && strings.TrimSpace(value) != "" {
 		req.Extractor = strings.TrimSpace(value)
@@ -164,10 +164,10 @@ func webGatherSearchAndFetchRequestFromArgs(args map[string]any) (modulewebgathe
 		req.MaxFetches = int(n)
 	}
 	if value, ok := args["fetch_provider"].(string); ok && strings.TrimSpace(value) != "" {
-		req.FetchProvider = strings.TrimSpace(value)
+		req.FetchProvider = strings.ToLower(strings.TrimSpace(value))
 	}
-	if req.FetchProvider != "http" {
-		return req, fmt.Errorf("unsupported fetch_provider for Phase 2: %s", req.FetchProvider)
+	if !isAllowedWebGatherToolFetchProvider(req.FetchProvider) {
+		return req, fmt.Errorf("unsupported fetch_provider: %s", req.FetchProvider)
 	}
 	if value, ok := args["extractor"].(string); ok && strings.TrimSpace(value) != "" {
 		req.Extractor = strings.TrimSpace(value)
@@ -210,7 +210,7 @@ func webGatherSearchRequestFromArgs(args map[string]any) (modulewebgather.Search
 	if value, ok := args["provider"].(string); ok && strings.TrimSpace(value) != "" {
 		req.Provider = strings.TrimSpace(value)
 	}
-	if req.Provider != "local_cache" && req.Provider != "searxng" {
+	if req.Provider != "local_cache" && req.Provider != "searxng" && req.Provider != "rss_atom" && req.Provider != "sitemap" && req.Provider != "yacy" {
 		return req, fmt.Errorf("unsupported search provider: %s", req.Provider)
 	}
 	if n, ok := int64Arg(args["limit"]); ok && n > 0 {
@@ -234,6 +234,15 @@ func webGatherSearchRequestFromArgs(args map[string]any) (modulewebgather.Search
 func isAllowedWebGatherToolExtractor(value string) bool {
 	switch value {
 	case "go_readability", "html_basic", "plain_text", "json_text":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedWebGatherToolFetchProvider(value string) bool {
+	switch value {
+	case "http", "webwright":
 		return true
 	default:
 		return false

@@ -2268,6 +2268,8 @@ function syncLLMOpsPanel(cfg, fetchError) {
   state.ops.llmOpsConfigured = configured;
   state.ops.llmOpsBaseURL = baseURL;
   state.ops.localLLM = cfg && cfg.local_llm ? cfg.local_llm : null;
+  state.ops.webGather = cfg && cfg.web_gather ? cfg.web_gather : null;
+  state.ops.webwrightFetch = cfg && cfg.webwright_fetch ? cfg.webwright_fetch : null;
   state.ops.runtimeReadiness = cfg && cfg.runtime_readiness ? cfg.runtime_readiness : null;
   state.ops.runtimeSTTBaseURL = cfg && cfg.stt_base_url ? String(cfg.stt_base_url) : '';
   state.ops.runtimeSTTStreamURL = cfg && cfg.stt_stream_url ? String(cfg.stt_stream_url) : '';
@@ -2296,6 +2298,7 @@ function syncLLMOpsPanel(cfg, fetchError) {
     }
   }
   renderLocalLLMRuntimeConfig();
+  renderWebGatherOpsStatus();
   renderRuntimeDependencyReadiness();
   refreshRuntimeHealthStatus();
   if (enabled) refreshLlmOpsStatus();
@@ -2311,6 +2314,55 @@ function syncRuntimeDebugSystem(snapshot, fetchError) {
   state.ops.runtimeDebugSystemFetchError = String(fetchError || '').trim();
   state.ops.runtimeDebugSystem = snapshot && typeof snapshot === 'object' ? snapshot : null;
   renderRuntimeDependencyReadiness();
+}
+
+function renderWebGatherOpsStatus() {
+  const el = document.getElementById('webGatherOpsCards');
+  if (!el) return;
+  if (state.ops.runtimeConfigFetchError) {
+    el.innerHTML = '<div class="debug-empty">web_gather runtime config unavailable: ' + esc(state.ops.runtimeConfigFetchError) + '</div>';
+    return;
+  }
+  const wg = state.ops.webGather || {};
+  const ww = state.ops.webwrightFetch || {};
+  const rows = [
+    {
+      title: 'Web Gather Fetch',
+      state: 'running',
+      badge: 'running',
+      big: 'http',
+      sub: [
+        wg.fetch_cache ? 'fetch cache=on' : 'fetch cache=off',
+        wg.failure_cache ? 'failure cache=on' : 'failure cache=off',
+        wg.rate_state ? 'rate state=on' : 'rate state=off',
+      ].join('\n'),
+    },
+    {
+      title: 'Discovery',
+      state: 'configured',
+      badge: 'thinking',
+      big: ['local_cache', 'rss_atom', 'sitemap'].concat(wg.searxng_configured ? ['searxng'] : [], wg.yacy_configured ? ['yacy'] : []).join(' / '),
+      sub: [wg.searxng_base_url ? 'searxng=' + wg.searxng_base_url : '', wg.yacy_base_url ? 'yacy=' + wg.yacy_base_url : ''].filter(Boolean).join('\n') || 'local providers only',
+    },
+    {
+      title: 'Webwright',
+      state: ww.enabled ? 'enabled' : 'disabled',
+      badge: ww.enabled ? 'running' : 'offline',
+      big: ww.enabled ? (ww.model || 'Coder1') : '-',
+      sub: [
+        ww.responses_endpoint ? 'responses=' + ww.responses_endpoint : '',
+        ww.runner_path ? 'runner=' + ww.runner_path : '',
+        ww.staging_output_dir ? 'staging=' + ww.staging_output_dir : '',
+      ].filter(Boolean).join('\n') || 'webwright_fetch.enabled=false',
+    },
+  ];
+  el.innerHTML = rows.map((row) => (
+    '<div class="llm-runtime-card">' +
+      '<div class="ops-card-title">' + esc(row.title) + '<span class="badge ' + stateClass(row.badge) + '">' + esc(row.state) + '</span></div>' +
+      '<div class="llm-runtime-model">' + esc(row.big || '-') + '</div>' +
+      '<div class="ops-sub">' + esc(row.sub || '-') + '</div>' +
+    '</div>'
+  )).join('');
 }
 
 function renderLocalLLMRuntimeConfig() {

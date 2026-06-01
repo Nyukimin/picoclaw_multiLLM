@@ -20,6 +20,36 @@ func (f fakeFetcher) Fetch(context.Context, string, modulewebgather.FetchPolicy)
 	return f.artifact, f.err
 }
 
+type countingFetcher struct {
+	called int
+}
+
+func (f *countingFetcher) Fetch(context.Context, string, modulewebgather.FetchPolicy) (modulewebgather.FetchArtifact, error) {
+	f.called++
+	return modulewebgather.FetchArtifact{}, modulewebgather.NewError(modulewebgather.ErrFetchFailed, "unexpected fetch")
+}
+
+type fakeFetchCache struct {
+	resp modulewebgather.FetchResponse
+	hit  bool
+}
+
+func (c fakeFetchCache) Get(context.Context, modulewebgather.FetchRequest, time.Time) (modulewebgather.FetchResponse, bool, error) {
+	return c.resp, c.hit, nil
+}
+
+func (c fakeFetchCache) Save(context.Context, modulewebgather.FetchRequest, modulewebgather.FetchResponse, time.Duration) error {
+	return nil
+}
+
+func (c fakeFetchCache) RateDelay(context.Context, string, time.Time, time.Duration) (time.Duration, error) {
+	return 0, nil
+}
+
+func (c fakeFetchCache) RecordRate(context.Context, string, time.Time) error {
+	return nil
+}
+
 type fakeExtractor struct {
 	doc modulewebgather.ExtractedDocument
 	err error
@@ -76,6 +106,105 @@ func TestFetchURLSavesPendingStagingWithSecurityWarnings(t *testing.T) {
 	}
 	if staging.meta["auto_promote"] != false || staging.meta["review_required"] != true {
 		t.Fatalf("expected review metadata: %+v", staging.meta)
+	}
+}
+
+func TestFetchURLSelectsRegisteredFetchProvider(t *testing.T) {
+	staging := &captureStaging{}
+	usecase := NewUseCase(fakeFetcher{artifact: modulewebgather.FetchArtifact{
+		FinalURL:     "https://example.com/http",
+		StatusCode:   200,
+		ContentType:  "text/plain",
+		ProviderName: "http",
+		RawBytes:     4,
+		FetchedAt:    time.Now().UTC(),
+	}}, fakeExtractor{doc: modulewebgather.ExtractedDocument{
+		Text:      "webwright document body",
+		Extractor: "plain_text",
+		Meta:      map[string]any{},
+	}}, staging).WithFetchProvider("webwright", fakeFetcher{artifact: modulewebgather.FetchArtifact{
+		FinalURL:     "https://example.com/webwright",
+		StatusCode:   200,
+		ContentType:  "text/plain",
+		ProviderName: "webwright",
+		RawBytes:     24,
+		FetchedAt:    time.Now().UTC(),
+		Meta: map[string]any{
+			"webwright":             true,
+			"webwright_report_path": "tmp/webwright_runs/task/report.json",
+			"webwright_jsonl_path":  "tmp/webwright_staging/task.jsonl",
+		},
+	}})
+
+	resp, err := usecase.FetchURL(context.Background(), modulewebgather.FetchRequest{
+		URL:           "https://example.com/a",
+		FetchProvider: "webwright",
+		StoreStaging:  false,
+	})
+	if err != nil {
+		t.Fatalf("FetchURL failed: %v", err)
+	}
+	if resp.FinalURL != "https://example.com/webwright" {
+		t.Fatalf("expected webwright artifact, got %+v", resp)
+	}
+	if got := resp.Diagnostics["actual_fetch_provider"]; got != "webwright" {
+		t.Fatalf("expected actual webwright provider diagnostics, got %+v", resp.Diagnostics)
+	}
+	if staging.meta["webwright"] != true || staging.meta["webwright_report_path"] == "" || staging.meta["webwright_jsonl_path"] == "" {
+		t.Fatalf("expected webwright artifact metadata in staging meta: %+v", staging.meta)
+	}
+}
+
+func TestFetchURLReturnsPersistentCacheHitBeforeFetching(t *testing.T) {
+	fetcher := &countingFetcher{}
+	usecase := NewUseCase(fetcher, fakeExtractor{}, nil).WithFetchCache(fakeFetchCache{
+		hit: true,
+		resp: modulewebgather.FetchResponse{
+			URL:    "https://example.com/a",
+			Status: "ok",
+			Diagnostics: map[string]any{
+				"cache_hit": true,
+			},
+		},
+	})
+	resp, err := usecase.FetchURL(context.Background(), modulewebgather.FetchRequest{
+		URL:             "https://example.com/a",
+		StoreStaging:    false,
+		StoreStagingSet: true,
+		FetchProvider:   "http",
+		Extractor:       "html_basic",
+		Policy:          modulewebgather.DefaultFetchPolicy(),
+		LicenseNote:     modulewebgather.DefaultLicenseNote,
+		Namespace:       "kb:web",
+		Refresh:         false,
+		SourceID:        "web:example:a",
+	})
+	if err != nil {
+		t.Fatalf("FetchURL failed: %v", err)
+	}
+	if fetcher.called != 0 {
+		t.Fatalf("fetcher must not be called on cache hit")
+	}
+	if resp.Diagnostics["cache_hit"] != true {
+		t.Fatalf("expected cache hit diagnostics: %+v", resp)
+	}
+}
+
+func TestFetchURLRejectsUnregisteredFetchProvider(t *testing.T) {
+	usecase := NewUseCase(fakeFetcher{}, fakeExtractor{}, nil)
+	resp, err := usecase.FetchURL(context.Background(), modulewebgather.FetchRequest{
+		URL:           "https://example.com/a",
+		FetchProvider: "webwright",
+		StoreStaging:  false,
+	})
+	if err == nil {
+		t.Fatal("expected missing provider error")
+	}
+	if resp.ErrorCode != modulewebgather.ErrFetchFailed {
+		t.Fatalf("unexpected error response: %+v", resp)
+	}
+	if resp.ErrorMessage != "web gather fetch provider is not configured: webwright" {
+		t.Fatalf("unexpected error message: %+v", resp)
 	}
 }
 

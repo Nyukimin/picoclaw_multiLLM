@@ -170,12 +170,12 @@ func (r *ToolRunner) registerToolMetadata() {
 	if r.config.WebGatherSearcher != nil {
 		r.metadata["web_gather.search"] = tool.ToolMetadata{
 			ToolID: "web_gather.search", Version: "0.1.0", Category: "query",
-			Description: "Web Gather の検索候補を返す。Phase 2 では local_cache と明示 SearXNG provider を扱う。",
+			Description: "Web Gather の検索候補を返す。local_cache / SearXNG / RSS / Atom / sitemap provider を扱う。",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query":     map[string]any{"type": "string"},
-					"provider":  map[string]any{"type": "string", "enum": []any{"local_cache", "searxng"}},
+					"provider":  map[string]any{"type": "string", "enum": []any{"local_cache", "searxng", "rss_atom", "sitemap", "yacy"}},
 					"limit":     map[string]any{"type": "integer"},
 					"language":  map[string]any{"type": "string"},
 					"freshness": map[string]any{"type": "string", "enum": []any{"any", "day", "week", "month"}},
@@ -194,7 +194,7 @@ func (r *ToolRunner) registerToolMetadata() {
 				"type": "object",
 				"properties": map[string]any{
 					"query":          map[string]any{"type": "string"},
-					"provider":       map[string]any{"type": "string", "enum": []any{"local_cache", "searxng"}},
+					"provider":       map[string]any{"type": "string", "enum": []any{"local_cache", "searxng", "rss_atom", "sitemap", "yacy"}},
 					"limit":          map[string]any{"type": "integer"},
 					"max_fetches":    map[string]any{"type": "integer"},
 					"language":       map[string]any{"type": "string"},

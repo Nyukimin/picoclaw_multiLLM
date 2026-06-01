@@ -118,6 +118,13 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			Model:             "Coder1",
 			APIKeyConfigured:  true,
 		},
+		WebGather: WebGatherRuntimeConfig{
+			SearXNGBaseURL: "http://127.0.0.1:8888/",
+			YaCyBaseURL:    "http://127.0.0.1:8090/",
+			FetchCache:     true,
+			FailureCache:   true,
+			RateState:      true,
+		},
 	})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
@@ -145,6 +152,12 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.WebwrightFetch.APIKeyConfigured {
 		t.Fatalf("expected webwright api key configured without exposing value: %+v", body.WebwrightFetch)
+	}
+	if !body.WebGather.SearXNGConfigured || body.WebGather.SearXNGBaseURL != "http://127.0.0.1:8888" || !body.WebGather.YaCyConfigured || body.WebGather.YaCyBaseURL != "http://127.0.0.1:8090" {
+		t.Fatalf("unexpected web gather runtime config: %+v", body.WebGather)
+	}
+	if !body.WebGather.FetchCache || !body.WebGather.FailureCache || !body.WebGather.RateState {
+		t.Fatalf("expected web gather cache flags: %+v", body.WebGather)
 	}
 }
 
