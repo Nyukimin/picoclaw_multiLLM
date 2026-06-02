@@ -29,8 +29,11 @@ func TestDefaultMioPersona(t *testing.T) {
 	if !strings.Contains(p.SystemPrompt, "ミオ（澪）") {
 		t.Error("default persona should contain 'ミオ（澪）'")
 	}
-	if !strings.Contains(p.SystemPrompt, "フレンドリー") {
-		t.Error("default persona should mention 'フレンドリー'")
+	if !strings.Contains(p.SystemPrompt, "超ギャル") {
+		t.Error("default persona should mention '超ギャル'")
+	}
+	if !strings.Contains(p.SystemPrompt, "全モード") {
+		t.Error("default persona should mention '全モード'")
 	}
 }
 

@@ -71,6 +71,29 @@ func TestBuildForecastLLMTopicNeverStartsWithEmptyTopic(t *testing.T) {
 	}
 }
 
+func TestInitForecastTopicStockDoesNotFillWorkerQueueOnStartup(t *testing.T) {
+	provider := &queuedForecastProvider{
+		responses: []string{"起動時に生成してはいけない"},
+	}
+	o := NewIdleChatOrchestrator(
+		provider,
+		session.NewCentralMemory(),
+		[]string{"mio", "shiro"},
+		5,
+		10,
+		0.7,
+		nil,
+		"",
+	)
+	o.SetForecastProviderWithLabel(provider, "Worker local")
+
+	o.InitForecastTopicStock("")
+
+	if provider.requests != 0 {
+		t.Fatalf("InitForecastTopicStock must not call forecast provider on startup, got %d requests", provider.requests)
+	}
+}
+
 func TestFetchNewsHeadlinesFromNonOKIncludesResponseBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nhk rss unavailable", http.StatusServiceUnavailable)

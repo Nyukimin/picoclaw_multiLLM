@@ -149,8 +149,10 @@ func (s *forecastTopicStock) doneFilling(domain string) {
 	s.filling[domain] = false
 }
 
-// InitForecastTopicStock はお題ストックを初期化し、全ドメインのバックグラウンド補充を開始する。
+// InitForecastTopicStock はお題ストックを初期化する。
 // path はストックの永続化ファイルパス。
+// 起動時に全ドメインのLLM補充を開始すると Worker queue を圧迫するため、
+// 補充は Forecast 利用時の pop/refill トリガーに限定する。
 func (o *IdleChatOrchestrator) InitForecastTopicStock(path string) {
 	o.mu.Lock()
 	if o.topicStockBuf != nil {
@@ -159,10 +161,7 @@ func (o *IdleChatOrchestrator) InitForecastTopicStock(path string) {
 	}
 	o.topicStockBuf = newForecastTopicStock(path)
 	o.mu.Unlock()
-	log.Printf("[Forecast] Topic stock initialized, starting background fill for %d domains", len(forecastDomains))
-	for _, domain := range forecastDomains {
-		o.refillTopicStockAsync(domain)
-	}
+	log.Printf("[Forecast] Topic stock initialized (startup fill disabled; refill is on-demand)")
 }
 
 // popForecastTopic はストックからお題を取得し、バックグラウンドで補充をトリガーする。
@@ -203,7 +202,9 @@ func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, 
 	return normalizeForecastDisplayTopic(domain, topic), seeds
 }
 
-// refillTopicStockAsync はバックグラウンドでストックを forecastTopicStockSize まで補充する。
+// refillTopicStockAsync はバックグラウンドでストックを1件だけ補充する。
+// 1トリガーで再帰的に forecastTopicStockSize まで埋めると Worker queue を詰めるため、
+// 必要になったタイミングの on-demand 補充に限定する。
 func (o *IdleChatOrchestrator) refillTopicStockAsync(domain ForecastDomain) {
 	o.mu.Lock()
 	stock := o.topicStockBuf
@@ -234,7 +235,5 @@ func (o *IdleChatOrchestrator) refillTopicStockAsync(domain ForecastDomain) {
 			})
 			log.Printf("[Forecast] Stock refilled: %s (count=%d)", d.Name, stock.count(d.Name))
 		}
-		// まだ足りなければ再帰的に補充
-		o.refillTopicStockAsync(d)
 	}(domain)
 }

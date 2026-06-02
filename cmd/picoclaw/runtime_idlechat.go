@@ -55,7 +55,7 @@ func buildIdleChatRuntime(
 	if forecastProvider, label := selectForecastProviderForRuntime(cfg, workerProvider); forecastProvider != nil {
 		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
 		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
-		log.Printf("IdleChat: Forecast provider set to %s, topic stock filling", forecastProviderLogLabel(label))
+		log.Printf("IdleChat: Forecast provider set to %s, topic stock refill on-demand", forecastProviderLogLabel(label))
 	}
 	if recentGlossaryTopics != nil {
 		idleChatOrch.SetRecentTopicProvider(recentGlossaryTopics)
