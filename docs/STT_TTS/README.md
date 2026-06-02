@@ -34,9 +34,6 @@ TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` �
 - `docs/STT_TTS/STT_Streaming_Client仕様.md` - Mac上の `rencrow-stt` へWSS PCM chunkを送るブラウザクライアント仕様
 - `docs/STT_TTS/IrodoriTTS_HTTP_API仕様.md` - Mac上のIrodori-TTS Gradio HTTP API仕様
 
-### 旧資料
-- `docs/STT_TTS/archive`
-
 ## 4. 実装完了条件（DoD）
 - Client/Server で API 名称・必須フィールド・エラー契約が一致
 - Provider 名称が本文契約を汚染しない（実装例セクションのみ）
@@ -55,7 +52,7 @@ TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` �
 ## 6. 運用ルール
 - TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md`
 - `AUDIO_Client仕様` / `AUDIO_Server仕様` は Client / Server の下位仕様
-- 旧文書は削除せず `archive` へ移動
+- 旧文書、`archive`、`old` は参照しない。必要な内容は正本仕様または現行下位仕様へ統合する
 - 仕様更新時は Client/Server を同一PRで同期
 - レビュー記録は `docs/STT_TTS/API_DOD_CHECKLIST.md` を利用する
 

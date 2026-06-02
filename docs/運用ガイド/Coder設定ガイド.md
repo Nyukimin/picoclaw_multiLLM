@@ -472,7 +472,6 @@ chmod 644 ~/.ssh/picoclaw_agent.pub
 | ドキュメント | 説明 |
 |------------|------|
 | [実装仕様_Coder4体化とAgentPersona_v1.md](../04_実装仕様_機能拡張/実装仕様_Coder4体化とAgentPersona_v1.md) | 詳細な実装仕様 |
-| [Coder3_Claude_API仕様.md](../archive/LLM運用/2026-05-11/Coder3_Claude_API仕様.md) | Coder3 特化の旧運用ガイド（履歴参照） |
 | [分散実行_前提条件とセットアップ.md](./分散実行_前提条件とセットアップ.md) | SSH 分散実行の詳細 |
 | [README.md](../../README.md) | プロジェクト全体の概要 |
 

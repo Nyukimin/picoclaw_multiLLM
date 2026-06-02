@@ -401,5 +401,4 @@ RenCrow_TTS Controller の実装完了条件:
 
 - `docs/STT_TTS/AUDIO_Client仕様/TTS/仕様.md`
 - `docs/STT_TTS/AUDIO_Client仕様/TTS/実装仕様.md`
-- `docs/STT_TTS/AUDIO_Client仕様/TTS/old/REN_CROW_TTS_BRIDGE_SPEC.md`
 - `docs/STT_TTS/SBV2_サーバ仕様.md`

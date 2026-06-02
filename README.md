@@ -553,7 +553,6 @@ picoclaw/
 
 - **[docs/README.md](docs/README.md)** - ドキュメント一覧
 - **[docs/06_実装ガイド進行管理/20260309_OpenClaw移植_runbook.md](docs/06_実装ガイド進行管理/20260309_OpenClaw移植_runbook.md)** - OpenClaw移植 実機検証Runbook
-- **[docs/archive/](docs/archive/)** - 旧ドキュメント（参考資料）
 
 ---
 

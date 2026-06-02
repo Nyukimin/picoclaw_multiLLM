@@ -39,7 +39,6 @@ RenCrow_LLM は OpenAI 互換 API として動作する。
 - 管理 API は `http://127.0.0.1:8079` で動作し、`Authorization: Bearer <LLM_OPS_TOKEN>` を必須とする。
 - LLM role ごとの固定 prompt は Prompt Bundle として管理し、動的 context は固定 prefix の後ろに置く。
 
-## 退避済み文書
+## 旧資料
 
-古い Ollama 前提、旧 Coder3 / Worker 個別仕様、重複した role メモ、実装済みの追加依頼書は [`../../archive/LLM運用/2026-05-11/`](../../archive/LLM運用/2026-05-11/) に退避した。
-
+古い Ollama 前提、旧 Coder3 / Worker 個別仕様、重複した role メモ、実装済みの追加依頼書は削除済みであり、実装判断では参照しない。

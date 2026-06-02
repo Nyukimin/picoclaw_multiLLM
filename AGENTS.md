@@ -389,10 +389,9 @@ Go のテスト実行例：
 - `rules/rules_viewer_ui.md`
 - `rules/rules_domain.md`
 
-### archive 参照ルール
-- `docs/archive/` は履歴参照専用。実装・仕様判断の一次参照に使わない。
-
-アーカイブ文書は原則として直接編集しない。
+### 旧 docs 参照ルール
+- 削除済みの `docs/archive/`、`docs/codebase-map/`、`docs/STT_TTS/archive/`、`old/` 配下、古い `docs/refactor/Phase*` 文書を参照しない。
+- 必要な内容は `docs/01_正本仕様/` または `docs/10_新仕様/` に統合されたものを参照する。
 
 ---
 
