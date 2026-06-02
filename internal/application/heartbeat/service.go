@@ -40,22 +40,42 @@ type WorkstreamHeartbeatStore interface {
 
 type RevenueDailyRoutineStore = revenueapp.DailyRoutineStore
 
+type IdleChatSequenceMonitor interface {
+	CheckIdleChatSequence(ctx context.Context, now time.Time) IdleChatSequenceCheck
+}
+
+type IdleChatSequenceCheck struct {
+	Status     string
+	Active     bool
+	Recovered  bool
+	Stage      string
+	Detail     string
+	SessionID  string
+	Generation uint64
+	AgeSeconds int64
+	Action     string
+	Error      string
+	CheckedAt  time.Time
+}
+
 // HeartbeatService はHEARTBEAT.mdを定期的に読み込み、エージェントに処理させるサービス
 type HeartbeatService struct {
-	chatAgent       ChatAgent
-	sender          NotificationSender
-	workspaceDir    string
-	contextBuilder  *ctxbuilder.Builder
-	listener        orchestrator.EventListener
-	workstreamStore WorkstreamHeartbeatStore
-	revenueStore    RevenueDailyRoutineStore
-	revenueRoutine  *revenueapp.DailyRoutineService
-	skills          *skillbootstrap.BootstrapService
-	interval        time.Duration
-	stopCh          chan struct{}
-	done            chan struct{}
-	mu              sync.Mutex
-	running         bool
+	chatAgent        ChatAgent
+	sender           NotificationSender
+	workspaceDir     string
+	contextBuilder   *ctxbuilder.Builder
+	listener         orchestrator.EventListener
+	workstreamStore  WorkstreamHeartbeatStore
+	revenueStore     RevenueDailyRoutineStore
+	revenueRoutine   *revenueapp.DailyRoutineService
+	skills           *skillbootstrap.BootstrapService
+	idleChatMonitor  IdleChatSequenceMonitor
+	interval         time.Duration
+	idleChatInterval time.Duration
+	stopCh           chan struct{}
+	done             chan struct{}
+	mu               sync.Mutex
+	running          bool
 }
 
 // NewHeartbeatService は新しいHeartbeatServiceを作成
@@ -69,13 +89,14 @@ func NewHeartbeatService(
 		intervalMinutes = 5
 	}
 	return &HeartbeatService{
-		chatAgent:      chatAgent,
-		sender:         sender,
-		workspaceDir:   workspaceDir,
-		contextBuilder: ctxbuilder.NewBuilder(workspaceDir),
-		interval:       time.Duration(intervalMinutes) * time.Minute,
-		stopCh:         make(chan struct{}),
-		done:           make(chan struct{}),
+		chatAgent:        chatAgent,
+		sender:           sender,
+		workspaceDir:     workspaceDir,
+		contextBuilder:   ctxbuilder.NewBuilder(workspaceDir),
+		interval:         time.Duration(intervalMinutes) * time.Minute,
+		idleChatInterval: time.Minute,
+		stopCh:           make(chan struct{}),
+		done:             make(chan struct{}),
 	}
 }
 
@@ -106,6 +127,11 @@ func (s *HeartbeatService) WithRevenueDailyRoutineStore(store RevenueDailyRoutin
 
 func (s *HeartbeatService) WithSkillBootstrap(service *skillbootstrap.BootstrapService) *HeartbeatService {
 	s.skills = service
+	return s
+}
+
+func (s *HeartbeatService) WithIdleChatSequenceMonitor(monitor IdleChatSequenceMonitor) *HeartbeatService {
+	s.idleChatMonitor = monitor
 	return s
 }
 
@@ -144,11 +170,15 @@ func (s *HeartbeatService) loop() {
 
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
+	idleChatTicker := time.NewTicker(s.idleChatInterval)
+	defer idleChatTicker.Stop()
 
 	for {
 		select {
 		case <-s.stopCh:
 			return
+		case <-idleChatTicker.C:
+			s.runIdleChatSequenceCheck(context.Background(), time.Now().UTC())
 		case <-ticker.C:
 			ctx := context.Background()
 			if err := s.tick(ctx); err != nil {
@@ -159,6 +189,31 @@ func (s *HeartbeatService) loop() {
 			}
 		}
 	}
+}
+
+func (s *HeartbeatService) runIdleChatSequenceCheck(ctx context.Context, now time.Time) IdleChatSequenceCheck {
+	if s.idleChatMonitor == nil {
+		return IdleChatSequenceCheck{Status: "disabled", CheckedAt: now.UTC()}
+	}
+	report := s.idleChatMonitor.CheckIdleChatSequence(ctx, now.UTC())
+	if report.CheckedAt.IsZero() {
+		report.CheckedAt = now.UTC()
+	}
+	status := strings.TrimSpace(report.Status)
+	if status == "" {
+		status = "unknown"
+		report.Status = status
+	}
+	if report.Error != "" {
+		log.Printf("[Heartbeat] idlechat sequence check error: %s", report.Error)
+		s.emitEvent("heartbeat.idlechat_sequence.error", report.Error)
+		return report
+	}
+	log.Printf("[Heartbeat] idlechat sequence check: status=%s active=%t recovered=%t stage=%s detail=%s session=%s age=%ds generation=%d action=%s",
+		report.Status, report.Active, report.Recovered, report.Stage, report.Detail, report.SessionID, report.AgeSeconds, report.Generation, report.Action)
+	s.emitEvent("heartbeat.idlechat_sequence."+status, fmt.Sprintf("active=%t recovered=%t stage=%s detail=%s session=%s age=%ds action=%s",
+		report.Active, report.Recovered, report.Stage, report.Detail, report.SessionID, report.AgeSeconds, report.Action))
+	return report
 }
 
 // tick は1回のHeartbeat処理を実行

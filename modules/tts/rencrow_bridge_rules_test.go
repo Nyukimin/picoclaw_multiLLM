@@ -57,6 +57,10 @@ func TestPrepareRenCrowSpeechText(t *testing.T) {
 	if err != nil || empty || text != "hello" {
 		t.Fatalf("PrepareRenCrowSpeechText() = text=%q empty=%v err=%v", text, empty, err)
 	}
+	text, empty, err = PrepareRenCrowSpeechText(" **重要**【本文】 ")
+	if err != nil || empty || text != "重要「本文」" {
+		t.Fatalf("markdown PrepareRenCrowSpeechText() = text=%q empty=%v err=%v", text, empty, err)
+	}
 	text, empty, err = PrepareRenCrowSpeechText(" ")
 	if err != nil || !empty || text != "" {
 		t.Fatalf("empty PrepareRenCrowSpeechText() = text=%q empty=%v err=%v", text, empty, err)

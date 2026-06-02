@@ -94,17 +94,22 @@ func (e *DefaultCodeExecutor) executeProposalWithWorker(
 	p *proposal.Proposal,
 ) (*patch.PatchExecutionResult, error) {
 	e.emit("agent.start", "shiro", "mio", "Patch を実行中...", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	e.emit("worker.request", "shiro", "worker", formatShiroToWorkerInstruction(req, p), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 
 	result, err := e.workerExecution.ExecuteProposal(ctx, req.Task.JobID(), p)
 	if err != nil {
+		e.emit("worker.result", "worker", "shiro", formatWorkerToShiroResult(nil, err), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 		e.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+		e.emit("agent.report", "shiro", "mio", formatShiroToMioReport(req.Route, req.JobID, "実行失敗: "+err.Error()), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 		return nil, fmt.Errorf("worker execution failed: %w", err)
 	}
+	e.emit("worker.result", "worker", "shiro", formatWorkerToShiroResult(result, nil), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 	return result, nil
 }
 
 func (e *DefaultCodeExecutor) emitProposalExecutionResult(req CodeExecutionRequest, formatted string) {
 	e.emit("agent.response", "shiro", "mio", formatted, req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	e.emit("agent.report", "shiro", "mio", formatShiroToMioReport(req.Route, req.JobID, formatted), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 }
 
 func (e *DefaultCodeExecutor) recordCoderProposalEvidence(

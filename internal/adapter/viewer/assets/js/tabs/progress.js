@@ -24,12 +24,15 @@ function classifyJobPhase(ev, current) {
   const content = String(ev.content || '');
   if (ev.type === 'message.received') return {phase: 'received', owner: 'mio'};
   if (ev.type === 'routing.decision') return {phase: 'routing', owner: current.owner || 'mio'};
+  if (ev.type === 'agent.delegate') return {phase: 'delegating', owner: to || current.owner};
   if (ev.type === 'agent.dispatch') return {phase: 'delegating', owner: to || current.owner};
   if (ev.type === 'agent.thinking') return {phase: 'chatting', owner: from || current.owner};
   if (ev.type === 'mailbox.sent') return {phase: 'queued', owner: to || current.owner};
   if (ev.type === 'mailbox.waiting') return {phase: 'waiting', owner: to || current.owner};
   if (ev.type === 'mailbox.received') return {phase: 'processing', owner: from || current.owner};
   if (ev.type === 'worker.retry_request') return {phase: 'retrying', owner: to || 'coder1'};
+  if (ev.type === 'worker.request') return {phase: 'worker_verifying', owner: 'worker'};
+  if (ev.type === 'worker.result') return {phase: 'reporting', owner: 'shiro'};
   if (ev.type === 'worker.classified_failure') return {phase: 'retrying', owner: from || 'shiro'};
   if (ev.type === 'agent.error' || ev.type === 'mailbox.error') return {phase: 'error', owner: from || current.owner};
   if (ev.type === 'agent.start') {
@@ -50,6 +53,7 @@ function classifyJobPhase(ev, current) {
     if (from === 'shiro' && to === 'mio') return {phase: 'reporting', owner: 'mio'};
     if (from.indexOf('coder') === 0 && to === 'shiro') return {phase: 'worker_verifying', owner: 'shiro'};
   }
+  if (ev.type === 'agent.report' && from === 'shiro' && to === 'mio') return {phase: 'reporting', owner: 'mio'};
   return {phase: current.phase || 'received', owner: current.owner || '-'};
 }
 

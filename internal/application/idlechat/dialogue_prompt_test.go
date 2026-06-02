@@ -791,6 +791,41 @@ func TestSystemPromptKeepsOutputContractWithoutToneContract(t *testing.T) {
 	}
 }
 
+func TestMioSystemPromptForcesIdleChatGalStyle(t *testing.T) {
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	got := o.getSystemPrompt("mio")
+
+	for _, want := range []string{
+		"Mio IdleChat話し方契約",
+		"最優先",
+		"濃いギャル口調",
+		"文頭を固定しない",
+		"同じ開始表現を連続で使わず",
+		"おけ",
+		"それな",
+		"ガチで",
+		"めっちゃ",
+		"〜じゃん",
+		"〜っぽい",
+		"出力前に本文だけを書き直す",
+		"気がする",
+		"かしら",
+		"は禁止",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mio system prompt does not contain %q:\n%s", want, got)
+		}
+	}
+
+	shiro := o.getSystemPrompt("shiro")
+	if strings.Contains(shiro, "Mio IdleChat話し方契約") || strings.Contains(shiro, "濃いギャル口調") {
+		t.Fatalf("shiro system prompt should not include Mio gal style contract:\n%s", shiro)
+	}
+	if strings.Contains(got, "文頭を「おけ、」「それな、」「ガチで」「めっちゃ」「やば、」「まじで」のいずれかにする") {
+		t.Fatalf("mio system prompt should not force a tiny fixed set of sentence openings:\n%s", got)
+	}
+}
+
 func TestGetSystemPromptPutsRuntimePolicyBeforeCommonPrompt(t *testing.T) {
 	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, map[string]string{
 		"shiro": "COMMON SHIRO SYSTEM PROMPT\n\n---\n\n# IdleChat補正\n\nIDLECHAT SHIRO CORRECTION",

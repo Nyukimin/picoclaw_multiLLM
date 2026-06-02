@@ -223,6 +223,8 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .rt{font-weight:700;padding:1px 6px;border-radius:3px;font-size:11px;background:rgba(255,255,255,.06)}
 
 .thinking .mc{background:rgba(244,114,182,.04);border-color:rgba(244,114,182,.12);color:var(--t2);font-style:italic}
+.coordination-trace .mc{background:rgba(15,23,42,.66);border-color:rgba(148,163,184,.26);color:var(--t2)}
+.coord-meta{font-size:10px;color:var(--t3);margin:0 0 4px 1px;line-height:1.4}
 .tts-current .mc{border-color:rgba(244,114,182,.4);box-shadow:0 8px 24px rgba(244,114,182,.08)}
 .tts-current.shiro .mc{border-color:rgba(34,211,238,.42);box-shadow:0 8px 24px rgba(34,211,238,.08)}
 .tts-current .mh::after{content:'speaking';font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);border:1px solid var(--border);border-radius:999px;padding:1px 7px}
@@ -450,24 +452,24 @@ body:not([data-viewer-tab="idlechat"]) .idle-tools{display:none}
 .send-btn:disabled{opacity:.35;cursor:default;transform:none}
 
 .lipsync-stage{
-  position:fixed;left:auto;right:18px;top:calc(94px + var(--safe-top));z-index:32;
-  display:flex;justify-content:center;align-items:flex-start;gap:10px;
-  width:auto;padding:8px;border:1px solid var(--border);border-radius:18px;
-  transform:none;background:rgba(10,16,34,.52);backdrop-filter:blur(18px) saturate(1.12);
-  box-shadow:0 16px 48px rgba(1,6,20,.30),inset 0 1px 0 rgba(255,255,255,.07);
+  display:flex;justify-content:center;align-items:center;gap:7px;
+  margin-left:auto;width:auto;padding:3px 6px;border:1px solid var(--border);border-radius:14px;
+  background:rgba(10,16,34,.44);backdrop-filter:blur(14px) saturate(1.1);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07);
   pointer-events:none;
+  flex-shrink:0;
 }
 .lipsync-actor{
-  width:42px;
+  width:34px;
   display:flex;flex-direction:column;align-items:center;gap:2px;
-  opacity:.9;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35));
+  opacity:.9;filter:drop-shadow(0 4px 10px rgba(0,0,0,.28));
 }
 .lipsync-actor img{
-  width:100%;aspect-ratio:1/1;height:auto;border:1px solid var(--border);border-radius:12px;
+  width:100%;aspect-ratio:1/1;height:auto;border:1px solid var(--border);border-radius:10px;
   background:rgba(11,11,20,.55);object-fit:contain;object-position:center bottom;
 }
 .lipsync-actor-name{
-  font-size:9px;font-weight:700;letter-spacing:.2px;padding:1px 6px;border-radius:999px;
+  font-size:8px;font-weight:700;letter-spacing:0;padding:0 5px;border-radius:999px;
   background:rgba(11,11,20,.75);border:1px solid var(--border);color:var(--t1);
 }
 .lipsync-actor.mio .lipsync-actor-name{color:var(--mio)}
@@ -590,9 +592,9 @@ body.theme-compact .input-wrap textarea{min-height:38px;max-height:86px}
   .idle-review{grid-template-columns:1fr}
   .ctr{right:12px}
   .latest-btn{right:12px}
-  .lipsync-stage{top:calc(78px + var(--safe-top));right:12px;gap:8px}
-  .lipsync-actor{width:40px;gap:1px;opacity:.85}
-  .lipsync-actor-name{font-size:8px;padding:0 5px}
+  .lipsync-stage{gap:6px;padding:3px 5px}
+  .lipsync-actor{width:32px;gap:1px;opacity:.85}
+  .lipsync-actor-name{font-size:8px;padding:0 4px}
   .tts-now-playing{max-width:min(76vw,760px);font-size:13px;bottom:calc(102px + var(--safe-bottom))}
 }
 @media (max-width: 640px){
@@ -630,7 +632,9 @@ body.theme-compact .input-wrap textarea{min-height:38px;max-height:86px}
   .latest-btn{bottom:calc(86px + var(--safe-bottom));padding:8px 11px}
   .ctr{display:none !important}
   .tts-now-playing{min-width:0;max-width:calc(100vw - 24px)}
-  .lipsync-stage{display:none}
+  .lipsync-stage{gap:4px;padding:2px 4px}
+  .lipsync-actor{width:28px}
+  .lipsync-actor-name{display:none}
 }
 @media (orientation: landscape) and (max-height: 520px){
   header{padding:calc(4px + var(--safe-top)) 12px 6px}
@@ -707,15 +711,14 @@ body.live-mode #chat.chat-conversation{
 body.live-mode .panel{max-width:1800px;padding:0 48px}
 body.live-mode .panel.active{display:block}
 body.live-mode .lipsync-stage{
-  top:54%;left:0;right:0;bottom:auto;transform:translateY(-50%);
-  flex-direction:row;justify-content:space-between;align-items:center;
-  padding:0 32px;z-index:30;
-  background:transparent;border:0;box-shadow:none;backdrop-filter:none;pointer-events:none;
+  position:static;transform:none;flex-direction:row;justify-content:center;align-items:center;
+  padding:3px 6px;background:rgba(10,16,34,.44);border:1px solid var(--border);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07);backdrop-filter:blur(14px) saturate(1.1);
 }
-body.live-mode .lipsync-actor{width:clamp(96px,7vw,150px);max-width:150px;opacity:.78}
-body.live-mode .lipsync-actor.mio{width:clamp(150px,12vw,240px);max-width:240px;opacity:.9}
-body.live-mode .lipsync-actor.shiro{width:clamp(150px,12vw,240px);max-width:240px;opacity:.9}
-body.live-mode .lipsync-actor-name{font-size:18px;padding:4px 14px}
+body.live-mode .lipsync-actor,
+body.live-mode .lipsync-actor.mio,
+body.live-mode .lipsync-actor.shiro{width:34px;max-width:34px;opacity:.9}
+body.live-mode .lipsync-actor-name{font-size:8px;padding:0 5px}
 body.live-mode .tts-now-playing{display:none !important}
 body.live-mode .tts-now-playing .label{font-size:13px}
 body.live-mode .msg{gap:16px;margin-bottom:8px}
@@ -751,18 +754,15 @@ body.live-mode .live-audio-btn{
   body.live-mode #chat{max-width:100%;padding:0 24px}
   body.live-mode .lipsync-stage{
     display:flex;
-    top:auto;
-    left:0;
-    right:0;
-    bottom:calc(70px + var(--safe-bottom));
+    position:static;
     transform:none;
-    align-items:flex-end;
-    padding:0 16px;
+    align-items:center;
+    padding:3px 5px;
   }
-  body.live-mode .lipsync-actor{width:clamp(72px,12vw,120px);max-width:120px}
-  body.live-mode .lipsync-actor.mio{width:clamp(104px,20vw,170px);max-width:170px}
-  body.live-mode .lipsync-actor.shiro{width:clamp(104px,20vw,170px);max-width:170px}
-  body.live-mode .lipsync-actor-name{font-size:12px;padding:2px 9px}
+  body.live-mode .lipsync-actor,
+  body.live-mode .lipsync-actor.mio,
+  body.live-mode .lipsync-actor.shiro{width:32px;max-width:32px}
+  body.live-mode .lipsync-actor-name{font-size:8px;padding:0 4px}
 }
 .live-topic-bar{display:none}
 

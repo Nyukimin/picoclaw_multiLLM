@@ -100,6 +100,13 @@ func (o *IdleChatOrchestrator) interruptLockedWithReason(reason string) {
 		o.interruptedSessions[o.activeSessionID] = struct{}{}
 	}
 	o.activeGeneration++
+	o.watchdogStage = "interrupted"
+	o.watchdogDetail = strings.TrimSpace(reason)
+	o.watchdogFrom = ""
+	o.watchdogTo = ""
+	o.watchdogMessageID = ""
+	o.watchdogTurnIndex = 0
+	o.watchdogUpdatedAt = time.Now().UTC()
 	o.activeSessionID = ""
 	o.runCancel = nil
 	o.runCtx = o.ctx
@@ -115,6 +122,13 @@ func (o *IdleChatOrchestrator) beginIdleRunLocked() uint64 {
 	}
 	o.activeGeneration++
 	o.runCtx, o.runCancel = context.WithCancel(o.ctx)
+	o.watchdogStage = "run_started"
+	o.watchdogDetail = ""
+	o.watchdogFrom = ""
+	o.watchdogTo = ""
+	o.watchdogMessageID = ""
+	o.watchdogTurnIndex = 0
+	o.watchdogUpdatedAt = time.Now().UTC()
 	return o.activeGeneration
 }
 

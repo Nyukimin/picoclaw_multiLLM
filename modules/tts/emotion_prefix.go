@@ -6,43 +6,38 @@ type EmojiPaletteItem struct {
 	Emoji       string
 	Label       string
 	Instruction string
+	Filename    string
 }
 
 var EmotionEmojiPaletteItems = []EmojiPaletteItem{
-	{Emoji: "😊", Label: "明るい", Instruction: "自然に嬉しそうに"},
-	{Emoji: "😆", Label: "喜び", Instruction: "弾むように嬉しく"},
-	{Emoji: "🥰", Label: "親しみ", Instruction: "あたたかく好意的に"},
-	{Emoji: "🫶", Label: "優しく", Instruction: "やわらかく丁寧に"},
-	{Emoji: "😌", Label: "安堵", Instruction: "落ち着いて満足げに"},
-	{Emoji: "😇", Label: "穏やか", Instruction: "静かで澄んだ雰囲気"},
-	{Emoji: "😎", Label: "自信", Instruction: "余裕のある口調で"},
-	{Emoji: "😏", Label: "からかう", Instruction: "少し得意げに"},
-	{Emoji: "🤭", Label: "含み笑い", Instruction: "こらえた笑いを混ぜて"},
-	{Emoji: "🤔", Label: "考え中", Instruction: "迷いながら考えるように"},
-	{Emoji: "😮", Label: "感嘆", Instruction: "はっと驚いて"},
-	{Emoji: "😲", Label: "驚き", Instruction: "大きく驚いて"},
-	{Emoji: "😳", Label: "動揺", Instruction: "戸惑いを含めて"},
-	{Emoji: "🫣", Label: "照れ", Instruction: "恥ずかしそうに"},
-	{Emoji: "🥺", Label: "不安", Instruction: "弱々しく頼りなげに"},
-	{Emoji: "😟", Label: "心配", Instruction: "不安そうに"},
-	{Emoji: "😰", Label: "焦り", Instruction: "慌てて緊張気味に"},
-	{Emoji: "😨", Label: "恐れ", Instruction: "怖がるように"},
-	{Emoji: "😭", Label: "悲しみ", Instruction: "泣きそうに"},
-	{Emoji: "😢", Label: "寂しさ", Instruction: "静かに悲しく"},
-	{Emoji: "😞", Label: "落胆", Instruction: "しょんぼりと"},
-	{Emoji: "😖", Label: "苦しげ", Instruction: "つらそうに"},
-	{Emoji: "😠", Label: "怒り", Instruction: "強く不満げに"},
-	{Emoji: "😤", Label: "不満", Instruction: "むっとして"},
-	{Emoji: "😒", Label: "呆れ", Instruction: "冷めた調子で"},
-	{Emoji: "🙄", Label: "うんざり", Instruction: "あきれたように"},
-	{Emoji: "😪", Label: "眠そう", Instruction: "気だるく"},
-	{Emoji: "🥱", Label: "退屈", Instruction: "だるそうに"},
-	{Emoji: "🥴", Label: "酔い", Instruction: "ふらついた雰囲気で"},
-	{Emoji: "💪", Label: "力強く", Instruction: "力を込めて"},
-	{Emoji: "💥", Label: "勢い", Instruction: "勢いよくはっきりと"},
-	{Emoji: "🙏", Label: "お願い", Instruction: "懇願するように"},
-	{Emoji: "🤫", Label: "静かに", Instruction: "ひそやかに"},
-	{Emoji: "📖", Label: "朗読", Instruction: "落ち着いたナレーション"},
+	{Emoji: "👂", Label: "囁き・耳元", Instruction: "耳元で囁くように", Filename: "01_whisper_close.wav"},
+	{Emoji: "😏", Label: "からかう・甘える", Instruction: "からかいと甘えを混ぜて", Filename: "07_teasing.wav"},
+	{Emoji: "🥺", Label: "震え声・自信なさげ", Instruction: "弱々しく自信なさげに", Filename: "08_timid.wav"},
+	{Emoji: "🫶", Label: "優しく", Instruction: "やわらかく丁寧に", Filename: "13_tender.wav"},
+	{Emoji: "😭", Label: "泣き声・悲しみ", Instruction: "泣きそうに悲しく", Filename: "14_sobbing.wav"},
+	{Emoji: "😱", Label: "悲鳴・叫び", Instruction: "叫ぶように強く", Filename: "15_scream.wav"},
+	{Emoji: "😪", Label: "眠そう・気だるげ", Instruction: "眠そうに気だるく", Filename: "16_sleepy.wav"},
+	{Emoji: "😴", Label: "寝言・いびき", Instruction: "寝言のように", Filename: "17_sleep_talk.wav"},
+	{Emoji: "⏩", Label: "早口・急いで", Instruction: "早口で急いで", Filename: "18_fast.wav"},
+	{Emoji: "🐢", Label: "ゆっくり", Instruction: "ゆっくり落ち着いて", Filename: "20_slow.wav"},
+	{Emoji: "😰", Label: "慌て・動揺・どもり", Instruction: "慌てて動揺気味に", Filename: "24_panic_stutter.wav"},
+	{Emoji: "😆", Label: "喜び", Instruction: "弾むように嬉しく", Filename: "25_joy.wav"},
+	{Emoji: "💥", Label: "勢いよく", Instruction: "勢いよくはっきりと", Filename: "26_forceful.wav"},
+	{Emoji: "😠", Label: "怒り・不満", Instruction: "強く不満げに", Filename: "27_angry.wav"},
+	{Emoji: "😲", Label: "驚き・感嘆", Instruction: "大きく驚いて", Filename: "28_surprise.wav"},
+	{Emoji: "😖", Label: "苦しげ", Instruction: "つらそうに", Filename: "30_painful.wav"},
+	{Emoji: "😟", Label: "心配そう", Instruction: "不安そうに", Filename: "31_worried.wav"},
+	{Emoji: "🫣", Label: "照れ・恥ずかしそう", Instruction: "恥ずかしそうに", Filename: "32_shy.wav"},
+	{Emoji: "🙄", Label: "呆れ", Instruction: "あきれたように", Filename: "33_exasperated.wav"},
+	{Emoji: "😊", Label: "楽しげ・嬉しそう", Instruction: "自然に嬉しそうに", Filename: "34_cheerful.wav"},
+	{Emoji: "😎", Label: "自信ありげ", Instruction: "余裕のある口調で", Filename: "35_confident.wav"},
+	{Emoji: "🙏", Label: "懇願", Instruction: "懇願するように", Filename: "37_pleading.wav"},
+	{Emoji: "🥴", Label: "酔っ払い", Instruction: "ふらついた雰囲気で", Filename: "38_drunken.wav"},
+	{Emoji: "🤐", Label: "口を塞がれて", Instruction: "こもった声で", Filename: "40_muffled.wav"},
+	{Emoji: "😌", Label: "安堵・満足", Instruction: "落ち着いて満足げに", Filename: "41_relieved.wav"},
+	{Emoji: "🤔", Label: "疑問の声", Instruction: "疑問を含めて", Filename: "42_questioning.wav"},
+	{Emoji: "💪", Label: "力強く", Instruction: "力を込めて", Filename: "43_stsaisinrong.wav"},
+	{Emoji: "📖", Label: "ナレーション・独白", Instruction: "落ち着いたナレーション", Filename: "45_narration.wav"},
 }
 
 func EnsureEmotionPrefix(text string, emotion *EmotionState) string {
@@ -85,7 +80,7 @@ func emotionPrefixForCharacterText(emotion *EmotionState, characterID, text stri
 		if feature != "" {
 			return prefixForFeature(feature, true)
 		}
-		if fromState := emotionPrefixForMioStateOnly(emotion); fromState != "" && fromState != "😌" && fromState != "😇" {
+		if fromState := emotionPrefixForMioStateOnly(emotion); fromState != "" && fromState != "😌" {
 			return fromState
 		}
 		return "😊"
@@ -93,10 +88,10 @@ func emotionPrefixForCharacterText(emotion *EmotionState, characterID, text stri
 		if feature != "" && isStrongEmotionFeature(feature, text) {
 			return prefixForFeature(feature, false)
 		}
-		if fromState := emotionPrefixForStateOnly(emotion); fromState == "😰" || fromState == "😮" || fromState == "💥" {
+		if fromState := emotionPrefixForStateOnly(emotion); fromState == "😰" || fromState == "💥" {
 			return fromState
 		}
-		return "😇"
+		return "📖"
 	default:
 		if feature != "" {
 			return prefixForFeature(feature, false)
@@ -124,7 +119,7 @@ func emotionPrefixForStateOnly(emotion *EmotionState) string {
 		if v.Alertness >= 0.78 {
 			return "😰"
 		}
-		return "😮"
+		return "😰"
 	case "serious":
 		return "🤔"
 	case "cheerful":
@@ -134,7 +129,7 @@ func emotionPrefixForStateOnly(emotion *EmotionState) string {
 		return "😊"
 	case "warm":
 		if v.Warmth >= 0.70 {
-			return "🥰"
+			return "🫶"
 		}
 		return "🫶"
 	case "calm":
@@ -158,7 +153,7 @@ func emotionPrefixForMioStateOnly(emotion *EmotionState) string {
 		if v.Alertness >= 0.78 {
 			return "😰"
 		}
-		return "😮"
+		return "😰"
 	case "serious":
 		return "🤔"
 	case "cheerful":
@@ -216,7 +211,7 @@ func prefixForFeature(feature string, expressive bool) string {
 		return "😊"
 	case "affection":
 		if expressive {
-			return "🥰"
+			return "🫶"
 		}
 		return "🫶"
 	case "plead":
@@ -227,34 +222,34 @@ func prefixForFeature(feature string, expressive bool) string {
 		if expressive {
 			return "😲"
 		}
-		return "😮"
+		return "😲"
 	case "fear":
 		if expressive {
-			return "😨"
+			return "😱"
 		}
 		return "😟"
 	case "alert":
 		if expressive {
 			return "😰"
 		}
-		return "😮"
+		return "😰"
 	case "sad":
 		if expressive {
 			return "😭"
 		}
-		return "😢"
+		return "😭"
 	case "anger":
 		if expressive {
 			return "😠"
 		}
-		return "😤"
+		return "😠"
 	case "tired":
 		if expressive {
 			return "🙄"
 		}
 		return "😒"
 	case "quiet":
-		return "🤫"
+		return "👂"
 	case "energy":
 		if expressive {
 			return "💥"

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
 type ttsChunkPlanItem struct {
@@ -12,7 +13,8 @@ type ttsChunkPlanItem struct {
 }
 
 func planTTSChunks(speechText, displayText string) []ttsChunkPlanItem {
-	rawSpeech := strings.TrimSpace(speechText)
+	originalSpeech := strings.TrimSpace(speechText)
+	rawSpeech := moduletts.FormatTTSSpeechPlainText(speechText)
 	if rawSpeech == "" {
 		return nil
 	}
@@ -26,9 +28,11 @@ func planTTSChunks(speechText, displayText string) []ttsChunkPlanItem {
 		if speechChunk == "" {
 			continue
 		}
-		displayChunk := displayChunkForSpeechChunk(rawSpeech, displayText, speechChunks, i)
-		if strings.TrimSpace(displayText) == "" || strings.TrimSpace(displayText) == rawSpeech {
+		displayChunk := displayChunkForSpeechChunk(originalSpeech, displayText, speechChunks, i)
+		if strings.TrimSpace(displayText) == "" {
 			displayChunk = speechChunk
+		} else if strings.TrimSpace(displayText) == originalSpeech && len(speechChunks) == 1 {
+			displayChunk = strings.TrimSpace(displayText)
 		}
 		plan = append(plan, ttsChunkPlanItem{
 			SpeechText:  speechChunk,

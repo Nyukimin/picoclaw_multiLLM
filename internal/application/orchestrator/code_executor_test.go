@@ -377,6 +377,50 @@ func TestCodeExecutor_WorkerExecutionErrorIsReturnedAsError(t *testing.T) {
 	}
 }
 
+func TestCodeExecutor_ProposalPathEmitsLanguageTrace(t *testing.T) {
+	testProposal := proposal.NewProposal(
+		"1. ファイルを更新する\n2. テストする",
+		`[{"type": "shell", "command": "echo ok"}]`,
+		"Low risk",
+		"Low cost",
+	)
+	coder3 := &mockCoderAgentWithProposal{proposal: testProposal}
+	workerService := &recordingCodeWorkerExecutionService{}
+	var events []codeExecutorEvent
+	executor := NewDefaultCodeExecutor(nil, nil, coder3, nil, workerService, nil, recordingCodeEventEmitter(&events))
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "TTSを直して", "viewer", "viewer-user"),
+		Route:     routing.RouteCODE3,
+		SessionID: "viewer",
+		Channel:   "viewer",
+		ChatID:    "viewer-user",
+		JobID:     jobID.String(),
+	}
+
+	if _, err := executor.ExecuteCode(context.Background(), req); err != nil {
+		t.Fatalf("ExecuteCode failed: %v", err)
+	}
+
+	delegate := codeExecutorEventIndex(events, "agent.delegate", "mio", "shiro")
+	request := codeExecutorEventIndex(events, "worker.request", "shiro", "worker")
+	result := codeExecutorEventIndex(events, "worker.result", "worker", "shiro")
+	report := codeExecutorEventIndex(events, "agent.report", "shiro", "mio")
+	if delegate < 0 || request < 0 || result < 0 || report < 0 {
+		t.Fatalf("missing language trace events: %#v", events)
+	}
+	if !(delegate < request && request < result && result < report) {
+		t.Fatalf("unexpected language trace order: delegate=%d request=%d result=%d report=%d", delegate, request, result, report)
+	}
+	if !strings.Contains(events[request].content, "ShiroからWorkerへの指示") {
+		t.Fatalf("worker request is not verbalized: %q", events[request].content)
+	}
+	if !strings.Contains(events[result].content, "WorkerからShiroへの戻り") {
+		t.Fatalf("worker result is not verbalized: %q", events[result].content)
+	}
+}
+
 func TestCodeExecutor_GenerateErrorDoesNotEmitShiroSuccess(t *testing.T) {
 	generateErr := errors.New("generate failed")
 	coder1 := &failingCoderAgent{err: generateErr}
@@ -528,6 +572,15 @@ func findCodeExecutorEvent(events []codeExecutorEvent, eventType, from, to strin
 		}
 	}
 	return codeExecutorEvent{}, false
+}
+
+func codeExecutorEventIndex(events []codeExecutorEvent, eventType, from, to string) int {
+	for i, event := range events {
+		if event.eventType == eventType && event.from == from && event.to == to {
+			return i
+		}
+	}
+	return -1
 }
 
 type recordingCodeWorkerExecutionService struct {

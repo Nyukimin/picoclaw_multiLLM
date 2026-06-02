@@ -61,6 +61,9 @@ func (d *messageRouteDispatcher) SetWorkflowEventRecorder(recorder WorkflowEvent
 
 func (d *messageRouteDispatcher) ExecuteTask(ctx context.Context, t task.Task, route routing.Route, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	if route != routing.RouteCHAT {
+		if shouldTraceShiroDelegation(route) {
+			d.emit("agent.delegate", "mio", "shiro", formatMioToShiroInstruction(t, route), route.String(), t.JobID().String(), sessionID, channel, chatID)
+		}
 		return d.executeAutonomous(ctx, t, route, sessionID, channel, chatID, ttsSessionID)
 	}
 
@@ -104,6 +107,7 @@ func (d *messageRouteDispatcher) executeOPSRoute(ctx context.Context, t task.Tas
 	resp, err := d.shiro.Execute(ctx, t)
 	if err == nil {
 		d.emit("agent.response", "shiro", "mio", resp, "OPS", jid, sessionID, channel, chatID)
+		d.emit("agent.report", "shiro", "mio", formatShiroToMioReport(routing.RouteOPS, jid, resp), "OPS", jid, sessionID, channel, chatID)
 		d.pushTTS(ctx, ttsSessionID, routing.RouteOPS, "agent.response", resp)
 	}
 	return resp, err

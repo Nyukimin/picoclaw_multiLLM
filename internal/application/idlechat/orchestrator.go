@@ -153,6 +153,13 @@ type IdleChatOrchestrator struct {
 	activeSessionID     string
 	activeGeneration    uint64
 	interruptedSessions map[string]struct{}
+	watchdogStage       string
+	watchdogDetail      string
+	watchdogFrom        string
+	watchdogTo          string
+	watchdogMessageID   string
+	watchdogTurnIndex   int
+	watchdogUpdatedAt   time.Time
 	mu                  sync.Mutex
 	wg                  sync.WaitGroup
 }

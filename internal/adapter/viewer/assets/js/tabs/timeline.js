@@ -162,6 +162,7 @@ function addMsgToTimeline(ev) {
   if (ev.type === 'agent.response') removeThinking(ev.job_id);
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.start') { addThinkingStart(ev); return; }
+  if (isCoordinationTraceEvent(ev)) { addCoordinationTraceToTimeline(ev); return; }
 
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
@@ -197,6 +198,44 @@ function addMsgToTimeline(ev) {
   chat.appendChild(el);
   trimTimelineNodes();
   bump();
+}
+
+function isCoordinationTraceEvent(ev) {
+  const type = String(ev && ev.type ? ev.type : '');
+  return type === 'agent.delegate' || type === 'agent.report' || type === 'worker.request' || type === 'worker.result';
+}
+
+function addCoordinationTraceToTimeline(ev) {
+  if (!matchesCoordinationTraceFilters(ev)) return;
+  const em = document.getElementById('empty');
+  if (em) em.remove();
+  const f = ag(ev.from);
+  const t = ev.to ? ag(ev.to) : null;
+  const dir = t && ev.to ? '<span class="dir">→ ' + t.e + ' ' + t.l + '</span>' : '';
+  const meta = [ev.type || '', ev.route || '', ev.job_id || ''].filter(Boolean).join(' / ');
+  const el = document.createElement('div');
+  el.className = 'msg assistant coordination-trace';
+  el.innerHTML =
+    '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+    '<div class="mb"><div class="mh">' +
+      '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' + dir +
+      '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
+    '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
+    '<div class="coord-meta">' + esc(meta || 'internal trace') + '</div>' +
+    '<div class="mc">' + fmt(normalizeViewerDisplayText(ev.content || '')) + '</div></div>';
+  el.querySelector('.mc').dataset.raw = ev.content || '';
+  chat.appendChild(el);
+  trimTimelineNodes();
+  bump();
+}
+
+function matchesCoordinationTraceFilters(ev) {
+  if (fltType.value && ev.type !== fltType.value) return false;
+  if (fltAgent.value && ev.from !== fltAgent.value && ev.to !== fltAgent.value) return false;
+  if (fltRoute.value && (ev.route || '') !== fltRoute.value) return false;
+  if (fltJob.value && !(ev.job_id || '').toLowerCase().includes(fltJob.value.toLowerCase())) return false;
+  if (fltText.value && !(ev.content || '').toLowerCase().includes(fltText.value.toLowerCase())) return false;
+  return true;
 }
 
 function isViewerLocalFailureMessage(ev) {

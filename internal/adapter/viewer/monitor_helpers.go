@@ -16,6 +16,8 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 		return "received", "mio"
 	case "routing.decision":
 		return "routing", valueOr(current.Owner, "mio")
+	case "agent.delegate":
+		return "delegating", valueOr(to, current.Owner)
 	case "agent.dispatch":
 		return "delegating", valueOr(to, current.Owner)
 	case "agent.thinking":
@@ -24,6 +26,10 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 		return "waiting", valueOr(from, current.Owner)
 	case "worker.retry_request":
 		return "retrying", valueOr(to, "coder1")
+	case "worker.request":
+		return "worker_verifying", "worker"
+	case "worker.result":
+		return "reporting", "shiro"
 	case "worker.classified_failure", "agent.error", "mailbox.error":
 		return "error", valueOr(from, current.Owner)
 	case "mailbox.sent":
@@ -55,6 +61,10 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 		}
 		if strings.HasPrefix(from, "coder") && to == "shiro" {
 			return "worker_verifying", "shiro"
+		}
+	case "agent.report":
+		if from == "shiro" && to == "mio" {
+			return "reporting", "mio"
 		}
 	}
 	return valueOr(current.Phase, "received"), valueOr(current.Owner, "-")

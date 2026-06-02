@@ -4,6 +4,7 @@ const A = {
   user:   {c:'#94a3b8', l:'れん',  en:'Ren',   e:'\u{1f464}'},
   mio:    {c:'#f472b6', l:'みお',  en:'Mio',   e:'\u{1f338}'},
   shiro:  {c:'#22d3ee', l:'しろ',  en:'Shiro', e:'\u26a1'},
+  worker: {c:'#38bdf8', l:'Worker', en:'Worker', e:'W'},
   coder1: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
   coder2: {c:'#818cf8', l:'あお',  en:'Ao',    e:'\u{1f535}'},
   coder3: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
@@ -875,6 +876,7 @@ const panels = {
   timeline: document.getElementById('panel-timeline'),
   system: document.getElementById('panel-system'),
   memory: document.getElementById('panel-memory'),
+  'movie-db': document.getElementById('panel-movie-db'),
   'news-pack': document.getElementById('panel-news-pack'),
   idlechat: document.getElementById('panel-idlechat'),
   sessions: document.getElementById('panel-sessions'),
@@ -999,6 +1001,7 @@ function matchesFilters(ev) {
 function isSystemEvent(ev) {
   if (!ev) return false;
   if (ev.type === 'routing.decision' || ev.type === 'entry.stage' || ev.type === 'tts.audio_chunk') return true;
+  if (ev.type === 'agent.delegate' || ev.type === 'agent.report' || ev.type === 'worker.request' || ev.type === 'worker.result') return true;
   if (ev.type === 'agent.dispatch' || ev.type === 'mailbox.sent' || ev.type === 'mailbox.waiting' || ev.type === 'mailbox.received' || ev.type === 'mailbox.error' || ev.type === 'agent.error') return true;
   if (ev.type === 'agent.start' || ev.type === 'agent.note' || ev.type === 'agent.response') {
     const to = String(ev.to || '').toLowerCase();
@@ -2971,6 +2974,8 @@ function createChatAudioSync() {
   const seenAudioResponses = new Set();
   const seenUtterances = new Set();
   const blockedAckKeys = new Set();
+  const interruptedChatSessions = new Set();
+  const interruptedChatResponses = new Set();
 
   const module = {
     state,
@@ -2997,6 +3002,7 @@ function createChatAudioSync() {
     markAudioStarted,
     markSessionCompleted,
     resetCurrent: resetCurrentInternal,
+    resetChat: resetChatInternal,
     resetIdleChat: resetIdleChatInternal,
     startTextFallback: startTextFallbackInternal,
     playNext: playNextInternal,
@@ -3087,6 +3093,8 @@ function createChatAudioSync() {
     if (chunk.mode === 'idlechat') {
       const activeIdleSession = String(typeof idleLiveActiveSessionId !== 'undefined' ? idleLiveActiveSessionId || '' : '').trim();
       if (activeIdleSession && chunk.sessionId && chunk.sessionId !== activeIdleSession) return;
+    } else if (isInterruptedChatOutput(chunk)) {
+      return;
     }
     if (chunk.eventType === 'session_completed') {
       if (!isThisViewerActiveAudio()) return;
@@ -3140,6 +3148,7 @@ function createChatAudioSync() {
   }
 
   function enqueueChunkInternal(chunk) {
+    if (isInterruptedChatOutput(chunk)) return;
     const chunkKey = ttsChunkIdentityKey(chunk.sessionId, chunk.utteranceId, chunk.chunkIndex, state.seq + 1);
     if (chunkKey && seenUtterances.has(chunkKey)) return;
     if (chunkKey) seenUtterances.add(chunkKey);
@@ -3341,6 +3350,55 @@ function createChatAudioSync() {
     state.blockedFallbackUtteranceId = '';
     setNowPlayingText('', '');
     clearTextInternal(clearingSessionId);
+  }
+
+  function rememberInterruptedChatOutput(item) {
+    if (!item || isIdleChatPlaybackItem(item)) return;
+    const sid = String(item.sessionId || '').trim();
+    const rid = String(item.responseId || '').trim();
+    if (sid) interruptedChatSessions.add(sid);
+    if (rid) {
+      interruptedChatResponses.add(rid);
+      clearResponsePlaybackLifecycle(rid);
+      acknowledgedResponses.add(rid);
+    }
+  }
+
+  function isInterruptedChatOutput(item) {
+    if (!item || isIdleChatPlaybackItem(item)) return false;
+    const sid = String(item.sessionId || '').trim();
+    const rid = String(item.responseId || '').trim();
+    return Boolean((sid && interruptedChatSessions.has(sid)) || (rid && interruptedChatResponses.has(rid)));
+  }
+
+  function resetChatInternal(reason) {
+    const current = currentAudioItemInternal();
+    const currentIsChat = state.currentSessionId && !isIdleChatSessionId(state.currentSessionId);
+    if (currentIsChat) rememberInterruptedChatOutput(current);
+    state.queue = state.queue.filter((item) => {
+      if (isIdleChatPlaybackItem(item)) return true;
+      rememberInterruptedChatOutput(item);
+      return false;
+    });
+    if (state.fallbackTimer) clearTimeout(state.fallbackTimer);
+    state.fallbackTimer = null;
+    state.fallbackActive = false;
+    if (state.tailTimer) clearTimeout(state.tailTimer);
+    state.tailTimer = null;
+    state.tailActive = false;
+    if (currentIsChat && state.audio) {
+      try { state.audio.pause(); } catch (_) {}
+      try { state.audio.removeAttribute('src'); } catch (_) {}
+      try { state.audio.load(); } catch (_) {}
+      resetCurrentInternal();
+    }
+    clearPreloadedAudioInternal();
+    clearLipSyncSpeaking();
+    setNowPlayingText('', '');
+    resetTTSSpeechBubble(centralTTSSpeech);
+    state.blockedFallbackUtteranceId = '';
+    clearTTSAudioError();
+    updateAudioButton();
   }
 
   function resetIdleChatInternal() {
@@ -3972,8 +4030,15 @@ function interruptIdleChatForUserInput(reason) {
     console.warn('[IdleChat] interrupt failed:', err);
   });
 }
+function interruptChatOutputForUserInput(reason) {
+  if (typeof chatAudioSync !== 'undefined' && chatAudioSync && typeof chatAudioSync.resetChat === 'function') {
+    chatAudioSync.resetChat(reason || 'user_input');
+  }
+  Object.keys(thinkingBubbles).forEach((jid) => removeThinking(jid));
+}
 function handleChatInputIntent(reason) {
   if (suppressInputInterrupt) return;
+  interruptChatOutputForUserInput(reason);
   interruptIdleChatForUserInput(reason);
   if (sttState && sttState.isRecording) abortSTTImmediately('chat_input');
 }
@@ -4063,6 +4128,7 @@ function send() {
   const message = text;
   const attachments = viewerAttachments.slice();
   if ((!text && attachments.length === 0) || sending) return;
+  if (typeof interruptChatOutputForUserInput === 'function') interruptChatOutputForUserInput('chat_send');
   if (typeof interruptIdleChatForUserInput === 'function') interruptIdleChatForUserInput('chat_send');
   sending = true;
   sendBtn.disabled = true;

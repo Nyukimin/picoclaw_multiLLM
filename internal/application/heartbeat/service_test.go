@@ -49,6 +49,39 @@ func (r *recordingEventListener) OnEvent(ev orchestrator.OrchestratorEvent) {
 	r.events = append(r.events, ev)
 }
 
+type fakeIdleChatSequenceMonitor struct {
+	report heartbeatSequenceMonitorReport
+	called bool
+}
+
+type heartbeatSequenceMonitorReport struct {
+	Status     string
+	Active     bool
+	Recovered  bool
+	Stage      string
+	Detail     string
+	SessionID  string
+	Generation uint64
+	AgeSeconds int64
+	Action     string
+}
+
+func (m *fakeIdleChatSequenceMonitor) CheckIdleChatSequence(_ context.Context, now time.Time) IdleChatSequenceCheck {
+	m.called = true
+	return IdleChatSequenceCheck{
+		Status:     m.report.Status,
+		Active:     m.report.Active,
+		Recovered:  m.report.Recovered,
+		Stage:      m.report.Stage,
+		Detail:     m.report.Detail,
+		SessionID:  m.report.SessionID,
+		Generation: m.report.Generation,
+		AgeSeconds: m.report.AgeSeconds,
+		Action:     m.report.Action,
+		CheckedAt:  now.UTC(),
+	}
+}
+
 type memoryWorkstreamHeartbeatStore struct {
 	schedules     []domainworkstream.HeartbeatSchedule
 	saved         []domainworkstream.HeartbeatSchedule
@@ -136,6 +169,44 @@ func (m *memoryWorkstreamHeartbeatStore) SaveSteeringItem(_ context.Context, ite
 func (m *memoryWorkstreamHeartbeatStore) SaveVaultUpdateLog(_ context.Context, item domainworkstream.VaultUpdateLog) error {
 	m.vaultUpdates = append(m.vaultUpdates, item)
 	return nil
+}
+
+func TestRunIdleChatSequenceCheckEmitsRecoveredEvent(t *testing.T) {
+	dir := t.TempDir()
+	listener := &recordingEventListener{}
+	monitor := &fakeIdleChatSequenceMonitor{
+		report: heartbeatSequenceMonitorReport{
+			Status:     "recovered",
+			Active:     true,
+			Recovered:  true,
+			Stage:      "tts_wait",
+			Detail:     "Ren->Mio turn=2",
+			SessionID:  "idle-1-topic-00",
+			Generation: 7,
+			AgeSeconds: 180,
+			Action:     "interrupt_idlechat_and_clear_active_state_and_reset_tts_queue",
+		},
+	}
+	svc := NewHeartbeatService(&mockChatAgent{response: "HEARTBEAT_OK"}, &mockSender{}, dir, 30).
+		WithEventListener(listener).
+		WithIdleChatSequenceMonitor(monitor)
+
+	report := svc.runIdleChatSequenceCheck(context.Background(), time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC))
+	if !monitor.called {
+		t.Fatal("expected idlechat monitor to be called")
+	}
+	if report.Status != "recovered" || !report.Recovered {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(listener.events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(listener.events))
+	}
+	if listener.events[0].Type != "heartbeat.idlechat_sequence.recovered" {
+		t.Fatalf("event type = %q", listener.events[0].Type)
+	}
+	if !strings.Contains(listener.events[0].Content, "stage=tts_wait") {
+		t.Fatalf("event content missing stage: %q", listener.events[0].Content)
+	}
 }
 
 func TestNewHeartbeatService(t *testing.T) {

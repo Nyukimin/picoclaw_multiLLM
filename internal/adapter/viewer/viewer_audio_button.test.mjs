@@ -388,6 +388,44 @@ test('tts queue preloads the next audio chunk without starting it', async () => 
   assert.equal(preloaded.paused, true);
 });
 
+test('chat output interrupt stops current audio and drops stale chat chunks', async () => {
+  const {harness} = loadAudioHarness();
+
+  harness.enqueueTTSAudio('/audio/first.wav', 'mio', 'chat-interrupt-session', 'default', 0, 'first speech', '一つ目です。', 'chat-interrupt-response', 'chat-interrupt-0');
+  harness.enqueueTTSAudio('/audio/second.wav', 'mio', 'chat-interrupt-session', 'default', 1, 'second speech', '二つ目です。', 'chat-interrupt-response', 'chat-interrupt-1');
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
+  assert.equal(harness.ttsPlayback.queue.length, 1);
+
+  harness.chatAudioSync.resetChat('user_input');
+
+  assert.equal(harness.ttsPlayback.playing, false);
+  assert.equal(harness.ttsPlayback.audio.src, '');
+  assert.equal(harness.ttsPlayback.audioEnabled, true);
+  assert.equal(harness.ttsPlayback.queue.length, 0);
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      audio_url: '/audio/stale.wav',
+      session_id: 'chat-interrupt-session',
+      response_id: 'chat-interrupt-response',
+      utterance_id: 'chat-interrupt-2',
+      chunk_index: 2,
+      character_id: 'mio',
+      text: 'stale speech',
+      display_text: '古い続きです。',
+    }),
+  });
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, false);
+  assert.equal(harness.ttsPlayback.queue.length, 0);
+  assert.equal(harness.ttsPlayback.audio.src, '');
+});
+
 test('audio error does not start the next tts chunk until fallback delay completes', async () => {
   const {harness, elements, timers} = loadAudioHarness();
 

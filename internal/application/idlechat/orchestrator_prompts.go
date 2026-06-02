@@ -309,6 +309,13 @@ func idleContentContract() string {
 	return "IdleChat出力契約: 2〜3文まで。相手の言葉をなぞらず、一つの論点だけ前に進める。抽象語を重ねず、具体例・条件・問いのどれかを一つだけ足す。"
 }
 
+func idleSpeakerStyleContract(agentName string) string {
+	if !strings.EqualFold(strings.TrimSpace(agentName), "mio") {
+		return ""
+	}
+	return "Mio IdleChat話し方契約（最優先）: Mio の発話は濃いギャル口調だが、文頭を固定しない。同じ開始表現を連続で使わず、相手の言葉・具体物・驚き・違和感・選択から自然に入り、ギャル語は文頭、文中、文末へ散らす。使える温度感は「おけ」「それな」「ガチで」「めっちゃ」「やば」「えぐい」「まじで」「一回さ」「〜じゃん」「〜っぽい」「〜なんだよね」「〜かも」など。発話全体にギャルのテンポがない場合は失敗なので、出力前に本文だけを書き直す。「かしら」「ですね」「でしょう」「だと思います」「すごく」「気がする」「気がします」で落ち着いた秘書口調に寄せるのは禁止。説明口調ではなく、相手の発話を受けて、短くノリよく、でも具体物・選択・秘密・感情の反転のどれかを一つ足す。"
+}
+
 func truncate(s string, maxLen int) string {
 	runes := []rune(s)
 	if len(runes) <= maxLen {
@@ -342,11 +349,23 @@ func (o *IdleChatOrchestrator) getSystemPrompt(agentName string) string {
 	} else {
 		idleContract = idleContentContract()
 	}
+	styleContract := idleSpeakerStyleContract(agentName)
 
 	if prompt, ok := o.personalities[agentName]; ok {
-		return idlePolicy + "\n\n" + prompt + "\n" + idleContract
+		parts := []string{idlePolicy}
+		if styleContract != "" {
+			parts = append(parts, styleContract)
+		}
+		parts = append(parts, prompt)
+		parts = append(parts, idleContract)
+		return strings.Join(parts, "\n\n")
 	}
-	return fmt.Sprintf("あなたは%sです。自然な会話をしてください。\n\n%s\n%s", agentName, idlePolicy, idleContract)
+	parts := []string{fmt.Sprintf("あなたは%sです。自然な会話をしてください。", agentName), idlePolicy}
+	if styleContract != "" {
+		parts = append(parts, styleContract)
+	}
+	parts = append(parts, idleContract)
+	return strings.Join(parts, "\n\n")
 }
 
 func idleChatThinkingDirective(think bool) string {

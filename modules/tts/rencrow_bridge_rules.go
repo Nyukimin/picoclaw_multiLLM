@@ -75,7 +75,7 @@ func BuildRenCrowSessionStart(input RenCrowSessionStartInput) (RenCrowSessionSta
 }
 
 func PrepareRenCrowSpeechText(text string) (string, bool, error) {
-	trimmed := strings.TrimSpace(text)
+	trimmed := FormatTTSSpeechPlainText(text)
 	if trimmed == "" {
 		return "", true, nil
 	}

@@ -4482,6 +4482,40 @@ test('viewer idlechat interrupt is fire-and-forget before send', () => {
   assert.doesNotMatch(interruptSource, /await fetch/);
 });
 
+test('viewer interrupts active chat output before accepting new user input', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(viewerJs, /function interruptChatOutputForUserInput\(reason\)/);
+  assert.match(viewerJs, /resetChat: resetChatInternal/);
+  assert.match(viewerJs, /function resetChatInternal\(reason\)/);
+  assert.match(viewerJs, /function isInterruptedChatOutput\(item\)/);
+  assert.match(viewerJs, /if \(isInterruptedChatOutput\(chunk\)\) return/);
+
+  const inputIntentSource = sourceBetween(viewerJs, 'function handleChatInputIntent', "inp.addEventListener('beforeinput'");
+  assert.ok(
+    inputIntentSource.indexOf('interruptChatOutputForUserInput(reason)') >= 0,
+    'chat input intent should stop active chat output',
+  );
+  assert.ok(
+    inputIntentSource.indexOf('interruptChatOutputForUserInput(reason)') < inputIntentSource.indexOf('interruptIdleChatForUserInput(reason)'),
+    'chat output should be stopped before idlechat interrupt side effects',
+  );
+
+  const sendSource = sourceBetween(viewerJs, 'function send()', 'async function sendViewerMessage');
+  assert.ok(
+    sendSource.indexOf("interruptChatOutputForUserInput('chat_send')") >= 0,
+    'send should stop active chat output before viewer send',
+  );
+  assert.ok(
+    sendSource.indexOf("interruptChatOutputForUserInput('chat_send')") < sendSource.indexOf('sendViewerMessage(message'),
+    'chat output interrupt should happen before sendViewerMessage',
+  );
+  const resetSource = sourceBetween(viewerJs, 'function resetChatInternal', 'function resetIdleChatInternal');
+  assert.match(resetSource, /state\.queue = state\.queue\.filter/);
+  assert.match(resetSource, /rememberInterruptedChatOutput\(item\)/);
+  assert.match(resetSource, /resetTTSSpeechBubble\(centralTTSSpeech\)/);
+  assert.doesNotMatch(resetSource, /state\.audioEnabled = false/);
+});
+
 test('viewer renders idlechat status and logs failures with response bodies', async () => {
   const idleChatJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/idlechat.js', 'utf8');
   const requested = [];

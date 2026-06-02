@@ -78,6 +78,51 @@ func TestRenCrowTTSBridge_PushTextCallsSynthesis(t *testing.T) {
 	}
 }
 
+func TestRenCrowTTSBridge_FormatsProviderSpeechTextOnly(t *testing.T) {
+	var gotBody map[string]any
+	var readySpeech string
+	var readyDisplay string
+	bridge := NewRenCrowTTSBridge(RenCrowTTSBridgeConfig{
+		HTTPBaseURL: "http://tts.local",
+		VoiceID:     "female_01",
+		OnChunkReady: func(_, _ string, _ int, _, speechText, displayText, _, _ string) {
+			readySpeech = speechText
+			readyDisplay = displayText
+		},
+	})
+	bridge.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"audio_path":"cache\\formatted.wav"}`)),
+		}, nil
+	})}
+	raw := "**重要**【本文】を `確認` して。"
+	if err := bridge.StartSession(context.Background(), orchestrator.TTSSessionStart{
+		SessionID:   "session-format",
+		CharacterID: "mio",
+		VoiceID:     "female_01",
+	}); err != nil {
+		t.Fatalf("start session failed: %v", err)
+	}
+	if err := bridge.PushTextWithDisplay(context.Background(), "session-format", raw, raw, nil); err != nil {
+		t.Fatalf("push text failed: %v", err)
+	}
+
+	if gotBody["text"] != "😊重要「本文」を 確認 して。" {
+		t.Fatalf("provider text = %#v", gotBody["text"])
+	}
+	if readySpeech != "😊重要「本文」を 確認 して。" {
+		t.Fatalf("ready speech = %q", readySpeech)
+	}
+	if readyDisplay != raw {
+		t.Fatalf("ready display = %q, want raw %q", readyDisplay, raw)
+	}
+}
+
 func TestRenCrowTTSBridge_NormalizesLocalAudioPathForViewer(t *testing.T) {
 	outputDir := t.TempDir()
 	audioPath := filepath.Join(outputDir, "viewer-tts-1.wav")
