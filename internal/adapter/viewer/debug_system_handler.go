@@ -176,7 +176,7 @@ func browserFacingSTTStreamURL(r *http.Request, configured string) string {
 	if isHTTPSRequest(r) || isTailscaleHost(host) {
 		return "wss://" + host + "/stt"
 	}
-	return configured
+	return "ws://" + host + "/stt"
 }
 
 func forwardedHost(r *http.Request) string {

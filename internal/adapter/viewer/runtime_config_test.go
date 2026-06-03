@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
+func TestHandleRuntimeConfig_ReturnsSameOriginSTTStreamURL(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
 		STTBaseURL:    "https://192.168.1.31:8443/",
 		STTStreamURL:  "wss://192.168.1.31:8443/stt/stream",
 		TTSBaseURL:    "http://127.0.0.1:7870/",
 		TTSHealthPath: "/gradio_api/info",
 	})
-	req := httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18790/viewer/runtime-config", nil)
 	rec := httptest.NewRecorder()
 
 	handler(rec, req)
@@ -27,7 +27,7 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode runtime config: %v", err)
 	}
-	if body.STTStreamURL != "wss://192.168.1.31:8443/stt/stream" {
+	if body.STTStreamURL != "ws://127.0.0.1:18790/stt" {
 		t.Fatalf("unexpected stt stream url: %+v", body)
 	}
 	if body.STTBaseURL != "https://192.168.1.31:8443" {
@@ -38,7 +38,7 @@ func TestHandleRuntimeConfig_ReturnsSTTStreamURL(t *testing.T) {
 	}
 }
 
-func TestHandleRuntimeConfig_KeepsConfiguredSTTStreamURLForLANHTTP(t *testing.T) {
+func TestHandleRuntimeConfig_ReturnsSameOriginSTTStreamURLForLANHTTP(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
 		STTBaseURL:   "http://192.168.1.207:8766",
 		STTStreamURL: "ws://192.168.1.207:8766/stt",
@@ -55,7 +55,7 @@ func TestHandleRuntimeConfig_KeepsConfiguredSTTStreamURLForLANHTTP(t *testing.T)
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.STTStreamURL != "ws://192.168.1.207:8766/stt" {
+	if body.STTStreamURL != "ws://192.168.1.204:18790/stt" {
 		t.Fatalf("unexpected LAN stt stream url: %+v", body)
 	}
 }
