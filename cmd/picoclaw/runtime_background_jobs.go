@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	archiveapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/archive"
 	knowledgememoryapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/knowledgememory"
+	moviecatalogapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/moviecatalog"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/sourcefetcher"
 	superagentapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/superagent"
@@ -107,6 +109,114 @@ func startParquetExportJob(store archiveapp.ParquetExportStore) {
 		}
 	}()
 	log.Printf("Parquet export job enabled: dir=%s interval=%s", outputDir, interval)
+}
+
+func startMovieCatalogBackfillJob(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if movieCatalogBackfillDisabled() {
+		log.Printf("[MovieCatalogBackfill] disabled by environment")
+		return
+	}
+	dbPath := resolveMovieCatalogBackfillDBPath()
+	if dbPath == "" {
+		log.Printf("[MovieCatalogBackfill] skipped: movie catalog DB not found")
+		return
+	}
+	interval := movieCatalogBackfillDurationEnv("PICOCLAW_MOVIE_CATALOG_BACKFILL_INTERVAL_SEC", 5*time.Minute, time.Minute)
+	initialDelay := movieCatalogBackfillDurationEnv("PICOCLAW_MOVIE_CATALOG_BACKFILL_INITIAL_DELAY_SEC", 10*time.Second, 0)
+	timeout := movieCatalogBackfillDurationEnv("PICOCLAW_MOVIE_CATALOG_BACKFILL_TIMEOUT_SEC", 90*time.Second, 10*time.Second)
+	maxPages := movieCatalogBackfillIntEnv("PICOCLAW_MOVIE_CATALOG_BACKFILL_MAX_PAGES", 1, 1, 3)
+	crawlerDelay := movieCatalogBackfillDurationEnv("PICOCLAW_MOVIE_CATALOG_BACKFILL_CRAWLER_DELAY_SEC", 2*time.Second, time.Second)
+
+	job := moviecatalogapp.NewBackfillService(moviecatalogapp.BackfillOptions{
+		DBPath:       dbPath,
+		WorkspaceDir: ".",
+		Interval:     interval,
+		InitialDelay: initialDelay,
+		Timeout:      timeout,
+		MaxPages:     maxPages,
+		CrawlerDelay: crawlerDelay,
+	})
+	go func() {
+		for result := range job.Start(context.Background()) {
+			if result.Status == "idle" {
+				continue
+			}
+			moviecatalogapp.LogBackfillResult("[MovieCatalogBackfill]", result)
+		}
+	}()
+	log.Printf("[MovieCatalogBackfill] enabled: db=%s interval=%s initial_delay=%s timeout=%s max_pages=%d crawler_delay=%s",
+		dbPath, interval, initialDelay, timeout, maxPages, crawlerDelay)
+}
+
+func movieCatalogBackfillDisabled() bool {
+	disabled := strings.ToLower(strings.TrimSpace(os.Getenv("PICOCLAW_MOVIE_CATALOG_BACKFILL_DISABLED")))
+	switch disabled {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	enabled := strings.ToLower(strings.TrimSpace(os.Getenv("PICOCLAW_MOVIE_CATALOG_BACKFILL")))
+	switch enabled {
+	case "0", "false", "no", "off", "disabled":
+		return true
+	}
+	return false
+}
+
+func resolveMovieCatalogBackfillDBPath() string {
+	candidates := []string{}
+	if env := strings.TrimSpace(os.Getenv("PICOCLAW_MOVIE_CATALOG_DB")); env != "" {
+		candidates = append(candidates, env)
+	}
+	candidates = append(candidates,
+		filepath.Join("tmp", "eiga_catalog", "eiga_catalog.sqlite"),
+		filepath.Join("tmp", "eiga_catalog_smoke", "eiga_catalog.sqlite"),
+	)
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+func movieCatalogBackfillDurationEnv(name string, fallback time.Duration, min time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	sec, err := strconv.Atoi(raw)
+	if err != nil || sec < 0 {
+		log.Printf("WARN: invalid %s=%q; using %s", name, raw, fallback)
+		return fallback
+	}
+	d := time.Duration(sec) * time.Second
+	if d < min {
+		log.Printf("WARN: %s=%s is too small; using minimum %s", name, d, min)
+		return min
+	}
+	return d
+}
+
+func movieCatalogBackfillIntEnv(name string, fallback int, min int, max int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Printf("WARN: invalid %s=%q; using %d", name, raw, fallback)
+		return fallback
+	}
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 type superAgentRunQueueMessageProcessor interface {

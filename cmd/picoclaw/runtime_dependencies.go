@@ -695,6 +695,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		glossaryRuntime.RecentTopics,
 		ttsBridge,
 	)
+	startMovieCatalogBackfillJob(cfg)
 	buildOrchestratorRuntime(
 		cfg,
 		deps,
