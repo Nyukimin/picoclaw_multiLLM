@@ -11,14 +11,14 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 )
 
-func TestSBV2TTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
+func TestProviderTTSBridgeSplitsLongTextBeforeSynthesis(t *testing.T) {
 	provider := &recordingProvider{}
 	sink := &recordingSink{}
 	var readyTexts []string
 	var readyIndexes []int
 	var readyAudioPaths []string
 	var readyAudioURLs []string
-	bridge := NewSBV2TTSBridge(SBV2TTSBridgeConfig{
+	bridge := NewProviderTTSBridge(ProviderTTSBridgeConfig{
 		Provider:  provider,
 		Sink:      sink,
 		OutputDir: t.TempDir(),

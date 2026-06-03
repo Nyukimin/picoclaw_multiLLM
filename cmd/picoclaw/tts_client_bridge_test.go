@@ -332,7 +332,7 @@ func TestBuildTTSClientBridge_UsesIrodoriDirectBridge(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil bridge")
 	}
-	if _, ok := got.(*ttsinfra.SBV2TTSBridge); !ok {
+	if _, ok := got.(*ttsinfra.ProviderTTSBridge); !ok {
 		t.Fatalf("expected generic direct TTS bridge, got %T", got)
 	}
 }

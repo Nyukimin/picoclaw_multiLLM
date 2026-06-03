@@ -11,40 +11,41 @@ import (
 	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
 )
 
-type SBV2TTSBridgeConfig struct {
+type ProviderTTSBridgeConfig struct {
 	Provider           Provider
 	Sink               AudioSink
 	OutputDir          string
+	HTTPBaseURL        string
 	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string)
 	OnSessionCompleted func(sessionID, characterID string)
 }
 
-type sbv2BridgeSession struct {
+type providerBridgeSession struct {
 	characterID string
 	responseID  string
 	voiceID     string
 	nextChunk   int
 }
 
-type SBV2TTSBridge struct {
-	cfg      SBV2TTSBridgeConfig
+type ProviderTTSBridge struct {
+	cfg      ProviderTTSBridgeConfig
 	mu       sync.Mutex
-	sessions map[string]*sbv2BridgeSession
+	sessions map[string]*providerBridgeSession
 }
 
-func NewSBV2TTSBridge(cfg SBV2TTSBridgeConfig) *SBV2TTSBridge {
-	return &SBV2TTSBridge{
+func NewProviderTTSBridge(cfg ProviderTTSBridgeConfig) *ProviderTTSBridge {
+	return &ProviderTTSBridge{
 		cfg:      cfg,
-		sessions: make(map[string]*sbv2BridgeSession),
+		sessions: make(map[string]*providerBridgeSession),
 	}
 }
 
-func (b *SBV2TTSBridge) StartSession(_ context.Context, req orchestrator.TTSSessionStart) error {
+func (b *ProviderTTSBridge) StartSession(_ context.Context, req orchestrator.TTSSessionStart) error {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return fmt.Errorf("session_id is required")
 	}
 	b.mu.Lock()
-	b.sessions[req.SessionID] = &sbv2BridgeSession{
+	b.sessions[req.SessionID] = &providerBridgeSession{
 		characterID: strings.TrimSpace(req.CharacterID),
 		responseID:  strings.TrimSpace(req.ResponseID),
 		voiceID:     strings.TrimSpace(req.VoiceID),
@@ -53,13 +54,13 @@ func (b *SBV2TTSBridge) StartSession(_ context.Context, req orchestrator.TTSSess
 	return nil
 }
 
-func (b *SBV2TTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error {
+func (b *ProviderTTSBridge) PushText(ctx context.Context, sessionID string, text string, emotion *moduletts.EmotionState) error {
 	return b.PushTextWithDisplay(ctx, sessionID, text, text, emotion)
 }
 
-func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *moduletts.EmotionState) error {
+func (b *ProviderTTSBridge) PushTextWithDisplay(ctx context.Context, sessionID string, text string, displayText string, emotion *moduletts.EmotionState) error {
 	if b.cfg.Provider == nil {
-		return fmt.Errorf("sbv2 provider is not configured")
+		return fmt.Errorf("tts provider is not configured")
 	}
 	plan := planTTSChunks(text, displayText)
 	if len(plan) == 0 {
@@ -87,7 +88,7 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 			ChunkIndex: s.nextChunk,
 			Text:       speechText,
 			AudioPath:  localAudioPathForViewer(b.cfg.OutputDir, out.AudioFilePath),
-			AudioURL:   strings.TrimSpace(out.AudioURL),
+			AudioURL:   resolveAudioURL(mediaBaseURL(b.cfg.HTTPBaseURL), out.AudioFilePath, out.AudioURL),
 			PauseAfter: chunkPauseForText(speechText),
 		}
 		s.nextChunk++
@@ -103,7 +104,7 @@ func (b *SBV2TTSBridge) PushTextWithDisplay(ctx context.Context, sessionID strin
 	return nil
 }
 
-func (b *SBV2TTSBridge) synthesizeChunk(ctx context.Context, s *sbv2BridgeSession, chunkText string) (SynthesisOutput, wavStats, error) {
+func (b *ProviderTTSBridge) synthesizeChunk(ctx context.Context, s *providerBridgeSession, chunkText string) (SynthesisOutput, wavStats, error) {
 	var lastErr error
 	for attempt := 1; attempt <= 2; attempt++ {
 		out, err := b.cfg.Provider.Synthesize(ctx, SynthesisInput{
@@ -147,7 +148,7 @@ func localAudioPathForViewer(outputDir, audioPath string) string {
 	return strings.TrimSpace(audioPath)
 }
 
-func (b *SBV2TTSBridge) EndSession(ctx context.Context, sessionID string) error {
+func (b *ProviderTTSBridge) EndSession(ctx context.Context, sessionID string) error {
 	var characterID string
 	b.mu.Lock()
 	if s, ok := b.sessions[sessionID]; ok && s != nil {
@@ -166,13 +167,13 @@ func (b *SBV2TTSBridge) EndSession(ctx context.Context, sessionID string) error 
 	return nil
 }
 
-func (b *SBV2TTSBridge) getOrCreateSession(sessionID string) *sbv2BridgeSession {
+func (b *ProviderTTSBridge) getOrCreateSession(sessionID string) *providerBridgeSession {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if s, ok := b.sessions[sessionID]; ok {
 		return s
 	}
-	s := &sbv2BridgeSession{}
+	s := &providerBridgeSession{}
 	b.sessions[sessionID] = s
 	return s
 }

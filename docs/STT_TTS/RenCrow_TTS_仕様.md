@@ -342,8 +342,8 @@ internal/application/orchestrator/tts_bridge.go
   - TTSBridge
   - TTSDisplayBridge
 
-internal/infrastructure/tts/sbv2_tts_bridge.go
-  - SBV2直結TTS Bridge
+internal/infrastructure/tts/provider_tts_bridge.go
+  - Provider直結TTS Bridge
   - PushTextWithDisplay
 
 internal/infrastructure/tts/rencrow_tts_bridge.go
@@ -374,7 +374,7 @@ internal/adapter/viewer/viewer.html
 
 - 通常 Chat ストリーミング経路では、`SplitTTSChunks` により句点優先で分割する
 - final text も丸ごと1 chunkにせず、同じ分割器を通す
-- SBV2直結経路も Provider 呼び出し前に分割する
+- Provider直結経路も Provider 呼び出し前に分割する
 - TTS用 `text` でも句読点を保持する
 - 通常 Chat の中央チャット領域は、必要に応じて `tts.audio_chunk.display_text` を音声出力開始時に反映する
 - IdleChat の本文表示は `idlechat.message` / `idlechat.summary` を正本とし、TTS chunk の `display_text` で本文を埋める、置換する、再構成しない

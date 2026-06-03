@@ -99,10 +99,11 @@ func buildTTSClientBridge(
 	}
 	if sel, ok := buildPrimaryTTSProvider(cfg); ok {
 		logTTSProviderSelection(sel)
-		return ttsinfra.NewSBV2TTSBridge(ttsinfra.SBV2TTSBridgeConfig{
+		return ttsinfra.NewProviderTTSBridge(ttsinfra.ProviderTTSBridgeConfig{
 			Provider:           sel.Provider,
 			Sink:               sink,
 			OutputDir:          cfg.TTS.OutputDir,
+			HTTPBaseURL:        cfg.TTS.HTTPBaseURL,
 			OnChunkReady:       onChunkFn,
 			OnSessionCompleted: onSessionDoneFn,
 		})
