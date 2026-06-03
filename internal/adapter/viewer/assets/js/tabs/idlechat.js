@@ -114,6 +114,12 @@ function queueIdleMessageForTTS(ev) {
     });
     return;
   }
+  if (isIdleTTSAudioDisabled()) {
+    if (!isIdleSummarySpeechEvent(ev)) {
+      appendIdleLiveMessageEvent(ev, {pending: false});
+    }
+    return;
+  }
   const existing = findIdleLiveMessageNode(ev);
   if (existing && !existing.classList.contains('idle-pending-tts')) return;
   const queue = idlePendingQueue(sid);
@@ -136,6 +142,12 @@ function queueIdleMessageForTTS(ev) {
   };
   item.timer = suppressDisplay ? null : setTimeout(() => {
     if (item.consumed) return;
+    if (isIdleTTSAudioDisabled()) {
+      renderIdlePendingMessageFromEvent(item);
+      item.consumed = true;
+      pruneIdlePendingQueue(sid);
+      return;
+    }
     renderIdlePendingTTSError(item, 'TTS_CHUNK_TIMEOUT', 'TTS chunk was not rendered before the pending display timeout.');
     item.consumed = true;
     pruneIdlePendingQueue(sid);
@@ -152,6 +164,10 @@ function isIdleSummarySpeechEvent(ev) {
 function isIdleSuppressedTTSMessage(messageId) {
   const id = String(messageId || '').trim();
   return !!id && idleSuppressedTTSMessageIds.has(id);
+}
+
+function isIdleTTSAudioDisabled() {
+  return typeof ttsPlayback !== 'undefined' && ttsPlayback && ttsPlayback.audioEnabled === false;
 }
 
 function clearIdleLivePendingForAudioOwnerTransfer(ownerId) {

@@ -551,6 +551,29 @@ test('idlechat pending message shows traceable tts error instead of fallback tex
   assert.equal(idleLiveLog.children[0].classList.contains('idle-display-error'), true);
 });
 
+test('idlechat audio off renders the message immediately without arming a tts timeout', () => {
+  const {harness, elements, timers} = loadAudioHarness();
+  const idleLiveLog = elements.get('idleLiveLog');
+  harness.ttsPlayback.audioEnabled = false;
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'mio',
+    to: 'shiro',
+    content: '音声オフでは待たずにそのまま見せます。',
+    session_id: 'idle-audio-off-1',
+    message_id: 'idle-audio-off-1:msg:0001',
+    turn_index: 1,
+    timestamp: '2026-05-09T00:00:00+09:00',
+  });
+
+  assert.equal(idleLiveLog.children.length, 1);
+  assert.equal(timers.length, 0);
+  assert.ok(idleLiveLog.children[0]._mc.textContent.includes('音声オフでは待たずにそのまま見せます。'));
+  assert.equal(idleLiveLog.children[0]._mc.textContent.includes('TTS_CHUNK_TIMEOUT'), false);
+  assert.equal(idleLiveLog.children[0].classList.contains('idle-pending-tts'), false);
+});
+
 test('idlechat tts reveals pending message in sync with display chunks', () => {
   const {harness, elements} = loadAudioHarness();
   const idleLiveLog = elements.get('idleLiveLog');

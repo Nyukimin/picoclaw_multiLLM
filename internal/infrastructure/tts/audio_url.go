@@ -1,6 +1,7 @@
 package tts
 
 import (
+	"net"
 	"net/url"
 	"path"
 	"strings"
@@ -22,6 +23,9 @@ func resolveAudioURL(httpBaseURL, audioPath, explicitAudioURL string) string {
 		// Some SBV2 bridges return internal cache-a/cache-b paths that are not publicly served.
 		// Normalize those paths to /audio/<filename> for browser playback.
 		if rewritten := rewriteInternalCacheURL(u); rewritten != "" {
+			return rewritten
+		}
+		if rewritten := rewriteLocalAudioURL(base, u); rewritten != "" {
 			return rewritten
 		}
 		return raw
@@ -49,6 +53,50 @@ func resolveAudioURL(httpBaseURL, audioPath, explicitAudioURL string) string {
 	baseURL.Path = path.Join(strings.TrimRight(baseURL.Path, "/"), rel)
 	baseURL.RawPath = ""
 	return baseURL.String()
+}
+
+func rewriteLocalAudioURL(base string, src *url.URL) string {
+	if src == nil || !isLocalAudioHost(src.Host) {
+		return ""
+	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	baseURL, err := url.Parse(base)
+	if err != nil || baseURL == nil {
+		return ""
+	}
+	if baseURL.Scheme == "" || baseURL.Host == "" {
+		return ""
+	}
+	rewritten := *baseURL
+	rewritten.Path = path.Join(strings.TrimRight(baseURL.Path, "/"), strings.TrimPrefix(src.Path, "/"))
+	rewritten.RawPath = ""
+	rewritten.RawQuery = src.RawQuery
+	rewritten.Fragment = src.Fragment
+	return rewritten.String()
+}
+
+func isLocalAudioHost(rawHost string) bool {
+	host := strings.TrimSpace(rawHost)
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	return false
 }
 
 func rewriteInternalCacheURL(u *url.URL) string {

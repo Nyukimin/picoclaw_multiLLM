@@ -3090,6 +3090,7 @@ function createChatAudioSync() {
     const chunk = normalizeEvent(ev);
     if (!chunk) return;
 		if (chunk.mode === 'idlechat' && !isIdleChatActiveForTTS(chunk.sessionId)) return;
+    if (chunk.mode === 'idlechat' && !ttsPlayback.audioEnabled) return;
     if (chunk.mode === 'idlechat') {
       const activeIdleSession = String(typeof idleLiveActiveSessionId !== 'undefined' ? idleLiveActiveSessionId || '' : '').trim();
       if (activeIdleSession && chunk.sessionId && chunk.sessionId !== activeIdleSession) return;
