@@ -51,9 +51,22 @@ test('viewer voice chat sends final text only in normal timeline chat without st
   assert.ok(switchTabStart >= 0 && switchTabEnd > switchTabStart, 'switchTab block not found');
   const switchTabSource = js.slice(switchTabStart, switchTabEnd);
   assert.doesNotMatch(switchTabSource, /stopSTT\(\)/);
-  assert.match(js, /micBtn\.disabled = !mobileControlAllowed && !sttState\.isRecording;/);
+  assert.match(js, /micBtn\.disabled = \(!mobileControlAllowed \|\| !!microphoneUnavailable\) && !sttState\.isRecording;/);
   assert.match(js, /if \(!ensureVoiceChatForMobileControl\(\)\) \{\s*showToast\('音声入力は通常チャットでのみ有効です', 'error'\);/);
   assert.match(js, /if \(!isVoiceChatAllowed\(\)\) \{\s*console\.warn\('\[STT\] Final ignored outside normal chat:', finalText\);/);
+});
+
+test('viewer marks microphone unavailable on insecure origins before getUserMedia', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
+  assert.match(js, /function getSTTMicrophoneUnavailableReason\(\)/);
+  assert.match(js, /window\.isSecureContext === false/);
+  assert.match(js, /HTTPSまたはlocalhostでViewerを開いてください/);
+  assert.match(js, /typeof navigator === 'undefined' \|\| !navigator\.mediaDevices \|\| typeof navigator\.mediaDevices\.getUserMedia !== 'function'/);
+  assert.match(js, /micBtn\.disabled = \(!mobileControlAllowed \|\| !!microphoneUnavailable\) && !sttState\.isRecording;/);
+  assert.match(js, /Mic: unavailable/);
+  assert.match(js, /describeSTTActionError\('STT microphone start unavailable', microphoneUnavailable\)/);
+  assert.match(css, /\.stt-state\.mic-unavailable/);
 });
 
 test('viewer treats Mac STT partial events as recognition drafts without chat fallback', () => {

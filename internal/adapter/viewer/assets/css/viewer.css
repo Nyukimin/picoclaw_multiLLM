@@ -425,6 +425,7 @@ body:not([data-viewer-tab="idlechat"]) .idle-tools{display:none}
   color:var(--t2);background:rgba(255,255,255,.04);white-space:nowrap;align-self:center
 }
 .stt-state.mic-on{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.10)}
+.stt-state.mic-unavailable{color:#fbbf24;border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.10)}
 .stt-state.conn-on{color:#22d3ee;border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.10)}
 .stt-state.conn-reconnect{color:#fbbf24;border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.10)}
 .stt-state.conn-off{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.10)}

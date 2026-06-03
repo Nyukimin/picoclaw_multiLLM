@@ -4458,7 +4458,7 @@ test('viewer wires chat input and stt button to idlechat immediate interrupt', (
   assert.match(viewerJs, /inp\.addEventListener\('beforeinput', \(\) => handleChatInputIntent\('user_input'\)\)/);
   assert.match(viewerJs, /inp\.addEventListener\('paste', \(\) => handleChatInputIntent\('paste'\)\)/);
   assert.match(viewerJs, /inp\.addEventListener\('compositionstart', \(\) => handleChatInputIntent\('composition_start'\)\)/);
-  assert.match(viewerJs, /abortSTTImmediately\('stt_button'\)/);
+  assert.match(viewerJs, /if \(sttState\.isRecording\) \{\s*stopSTT\(\);/);
   assert.match(viewerJs, /function abortSTTImmediately\(reason\)/);
   assert.match(viewerJs, /if \(typeof clearSTTFinalWaitTimer === 'function'\) clearSTTFinalWaitTimer\(\)/);
   assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !isIdleChatActiveForTTS\(chunk\.sessionId\)\) return/);

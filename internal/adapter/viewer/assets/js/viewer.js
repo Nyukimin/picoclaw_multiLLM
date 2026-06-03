@@ -4422,7 +4422,7 @@ if (micBtn) {
   micBtn.addEventListener('click', () => {
     interruptIdleChatForUserInput('stt_button');
     if (sttState.isRecording) {
-      abortSTTImmediately('stt_button');
+      stopSTT();
       return;
     }
     toggleSTT();
@@ -4579,6 +4579,16 @@ function describeSTTActionError(prefix, err) {
   return prefix + ': ' + String(err && err.message ? err.message : err);
 }
 
+function getSTTMicrophoneUnavailableReason() {
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    return 'HTTPSまたはlocalhostでViewerを開いてください';
+  }
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    return 'ブラウザのマイクAPIが利用できません';
+  }
+  return '';
+}
+
 function copySTTCaptureLog() {
   const text = buildSTTCaptureLogText();
   writeClipboardText(text).then(() => {
@@ -4699,18 +4709,21 @@ async function persistSTTArtifacts() {
 function updateSTTInputIndicators() {
   const voiceAllowed = isVoiceChatAllowed();
   const mobileControlAllowed = voiceAllowed || isMobileControlViewport();
+  const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
   if (micBtn) {
     micBtn.classList.toggle('ready', !!sttState.isRecording);
     micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
     micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
-    micBtn.disabled = !mobileControlAllowed && !sttState.isRecording;
-    micBtn.title = voiceAllowed
+    micBtn.disabled = (!mobileControlAllowed || !!microphoneUnavailable) && !sttState.isRecording;
+    micBtn.title = microphoneUnavailable
+      ? '音声入力不可: ' + microphoneUnavailable
+      : voiceAllowed
       ? (sttState.isRecording ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
       : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
   }
   if (micStateEl) {
-    micStateEl.textContent = sttState.isRecording ? 'Mic: on' : 'Mic: off';
-    micStateEl.className = 'stt-state' + (sttState.isRecording ? ' mic-on' : '');
+    micStateEl.textContent = sttState.isRecording ? 'Mic: on' : (microphoneUnavailable ? 'Mic: unavailable' : 'Mic: off');
+    micStateEl.className = 'stt-state' + (sttState.isRecording ? ' mic-on' : (microphoneUnavailable ? ' mic-unavailable' : ''));
   }
   if (sttConnStateEl) {
     let text = 'STT: off';
@@ -4804,6 +4817,14 @@ async function startSTT() {
   }
   if (!ensureVoiceChatForMobileControl()) {
     showToast('音声入力は通常チャットでのみ有効です', 'error');
+    return;
+  }
+  const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
+  if (microphoneUnavailable) {
+    sttState.captureActionError = describeSTTActionError('STT microphone start unavailable', microphoneUnavailable);
+    if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttState.captureActionError);
+    updateSTTInputIndicators();
+    showToast('マイク利用不可', 'error');
     return;
   }
   try {
