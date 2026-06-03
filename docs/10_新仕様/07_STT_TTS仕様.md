@@ -13,13 +13,17 @@ STT は通常 chat への入力経路、TTS は応答や IdleChat の音声出�
 ```text
 Browser mic
   -> Viewer STT client
-  -> /stt-ws or /ws
+  -> RenCrow same-origin /stt
   -> STT gateway / provider
   -> final text
   -> normal chat input
 ```
 
 STT input は通常 chat に流す。IdleChat に直接流さない。
+
+Viewer の browser-facing STT WebSocket は RenCrow が提供する同一 origin の `/stt` を正とする。Viewer が MacBook STT Gateway などの provider / gateway URL へ直接接続する構成は正規経路ではない。
+
+RenCrow は `/stt` で browser からの `start` / audio chunk / `stop` と STT Gateway からの `ready` / `progress` / `partial` / `final` / `closed` / `error` を中継または provider 境界へ接続する。これにより Viewer は secure context、CORS、LAN IP、provider 実装差分を直接抱えない。
 
 ### 主な実装箇所
 
@@ -34,7 +38,10 @@ STT input は通常 chat に流す。IdleChat に直接流さない。
 
 ### 注意
 
+- `/stt` を主 endpoint とする。
 - `/stt-ws` と `/ws` は互換 endpoint として扱う。
+- `/viewer/runtime-config` の `stt_stream_url` は、Viewer から見た browser-facing URL を返す。原則として同一 origin の `/stt`、または Tailscale HTTPS origin の `wss://<ubuntu-tailnet-host>/stt` を返す。
+- `stt_stream_url` に MacBook STT Gateway 直の `ws://<gateway-host>:8766/stt` を返してはいけない。Gateway 直 URL は RenCrow server-side の接続先または診断用であり、Viewer の通常接続先ではない。
 - trailing silence がないと final text に進まない場合がある。
 - gateway 未設定時の fallback は品質低下を伴う回復経路であり、正常系として扱わない。
 

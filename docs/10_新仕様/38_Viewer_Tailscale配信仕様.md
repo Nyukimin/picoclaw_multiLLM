@@ -10,6 +10,8 @@ RenCrow Viewer は宅内では LAN IP で利用できるままにし、宅外か
 
 この仕様は「RenCrow 全 API を宅外公開する」仕様ではない。宅外公開の対象は Viewer のブラウザ体験に必要な最小 route に限定する。STT / TTS の provider API は原則として LAN 内 service のまま維持し、必要な場合だけ Viewer origin 配下で browser-facing stream を proxy する。
 
+Viewer の STT WebSocket は RenCrow が提供する同一 origin の `/stt` を正規経路とする。Viewer が MacBook STT Gateway などの provider / gateway URL へ直接接続する構成は正規経路ではない。
+
 ## 2. 前提
 
 - RenCrow 本体は Ubuntu 側で稼働する。
@@ -29,6 +31,7 @@ RenCrow Viewer は宅内では LAN IP で利用できるままにし、宅外か
 
 - `http://192.168.1.204:18790/viewer` で Viewer に接続できる。
 - RenCrow は `http://192.168.1.207:8766/v1/audio/transcriptions` を server-side STT provider として使える。
+- Viewer は `ws://192.168.1.204:18790/stt` または localhost の `ws://127.0.0.1:18790/stt` へ接続し、RenCrow が STT Gateway / provider へ中継する。
 - RenCrow は `http://192.168.1.207:7870` を server-side TTS provider として使える。
 - LAN 内の HTTP Viewer は維持する。ただし HTTP origin ではブラウザの `navigator.mediaDevices.getUserMedia` が使えない場合があるため、マイク STT 成功を保証しない。
 
@@ -52,8 +55,10 @@ RenCrow Viewer は宅内では LAN IP で利用できるままにし、宅外か
 宅内 LAN
   Browser
     -> http://192.168.1.204:18790/viewer
+    -> ws://192.168.1.204:18790/stt
   RenCrow on Ubuntu
     -> http://192.168.1.207:8766/v1/audio/transcriptions
+    -> ws://192.168.1.207:8766/stt
     -> http://192.168.1.207:7870/api/tts
 
 宅外 Tailscale
@@ -64,6 +69,8 @@ RenCrow Viewer は宅内では LAN IP で利用できるままにし、宅外か
     -> wss://<ubuntu-tailnet-host>/stt
   Tailscale HTTPS / reverse proxy on Ubuntu
     -> http://127.0.0.1:18790/viewer...
+    -> ws://127.0.0.1:18790/stt
+  RenCrow on Ubuntu
     -> ws://192.168.1.207:8766/stt
 ```
 
@@ -78,11 +85,12 @@ LAN 内の基本 URL:
 ```text
 Viewer: http://192.168.1.204:18790/viewer
 STT HTTP provider: http://192.168.1.207:8766/v1/audio/transcriptions
-STT stream direct: ws://192.168.1.207:8766/stt
+STT stream for Viewer: ws://192.168.1.204:18790/stt
+STT Gateway stream for RenCrow: ws://192.168.1.207:8766/stt
 TTS provider: http://192.168.1.207:7870
 ```
 
-LAN の `ws://192.168.1.207:8766/stt` は、LAN 内かつ secure context 制約を満たすブラウザでのみ実用対象とする。`http://192.168.1.204:18790` から開いた Viewer では microphone API が使えない可能性があるため、LAN HTTP Viewer のマイク STT は必須成功条件にしない。
+LAN の Viewer は RenCrow origin の `/stt` へ接続する。`ws://192.168.1.207:8766/stt` は RenCrow から STT Gateway へ接続するための server-side / 診断用 URL であり、Viewer browser の通常接続先にしない。`http://192.168.1.204:18790` から開いた Viewer では microphone API が使えない可能性があるため、LAN HTTP Viewer のマイク STT は必須成功条件にしない。
 
 ### 5.2 宅外 Tailscale 用 URL
 
@@ -104,7 +112,8 @@ STT stream: wss://<ubuntu-tailnet-host>/stt
 RenCrow の STT / TTS config には server-side と browser-facing が混在している。
 
 - `stt.provider_url`: RenCrow server-side が叩く HTTP STT provider。
-- `stt.stream_url`: Viewer browser が直接接続する STT WebSocket URL。
+- `stt.stream_url`: Viewer browser に返す browser-facing STT WebSocket URL。正規値は RenCrow origin の `/stt` であり、Gateway 直 URL ではない。
+- `STT_GATEWAY_URL` / `RENCROW_STT_URL`: RenCrow server-side が STT Gateway へ接続する WebSocket URL。
 - `tts.http_base_url`: RenCrow server-side が叩く TTS provider。
 - `tts.irodori.base_url`: RenCrow server-side が叩く Irodori provider。
 
@@ -115,7 +124,7 @@ RenCrow の STT / TTS config には server-side と browser-facing が混在し�
 ```yaml
 stt:
   provider_url: http://192.168.1.207:8766/v1/audio/transcriptions
-  stream_url: ws://192.168.1.207:8766/stt
+  stream_url: ws://192.168.1.204:18790/stt
 
 tts:
   http_base_url: http://192.168.1.207:7870
@@ -123,7 +132,13 @@ tts:
     base_url: http://192.168.1.207:7870
 ```
 
-ただし、この config の `stream_url` は宅外 Tailscale HTTPS Viewer には不適切である。
+RenCrow server-side から STT Gateway へ接続する URL は service env などで分けて設定する。
+
+```bash
+STT_GATEWAY_URL=ws://192.168.1.207:8766/stt
+```
+
+ただし、この config の `stream_url` は宅外 Tailscale HTTPS Viewer には不適切である。宅外では同じ RenCrow `/stt` でも `wss://<ubuntu-tailnet-host>/stt` として返す。
 
 ### 6.2 宅外 Viewer 対応 config
 
@@ -138,6 +153,12 @@ tts:
   http_base_url: http://192.168.1.207:7870
   irodori:
     base_url: http://192.168.1.207:7870
+```
+
+RenCrow server-side から STT Gateway へ接続する URL は service env などで分けて設定する。
+
+```bash
+STT_GATEWAY_URL=ws://192.168.1.207:8766/stt
 ```
 
 `provider_url` と TTS base URL は RenCrow server-side から MacBook 207 へ LAN 経由で到達できればよい。宅外ブラウザへ公開する必要はない。
@@ -181,6 +202,8 @@ tts:
 
 ```text
 wss://<ubuntu-tailnet-host>/stt
+  -> ws://127.0.0.1:18790/stt
+  -> RenCrow server-side
   -> ws://192.168.1.207:8766/stt
 ```
 
@@ -208,7 +231,7 @@ Tailscale Serve を使う場合、公開対象は Viewer と STT stream proxy �
 ```text
 https://<ubuntu-tailnet-host>/viewer* -> http://127.0.0.1:18790/viewer*
 https://<ubuntu-tailnet-host>/audio-router/events -> http://127.0.0.1:18790/audio-router/events
-wss://<ubuntu-tailnet-host>/stt -> ws://192.168.1.207:8766/stt
+wss://<ubuntu-tailnet-host>/stt -> ws://127.0.0.1:18790/stt
 ```
 
 Tailscale Serve が WebSocket proxy の要件を満たせない場合は、Ubuntu 上に Caddy / nginx などを立て、Tailscale HTTPS からその local reverse proxy へ渡す。
@@ -263,7 +286,7 @@ Reverse proxy を使う場合の要件:
 
 - TLS 終端は Tailscale HTTPS または proxy が担う。
 - `/viewer` 系は `http://127.0.0.1:18790` へ proxy。
-- `/stt` は `ws://192.168.1.207:8766/stt` へ proxy。
+- `/stt` は `ws://127.0.0.1:18790/stt` へ proxy。RenCrow が server-side で STT Gateway へ接続する。
 - Host / X-Forwarded-* を保存する。
 - WebSocket upgrade を明示する。
 - STT / TTS の provider API は原則 proxy しない。
@@ -403,18 +426,21 @@ Reverse proxy を使う場合の要件:
 対象:
 
 - `wss://<ubuntu-tailnet-host>/stt`
-- `ws://192.168.1.207:8766/stt`
+- `ws://127.0.0.1:18790/stt`
+- RenCrow server-side から `ws://192.168.1.207:8766/stt`
 - WebSocket upgrade
 
 検証:
 
 - WSS 接続が open になる。
 - `Mic: on` 後に `STT: connected` が表示される。
+- `final` が RenCrow `/stt` 経由で返る。
 - proxy timeout で session が即切断されない。
 
 完了条件:
 
 - 宅外 HTTPS Viewer から `/stt` WSS が connected になる。
+- 宅外 HTTPS Viewer から `/stt` WSS 経由で final transcript が返る。
 - `ws://192.168.1.207:8766/stt` を宅外ブラウザへ直接返していない。
 
 ### 14.4 runtime-config の `stt_stream_url` 調整

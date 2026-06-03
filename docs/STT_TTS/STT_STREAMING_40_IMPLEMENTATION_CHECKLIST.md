@@ -93,13 +93,14 @@ python3 scripts/stt_e2e_probe.py \
   --ws-realtime \
   --ws-tail-silence-ms 1000 \
   --require-ws-final \
-  --ws-url ws://192.168.1.207:8766/stt
+  --ws-url ws://127.0.0.1:18790/stt
 ```
 
 Repeat for:
 
-- `ws://127.0.0.1:18790/stt`
 - `wss://fujitsu-ubunts.tailb07d8d.ts.net/stt`
+
+Gateway direct URLs such as `ws://192.168.1.207:8766/stt` are diagnostic targets for the STT server itself. They are not the normal Viewer connection target; Viewer should use the RenCrow `/stt` endpoint on the same origin.
 
 Browser fake-mic diagnostic gate:
 
