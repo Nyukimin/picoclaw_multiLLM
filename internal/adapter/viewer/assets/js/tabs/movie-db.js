@@ -130,15 +130,16 @@ function movieDbRenderRows(items) {
 
 function movieDbTableHeadHTML() {
   if (movieDbState.mode === 'people') {
-    return '<tr><th>人物</th><th>関連映画</th><th>略歴</th><th>ID</th></tr>';
+    return '<tr><th>人物</th><th>関連映画</th><th>見た映画</th><th>略歴</th><th>ID</th></tr>';
   }
-  return '<tr><th>映画</th><th>人物</th><th>あらすじ</th><th>ID</th></tr>';
+  return '<tr><th>映画</th><th>見た</th><th>人物</th><th>あらすじ</th><th>ID</th></tr>';
 }
 
 function movieDbMovieRowHTML(item) {
   const id = movieDbItemID(item);
   return '<tr class="movie-db-row' + (movieDbState.selectedID === id ? ' active' : '') + '" data-id="' + escAttr(id) + '">' +
     '<td class="movie-db-title-cell">' + esc(item.title || '-') + '</td>' +
+    '<td>' + movieDbWatchedBadgeHTML(item) + '</td>' +
     '<td>' + esc(String(item.people_count || 0)) + '</td>' +
     '<td class="movie-db-body-cell">' + esc(short(item.synopsis || '-', 180)) + '</td>' +
     '<td class="movie-db-id-cell">' + esc(item.movie_id || '-') + '</td>' +
@@ -150,9 +151,16 @@ function movieDbPersonRowHTML(item) {
   return '<tr class="movie-db-row' + (movieDbState.selectedID === id ? ' active' : '') + '" data-id="' + escAttr(id) + '">' +
     '<td class="movie-db-title-cell">' + esc(item.name || '-') + '</td>' +
     '<td>' + esc(String(item.movie_count || 0)) + '</td>' +
+    '<td>' + esc(String(item.watched_movie_count || 0)) + '</td>' +
     '<td class="movie-db-body-cell">' + esc(short(item.biography || '-', 180)) + '</td>' +
     '<td class="movie-db-id-cell">' + esc(item.person_id || '-') + '</td>' +
     '</tr>';
+}
+
+function movieDbWatchedBadgeHTML(item) {
+  const count = Number(item && item.watch_count ? item.watch_count : 0);
+  if (!item || !item.watched) return '<span class="movie-db-watch-badge off">-</span>';
+  return '<span class="movie-db-watch-badge">見た' + (count > 1 ? ' ' + esc(String(count)) : '') + '</span>';
 }
 
 function movieDbItemID(item) {
@@ -287,8 +295,10 @@ function movieDbRenderDetail(detail) {
   }
   const movie = detail.movie || {};
   const links = Array.isArray(detail.links) ? detail.links : [];
+  const watchEvents = Array.isArray(detail.watch_events) ? detail.watch_events : [];
   target.innerHTML = '<h3>' + esc(movie.title || '-') + '</h3>' +
-    '<div class="daily-desk-muted">' + movieDbExternalLink(movie.url) + ' / ' + esc(movie.movie_id || '-') + '</div>' +
+    '<div class="movie-db-detail-meta">' + movieDbWatchedBadgeHTML(movie) + '<span class="daily-desk-muted">' + movieDbExternalLink(movie.url) + ' / ' + esc(movie.movie_id || '-') + '</span></div>' +
+    movieDbWatchEventsHTML(watchEvents) +
     '<h4>あらすじ</h4><div class="daily-desk-body">' + esc(movie.synopsis || '-') + '</div>' +
     '<h4>キャスト・スタッフ</h4>' + movieDbMovieLinksHTML(links);
 }
@@ -322,6 +332,16 @@ function movieDbMovieLinksHTML(links) {
   )).join('') + '</div>';
 }
 
+function movieDbWatchEventsHTML(items) {
+  if (!items.length) return '';
+  return '<h4>鑑賞履歴</h4><div class="movie-db-watch-list">' + items.slice(0, 12).map((item) => (
+    '<div class="movie-db-watch-item">' +
+      '<span>' + esc(item.watched_at || item.created_at || '-') + '</span>' +
+      '<span class="daily-desk-muted">' + esc(item.source || '-') + (item.source_batch_id ? ' / ' + esc(item.source_batch_id) : '') + '</span>' +
+    '</div>'
+  )).join('') + '</div>';
+}
+
 function movieDbPersonLinksHTML(links) {
   if (!links.length) return '<div class="daily-desk-muted">リンクはありません。</div>';
   return '<div class="movie-db-link-list">' + links.slice(0, 120).map((link) => (
@@ -349,8 +369,9 @@ function movieDbLinkedMovieControl(link) {
   const id = link && link.movie_id ? String(link.movie_id) : '';
   const url = link && link.movie_url ? String(link.movie_url) : '';
   const title = link && link.movie_title ? String(link.movie_title) : '-';
+  const watched = link && link.movie_watched ? movieDbWatchedBadgeHTML({watched: true, watch_count: 1}) : '';
   if (link && link.movie_fetched && id) {
-    return '<div class="movie-db-link-head"><button class="ctl-btn" type="button" onclick="movieDbSetModeAndOpen(&quot;movies&quot;,&quot;' + escAttr(id) + '&quot;)">' + esc(title) + '</button></div>';
+    return '<div class="movie-db-link-head"><button class="ctl-btn" type="button" onclick="movieDbSetModeAndOpen(&quot;movies&quot;,&quot;' + escAttr(id) + '&quot;)">' + esc(title) + '</button>' + watched + '</div>';
   }
   return '<div class="movie-db-link-head">' +
     '<span class="movie-db-link-title">' + esc(title) + '</span>' +

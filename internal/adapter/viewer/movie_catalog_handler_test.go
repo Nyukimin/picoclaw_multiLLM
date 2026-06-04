@@ -114,6 +114,84 @@ VALUES('57573','99999','出演','movie_cast','マージン・コール','未取�
 	}
 }
 
+func TestHandleMovieCatalogReturnsWatchEventsAndWatchedCounts(t *testing.T) {
+	dbPath := seedMovieCatalogTestDB(t)
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE movie_watch_events(
+  event_id TEXT PRIMARY KEY,
+  movie_id TEXT,
+  original_title TEXT NOT NULL,
+  watched_at TEXT,
+  source TEXT NOT NULL,
+  source_batch_id TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO movie_watch_events(event_id,movie_id,original_title,watched_at,source,source_batch_id,note)
+VALUES('watch_1','57573','マージン・コール','2026-06-03','user_list','batch_today','');
+`); err != nil {
+		db.Close()
+		t.Fatalf("seed watch events: %v", err)
+	}
+	db.Close()
+	h := HandleMovieCatalog(MovieCatalogOptions{DBPath: dbPath})
+
+	moviesRec := httptest.NewRecorder()
+	h(moviesRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=movies&q=マージン", nil))
+	if moviesRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", moviesRec.Code, moviesRec.Body.String())
+	}
+	var moviesOut struct {
+		Items []movieCatalogMovieItem `json:"items"`
+	}
+	if err := json.Unmarshal(moviesRec.Body.Bytes(), &moviesOut); err != nil {
+		t.Fatalf("invalid movies json: %v", err)
+	}
+	if len(moviesOut.Items) != 1 || !moviesOut.Items[0].Watched || moviesOut.Items[0].WatchCount != 1 {
+		t.Fatalf("expected watched movie row, got %+v", moviesOut.Items)
+	}
+
+	movieRec := httptest.NewRecorder()
+	h(movieRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=movie&id=57573", nil))
+	if movieRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", movieRec.Code, movieRec.Body.String())
+	}
+	var movieOut struct {
+		Detail struct {
+			Movie       movieCatalogMovieItem        `json:"movie"`
+			WatchEvents []movieCatalogWatchEventItem `json:"watch_events"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(movieRec.Body.Bytes(), &movieOut); err != nil {
+		t.Fatalf("invalid movie json: %v", err)
+	}
+	if !movieOut.Detail.Movie.Watched || movieOut.Detail.Movie.WatchCount != 1 || len(movieOut.Detail.WatchEvents) != 1 {
+		t.Fatalf("expected watched movie detail, got %+v", movieOut.Detail)
+	}
+
+	personRec := httptest.NewRecorder()
+	h(personRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=person&id=30003", nil))
+	if personRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", personRec.Code, personRec.Body.String())
+	}
+	var personOut struct {
+		Detail struct {
+			Person movieCatalogPersonItem `json:"person"`
+			Links  []movieCatalogEdgeItem `json:"links"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(personRec.Body.Bytes(), &personOut); err != nil {
+		t.Fatalf("invalid person json: %v", err)
+	}
+	if personOut.Detail.Person.WatchedMovieCount != 1 || len(personOut.Detail.Links) != 1 || !personOut.Detail.Links[0].MovieWatched {
+		t.Fatalf("expected watched person link, got %+v", personOut.Detail)
+	}
+}
+
 func TestHandleMovieCatalogMissingDBIsSoftUnavailable(t *testing.T) {
 	h := HandleMovieCatalog(MovieCatalogOptions{DBPath: filepath.Join(t.TempDir(), "missing.sqlite")})
 	rec := httptest.NewRecorder()

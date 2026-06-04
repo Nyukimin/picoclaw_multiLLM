@@ -108,6 +108,40 @@ class EigaCatalogTest(unittest.TestCase):
             self.assertIn(("17531", "30003", "出演", "person_filmography"), rows)
             self.assertTrue(jsonl.read_text(encoding="utf-8").count("\n") >= 2)
 
+    def test_mark_watched_titles_keeps_user_events_separate_from_catalog(self):
+        movie = eiga_catalog.parse_movie(MOVIE_HTML, "https://eiga.com/movie/57573/")
+        with tempfile.TemporaryDirectory() as td:
+            db = Path(td) / "catalog.sqlite"
+            jsonl = Path(td) / "catalog.jsonl"
+            store = eiga_catalog.EigaStore(db, jsonl)
+            try:
+                store.save_movie(movie)
+            finally:
+                store.close()
+
+            stats = eiga_catalog.mark_watched_titles(
+                db,
+                ["（字）マージン・コール", "未登録映画"],
+                "2026-06-03",
+                "user_list",
+                "batch_1",
+            )
+            self.assertEqual(stats["input"], 2)
+            self.assertEqual(stats["events"], 2)
+            self.assertEqual(stats["resolved"], 1)
+            self.assertEqual(stats["unresolved"], 1)
+
+            conn = sqlite3.connect(db)
+            events = conn.execute("SELECT movie_id, original_title, watched_at, source_batch_id FROM movie_watch_events ORDER BY original_title").fetchall()
+            observations = conn.execute("SELECT original_title, status, resolved_movie_id FROM movie_title_observations ORDER BY original_title").fetchall()
+            movie_columns = [row[1] for row in conn.execute("PRAGMA table_info(movies)").fetchall()]
+            conn.close()
+            self.assertIn(("57573", "（字）マージン・コール", "2026-06-03", "batch_1"), events)
+            self.assertIn((None, "未登録映画", "2026-06-03", "batch_1"), events)
+            self.assertIn(("（字）マージン・コール", "resolved", "57573"), observations)
+            self.assertIn(("未登録映画", "unresolved", None), observations)
+            self.assertNotIn("seen", movie_columns)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -516,12 +516,14 @@ body:has(.tts-now-playing:not(.hidden)) .movie-db-screen {
 }
 
 .movie-db-table th:nth-child(2),
-.movie-db-table td:nth-child(2) {
+.movie-db-table td:nth-child(2),
+.movie-db-table th:nth-child(3),
+.movie-db-table td:nth-child(3) {
   width: 72px;
 }
 
-.movie-db-table th:nth-child(4),
-.movie-db-table td:nth-child(4) {
+.movie-db-table th:nth-child(5),
+.movie-db-table td:nth-child(5) {
   width: 92px;
 }
 
@@ -620,6 +622,52 @@ body:has(.tts-now-playing:not(.hidden)) .movie-db-screen {
 .movie-db-detail-inner h3 {
   font-size: 18px;
   line-height: 1.25;
+}
+
+.movie-db-detail-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.movie-db-watch-badge {
+  align-items: center;
+  background: rgba(74, 222, 128, 0.13);
+  border: 1px solid rgba(74, 222, 128, 0.36);
+  border-radius: 999px;
+  color: #86efac;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  min-height: 22px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.movie-db-watch-badge.off {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--desk-border);
+  color: var(--desk-muted);
+}
+
+.movie-db-watch-list {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 10px;
+}
+
+.movie-db-watch-item {
+  align-items: center;
+  background: rgba(74, 222, 128, 0.06);
+  border: 1px solid rgba(74, 222, 128, 0.20);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 6px 8px;
 }
 
 .movie-db-link-list {

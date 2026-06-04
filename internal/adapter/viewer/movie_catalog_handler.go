@@ -46,15 +46,18 @@ type movieCatalogMovieItem struct {
 	URL         string `json:"url"`
 	Synopsis    string `json:"synopsis"`
 	PeopleCount int    `json:"people_count"`
+	Watched     bool   `json:"watched"`
+	WatchCount  int    `json:"watch_count"`
 }
 
 type movieCatalogPersonItem struct {
-	PersonID   string `json:"person_id"`
-	Name       string `json:"name"`
-	URL        string `json:"url"`
-	Profile    string `json:"profile"`
-	Biography  string `json:"biography"`
-	MovieCount int    `json:"movie_count"`
+	PersonID          string `json:"person_id"`
+	Name              string `json:"name"`
+	URL               string `json:"url"`
+	Profile           string `json:"profile"`
+	Biography         string `json:"biography"`
+	MovieCount        int    `json:"movie_count"`
+	WatchedMovieCount int    `json:"watched_movie_count"`
 }
 
 type movieCatalogEdgeItem struct {
@@ -62,12 +65,24 @@ type movieCatalogEdgeItem struct {
 	MovieTitle    string `json:"movie_title"`
 	MovieURL      string `json:"movie_url"`
 	MovieFetched  bool   `json:"movie_fetched"`
+	MovieWatched  bool   `json:"movie_watched"`
 	PersonID      string `json:"person_id"`
 	PersonName    string `json:"person_name"`
 	PersonURL     string `json:"person_url"`
 	PersonFetched bool   `json:"person_fetched"`
 	Role          string `json:"role"`
 	Source        string `json:"source"`
+}
+
+type movieCatalogWatchEventItem struct {
+	EventID       string `json:"event_id"`
+	MovieID       string `json:"movie_id"`
+	OriginalTitle string `json:"original_title"`
+	WatchedAt     string `json:"watched_at"`
+	Source        string `json:"source"`
+	SourceBatchID string `json:"source_batch_id"`
+	Note          string `json:"note"`
+	CreatedAt     string `json:"created_at"`
 }
 
 type movieCatalogFetchRequest struct {
@@ -451,6 +466,16 @@ func movieCatalogStats(db *sql.DB) (map[string]int, error) {
 		}
 		out[table] = n
 	}
+	for _, table := range []string{"movie_watch_events", "movie_title_observations", "movie_preference_signals", "movie_topic_candidates"} {
+		if !movieCatalogTableExists(db, table) {
+			continue
+		}
+		var n int
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
+			return nil, err
+		}
+		out[table] = n
+	}
 	return out, nil
 }
 
@@ -461,11 +486,20 @@ func movieCatalogMovies(db *sql.DB, r *http.Request, limit int, offset int) (int
 		return 0, nil, err
 	}
 	args = append(args, limit, offset)
+	hasWatchEvents := movieCatalogTableExists(db, "movie_watch_events")
+	watchSelect := "0 AS watch_count"
+	watchJoin := ""
+	if hasWatchEvents {
+		watchSelect = "COUNT(DISTINCT we.event_id) AS watch_count"
+		watchJoin = "LEFT JOIN movie_watch_events we ON we.movie_id = m.movie_id"
+	}
 	rows, err := db.Query(`
 SELECT m.movie_id, m.title, m.url, COALESCE(m.synopsis, ''),
-       COUNT(DISTINCT mp.person_id) AS people_count
+       COUNT(DISTINCT mp.person_id) AS people_count,
+       `+watchSelect+`
 FROM movies m
 LEFT JOIN movie_people mp ON mp.movie_id = m.movie_id
+`+watchJoin+`
 `+where+`
 GROUP BY m.movie_id, m.title, m.url, m.synopsis
 ORDER BY m.title
@@ -477,9 +511,10 @@ LIMIT ? OFFSET ?`, args...)
 	items := []movieCatalogMovieItem{}
 	for rows.Next() {
 		var item movieCatalogMovieItem
-		if err := rows.Scan(&item.MovieID, &item.Title, &item.URL, &item.Synopsis, &item.PeopleCount); err != nil {
+		if err := rows.Scan(&item.MovieID, &item.Title, &item.URL, &item.Synopsis, &item.PeopleCount, &item.WatchCount); err != nil {
 			return 0, nil, err
 		}
+		item.Watched = item.WatchCount > 0
 		items = append(items, item)
 	}
 	return total, items, rows.Err()
@@ -516,11 +551,20 @@ func movieCatalogPeople(db *sql.DB, r *http.Request, limit int, offset int) (int
 		return 0, nil, err
 	}
 	args = append(args, limit, offset)
+	hasWatchEvents := movieCatalogTableExists(db, "movie_watch_events")
+	watchedMovieSelect := "0 AS watched_movie_count"
+	watchJoin := ""
+	if hasWatchEvents {
+		watchedMovieSelect = "COUNT(DISTINCT CASE WHEN we.event_id IS NOT NULL THEN mp.movie_id END) AS watched_movie_count"
+		watchJoin = "LEFT JOIN movie_watch_events we ON we.movie_id = mp.movie_id"
+	}
 	rows, err := db.Query(`
 SELECT p.person_id, p.name, p.url, COALESCE(p.profile_json, ''), COALESCE(p.biography, ''),
-       COUNT(DISTINCT mp.movie_id) AS movie_count
+       COUNT(DISTINCT mp.movie_id) AS movie_count,
+       `+watchedMovieSelect+`
 FROM people p
 LEFT JOIN movie_people mp ON mp.person_id = p.person_id
+`+watchJoin+`
 `+where+`
 GROUP BY p.person_id, p.name, p.url, p.profile_json, p.biography
 ORDER BY p.name
@@ -532,7 +576,7 @@ LIMIT ? OFFSET ?`, args...)
 	items := []movieCatalogPersonItem{}
 	for rows.Next() {
 		var item movieCatalogPersonItem
-		if err := rows.Scan(&item.PersonID, &item.Name, &item.URL, &item.Profile, &item.Biography, &item.MovieCount); err != nil {
+		if err := rows.Scan(&item.PersonID, &item.Name, &item.URL, &item.Profile, &item.Biography, &item.MovieCount, &item.WatchedMovieCount); err != nil {
 			return 0, nil, err
 		}
 		items = append(items, item)
@@ -565,11 +609,17 @@ func movieCatalogMovieDetail(db *sql.DB, id string) (map[string]any, error) {
 	if err := db.QueryRow("SELECT movie_id, title, url, COALESCE(synopsis, '') FROM movies WHERE movie_id = ?", id).Scan(&movie.MovieID, &movie.Title, &movie.URL, &movie.Synopsis); err != nil {
 		return nil, err
 	}
+	watchEvents, err := movieCatalogWatchEvents(db, id, 20)
+	if err != nil {
+		return nil, err
+	}
+	movie.WatchCount = len(watchEvents)
+	movie.Watched = movie.WatchCount > 0
 	edges, err := movieCatalogEdges(db, "movie_id", id, 200)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"movie": movie, "links": edges}, nil
+	return map[string]any{"movie": movie, "links": edges, "watch_events": watchEvents}, nil
 }
 
 func movieCatalogPersonDetail(db *sql.DB, id string) (map[string]any, error) {
@@ -586,6 +636,11 @@ func movieCatalogPersonDetail(db *sql.DB, id string) (map[string]any, error) {
 		return nil, err
 	}
 	person.MovieCount = len(edges)
+	for _, edge := range edges {
+		if edge.MovieWatched {
+			person.WatchedMovieCount++
+		}
+	}
 	return map[string]any{"person": person, "links": edges}, nil
 }
 
@@ -593,10 +648,16 @@ func movieCatalogEdges(db *sql.DB, column string, id string, limit int) ([]movie
 	if column != "movie_id" && column != "person_id" {
 		return nil, fmt.Errorf("unsupported edge column")
 	}
+	hasWatchEvents := movieCatalogTableExists(db, "movie_watch_events")
+	watchSelect := "0"
+	if hasWatchEvents {
+		watchSelect = "EXISTS(SELECT 1 FROM movie_watch_events we WHERE we.movie_id = movie_people.movie_id)"
+	}
 	rows, err := db.Query(`
 SELECT movie_id, COALESCE(movie_title, ''), COALESCE(movie_url, ''),
        person_id, COALESCE(person_name, ''), COALESCE(person_url, ''),
        EXISTS(SELECT 1 FROM movies m WHERE m.movie_id = movie_people.movie_id),
+       `+watchSelect+`,
        EXISTS(SELECT 1 FROM people p WHERE p.person_id = movie_people.person_id),
        role, source
 FROM movie_people
@@ -610,12 +671,50 @@ LIMIT ?`, id, limit)
 	out := []movieCatalogEdgeItem{}
 	for rows.Next() {
 		var item movieCatalogEdgeItem
-		if err := rows.Scan(&item.MovieID, &item.MovieTitle, &item.MovieURL, &item.PersonID, &item.PersonName, &item.PersonURL, &item.MovieFetched, &item.PersonFetched, &item.Role, &item.Source); err != nil {
+		if err := rows.Scan(&item.MovieID, &item.MovieTitle, &item.MovieURL, &item.PersonID, &item.PersonName, &item.PersonURL, &item.MovieFetched, &item.MovieWatched, &item.PersonFetched, &item.Role, &item.Source); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func movieCatalogWatchEvents(db *sql.DB, movieID string, limit int) ([]movieCatalogWatchEventItem, error) {
+	if !movieCatalogTableExists(db, "movie_watch_events") {
+		return []movieCatalogWatchEventItem{}, nil
+	}
+	rows, err := db.Query(`
+SELECT event_id, COALESCE(movie_id, ''), original_title, COALESCE(watched_at, ''),
+       source, COALESCE(source_batch_id, ''), COALESCE(note, ''), COALESCE(created_at, '')
+FROM movie_watch_events
+WHERE movie_id = ?
+ORDER BY COALESCE(watched_at, created_at) DESC, event_id
+LIMIT ?`, movieID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []movieCatalogWatchEventItem{}
+	for rows.Next() {
+		var item movieCatalogWatchEventItem
+		if err := rows.Scan(&item.EventID, &item.MovieID, &item.OriginalTitle, &item.WatchedAt, &item.Source, &item.SourceBatchID, &item.Note, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func movieCatalogTableExists(db *sql.DB, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
 }
 
 func writeMovieCatalogJSON(w http.ResponseWriter, payload movieCatalogResponse) {

@@ -52,6 +52,7 @@
 30. `34_現状残課題クリア実装手順書.md`
 31. `49_Movie_Graph_Mio_Topic仕様.md`
 32. `50_Hobby_Graph_Mio_Topic仕様.md`
+33. `51_Movie_Watch_Event実装仕様.md`
 
 ## 文書一覧
 
@@ -90,6 +91,7 @@
 | `34_現状残課題クリア実装手順書.md` | `33` の残課題を Goal 実行向けに小さな検証済み commit / push 単位へ分解し、自律継続条件と停止条件を定義する実装手順書 |
 | `49_Movie_Graph_Mio_Topic仕様.md` | 映画.com カタログ、れんの鑑賞履歴、嗜好シグナル、Mio 話題候補、バックグラウンド収集理由を分離して扱う Movie Graph 仕様 |
 | `50_Hobby_Graph_Mio_Topic仕様.md` | 映画、音楽、小説、漫画、アニメ、演劇、ビデオゲーム、ボードゲームを Mio の話題生成材料として扱う Hobby Graph 横断仕様 |
+| `51_Movie_Watch_Event実装仕様.md` | 映画DBに「見た」鑑賞イベントを保存し、未解決タイトルとViewer表示へ接続する最初の実装仕様 |
 
 ## 基本方針
 

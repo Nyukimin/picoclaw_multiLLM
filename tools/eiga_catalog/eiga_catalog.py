@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import html
+import hashlib
 import json
 import re
 import sqlite3
@@ -20,6 +21,7 @@ import urllib.request
 import urllib.robotparser
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -85,6 +87,24 @@ def clean_text(value: str) -> str:
     value = re.sub(r"[ \t\r\f\v]+", " ", value)
     value = re.sub(r"\n\s+", "\n", value)
     return value.strip()
+
+
+def normalize_title_key(value: str) -> str:
+    value = clean_text(value)
+    value = value.replace("（", "(").replace("）", ")")
+    value = re.sub(r"^\((?:[^)]*(?:字|字幕|吹|吹替|MX4D|3D|AT|中継|舞台挨拶|先行上映)[^)]*)\)", "", value, flags=re.I)
+    value = re.sub(r"^(?:映画|劇場版)\s*[『「]?", "", value)
+    value = re.sub(r"[『』「」]", "", value)
+    value = value.strip()
+    try:
+        import unicodedata
+
+        value = unicodedata.normalize("NFKC", value)
+    except Exception:
+        pass
+    value = value.lower()
+    value = re.sub(r"[\s　・\-.。:：!！?？()\[\]【】/／#＃×☆★〜～ー－―]", "", value)
+    return value
 
 
 def find_first(pattern: str, text: str, flags: int = re.S | re.I) -> str:
@@ -351,6 +371,150 @@ class EigaStore:
         self.conn.commit()
 
 
+def init_watch_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS movie_watch_events (
+          event_id TEXT PRIMARY KEY,
+          movie_id TEXT,
+          original_title TEXT NOT NULL,
+          watched_at TEXT,
+          source TEXT NOT NULL,
+          source_batch_id TEXT,
+          note TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS movie_title_observations (
+          observation_id TEXT PRIMARY KEY,
+          original_title TEXT NOT NULL,
+          normalized_title TEXT NOT NULL,
+          source TEXT NOT NULL,
+          source_batch_id TEXT,
+          status TEXT NOT NULL DEFAULT 'unresolved',
+          resolved_movie_id TEXT,
+          resolution_note TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          resolved_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_movie_watch_events_movie_id ON movie_watch_events(movie_id);
+        CREATE INDEX IF NOT EXISTS idx_movie_watch_events_batch ON movie_watch_events(source_batch_id);
+        CREATE INDEX IF NOT EXISTS idx_movie_title_observations_status ON movie_title_observations(status);
+        """
+    )
+    conn.commit()
+
+
+def movie_title_candidates(conn: sqlite3.Connection) -> dict[str, list[tuple[str, str]]]:
+    out: dict[str, list[tuple[str, str]]] = {}
+    rows = conn.execute("SELECT movie_id, title FROM movies WHERE COALESCE(title, '') != ''").fetchall()
+    rows.extend(
+        conn.execute(
+            """
+            SELECT movie_id, movie_title
+            FROM movie_people
+            WHERE COALESCE(movie_id, '') != '' AND COALESCE(movie_title, '') != ''
+            GROUP BY movie_id, movie_title
+            """
+        ).fetchall()
+    )
+    for movie_id, title in rows:
+        key = normalize_title_key(str(title))
+        if not key:
+            continue
+        out.setdefault(key, [])
+        candidate = (str(movie_id), str(title))
+        if candidate not in out[key]:
+            out[key].append(candidate)
+    return out
+
+
+def resolve_movie_title(candidates: dict[str, list[tuple[str, str]]], title: str) -> tuple[str, str, str]:
+    key = normalize_title_key(title)
+    if not key:
+        return "", "unresolved", "empty normalized title"
+    exact = candidates.get(key, [])
+    if len(exact) == 1:
+        return exact[0][0], "resolved", "exact normalized title match"
+    if len(exact) > 1:
+        return "", "candidate", "multiple exact normalized title matches"
+
+    partial: list[tuple[str, str]] = []
+    if len(key) >= 4:
+        for candidate_key, items in candidates.items():
+            if key in candidate_key or candidate_key in key:
+                partial.extend(items)
+    unique = sorted(set(partial))
+    if len(unique) == 1:
+        return unique[0][0], "resolved", "single partial normalized title match"
+    if len(unique) > 1:
+        return "", "candidate", "multiple partial normalized title matches"
+    return "", "unresolved", "no local movie candidate"
+
+
+def stable_id(prefix: str, *parts: object) -> str:
+    raw = "\x1f".join(str(part) for part in parts)
+    return prefix + "_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def mark_watched_titles(
+    db_path: Path,
+    titles: list[str],
+    watched_at: str,
+    source: str,
+    source_batch_id: str,
+    note: str = "",
+) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    try:
+        init_watch_schema(conn)
+        candidates = movie_title_candidates(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        stats = {"input": 0, "resolved": 0, "candidate": 0, "unresolved": 0, "events": 0}
+        for index, raw_title in enumerate(titles, start=1):
+            title = clean_text(raw_title)
+            if not title:
+                continue
+            stats["input"] += 1
+            movie_id, status, resolution_note = resolve_movie_title(candidates, title)
+            if status not in stats:
+                stats[status] = 0
+            stats[status] += 1
+            event_id = stable_id("watch", source_batch_id, index, title)
+            observation_id = stable_id("titleobs", source_batch_id, index, title)
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO movie_watch_events
+                  (event_id,movie_id,original_title,watched_at,source,source_batch_id,note,created_at)
+                VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (event_id, movie_id or None, title, watched_at, source, source_batch_id, note, now),
+            )
+            stats["events"] += 1
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO movie_title_observations
+                  (observation_id,original_title,normalized_title,source,source_batch_id,status,resolved_movie_id,resolution_note,created_at,resolved_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    observation_id,
+                    title,
+                    normalize_title_key(title),
+                    source,
+                    source_batch_id,
+                    status,
+                    movie_id or None,
+                    resolution_note,
+                    now,
+                    now if status == "resolved" else None,
+                ),
+            )
+        conn.commit()
+        return stats
+    finally:
+        conn.close()
+
+
 class Fetcher:
     def __init__(self, user_agent: str, delay: float, timeout: float):
         self.user_agent = user_agent
@@ -462,6 +626,11 @@ def crawl(args: argparse.Namespace) -> int:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect eiga.com movie/person records and cross-links.")
+    parser.add_argument("--mark-watched-file", type=Path, default=None, help="Plain text movie-title list to register as watched.")
+    parser.add_argument("--watched-at", default="", help="Watched date/time for --mark-watched-file, e.g. 2026-06-03.")
+    parser.add_argument("--watch-source", default="user_list", help="Source label for watched-title import.")
+    parser.add_argument("--watch-batch-id", default="", help="Batch ID for watched-title import.")
+    parser.add_argument("--watch-note", default="", help="Optional note for watched-title import.")
     parser.add_argument("--seed-url", action="append", default=[], help="Movie/person URL to start from. Repeatable.")
     parser.add_argument("--all-from-sitemap", action="store_true", help="Discover movie/person URLs from sitemap.")
     parser.add_argument("--max-sitemaps", type=int, default=0, help="Limit sitemap files for discovery; 0 means all.")
@@ -479,13 +648,25 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.db = args.db or args.output_dir / "eiga_catalog.sqlite"
     args.jsonl = args.jsonl or args.output_dir / "eiga_catalog.jsonl"
+    if args.mark_watched_file is not None:
+        if not args.watched_at:
+            args.watched_at = datetime.now(timezone.utc).date().isoformat()
+        if not args.watch_batch_id:
+            args.watch_batch_id = "watched_" + datetime.now(timezone.utc).strftime("%Y%m%d")
+        return args
     if not args.seed_url and not args.all_from_sitemap:
         parser.error("provide --seed-url or --all-from-sitemap")
     return args
 
 
 def main(argv: list[str]) -> int:
-    return crawl(parse_args(argv))
+    args = parse_args(argv)
+    if args.mark_watched_file is not None:
+        titles = sys.stdin.read().splitlines() if str(args.mark_watched_file) == "-" else args.mark_watched_file.read_text(encoding="utf-8").splitlines()
+        stats = mark_watched_titles(args.db, titles, args.watched_at, args.watch_source, args.watch_batch_id, args.watch_note)
+        print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
+        return 0
+    return crawl(args)
 
 
 if __name__ == "__main__":
