@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"context"
+	"crypto/sha1"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -58,20 +59,23 @@ type movieCatalogPersonItem struct {
 	Biography         string `json:"biography"`
 	MovieCount        int    `json:"movie_count"`
 	WatchedMovieCount int    `json:"watched_movie_count"`
+	Favorite          bool   `json:"favorite"`
+	PreferenceCount   int    `json:"preference_count"`
 }
 
 type movieCatalogEdgeItem struct {
-	MovieID       string `json:"movie_id"`
-	MovieTitle    string `json:"movie_title"`
-	MovieURL      string `json:"movie_url"`
-	MovieFetched  bool   `json:"movie_fetched"`
-	MovieWatched  bool   `json:"movie_watched"`
-	PersonID      string `json:"person_id"`
-	PersonName    string `json:"person_name"`
-	PersonURL     string `json:"person_url"`
-	PersonFetched bool   `json:"person_fetched"`
-	Role          string `json:"role"`
-	Source        string `json:"source"`
+	MovieID        string `json:"movie_id"`
+	MovieTitle     string `json:"movie_title"`
+	MovieURL       string `json:"movie_url"`
+	MovieFetched   bool   `json:"movie_fetched"`
+	MovieWatched   bool   `json:"movie_watched"`
+	PersonID       string `json:"person_id"`
+	PersonName     string `json:"person_name"`
+	PersonURL      string `json:"person_url"`
+	PersonFetched  bool   `json:"person_fetched"`
+	PersonFavorite bool   `json:"person_favorite"`
+	Role           string `json:"role"`
+	Source         string `json:"source"`
 }
 
 type movieCatalogWatchEventItem struct {
@@ -92,6 +96,16 @@ type movieCatalogFetchRequest struct {
 	MaxPages                 int    `json:"max_pages"`
 	FollowLinks              bool   `json:"follow_links"`
 	IncludePersonFilmography bool   `json:"include_person_filmography"`
+}
+
+type movieCatalogPreferenceRequest struct {
+	Kind        string  `json:"kind"`
+	TargetID    string  `json:"target_id"`
+	TargetLabel string  `json:"target_label"`
+	Favorite    bool    `json:"favorite"`
+	SignalType  string  `json:"signal_type"`
+	Weight      float64 `json:"weight"`
+	GeneratedBy string  `json:"generated_by"`
 }
 
 type movieCatalogFetchCandidate struct {
@@ -250,6 +264,61 @@ func HandleMovieCatalogFetch(opts MovieCatalogOptions) http.HandlerFunc {
 			return
 		}
 		writeMovieCatalogFetchJSON(w, resp)
+	}
+}
+
+func HandleMovieCatalogPreference(opts MovieCatalogOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req movieCatalogPreferenceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := normalizeMovieCatalogPreferenceRequest(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dbPath := resolveMovieCatalogDBPath(opts.DBPath)
+		if dbPath == "" {
+			writeMovieCatalogJSON(w, movieCatalogResponse{
+				Available: false,
+				DBPath:    strings.TrimSpace(opts.DBPath),
+				Action:    "preference",
+				Error:     "movie catalog database not found",
+			})
+			return
+		}
+		db, err := sql.Open("sqlite3", dbPath)
+		if err != nil {
+			http.Error(w, "failed to open movie catalog", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
+		if err := movieCatalogSetPersonFavorite(db, req); err != nil {
+			http.Error(w, "failed to update movie catalog preference", http.StatusInternalServerError)
+			return
+		}
+		count, err := movieCatalogPersonPreferenceCount(db, req.TargetID)
+		if err != nil {
+			http.Error(w, "failed to reload movie catalog preference", http.StatusInternalServerError)
+			return
+		}
+		writeMovieCatalogJSON(w, movieCatalogResponse{
+			Available: true,
+			DBPath:    dbPath,
+			Action:    "preference",
+			Detail: map[string]any{
+				"kind":             req.Kind,
+				"target_id":        req.TargetID,
+				"target_label":     req.TargetLabel,
+				"favorite":         count > 0,
+				"preference_count": count,
+			},
+		})
 	}
 }
 
@@ -558,13 +627,26 @@ func movieCatalogPeople(db *sql.DB, r *http.Request, limit int, offset int) (int
 		watchedMovieSelect = "COUNT(DISTINCT CASE WHEN we.event_id IS NOT NULL THEN mp.movie_id END) AS watched_movie_count"
 		watchJoin = "LEFT JOIN movie_watch_events we ON we.movie_id = mp.movie_id"
 	}
+	hasPreferenceSignals := movieCatalogTableExists(db, "movie_preference_signals")
+	preferenceSelect := "0 AS preference_count"
+	preferenceJoin := ""
+	if hasPreferenceSignals {
+		preferenceSelect = "COUNT(DISTINCT pref.signal_id) AS preference_count"
+		preferenceJoin = `
+LEFT JOIN movie_preference_signals pref
+  ON pref.target_id = p.person_id
+ AND pref.signal_type IN ('actor_affinity', 'person_affinity', 'director_affinity')
+ AND pref.weight > 0`
+	}
 	rows, err := db.Query(`
 SELECT p.person_id, p.name, p.url, COALESCE(p.profile_json, ''), COALESCE(p.biography, ''),
        COUNT(DISTINCT mp.movie_id) AS movie_count,
-       `+watchedMovieSelect+`
+       `+watchedMovieSelect+`,
+       `+preferenceSelect+`
 FROM people p
 LEFT JOIN movie_people mp ON mp.person_id = p.person_id
 `+watchJoin+`
+`+preferenceJoin+`
 `+where+`
 GROUP BY p.person_id, p.name, p.url, p.profile_json, p.biography
 ORDER BY p.name
@@ -576,9 +658,10 @@ LIMIT ? OFFSET ?`, args...)
 	items := []movieCatalogPersonItem{}
 	for rows.Next() {
 		var item movieCatalogPersonItem
-		if err := rows.Scan(&item.PersonID, &item.Name, &item.URL, &item.Profile, &item.Biography, &item.MovieCount, &item.WatchedMovieCount); err != nil {
+		if err := rows.Scan(&item.PersonID, &item.Name, &item.URL, &item.Profile, &item.Biography, &item.MovieCount, &item.WatchedMovieCount, &item.PreferenceCount); err != nil {
 			return 0, nil, err
 		}
+		item.Favorite = item.PreferenceCount > 0
 		items = append(items, item)
 	}
 	return total, items, rows.Err()
@@ -631,6 +714,12 @@ func movieCatalogPersonDetail(db *sql.DB, id string) (map[string]any, error) {
 	if err := db.QueryRow("SELECT person_id, name, url, COALESCE(profile_json, ''), COALESCE(biography, '') FROM people WHERE person_id = ?", id).Scan(&person.PersonID, &person.Name, &person.URL, &person.Profile, &person.Biography); err != nil {
 		return nil, err
 	}
+	preferenceCount, err := movieCatalogPersonPreferenceCount(db, id)
+	if err != nil {
+		return nil, err
+	}
+	person.PreferenceCount = preferenceCount
+	person.Favorite = person.PreferenceCount > 0
 	edges, err := movieCatalogEdges(db, "person_id", id, 200)
 	if err != nil {
 		return nil, err
@@ -653,12 +742,23 @@ func movieCatalogEdges(db *sql.DB, column string, id string, limit int) ([]movie
 	if hasWatchEvents {
 		watchSelect = "EXISTS(SELECT 1 FROM movie_watch_events we WHERE we.movie_id = movie_people.movie_id)"
 	}
+	hasPreferenceSignals := movieCatalogTableExists(db, "movie_preference_signals")
+	personPreferenceSelect := "0"
+	if hasPreferenceSignals {
+		personPreferenceSelect = `EXISTS(
+SELECT 1 FROM movie_preference_signals pref
+WHERE pref.target_id = movie_people.person_id
+  AND pref.signal_type IN ('actor_affinity', 'person_affinity', 'director_affinity')
+  AND pref.weight > 0
+)`
+	}
 	rows, err := db.Query(`
 SELECT movie_id, COALESCE(movie_title, ''), COALESCE(movie_url, ''),
        person_id, COALESCE(person_name, ''), COALESCE(person_url, ''),
        EXISTS(SELECT 1 FROM movies m WHERE m.movie_id = movie_people.movie_id),
        `+watchSelect+`,
        EXISTS(SELECT 1 FROM people p WHERE p.person_id = movie_people.person_id),
+       `+personPreferenceSelect+`,
        role, source
 FROM movie_people
 WHERE `+column+` = ?
@@ -671,12 +771,117 @@ LIMIT ?`, id, limit)
 	out := []movieCatalogEdgeItem{}
 	for rows.Next() {
 		var item movieCatalogEdgeItem
-		if err := rows.Scan(&item.MovieID, &item.MovieTitle, &item.MovieURL, &item.PersonID, &item.PersonName, &item.PersonURL, &item.MovieFetched, &item.MovieWatched, &item.PersonFetched, &item.Role, &item.Source); err != nil {
+		if err := rows.Scan(&item.MovieID, &item.MovieTitle, &item.MovieURL, &item.PersonID, &item.PersonName, &item.PersonURL, &item.MovieFetched, &item.MovieWatched, &item.PersonFetched, &item.PersonFavorite, &item.Role, &item.Source); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func movieCatalogPersonPreferenceCount(db *sql.DB, personID string) (int, error) {
+	if !movieCatalogTableExists(db, "movie_preference_signals") {
+		return 0, nil
+	}
+	var n int
+	err := db.QueryRow(`
+SELECT COUNT(DISTINCT signal_id)
+FROM movie_preference_signals
+WHERE target_id = ?
+  AND signal_type IN ('actor_affinity', 'person_affinity', 'director_affinity')
+  AND weight > 0`, personID).Scan(&n)
+	return n, err
+}
+
+func normalizeMovieCatalogPreferenceRequest(req *movieCatalogPreferenceRequest) error {
+	req.Kind = strings.TrimSpace(req.Kind)
+	if req.Kind == "" {
+		req.Kind = "person"
+	}
+	if req.Kind != "person" {
+		return fmt.Errorf("kind must be person")
+	}
+	req.TargetID = strings.TrimSpace(req.TargetID)
+	req.TargetLabel = strings.TrimSpace(req.TargetLabel)
+	if req.TargetID == "" {
+		return fmt.Errorf("target_id is required")
+	}
+	if req.TargetLabel == "" {
+		req.TargetLabel = req.TargetID
+	}
+	req.SignalType = strings.TrimSpace(req.SignalType)
+	if req.SignalType == "" {
+		req.SignalType = "actor_affinity"
+	}
+	if req.SignalType != "actor_affinity" && req.SignalType != "person_affinity" && req.SignalType != "director_affinity" {
+		return fmt.Errorf("unsupported signal_type")
+	}
+	if req.Weight <= 0 {
+		req.Weight = 1.0
+	}
+	req.GeneratedBy = strings.TrimSpace(req.GeneratedBy)
+	if req.GeneratedBy == "" {
+		req.GeneratedBy = "viewer"
+	}
+	return nil
+}
+
+func movieCatalogSetPersonFavorite(db *sql.DB, req movieCatalogPreferenceRequest) error {
+	if err := initMovieCatalogPreferenceSchema(db); err != nil {
+		return err
+	}
+	if !req.Favorite {
+		_, err := db.Exec(`
+DELETE FROM movie_preference_signals
+WHERE target_id = ?
+  AND signal_type IN ('actor_affinity', 'person_affinity', 'director_affinity')
+  AND generated_by IN ('viewer', 'user')`, req.TargetID)
+		return err
+	}
+	evidence := map[string]any{
+		"source":       "viewer",
+		"target_id":    req.TargetID,
+		"target_label": req.TargetLabel,
+	}
+	evidenceJSON, err := json.Marshal(evidence)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+INSERT OR REPLACE INTO movie_preference_signals
+  (signal_id, signal_type, target_id, target_label, weight, evidence_json, generated_by, generated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		movieCatalogPreferenceSignalID(req.SignalType, req.TargetID),
+		req.SignalType,
+		req.TargetID,
+		req.TargetLabel,
+		req.Weight,
+		string(evidenceJSON),
+		req.GeneratedBy,
+	)
+	return err
+}
+
+func initMovieCatalogPreferenceSchema(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS movie_preference_signals (
+  signal_id TEXT PRIMARY KEY,
+  signal_type TEXT NOT NULL,
+  target_id TEXT,
+  target_label TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 1.0,
+  evidence_json TEXT NOT NULL,
+  generated_by TEXT NOT NULL,
+  generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_movie_preference_signals_target ON movie_preference_signals(target_id);
+CREATE INDEX IF NOT EXISTS idx_movie_preference_signals_type ON movie_preference_signals(signal_type);`)
+	return err
+}
+
+func movieCatalogPreferenceSignalID(signalType string, targetID string) string {
+	sum := sha1.Sum([]byte(signalType + "\x1f" + targetID))
+	return fmt.Sprintf("pref_%x", sum[:10])
 }
 
 func movieCatalogWatchEvents(db *sql.DB, movieID string, limit int) ([]movieCatalogWatchEventItem, error) {

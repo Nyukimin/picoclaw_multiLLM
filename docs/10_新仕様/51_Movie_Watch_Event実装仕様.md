@@ -12,6 +12,7 @@
 - 映画.com movie_id に解決できたタイトルは `movie_id` と紐付ける。
 - 解決できないタイトルも失わず、未解決 title observation として保存する。
 - Viewer の Movie Database で「見た」状態と鑑賞履歴を見えるようにする。
+- 好きな俳優・人物を、カタログ本体とは別の嗜好シグナルとして保存する。
 
 対象外:
 
@@ -78,6 +79,23 @@ CREATE TABLE IF NOT EXISTS movie_title_observations (
 | `unresolved` | ローカルDBから候補を見つけられない |
 | `rejected` | 誤認として除外 |
 
+### movie_preference_signals
+
+`49_Movie_Graph_Mio_Topic仕様.md` の推奨 schema を使う。
+
+人物への手動「好き」設定は、次の値で保存する。
+
+| column | 値 |
+| --- | --- |
+| `signal_type` | `actor_affinity` |
+| `target_id` | 解決できた場合の `people.person_id` |
+| `target_label` | ユーザーが渡した人物名 |
+| `weight` | 既定 `1.0` |
+| `generated_by` | 既定 `user` |
+| `evidence_json` | 取り込み batch、元ラベル、解決状態、補足 |
+
+`people` に `favorite` カラムは追加しない。映画.com 再取得で人物カタログが更新されても、好き設定が消えないようにする。
+
 ## タイトル解決
 
 実装位置:
@@ -107,6 +125,19 @@ python3 tools/eiga_catalog/eiga_catalog.py \
 ```
 
 出力は JSON で、`input`、`events`、`resolved`、`candidate`、`unresolved` を返す。
+
+好きな俳優・人物の登録:
+
+```bash
+python3 tools/eiga_catalog/eiga_catalog.py \
+  --mark-favorite-people-file tmp/favorite_people.txt \
+  --favorite-batch-id favorite_people_20260604 \
+  --favorite-generated-by user \
+  --db tmp/eiga_catalog_smoke/eiga_catalog.sqlite \
+  --jsonl tmp/eiga_catalog_smoke/eiga_catalog.jsonl
+```
+
+出力は JSON で、`input`、`signals`、`resolved`、`candidate`、`unresolved` を返す。
 
 ## Viewer API
 
@@ -148,6 +179,29 @@ detail に次を追加する。
 `/viewer/movie-catalog?action=person&id=...`
 
 人物 detail では、その人物の関連映画のうち、れんが見た映画数を `watched_movie_count` として返す。各 link には `movie_watched` を返す。
+人物に `actor_affinity` などの正の嗜好シグナルがある場合、`favorite: true` と `preference_count` を返す。
+
+`/viewer/movie-catalog?action=movie&id=...`
+
+映画 detail の人物 link には、嗜好シグナルがある人物について `person_favorite: true` を返す。
+
+`/viewer/movie-catalog/preference`
+
+人物の好き設定を更新する。
+
+```json
+{
+  "kind": "person",
+  "target_id": "92657",
+  "target_label": "吉沢亮",
+  "favorite": true,
+  "signal_type": "actor_affinity",
+  "generated_by": "viewer"
+}
+```
+
+`favorite: true` なら `movie_preference_signals` へ追加する。`favorite: false` なら同じ人物の `actor_affinity` / `person_affinity` / `director_affinity` を削除する。
+Viewer からの手動操作は `generated_by=viewer` とする。
 
 ## Viewer UI
 
@@ -156,7 +210,10 @@ Movie Database tab では次を表示する。
 - 映画一覧の「見た」バッジ。
 - 映画詳細の鑑賞履歴。
 - 人物一覧の「見た映画」数。
+- 人物一覧・人物詳細の「好き」バッジ。
+- 人物一覧の「好き」列ではチェックボタンで好き設定をON/OFFできる。
 - 人物詳細の関連映画 link に「見た」バッジ。
+- 映画詳細の人物 link に「好き」バッジ。
 
 ## 成功条件
 
@@ -166,6 +223,7 @@ Movie Database tab では次を表示する。
 - 今日渡された映画リストの全行が `movie_watch_events` に入る。
 - 解決できないタイトルも `movie_title_observations` に残る。
 - Viewer API で watched 状態が読める。
+- 好きな俳優・人物は `movie_preference_signals` に入り、`people` の再取得で消えない。
 
 ## 検証
 

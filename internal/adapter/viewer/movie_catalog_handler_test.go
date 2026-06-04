@@ -192,6 +192,147 @@ VALUES('watch_1','57573','マージン・コール','2026-06-03','user_list','ba
 	}
 }
 
+func TestHandleMovieCatalogReturnsFavoritePeople(t *testing.T) {
+	dbPath := seedMovieCatalogTestDB(t)
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE movie_preference_signals(
+  signal_id TEXT PRIMARY KEY,
+  signal_type TEXT NOT NULL,
+  target_id TEXT,
+  target_label TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 1.0,
+  evidence_json TEXT NOT NULL,
+  generated_by TEXT NOT NULL,
+  generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO movie_preference_signals(signal_id,signal_type,target_id,target_label,weight,evidence_json,generated_by)
+VALUES('pref_1','actor_affinity','30003','ケビン・スペイシー',1.0,'{}','user');
+`); err != nil {
+		db.Close()
+		t.Fatalf("seed preference signals: %v", err)
+	}
+	db.Close()
+	h := HandleMovieCatalog(MovieCatalogOptions{DBPath: dbPath})
+
+	peopleRec := httptest.NewRecorder()
+	h(peopleRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=people&q=ケビン", nil))
+	if peopleRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", peopleRec.Code, peopleRec.Body.String())
+	}
+	var peopleOut struct {
+		Items []movieCatalogPersonItem `json:"items"`
+	}
+	if err := json.Unmarshal(peopleRec.Body.Bytes(), &peopleOut); err != nil {
+		t.Fatalf("invalid people json: %v", err)
+	}
+	if len(peopleOut.Items) != 1 || !peopleOut.Items[0].Favorite || peopleOut.Items[0].PreferenceCount != 1 {
+		t.Fatalf("expected favorite person row, got %+v", peopleOut.Items)
+	}
+
+	personRec := httptest.NewRecorder()
+	h(personRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=person&id=30003", nil))
+	if personRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", personRec.Code, personRec.Body.String())
+	}
+	var personOut struct {
+		Detail struct {
+			Person movieCatalogPersonItem `json:"person"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(personRec.Body.Bytes(), &personOut); err != nil {
+		t.Fatalf("invalid person json: %v", err)
+	}
+	if !personOut.Detail.Person.Favorite || personOut.Detail.Person.PreferenceCount != 1 {
+		t.Fatalf("expected favorite person detail, got %+v", personOut.Detail.Person)
+	}
+
+	movieRec := httptest.NewRecorder()
+	h(movieRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=movie&id=57573", nil))
+	if movieRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", movieRec.Code, movieRec.Body.String())
+	}
+	var movieOut struct {
+		Detail struct {
+			Links []movieCatalogEdgeItem `json:"links"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(movieRec.Body.Bytes(), &movieOut); err != nil {
+		t.Fatalf("invalid movie json: %v", err)
+	}
+	if len(movieOut.Detail.Links) != 1 || !movieOut.Detail.Links[0].PersonFavorite {
+		t.Fatalf("expected favorite person edge, got %+v", movieOut.Detail.Links)
+	}
+}
+
+func TestHandleMovieCatalogPreferenceTogglesPersonFavorite(t *testing.T) {
+	dbPath := seedMovieCatalogTestDB(t)
+	h := HandleMovieCatalogPreference(MovieCatalogOptions{DBPath: dbPath})
+
+	onRec := httptest.NewRecorder()
+	h(onRec, httptest.NewRequest(http.MethodPost, "/viewer/movie-catalog/preference", strings.NewReader(`{
+		"kind":"person",
+		"target_id":"30003",
+		"target_label":"ケビン・スペイシー",
+		"favorite":true
+	}`)))
+	if onRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", onRec.Code, onRec.Body.String())
+	}
+	var onOut movieCatalogResponse
+	if err := json.Unmarshal(onRec.Body.Bytes(), &onOut); err != nil {
+		t.Fatalf("invalid on json: %v", err)
+	}
+	detail, ok := onOut.Detail.(map[string]any)
+	if !ok || detail["favorite"] != true || int(detail["preference_count"].(float64)) != 1 {
+		t.Fatalf("expected favorite on response, got %+v", onOut.Detail)
+	}
+
+	read := HandleMovieCatalog(MovieCatalogOptions{DBPath: dbPath})
+	personRec := httptest.NewRecorder()
+	read(personRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=person&id=30003", nil))
+	if personRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", personRec.Code, personRec.Body.String())
+	}
+	var personOut struct {
+		Detail struct {
+			Person movieCatalogPersonItem `json:"person"`
+		} `json:"detail"`
+	}
+	if err := json.Unmarshal(personRec.Body.Bytes(), &personOut); err != nil {
+		t.Fatalf("invalid person json: %v", err)
+	}
+	if !personOut.Detail.Person.Favorite || personOut.Detail.Person.PreferenceCount != 1 {
+		t.Fatalf("expected favorite person after toggle on, got %+v", personOut.Detail.Person)
+	}
+
+	offRec := httptest.NewRecorder()
+	h(offRec, httptest.NewRequest(http.MethodPost, "/viewer/movie-catalog/preference", strings.NewReader(`{
+		"kind":"person",
+		"target_id":"30003",
+		"target_label":"ケビン・スペイシー",
+		"favorite":false
+	}`)))
+	if offRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", offRec.Code, offRec.Body.String())
+	}
+
+	personRec = httptest.NewRecorder()
+	read(personRec, httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog?action=person&id=30003", nil))
+	if personRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", personRec.Code, personRec.Body.String())
+	}
+	if err := json.Unmarshal(personRec.Body.Bytes(), &personOut); err != nil {
+		t.Fatalf("invalid person json after off: %v", err)
+	}
+	if personOut.Detail.Person.Favorite || personOut.Detail.Person.PreferenceCount != 0 {
+		t.Fatalf("expected favorite off after toggle off, got %+v", personOut.Detail.Person)
+	}
+}
+
 func TestHandleMovieCatalogMissingDBIsSoftUnavailable(t *testing.T) {
 	h := HandleMovieCatalog(MovieCatalogOptions{DBPath: filepath.Join(t.TempDir(), "missing.sqlite")})
 	rec := httptest.NewRecorder()

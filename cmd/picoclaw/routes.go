@@ -41,6 +41,7 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
 	mux.HandleFunc("/viewer/movie-catalog", viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}))
 	mux.HandleFunc("/viewer/movie-catalog/fetch", viewer.HandleMovieCatalogFetch(viewer.MovieCatalogOptions{}))
+	mux.HandleFunc("/viewer/movie-catalog/preference", viewer.HandleMovieCatalogPreference(viewer.MovieCatalogOptions{}))
 }
 
 func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts *viewer.DebugSystemOptions) {

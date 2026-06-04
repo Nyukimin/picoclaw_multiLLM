@@ -142,6 +142,41 @@ class EigaCatalogTest(unittest.TestCase):
             self.assertIn(("未登録映画", "unresolved", None), observations)
             self.assertNotIn("seen", movie_columns)
 
+    def test_mark_favorite_people_stores_actor_affinity_signal(self):
+        person = eiga_catalog.parse_person(PERSON_HTML, "https://eiga.com/person/30003/", FILMOGRAPHY_HTML)
+        with tempfile.TemporaryDirectory() as td:
+            db = Path(td) / "catalog.sqlite"
+            jsonl = Path(td) / "catalog.jsonl"
+            store = eiga_catalog.EigaStore(db, jsonl)
+            try:
+                store.save_person(person)
+            finally:
+                store.close()
+
+            stats = eiga_catalog.mark_favorite_people(
+                db,
+                ["ケビン・スペイシー", "未登録俳優"],
+                "actor_affinity",
+                "favorite_people_test",
+                "user",
+                1.0,
+                "manual favorite",
+            )
+            self.assertEqual(stats["input"], 2)
+            self.assertEqual(stats["signals"], 2)
+            self.assertEqual(stats["resolved"], 1)
+            self.assertEqual(stats["unresolved"], 1)
+
+            conn = sqlite3.connect(db)
+            rows = conn.execute(
+                "SELECT signal_type, target_id, target_label, generated_by FROM movie_preference_signals ORDER BY target_label"
+            ).fetchall()
+            people_columns = [row[1] for row in conn.execute("PRAGMA table_info(people)").fetchall()]
+            conn.close()
+            self.assertIn(("actor_affinity", "30003", "ケビン・スペイシー", "user"), rows)
+            self.assertIn(("actor_affinity", None, "未登録俳優", "user"), rows)
+            self.assertNotIn("favorite", people_columns)
+
 
 if __name__ == "__main__":
     unittest.main()

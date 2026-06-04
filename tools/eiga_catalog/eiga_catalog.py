@@ -404,6 +404,26 @@ def init_watch_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def init_preference_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS movie_preference_signals (
+          signal_id TEXT PRIMARY KEY,
+          signal_type TEXT NOT NULL,
+          target_id TEXT,
+          target_label TEXT NOT NULL,
+          weight REAL NOT NULL DEFAULT 1.0,
+          evidence_json TEXT NOT NULL,
+          generated_by TEXT NOT NULL,
+          generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_movie_preference_signals_target ON movie_preference_signals(target_id);
+        CREATE INDEX IF NOT EXISTS idx_movie_preference_signals_type ON movie_preference_signals(signal_type);
+        """
+    )
+    conn.commit()
+
+
 def movie_title_candidates(conn: sqlite3.Connection) -> dict[str, list[tuple[str, str]]]:
     out: dict[str, list[tuple[str, str]]] = {}
     rows = conn.execute("SELECT movie_id, title FROM movies WHERE COALESCE(title, '') != ''").fetchall()
@@ -426,6 +446,66 @@ def movie_title_candidates(conn: sqlite3.Connection) -> dict[str, list[tuple[str
         if candidate not in out[key]:
             out[key].append(candidate)
     return out
+
+
+def normalize_person_key(value: str) -> str:
+    value = clean_text(value)
+    try:
+        import unicodedata
+
+        value = unicodedata.normalize("NFKC", value)
+    except Exception:
+        pass
+    value = value.lower()
+    value = re.sub(r"[\s　・\-.。:：!！?？()\[\]【】/／#＃]", "", value)
+    return value
+
+
+def person_name_candidates(conn: sqlite3.Connection) -> dict[str, list[tuple[str, str]]]:
+    out: dict[str, list[tuple[str, str]]] = {}
+    rows = conn.execute("SELECT person_id, name FROM people WHERE COALESCE(name, '') != ''").fetchall()
+    rows.extend(
+        conn.execute(
+            """
+            SELECT person_id, person_name
+            FROM movie_people
+            WHERE COALESCE(person_id, '') != '' AND COALESCE(person_name, '') != ''
+            GROUP BY person_id, person_name
+            """
+        ).fetchall()
+    )
+    for person_id, name in rows:
+        key = normalize_person_key(str(name))
+        if not key:
+            continue
+        out.setdefault(key, [])
+        candidate = (str(person_id), str(name))
+        if candidate not in out[key]:
+            out[key].append(candidate)
+    return out
+
+
+def resolve_person_name(candidates: dict[str, list[tuple[str, str]]], name: str) -> tuple[str, str, str]:
+    key = normalize_person_key(name)
+    if not key:
+        return "", "unresolved", "empty normalized person name"
+    exact = candidates.get(key, [])
+    if len(exact) == 1:
+        return exact[0][0], "resolved", "exact normalized person name match"
+    if len(exact) > 1:
+        return "", "candidate", "multiple exact normalized person name matches"
+
+    partial: list[tuple[str, str]] = []
+    if len(key) >= 3:
+        for candidate_key, items in candidates.items():
+            if key in candidate_key or candidate_key in key:
+                partial.extend(items)
+    unique = sorted(set(partial))
+    if len(unique) == 1:
+        return unique[0][0], "resolved", "single partial normalized person name match"
+    if len(unique) > 1:
+        return "", "candidate", "multiple partial normalized person name matches"
+    return "", "unresolved", "no local person candidate"
 
 
 def resolve_movie_title(candidates: dict[str, list[tuple[str, str]]], title: str) -> tuple[str, str, str]:
@@ -509,6 +589,62 @@ def mark_watched_titles(
                     now if status == "resolved" else None,
                 ),
             )
+        conn.commit()
+        return stats
+    finally:
+        conn.close()
+
+
+def mark_favorite_people(
+    db_path: Path,
+    names: list[str],
+    signal_type: str,
+    source_batch_id: str,
+    generated_by: str,
+    weight: float = 1.0,
+    note: str = "",
+) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    try:
+        init_preference_schema(conn)
+        candidates = person_name_candidates(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        stats = {"input": 0, "signals": 0, "resolved": 0, "candidate": 0, "unresolved": 0}
+        for index, raw_name in enumerate(names, start=1):
+            name = clean_text(raw_name)
+            if not name:
+                continue
+            stats["input"] += 1
+            person_id, status, resolution_note = resolve_person_name(candidates, name)
+            if status not in stats:
+                stats[status] = 0
+            stats[status] += 1
+            signal_id = stable_id("pref", signal_type, source_batch_id, index, name)
+            evidence = {
+                "source_batch_id": source_batch_id,
+                "original_label": name,
+                "status": status,
+                "resolution_note": resolution_note,
+                "note": note,
+            }
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO movie_preference_signals
+                  (signal_id,signal_type,target_id,target_label,weight,evidence_json,generated_by,generated_at)
+                VALUES(?,?,?,?,?,?,?,?)
+                """,
+                (
+                    signal_id,
+                    signal_type,
+                    person_id or None,
+                    name,
+                    weight,
+                    json.dumps(evidence, ensure_ascii=False, sort_keys=True),
+                    generated_by,
+                    now,
+                ),
+            )
+            stats["signals"] += 1
         conn.commit()
         return stats
     finally:
@@ -631,6 +767,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--watch-source", default="user_list", help="Source label for watched-title import.")
     parser.add_argument("--watch-batch-id", default="", help="Batch ID for watched-title import.")
     parser.add_argument("--watch-note", default="", help="Optional note for watched-title import.")
+    parser.add_argument("--mark-favorite-people-file", type=Path, default=None, help="Plain text person-name list to register as favorite actors.")
+    parser.add_argument("--favorite-signal-type", default="actor_affinity", help="Preference signal type for --mark-favorite-people-file.")
+    parser.add_argument("--favorite-batch-id", default="", help="Batch ID for favorite-person import.")
+    parser.add_argument("--favorite-generated-by", default="user", help="generated_by value for favorite-person import.")
+    parser.add_argument("--favorite-weight", type=float, default=1.0, help="Preference weight for favorite-person import.")
+    parser.add_argument("--favorite-note", default="", help="Optional note for favorite-person import.")
     parser.add_argument("--seed-url", action="append", default=[], help="Movie/person URL to start from. Repeatable.")
     parser.add_argument("--all-from-sitemap", action="store_true", help="Discover movie/person URLs from sitemap.")
     parser.add_argument("--max-sitemaps", type=int, default=0, help="Limit sitemap files for discovery; 0 means all.")
@@ -654,6 +796,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         if not args.watch_batch_id:
             args.watch_batch_id = "watched_" + datetime.now(timezone.utc).strftime("%Y%m%d")
         return args
+    if args.mark_favorite_people_file is not None:
+        if not args.favorite_batch_id:
+            args.favorite_batch_id = "favorite_people_" + datetime.now(timezone.utc).strftime("%Y%m%d")
+        return args
     if not args.seed_url and not args.all_from_sitemap:
         parser.error("provide --seed-url or --all-from-sitemap")
     return args
@@ -664,6 +810,19 @@ def main(argv: list[str]) -> int:
     if args.mark_watched_file is not None:
         titles = sys.stdin.read().splitlines() if str(args.mark_watched_file) == "-" else args.mark_watched_file.read_text(encoding="utf-8").splitlines()
         stats = mark_watched_titles(args.db, titles, args.watched_at, args.watch_source, args.watch_batch_id, args.watch_note)
+        print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.mark_favorite_people_file is not None:
+        names = sys.stdin.read().splitlines() if str(args.mark_favorite_people_file) == "-" else args.mark_favorite_people_file.read_text(encoding="utf-8").splitlines()
+        stats = mark_favorite_people(
+            args.db,
+            names,
+            args.favorite_signal_type,
+            args.favorite_batch_id,
+            args.favorite_generated_by,
+            args.favorite_weight,
+            args.favorite_note,
+        )
         print(json.dumps(stats, ensure_ascii=False, sort_keys=True))
         return 0
     return crawl(args)

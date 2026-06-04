@@ -126,11 +126,15 @@ function movieDbRenderRows(items) {
   rows.querySelectorAll('.movie-db-row').forEach((row) => {
     row.addEventListener('click', () => movieDbOpenDetail(row.dataset.id || ''));
   });
+  rows.querySelectorAll('.movie-db-favorite-toggle').forEach((control) => {
+    control.addEventListener('click', (ev) => ev.stopPropagation());
+    control.addEventListener('change', () => movieDbSetPersonFavorite(control));
+  });
 }
 
 function movieDbTableHeadHTML() {
   if (movieDbState.mode === 'people') {
-    return '<tr><th>人物</th><th>関連映画</th><th>見た映画</th><th>略歴</th><th>ID</th></tr>';
+    return '<tr><th>人物</th><th>好き</th><th>関連映画</th><th>見た映画</th><th>略歴</th><th>ID</th></tr>';
   }
   return '<tr><th>映画</th><th>見た</th><th>人物</th><th>あらすじ</th><th>ID</th></tr>';
 }
@@ -150,6 +154,7 @@ function movieDbPersonRowHTML(item) {
   const id = movieDbItemID(item);
   return '<tr class="movie-db-row' + (movieDbState.selectedID === id ? ' active' : '') + '" data-id="' + escAttr(id) + '">' +
     '<td class="movie-db-title-cell">' + esc(item.name || '-') + '</td>' +
+    '<td>' + movieDbFavoriteToggleHTML(item) + '</td>' +
     '<td>' + esc(String(item.movie_count || 0)) + '</td>' +
     '<td>' + esc(String(item.watched_movie_count || 0)) + '</td>' +
     '<td class="movie-db-body-cell">' + esc(short(item.biography || '-', 180)) + '</td>' +
@@ -161,6 +166,60 @@ function movieDbWatchedBadgeHTML(item) {
   const count = Number(item && item.watch_count ? item.watch_count : 0);
   if (!item || !item.watched) return '<span class="movie-db-watch-badge off">-</span>';
   return '<span class="movie-db-watch-badge">見た' + (count > 1 ? ' ' + esc(String(count)) : '') + '</span>';
+}
+
+function movieDbFavoriteBadgeHTML(item) {
+  const count = Number(item && item.preference_count ? item.preference_count : 0);
+  if (!item || !item.favorite) return '<span class="movie-db-favorite-badge off">-</span>';
+  return '<span class="movie-db-favorite-badge">好き' + (count > 1 ? ' ' + esc(String(count)) : '') + '</span>';
+}
+
+function movieDbFavoriteToggleHTML(item) {
+  const id = item && item.person_id ? String(item.person_id) : '';
+  const name = item && item.name ? String(item.name) : id;
+  const checked = item && item.favorite ? ' checked' : '';
+  const disabled = id ? '' : ' disabled';
+  return '<label class="movie-db-favorite-toggle-wrap">' +
+    '<input class="movie-db-favorite-toggle" type="checkbox" data-person-id="' + escAttr(id) + '" data-person-name="' + escAttr(name) + '"' + checked + disabled + '>' +
+    '<span>好き</span>' +
+    '</label>';
+}
+
+function movieDbSetPersonFavorite(control) {
+  const personID = control && control.dataset ? String(control.dataset.personId || '') : '';
+  const personName = control && control.dataset ? String(control.dataset.personName || personID) : personID;
+  if (!personID) return;
+  control.disabled = true;
+  fetch('/viewer/movie-catalog/preference', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      kind: 'person',
+      target_id: personID,
+      target_label: personName,
+      favorite: Boolean(control.checked),
+      signal_type: 'actor_affinity',
+      generated_by: 'viewer',
+    }),
+  })
+    .then((r) => {
+      if (!r.ok) return r.text().then((text) => { throw new Error(text || ('HTTP ' + String(r.status))); });
+      return r.json();
+    })
+    .then(() => {
+      movieDbRefreshStats();
+      movieDbRefreshList();
+      if (movieDbState.mode === 'people' && movieDbState.selectedID === personID) {
+        window.setTimeout(() => movieDbOpenDetail(personID, {skipHistory: true}), 80);
+      }
+    })
+    .catch((err) => {
+      control.checked = !control.checked;
+      window.alert('好き設定を更新できません: ' + String(err && err.message ? err.message : err));
+    })
+    .finally(() => {
+      control.disabled = false;
+    });
 }
 
 function movieDbItemID(item) {
@@ -287,7 +346,7 @@ function movieDbRenderDetail(detail) {
     const person = detail.person || {};
     const links = Array.isArray(detail.links) ? detail.links : [];
     target.innerHTML = '<h3>' + esc(person.name || '-') + '</h3>' +
-      '<div class="daily-desk-muted">' + movieDbExternalLink(person.url) + ' / ' + esc(person.person_id || '-') + '</div>' +
+      '<div class="movie-db-detail-meta">' + movieDbFavoriteBadgeHTML(person) + '<span class="daily-desk-muted">' + movieDbExternalLink(person.url) + ' / ' + esc(person.person_id || '-') + '</span></div>' +
       movieDbProfileHTML(person.profile || '') +
       '<h4>略歴</h4><div class="daily-desk-body">' + esc(person.biography || '-') + '</div>' +
       '<h4>出演・関連映画</h4>' + movieDbPersonLinksHTML(links);
@@ -356,11 +415,13 @@ function movieDbLinkedPersonControl(link) {
   const id = link && link.person_id ? String(link.person_id) : '';
   const url = link && link.person_url ? String(link.person_url) : '';
   const name = link && link.person_name ? String(link.person_name) : '-';
+  const favorite = link && link.person_favorite ? movieDbFavoriteBadgeHTML({favorite: true, preference_count: 1}) : '';
   if (link && link.person_fetched && id) {
-    return '<div class="movie-db-link-head"><button class="ctl-btn" type="button" onclick="movieDbSetModeAndOpen(&quot;people&quot;,&quot;' + escAttr(id) + '&quot;)">' + esc(name) + '</button></div>';
+    return '<div class="movie-db-link-head"><button class="ctl-btn" type="button" onclick="movieDbSetModeAndOpen(&quot;people&quot;,&quot;' + escAttr(id) + '&quot;)">' + esc(name) + '</button>' + favorite + '</div>';
   }
   return '<div class="movie-db-link-head">' +
     '<span class="movie-db-link-title">' + esc(name) + '</span>' +
+    favorite +
     movieDbFetchLinkButton('person', url) +
     '</div>';
 }
