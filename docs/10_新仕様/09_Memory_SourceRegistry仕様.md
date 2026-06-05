@@ -53,6 +53,102 @@ role-filtered retrieval は Chat / Worker / Wild で retrieval 候補を変え�
 
 Agent KPI / Level は AgentStatus として runtime state 側に保持する。現行実装は `internal/domain/conversation/agent_status.go` と `internal/infrastructure/persistence/conversation/real_manager_agent_status.go` で KPI 加算、Level 更新、RealConversationManager での保持を扱う。Viewer 表示や運用 UI は未接続のため、実装済み core と未接続 UI を分けて追跡する。
 
+## Memory 操作語彙とメタデータ拡張方針
+
+外部 memory service や外部 semantic DB は RenCrow の正本 memory store へ直接導入しない。ただし、agent memory 系ツールの設計から、次の操作語彙と metadata 方針は RenCrow 内部仕様として採用できる。
+
+### 操作語彙
+
+RenCrow の memory 周辺 API / CLI / Viewer 表示では、次の3系統を基本語彙にする。
+
+| 操作 | RenCrowでの意味 | 注意 |
+| --- | --- | --- |
+| `remember` | memory candidate / operation memory / staging へ保存する | `confirmed` への直接昇格ではない |
+| `recall` | RecallPack / Memory tab / API で関連候補を取り出す | 採用/不採用 decision と理由を trace する |
+| `answer` | recall した記憶を根拠として回答案を作る | prompt text だけを保存先にしない |
+
+`remember` は保存入口であり、正式化入口ではない。`observed` / `candidate` / `validated` / `promoted` の状態遷移を飛ばしてはいけない。
+
+### Memory Type
+
+memory item / staging item / operation memory note は、可能な範囲で次の type を持てるようにする。
+
+| type | 用途 |
+| --- | --- |
+| `instruction` | ユーザーの継続指示、運用方針 |
+| `fact` | 確認済みの事実 |
+| `decision` | 決定事項、採用/不採用判断 |
+| `goal` | 長期・短期目標 |
+| `commitment` | 約束、期限、やること |
+| `preference` | 好み、表示・応答・作業スタイル |
+| `relationship` | 人・キャラクター・組織の関係 |
+| `context` | 背景文脈 |
+| `event` | 発生した出来事 |
+| `learning` | 失敗から得た教訓、再発防止 |
+| `observation` | 観測結果、未検証の気づき |
+| `artifact` | ファイル、commit、URL、report などの成果物 |
+| `error` | 障害、失敗、未解決問題 |
+
+type は検索・表示・昇格判断の補助 metadata であり、type が付いただけで信頼済みになるわけではない。
+
+### Provenance / Confidence
+
+memory item は、正式化前後を問わず、可能な限り provenance と confidence を保持する。
+
+最低限持つべき観点:
+
+- `source_kind`: user / agent / tool / source_registry / viewer / log / imported_file
+- `source_id`: message_id、job_id、source_id、file path、URL など
+- `observed_at`: 観測時刻
+- `created_by`: 保存した主体
+- `confidence`: 0.0 から 1.0 の確からしさ
+- `evidence`: 根拠の短い説明または参照
+- `inferred`: ユーザー明示ではなく推測なら true
+
+ユーザー明示の指示と agent の推測を混同してはいけない。`confirmed` へ昇格する場合でも、根拠と保存経路を失わない。
+
+### Conflict Detection
+
+新しい candidate が既存の confirmed / promoted memory と矛盾する場合、黙って上書きしない。
+
+扱い:
+
+- 新旧両方を保持する。
+- 新しい item は `candidate` または `conflicted` 相当の review 状態に置く。
+- Viewer Memory タブまたは運用 report で確認待ちとして表示する。
+- 明示承認または validator 通過後に、置換・無効化・併存を決める。
+
+例:
+
+- `preference`: 「短く答えて」 と 「詳しく説明して」が両立しない。
+- `instruction`: 古い運用手順と新しい禁止事項が矛盾する。
+- `fact`: endpoint、port、host、model 名が変わった。
+
+### Temporal Query
+
+memory 周辺の調査・Viewer表示では、将来次の時間軸 query を扱えるようにする。
+
+| query | 用途 |
+| --- | --- |
+| `as_of` | ある時点で何を覚えていたか確認する |
+| `changed_since` | いつから記憶・設定・判断が変わったか確認する |
+
+これは「さっきまでできていた」「前に決めた」「仕様にあったはず」という回帰調査に使う。現時点の表示だけで過去状態を断定してはいけない。
+
+### Daily Memory Summary
+
+日次 report / Daily Desk / OperationMemory では、次の分類で memory summary を作れるようにする。
+
+- 今日の `decision`
+- 未完了の `commitment`
+- 新しい `preference`
+- 重要な `error`
+- 再発防止の `learning`
+- 昇格待ちの `candidate`
+- 矛盾確認待ちの item
+
+summary は閲覧・共有・再利用のための投影であり、DB/runtime 側の正本 state を置き換えない。
+
 ## OperationMemory
 
 OperationMemory は repo の `workspace/` ではなく、DB や runtime state と同じ永続領域に置く。

@@ -31,6 +31,7 @@
    - `rules/routing-policy.md`
    - `rules/rules_viewer_ui.md`
    - `rules/rules_domain.md`
+   - `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`（Memory / Source Registry / 記憶分類を扱う場合）
 
 実装判断で迷った場合、**一次参照は `docs/01_正本仕様/実装仕様.md`** とする。
 Viewer / UI / 見た目の判断で迷った場合、**視覚方針の一次参照は `DESIGN.md`** とし、実装・状態管理・検証の一次参照は正本仕様と rules に戻る。
