@@ -8,16 +8,7 @@ function latestOpsEventBy(fn) {
   return null;
 }
 
-function renderOps() {
-  const cards = document.getElementById('opsCards');
-  const focusBody = document.getElementById('opsFocusBody');
-  const feedBody = document.getElementById('opsFeedBody');
-  if (!cards || !focusBody || !feedBody) return;
-  cards.innerHTML = '';
-  focusBody.innerHTML = '';
-  feedBody.innerHTML = '';
-  bindDCISearchControls();
-
+function currentOpsSummary() {
   const logsFetchError = String(state.ops.opsLogsFetchError || '');
   const persisted = logsFetchError ? [] : (Array.isArray(state.ops.persistedLogs) ? state.ops.persistedLogs : []);
   const runningJobs = Object.values(state.jobs).filter((j) => String(j.status || '') !== 'done');
@@ -32,8 +23,110 @@ function renderOps() {
     const s = state.agents[id];
     return s && s.state !== 'offline';
   });
+  return {logsFetchError, persisted, runningJobs, lastMio, latestJobID, latestRoute, latestError, activeAgents};
+}
 
-  [
+function opsTriageCard(title, value, detail, stateName) {
+  return '<div class="ops-triage-card state-' + esc(stateName || 'offline') + '">' +
+    '<div class="ops-triage-top"><div class="ops-triage-title">' + esc(title) + '</div><span class="ops-triage-dot" aria-hidden="true"></span></div>' +
+    '<div class="ops-triage-value">' + esc(value || '-') + '</div>' +
+    '<div class="ops-triage-detail">' + esc(detail || '-') + '</div>' +
+  '</div>';
+}
+
+function compactOpsDetail(text, limit) {
+  return short(String(text || '').replace(/\s+/g, ' '), limit || 120);
+}
+
+function opsAudioTriage() {
+  const audio = state.ops.runtimeDebugSystem && state.ops.runtimeDebugSystem.audio ? state.ops.runtimeDebugSystem.audio : null;
+  const runtimeDebugError = String(state.ops.runtimeDebugSystemFetchError || '').trim();
+  if (!audio) {
+    return {
+      value: 'not checked',
+      detail: runtimeDebugError ? 'blocked: ' + runtimeDebugError : 'audio readiness not loaded',
+      state: runtimeDebugError ? 'error' : 'thinking',
+    };
+  }
+  const sttOK = audio.stt_ok === true;
+  const ttsOK = audio.tts_live_ok === true || audio.tts_ready_ok === true;
+  const err = audio.last_error ? 'blocked: ' + String(audio.last_error) : '';
+  return {
+    value: (sttOK ? 'STT ok' : 'STT ?') + ' / ' + (ttsOK ? 'TTS ok' : 'TTS ?'),
+    detail: err ? compactOpsDetail(err, 118) : ([audio.stt_base_url || state.ops.runtimeSTTBaseURL || '', audio.tts_base_url || state.ops.runtimeTTSBaseURL || ''].filter(Boolean).join('\n') || 'audio readiness loaded'),
+    state: err ? 'error' : (sttOK && ttsOK ? 'running' : 'thinking'),
+  };
+}
+
+function opsLLMTriage() {
+  if (state.ops.llmStatusError) {
+    return {value: 'blocked', detail: compactOpsDetail(state.ops.llmStatusError, 118), state: 'error'};
+  }
+  if (state.ops.llmStatus) {
+    return {value: 'live', detail: state.ops.llmOpsBaseURL || 'LLM Ops status loaded', state: 'running'};
+  }
+  if (state.ops.llmOpsEnabled) {
+    return {value: 'checking', detail: state.ops.llmOpsBaseURL || 'LLM Ops proxy enabled', state: 'thinking'};
+  }
+  return {value: 'disabled', detail: state.ops.llmOpsConfigured ? 'LLM Ops token missing or proxy disabled' : 'LLM Ops not configured', state: 'offline'};
+}
+
+function refreshOpsTriageFromState(summary) {
+  const target = document.getElementById('opsTriageCards');
+  if (!target) return;
+  const data = summary || currentOpsSummary();
+  const runtimeHealth = state.ops.runtimeHealth || null;
+  const runtimeOK = runtimeHealth && runtimeHealth.status === 'ok';
+  const runtimeDetail = runtimeHealthDetailText(runtimeHealth, state.ops.runtimeHealthError);
+  const llm = opsLLMTriage();
+  const audio = opsAudioTriage();
+  target.innerHTML = [
+    opsTriageCard('Runtime', state.ops.runtimeHealthError ? 'blocked' : (runtimeOK ? 'ok' : 'checking'), runtimeDetail, state.ops.runtimeHealthError ? 'error' : (runtimeOK ? 'running' : 'thinking')),
+    opsTriageCard('LLM', llm.value, llm.detail, llm.state),
+    opsTriageCard('Audio', audio.value, audio.detail, audio.state),
+    opsTriageCard('Jobs', String(data.runningJobs.length), data.runningJobs.slice(0, 2).map((j) => (j.id || '-') + ' · ' + (j.route || '-') + ' · ' + (j.status || '-')).join('\n') || '進行中ジョブなし', data.runningJobs.length ? 'thinking' : 'running'),
+    opsTriageCard('Errors', data.logsFetchError ? 'unavailable' : (data.latestError ? short(data.latestError.type || '-', 20) : 'none'), data.logsFetchError ? ('ops logs unavailable: ' + data.logsFetchError) : (data.latestError ? short(data.latestError.content || '-', 90) : '直近の失敗イベントなし'), data.logsFetchError || data.latestError ? 'error' : 'running'),
+  ].join('');
+}
+
+function renderOpsCardList(target, items) {
+  if (!target) return;
+  target.innerHTML = '';
+  items.forEach((item) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="ops-card-title">' + esc(item.title) + '</div>' +
+      '<div class="ops-big">' + esc(item.big) + '</div>' +
+      '<div class="ops-sub">' + esc(item.sub) + '</div>';
+    target.appendChild(card);
+  });
+}
+
+function renderOps() {
+  const cards = document.getElementById('opsCards');
+  const secondaryCards = document.getElementById('opsSecondaryCards');
+  const focusBody = document.getElementById('opsFocusBody');
+  const feedBody = document.getElementById('opsFeedBody');
+  if (!cards || !focusBody || !feedBody) return;
+  cards.innerHTML = '';
+  if (secondaryCards) secondaryCards.innerHTML = '';
+  focusBody.innerHTML = '';
+  feedBody.innerHTML = '';
+  bindDCISearchControls();
+
+  const summary = currentOpsSummary();
+  const logsFetchError = summary.logsFetchError;
+  const persisted = summary.persisted;
+  const runningJobs = summary.runningJobs;
+  const lastMio = summary.lastMio;
+  const latestJobID = summary.latestJobID;
+  const latestRoute = summary.latestRoute;
+  const latestError = summary.latestError;
+  const activeAgents = summary.activeAgents;
+  refreshOpsTriageFromState(summary);
+
+  const primaryCards = [
     {
       title: 'Latest Job',
       big: logsFetchError ? 'unavailable' : (latestJobID || '-'),
@@ -59,6 +152,8 @@ function renderOps() {
       big: String(activeAgents.length),
       sub: activeAgents.map((id) => agName(id) + ' · ' + (state.agents[id].state || '-')).join('\n') || '全員 offline',
     },
+  ];
+  const secondaryItems = [
     toolHarnessOpsCard(),
     dciOpsCard(),
     sandboxOpsCard(),
@@ -73,15 +168,9 @@ function renderOps() {
     heavyWorkerRuntimeOpsCard(),
     knowledgeMemoryOpsCard(),
     runtimeBlockedRoutesOpsCard(),
-  ].forEach((item) => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML =
-      '<div class="ops-card-title">' + esc(item.title) + '</div>' +
-      '<div class="ops-big">' + esc(item.big) + '</div>' +
-      '<div class="ops-sub">' + esc(item.sub) + '</div>';
-    cards.appendChild(card);
-  });
+  ];
+  renderOpsCardList(cards, primaryCards);
+  renderOpsCardList(secondaryCards, secondaryItems);
 
   [
     {label: '最新 route', value: logsFetchError ? 'unavailable' : (latestRoute || '-')},
@@ -2497,6 +2586,7 @@ function renderRuntimeDependencyReadiness() {
     ], readiness.sandbox_enabled ? '/viewer/sandbox' : 'blocked: sandbox disabled'),
   ].filter(Boolean);
   el.innerHTML = rows.join('');
+  if (typeof refreshOpsTriageFromState === 'function') refreshOpsTriageFromState();
 }
 
 function runtimeReadinessItem(label, value) {

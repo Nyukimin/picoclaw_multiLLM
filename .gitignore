@@ -77,3 +77,5 @@ config/config.yaml
 test_*.go
 test_*.sh
 *.log
+.aidesigner/*
+!.aidesigner/.gitkeep

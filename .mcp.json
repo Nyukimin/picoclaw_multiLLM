@@ -25,6 +25,14 @@
       "args": [
         "@playwright/mcp@latest"
       ]
+    },
+    "aidesigner": {
+      "type": "http",
+      "url": "https://api.aidesigner.ai/api/v1/mcp"
+    },
+    "figma": {
+      "type": "http",
+      "url": "https://mcp.figma.com/mcp"
     }
   }
 }

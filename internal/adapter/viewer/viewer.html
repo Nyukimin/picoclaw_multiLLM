@@ -226,9 +226,31 @@
     </div>
   </section>
 
-  <section id="panel-ops" class="panel">
-    <div class="ops-grid" id="opsCards"></div>
-    <div class="debug-panels">
+  <section id="panel-ops" class="panel ops-panel">
+    <div class="ops-cockpit">
+      <header class="ops-hero">
+        <div class="ops-hero-main">
+          <div class="ops-kicker">Ops / Runtime Desk</div>
+          <h2 class="ops-hero-title">運用コックピット</h2>
+          <p class="ops-hero-copy">稼働状態、LLM、音声、ジョブ、失敗だけを先に確認します。監査ログと生テーブルは下の詳細に分離します。</p>
+        </div>
+        <nav class="ops-quick-nav" aria-label="Ops quick sections">
+          <a href="#opsDetailsRuntime">Runtime</a>
+          <a href="#opsDetailsEvidence">Evidence</a>
+          <a href="#opsDetailsTraces">Traces</a>
+        </nav>
+      </header>
+      <div class="ops-triage-grid" id="opsTriageCards"></div>
+      <section class="ops-section">
+        <div class="ops-section-title">
+          <span>Current Focus</span>
+          <small>最新ジョブ、Mio報告、進行中、失敗、稼働Agent</small>
+        </div>
+        <div class="ops-grid" id="opsCards"></div>
+      </section>
+      <details class="ops-details" id="opsDetailsEvidence">
+        <summary>Evidence / Governance</summary>
+        <div class="debug-panels ops-details-body">
       <div class="debug-box">
         <h4>Skill Governance External PR Submit Audits</h4>
         <div class="small" style="margin-bottom:8px">Contribution Gate 通過後の外部 PR submit audit を確認します。adapter 未接続や送信失敗を PR 作成成功として扱いません。</div>
@@ -342,6 +364,11 @@
         </table>
         <pre id="personaMetaReviewResult" class="small llm-ops-raw">persona meta review: -</pre>
       </div>
+        </div>
+      </details>
+      <details class="ops-details" id="opsDetailsRuntime">
+        <summary>Runtime / LLM / Audio</summary>
+        <div class="debug-panels ops-details-body">
       <div class="debug-box">
         <h4>GPU メモリ占有（LLM/STT/TTS）</h4>
         <div id="debugGpuSummary" class="small">loading...</div>
@@ -383,8 +410,16 @@
         <h4>LLM Think（agent.thinking）</h4>
         <div id="debugThinkTrace" class="debug-list"></div>
       </div>
-    </div>
-    <div class="ops-stack">
+        </div>
+      </details>
+      <details class="ops-details" id="opsDetailsTraces">
+        <summary>Trace Tables / Raw Details</summary>
+        <div class="ops-stack ops-details-body">
+      <div class="ops-section-title">
+        <span>Secondary Checks</span>
+        <small>監査系の要約カード</small>
+      </div>
+      <div class="ops-grid ops-secondary-grid" id="opsSecondaryCards"></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Current Focus</th><th>Value</th></tr></thead>
@@ -428,6 +463,8 @@
           <tbody id="opsFeedBody"></tbody>
         </table>
       </div>
+        </div>
+      </details>
     </div>
   </section>
 

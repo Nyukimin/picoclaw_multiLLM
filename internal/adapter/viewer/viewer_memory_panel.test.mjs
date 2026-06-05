@@ -318,6 +318,14 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(opsCss, /\.llm-ops-raw\{[^}]*max-width:100%;[^}]*white-space:pre-wrap;word-break:break-word/);
   assert.match(opsCss, /#llmOpsPanel \.debug-actions\{display:grid;grid-template-columns:1fr;gap:6px\}/);
   assert.match(opsCss, /\.ops-grid,\.llm-memory-grid,\.llm-memory-process-grid,\.llm-runtime-grid\{grid-template-columns:minmax\(0,1fr\)\}/);
+  assert.match(viewer, /id="opsTriageCards"/);
+  assert.match(viewer, /id="opsSecondaryCards"/);
+  assert.match(viewer, /id="opsDetailsRuntime"/);
+  assert.match(viewer, /id="opsDetailsEvidence"/);
+  assert.match(viewer, /id="opsDetailsTraces"/);
+  assert.match(opsCss, /\.ops-triage-grid/);
+  assert.match(opsCss, /\.ops-details/);
+  assert.match(opsJs, /function refreshOpsTriageFromState/);
   assert.match(viewer, /\/v1\/chat\/completions/);
   assert.match(viewer, /llm_ops_configured/);
   assert.match(opsJs, /LLM Ops/);
@@ -1615,6 +1623,7 @@ function fdt(s) { return String(s || '-'); }
 function agName(s) { return String(s || '-'); }
 function bindDCISearchControls() {}
 function renderKnowledgeMemoryDetailFocus() {}
+function runtimeHealthDetailText(report, errorText) { return errorText ? 'blocked: ' + String(errorText) : (report ? '/health' : 'blocked: /health not checked yet'); }
 const stubCard = () => ({title: 'stub', big: '-', sub: '-'});
 const toolHarnessOpsCard = stubCard;
 const dciOpsCard = stubCard;
@@ -1670,6 +1679,9 @@ globalThis.__state = state;
   assert.match(get('opsCards').innerHTML, /Latest Job/);
   assert.match(get('opsCards').innerHTML, /unavailable/);
   assert.match(get('opsCards').innerHTML, /ops logs unavailable: HTTP 500: persisted log store unavailable/);
+  assert.match(get('opsTriageCards').innerHTML, /Errors/);
+  assert.match(get('opsTriageCards').innerHTML, /unavailable/);
+  assert.match(get('opsTriageCards').innerHTML, /ops logs unavailable: HTTP 500: persisted log store unavailable/);
   assert.match(get('opsFocusBody').innerHTML, /Ops logs unavailable: HTTP 500: persisted log store unavailable/);
   assert.match(get('opsFeedBody').innerHTML, /Ops logs unavailable: HTTP 500: persisted log store unavailable/);
   assert.doesNotMatch(get('opsCards').innerHTML, /stale_job|stale mio report|stale error/);
