@@ -26,6 +26,8 @@ RenCrow の新 UI および新 Viewer タブは、監視ダッシュボード風
 
 既存の Ops / Overview / System / Jobs のような監視・詳細確認タブは残してよい。ただし、常用 UI に内部監視情報をそのまま持ち込まない。
 
+Ops / System / Jobs など監視系タブ自体を変更する場合でも、初期表示は 3 から 5 個程度の要約ブロックに絞る。監査ログ、生テーブル、詳細ステータス、全文エラーは初期表示せず、`details`、accordion、drawer、別タブなどへ分離する。初期表示で「まず何を見るべきか」が分からない画面は不合格とする。
+
 ---
 
 ## 2. 適用対象
@@ -354,9 +356,13 @@ Playwright Chromium、通常の Chrome / Chromium、または同等の実ブラ�
 - 最上部と最下部の操作要素が、固定ヘッダー、固定フッター、固定入力バー、toast、drawer に隠れないことを確認する
 - スクロール後の最後の要素が、固定 UI の下に潜らずクリックできることを確認する
 - desktop と narrow viewport の両方で到達性を確認する
+- 1920x1080、1366x768 に加えて、可能なら 390x844 前後の narrow / mobile 幅でも確認する
+- narrow / mobile 幅では、主要情報が縦積みになり、長文エラーや URL がカードを押し広げないことを確認する
 - PC の縦タブと mobile panel select の両方で、追加した画面へ移動できることを確認する
 - `elementFromPoint`、Playwright の実クリック、または同等の確認で、クリック位置の最前面要素が意図した対象であることを確認する
 - modal、drawer、details、accordion を開閉した後も、背後や下部の重要操作が永久に塞がれないことを確認する
+- live-mode、lipsync、固定入力バー、toast、overlay などクリック干渉しやすい UI は、見た目だけでなく computed style を確認する
+- computed style では特に `pointer-events`、`z-index`、`position`、`background`、`border`、`box-shadow`、`backdrop-filter` を確認し、会話、入力、主要操作対象を妨げないことを検証する
 
 避けること:
 
@@ -725,6 +731,7 @@ RenCrow Viewer へ組み込む場合:
 ## 追加確認
 
 Playwright または同等の実ブラウザ環境で、1920x1080 と 1366x768 のスクリーンショットを撮り、上記の受け入れ条件を確認する。
+可能なら 390x844 前後の narrow / mobile 幅でもスクリーンショットまたはレイアウト計測を行い、長文、URL、固定入力バー、overlay による崩れや遮蔽がないことを確認する。
 ブラウザ確認環境が使えない場合は、環境不備として扱い、Viewer UI 変更を完了扱いしない。
 
 また、主要タブ、主要ボタン、入力欄、select、copy / export / send などを実クリックし、固定 UI や `z-index` によって操作が遮られていないことを確認する。
