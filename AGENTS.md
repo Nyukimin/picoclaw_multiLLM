@@ -14,8 +14,9 @@
 1. `AGENTS.md`  
 2. `CLAUDE.md`  
 3. `docs/01_正本仕様/実装仕様.md`  
-4. 関連する実装ファイルとその周辺コード  
-5. 必要に応じて以下を参照  
+4. Viewer / UI / 見た目に関わる作業では `DESIGN.md`
+5. 関連する実装ファイルとその周辺コード  
+6. 必要に応じて以下を参照  
    - `rules/PROJECT_AGENT.md`
    - `rules/common/GLOBAL_AGENT.md`
    - `rules/common/rules_architecture.md`
@@ -32,6 +33,7 @@
    - `rules/rules_domain.md`
 
 実装判断で迷った場合、**一次参照は `docs/01_正本仕様/実装仕様.md`** とする。
+Viewer / UI / 見た目の判断で迷った場合、**視覚方針の一次参照は `DESIGN.md`** とし、実装・状態管理・検証の一次参照は正本仕様と rules に戻る。
 
 ---
 

@@ -43,6 +43,7 @@ Commands:
   gateway   Gateway status/restart operations
   ollama    Ollama status/restart operations
   logs      Show logs (use --follow to stream)
+  chat      Chat with the running RenCrow server from the terminal
   evidence  List/show/summarize execution evidence
   source-registry  List/register L1 source registry entries
   web-gather  Fetch public web pages into pending L1 staging

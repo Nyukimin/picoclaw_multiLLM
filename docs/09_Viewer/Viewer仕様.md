@@ -289,6 +289,33 @@ Request:
 - `ao` / `gin` / `kin` はそれぞれ `/code2` / `/code3` / `/code4` を付与する
 - ユーザー入力がすでに `/ops` / `/wild` / `/code*` で始まる場合は、入力された明示指定を優先する
 
+### 13.1 ターミナル会話CLI
+
+`picoclaw chat` は、起動中の RenCrow server に対してターミナルから会話するための薄いCLIである。
+
+内部契約:
+
+- 送信は `/viewer/send` を使う
+- 応答表示は `/viewer/events` のSSEを使う
+- CLI専用の新しい会話APIは追加しない
+- デフォルト接続先は `http://127.0.0.1:18790`
+- 外部端末から使う場合は `--url` または `RENCROW_CHAT_URL` で RenCrow server の到達可能URLを指定する
+
+使い方:
+
+```bash
+picoclaw chat
+picoclaw chat --message "こんにちは"
+picoclaw chat --url http://127.0.0.1:18790 --message "/ops status"
+RENCROW_CHAT_URL=https://<ubuntu-tailnet-host> picoclaw chat
+```
+
+外部アクセス:
+
+- LAN内端末では `http://<RenCrowホスト>:18790` を指定できる
+- 宅外・別ネットワークでは Tailscale HTTPS / Serve のURLを指定する
+- public internet へ `18790` を直接公開しない
+
 ## 14. Evidence / Jobs
 
 Viewer は execution evidence と job 状態を参照する。

@@ -48,6 +48,8 @@ func main() {
 		cmdOllama()
 	case "logs":
 		cmdLogs()
+	case "chat":
+		cmdChat()
 	case "evidence":
 		cmdEvidence()
 	case "source-registry":
