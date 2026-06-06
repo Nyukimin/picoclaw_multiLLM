@@ -88,6 +88,7 @@ type Dependencies struct {
 	viewerSourceRegistry           http.HandlerFunc                            // viewer source registry API
 	viewerDomainGraphAssertions    http.HandlerFunc                            // viewer domain graph assertion API
 	viewerMovieDomainGraphSync     http.HandlerFunc                            // viewer movie domain graph sync API
+	viewerHobbyDomainGraphSync     http.HandlerFunc                            // viewer hobby domain graph sync API
 	verificationRecent             http.HandlerFunc                            // viewer verification recent API
 	verificationDetail             http.HandlerFunc                            // viewer verification detail API
 	verificationSummary            http.HandlerFunc                            // viewer verification summary API

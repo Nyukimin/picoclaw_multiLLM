@@ -81,3 +81,21 @@ func TestBuildViewerRuntimeHandlersRegistersMovieDomainGraphSyncUnavailableHandl
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
+
+func TestBuildViewerRuntimeHandlersRegistersHobbyDomainGraphSyncUnavailableHandler(t *testing.T) {
+	deps := &Dependencies{}
+	buildViewerRuntimeHandlers(&config.Config{}, deps, nil, nil, filepath.Join(t.TempDir(), "reports.jsonl"))
+	if deps.viewerHobbyDomainGraphSync == nil {
+		t.Fatal("viewerHobbyDomainGraphSync handler is nil")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/domain-graph-sync", nil)
+	rec := httptest.NewRecorder()
+	deps.viewerHobbyDomainGraphSync.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "hobby domain graph sync unavailable") {
+		t.Fatalf("body=%q", rec.Body.String())
+	}
+}
