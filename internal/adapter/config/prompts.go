@@ -11,7 +11,8 @@ import (
 // LoadedPrompts は外部ファイルから読み込まれたプロンプト群
 type LoadedPrompts struct {
 	MioPersona       string            // Mio会話ペルソナ
-	CoderProposal    string            // Coder proposal生成
+	CoderProposal    string            // Coder proposal生成（1ショット）
+	CoderLoop        string            // Coder Codex-likeループ（多ターン）
 	Classifier       string            // タスク分類器
 	Worker           string            // Shiro Worker
 	Heavy            string            // Kuro Heavy
@@ -67,6 +68,10 @@ func loadPromptsFromDir(dir string, p *LoadedPrompts, includeCharacterBundles bo
 	}
 	if content, ok := readPromptFile(dir, "coder.md"); ok {
 		p.CoderProposal = content
+		loaded++
+	}
+	if content, ok := readPromptFile(dir, filepath.Join("coder", "codex_like.md")); ok {
+		p.CoderLoop = content
 		loaded++
 	}
 	if content, ok := readPromptFile(dir, "classifier.md"); ok {

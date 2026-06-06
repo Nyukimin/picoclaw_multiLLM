@@ -221,6 +221,7 @@ func NewMessageOrchestrator(
 		coderStatus,
 		nil, // eventEmitterは後でSetEventListenerで設定
 	)
+	// CoderLoop プロンプトは SetCoderLoopPrompt で後から注入する
 
 	orch := &MessageOrchestrator{
 		sessionRepo:     sessionRepo,
@@ -264,6 +265,22 @@ func (o *MessageOrchestrator) SetEventListener(l EventListener) {
 	// CodeExecutorにもイベント発火関数を設定
 	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
 		executor.SetEventEmitter(o.events.Emit)
+	}
+}
+
+// SetCoderLoopPrompt は全 Coder スロットに CoderLoop システムプロンプトを設定する。
+// prompt が空の場合は何もしない。
+func (o *MessageOrchestrator) SetCoderLoopPrompt(prompt string) {
+	if prompt == "" {
+		return
+	}
+	if executor, ok := o.codeExecutor.(*DefaultCodeExecutor); ok {
+		executor.WithCoderLoopPrompts(map[string]string{
+			"coder1": prompt,
+			"coder2": prompt,
+			"coder3": prompt,
+			"coder4": prompt,
+		})
 	}
 }
 

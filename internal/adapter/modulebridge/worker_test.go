@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -27,6 +28,10 @@ func (s *fakeWorkerExecutionService) ExecuteProposal(_ context.Context, jobID ta
 		return nil, s.err
 	}
 	return patch.NewPatchExecutionResult().WithSummary("実行: 1 件, 成功: 1 件, 失敗: 0 件"), nil
+}
+
+func (s *fakeWorkerExecutionService) ExecuteObservation(_ context.Context, _ []service.ObservationAction) ([]service.ObservationActionResult, error) {
+	return nil, nil
 }
 
 func TestWorkerExecutorAdapterExecuteProposalPatch(t *testing.T) {

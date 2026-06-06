@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
@@ -588,6 +589,10 @@ type recordingCodeWorkerExecutionService struct {
 	jobID    task.JobID
 	proposal *proposal.Proposal
 	err      error
+}
+
+func (s *recordingCodeWorkerExecutionService) ExecuteObservation(_ context.Context, _ []service.ObservationAction) ([]service.ObservationActionResult, error) {
+	return nil, nil
 }
 
 func (s *recordingCodeWorkerExecutionService) ExecuteProposal(ctx context.Context, jobID task.JobID, p *proposal.Proposal) (*patch.PatchExecutionResult, error) {

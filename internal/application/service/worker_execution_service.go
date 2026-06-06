@@ -12,6 +12,7 @@ import (
 // WorkerExecutionService はPatch実行サービスのインターフェース
 type WorkerExecutionService interface {
 	ExecuteProposal(ctx context.Context, jobID task.JobID, p *proposal.Proposal) (*patch.PatchExecutionResult, error)
+	ExecuteObservation(ctx context.Context, actions []ObservationAction) ([]ObservationActionResult, error)
 }
 
 // workerExecutionService はWorkerExecutionServiceの実装

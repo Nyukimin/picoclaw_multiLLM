@@ -133,6 +133,20 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 	return p, nil
 }
 
+// GenerateWithContext は会話履歴を渡して LLM 応答を生成する（CoderLoop 多ターン用）
+func (c *CoderAgent) GenerateWithContext(ctx context.Context, messages []llm.Message) (string, error) {
+	req := llm.GenerateRequest{
+		Messages:    messages,
+		MaxTokens:   8192,
+		Temperature: 0.5,
+	}
+	resp, err := c.llmProvider.Generate(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
+
 // GenerateWithPrompt は指定されたシステムプロンプトでLLM応答を生成
 func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
 	// システムプロンプトの構築（v4.1: Agent Persona 対応）

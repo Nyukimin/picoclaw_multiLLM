@@ -69,6 +69,10 @@ func buildOrchestratorRuntime(
 		log.Printf("Coder capability metadata loaded (%d coders); CODE uses only local coder1 unless an explicit CODE route is requested", len(coderCaps))
 	}
 	orch.SetExternalCoderPolicy(buildExternalCoderPolicyFromRuntime(cfg))
+	if cfg.Prompts != nil && cfg.Prompts.CoderLoop != "" {
+		orch.SetCoderLoopPrompt(cfg.Prompts.CoderLoop)
+		log.Printf("CoderLoop prompt loaded (%d bytes); all coder slots use multi-turn loop", len(cfg.Prompts.CoderLoop))
+	}
 	orch.SetEventListener(deps.eventRelay)
 	if deps.reportStore != nil {
 		orch.SetReportStore(deps.reportStore)

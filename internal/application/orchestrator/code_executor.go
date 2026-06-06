@@ -37,6 +37,7 @@ type DefaultCodeExecutor struct {
 	coderCaps        []capability.CoderCapability // 診断用。Coder 自動切替には使わない。
 	externalCoders   map[string]bool              // true の coder は明示 route でのみ使う。
 	proposalEvidence CoderProposalEvidenceRecorder
+	coderLoopPrompts map[string]string // coder名 → CoderLoop システムプロンプト
 }
 
 // NewDefaultCodeExecutor は新しいDefaultCodeExecutorを作成
@@ -76,6 +77,12 @@ func (e *DefaultCodeExecutor) WithCoderProposalEvidenceRecorder(recorder CoderPr
 	return e
 }
 
+// WithCoderLoopPrompts は CoderLoop 用のシステムプロンプトを設定する（coder名 → プロンプト）
+func (e *DefaultCodeExecutor) WithCoderLoopPrompts(prompts map[string]string) *DefaultCodeExecutor {
+	e.coderLoopPrompts = prompts
+	return e
+}
+
 // ExecuteCode はコード生成タスクを実行
 func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecutionRequest) (CodeExecutionResponse, error) {
 	target, err := e.selectCoderForRoute(req.Route)
@@ -90,6 +97,14 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	log.Printf("[CodeExecutor] code handoff route=%s target=%s job=%s", req.Route, target.name, req.JobID)
 
 	e.emitCodeHandoffStart(req, target)
+
+	// CoderLoop パス: CoderAgentWithLoop かつ loopPrompt が設定されている場合
+	if loopPrompt, ok := e.coderLoopPrompts[target.name]; ok && loopPrompt != "" {
+		if loopCoder, ok := target.coder.(CoderAgentWithLoop); ok && e.workerExecution != nil {
+			loopExec := NewCoderLoopExecutor(loopCoder, e.workerExecution, loopPrompt, e.eventEmitter)
+			return loopExec.Execute(ctx, req)
+		}
+	}
 
 	// CODE 系の明示ルートは、Proposal生成が可能ならWorkerで即時実行する。
 	if shouldUseProposalPath(req.Route, target) && e.workerExecution != nil {
