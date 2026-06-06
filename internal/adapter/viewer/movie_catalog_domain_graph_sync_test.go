@@ -15,16 +15,23 @@ import (
 )
 
 type movieDomainGraphStoreStub struct {
-	total int
-	items []conversationpersistence.L1DomainGraphAssertion
-	query conversationpersistence.DomainGraphAssertionQuery
-	err   error
+	total         int
+	items         []conversationpersistence.L1DomainGraphAssertion
+	relationTotal int
+	relationItems []conversationpersistence.L1DomainGraphAssertion
+	query         conversationpersistence.DomainGraphAssertionQuery
+	queries       []conversationpersistence.DomainGraphAssertionQuery
+	err           error
 }
 
 func (s *movieDomainGraphStoreStub) DomainGraphAssertions(ctx context.Context, q conversationpersistence.DomainGraphAssertionQuery) (int, []conversationpersistence.L1DomainGraphAssertion, error) {
 	s.query = q
+	s.queries = append(s.queries, q)
 	if s.err != nil {
 		return 0, nil, s.err
+	}
+	if q.EntityType == "work_person" {
+		return s.relationTotal, s.relationItems, nil
 	}
 	return s.total, s.items, nil
 }
@@ -69,8 +76,14 @@ func TestHandleMovieDomainGraphSyncUpsertsMovieWorks(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if store.query.Domain != "movie" || store.query.EntityType != "work" || store.query.ValidationStatus != conversationpersistence.L1StagingStatusValidated || store.query.Limit != 10 {
-		t.Fatalf("unexpected query: %+v", store.query)
+	if len(store.queries) != 2 {
+		t.Fatalf("expected work and relation queries, got %+v", store.queries)
+	}
+	if store.queries[0].Domain != "movie" || store.queries[0].EntityType != "work" || store.queries[0].ValidationStatus != conversationpersistence.L1StagingStatusValidated || store.queries[0].Limit != 10 {
+		t.Fatalf("unexpected work query: %+v", store.queries[0])
+	}
+	if store.queries[1].Domain != "movie" || store.queries[1].EntityType != "work_person" || store.queries[1].ValidationStatus != conversationpersistence.L1StagingStatusValidated || store.queries[1].Limit != 10 {
+		t.Fatalf("unexpected relation query: %+v", store.queries[1])
 	}
 	var out movieDomainGraphSyncResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -180,6 +193,90 @@ func TestHandleMovieDomainGraphSyncResolvesMoviePrefixedIDToExistingCatalogID(t 
 	}
 	if canonicalID != "57573" || source != "domain_graph_sync" {
 		t.Fatalf("unexpected alias row canonical=%q source=%q", canonicalID, source)
+	}
+}
+
+func TestHandleMovieDomainGraphSyncUpsertsMoviePeopleEdges(t *testing.T) {
+	dbPath := seedMovieCatalogTestDB(t)
+	now := time.Now().UTC()
+	store := &movieDomainGraphStoreStub{
+		relationTotal: 2,
+		relationItems: []conversationpersistence.L1DomainGraphAssertion{
+			{
+				ID:               "dg:movie:edge:1",
+				Domain:           "movie",
+				EntityType:       "work_person",
+				EntityID:         "movie:57573",
+				RelationType:     "actor",
+				SourceURL:        "https://eiga.com/movie/57573/",
+				Summary:          "Movie person relation",
+				ValidationStatus: conversationpersistence.L1StagingStatusValidated,
+				Evidence: map[string]interface{}{
+					"movie_id":    "movie:57573",
+					"movie_title": "マージン・コール",
+					"person_id":   "person:30003",
+					"person_name": "ケビン・スペイシー",
+					"person_url":  "https://eiga.com/person/30003/",
+				},
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			{
+				ID:               "dg:movie:edge:skip",
+				Domain:           "movie",
+				EntityType:       "work_person",
+				EntityID:         "movie:57573",
+				RelationType:     "actor",
+				SourceURL:        "https://eiga.com/movie/57573/",
+				Summary:          "Missing person",
+				ValidationStatus: conversationpersistence.L1StagingStatusValidated,
+				Evidence: map[string]interface{}{
+					"movie_id": "movie:57573",
+				},
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		},
+	}
+	h := HandleMovieDomainGraphSync(MovieCatalogOptions{DBPath: dbPath}, store)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/movie-catalog/domain-graph-sync?limit=25", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.queries) != 2 || store.queries[1].EntityType != "work_person" || store.queries[1].Limit != 25 {
+		t.Fatalf("unexpected queries: %+v", store.queries)
+	}
+	var out movieDomainGraphSyncResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if out.RelationChecked != 2 || out.RelationUpserted != 1 || out.RelationSkipped != 1 {
+		t.Fatalf("unexpected relation counts: %+v", out)
+	}
+	if out.RelationSkipReasons["missing_person_id"] != 1 {
+		t.Fatalf("unexpected relation skip reasons: %+v", out.RelationSkipReasons)
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	var movieID, personID, role, source, movieTitle, personName, movieURL, personURL string
+	if err := db.QueryRow(`
+SELECT movie_id, person_id, role, source, COALESCE(movie_title, ''), COALESCE(person_name, ''), COALESCE(movie_url, ''), COALESCE(person_url, '')
+FROM movie_people
+WHERE movie_id = ? AND person_id = ? AND source = ?`, "57573", "30003", "domain_graph").Scan(&movieID, &personID, &role, &source, &movieTitle, &personName, &movieURL, &personURL); err != nil {
+		t.Fatalf("query movie_people edge: %v", err)
+	}
+	if movieID != "57573" || personID != "30003" || role != "出演" || source != "domain_graph" {
+		t.Fatalf("unexpected edge identity: movie=%q person=%q role=%q source=%q", movieID, personID, role, source)
+	}
+	if movieTitle != "マージン・コール" || personName != "ケビン・スペイシー" || movieURL != "https://eiga.com/movie/57573/" || personURL != "https://eiga.com/person/30003/" {
+		t.Fatalf("unexpected edge labels: movieTitle=%q personName=%q movieURL=%q personURL=%q", movieTitle, personName, movieURL, personURL)
 	}
 }
 
