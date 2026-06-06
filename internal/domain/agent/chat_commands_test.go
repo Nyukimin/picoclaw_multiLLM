@@ -10,6 +10,7 @@ import (
 
 type mockUserMemoryManager struct {
 	createInput  domainmemory.CreateUserMemoryInput
+	createInputs []domainmemory.CreateUserMemoryInput
 	listItems    []domainmemory.UserMemory
 	forgetID     string
 	forgetReason string
@@ -17,6 +18,7 @@ type mockUserMemoryManager struct {
 
 func (m *mockUserMemoryManager) CreateUserMemory(_ context.Context, input domainmemory.CreateUserMemoryInput) (*domainmemory.UserMemory, error) {
 	m.createInput = input
+	m.createInputs = append(m.createInputs, input)
 	return &domainmemory.UserMemory{
 		ID:               "mem-1",
 		Namespace:        "user:" + input.UserID,
@@ -195,6 +197,18 @@ func TestHandleChatCommand_UserMemoryForget(t *testing.T) {
 	}
 	if mem.forgetID != "mem-1" || mem.forgetReason != "forget" {
 		t.Fatalf("unexpected forget args: %+v", mem)
+	}
+}
+
+func TestCountUserMemoryStates(t *testing.T) {
+	confirmed, pinned, candidate := countUserMemoryStates([]domainmemory.UserMemory{
+		{State: domainmemory.MemoryStateConfirmed, Active: true},
+		{State: domainmemory.MemoryStatePinned, Active: true},
+		{State: domainmemory.MemoryStateCandidate, Active: true},
+		{State: domainmemory.MemoryStateCandidate, Active: false},
+	})
+	if confirmed != 1 || pinned != 1 || candidate != 1 {
+		t.Fatalf("unexpected counts confirmed=%d pinned=%d candidate=%d", confirmed, pinned, candidate)
 	}
 }
 

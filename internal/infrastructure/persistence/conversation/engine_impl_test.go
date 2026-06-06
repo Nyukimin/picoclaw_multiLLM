@@ -103,6 +103,28 @@ func TestBeginTurn_EmptyRecall(t *testing.T) {
 	}
 }
 
+func TestShouldUseExternalRecallForUserMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{name: "explicit search", message: "RenCrow 最新仕様を検索して", want: true},
+		{name: "timely", message: "今日の天気を教えて", want: true},
+		{name: "topic", message: "Go言語について教えて", want: true},
+		{name: "memory recall", message: "俺が映画が好きってこと知ってる？", want: false},
+		{name: "greeting", message: "Mioいる？", want: false},
+		{name: "preference statement", message: "俺は映画が好き", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldUseExternalRecallForUserMessage(tt.message); got != tt.want {
+				t.Fatalf("shouldUseExternalRecallForUserMessage(%q)=%v, want %v", tt.message, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBeginTurn_WithShortContext(t *testing.T) {
 	mgr := &mockManager{
 		recallFunc: func(ctx context.Context, sessionID, query string, topK int) ([]domconv.Message, error) {

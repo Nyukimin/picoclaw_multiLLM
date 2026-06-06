@@ -76,8 +76,8 @@ providers:
     max_tokens: 8192
     temperature: 0.3
   ollama:
-    chat_model: "chat-v1"
-    worker_model: "worker-v1"
+    chat_model: "Chat"
+    worker_model: "Worker"
   openai:
     model: "gpt-4o-mini"
   deepseek:

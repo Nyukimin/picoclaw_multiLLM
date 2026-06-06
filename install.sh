@@ -232,22 +232,22 @@ echo ""
 echo "[7/7] Ollama モデルの準備..."
 if command -v ollama &> /dev/null; then
     echo "  必要なモデルをダウンロードしますか？"
-    echo "  - chat-v1 (Chat用、必須)"
-    echo "  - worker-v1 (Worker用、必須)"
+    echo "  - Chat (Chat用、必須)"
+    echo "  - Worker (Worker用、必須)"
     echo "  - nomic-embed-code (KB埋め込み用、オプション)"
     echo ""
     echo -n "ダウンロードしますか？ (y/n): "
     read -r download_models
 
     if [[ "$download_models" == "y" ]]; then
-        ollama pull chat-v1 || echo "  ⚠️  chat-v1 ダウンロード失敗（後で実行してください）"
-        ollama pull worker-v1 || echo "  ⚠️  worker-v1 ダウンロード失敗（後で実行してください）"
+        ollama pull Chat || echo "  ⚠️  Chat ダウンロード失敗（後で実行してください）"
+        ollama pull Worker || echo "  ⚠️  Worker ダウンロード失敗（後で実行してください）"
         ollama pull nomic-embed-code || echo "  ⚠️  nomic-embed-code ダウンロード失敗（オプション）"
         echo "  ✓ モデルダウンロード完了"
     else
         echo "  ⚠️  モデルは後でダウンロードしてください:"
-        echo "     ollama pull chat-v1"
-        echo "     ollama pull worker-v1"
+        echo "     ollama pull Chat"
+        echo "     ollama pull Worker"
         echo "     ollama pull nomic-embed-code"
     fi
 fi

@@ -586,7 +586,7 @@ conversation:
   embed_provider: ollama
   embed_base_url: http://100.83.207.6:11434
   embed_model: nomic-embed-code:latest
-  summary_model: chat-v1:latest
+  summary_model: Chat
   default_user_id: ren
   recall_pack_enabled: true
   memory_inspector_enabled: true

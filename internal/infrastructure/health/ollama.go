@@ -155,7 +155,7 @@ func (c *OllamaModelCheck) Run(ctx context.Context) domainhealth.CheckResult {
 
 // ModelRequirement は常駐モデルの要件定義
 type ModelRequirement struct {
-	Name       string // モデル名（例: "chat-v1:latest"）
+	Name       string // モデル名（例: "Chat"）
 	MaxContext int    // 0 でなければ、これを超えるコンテキスト長は NG
 }
 

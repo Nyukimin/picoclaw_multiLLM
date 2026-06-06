@@ -56,7 +56,7 @@ conversation:
   duckdb_path: "/home/nyukimi/.picoclaw/memory.duckdb"
   vectordb_url: "localhost:6334"        # gRPCポート
   embed_model: "nomic-embed-code:latest"
-  summary_model: "chat-v1"
+  summary_model: "Chat"
 ```
 
 ---
@@ -104,8 +104,8 @@ RenCrow v5.0 では、**会話LLMシステム**を統合し、以下を実現し
 
 | キャラクター | Agent | LLM | 会話参加条件 | 記憶対象 |
 |-------------|-------|-----|-------------|---------|
-| **ミオ（澪）** | Chat | Ollama (chat-v1) | 常時参加 | ✅ ユーザー⇄Chatは常に記憶 |
-| **シロ（白）** | Worker | Ollama (worker-v1) | タスクが空いている時のみ | ✅ Chatが知らない情報なら記憶 |
+| **ミオ（澪）** | Chat | Ollama (Chat) | 常時参加 | ✅ ユーザー⇄Chatは常に記憶 |
+| **シロ（白）** | Worker | Ollama (Worker) | タスクが空いている時のみ | ✅ Chatが知らない情報なら記憶 |
 | **アカ/アオ/ギン** | Coder | DeepSeek/OpenAI/Claude | 将来的に参加可能 | ✅ Chatが知らない情報なら記憶 |
 
 **設計原則**:

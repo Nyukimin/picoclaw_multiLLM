@@ -89,8 +89,8 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 		}
 	}
 
-	// Knowledge Base (KB) 検索（RAG統合）
-	if realMgr, ok := e.manager.(*RealConversationManager); ok {
+	// Knowledge Base / SearchCache は、外部情報要求が明確な発話だけに使う。
+	if realMgr, ok := e.manager.(*RealConversationManager); ok && shouldUseExternalRecallForUserMessage(userMessage) {
 		if realMgr.l1Store != nil {
 			cacheEntry, err := realMgr.l1Store.GetFreshSearchCache(ctx, "web", userMessage, timeNowUTC())
 			if err != nil {
@@ -128,6 +128,56 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 	applyL0RollingSummary(pack, 6)
 	budgeted := pack.ApplyRecallBudget(pack.Constraints.MaxTotalTokens, pack.Constraints.RecallBudgetRatio)
 	return &budgeted, nil
+}
+
+func shouldUseExternalRecallForUserMessage(message string) bool {
+	message = strings.TrimSpace(message)
+	if message == "" || looksLikePersonalMemoryQuestion(message) {
+		return false
+	}
+	direct := []string{"検索", "調べて", "調査して"}
+	for _, marker := range direct {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	timely := []string{
+		"最新", "ニュース", "今日", "昨日", "今週", "今月", "今年", "最近", "現在", "速報",
+		"2024", "2025", "2026", "2027", "天気", "価格", "相場", "株価", "為替",
+	}
+	for _, marker := range timely {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	topic := []string{"について教えて", "について調べて", "について検索", "とは"}
+	for _, marker := range topic {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikePersonalMemoryQuestion(message string) bool {
+	selfMarkers := []string{"俺", "私", "僕", "ぼく", "わたし", "自分"}
+	recallMarkers := []string{"知ってる", "覚えてる", "覚えていた", "覚えている", "記憶してる", "記憶している"}
+	hasSelf := false
+	for _, marker := range selfMarkers {
+		if strings.Contains(message, marker) {
+			hasSelf = true
+			break
+		}
+	}
+	if !hasSelf {
+		return false
+	}
+	for _, marker := range recallMarkers {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyL0RollingSummary(pack *domconv.RecallPack, keepRecent int) {

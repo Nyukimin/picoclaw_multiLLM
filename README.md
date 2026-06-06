@@ -55,8 +55,8 @@ RenCrowは、タスクの種類に応じて最適なLLMを自動選択します�
 
 | 役割 | 愛称 | LLM | 責務 |
 |------|------|-----|------|
-| **Chat** | Mio | Ollama (chat-v1) | 会話、意思決定、ルーティング判定 |
-| **Worker** | Shiro | Ollama (worker-v1) | ファイル操作、コマンド実行、差分適用 |
+| **Chat** | Mio | Ollama (Chat) | 会話、意思決定、ルーティング判定 |
+| **Worker** | Shiro | Ollama (Worker) | ファイル操作、コマンド実行、差分適用 |
 | **Coder1** | Aka | DeepSeek | 仕様設計、アーキテクチャ検討 |
 | **Coder2** | Ao | OpenAI | 実装、コード生成 |
 | **Coder3** | Gin | Anthropic Claude | 高品質コーディング、推論 |
@@ -259,7 +259,7 @@ picoclaw/
 ### 前提条件
 
 - Go 1.23以降
-- Ollama（chat-v1、worker-v1モデル）
+- Ollama（Chat、Workerモデル）
 - API キー（Anthropic/DeepSeek/OpenAI等、オプション）
 
 ### 1. インストール
@@ -289,12 +289,12 @@ go build -o picoclaw ./cmd/picoclaw
 curl -fsSL https://ollama.com/install.sh | sh
 
 # モデルダウンロード
-ollama pull chat-v1       # Chat（Mio）用
-ollama pull worker-v1     # Worker（Shiro）用
+ollama pull Chat       # Chat（Mio）用
+ollama pull Worker     # Worker（Shiro）用
 
 # 常駐化（keep_alive: -1）
-ollama run chat-v1 --keep-alive -1
-ollama run worker-v1 --keep-alive -1
+ollama run Chat --keep-alive -1
+ollama run Worker --keep-alive -1
 ```
 
 ### 3. 設定ファイル作成
@@ -364,8 +364,8 @@ server:
 
 ollama:
   base_url: "http://localhost:11434"
-  chat_model: "chat-v1"
-  worker_model: "worker-v1"
+  chat_model: "Chat"
+  worker_model: "Worker"
 
 claude:
   # API Key は環境変数 ANTHROPIC_API_KEY から読み込み
@@ -652,8 +652,8 @@ MIT License
 ollama list
 
 # モデルダウンロード
-ollama pull chat-v1
-ollama pull worker-v1
+ollama pull Chat
+ollama pull Worker
 ```
 
 ### Worker実行が失敗する

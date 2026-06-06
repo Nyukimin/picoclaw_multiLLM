@@ -43,7 +43,7 @@ func TestOllamaModelCheck_OK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	check := NewOllamaModelCheck(srv.URL, "chat-v1")
+	check := NewOllamaModelCheck(srv.URL, "Chat")
 	result := check.Run(context.Background())
 
 	if result.Status != domainhealth.StatusOK {
@@ -72,14 +72,14 @@ func TestOllamaModelsCheck_AllOK(t *testing.T) {
 				Name          string `json:"name"`
 				ContextLength int    `json:"context_length"`
 			}{
-				{Name: "chat-v1:latest", ContextLength: 8192},
+				{Name: "Chat", ContextLength: 8192},
 			},
 		})
 	}))
 	defer srv.Close()
 
 	check := NewOllamaModelsCheck(srv.URL, []ModelRequirement{
-		{Name: "chat-v1:latest", MaxContext: 8192},
+		{Name: "Chat", MaxContext: 8192},
 	})
 	result := check.Run(context.Background())
 
@@ -95,14 +95,14 @@ func TestOllamaModelsCheck_ContextExceeded(t *testing.T) {
 				Name          string `json:"name"`
 				ContextLength int    `json:"context_length"`
 			}{
-				{Name: "chat-v1:latest", ContextLength: 131072},
+				{Name: "Chat", ContextLength: 131072},
 			},
 		})
 	}))
 	defer srv.Close()
 
 	check := NewOllamaModelsCheck(srv.URL, []ModelRequirement{
-		{Name: "chat-v1:latest", MaxContext: 8192},
+		{Name: "Chat", MaxContext: 8192},
 	})
 	result := check.Run(context.Background())
 
@@ -123,7 +123,7 @@ func TestOllamaModelsCheck_ModelNotLoaded(t *testing.T) {
 	defer srv.Close()
 
 	check := NewOllamaModelsCheck(srv.URL, []ModelRequirement{
-		{Name: "chat-v1:latest", MaxContext: 8192},
+		{Name: "Chat", MaxContext: 8192},
 	})
 	result := check.Run(context.Background())
 
@@ -148,14 +148,14 @@ func TestOllamaModelsCheck_MaxContextZero_SkipsCheck(t *testing.T) {
 				Name          string `json:"name"`
 				ContextLength int    `json:"context_length"`
 			}{
-				{Name: "chat-v1:latest", ContextLength: 131072},
+				{Name: "Chat", ContextLength: 131072},
 			},
 		})
 	}))
 	defer srv.Close()
 
 	check := NewOllamaModelsCheck(srv.URL, []ModelRequirement{
-		{Name: "chat-v1:latest", MaxContext: 0}, // 0 = チェックしない
+		{Name: "Chat", MaxContext: 0}, // 0 = チェックしない
 	})
 	result := check.Run(context.Background())
 

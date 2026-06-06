@@ -181,8 +181,8 @@ server:
 
 ollama:
   base_url: "http://localhost:11434"
-  chat_model: "chat-v1"
-  worker_model: "worker-v1"
+  chat_model: "Chat"
+  worker_model: "Worker"
 
 session:
   storage_dir: "./data/sessions"
@@ -196,8 +196,8 @@ session:
 	}
 
 	// chat_model が Model にマッピングされるべき
-	if cfg.Ollama.Model != "chat-v1" {
-		t.Errorf("Expected Model to be mapped from ChatModel 'chat-v1', got '%s'", cfg.Ollama.Model)
+	if cfg.Ollama.Model != "Chat" {
+		t.Errorf("Expected Model to be mapped from ChatModel 'Chat', got '%s'", cfg.Ollama.Model)
 	}
 }
 
@@ -2593,7 +2593,7 @@ server:
   port: 8080
 ollama:
   base_url: "http://localhost:11434"
-  model: "chat-v1"
+  model: "Chat"
 session:
   storage_dir: "./data"
 `
@@ -2621,7 +2621,7 @@ server:
   port: 8080
 ollama:
   base_url: "http://localhost:11434"
-  model: "chat-v1"
+  model: "Chat"
 session:
   storage_dir: "./data"
 conversation:
@@ -2633,7 +2633,7 @@ conversation:
   embed_provider: "ollama"
   embed_base_url: "http://localhost:11434"
   embed_model: "nomic-embed-text"
-  summary_model: "chat-v1"
+  summary_model: "Chat"
 `
 	os.WriteFile(configPath, []byte(configContent), 0644)
 	cfg, err := LoadConfig(configPath)
@@ -2656,8 +2656,8 @@ conversation:
 	if cfg.Conversation.EmbedBaseURL != "http://localhost:11434" {
 		t.Errorf("expected EmbedBaseURL 'http://localhost:11434', got %q", cfg.Conversation.EmbedBaseURL)
 	}
-	if cfg.Conversation.SummaryModel != "chat-v1" {
-		t.Errorf("expected SummaryModel 'chat-v1', got %q", cfg.Conversation.SummaryModel)
+	if cfg.Conversation.SummaryModel != "Chat" {
+		t.Errorf("expected SummaryModel 'Chat', got %q", cfg.Conversation.SummaryModel)
 	}
 }
 

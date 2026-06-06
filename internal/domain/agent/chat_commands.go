@@ -343,8 +343,37 @@ func (m *MioAgent) cmdContext(ctx context.Context, sessionID string, _ string) (
 			sb.WriteString(fmt.Sprintf("  - %s\n", truncate(f, 80)))
 		}
 	}
+	if m.userMemoryManager != nil {
+		items, err := m.userMemoryManager.ListUserMemories(ctx, "ren", "", false, 50)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("\n【UserMemory】取得失敗: %v\n", err))
+		} else {
+			confirmed, pinned, candidate := countUserMemoryStates(items)
+			sb.WriteString(fmt.Sprintf("\n【UserMemory】confirmed=%d pinned=%d candidate=%d\n", confirmed, pinned, candidate))
+			if confirmed+pinned == 0 {
+				sb.WriteString("  - Mioへ注入される confirmed/pinned 記憶はありません\n")
+			}
+		}
+	}
 
 	return ChatCommandResult{Handled: true, Response: sb.String()}, nil
+}
+
+func countUserMemoryStates(items []domainmemory.UserMemory) (confirmed int, pinned int, candidate int) {
+	for _, item := range items {
+		if !item.Active {
+			continue
+		}
+		switch item.State {
+		case domainmemory.MemoryStateConfirmed:
+			confirmed++
+		case domainmemory.MemoryStatePinned:
+			pinned++
+		case domainmemory.MemoryStateCandidate:
+			candidate++
+		}
+	}
+	return confirmed, pinned, candidate
 }
 
 // cmdNew はセッションをリセット

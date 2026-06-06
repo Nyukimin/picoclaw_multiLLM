@@ -198,17 +198,17 @@ echo ""
 if [ "$AGENT_TYPE" = "worker" ]; then
     echo "[追加] Ollama モデルの準備..."
     echo "  必要なモデルをダウンロードしますか？"
-    echo "  - worker-v1 (Worker用、必須)"
+    echo "  - Worker (Worker用、必須)"
     echo ""
     echo -n "ダウンロードしますか？ (y/n): "
     read -r download_models
 
     if [[ "$download_models" == "y" ]]; then
-        ollama pull worker-v1 || echo "  ⚠️  worker-v1 ダウンロード失敗（後で実行してください）"
+        ollama pull Worker || echo "  ⚠️  Worker ダウンロード失敗（後で実行してください）"
         echo "  ✓ モデルダウンロード完了"
     else
         echo "  ⚠️  モデルは後でダウンロードしてください:"
-        echo "     ollama pull worker-v1"
+        echo "     ollama pull Worker"
     fi
     echo ""
 fi

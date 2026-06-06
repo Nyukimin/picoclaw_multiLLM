@@ -20,8 +20,8 @@ func TestCollectOllamaHealthRequirements_IncludesWorkerModel(t *testing.T) {
 	cfg := &config.Config{
 		Ollama: config.OllamaConfig{
 			BaseURL:     "http://127.0.0.1:11434",
-			Model:       "chat-v1:latest",
-			WorkerModel: "worker-v1:latest",
+			Model:       "Chat",
+			WorkerModel: "Worker",
 			MaxContext:  4096,
 		},
 	}
@@ -30,7 +30,7 @@ func TestCollectOllamaHealthRequirements_IncludesWorkerModel(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 requirements, got %d: %#v", len(got), got)
 	}
-	if got[0].Name != "chat-v1:latest" || got[1].Name != "worker-v1:latest" {
+	if got[0].Name != "Chat" || got[1].Name != "Worker" {
 		t.Fatalf("unexpected requirements: %#v", got)
 	}
 	if got[0].MaxContext != 4096 || got[1].MaxContext != 4096 {
@@ -41,8 +41,8 @@ func TestCollectOllamaHealthRequirements_IncludesWorkerModel(t *testing.T) {
 func TestCollectOllamaHealthRequirements_DeduplicatesModels(t *testing.T) {
 	cfg := &config.Config{
 		Ollama: config.OllamaConfig{
-			Model:       "chat-v1:latest",
-			WorkerModel: "chat-v1:latest",
+			Model:       "Chat",
+			WorkerModel: "Chat",
 			MaxContext:  4096,
 		},
 	}
@@ -82,7 +82,7 @@ func TestBuildHealthService_LocalLLMUsesOpenAICompatibleChecks(t *testing.T) {
 			WildModel:     "Wild",
 			TimeoutSec:    1,
 		},
-		Ollama: config.OllamaConfig{BaseURL: "http://127.0.0.1:1", Model: "chat-v1:latest"},
+		Ollama: config.OllamaConfig{BaseURL: "http://127.0.0.1:1", Model: "Chat"},
 	}
 	warmup := false
 	cfg.LocalLLM.Warmup = &warmup

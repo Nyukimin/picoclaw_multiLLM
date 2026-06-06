@@ -69,6 +69,37 @@ RenCrow の memory 周辺 API / CLI / Viewer 表示では、次の3系統を基�
 
 `remember` は保存入口であり、正式化入口ではない。`observed` / `candidate` / `validated` / `promoted` の状態遷移を飛ばしてはいけない。
 
+### 通常会話からの memory candidate
+
+通常会話中にユーザーが自己申告した好みや継続指示は、条件に合う場合のみ `chat_auto_candidate` として `user:<uid>` の candidate に保存できる。
+
+- candidate は `confirmed` / `pinned` へ自動昇格しない。
+- candidate は Mio の system prompt へ注入しない。
+- 既存 active memory と同じ statement は重複保存しない。
+- 疑問文、記憶確認質問、検索・調査要求、長すぎる文は候補化しない。
+- Viewer Memory タブまたは API で review してから `confirmed` / `pinned` へ昇格する。
+
+例:
+
+- `俺は映画が好き` -> `preference` candidate: `映画が好き`
+- `今後は短く答えて` -> `constraint` candidate: `短く答えて`
+- `俺が映画が好きってこと知ってる？` -> candidate ではなく recall 質問として扱う
+
+### 外部 Recall / KB 混入の抑制
+
+Chat の通常会話では、会話記憶と UserMemory を優先する。Knowledge DB / SearchCache / Web検索は、外部情報要求が明確な場合だけ使う。
+
+外部情報要求の例:
+
+- `検索して`
+- `調べて`
+- `最新`
+- `今日`
+- `Xについて教えて`
+- `Xとは`
+
+ユーザー自身の記憶確認や好みの自己申告は、外部検索や KB 検索へ流さない。外部検索結果を user memory として扱ってはいけない。
+
 ### Memory Type
 
 memory item / staging item / operation memory note は、可能な範囲で次の type を持てるようにする。

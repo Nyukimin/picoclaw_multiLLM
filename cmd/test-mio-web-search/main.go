@@ -42,7 +42,7 @@ func main() {
 	}
 	ollamaModel := os.Getenv("OLLAMA_MODEL")
 	if ollamaModel == "" {
-		ollamaModel = "chat-v1"
+		ollamaModel = "Chat"
 	}
 	ollamaProvider := ollama.NewOllamaProvider(ollamaBaseURL, ollamaModel)
 

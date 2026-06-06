@@ -204,16 +204,16 @@ Write-Host ""
 if ($AgentType -eq "worker") {
     Write-Host "[追加] Ollama モデルの準備..." -ForegroundColor Yellow
     Write-Host "  必要なモデルをダウンロードしますか？" -ForegroundColor Cyan
-    Write-Host "  - worker-v1 (Worker用、必須)" -ForegroundColor Cyan
+    Write-Host "  - Worker (Worker用、必須)" -ForegroundColor Cyan
     Write-Host ""
     $downloadModels = Read-Host "ダウンロードしますか？ (y/n)"
 
     if ($downloadModels -eq "y") {
-        ollama pull worker-v1
+        ollama pull Worker
         Write-Host "  ✓ モデルダウンロード完了" -ForegroundColor Green
     } else {
         Write-Host "  ⚠️  モデルは後でダウンロードしてください:" -ForegroundColor Yellow
-        Write-Host "     ollama pull worker-v1" -ForegroundColor White
+        Write-Host "     ollama pull Worker" -ForegroundColor White
     }
     Write-Host ""
 }

@@ -32,7 +32,7 @@
 - **使用言語**: Go 1.23
 - **プラットフォーム**: Linux (主に)、macOS (開発環境)
 - **依存 LLM**:
-  - Ollama (chat-v1, worker-v1)
+  - Ollama (Chat, Worker)
   - DeepSeek (Coder1)
   - OpenAI (Coder2)
   - Anthropic Claude API (Coder3)
@@ -135,7 +135,7 @@ RenCrow プロジェクト固有の注意事項は、このファイル（CLAUDE
 
 - **目標**: メモリ使用量 <10MB
 - **手法**:
-  - Ollama の軽量モデル使用（chat-v1, worker-v1）
+  - Ollama の軽量モデル使用（Chat, Worker）
   - セッションメモリの最小化
   - 日次カットオーバーによるメモリリセット
 

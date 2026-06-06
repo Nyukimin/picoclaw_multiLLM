@@ -29,8 +29,8 @@ RenCrowは、**Chat（Mio）**、**Worker（Shiro）**、**Coder（Aka/Ao/Gin）
 
 | 役割 | 愛称 | LLM | 責務 |
 |------|------|-----|------|
-| **Chat** | Mio（澪） | Ollama (chat-v1) | 全体オーケストレーター、ユーザー窓口 |
-| **Worker** | Shiro（白） | Ollama (worker-v1) | Coderオーケストレーター、実行担当 |
+| **Chat** | Mio（澪） | Ollama (Chat) | 全体オーケストレーター、ユーザー窓口 |
+| **Worker** | Shiro（白） | Ollama (Worker) | Coderオーケストレーター、実行担当 |
 | **Coder1** | Aka（赤） | DeepSeek | 仕様設計、アーキテクチャ検討 |
 | **Coder2** | Ao（青） | OpenAI | 実装、コード生成 |
 | **Coder3** | Gin（銀） | Anthropic Claude | 高品質コーディング、推論 |
@@ -154,7 +154,7 @@ Agent {
 ### Mio（Chat）：全体オーケストレーター
 
 **愛称**: Mio（澪）
-**LLM**: Ollama (chat-v1)
+**LLM**: Ollama (Chat)
 **温度設定**: 0.7（会話の自然さ重視）
 
 #### 責務
@@ -222,7 +222,7 @@ Mio: これは自分でできる会話？
 
 ```yaml
 ollama:
-  chat_model: "chat-v1"  # Mio用
+  chat_model: "Chat"  # Mio用
 ```
 
 ---
@@ -230,7 +230,7 @@ ollama:
 ### Shiro（Worker）：Coderオーケストレーター
 
 **愛称**: Shiro（白）
-**LLM**: Ollama (worker-v1)
+**LLM**: Ollama (Worker)
 **温度設定**: 0.3（確実性重視）
 
 #### 責務
@@ -303,7 +303,7 @@ func (s *ShiroAgent) ExecutePatch(ctx context.Context, patch string) (*Execution
 
 ```yaml
 ollama:
-  worker_model: "worker-v1"  # Shiro用
+  worker_model: "Worker"  # Shiro用
 
 worker:
   auto_commit: false
@@ -778,11 +778,11 @@ internal/
 MessageOrchestrator
   ↓
 Mio（全体オーケストレーター）
-  ├─ OllamaProvider (chat-v1)
+  ├─ OllamaProvider (Chat)
   └─ DelegateToWorker()
       ↓
   Worker（Coderオーケストレーター）
-      ├─ OllamaProvider (worker-v1)
+      ├─ OllamaProvider (Worker)
       ├─ ToolRunner
       ├─ MCPClient
       └─ DelegateToCoder()

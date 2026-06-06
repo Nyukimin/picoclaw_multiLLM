@@ -118,9 +118,13 @@ func cleanSearchQuery(query string) string {
 // needsWebSearch はWeb検索が必要かをキーワードベースで判定する
 // 明示的な検索指示キーワード OR 時事・最新情報系のキーワードでトリガー
 func needsWebSearch(message string) bool {
+	message = strings.TrimSpace(message)
+	if message == "" || looksLikeUserMemoryRecallQuestion(message) {
+		return false
+	}
 	// 明示的な検索意図
 	directKeywords := []string{
-		"教えて", "調べて", "検索", "とは",
+		"調べて", "検索",
 	}
 	// 時事・最新情報・鮮度依存
 	timelyKeywords := []string{
@@ -135,7 +139,7 @@ func needsWebSearch(message string) bool {
 	}
 	// トピック系（「〜について」で情報を求めている）
 	topicKeywords := []string{
-		"について",
+		"について教えて", "について調べて", "について検索", "とは",
 	}
 
 	for _, kw := range directKeywords {
@@ -150,6 +154,27 @@ func needsWebSearch(message string) bool {
 	}
 	for _, kw := range topicKeywords {
 		if strings.Contains(message, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeUserMemoryRecallQuestion(message string) bool {
+	selfMarkers := []string{"俺", "私", "僕", "ぼく", "わたし", "自分"}
+	recallMarkers := []string{"知ってる", "覚えてる", "覚えていた", "覚えている", "記憶してる", "記憶している"}
+	hasSelf := false
+	for _, marker := range selfMarkers {
+		if strings.Contains(message, marker) {
+			hasSelf = true
+			break
+		}
+	}
+	if !hasSelf {
+		return false
+	}
+	for _, marker := range recallMarkers {
+		if strings.Contains(message, marker) {
 			return true
 		}
 	}

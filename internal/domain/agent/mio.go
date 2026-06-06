@@ -270,6 +270,9 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 			fmt.Printf("WARN: EndTurn failed: %v\n", err)
 		}
 	}
+	if err := m.captureUserMemoryCandidate(ctx, t); err != nil {
+		log.Printf("[Mio] user memory candidate capture failed: %v", err)
+	}
 
 	return response, nil
 }

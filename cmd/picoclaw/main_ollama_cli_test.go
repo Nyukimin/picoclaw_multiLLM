@@ -15,7 +15,7 @@ import (
 
 func TestRunOllamaCommand_StatusJSON_Down(t *testing.T) {
 	cfg := &config.Config{
-		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "chat-v1"},
+		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "Chat"},
 	}
 	checker := &fakeHealthChecker{report: domainhealth.HealthReport{
 		Status: domainhealth.StatusDown,
@@ -45,7 +45,7 @@ func TestRunOllamaCommand_StatusJSON_Down(t *testing.T) {
 
 func TestRunOllamaCommand_RestartJSON_OK(t *testing.T) {
 	cfg := &config.Config{
-		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "chat-v1"},
+		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "Chat"},
 	}
 	checker := &fakeHealthChecker{report: domainhealth.HealthReport{Status: domainhealth.StatusOK}}
 
@@ -74,7 +74,7 @@ func TestBuildOllamaRestartAction_RemoteUsesSSH(t *testing.T) {
 	t.Setenv("PICOCLAW_OLLAMA_RESTART_CMD", "sudo systemctl restart ollama")
 
 	target, _, err := buildOllamaRestartAction(&config.Config{
-		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "chat-v1"},
+		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "Chat"},
 	})
 	if err != nil {
 		t.Fatalf("buildOllamaRestartAction failed: %v", err)
@@ -87,7 +87,7 @@ func TestBuildOllamaRestartAction_RemoteUsesSSH(t *testing.T) {
 func TestBuildOllamaRestartAction_LocalUsesSystemctl(t *testing.T) {
 	t.Setenv("PICOCLAW_OLLAMA_RESTART_CMD", "systemctl restart ollama")
 	target, _, err := buildOllamaRestartAction(&config.Config{
-		Ollama: config.OllamaConfig{BaseURL: "http://127.0.0.1:11434", Model: "chat-v1"},
+		Ollama: config.OllamaConfig{BaseURL: "http://127.0.0.1:11434", Model: "Chat"},
 	})
 	if err != nil {
 		t.Fatalf("buildOllamaRestartAction failed: %v", err)
@@ -99,7 +99,7 @@ func TestBuildOllamaRestartAction_LocalUsesSystemctl(t *testing.T) {
 
 func TestRunOllamaCommand_RestartJSON_Error(t *testing.T) {
 	cfg := &config.Config{
-		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "chat-v1"},
+		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "Chat"},
 	}
 	var out, errOut bytes.Buffer
 	code := runOllamaCommand(
@@ -129,7 +129,7 @@ func TestBuildOllamaRestartAction_RemoteRequiresUserWhenEnvAndUserMissing(t *tes
 	}()
 
 	_, _, err := buildOllamaRestartAction(&config.Config{
-		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "chat-v1"},
+		Ollama: config.OllamaConfig{BaseURL: "http://192.168.1.33:11434", Model: "Chat"},
 	})
 	if err == nil {
 		t.Fatal("expected error for missing remote ssh user")

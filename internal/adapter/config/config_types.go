@@ -408,7 +408,7 @@ type ConversationConfig struct {
 	EmbedProvider    string `yaml:"embed_provider"`    // Embedding provider（"ollama" または "openai"）。空の場合は従来の自動選択
 	EmbedBaseURL     string `yaml:"embed_base_url"`    // Embedding専用Base URL。空の場合はprovider既定URLを使用
 	EmbedModel       string `yaml:"embed_model"`       // Embedding用モデル（例: "nomic-embed-text"）。空の場合はembedding無効
-	SummaryModel     string `yaml:"summary_model"`     // 要約用モデル（例: "chat-v1"）。空の場合はOllama chatモデルを使用
+	SummaryModel     string `yaml:"summary_model"`     // 要約用モデル（例: "Chat"）。空の場合はOllama chatモデルを使用
 }
 
 // HeartbeatConfig はハートビート（定期タスク）の設定

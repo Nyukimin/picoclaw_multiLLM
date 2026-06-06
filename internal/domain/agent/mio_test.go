@@ -527,6 +527,30 @@ func TestMioAgent_Chat_WebSearchNotTriggered(t *testing.T) {
 	}
 }
 
+func TestMioAgent_Chat_WebSearchNotTriggeredForMemoryRecallQuestion(t *testing.T) {
+	searchCalled := false
+	toolRunner := &mockToolRunner{
+		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+			if toolName == "web_search" {
+				searchCalled = true
+			}
+			return "", nil
+		},
+	}
+
+	provider := &mockLLMProvider{}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil)
+	testTask := task.NewTask(task.NewJobID(), "俺が映画が好きってこと知ってる？", "viewer", "viewer-user")
+
+	_, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if searchCalled {
+		t.Error("web_search should NOT be called for user-memory recall question")
+	}
+}
+
 func TestMioAgent_Chat_WebSearchError(t *testing.T) {
 	toolRunner := &mockToolRunner{
 		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
@@ -1154,5 +1178,60 @@ func TestMioAgentChatInjectsConfirmedUserMemory(t *testing.T) {
 	}
 	if strings.Contains(joined, "candidate は注入しない") || strings.Contains(joined, "sensitive は注入しない") {
 		t.Fatalf("unsafe user memory leaked into prompt: %s", joined)
+	}
+}
+
+func TestMioAgentChatCreatesCandidateFromUserPreference(t *testing.T) {
+	provider := &mockLLMProvider{generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+		return llm.GenerateResponse{Content: "了解"}, nil
+	}}
+	mem := &mockUserMemoryManager{}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil).
+		WithUserMemoryManager(mem)
+
+	_, err := mio.Chat(context.Background(), task.NewTask(task.NewJobID(), "俺は映画が好き", "viewer", "viewer-user"))
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if len(mem.createInputs) != 1 {
+		t.Fatalf("expected one candidate memory, got %d", len(mem.createInputs))
+	}
+	input := mem.createInputs[0]
+	if input.UserID != "ren" ||
+		input.Type != domainmemory.UserMemoryTypePreference ||
+		input.State != domainmemory.MemoryStateCandidate ||
+		input.Statement != "映画が好き" ||
+		input.Source != "chat_auto_candidate" ||
+		input.Confidence <= 0 ||
+		len(input.EvidenceEventIDs) == 0 {
+		t.Fatalf("unexpected candidate input: %+v", input)
+	}
+}
+
+func TestMioAgentChatDoesNotCreateDuplicateCandidate(t *testing.T) {
+	provider := &mockLLMProvider{generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+		return llm.GenerateResponse{Content: "了解"}, nil
+	}}
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{{
+			ID:          "mem-existing",
+			Namespace:   "user:ren",
+			UserID:      "ren",
+			Type:        domainmemory.UserMemoryTypePreference,
+			Statement:   "映画が好き",
+			State:       domainmemory.MemoryStateCandidate,
+			Sensitivity: "normal",
+			Active:      true,
+		}},
+	}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil).
+		WithUserMemoryManager(mem)
+
+	_, err := mio.Chat(context.Background(), task.NewTask(task.NewJobID(), "俺は映画が好き", "viewer", "viewer-user"))
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if len(mem.createInputs) != 0 {
+		t.Fatalf("duplicate candidate should not be created: %+v", mem.createInputs)
 	}
 }

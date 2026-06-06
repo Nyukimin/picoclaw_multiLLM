@@ -21,7 +21,7 @@
 ## 3) Ollamaモデル定義
 
 - `config/Modelfile.chat`
-  - `chat-v1` 側のモデルビルド定義（Ollama `Modelfile`）の本体。
+  - `Chat` 側のモデルビルド定義（Ollama `Modelfile`）の本体。
 - `Modelfile.chat`（リポジトリ直下）
   - `config/Modelfile.chat` へのシンボリックリンク（互換入口）。
 
