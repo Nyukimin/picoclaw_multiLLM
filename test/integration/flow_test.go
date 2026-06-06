@@ -285,12 +285,13 @@ func TestIntegration_WebSearchTriggered(t *testing.T) {
 	repo := newMockSessionRepo()
 	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
-	resp, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Go言語について教えて"))
+	// "検索して" は明示的な検索語 → needsWebSearch=true で発火する
+	resp, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Go言語について検索して"))
 	if err != nil {
 		t.Fatalf("ProcessMessage failed: %v", err)
 	}
 	if !searchCalled {
-		t.Error("web_search should be triggered for '教えて' keyword")
+		t.Error("web_search should be triggered for '検索して' keyword")
 	}
 	// Verify search results were injected
 	hasSearchContext := false

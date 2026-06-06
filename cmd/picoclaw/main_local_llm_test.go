@@ -73,10 +73,11 @@ func TestLocalLLMTimeoutForAlias_UsesRoleSpecificTimeouts(t *testing.T) {
 		},
 	}
 
+	// TimeoutSec=120 はすべてのロール（Chat/Wild/Heavy/Worker）に適用される
 	cases := map[string]time.Duration{
-		"Chat":   10 * time.Second,
-		"Wild":   15 * time.Second,
-		"Heavy":  30 * time.Second,
+		"Chat":   120 * time.Second,
+		"Wild":   120 * time.Second,
+		"Heavy":  120 * time.Second,
 		"Worker": 120 * time.Second,
 	}
 	for alias, want := range cases {

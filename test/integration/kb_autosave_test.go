@@ -87,8 +87,8 @@ func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
 	repo := newMockSessionRepo()
 	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
-	// "教えて" キーワードでweb_search が自動実行される
-	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Rustについて教えて"))
+	// "検索して" キーワードでweb_search が自動実行される
+	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Rustについて検索して"))
 	if err != nil {
 		t.Fatalf("ProcessMessage failed: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestKBAutosave_WebSearch_SavesCalled(t *testing.T) {
 		t.Error("Expected SaveWebSearchToKB to be called, but it wasn't")
 	}
 
-	// 引数の検証（"Rustについて教えて" → "programming" domain）
+	// 引数の検証（"Rustについて検索して" → "programming" domain）
 	if mockConvMgr.savedDomain != "programming" {
 		t.Errorf("Expected domain 'programming', got '%s'", mockConvMgr.savedDomain)
 	}
@@ -192,7 +192,7 @@ func TestKBAutosave_MetadataExtraction(t *testing.T) {
 	repo := newMockSessionRepo()
 	orch := orchestrator.NewMessageOrchestrator(repo, mio, shiro, nil, nil, nil, nil, nil)
 
-	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Pythonについて教えて"))
+	_, err := orch.ProcessMessage(context.Background(), defaultIntegrationReq("Pythonについて検索して"))
 	if err != nil {
 		t.Fatalf("Error: %v", err)
 	}
