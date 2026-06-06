@@ -19,6 +19,7 @@ type LoadedPrompts struct {
 	Wild             string            // Midori Wild
 	CharacterPrompts map[string]string // character名 → manifest結合済みプロンプト
 	IdleChatAgents   map[string]string // IdleChat Agent名 → プロンプト
+	SelfContext      string            // 自己認識コンテキスト（全エージェント共通）
 }
 
 // LoadPrompts は prompts_dir からプロンプトファイルを読み込む

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -72,6 +73,12 @@ func buildOrchestratorRuntime(
 		log.Printf("Coder capability metadata loaded (%d coders); CODE uses only local coder1 unless an explicit CODE route is requested", len(coderCaps))
 	}
 	orch.SetExternalCoderPolicy(buildExternalCoderPolicyFromRuntime(cfg))
+	// 自己認識コンテキストをプロンプトに注入
+	if cfg.SelfSourceDir != "" {
+		injectSelfContext(cfg)
+		log.Printf("Self-source context injected (SelfSourceDir=%s)", cfg.SelfSourceDir)
+	}
+
 	if cfg.Prompts != nil && cfg.Prompts.CoderLoop != "" {
 		orch.SetCoderLoopPrompt(cfg.Prompts.CoderLoop)
 		log.Printf("CoderLoop prompt loaded (%d bytes); all coder slots use multi-turn loop", len(cfg.Prompts.CoderLoop))
@@ -142,4 +149,46 @@ func buildOrchestratorRuntime(
 	deps.entryHandler = bridges.EntryFromOrch(orch)
 	deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = bridges.ChromeBridgeFromOrch(orch)
 	startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, orch)
+}
+
+// injectSelfContext は RenCrow 自身のソースディレクトリに関する自己認識コンテキストを
+// 各エージェントのプロンプト先頭に付加する。
+func injectSelfContext(cfg *config.Config) {
+	if cfg.Prompts == nil || cfg.SelfSourceDir == "" {
+		return
+	}
+	ctx := buildSelfContextBlock(cfg.SelfSourceDir)
+	cfg.Prompts.SelfContext = ctx
+
+	// CoderLoop: 既存の Project Context を上書きせず先頭に追記
+	if cfg.Prompts.CoderLoop != "" {
+		cfg.Prompts.CoderLoop = ctx + "\n\n" + cfg.Prompts.CoderLoop
+	}
+	// CoderProposal
+	if cfg.Prompts.CoderProposal != "" {
+		cfg.Prompts.CoderProposal = ctx + "\n\n" + cfg.Prompts.CoderProposal
+	}
+	// Worker
+	if cfg.Prompts.Worker != "" {
+		cfg.Prompts.Worker = ctx + "\n\n" + cfg.Prompts.Worker
+	}
+	// Mio（Chat）
+	if cfg.Prompts.MioPersona != "" {
+		cfg.Prompts.MioPersona = cfg.Prompts.MioPersona + "\n\n" + ctx
+	}
+}
+
+// buildSelfContextBlock は自己認識コンテキストブロック文字列を生成する。
+func buildSelfContextBlock(selfSourceDir string) string {
+	return fmt.Sprintf(`## Self-Knowledge: RenCrow Source
+
+You are running as part of the RenCrow system.
+Your own source code is located at: %s
+
+Key facts:
+- This directory IS the RenCrow Go codebase (github.com/Nyukimin/picoclaw_multiLLM)
+- You can read, search, and modify this codebase via Worker actions
+- Use mcp_tool (Serena LSP) or shell_command (git grep / cat) to explore it
+- Changes to this directory affect RenCrow itself — apply caution and always run go build ./... before final_report
+- The binary you are running from was compiled from this source`, selfSourceDir)
 }

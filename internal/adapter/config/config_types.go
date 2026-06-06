@@ -40,6 +40,7 @@ type Config struct {
 	PromptsDir         string         `yaml:"prompts_dir"`          // プロンプトファイルのベースディレクトリ（デフォルト）
 	WorkspaceDir       string         `yaml:"workspace_dir"`        // ユーザーカスタマイズ領域（オーバーライド）
 	OperationMemoryDir string         `yaml:"operation_memory_dir"` // RenCrow operational memory の永続ディレクトリ
+	SelfSourceDir      string         `yaml:"self_source_dir"`      // RenCrow 自身のソースコードディレクトリ（デフォルト: cwd）
 	Prompts            *LoadedPrompts `yaml:"-"`                    // 読み込み済みプロンプト（YAML非対象）
 
 	// === Heartbeat ===

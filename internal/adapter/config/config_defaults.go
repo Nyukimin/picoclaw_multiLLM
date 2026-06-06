@@ -284,8 +284,25 @@ func (c *Config) setDefaults() {
 	if c.DCI.SQLitePath == "" {
 		c.DCI.SQLitePath = c.WorkspaceDir + "/dci.db"
 	}
+	// SelfSourceDir: 未設定なら cwd を自分自身のソースディレクトリとして使う
+	if c.SelfSourceDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			c.SelfSourceDir = cwd
+		}
+	}
 	if len(c.DCI.CorpusAllowlist) == 0 {
-		c.DCI.CorpusAllowlist = []string{"docs/"}
+		// 自ソースディレクトリを DCI コーパスに自動追加
+		allowlist := []string{"docs/"}
+		if c.SelfSourceDir != "" {
+			allowlist = append(allowlist,
+				filepath.Join(c.SelfSourceDir, "internal"),
+				filepath.Join(c.SelfSourceDir, "cmd"),
+				filepath.Join(c.SelfSourceDir, "docs"),
+				filepath.Join(c.SelfSourceDir, "prompts"),
+				filepath.Join(c.SelfSourceDir, "pkg"),
+			)
+		}
+		c.DCI.CorpusAllowlist = allowlist
 	}
 	if len(c.DCI.CorpusDenylist) == 0 {
 		c.DCI.CorpusDenylist = []string{".env", "*.pem", "*.key", "id_rsa", "credentials.json", "token.json", "cookies.sqlite", ".git", "node_modules", "venv", ".venv", "secrets", "private"}
