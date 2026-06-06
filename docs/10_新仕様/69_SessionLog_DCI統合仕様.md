@@ -76,15 +76,111 @@ dci:
 
 ---
 
-## 3. 効果
+## 3. 各ソースのJSONL実フォーマット
 
-- 「前回どう直した？」「この問題は解決済み？」という質問に DCI が自動でセッション履歴を参照して回答できる
-- Codex・Claude Code のセッション履歴も同一の検索経路で参照可能
-- CoderLoop の観察ステップから `git grep` と同様にセッション履歴を参照可能
+### 3.1 RenCrow（`rencrow`）
+
+本実装で新規追加。1ターン1行。
+
+```json
+{"ts":"2026-06-06T12:00:00Z","session_id":"viewer","channel":"line","role":"user","content":"質問内容"}
+{"ts":"2026-06-06T12:00:02Z","session_id":"viewer","channel":"line","role":"assistant","route":"CHAT","job_id":"job_...","content":"回答内容"}
+```
+
+抽出キー: `content`
+
+### 3.2 Claude Code（`claude`）
+
+`~/.claude/projects/{project-slug}/{uuid}.jsonl`
+
+```json
+{"type":"user","message":{"content":"serena 起動した？"},"sessionId":"...","timestamp":"..."}
+{"type":"assistant","message":{"content":[{"type":"text","text":"応答テキスト"}]},"sessionId":"...","timestamp":"..."}
+```
+
+- `message.content` は **文字列**（ユーザー発話）または **`[{type,text}]` 配列**（アシスタント応答）のどちらもある
+- `type=tool_use` / `type=tool_result` は会話テキストを持たないためスキップ
+- 抽出キー: `message.content`（文字列 or 配列の `text` フィールドを結合）
+
+### 3.3 Codex（`codex`）
+
+`~/.codex/sessions/{YYYY}/{MM}/{DD}/rollout-{datetime}-{uuid}.jsonl`
+
+```json
+{"timestamp":"...","type":"session_meta","payload":{"id":"...","cwd":"...","base_instructions":{"text":"..."}}}
+```
+
+- 現状確認できる rollout ファイルは `session_meta` 型のみ（会話テキストは `payload.base_instructions.text` に含まれる場合がある）
+- ユーザー発話・アシスタント応答が別エントリとして記録されるかはバージョン依存
+- `payload.content` / `payload.text` / `payload.message` を順にフォールバック取得する実装で最大限対応
+- **実質的にプロジェクト設定・指示文の参照ソースとして機能する**
 
 ---
 
-## 4. 関連ファイル
+## 4. DCI 検索フロー
+
+```
+ユーザー: "前回CoderLoopのバグどう直した？"
+  │
+  ▼
+DCI.ShouldTrigger() → ExplicitKeywords にマッチ or CoderLoop/セッション関連キーワード
+  │
+  ▼
+SessionLogCandidateProvider.CandidateFiles()
+  ├─ ~/.picoclaw/logs/sessions/**/*.jsonl （直近90日）
+  ├─ ~/.claude/projects/.../**/*.jsonl    （直近90日）
+  └─ ~/.codex/sessions/**/*.jsonl         （直近90日）
+  　　各ファイルを先頭200行スキャン → クエリ/タームの出現頻度でスコアリング
+  │
+  ▼
+上位ファイルを CorpusAllowlist 経由で DCI Explorer が cat/grep
+  │
+  ▼
+Evidence として Coder/Chat に渡される
+```
+
+---
+
+## 5. 既存ログとの関係・使い分け
+
+| ログ | 場所 | 用途 |
+|------|------|------|
+| **セッションログ（本機能）** | `~/.picoclaw/logs/sessions/` | 会話ターン単位。DCI で検索可能 |
+| picoclaw.log | `~/.picoclaw/logs/picoclaw.log` | システム全体の構造化ログ（接続状態・エラー等） |
+| chat_raw.log | `~/.picoclaw/logs/chat_raw.log` | LLM への生リクエスト/レスポンス（デバッグ用） |
+| coder_transcript_log.jsonl | `~/.picoclaw/workspace/logs/skill_governance/` | Coder の plan/patch 単位の詳細トランスクリプト |
+| orchestrator_event_log.jsonl | `~/.picoclaw/workspace/` | ルーティング・実行イベント（Viewer 表示用） |
+
+セッションログは「会話の文脈を後から検索する」目的に特化。デバッグや監査には既存の各ログを使う。
+
+---
+
+## 6. 保持期間・ログローテーション
+
+- セッションログは月別ディレクトリ（`YYYY-MM/`）に自動整理される
+- 既存の `~/.picoclaw/bin/log-rotate.sh`（cron 毎日04:00）の対象外のため、長期運用では手動またはスクリプト追加が必要
+- DCI の候補スキャンは **直近90日** に限定しているため、古いファイルが残っていても検索性能に影響しない
+
+---
+
+## 7. 既知の制限事項
+
+- **Distributed Mode 非対応**: v3 Local Mode の `MessageOrchestrator` のみにロガーが注入される。v4 Distributed Mode（`DistributedOrchestrator`）は未対応
+- **エラー応答は記録されない**: `ProcessMessage` がエラーを返した場合、`WriteAssistant` は呼ばれない
+- **Codex フォーマット不確定**: Codex のセッションファイル構造はバージョンにより変わる可能性がある。テキストが取れない場合は候補スコアが0になり静かにスキップされる
+- **セッションログへの書き込み失敗はサイレント**: ディスクフルやパーミッションエラーが発生しても本体処理に影響しない（ログなし）
+
+---
+
+## 8. 効果
+
+- 「前回どう直した？」「この問題は解決済み？」という質問に DCI が自動でセッション履歴を参照して回答できる
+- Codex・Claude Code のセッション履歴も同一の検索経路で参照可能
+- CoderLoop の観察ステップ（`read_request`）から `git grep` と同様にセッション履歴を参照可能
+
+---
+
+## 9. 関連ファイル
 
 - `internal/infrastructure/logging/session_log_writer.go`
 - `internal/infrastructure/persistence/dci/session_log_candidate_provider.go`
