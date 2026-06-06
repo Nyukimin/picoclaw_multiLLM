@@ -1685,3 +1685,37 @@ func TestProcessMessage_RecordsPausedLeadAgentRunWhenRuntimePauseCancelsContext(
 		t.Fatalf("unexpected trace events: %+v", super.traces)
 	}
 }
+
+func TestMessageOrchestrator_ProcessMessage_SlashCommandSkipsDCI(t *testing.T) {
+	// スラッシュコマンド（/code3, /analyze 等）は DCI をスキップして通常ルーティングに進む
+	decideCalled := false
+	mio := &mockMioAgent{
+		decideFunc: func(ctx context.Context, t task.Task) (routing.Decision, error) {
+			decideCalled = true
+			return routing.NewDecision(routing.RouteCHAT, 1.0, "explicit /code3 command (fallback to CHAT in test)"), nil
+		},
+		chatFunc: func(ctx context.Context, m task.Task) (string, error) {
+			return "code3 response", nil
+		},
+	}
+
+	searcher := &mockDCISearcher{
+		trigger: true, // ShouldTrigger が true を返しても
+	}
+
+	req := defaultReq()
+	req.UserMessage = "/code3 ルーティング関連ファイルを調査して"
+	orch := NewMessageOrchestrator(newMockSessionRepository(), mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetDCISearcher(searcher)
+
+	_, err := orch.ProcessMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if searcher.calls != 0 {
+		t.Fatalf("DCI should be skipped for slash commands, but Search was called %d time(s)", searcher.calls)
+	}
+	if !decideCalled {
+		t.Fatal("route decision should be called when DCI is skipped")
+	}
+}

@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	domaindci "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/dci"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -19,6 +20,10 @@ func (o *DistributedOrchestrator) SetRecallTraceStore(store RecallTraceStore) {
 }
 
 func (o *DistributedOrchestrator) handleExplicitDCI(ctx context.Context, req ProcessMessageRequest, sess *session.Session, t task.Task, jobID task.JobID) (ProcessMessageResponse, bool, error) {
+	// スラッシュコマンド（/code3, /analyze 等）はルーティングを最優先。DCI をスキップ。
+	if strings.HasPrefix(strings.TrimSpace(req.UserMessage), "/") {
+		return ProcessMessageResponse{}, false, nil
+	}
 	if o.dciSearcher == nil || !o.dciSearcher.ShouldTrigger(req.UserMessage) {
 		return ProcessMessageResponse{}, false, nil
 	}
