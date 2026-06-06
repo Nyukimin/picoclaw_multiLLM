@@ -1117,7 +1117,8 @@ function renderSourceRegistryStaging() {
         '<button class="ctl-btn" onclick="validateSourceRegistryStaging(&quot;' + id + '&quot;)">Validate</button> ' +
         '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;news&quot;)">News</button> ' +
         '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;knowledge&quot;)">Knowledge</button> ' +
-        '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;memory&quot;)">Memory</button>' +
+        '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;memory&quot;)">Memory</button> ' +
+        '<button class="ctl-btn" onclick="promoteSourceRegistryStaging(&quot;' + id + '&quot;,&quot;domain_graph&quot;)">Graph</button>' +
       '</td>';
     body.appendChild(tr);
   });
@@ -1128,6 +1129,11 @@ function setSourceRegistryStagingStatus(message, warn) {
   const el = document.getElementById('sourceRegistryStagingStatusLine');
   if (!el) return;
   el.innerHTML = message ? '<span class="' + (warn ? 'badge warn' : 'badge') + '">' + esc(message) + '</span>' : '';
+}
+
+function sourceRegistryInputValue(id) {
+  const el = document.getElementById(id);
+  return el ? String(el.value || '').trim() : '';
 }
 
 function refreshSourceRegistryStaging() {
@@ -1199,6 +1205,18 @@ function promoteSourceRegistryStaging(id, target) {
   } else if (promotionTarget === 'memory') {
     const namespace = document.getElementById('sourceRegistryStagingNamespace');
     payload.target_namespace = namespace ? namespace.value.trim() : '';
+  } else if (promotionTarget === 'domain_graph') {
+    payload.domain = sourceRegistryInputValue('domainGraphDomain') || sourceRegistryInputValue('sourceRegistryStagingGraphDomain') || 'movie';
+    payload.entity_type = sourceRegistryInputValue('sourceRegistryStagingGraphEntityType') || 'work';
+    const entityID = sourceRegistryInputValue('sourceRegistryStagingGraphEntityID');
+    const relationType = sourceRegistryInputValue('sourceRegistryStagingGraphRelation');
+    const confidenceRaw = sourceRegistryInputValue('sourceRegistryStagingGraphConfidence');
+    if (entityID) payload.entity_id = entityID;
+    if (relationType) payload.relation_type = relationType;
+    if (confidenceRaw) {
+      const confidence = Number(confidenceRaw);
+      if (Number.isFinite(confidence)) payload.confidence = confidence;
+    }
   }
   fetch('/viewer/source-registry?action=promote', {
     method: 'POST',
@@ -1215,6 +1233,7 @@ function promoteSourceRegistryStaging(id, target) {
     setSourceRegistryStagingStatus('promoted=' + (data.target || promotionTarget), false);
     refreshSourceRegistryStaging();
     refreshMemorySnapshot();
+    if (promotionTarget === 'domain_graph') refreshDomainGraphAssertions();
   }).catch((err) => {
     setSourceRegistryStagingStatus(err.message || String(err), true);
     console.error(err);

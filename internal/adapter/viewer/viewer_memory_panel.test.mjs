@@ -88,6 +88,11 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="sourceRegistryBody"/);
   assert.match(html, /id="sourceRegistryRunStatus"/);
   assert.match(html, /id="sourceRegistryYAML"/);
+  assert.match(html, /id="sourceRegistryStagingGraphDomain"/);
+  assert.match(html, /id="sourceRegistryStagingGraphEntityType"/);
+  assert.match(html, /id="sourceRegistryStagingGraphEntityID"/);
+  assert.match(html, /id="sourceRegistryStagingGraphRelation"/);
+  assert.match(html, /id="sourceRegistryStagingGraphConfidence"/);
   assert.match(html, /id="domainGraphAssertionBody"/);
   assert.match(html, /id="domainGraphAssertionStatus"/);
   assert.match(html, /id="domainGraphRefreshBtn"/);
@@ -1327,6 +1332,139 @@ globalThis.__body = document.getElementById('sourceRegistryStagingBody').innerHT
 
   assert.match(context.__body, /creative_knowledge:ck_1/);
   assert.match(context.__body, /news_knowledge:news_1/);
+  assert.match(context.__body, /domain_graph/);
+  assert.match(context.__body, />Graph</);
+});
+
+test('viewer builds source registry domain graph promotion payload', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('domainGraphDomain').value = '';
+  get('sourceRegistryStagingGraphDomain').value = 'movie';
+  get('sourceRegistryStagingGraphEntityType').value = 'work';
+  get('sourceRegistryStagingGraphEntityID').value = 'movie:1';
+  get('sourceRegistryStagingGraphRelation').value = 'catalog_fact';
+  get('sourceRegistryStagingGraphConfidence').value = '0.72';
+  const requests = [];
+  let graphRefreshCount = 0;
+  let snapshotRefreshCount = 0;
+  let stagingRefreshCount = 0;
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  sourceRegistry: [],
+  sourceRegistryStaging: [{id: 'stg_1', validation_status: 'validated', summary_draft: 'candidate'}],
+  knowledgeMemory: {},
+  sourceRegistryLastRun: null,
+}};
+function refreshSourceRegistryStaging() { globalThis.__stagingRefreshCount += 1; }
+function refreshMemorySnapshot() { globalThis.__snapshotRefreshCount += 1; }
+function refreshDomainGraphAssertions() { globalThis.__graphRefreshCount += 1; }
+` + sourceBetween(memoryJs, 'function renderSourceRegistry', 'function saveSourceRegistryEntry') + `
+refreshSourceRegistryStaging = function() { globalThis.__stagingRefreshCount += 1; };
+refreshMemorySnapshot = function() { globalThis.__snapshotRefreshCount += 1; };
+refreshDomainGraphAssertions = function() { globalThis.__graphRefreshCount += 1; };
+globalThis.__promoteSourceRegistryStaging = promoteSourceRegistryStaging;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    __graphRefreshCount: graphRefreshCount,
+    __snapshotRefreshCount: snapshotRefreshCount,
+    __stagingRefreshCount: stagingRefreshCount,
+    fetch(url, options = {}) {
+      requests.push({url: String(url), body: JSON.parse(String(options.body || '{}'))});
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({target: 'domain_graph', item: {ID: 'dg_1'}}),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__promoteSourceRegistryStaging('stg_1', 'domain_graph');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/viewer/source-registry?action=promote');
+  assert.deepEqual(requests[0].body, {
+    id: 'stg_1',
+    target: 'domain_graph',
+    domain: 'movie',
+    entity_type: 'work',
+    entity_id: 'movie:1',
+    relation_type: 'catalog_fact',
+    confidence: 0.72,
+  });
+  assert.equal(get('sourceRegistryStagingStatusLine').innerHTML, '<span class="badge">promoted=domain_graph</span>');
+  assert.equal(context.__stagingRefreshCount, 1);
+  assert.equal(context.__snapshotRefreshCount, 1);
+  assert.equal(context.__graphRefreshCount, 1);
+});
+
+test('viewer uses domain graph filter defaults for source registry graph promotion', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('domainGraphDomain').value = 'manga';
+  get('sourceRegistryStagingGraphConfidence').value = 'not-a-number';
+  const requests = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {sourceRegistry: [], sourceRegistryStaging: [], knowledgeMemory: {}}};
+function refreshSourceRegistryStaging() {}
+function refreshMemorySnapshot() {}
+function refreshDomainGraphAssertions() {}
+` + sourceBetween(memoryJs, 'function renderSourceRegistry', 'function saveSourceRegistryEntry') + `
+refreshSourceRegistryStaging = function() {};
+refreshMemorySnapshot = function() {};
+refreshDomainGraphAssertions = function() {};
+globalThis.__promoteSourceRegistryStaging = promoteSourceRegistryStaging;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    fetch(url, options = {}) {
+      requests.push({url: String(url), body: JSON.parse(String(options.body || '{}'))});
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({target: 'domain_graph', item: {ID: 'dg_1'}}),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__promoteSourceRegistryStaging('stg_2', 'domain_graph');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(requests[0].body, {
+    id: 'stg_2',
+    target: 'domain_graph',
+    domain: 'manga',
+    entity_type: 'work',
+  });
 });
 
 test('viewer renders web gather diagnostics from search cache and staging', () => {
@@ -1583,6 +1721,8 @@ test('viewer renders source registry action errors with response body', async ()
   };
   get('sourceRegistryStagingTrust').value = '0.8';
   get('sourceRegistryStagingCategory').value = 'tech';
+  get('sourceRegistryStagingGraphDomain').value = 'movie';
+  get('sourceRegistryStagingGraphEntityType').value = 'work';
   const requested = [];
   const source = `
 function esc(s) { return String(s || ''); }
@@ -1642,12 +1782,18 @@ globalThis.__state = state;
   assert.match(get('sourceRegistryStagingStatusLine').innerHTML, /HTTP 409: promotion target mismatch/);
   assert.doesNotMatch(get('sourceRegistryStagingStatusLine').innerHTML, /source registry staging promotion failed/);
 
+  context.__promoteSourceRegistryStaging('stg_1', 'domain_graph');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(get('sourceRegistryStagingStatusLine').innerHTML, /HTTP 409: promotion target mismatch/);
+  assert.doesNotMatch(get('sourceRegistryStagingStatusLine').innerHTML, /source registry staging promotion failed/);
+
   context.__runSourceRegistryEntry('src_1');
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(get('sourceRegistryRunStatus').innerHTML, /Source Registry run unavailable: HTTP 503: source registry runtime unavailable/);
   assert.equal(context.__state.memory.sourceRegistryLastRun.error, 'HTTP 503: source registry runtime unavailable');
   assert.deepEqual(requested, [
     '/viewer/source-registry?action=validate',
+    '/viewer/source-registry?action=promote',
     '/viewer/source-registry?action=promote',
     '/viewer/source-registry?action=run&source_id=src_1',
   ]);
