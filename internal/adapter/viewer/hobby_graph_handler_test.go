@@ -191,6 +191,131 @@ func TestHandleHobbyGraphInteractionRejectsInvalidMethod(t *testing.T) {
 	}
 }
 
+func TestHandleHobbyGraphRelationCreatesRelationBetweenExistingItems(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "hobby_graph.sqlite")
+	interaction := HandleHobbyGraphInteraction(HobbyGraphOptions{DBPath: dbPath})
+
+	workID := createHobbyGraphTestItem(t, interaction, `{
+		"category":"manga",
+		"item_type":"work",
+		"title":"ダンジョン飯",
+		"interaction_type":"read"
+	}`)
+	creatorID := createHobbyGraphTestItem(t, interaction, `{
+		"category":"manga",
+		"item_type":"creator",
+		"title":"九井諒子",
+		"interaction_type":"interested"
+	}`)
+
+	body := `{
+		"from_item_id":"` + workID + `",
+		"to_item_id":"` + creatorID + `",
+		"relation_type":"created-by",
+		"source":"manual",
+		"evidence_url":"https://example.com/source",
+		"evidence":{"note":"manual relation"}
+	}`
+	h := HandleHobbyGraphRelation(HobbyGraphOptions{DBPath: dbPath})
+	for i := 0; i < 2; i++ {
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/relation", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("run %d expected 200, got %d: %s", i+1, rec.Code, rec.Body.String())
+		}
+		var out hobbyGraphRelationResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("run %d invalid json: %v", i+1, err)
+		}
+		if !out.Available || out.DBPath != dbPath {
+			t.Fatalf("run %d unexpected response identity: %+v", i+1, out)
+		}
+		if out.Relation.RelationID == "" || out.Relation.FromItemID != workID || out.Relation.ToItemID != creatorID || out.Relation.RelationType != "created_by" || out.Relation.Source != "manual" {
+			t.Fatalf("run %d unexpected relation: %+v", i+1, out.Relation)
+		}
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM hobby_relations").Scan(&count); err != nil {
+		t.Fatalf("count hobby_relations: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("hobby_relations count=%d, want 1", count)
+	}
+	var relationID, fromItemID, toItemID, relationType, source, evidenceURL, evidenceJSON string
+	if err := db.QueryRow(`
+SELECT relation_id, from_item_id, to_item_id, relation_type, source, evidence_url, evidence_json
+FROM hobby_relations
+LIMIT 1`).Scan(&relationID, &fromItemID, &toItemID, &relationType, &source, &evidenceURL, &evidenceJSON); err != nil {
+		t.Fatalf("query relation row: %v", err)
+	}
+	if relationID == "" || fromItemID != workID || toItemID != creatorID || relationType != "created_by" || source != "manual" || evidenceURL != "https://example.com/source" {
+		t.Fatalf("unexpected relation row id=%q from=%q to=%q type=%q source=%q url=%q", relationID, fromItemID, toItemID, relationType, source, evidenceURL)
+	}
+	if !strings.Contains(evidenceJSON, "manual relation") {
+		t.Fatalf("unexpected evidence json: %q", evidenceJSON)
+	}
+}
+
+func TestHandleHobbyGraphRelationRejectsMissingItem(t *testing.T) {
+	h := HandleHobbyGraphRelation(HobbyGraphOptions{DBPath: filepath.Join(t.TempDir(), "hobby_graph.sqlite")})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/relation", strings.NewReader(`{
+		"from_item_id":"hobby_item:missing_from",
+		"to_item_id":"hobby_item:missing_to",
+		"relation_type":"created_by"
+	}`)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "hobby graph relation item not found") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestHandleHobbyGraphRelationRejectsInvalidRequest(t *testing.T) {
+	h := HandleHobbyGraphRelation(HobbyGraphOptions{DBPath: filepath.Join(t.TempDir(), "hobby_graph.sqlite")})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/relation", strings.NewReader(`{"from_item_id":"hobby_item:x"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid hobby graph relation request") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestHandleHobbyGraphRelationRejectsInvalidMethod(t *testing.T) {
+	h := HandleHobbyGraphRelation(HobbyGraphOptions{DBPath: filepath.Join(t.TempDir(), "hobby_graph.sqlite")})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/viewer/hobby-graph/relation", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func createHobbyGraphTestItem(t *testing.T, h http.HandlerFunc, body string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/interaction", strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create test item expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out hobbyGraphInteractionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("create test item invalid json: %v", err)
+	}
+	if out.Item.ItemID == "" {
+		t.Fatalf("create test item missing item_id: %+v", out.Item)
+	}
+	return out.Item.ItemID
+}
+
 func hobbyGraphTableExists(db *sql.DB, name string) bool {
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&count)

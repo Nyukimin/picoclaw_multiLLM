@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -75,6 +76,31 @@ type hobbyGraphObservationDTO struct {
 	NormalizedTitle string `json:"normalized_title"`
 	Status          string `json:"status"`
 	ResolvedItemID  string `json:"resolved_item_id"`
+}
+
+type hobbyGraphRelationRequest struct {
+	FromItemID   string                 `json:"from_item_id"`
+	ToItemID     string                 `json:"to_item_id"`
+	RelationType string                 `json:"relation_type"`
+	Source       string                 `json:"source"`
+	EvidenceURL  string                 `json:"evidence_url"`
+	Evidence     map[string]interface{} `json:"evidence"`
+}
+
+type hobbyGraphRelationResponse struct {
+	Available bool                  `json:"available"`
+	DBPath    string                `json:"db_path"`
+	Relation  hobbyGraphRelationDTO `json:"relation"`
+}
+
+type hobbyGraphRelationDTO struct {
+	RelationID   string                 `json:"relation_id"`
+	FromItemID   string                 `json:"from_item_id"`
+	ToItemID     string                 `json:"to_item_id"`
+	RelationType string                 `json:"relation_type"`
+	Source       string                 `json:"source"`
+	EvidenceURL  string                 `json:"evidence_url,omitempty"`
+	Evidence     map[string]interface{} `json:"evidence,omitempty"`
 }
 
 var hobbyGraphTables = []string{
@@ -208,6 +234,51 @@ func HandleHobbyGraphInteraction(opts HobbyGraphOptions) http.HandlerFunc {
 	}
 }
 
+func HandleHobbyGraphRelation(opts HobbyGraphOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req hobbyGraphRelationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid hobby graph relation request", http.StatusBadRequest)
+			return
+		}
+		if err := normalizeHobbyGraphRelationRequest(&req); err != nil {
+			http.Error(w, "invalid hobby graph relation request", http.StatusBadRequest)
+			return
+		}
+		dbPath := resolveHobbyGraphWritableDBPath(opts.DBPath)
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+			http.Error(w, "failed to create hobby graph directory", http.StatusInternalServerError)
+			return
+		}
+		db, err := sql.Open("sqlite3", dbPath)
+		if err != nil {
+			http.Error(w, "failed to open hobby graph", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
+		if err := ensureHobbyGraphTables(r.Context(), db); err != nil {
+			http.Error(w, "failed to bootstrap hobby graph", http.StatusInternalServerError)
+			return
+		}
+		resp, notFound, err := saveHobbyGraphRelation(r.Context(), db, req)
+		if err != nil {
+			http.Error(w, "failed to save hobby graph relation", http.StatusInternalServerError)
+			return
+		}
+		if notFound {
+			http.Error(w, "hobby graph relation item not found", http.StatusNotFound)
+			return
+		}
+		resp.Available = true
+		resp.DBPath = dbPath
+		writeHobbyGraphRelationJSON(w, resp)
+	}
+}
+
 func normalizeHobbyGraphInteractionRequest(req *hobbyGraphInteractionRequest) error {
 	req.Category = normalizeHobbyGraphToken(req.Category)
 	req.ItemType = normalizeHobbyGraphToken(req.ItemType)
@@ -225,6 +296,24 @@ func normalizeHobbyGraphInteractionRequest(req *hobbyGraphInteractionRequest) er
 	}
 	if req.Rating != nil && (*req.Rating < 0 || *req.Rating > 5) {
 		return fmt.Errorf("invalid rating")
+	}
+	return nil
+}
+
+func normalizeHobbyGraphRelationRequest(req *hobbyGraphRelationRequest) error {
+	req.FromItemID = strings.TrimSpace(req.FromItemID)
+	req.ToItemID = strings.TrimSpace(req.ToItemID)
+	req.RelationType = normalizeHobbyGraphToken(req.RelationType)
+	req.Source = normalizeHobbyGraphToken(req.Source)
+	if req.Source == "" {
+		req.Source = "manual"
+	}
+	req.EvidenceURL = strings.TrimSpace(req.EvidenceURL)
+	if req.Evidence == nil {
+		req.Evidence = map[string]interface{}{}
+	}
+	if req.FromItemID == "" || req.ToItemID == "" || req.RelationType == "" {
+		return fmt.Errorf("required field missing")
 	}
 	return nil
 }
@@ -304,6 +393,61 @@ ON CONFLICT(observation_id) DO UPDATE SET
 			ResolvedItemID:  itemID,
 		},
 	}, nil
+}
+
+func saveHobbyGraphRelation(ctx context.Context, db *sql.DB, req hobbyGraphRelationRequest) (hobbyGraphRelationResponse, bool, error) {
+	fromExists, err := hobbyGraphItemExists(ctx, db, req.FromItemID)
+	if err != nil {
+		return hobbyGraphRelationResponse{}, false, err
+	}
+	toExists, err := hobbyGraphItemExists(ctx, db, req.ToItemID)
+	if err != nil {
+		return hobbyGraphRelationResponse{}, false, err
+	}
+	if !fromExists || !toExists {
+		return hobbyGraphRelationResponse{}, true, nil
+	}
+	relationID := hobbyGraphStableID("hobby_relation", req.FromItemID, req.ToItemID, req.RelationType, req.Source)
+	evidenceJSON, err := json.Marshal(req.Evidence)
+	if err != nil {
+		return hobbyGraphRelationResponse{}, false, err
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO hobby_relations(relation_id, from_item_id, to_item_id, relation_type, source, evidence_url, evidence_json, created_at)
+VALUES(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(relation_id) DO UPDATE SET
+	from_item_id = excluded.from_item_id,
+	to_item_id = excluded.to_item_id,
+	relation_type = excluded.relation_type,
+	source = excluded.source,
+	evidence_url = excluded.evidence_url,
+	evidence_json = excluded.evidence_json
+`, relationID, req.FromItemID, req.ToItemID, req.RelationType, req.Source, nullableString(req.EvidenceURL), string(evidenceJSON)); err != nil {
+		return hobbyGraphRelationResponse{}, false, err
+	}
+	return hobbyGraphRelationResponse{
+		Relation: hobbyGraphRelationDTO{
+			RelationID:   relationID,
+			FromItemID:   req.FromItemID,
+			ToItemID:     req.ToItemID,
+			RelationType: req.RelationType,
+			Source:       req.Source,
+			EvidenceURL:  req.EvidenceURL,
+			Evidence:     req.Evidence,
+		},
+	}, false, nil
+}
+
+func hobbyGraphItemExists(ctx context.Context, db *sql.DB, itemID string) (bool, error) {
+	var exists int
+	err := db.QueryRowContext(ctx, "SELECT 1 FROM hobby_items WHERE item_id = ? LIMIT 1", itemID).Scan(&exists)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
 }
 
 func resolveHobbyGraphDBPath(configured string) string {
@@ -487,6 +631,11 @@ func writeHobbyGraphJSON(w http.ResponseWriter, payload hobbyGraphResponse) {
 }
 
 func writeHobbyGraphInteractionJSON(w http.ResponseWriter, payload hobbyGraphInteractionResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeHobbyGraphRelationJSON(w http.ResponseWriter, payload hobbyGraphRelationResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }
