@@ -91,10 +91,17 @@ func (c *SerenaClient) Start(ctx context.Context) error {
 		return fmt.Errorf("serena command not found: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, serenaCmd[0], append(serenaCmd[1:],
-		"--enable-web-dashboard", "False",
-		"--project-from-cwd",
-	)...)
+	// .serena/project.yml が存在する場合は --project でプロジェクトを明示指定する。
+	// なければ --project-from-cwd にフォールバック。
+	projectArgs := []string{"--enable-web-dashboard", "False"}
+	projectYML := filepath.Join(c.workspaceDir, ".serena", "project.yml")
+	if _, err := os.Stat(projectYML); err == nil {
+		projectArgs = append(projectArgs, "--project", c.workspaceDir)
+	} else {
+		projectArgs = append(projectArgs, "--project-from-cwd")
+	}
+
+	cmd := exec.CommandContext(ctx, serenaCmd[0], append(serenaCmd[1:], projectArgs...)...)
 	cmd.Dir = c.workspaceDir
 	cmd.Stderr = os.Stderr
 
@@ -281,23 +288,35 @@ func (c *SerenaClient) recv(ctx context.Context, wantID int64) (json.RawMessage,
 }
 
 // resolveCommand は serena-mcp-server のコマンドを解決する。
-// .serena/uv-cache 内の直接バイナリか uvx ラッパーを探す。
+// 優先順位: .serena/uv-cache 内バイナリ → uvx --from .serena → PATH
 func (c *SerenaClient) resolveCommand() ([]string, error) {
-	// 1. ワークスペース内の .serena キャッシュから直接バイナリを探す
-	pattern := filepath.Join(c.workspaceDir, ".serena", "uv-cache", "archive-v0", "*", "bin", "serena-mcp-server")
-	matches, _ := filepath.Glob(pattern)
-	for _, m := range matches {
-		if _, err := os.Stat(m); err == nil {
-			return []string{m}, nil
+	// 1. ワークスペース内 .serena/uv-cache から直接バイナリを探す（最速・確実）
+	cacheDir := filepath.Join(c.workspaceDir, ".serena", "uv-cache", "archive-v0")
+	if entries, err := os.ReadDir(cacheDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			bin := filepath.Join(cacheDir, e.Name(), "bin", "serena-mcp-server")
+			if _, err := os.Stat(bin); err == nil {
+				return []string{bin}, nil
+			}
 		}
 	}
-	// 2. uvx 経由
-	if uvx, err := exec.LookPath("uvx"); err == nil {
-		return []string{uvx, "--from", filepath.Join(c.workspaceDir, ".serena", ".."), "serena-mcp-server"}, nil
+	// 2. uvx --from .serena/
+	serenaDir := filepath.Join(c.workspaceDir, ".serena")
+	if _, err := os.Stat(serenaDir); err == nil {
+		if uvx, err := exec.LookPath("uvx"); err == nil {
+			return []string{uvx, "--from", serenaDir, "serena-mcp-server"}, nil
+		}
 	}
-	// 3. PATH上の serena-mcp-server
+	// 3. uvx --from registered serena package
+	if uvx, err := exec.LookPath("uvx"); err == nil {
+		return []string{uvx, "--from", "serena", "serena-mcp-server"}, nil
+	}
+	// 4. PATH 上の serena-mcp-server
 	if p, err := exec.LookPath("serena-mcp-server"); err == nil {
 		return []string{p}, nil
 	}
-	return nil, fmt.Errorf("serena-mcp-server not found")
+	return nil, fmt.Errorf("serena-mcp-server not found in %s/.serena/uv-cache, uvx, or PATH", c.workspaceDir)
 }

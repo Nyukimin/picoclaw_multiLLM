@@ -290,7 +290,16 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
 
 	// Serena MCP クライアントを起動してCoderLoopの観測アクションに接続
-	serenaClient := mcpinfra.NewSerenaClient(cfg.Worker.Workspace)
+	// SelfSourceDir（絶対パス）を渡す。未設定なら Worker.Workspace を絶対化して使う
+	serenaWorkspace := cfg.SelfSourceDir
+	if serenaWorkspace == "" {
+		if abs, err := filepath.Abs(cfg.Worker.Workspace); err == nil {
+			serenaWorkspace = abs
+		} else {
+			serenaWorkspace = cfg.Worker.Workspace
+		}
+	}
+	serenaClient := mcpinfra.NewSerenaClient(serenaWorkspace)
 	if err := serenaClient.Start(context.Background()); err != nil {
 		log.Printf("Serena MCP client failed to start (non-fatal): %v", err)
 	} else {
