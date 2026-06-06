@@ -163,6 +163,17 @@ type L1DomainGraphAssertion struct {
 	UpdatedAt        time.Time
 }
 
+type DomainGraphAssertionQuery struct {
+	Domain           string
+	EntityType       string
+	EntityID         string
+	RelationType     string
+	SourceID         string
+	ValidationStatus string
+	Limit            int
+	Offset           int
+}
+
 type L1NewsItem struct {
 	ID           string
 	StagingID    string

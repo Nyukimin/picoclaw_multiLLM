@@ -665,6 +665,9 @@
       <div class="card"><h4>Personal Archive</h4><div id="knowledgePersonalCount" class="ops-big">0</div><div class="ops-sub">protected originals</div></div>
       <div class="card"><h4>Knowledge Sources</h4><div id="knowledgeSourceCount" class="ops-big">0</div><div class="ops-sub">creative / news / intake</div></div>
       <div class="card"><h4>Dream Runs</h4><div id="knowledgeDreamCount" class="ops-big">0</div><div class="ops-sub">reviewed consolidation</div></div>
+      <div class="card"><h4>Domain Graph</h4><div id="domainGraphAssertionCount" class="ops-big">0</div><div class="ops-sub">assertions</div></div>
+      <div class="card"><h4>Graph Domains</h4><div id="domainGraphDomainCount" class="ops-big">0</div><div class="ops-sub">filtered domains</div></div>
+      <div class="card"><h4>Graph Sources</h4><div id="domainGraphSourceCount" class="ops-big">0</div><div class="ops-sub">source ids</div></div>
     </div>
     <div class="panel-head" style="margin-top:12px">
       <h3>思い出したこと</h3>
@@ -747,6 +750,29 @@
       <table>
         <thead><tr><th>Web Gather</th><th>Value</th></tr></thead>
         <tbody id="webGatherSummaryBody"></tbody>
+      </table>
+    </div>
+    <div class="panel-head" style="margin-top:12px">
+      <h3>Domain Graph Assertions</h3>
+      <div class="sub">外部世界の関係事実 current view</div>
+    </div>
+    <div class="filters">
+      <input id="domainGraphDomain" placeholder="domain: movie">
+      <input id="domainGraphEntityType" placeholder="entity type: work / person">
+      <input id="domainGraphSourceID" placeholder="source id">
+      <select id="domainGraphStatusFilter">
+        <option value="">validated</option>
+        <option value="pending">pending</option>
+        <option value="validated">validated</option>
+        <option value="rejected">rejected</option>
+      </select>
+      <button id="domainGraphRefreshBtn" class="ctl-btn" type="button">Refresh Graph</button>
+    </div>
+    <div id="domainGraphAssertionStatus" class="small" style="margin-bottom:8px"></div>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table>
+        <thead><tr><th>Domain</th><th>Type</th><th>Entity</th><th>Relation</th><th>Conf</th><th>Source</th><th>Summary / Evidence</th><th>Created</th></tr></thead>
+        <tbody id="domainGraphAssertionBody"></tbody>
       </table>
     </div>
     <div class="table-wrap" style="margin-bottom:12px">

@@ -965,6 +965,106 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToDomainGraph(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_DomainGraphAssertionsFiltersAndPagination(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	first := saveValidatedDomainGraphAssertion(t, ctx, store, "evt-dg-1", "web:eiga", "https://example.com/movie/1", "movie", "work", "movie:1", "performed-by", 0.8)
+	_ = saveValidatedDomainGraphAssertion(t, ctx, store, "evt-dg-2", "web:manga", "https://example.com/manga/1", "manga", "work", "manga:1", "created_by", 0.6)
+
+	total, items, err := store.DomainGraphAssertions(ctx, DomainGraphAssertionQuery{Domain: "movie", Limit: 20})
+	if err != nil {
+		t.Fatalf("DomainGraphAssertions domain failed: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].ID != first.ID {
+		t.Fatalf("unexpected domain query total=%d items=%+v", total, items)
+	}
+	if items[0].Evidence["staging_id"] != first.StagingID || items[0].Evidence["source_url"] != first.SourceURL {
+		t.Fatalf("evidence did not roundtrip: %+v", items[0].Evidence)
+	}
+
+	cases := []DomainGraphAssertionQuery{
+		{EntityType: "work"},
+		{EntityID: "movie:1"},
+		{RelationType: "performed-by"},
+		{SourceID: "web:eiga"},
+	}
+	for _, q := range cases {
+		q.Domain = "movie"
+		total, items, err := store.DomainGraphAssertions(ctx, q)
+		if err != nil {
+			t.Fatalf("DomainGraphAssertions(%+v) failed: %v", q, err)
+		}
+		if total != 1 || len(items) != 1 || items[0].ID != first.ID {
+			t.Fatalf("unexpected query %+v total=%d items=%+v", q, total, items)
+		}
+	}
+
+	total, items, err = store.DomainGraphAssertions(ctx, DomainGraphAssertionQuery{Domain: "movie", ValidationStatus: "", Limit: 999})
+	if err != nil {
+		t.Fatalf("DomainGraphAssertions default status failed: %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("expected default validated status and capped limit, total=%d items=%+v", total, items)
+	}
+	_, pending, err := store.DomainGraphAssertions(ctx, DomainGraphAssertionQuery{ValidationStatus: L1StagingStatusPending})
+	if err != nil {
+		t.Fatalf("DomainGraphAssertions pending failed: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected no pending domain graph assertions, got %+v", pending)
+	}
+}
+
+func TestL1SQLiteStore_DomainGraphAssertionsRejectsNegativeOffset(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, _, err := store.DomainGraphAssertions(ctx, DomainGraphAssertionQuery{Offset: -1}); err == nil {
+		t.Fatal("expected negative offset to be rejected")
+	}
+}
+
+func saveValidatedDomainGraphAssertion(t *testing.T, ctx context.Context, store *L1SQLiteStore, eventID string, sourceID string, sourceURL string, domain string, entityType string, entityID string, relationType string, confidence float64) *L1DomainGraphAssertion {
+	t.Helper()
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:" + domain,
+		EventID:      eventID,
+		SourceID:     sourceID,
+		SourceURL:    sourceURL,
+		FetchedAt:    time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC),
+		RawText:      "domain graph raw text " + eventID,
+		SummaryDraft: "domain graph summary " + eventID,
+		Keywords:     []string{domain},
+		LicenseNote:  "public catalog; review before promotion",
+		Meta:         map[string]interface{}{"title": eventID},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{sourceID: 0.9},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 6, 6, 10, 5, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	assertion, err := store.PromoteValidatedStagingItemToDomainGraph(ctx, item.ID, domain, entityType, entityID, relationType, confidence)
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToDomainGraph failed: %v", err)
+	}
+	return assertion
+}
+
 func TestL1SQLiteStore_PromoteValidatedStagingItemToMemory(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

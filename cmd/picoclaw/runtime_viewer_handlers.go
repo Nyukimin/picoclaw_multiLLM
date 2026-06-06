@@ -20,6 +20,7 @@ func buildViewerRuntimeHandlers(
 	if l1Store == nil {
 		deps.viewerMemoryLayers = viewer.HandleMemoryLayers(nil, nil)
 		deps.viewerSourceRegistry = viewer.HandleSourceRegistry(nil)
+		deps.viewerDomainGraphAssertions = viewer.HandleDomainGraphAssertions(nil)
 	}
 	if l1Store != nil {
 		deps.viewerMemorySnapshot = viewer.HandleMemorySnapshot(l1Store)
@@ -34,6 +35,7 @@ func buildViewerRuntimeHandlers(
 		deps.viewerMemoryRecallPack = viewer.HandleMemoryRecallPack(l1Store, realMgr, l1Store)
 		deps.viewerRecallTraces = viewer.HandleRecallTraces(l1Store)
 		deps.viewerSourceRegistry = viewer.HandleSourceRegistry(l1Store)
+		deps.viewerDomainGraphAssertions = viewer.HandleDomainGraphAssertions(l1Store)
 	}
 
 	hub := viewer.NewEventHub(200)

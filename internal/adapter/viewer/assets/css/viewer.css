@@ -160,6 +160,9 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .idle-live-item.idle-kind-tts .mc{border-color:rgba(255,255,255,.18)}
 .small{color:var(--t2);font-size:11px}
 .code{font-family:'JetBrains Mono',monospace}
+.domain-graph-details{margin-top:6px}
+.domain-graph-details summary{cursor:pointer;color:var(--t2)}
+.domain-graph-details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;margin-top:6px}
 .sys-content{white-space:pre-wrap;word-break:break-word;line-height:1.5;min-width:320px}
 .sys-actions{display:flex;gap:6px;align-items:center}
 

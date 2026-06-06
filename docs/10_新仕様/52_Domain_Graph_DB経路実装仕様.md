@@ -83,6 +83,10 @@ Domain Graph DB summaries
 4. pending staging を promote できない境界テスト
 5. promoted assertion が source URL / source ID / confidence / validation status / evidence を保持するテスト
 
+## 次段実装
+
+Domain Graph assertion を保存した後の一覧・検索 API は `53_Domain_Graph_Assertion一覧検索API実装仕様.md` を正とする。
+
 ## 初期 schema
 
 最小実装では、共通 assertion table を L1 SQLite に追加する。
@@ -108,4 +112,3 @@ CREATE TABLE IF NOT EXISTS domain_graph_assertion (
 ```
 
 この table は最終的な graph DB 製品ではなく、Domain Graph DB の正本境界を崩さないための最小共通保存先である。Movie 固有の `movies` / `people` / `movie_people` などは、Movie ドメイン詳細 DB として並存してよい。
-

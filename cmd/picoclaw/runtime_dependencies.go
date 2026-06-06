@@ -86,6 +86,7 @@ type Dependencies struct {
 	viewerMemoryRecallPack         http.HandlerFunc                            // viewer memory recall pack API
 	viewerRecallTraces             http.HandlerFunc                            // viewer recall trace API
 	viewerSourceRegistry           http.HandlerFunc                            // viewer source registry API
+	viewerDomainGraphAssertions    http.HandlerFunc                            // viewer domain graph assertion API
 	verificationRecent             http.HandlerFunc                            // viewer verification recent API
 	verificationDetail             http.HandlerFunc                            // viewer verification detail API
 	verificationSummary            http.HandlerFunc                            // viewer verification summary API

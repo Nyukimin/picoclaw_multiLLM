@@ -3269,6 +3269,169 @@ func TestSourceRegistryStagingRejectsMalformedCurrentView(t *testing.T) {
 	}
 }
 
+func TestDomainGraphAssertionsCurrentView(t *testing.T) {
+	resp := validDomainGraphAssertionsResponse()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/viewer/domain-graph/assertions" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+	client, err := New(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.DomainGraphAssertions(context.Background(), DomainGraphAssertionsRequest{})
+	if err != nil {
+		t.Fatalf("DomainGraphAssertions() error = %v", err)
+	}
+	if got.Total != 1 || got.Limit != 50 || got.Offset != 0 || len(got.Items) != 1 {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+	item := got.Items[0]
+	if item.ID != "dg:movie:evt:hash" || item.StagingID != "kb:movie:evt:hash" || item.Domain != "movie" {
+		t.Fatalf("unexpected item: %+v", item)
+	}
+	if item.Evidence["staging_id"] != "kb:movie:evt:hash" {
+		t.Fatalf("expected evidence roundtrip: %+v", item.Evidence)
+	}
+}
+
+func TestDomainGraphAssertionsBuildsQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/viewer/domain-graph/assertions" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		q := r.URL.Query()
+		assertQueryValue := func(key, want string) {
+			t.Helper()
+			if got := q.Get(key); got != want {
+				t.Fatalf("query %s = %q, want %q; raw=%s", key, got, want, r.URL.RawQuery)
+			}
+		}
+		assertQueryValue("domain", "movie")
+		assertQueryValue("entity_type", "work")
+		assertQueryValue("entity_id", "movie:1")
+		assertQueryValue("relation_type", "performed_by")
+		assertQueryValue("source_id", "web:eiga")
+		assertQueryValue("validation_status", "validated")
+		assertQueryValue("limit", "25")
+		assertQueryValue("offset", "5")
+		_ = json.NewEncoder(w).Encode(validDomainGraphAssertionsResponse())
+	}))
+	defer server.Close()
+	client, err := New(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.DomainGraphAssertions(context.Background(), DomainGraphAssertionsRequest{
+		Domain:           " movie ",
+		EntityType:       " work ",
+		EntityID:         " movie:1 ",
+		RelationType:     " performed_by ",
+		SourceID:         " web:eiga ",
+		ValidationStatus: " validated ",
+		Limit:            25,
+		Offset:           5,
+	})
+	if err != nil {
+		t.Fatalf("DomainGraphAssertions() error = %v", err)
+	}
+}
+
+func TestDomainGraphAssertionsRejectsMalformedCurrentView(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*DomainGraphAssertionsResponse)
+		want   string
+	}{
+		{name: "duplicate", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items = append(s.Items, s.Items[0])
+		}, want: "duplicate id"},
+		{name: "missing staging id", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].StagingID = ""
+		}, want: "missing staging_id"},
+		{name: "missing domain", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].Domain = ""
+		}, want: "missing domain"},
+		{name: "missing entity type", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].EntityType = ""
+		}, want: "missing entity_type"},
+		{name: "missing source id", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].SourceID = ""
+		}, want: "missing source_id"},
+		{name: "missing raw hash", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].RawHash = ""
+		}, want: "missing raw_hash"},
+		{name: "invalid validation status", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].ValidationStatus = "approved"
+		}, want: "invalid validation_status"},
+		{name: "confidence out of range", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].Confidence = 1.5
+		}, want: "confidence out of range"},
+		{name: "missing evidence", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].Evidence = nil
+		}, want: "missing evidence"},
+		{name: "invalid created at", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].CreatedAt = "not-a-time"
+		}, want: "invalid created_at"},
+		{name: "invalid updated at", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Items[0].UpdatedAt = "not-a-time"
+		}, want: "invalid updated_at"},
+		{name: "negative total", mutate: func(s *DomainGraphAssertionsResponse) {
+			s.Total = -1
+		}, want: "total must be >= 0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := validDomainGraphAssertionsResponse()
+			tt.mutate(&resp)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/viewer/domain-graph/assertions" {
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer server.Close()
+			client, err := New(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.DomainGraphAssertions(context.Background(), DomainGraphAssertionsRequest{})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("DomainGraphAssertions() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func validDomainGraphAssertionsResponse() DomainGraphAssertionsResponse {
+	now := "2026-06-06T10:00:00Z"
+	return DomainGraphAssertionsResponse{
+		Items: []DomainGraphAssertion{{
+			ID:               "dg:movie:evt:hash",
+			StagingID:        "kb:movie:evt:hash",
+			Domain:           "movie",
+			EntityType:       "work",
+			EntityID:         "movie:1",
+			RelationType:     "performed_by",
+			SourceID:         "web:eiga",
+			SourceURL:        "https://example.com/movie/1",
+			RawHash:          "hash",
+			Summary:          "summary",
+			Confidence:       0.8,
+			ValidationStatus: "validated",
+			Evidence:         map[string]any{"staging_id": "kb:movie:evt:hash"},
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		}},
+		Limit:  50,
+		Offset: 0,
+		Total:  1,
+	}
+}
+
 func TestSourceRegistryValidateAndPromoteRejectMalformedResponse(t *testing.T) {
 	promotedAt := "2026-05-20T06:10:00Z"
 	tests := []struct {

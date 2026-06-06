@@ -167,6 +167,9 @@ const state = {
     sourceRegistryStaging: [],
     sourceRegistryFetchError: '',
     sourceRegistryStagingFetchError: '',
+    domainGraphAssertions: [],
+    domainGraphAssertionsMeta: {limit: 50, offset: 0, total: 0},
+    domainGraphAssertionsFetchError: '',
     knowledgeMemory: {
       personal_archive: [],
       creative_knowledge: [],
@@ -924,6 +927,11 @@ const sourceRegistryExportBtn = document.getElementById('sourceRegistryExportBtn
 const sourceRegistryImportBtn = document.getElementById('sourceRegistryImportBtn');
 const sourceRegistryStagingRefreshBtn = document.getElementById('sourceRegistryStagingRefreshBtn');
 const sourceRegistryYAML = document.getElementById('sourceRegistryYAML');
+const domainGraphRefreshBtn = document.getElementById('domainGraphRefreshBtn');
+const domainGraphDomain = document.getElementById('domainGraphDomain');
+const domainGraphEntityType = document.getElementById('domainGraphEntityType');
+const domainGraphSourceID = document.getElementById('domainGraphSourceID');
+const domainGraphStatus = document.getElementById('domainGraphStatusFilter');
 const newsPackCategory = document.getElementById('newsPackCategory');
 const newsPackRefreshBtn = document.getElementById('newsPackRefreshBtn');
 const idleStartBtn = document.getElementById('idleStart');
@@ -1046,6 +1054,11 @@ if (sourceRegistrySaveBtn) sourceRegistrySaveBtn.addEventListener('click', saveS
 if (sourceRegistryExportBtn) sourceRegistryExportBtn.addEventListener('click', exportSourceRegistryYAML);
 if (sourceRegistryImportBtn) sourceRegistryImportBtn.addEventListener('click', importSourceRegistryYAML);
 if (sourceRegistryStagingRefreshBtn) sourceRegistryStagingRefreshBtn.addEventListener('click', refreshSourceRegistryStaging);
+if (domainGraphRefreshBtn) domainGraphRefreshBtn.addEventListener('click', refreshDomainGraphAssertions);
+if (domainGraphDomain) domainGraphDomain.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshDomainGraphAssertions(); });
+if (domainGraphEntityType) domainGraphEntityType.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshDomainGraphAssertions(); });
+if (domainGraphSourceID) domainGraphSourceID.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshDomainGraphAssertions(); });
+if (domainGraphStatus) domainGraphStatus.addEventListener('change', refreshDomainGraphAssertions);
 if (newsPackRefreshBtn) newsPackRefreshBtn.addEventListener('click', refreshNewsPack);
 if (newsPackCategory) newsPackCategory.addEventListener('keydown', (e) => { if (e.key === 'Enter') refreshNewsPack(); });
 

@@ -88,6 +88,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="sourceRegistryBody"/);
   assert.match(html, /id="sourceRegistryRunStatus"/);
   assert.match(html, /id="sourceRegistryYAML"/);
+  assert.match(html, /id="domainGraphAssertionBody"/);
+  assert.match(html, /id="domainGraphAssertionStatus"/);
+  assert.match(html, /id="domainGraphRefreshBtn"/);
   assert.match(html, /id="memoryBody"/);
   assert.match(html, /id="newsPackBody"/);
   assert.match(html, /id="llmMemoryCards"/);
@@ -339,6 +342,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(memoryJs, /function refreshSourceRegistryStaging/);
   assert.match(memoryJs, /function validateSourceRegistryStaging/);
   assert.match(memoryJs, /function promoteSourceRegistryStaging/);
+  assert.match(memoryJs, /function renderDomainGraphAssertions/);
+  assert.match(memoryJs, /function refreshDomainGraphAssertions/);
+  assert.ok(viewer.includes('/viewer/domain-graph/assertions'));
   assert.match(html, /id="sourceRegistryStagingBody"/);
   assert.match(memoryJs, /sourceRegistryLastRun/);
   assert.match(memoryJs, /warnings=/);
@@ -1191,6 +1197,7 @@ globalThis.__state = state;
   const context = vm.createContext({
     document,
     console: {error() {}},
+    URLSearchParams,
     fetch(url) {
       requested.push(url);
       return Promise.resolve({
@@ -1260,6 +1267,7 @@ renderKnowledgeMemoryDetail();
   const context = vm.createContext({
     document,
     console: {error() {}},
+    URLSearchParams,
     fetch(url) {
       requested.push(url);
       return Promise.resolve({
@@ -1394,6 +1402,7 @@ globalThis.__state = state;
   const context = vm.createContext({
     document,
     console: {error() {}},
+    URLSearchParams,
     fetch(url) {
       requested.push(url);
       if (String(url).includes('action=staging')) {
@@ -1423,6 +1432,140 @@ globalThis.__state = state;
   assert.doesNotMatch(get('sourceRegistryStagingBody').innerHTML, /stale_staging/);
   assert.equal(context.__state.memory.sourceRegistry.length, 0);
   assert.equal(context.__state.memory.sourceRegistryStaging.length, 0);
+});
+
+test('viewer renders domain graph assertions without raw text', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('domainGraphDomain').value = 'movie';
+  get('domainGraphEntityType').value = 'work';
+  get('domainGraphSourceID').value = 'web:eiga';
+  get('domainGraphStatusFilter').value = 'validated';
+  const requested = [];
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  domainGraphAssertions: [],
+  domainGraphAssertionsMeta: {limit: 50, offset: 0, total: 0},
+  domainGraphAssertionsFetchError: '',
+}};
+` + sourceBetween(memoryJs, 'function domainGraphAssertionCounts', 'function renderSourceRegistry') + `
+globalThis.__refreshDomainGraphAssertions = refreshDomainGraphAssertions;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    URLSearchParams,
+    fetch(url) {
+      requested.push(String(url));
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          items: [{
+            id: 'dg:movie:evt:hash',
+            staging_id: 'kb:movie:evt:hash',
+            domain: 'movie',
+            entity_type: 'work',
+            entity_id: 'movie:1',
+            relation_type: 'performed_by',
+            source_id: 'web:eiga',
+            source_url: 'https://example.com/movie/1',
+            raw_hash: 'hash',
+            summary: 'visible summary',
+            confidence: 0.8,
+            validation_status: 'validated',
+            evidence: {staging_id: 'kb:movie:evt:hash', raw_text: 'do not render raw web text'},
+            created_at: '2026-06-06T10:00:00Z',
+            updated_at: '2026-06-06T10:05:00Z',
+          }],
+          limit: 50,
+          offset: 0,
+          total: 1,
+        }),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshDomainGraphAssertions();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(requested[0], /\/viewer\/domain-graph\/assertions\?limit=50/);
+  assert.match(requested[0], /domain=movie/);
+  assert.match(requested[0], /entity_type=work/);
+  assert.match(requested[0], /source_id=web%3Aeiga/);
+  assert.equal(get('domainGraphAssertionCount').textContent, '1');
+  assert.equal(get('domainGraphDomainCount').textContent, '1');
+  assert.equal(get('domainGraphSourceCount').textContent, '1');
+  assert.match(get('domainGraphAssertionStatus').innerHTML, /total=1/);
+  assert.match(get('domainGraphAssertionBody').innerHTML, /visible summary/);
+  assert.match(get('domainGraphAssertionBody').innerHTML, /source_url=https:\/\/example\.com\/movie\/1/);
+  assert.match(get('domainGraphAssertionBody').innerHTML, /raw_text/);
+  assert.match(get('domainGraphAssertionBody').innerHTML, /\[redacted\]/);
+  assert.doesNotMatch(get('domainGraphAssertionBody').innerHTML, /do not render raw web text/);
+});
+
+test('viewer clears stale domain graph assertions on fetch failure', async () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  get('domainGraphStatusFilter').value = '';
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  domainGraphAssertions: [{id: 'stale', domain: 'movie', entity_type: 'work', source_id: 'web:stale', raw_hash: 'stale', summary: 'stale assertion'}],
+  domainGraphAssertionsMeta: {limit: 50, offset: 0, total: 1},
+  domainGraphAssertionsFetchError: '',
+}};
+` + sourceBetween(memoryJs, 'function domainGraphAssertionCounts', 'function renderSourceRegistry') + `
+globalThis.__refreshDomainGraphAssertions = refreshDomainGraphAssertions;
+globalThis.__state = state;
+`;
+  const context = vm.createContext({
+    document,
+    console: {error() {}},
+    URLSearchParams,
+    fetch() {
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        text: () => Promise.resolve('domain graph unavailable'),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+  context.__refreshDomainGraphAssertions();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(get('domainGraphAssertionCount').textContent, '0');
+  assert.match(get('domainGraphAssertionStatus').innerHTML, /Domain Graph unavailable: HTTP 503: domain graph unavailable/);
+  assert.match(get('domainGraphAssertionBody').innerHTML, /Domain Graph unavailable: HTTP 503: domain graph unavailable/);
+  assert.doesNotMatch(get('domainGraphAssertionBody').innerHTML, /stale assertion/);
+  assert.equal(context.__state.memory.domainGraphAssertions.length, 0);
 });
 
 test('viewer renders source registry action errors with response body', async () => {

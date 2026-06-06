@@ -667,6 +667,42 @@ type SourceRegistryPromotionResponse struct {
 	Item   map[string]any `json:"item"`
 }
 
+type DomainGraphAssertionsRequest struct {
+	Domain           string
+	EntityType       string
+	EntityID         string
+	RelationType     string
+	SourceID         string
+	ValidationStatus string
+	Limit            int
+	Offset           int
+}
+
+type DomainGraphAssertion struct {
+	ID               string         `json:"id"`
+	StagingID        string         `json:"staging_id"`
+	Domain           string         `json:"domain"`
+	EntityType       string         `json:"entity_type"`
+	EntityID         string         `json:"entity_id,omitempty"`
+	RelationType     string         `json:"relation_type,omitempty"`
+	SourceID         string         `json:"source_id"`
+	SourceURL        string         `json:"source_url,omitempty"`
+	RawHash          string         `json:"raw_hash"`
+	Summary          string         `json:"summary"`
+	Confidence       float64        `json:"confidence"`
+	ValidationStatus string         `json:"validation_status"`
+	Evidence         map[string]any `json:"evidence"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
+}
+
+type DomainGraphAssertionsResponse struct {
+	Items  []DomainGraphAssertion `json:"items"`
+	Limit  int                    `json:"limit"`
+	Offset int                    `json:"offset"`
+	Total  int                    `json:"total"`
+}
+
 type MemoryLayersRequest struct {
 	SessionID string
 	Namespace string
@@ -1967,6 +2003,46 @@ func (c *Client) PromoteSourceRegistryStaging(ctx context.Context, req SourceReg
 	}
 	if err := validateSourceRegistryPromotionResponse(out, req); err != nil {
 		return SourceRegistryPromotionResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) DomainGraphAssertions(ctx context.Context, req DomainGraphAssertionsRequest) (DomainGraphAssertionsResponse, error) {
+	values := url.Values{}
+	if strings.TrimSpace(req.Domain) != "" {
+		values.Set("domain", strings.TrimSpace(req.Domain))
+	}
+	if strings.TrimSpace(req.EntityType) != "" {
+		values.Set("entity_type", strings.TrimSpace(req.EntityType))
+	}
+	if strings.TrimSpace(req.EntityID) != "" {
+		values.Set("entity_id", strings.TrimSpace(req.EntityID))
+	}
+	if strings.TrimSpace(req.RelationType) != "" {
+		values.Set("relation_type", strings.TrimSpace(req.RelationType))
+	}
+	if strings.TrimSpace(req.SourceID) != "" {
+		values.Set("source_id", strings.TrimSpace(req.SourceID))
+	}
+	if strings.TrimSpace(req.ValidationStatus) != "" {
+		values.Set("validation_status", strings.TrimSpace(req.ValidationStatus))
+	}
+	if req.Limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", req.Limit))
+	}
+	if req.Offset > 0 {
+		values.Set("offset", fmt.Sprintf("%d", req.Offset))
+	}
+	path := "/viewer/domain-graph/assertions"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out DomainGraphAssertionsResponse
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return DomainGraphAssertionsResponse{}, err
+	}
+	if err := validateDomainGraphAssertionsResponse(out); err != nil {
+		return DomainGraphAssertionsResponse{}, err
 	}
 	return out, nil
 }
@@ -4072,6 +4148,70 @@ func validateMemoryLayersStatus(resp MemoryLayersStatus) error {
 			if _, err := time.Parse(time.RFC3339, strings.TrimSpace(item.UpdatedAt)); err != nil {
 				return fmt.Errorf("l3_qdrant document invalid updated_at: %w", err)
 			}
+		}
+	}
+	return nil
+}
+
+func validateDomainGraphAssertionsResponse(resp DomainGraphAssertionsResponse) error {
+	if resp.Limit < 0 {
+		return fmt.Errorf("domain graph assertions response limit must be >= 0")
+	}
+	if resp.Offset < 0 {
+		return fmt.Errorf("domain graph assertions response offset must be >= 0")
+	}
+	if resp.Total < 0 {
+		return fmt.Errorf("domain graph assertions response total must be >= 0")
+	}
+	seen := map[string]struct{}{}
+	for _, item := range resp.Items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			return fmt.Errorf("domain graph assertion missing id")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("domain graph assertions response contains duplicate id %q", id)
+		}
+		seen[id] = struct{}{}
+		if strings.TrimSpace(item.StagingID) == "" {
+			return fmt.Errorf("domain graph assertion missing staging_id")
+		}
+		if strings.TrimSpace(item.Domain) == "" {
+			return fmt.Errorf("domain graph assertion missing domain")
+		}
+		if strings.TrimSpace(item.EntityType) == "" {
+			return fmt.Errorf("domain graph assertion missing entity_type")
+		}
+		if strings.TrimSpace(item.SourceID) == "" {
+			return fmt.Errorf("domain graph assertion missing source_id")
+		}
+		if strings.TrimSpace(item.RawHash) == "" {
+			return fmt.Errorf("domain graph assertion missing raw_hash")
+		}
+		if item.Confidence < 0 || item.Confidence > 1 {
+			return fmt.Errorf("domain graph assertion confidence out of range")
+		}
+		status := strings.TrimSpace(item.ValidationStatus)
+		if status == "" {
+			return fmt.Errorf("domain graph assertion missing validation_status")
+		}
+		if !isSourceRegistryStagingStatus(status) {
+			return fmt.Errorf("domain graph assertion invalid validation_status=%q", item.ValidationStatus)
+		}
+		if item.Evidence == nil {
+			return fmt.Errorf("domain graph assertion missing evidence")
+		}
+		if strings.TrimSpace(item.CreatedAt) == "" {
+			return fmt.Errorf("domain graph assertion missing created_at")
+		}
+		if _, err := time.Parse(time.RFC3339, strings.TrimSpace(item.CreatedAt)); err != nil {
+			return fmt.Errorf("domain graph assertion invalid created_at: %w", err)
+		}
+		if strings.TrimSpace(item.UpdatedAt) == "" {
+			return fmt.Errorf("domain graph assertion missing updated_at")
+		}
+		if _, err := time.Parse(time.RFC3339, strings.TrimSpace(item.UpdatedAt)); err != nil {
+			return fmt.Errorf("domain graph assertion invalid updated_at: %w", err)
 		}
 	}
 	return nil

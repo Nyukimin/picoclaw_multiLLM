@@ -890,6 +890,145 @@ function refreshMemoryEvents() {
     });
 }
 
+function domainGraphAssertionCounts(items) {
+  const domains = new Set();
+  const sources = new Set();
+  let latest = '';
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const domain = String(item.domain || item.Domain || '').trim();
+    const source = String(item.source_id || item.SourceID || '').trim();
+    const updated = String(item.updated_at || item.UpdatedAt || item.created_at || item.CreatedAt || '').trim();
+    if (domain) domains.add(domain);
+    if (source) sources.add(source);
+    if (updated && (!latest || updated > latest)) latest = updated;
+  });
+  return {domains: domains.size, sources: sources.size, latest};
+}
+
+function domainGraphCurrentFilterText() {
+  const parts = [];
+  const domain = document.getElementById('domainGraphDomain');
+  const entityType = document.getElementById('domainGraphEntityType');
+  const sourceID = document.getElementById('domainGraphSourceID');
+  const status = document.getElementById('domainGraphStatusFilter');
+  if (domain && String(domain.value || '').trim()) parts.push('domain=' + String(domain.value || '').trim());
+  if (entityType && String(entityType.value || '').trim()) parts.push('entity_type=' + String(entityType.value || '').trim());
+  if (sourceID && String(sourceID.value || '').trim()) parts.push('source_id=' + String(sourceID.value || '').trim());
+  parts.push('validation_status=' + (status && status.value ? status.value : 'validated'));
+  return parts.join(' / ');
+}
+
+function domainGraphRedactedEvidence(value) {
+  if (Array.isArray(value)) return value.map(domainGraphRedactedEvidence);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  Object.keys(value).forEach((key) => {
+    const normalized = String(key || '').toLowerCase();
+    if (['raw_text', 'original_text', 'body', 'content', 'text', 'authorization', 'cookie', 'token', 'secret'].includes(normalized)) {
+      out[key] = '[redacted]';
+      return;
+    }
+    out[key] = domainGraphRedactedEvidence(value[key]);
+  });
+  return out;
+}
+
+function domainGraphEvidenceText(item) {
+  const evidence = domainGraphRedactedEvidence(item.evidence || item.Evidence || {});
+  return JSON.stringify(evidence, null, 2);
+}
+
+function renderDomainGraphAssertions() {
+  const body = document.getElementById('domainGraphAssertionBody');
+  const statusEl = document.getElementById('domainGraphAssertionStatus');
+  const totalEl = document.getElementById('domainGraphAssertionCount');
+  const domainEl = document.getElementById('domainGraphDomainCount');
+  const sourceEl = document.getElementById('domainGraphSourceCount');
+  const error = String(state.memory.domainGraphAssertionsFetchError || '');
+  const meta = state.memory.domainGraphAssertionsMeta || {limit: 50, offset: 0, total: 0};
+  const items = error ? [] : (Array.isArray(state.memory.domainGraphAssertions) ? state.memory.domainGraphAssertions : []);
+  const counts = domainGraphAssertionCounts(items);
+  if (totalEl) totalEl.textContent = error ? '0' : String(meta.total || items.length);
+  if (domainEl) domainEl.textContent = error ? '0' : String(counts.domains);
+  if (sourceEl) sourceEl.textContent = error ? '0' : String(counts.sources);
+  if (statusEl) {
+    statusEl.innerHTML = error
+      ? '<span class="badge warn">Domain Graph unavailable: ' + esc(error) + '</span>'
+      : '<span class="badge">total=' + esc(String(meta.total || items.length)) + ' / domains=' + esc(String(counts.domains)) + ' / sources=' + esc(String(counts.sources)) + ' / latest=' + esc(fdt(counts.latest)) + '</span> <span class="code">' + esc(domainGraphCurrentFilterText()) + '</span>';
+  }
+  if (!body) return;
+  body.innerHTML = '';
+  if (error) {
+    body.innerHTML = '<tr><td colspan="8" class="small">Domain Graph unavailable: ' + esc(error) + '</td></tr>';
+    return;
+  }
+  if (items.length === 0) {
+    body.innerHTML = '<tr><td colspan="8" class="small">No domain graph assertions for current filter</td></tr>';
+    return;
+  }
+  items.forEach((item) => {
+    const sourceURL = item.source_url || item.SourceURL || '';
+    const rawHash = item.raw_hash || item.RawHash || '-';
+    const stagingID = item.staging_id || item.StagingID || '-';
+    const validationStatus = item.validation_status || item.ValidationStatus || '-';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(item.domain || item.Domain || '-') + '</td>' +
+      '<td>' + esc(item.entity_type || item.EntityType || '-') + '</td>' +
+      '<td class="code">' + esc(short(item.entity_id || item.EntityID || '-', 52)) + '</td>' +
+      '<td>' + esc(item.relation_type || item.RelationType || '-') + '</td>' +
+      '<td>' + esc(String(item.confidence ?? item.Confidence ?? '-')) + '</td>' +
+      '<td class="code">' + esc(short(item.source_id || item.SourceID || sourceURL || '-', 58)) + '</td>' +
+      '<td>' +
+        esc(short(item.summary || item.Summary || '-', 150)) +
+        '<details class="domain-graph-details"><summary>details</summary>' +
+          '<pre>source_url=' + esc(sourceURL || '-') + '\nraw_hash=' + esc(rawHash) + '\nstaging_id=' + esc(stagingID) + '\nvalidation_status=' + esc(validationStatus) + '\nevidence=' + esc(domainGraphEvidenceText(item)) + '</pre>' +
+        '</details>' +
+      '</td>' +
+      '<td>' + esc(fdt(item.created_at || item.CreatedAt)) + '</td>';
+    body.appendChild(tr);
+  });
+}
+
+function refreshDomainGraphAssertions() {
+  const params = new URLSearchParams();
+  params.set('limit', '50');
+  const domain = document.getElementById('domainGraphDomain');
+  const entityType = document.getElementById('domainGraphEntityType');
+  const sourceID = document.getElementById('domainGraphSourceID');
+  const status = document.getElementById('domainGraphStatusFilter');
+  if (domain && String(domain.value || '').trim()) params.set('domain', String(domain.value || '').trim());
+  if (entityType && String(entityType.value || '').trim()) params.set('entity_type', String(entityType.value || '').trim());
+  if (sourceID && String(sourceID.value || '').trim()) params.set('source_id', String(sourceID.value || '').trim());
+  if (status && status.value) params.set('validation_status', status.value);
+  fetch('/viewer/domain-graph/assertions?' + params.toString())
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'domain graph unavailable'));
+        });
+      }
+      return r.json();
+    })
+    .then((data) => {
+      state.memory.domainGraphAssertionsFetchError = '';
+      state.memory.domainGraphAssertions = Array.isArray(data.items) ? data.items : [];
+      state.memory.domainGraphAssertionsMeta = {
+        limit: Number(data.limit || 0),
+        offset: Number(data.offset || 0),
+        total: Number(data.total || state.memory.domainGraphAssertions.length),
+      };
+      renderDomainGraphAssertions();
+    })
+    .catch((err) => {
+      state.memory.domainGraphAssertionsFetchError = String(err && err.message ? err.message : err);
+      state.memory.domainGraphAssertions = [];
+      state.memory.domainGraphAssertionsMeta = {limit: 50, offset: 0, total: 0};
+      renderDomainGraphAssertions();
+      console.error(err);
+    });
+}
+
 function renderSourceRegistry() {
   const body = document.getElementById('sourceRegistryBody');
   if (!body) return;
@@ -1232,6 +1371,7 @@ function refreshMemorySnapshot() {
       refreshUserMemory();
       refreshKnowledgeMemoryLedger();
       refreshSourceRegistry();
+      refreshDomainGraphAssertions();
     })
     .catch((err) => {
       state.memory.memorySnapshotFetchError = String(err && err.message ? err.message : err);

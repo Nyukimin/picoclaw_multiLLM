@@ -45,3 +45,21 @@ func TestBuildViewerRuntimeHandlersRegistersMemoryLayersUnavailableHandler(t *te
 		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
+
+func TestBuildViewerRuntimeHandlersRegistersDomainGraphUnavailableHandler(t *testing.T) {
+	deps := &Dependencies{}
+	buildViewerRuntimeHandlers(&config.Config{}, deps, nil, nil, filepath.Join(t.TempDir(), "reports.jsonl"))
+	if deps.viewerDomainGraphAssertions == nil {
+		t.Fatal("viewerDomainGraphAssertions handler is nil")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/domain-graph/assertions", nil)
+	rec := httptest.NewRecorder()
+	deps.viewerDomainGraphAssertions.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "domain graph unavailable") {
+		t.Fatalf("body=%q", rec.Body.String())
+	}
+}
