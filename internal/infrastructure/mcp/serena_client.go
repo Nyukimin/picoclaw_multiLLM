@@ -104,6 +104,8 @@ func (c *SerenaClient) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, serenaCmd[0], append(serenaCmd[1:], projectArgs...)...)
 	cmd.Dir = c.workspaceDir
 	cmd.Stderr = os.Stderr
+	// Goバイナリ等をサブプロセスから見えるよう PATH を引き継ぎつつ ~/.local/bin を補完
+	cmd.Env = enrichedEnv()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -285,6 +287,27 @@ func (c *SerenaClient) recv(ctx context.Context, wantID int64) (json.RawMessage,
 	case <-done:
 		return result, recvErr
 	}
+}
+
+// enrichedEnv は現在の環境変数に ~/.local/bin / ~/go/bin を補完した env を返す。
+// picoclaw 自体が systemd 等の制限環境で起動している場合でも Serena が go/gopls を見つけられる。
+func enrichedEnv() []string {
+	env := os.Environ()
+	home := os.Getenv("HOME")
+	extra := []string{
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, "go", "bin"),
+		"/usr/local/go/bin",
+	}
+	// 既存 PATH に追記
+	for i, e := range env {
+		if current, ok := strings.CutPrefix(e, "PATH="); ok {
+			env[i] = "PATH=" + strings.Join(extra, ":") + ":" + current
+			return env
+		}
+	}
+	env = append(env, "PATH="+strings.Join(extra, ":")+":"+os.Getenv("PATH"))
+	return env
 }
 
 // resolveCommand は serena-mcp-server のコマンドを解決する。
