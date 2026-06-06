@@ -650,12 +650,16 @@ type SourceRegistryValidationIssue struct {
 }
 
 type SourceRegistryPromoteRequest struct {
-	ID              string `json:"id"`
-	Target          string `json:"target"`
-	Category        string `json:"category,omitempty"`
-	Domain          string `json:"domain,omitempty"`
-	TargetNamespace string `json:"target_namespace,omitempty"`
-	PromotedBy      string `json:"promoted_by,omitempty"`
+	ID              string   `json:"id"`
+	Target          string   `json:"target"`
+	Category        string   `json:"category,omitempty"`
+	Domain          string   `json:"domain,omitempty"`
+	EntityType      string   `json:"entity_type,omitempty"`
+	EntityID        string   `json:"entity_id,omitempty"`
+	RelationType    string   `json:"relation_type,omitempty"`
+	Confidence      *float64 `json:"confidence,omitempty"`
+	TargetNamespace string   `json:"target_namespace,omitempty"`
+	PromotedBy      string   `json:"promoted_by,omitempty"`
 }
 
 type SourceRegistryPromotionResponse struct {
@@ -4247,12 +4251,22 @@ func validateSourceRegistryPromoteRequest(req SourceRegistryPromoteRequest) erro
 		if strings.TrimSpace(req.Domain) == "" {
 			return fmt.Errorf("source registry promotion request missing domain")
 		}
+	case "domain_graph":
+		if strings.TrimSpace(req.Domain) == "" {
+			return fmt.Errorf("source registry promotion request missing domain")
+		}
+		if strings.TrimSpace(req.EntityType) == "" {
+			return fmt.Errorf("source registry promotion request missing entity_type")
+		}
+		if req.Confidence != nil && (*req.Confidence <= 0 || *req.Confidence > 1) {
+			return fmt.Errorf("source registry promotion request confidence out of range")
+		}
 	case "memory":
 		if strings.TrimSpace(req.TargetNamespace) == "" {
 			return fmt.Errorf("source registry promotion request missing target_namespace")
 		}
 	default:
-		return fmt.Errorf("source registry promotion request target must be news, knowledge, or memory")
+		return fmt.Errorf("source registry promotion request target must be news, knowledge, domain_graph, or memory")
 	}
 	return nil
 }
@@ -4288,6 +4302,19 @@ func validateSourceRegistryPromotionResponse(resp SourceRegistryPromotionRespons
 		if err := validateJSONMapRFC3339Time(resp.Item, "CreatedAt", "source registry promotion response item"); err != nil {
 			return err
 		}
+	case "domain_graph":
+		if !jsonMapStringEquals(resp.Item, "StagingID", strings.TrimSpace(req.ID)) {
+			return fmt.Errorf("source registry promotion response staging_id mismatch")
+		}
+		if !jsonMapStringEquals(resp.Item, "Domain", normalizeSourceRegistryPromotionToken(req.Domain)) {
+			return fmt.Errorf("source registry promotion response domain mismatch")
+		}
+		if !jsonMapStringEquals(resp.Item, "EntityType", normalizeSourceRegistryPromotionToken(req.EntityType)) {
+			return fmt.Errorf("source registry promotion response entity_type mismatch")
+		}
+		if err := validateJSONMapRFC3339Time(resp.Item, "CreatedAt", "source registry promotion response item"); err != nil {
+			return err
+		}
 	case "memory":
 		if !jsonMapNestedStringEquals(resp.Item, "Meta", "staging_id", strings.TrimSpace(req.ID)) {
 			return fmt.Errorf("source registry promotion response staging_id mismatch")
@@ -4300,6 +4327,13 @@ func validateSourceRegistryPromotionResponse(resp SourceRegistryPromotionRespons
 		}
 	}
 	return nil
+}
+
+func normalizeSourceRegistryPromotionToken(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.ReplaceAll(value, "-", "_")
+	value = strings.ReplaceAll(value, " ", "_")
+	return value
 }
 
 func validateJSONMapRFC3339Time(item map[string]any, key string, label string) error {

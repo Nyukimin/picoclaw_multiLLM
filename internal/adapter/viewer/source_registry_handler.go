@@ -25,6 +25,7 @@ type SourceRegistryStagingStore interface {
 	PromoteValidatedStagingItemToMemory(ctx context.Context, id string, targetNamespace string, promotedBy string) (*conversationpersistence.L1MemoryEvent, error)
 	PromoteValidatedStagingItemToNews(ctx context.Context, id string, category string) (*conversationpersistence.L1NewsItem, error)
 	PromoteValidatedStagingItemToKnowledge(ctx context.Context, id string, domain string) (*conversationpersistence.L1KnowledgeItem, error)
+	PromoteValidatedStagingItemToDomainGraph(ctx context.Context, id string, domain string, entityType string, entityID string, relationType string, confidence float64) (*conversationpersistence.L1DomainGraphAssertion, error)
 }
 
 type sourceRegistryEntryDTO struct {
@@ -211,12 +212,16 @@ func handleSourceRegistryStagingPromote(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	var payload struct {
-		ID              string `json:"id"`
-		Target          string `json:"target"`
-		Category        string `json:"category"`
-		Domain          string `json:"domain"`
-		TargetNamespace string `json:"target_namespace"`
-		PromotedBy      string `json:"promoted_by"`
+		ID              string   `json:"id"`
+		Target          string   `json:"target"`
+		Category        string   `json:"category"`
+		Domain          string   `json:"domain"`
+		EntityType      string   `json:"entity_type"`
+		EntityID        string   `json:"entity_id"`
+		RelationType    string   `json:"relation_type"`
+		Confidence      *float64 `json:"confidence"`
+		TargetNamespace string   `json:"target_namespace"`
+		PromotedBy      string   `json:"promoted_by"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid source registry staging promotion payload", http.StatusBadRequest)
@@ -252,6 +257,27 @@ func handleSourceRegistryStagingPromote(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		writeSourceRegistryPromotionResponse(w, "knowledge", item)
+	case "domain_graph":
+		domain := strings.TrimSpace(payload.Domain)
+		if domain == "" {
+			http.Error(w, "domain_graph domain is required", http.StatusBadRequest)
+			return
+		}
+		entityType := strings.TrimSpace(payload.EntityType)
+		if entityType == "" {
+			http.Error(w, "domain_graph entity_type is required", http.StatusBadRequest)
+			return
+		}
+		confidence := 0.5
+		if payload.Confidence != nil {
+			confidence = *payload.Confidence
+		}
+		item, err := stagingStore.PromoteValidatedStagingItemToDomainGraph(r.Context(), id, domain, entityType, payload.EntityID, payload.RelationType, confidence)
+		if err != nil {
+			http.Error(w, "failed to promote source registry staging item to domain graph", http.StatusBadRequest)
+			return
+		}
+		writeSourceRegistryPromotionResponse(w, "domain_graph", item)
 	case "memory":
 		namespace := strings.TrimSpace(payload.TargetNamespace)
 		if namespace == "" {
@@ -269,7 +295,7 @@ func handleSourceRegistryStagingPromote(w http.ResponseWriter, r *http.Request, 
 		}
 		writeSourceRegistryPromotionResponse(w, "memory", item)
 	default:
-		http.Error(w, "promotion target must be news, knowledge, or memory", http.StatusBadRequest)
+		http.Error(w, "promotion target must be news, knowledge, domain_graph, or memory", http.StatusBadRequest)
 	}
 }
 

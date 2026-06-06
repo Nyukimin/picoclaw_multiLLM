@@ -12,6 +12,7 @@ Memory / Source Registry は、会話記憶、外部ソース、知識、検証�
 | --- | --- | --- |
 | conversation memory | 会話履歴、summary、RecallPack | `internal/domain/conversation`, `internal/infrastructure/persistence/conversation` |
 | L1SQLite | event、staging、source registry、news、knowledge、search cache | `internal/infrastructure/persistence/conversation/l1_sqlite_*.go` |
+| Domain Graph DB | Movie / 漫画 / 音楽 / 小説 / ゲームなどの外部世界の関係事実 | domain-specific DB / handler / importer |
 | VectorDB | thread memory / KB vector search | `internal/infrastructure/persistence/conversation/vectordb_*.go` |
 | DuckDB | archive、thread summary、parquet export | `internal/infrastructure/persistence/conversation/duckdb_*.go` |
 | RealConversationManager | recall、thread、archive、KB の統合 facade | `internal/infrastructure/persistence/conversation/real_manager_*.go` |
@@ -21,6 +22,35 @@ Memory / Source Registry は、会話記憶、外部ソース、知識、検証�
 | session repository | session state と distributed session の永続化 | `internal/domain/session`, `internal/infrastructure/persistence/session`, `cmd/picoclaw/runtime_sessions.go` |
 | Glossary / RSS | RSS/Atom 由来の topic / glossary 文脈 | `internal/glossary`, `cmd/glossary` |
 | Knowledge CLI / core importer | KB 初期投入、語彙更新、運用 CLI | `cmd/kb-admin`, `cmd/vocabulary`, `cmd/picoclaw/cli_knowledge.go`, `internal/application/knowledge` |
+
+## 検索システムDB境界
+
+検索・外部情報収集・記憶昇格に必要なDBは、検索候補を扱う hot store、外部世界の関係事実を扱う Domain Graph DB、意味検索用 VectorDB、任意の archive 境界に分ける。
+
+通常の検索システムとしては L1 SQLite と Qdrant を基本必須境界とする。Movie、漫画、音楽、小説、ゲーム、人物、組織、キャラクター、シリーズ、受賞歴など、外部世界の関連性そのものを扱うドメインでは Domain Graph DB を追加の正本DBとして必須にする。
+
+| DB | 必須度 | 役割 |
+| --- | --- | --- |
+| L1 SQLite | 必須 | search cache、fetch cache、Source Registry、staging、validation 状態、promotion 履歴、event log、軽い knowledge の正本 |
+| Domain Graph DB | ドメイン採用時必須 | Movie / 漫画 / 音楽 / 小説 / ゲームなどの作品、人物、組織、キャラクター、シリーズ、関係 edge、出典 assertion の正本 |
+| Qdrant | 必須寄り | validated / promoted 済み KB のベクトル検索 |
+| DuckDB | 任意 | 長期 archive、集計、履歴分析、Parquet export |
+
+L1 SQLite は検索システムの hot store / 正本DBである。検索候補、外部取得結果、RSS/Atom/sitemap 由来情報、Google Custom Search 結果、Web Gather 結果は、まず L1 SQLite の cache または staging に保存する。無審査で UserMemory、正式 Knowledge、Qdrant へ直書きしてはいけない。
+
+Domain Graph DB は、外部世界に存在する作品・人物・組織・キャラクター・シリーズ・ジャンル・関連作品などの関係を保持する正本DBである。これは search cache、staging、汎用 KB、Qdrant、DuckDB の代替ではない。外部取得結果は、L1 SQLite の staging で validation した後、関係事実として採用するものだけを Domain Graph DB へ promote する。
+
+Domain Graph DB では、外部カタログ事実とユーザー固有状態を混ぜない。「見た」「読んだ」「好き」「苦手」「話題にしたい」は user event / preference signal として別テーブルへ保存する。
+
+Domain Graph DB の assertion には、source URL、source ID、取得/観測時刻、confidence、validation status、evidence を残す。矛盾する事実は無言で overwrite せず、assertion と validation 状態で扱う。
+
+Qdrant へ入れるのは、validated / promoted 済みで、意味検索する価値がある KB のみとする。Google検索結果、RSS取得結果、Webページ本文、Source Registry staging を Qdrant へ直接 upsert してはいけない。
+
+Domain Graph DB から Qdrant へ同期する場合は、作品・人物・関係の要約や説明など、意味検索に使う文書表現だけを同期する。関係 edge の正本は Domain Graph DB に残す。
+
+DuckDB は運用必須ではない。古い staging、古い event、古い search cache、日次 digest、分析用 archive を扱う cold store として後段で使う。
+
+SearXNG、YaCy、Google Custom Search、RSS/Atom、sitemap は DB ではなく discovery provider / source である。Source Registry は独立DBではなく、L1 SQLite 内の管理テーブルである。
 
 ## 状態遷移
 

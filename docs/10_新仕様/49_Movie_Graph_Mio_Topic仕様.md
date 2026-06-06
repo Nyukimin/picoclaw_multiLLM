@@ -1,5 +1,15 @@
 # Movie Graph / Mio Topic 仕様
 
+## 正本での位置付け
+
+この仕様は、`docs/01_正本仕様/実装仕様.md` の **検索システムDB確定方針** における Domain Graph DB の Movie ドメイン詳細仕様である。
+
+Movie Graph は、検索 cache、Source Registry staging、汎用 KB、Qdrant、DuckDB の代替ではない。映画.com などの外部ソースから得た作品・人物・関係事実を、検証済みの外部世界カタログとして保持する Domain Graph DB である。
+
+検索・Web Gather・RSS・API などから得た候補は、まず L1 SQLite の cache / staging に置き、validation 後に Movie Graph へ promote する。Movie Graph から Qdrant へ同期する場合は、意味検索用の要約・説明文だけを対象にし、関係 edge の正本は Movie Graph 側に残す。
+
+「見た」「好き」「話題にしたい」は外部カタログ事実ではなく、ユーザー固有の event / preference signal として扱う。
+
 ## 目的
 
 映画データベースは単なる作品台帳ではなく、Mio がれんへ自然に話題を提供するための知識グラフとして扱う。

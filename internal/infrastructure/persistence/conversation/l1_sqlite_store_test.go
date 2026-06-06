@@ -905,6 +905,66 @@ func TestL1SQLiteStore_ValidateStagingItemRejectsUnsafeCandidate(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_PromoteValidatedStagingItemToDomainGraph(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:movie",
+		EventID:      "movie-edge-1",
+		SourceID:     "web:eiga",
+		SourceURL:    "https://example.com/movie/1",
+		FetchedAt:    time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC),
+		RawText:      "作品Aには人物Bが出演している",
+		SummaryDraft: "作品A -> 人物B: performed_by",
+		Keywords:     []string{"movie", "person"},
+		LicenseNote:  "public catalog; review before promotion",
+		Meta:         map[string]interface{}{"title": "作品A", "candidate_relation": "performed_by"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.PromoteValidatedStagingItemToDomainGraph(ctx, item.ID, "movie", "work", "movie:1", "performed_by", 0.8); err == nil {
+		t.Fatal("expected pending staging promotion to domain graph to fail")
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"web:eiga": 0.9},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 6, 6, 10, 5, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+
+	assertion, err := store.PromoteValidatedStagingItemToDomainGraph(ctx, item.ID, "movie", "work", "movie:1", "performed-by", 0.8)
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToDomainGraph failed: %v", err)
+	}
+	if assertion.StagingID != item.ID || assertion.Domain != "movie" || assertion.EntityType != "work" || assertion.EntityID != "movie:1" {
+		t.Fatalf("unexpected assertion identity: %+v", assertion)
+	}
+	if assertion.RelationType != "performed_by" || assertion.SourceURL != item.SourceURL || assertion.RawHash != item.RawHash {
+		t.Fatalf("unexpected assertion relation/source: %+v", assertion)
+	}
+	if assertion.ValidationStatus != L1StagingStatusValidated || assertion.Confidence != 0.8 {
+		t.Fatalf("unexpected assertion validation/confidence: %+v", assertion)
+	}
+	if assertion.Evidence["staging_id"] != item.ID || assertion.Evidence["source_url"] != item.SourceURL {
+		t.Fatalf("unexpected assertion evidence: %+v", assertion.Evidence)
+	}
+	events, err := store.RecentEvents(ctx, "kb:domain_graph_movie", 10)
+	if err != nil {
+		t.Fatalf("RecentEvents failed: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "domain_graph.promoted_from_staging" {
+		t.Fatalf("expected domain_graph.promoted_from_staging event, got %+v", events)
+	}
+}
+
 func TestL1SQLiteStore_PromoteValidatedStagingItemToMemory(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

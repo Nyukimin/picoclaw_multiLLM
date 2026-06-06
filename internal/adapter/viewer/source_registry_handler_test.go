@@ -209,6 +209,80 @@ func TestHandleSourceRegistry_StagingListValidateAndPromote(t *testing.T) {
 	}
 }
 
+func TestHandleSourceRegistry_PromoteStagingToDomainGraph(t *testing.T) {
+	ctx := context.Background()
+	store, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.SaveSourceRegistryEntry(ctx, conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      "web:movie",
+		URL:           "https://example.com/movie",
+		Kind:          conversationpersistence.L1SourceKindWebGather,
+		TrustScore:    0.9,
+		FetchInterval: time.Hour,
+		LicenseNote:   "public page",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"namespace": "kb:movie"},
+	}); err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	staged, err := store.SaveStagingItem(ctx, conversationpersistence.L1StagingItem{
+		Kind:         conversationpersistence.L1StagingKindExternalFetch,
+		Namespace:    "kb:movie",
+		EventID:      "evt-domain-graph",
+		SourceID:     "web:movie",
+		SourceURL:    "https://example.com/movie/1",
+		FetchedAt:    time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC),
+		RawText:      "movie graph source text",
+		SummaryDraft: "movie graph summary",
+		Keywords:     []string{"movie"},
+		LicenseNote:  "public page",
+		Meta:         map[string]interface{}{"title": "Movie Graph"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, staged.ID, conversationpersistence.L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"web:movie": 0.9},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 6, 6, 10, 5, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	h := HandleSourceRegistry(store)
+	body := fmt.Sprintf(`{"id":%q,"target":"domain_graph","domain":"movie","entity_type":"work","entity_id":"movie:1","relation_type":"catalog_fact","confidence":0.7}`, staged.ID)
+	req := httptest.NewRequest(http.MethodPost, "/viewer/source-registry?action=promote", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected promotion 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Target string `json:"target"`
+		Item   struct {
+			ID               string  `json:"ID"`
+			StagingID        string  `json:"StagingID"`
+			Domain           string  `json:"Domain"`
+			EntityType       string  `json:"EntityType"`
+			EntityID         string  `json:"EntityID"`
+			RelationType     string  `json:"RelationType"`
+			Confidence       float64 `json:"Confidence"`
+			ValidationStatus string  `json:"ValidationStatus"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("invalid promotion json: %v", err)
+	}
+	if out.Target != "domain_graph" || out.Item.StagingID != staged.ID || out.Item.Domain != "movie" || out.Item.EntityType != "work" {
+		t.Fatalf("unexpected domain graph promotion: %+v", out)
+	}
+	if out.Item.RelationType != "catalog_fact" || out.Item.Confidence != 0.7 || out.Item.ValidationStatus != conversationpersistence.L1StagingStatusValidated {
+		t.Fatalf("unexpected domain graph assertion fields: %+v", out.Item)
+	}
+}
+
 func (s *sourceRegistryStoreStub) SaveSourceRegistryEntry(_ context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error) {
 	s.saved = append(s.saved, entry)
 	return &entry, nil
@@ -243,6 +317,9 @@ func (s *sourceRegistryStoreStub) PromoteValidatedStagingItemToNews(_ context.Co
 	return nil, fmt.Errorf("not used")
 }
 func (s *sourceRegistryStoreStub) PromoteValidatedStagingItemToKnowledge(_ context.Context, _ string, _ string) (*conversationpersistence.L1KnowledgeItem, error) {
+	return nil, fmt.Errorf("not used")
+}
+func (s *sourceRegistryStoreStub) PromoteValidatedStagingItemToDomainGraph(_ context.Context, _ string, _ string, _ string, _ string, _ string, _ float64) (*conversationpersistence.L1DomainGraphAssertion, error) {
 	return nil, fmt.Errorf("not used")
 }
 func (s *sourceRegistryStoreStub) MarkSourceRegistryFetched(_ context.Context, _ string, _ time.Time, _ string, _ string) error {

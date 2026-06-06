@@ -173,6 +173,26 @@ CREATE TABLE IF NOT EXISTS l1_knowledge_item_fts (
 	keywords_text TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_l1_knowledge_fts_domain ON l1_knowledge_item_fts(domain);
+CREATE TABLE IF NOT EXISTS domain_graph_assertion (
+	assertion_id TEXT PRIMARY KEY,
+	staging_id TEXT NOT NULL UNIQUE,
+	domain TEXT NOT NULL,
+	entity_type TEXT NOT NULL,
+	entity_id TEXT NOT NULL DEFAULT '',
+	relation_type TEXT NOT NULL DEFAULT '',
+	source_id TEXT NOT NULL,
+	source_url TEXT NOT NULL DEFAULT '',
+	raw_hash TEXT NOT NULL,
+	summary TEXT NOT NULL DEFAULT '',
+	confidence REAL NOT NULL DEFAULT 0.5,
+	validation_status TEXT NOT NULL,
+	evidence_json TEXT NOT NULL DEFAULT '{}',
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_domain_graph_assertion_domain_created ON domain_graph_assertion(domain, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_domain_graph_assertion_entity ON domain_graph_assertion(domain, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_domain_graph_assertion_source ON domain_graph_assertion(source_id, raw_hash);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)

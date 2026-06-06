@@ -145,6 +145,24 @@ type L1SourceFetchPayload struct {
 	Meta         map[string]interface{}
 }
 
+type L1DomainGraphAssertion struct {
+	ID               string
+	StagingID        string
+	Domain           string
+	EntityType       string
+	EntityID         string
+	RelationType     string
+	SourceID         string
+	SourceURL        string
+	RawHash          string
+	Summary          string
+	Confidence       float64
+	ValidationStatus string
+	Evidence         map[string]interface{}
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type L1NewsItem struct {
 	ID           string
 	StagingID    string
