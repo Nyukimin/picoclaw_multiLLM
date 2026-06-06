@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,15 +27,16 @@ type MovieDomainGraphAssertionStore interface {
 }
 
 type movieDomainGraphSyncResult struct {
-	Available   bool           `json:"available"`
-	DBPath      string         `json:"db_path"`
-	Domain      string         `json:"domain"`
-	EntityType  string         `json:"entity_type"`
-	Checked     int            `json:"checked"`
-	Upserted    int            `json:"upserted"`
-	Skipped     int            `json:"skipped"`
-	MovieIDs    []string       `json:"movie_ids"`
-	SkipReasons map[string]int `json:"skip_reasons"`
+	Available   bool              `json:"available"`
+	DBPath      string            `json:"db_path"`
+	Domain      string            `json:"domain"`
+	EntityType  string            `json:"entity_type"`
+	Checked     int               `json:"checked"`
+	Upserted    int               `json:"upserted"`
+	Skipped     int               `json:"skipped"`
+	MovieIDs    []string          `json:"movie_ids"`
+	SkipReasons map[string]int    `json:"skip_reasons"`
+	ResolvedIDs map[string]string `json:"resolved_movie_ids,omitempty"`
 }
 
 type movieCatalogWorkUpsert struct {
@@ -117,8 +120,12 @@ func syncMovieDomainGraphAssertions(ctx context.Context, db *sql.DB, items []con
 		Checked:     len(items),
 		MovieIDs:    []string{},
 		SkipReasons: map[string]int{},
+		ResolvedIDs: map[string]string{},
 	}
 	if err := ensureMovieCatalogWorkTables(ctx, db); err != nil {
+		return result, err
+	}
+	if err := ensureMovieCatalogIDAliasTables(ctx, db); err != nil {
 		return result, err
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -131,6 +138,14 @@ func syncMovieDomainGraphAssertions(ctx context.Context, db *sql.DB, items []con
 			result.SkipReasons[skipReason]++
 			continue
 		}
+		resolvedMovieID, canonicalID, err := resolveMovieCatalogWorkMovieID(ctx, db, item, work.MovieID)
+		if err != nil {
+			return result, err
+		}
+		if canonicalID != "" {
+			result.ResolvedIDs[work.MovieID] = canonicalID
+		}
+		work.MovieID = resolvedMovieID
 		if _, err := db.ExecContext(ctx, `
 INSERT INTO movies(movie_id, title, url, synopsis)
 VALUES(?, ?, ?, ?)
@@ -154,6 +169,18 @@ CREATE TABLE IF NOT EXISTS movies(
 	title TEXT NOT NULL,
 	url TEXT NOT NULL,
 	synopsis TEXT
+)`)
+	return err
+}
+
+func ensureMovieCatalogIDAliasTables(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS movie_id_aliases(
+	alias_id TEXT PRIMARY KEY,
+	canonical_movie_id TEXT NOT NULL,
+	source TEXT NOT NULL,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`)
 	return err
 }
@@ -188,6 +215,82 @@ func movieCatalogWorkFromAssertion(item conversationpersistence.L1DomainGraphAss
 		URL:      url,
 		Synopsis: summary,
 	}, ""
+}
+
+func resolveMovieCatalogWorkMovieID(ctx context.Context, db *sql.DB, item conversationpersistence.L1DomainGraphAssertion, rawMovieID string) (string, string, error) {
+	rawMovieID = strings.TrimSpace(rawMovieID)
+	candidate := movieCatalogCanonicalIDCandidate(item)
+	if candidate == "" {
+		return rawMovieID, "", nil
+	}
+	exists, err := movieCatalogMovieIDExists(ctx, db, candidate)
+	if err != nil {
+		return rawMovieID, "", err
+	}
+	if !exists || candidate == rawMovieID {
+		return rawMovieID, "", nil
+	}
+	if err := upsertMovieCatalogIDAlias(ctx, db, rawMovieID, candidate); err != nil {
+		return rawMovieID, "", err
+	}
+	return candidate, candidate, nil
+}
+
+func movieCatalogCanonicalIDCandidate(item conversationpersistence.L1DomainGraphAssertion) string {
+	entityID := strings.TrimSpace(item.EntityID)
+	if strings.HasPrefix(entityID, "movie:") {
+		if id := strings.TrimPrefix(entityID, "movie:"); movieCatalogNumericIDPattern.MatchString(id) {
+			return id
+		}
+	}
+	if id := movieCatalogEigaMovieIDFromURL(item.SourceURL); id != "" {
+		return id
+	}
+	return movieCatalogEigaMovieIDFromURL(movieCatalogEvidenceString(item.Evidence, "source_url"))
+}
+
+var movieCatalogNumericIDPattern = regexp.MustCompile(`^\d+$`)
+var movieCatalogEigaMovieURLPattern = regexp.MustCompile(`^https?://eiga\.com/movie/(\d+)/?$`)
+
+func movieCatalogEigaMovieIDFromURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	match := movieCatalogEigaMovieURLPattern.FindStringSubmatch(rawURL)
+	if match == nil {
+		return ""
+	}
+	return match[1]
+}
+
+func movieCatalogMovieIDExists(ctx context.Context, db *sql.DB, movieID string) (bool, error) {
+	var exists int
+	err := db.QueryRowContext(ctx, "SELECT 1 FROM movies WHERE movie_id = ? LIMIT 1", movieID).Scan(&exists)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
+}
+
+func upsertMovieCatalogIDAlias(ctx context.Context, db *sql.DB, aliasID string, canonicalMovieID string) error {
+	aliasID = strings.TrimSpace(aliasID)
+	canonicalMovieID = strings.TrimSpace(canonicalMovieID)
+	if aliasID == "" || canonicalMovieID == "" || aliasID == canonicalMovieID {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `
+INSERT INTO movie_id_aliases(alias_id, canonical_movie_id, source, created_at, updated_at)
+VALUES(?, ?, 'domain_graph_sync', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(alias_id) DO UPDATE SET
+	canonical_movie_id = excluded.canonical_movie_id,
+	source = excluded.source,
+	updated_at = excluded.updated_at
+`, aliasID, canonicalMovieID)
+	return err
 }
 
 func movieCatalogEvidenceString(evidence map[string]interface{}, keys ...string) string {

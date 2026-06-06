@@ -116,6 +116,73 @@ func TestHandleMovieDomainGraphSyncUnavailable(t *testing.T) {
 	}
 }
 
+func TestHandleMovieDomainGraphSyncResolvesMoviePrefixedIDToExistingCatalogID(t *testing.T) {
+	dbPath := seedMovieCatalogTestDB(t)
+	now := time.Now().UTC()
+	store := &movieDomainGraphStoreStub{
+		total: 1,
+		items: []conversationpersistence.L1DomainGraphAssertion{{
+			ID:               "dg:movie:57573",
+			Domain:           "movie",
+			EntityType:       "work",
+			EntityID:         "movie:57573",
+			SourceURL:        "https://eiga.com/movie/57573/",
+			Summary:          "Domain Graph summary",
+			ValidationStatus: conversationpersistence.L1StagingStatusValidated,
+			Evidence: map[string]interface{}{
+				"title": "マージン・コール",
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	h := HandleMovieDomainGraphSync(MovieCatalogOptions{DBPath: dbPath}, store)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/movie-catalog/domain-graph-sync", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out movieDomainGraphSyncResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(out.MovieIDs) != 1 || out.MovieIDs[0] != "57573" {
+		t.Fatalf("expected canonical movie id in response, got %+v", out.MovieIDs)
+	}
+	if out.ResolvedIDs["movie:57573"] != "57573" {
+		t.Fatalf("expected resolved id mapping, got %+v", out.ResolvedIDs)
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	var duplicateCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM movies WHERE movie_id = ?", "movie:57573").Scan(&duplicateCount); err != nil {
+		t.Fatalf("query duplicate movie: %v", err)
+	}
+	if duplicateCount != 0 {
+		t.Fatalf("expected no movie:57573 duplicate row, got %d", duplicateCount)
+	}
+	var canonicalTitle string
+	if err := db.QueryRow("SELECT title FROM movies WHERE movie_id = ?", "57573").Scan(&canonicalTitle); err != nil {
+		t.Fatalf("query canonical movie: %v", err)
+	}
+	if canonicalTitle != "マージン・コール" {
+		t.Fatalf("unexpected canonical title: %q", canonicalTitle)
+	}
+	var canonicalID, source string
+	if err := db.QueryRow("SELECT canonical_movie_id, source FROM movie_id_aliases WHERE alias_id = ?", "movie:57573").Scan(&canonicalID, &source); err != nil {
+		t.Fatalf("query alias: %v", err)
+	}
+	if canonicalID != "57573" || source != "domain_graph_sync" {
+		t.Fatalf("unexpected alias row canonical=%q source=%q", canonicalID, source)
+	}
+}
+
 func TestHandleMovieDomainGraphSyncRejectsInvalidMethod(t *testing.T) {
 	h := HandleMovieDomainGraphSync(MovieCatalogOptions{DBPath: filepath.Join(t.TempDir(), "eiga_catalog.sqlite")}, &movieDomainGraphStoreStub{})
 	req := httptest.NewRequest(http.MethodGet, "/viewer/movie-catalog/domain-graph-sync", nil)
