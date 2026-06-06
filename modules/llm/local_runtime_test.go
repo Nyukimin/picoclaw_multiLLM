@@ -50,10 +50,10 @@ func TestLocalHeavyFallsBackToWorkerBaseAndModel(t *testing.T) {
 func TestLocalTimeoutForAliasUsesRoleSpecificTimeouts(t *testing.T) {
 	cfg := LocalRuntimeConfig{TimeoutSec: 120}
 	cases := map[string]time.Duration{
-		"Chat":       10 * time.Second,
+		"Chat":       120 * time.Second,
 		"ChatWorker": 120 * time.Second,
-		"Wild":       15 * time.Second,
-		"Heavy":      30 * time.Second,
+		"Wild":       120 * time.Second,
+		"Heavy":      120 * time.Second,
 		"Worker":     120 * time.Second,
 	}
 	for alias, want := range cases {

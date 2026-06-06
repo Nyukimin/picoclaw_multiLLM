@@ -87,6 +87,9 @@ func LocalOllamaNumCtxForAlias(_ string) int {
 func LocalTimeoutForAlias(cfg LocalRuntimeConfig, alias string) time.Duration {
 	switch strings.ToLower(strings.TrimSpace(alias)) {
 	case RoleChat:
+		if cfg.TimeoutSec > 0 {
+			return time.Duration(cfg.TimeoutSec) * time.Second
+		}
 		return LocalChatTimeout
 	case RoleWorker:
 		if cfg.TimeoutSec <= 0 {
@@ -99,8 +102,14 @@ func LocalTimeoutForAlias(cfg LocalRuntimeConfig, alias string) time.Duration {
 		}
 		return time.Duration(cfg.TimeoutSec) * time.Second
 	case RoleWild:
+		if cfg.TimeoutSec > 0 {
+			return time.Duration(cfg.TimeoutSec) * time.Second
+		}
 		return LocalWildTimeout
 	case RoleHeavy:
+		if cfg.TimeoutSec > 0 {
+			return time.Duration(cfg.TimeoutSec) * time.Second
+		}
 		return LocalHeavyTimeout
 	}
 	if cfg.TimeoutSec <= 0 {

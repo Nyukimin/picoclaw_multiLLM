@@ -15,6 +15,7 @@ func ApplyThinkingBridgeFields(req map[string]interface{}, enabled bool, streami
 	if !enabled || req == nil {
 		return
 	}
+	req["think"] = false // gemma4 thinking モデルで response が空になる問題を回避
 	req["parse_reasoning"] = true
 	req["include_reasoning"] = false
 	req["separate_reasoning"] = true

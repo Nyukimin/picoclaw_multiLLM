@@ -45,8 +45,8 @@ func TestBuildPrimaryProviderPlanLocalWarmupUsesMaxRoleTimeout(t *testing.T) {
 			TimeoutSec:  20,
 		},
 	})
-	if plan.WarmupTimeout != 30*time.Second {
-		t.Fatalf("warmup timeout = %s, want 30s", plan.WarmupTimeout)
+	if plan.WarmupTimeout != 20*time.Second {
+		t.Fatalf("warmup timeout = %s, want 20s", plan.WarmupTimeout)
 	}
 }
 
