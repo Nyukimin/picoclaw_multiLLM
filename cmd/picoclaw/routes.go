@@ -45,6 +45,7 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/movie-catalog/topic-candidates/generate", viewer.HandleMovieTopicCandidatesGenerate(viewer.MovieCatalogOptions{}))
 	mux.HandleFunc("/viewer/hobby-graph", viewer.HandleHobbyGraph(viewer.HobbyGraphOptions{}))
 	mux.HandleFunc("/viewer/hobby-graph/bootstrap", viewer.HandleHobbyGraphBootstrap(viewer.HobbyGraphOptions{}))
+	mux.HandleFunc("/viewer/hobby-graph/interaction", viewer.HandleHobbyGraphInteraction(viewer.HobbyGraphOptions{}))
 }
 
 func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts *viewer.DebugSystemOptions) {

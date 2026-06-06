@@ -2,8 +2,11 @@ package viewer
 
 import (
 	"context"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +25,56 @@ type hobbyGraphResponse struct {
 	Action    string         `json:"action"`
 	Stats     map[string]int `json:"stats,omitempty"`
 	Error     string         `json:"error,omitempty"`
+}
+
+type hobbyGraphInteractionRequest struct {
+	Category        string   `json:"category"`
+	ItemType        string   `json:"item_type"`
+	Title           string   `json:"title"`
+	InteractionType string   `json:"interaction_type"`
+	OccurredAt      string   `json:"occurred_at"`
+	Source          string   `json:"source"`
+	SourceBatchID   string   `json:"source_batch_id"`
+	Rating          *float64 `json:"rating"`
+	Note            string   `json:"note"`
+}
+
+type hobbyGraphInteractionResponse struct {
+	Available   bool                     `json:"available"`
+	DBPath      string                   `json:"db_path"`
+	Item        hobbyGraphItemDTO        `json:"item"`
+	Interaction hobbyGraphInteractionDTO `json:"interaction"`
+	Observation hobbyGraphObservationDTO `json:"observation"`
+}
+
+type hobbyGraphItemDTO struct {
+	ItemID          string `json:"item_id"`
+	Category        string `json:"category"`
+	ItemType        string `json:"item_type"`
+	Title           string `json:"title"`
+	NormalizedTitle string `json:"normalized_title"`
+}
+
+type hobbyGraphInteractionDTO struct {
+	InteractionID   string   `json:"interaction_id"`
+	ItemID          string   `json:"item_id"`
+	Category        string   `json:"category"`
+	InteractionType string   `json:"interaction_type"`
+	OriginalTitle   string   `json:"original_title"`
+	OccurredAt      string   `json:"occurred_at,omitempty"`
+	Source          string   `json:"source"`
+	SourceBatchID   string   `json:"source_batch_id,omitempty"`
+	Rating          *float64 `json:"rating,omitempty"`
+	Note            string   `json:"note,omitempty"`
+}
+
+type hobbyGraphObservationDTO struct {
+	ObservationID   string `json:"observation_id"`
+	Category        string `json:"category"`
+	OriginalTitle   string `json:"original_title"`
+	NormalizedTitle string `json:"normalized_title"`
+	Status          string `json:"status"`
+	ResolvedItemID  string `json:"resolved_item_id"`
 }
 
 var hobbyGraphTables = []string{
@@ -112,6 +165,145 @@ func HandleHobbyGraphBootstrap(opts HobbyGraphOptions) http.HandlerFunc {
 			Stats:     stats,
 		})
 	}
+}
+
+func HandleHobbyGraphInteraction(opts HobbyGraphOptions) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req hobbyGraphInteractionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid hobby graph interaction request", http.StatusBadRequest)
+			return
+		}
+		if err := normalizeHobbyGraphInteractionRequest(&req); err != nil {
+			http.Error(w, "invalid hobby graph interaction request", http.StatusBadRequest)
+			return
+		}
+		dbPath := resolveHobbyGraphWritableDBPath(opts.DBPath)
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+			http.Error(w, "failed to create hobby graph directory", http.StatusInternalServerError)
+			return
+		}
+		db, err := sql.Open("sqlite3", dbPath)
+		if err != nil {
+			http.Error(w, "failed to open hobby graph", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
+		if err := ensureHobbyGraphTables(r.Context(), db); err != nil {
+			http.Error(w, "failed to bootstrap hobby graph", http.StatusInternalServerError)
+			return
+		}
+		resp, err := saveHobbyGraphInteraction(r.Context(), db, req)
+		if err != nil {
+			http.Error(w, "failed to save hobby graph interaction", http.StatusInternalServerError)
+			return
+		}
+		resp.Available = true
+		resp.DBPath = dbPath
+		writeHobbyGraphInteractionJSON(w, resp)
+	}
+}
+
+func normalizeHobbyGraphInteractionRequest(req *hobbyGraphInteractionRequest) error {
+	req.Category = normalizeHobbyGraphToken(req.Category)
+	req.ItemType = normalizeHobbyGraphToken(req.ItemType)
+	req.Title = strings.TrimSpace(req.Title)
+	req.InteractionType = normalizeHobbyGraphToken(req.InteractionType)
+	req.OccurredAt = strings.TrimSpace(req.OccurredAt)
+	req.Source = normalizeHobbyGraphToken(req.Source)
+	if req.Source == "" {
+		req.Source = "manual"
+	}
+	req.SourceBatchID = strings.TrimSpace(req.SourceBatchID)
+	req.Note = strings.TrimSpace(req.Note)
+	if req.Category == "" || req.ItemType == "" || req.Title == "" || req.InteractionType == "" {
+		return fmt.Errorf("required field missing")
+	}
+	if req.Rating != nil && (*req.Rating < 0 || *req.Rating > 5) {
+		return fmt.Errorf("invalid rating")
+	}
+	return nil
+}
+
+func saveHobbyGraphInteraction(ctx context.Context, db *sql.DB, req hobbyGraphInteractionRequest) (hobbyGraphInteractionResponse, error) {
+	normalizedTitle := normalizeHobbyGraphTitle(req.Title)
+	itemID := hobbyGraphStableID("hobby_item", req.Category, req.ItemType, normalizedTitle)
+	interactionID := hobbyGraphStableID("hobby_interaction", itemID, req.InteractionType, req.OccurredAt, req.Source, req.SourceBatchID, req.Note)
+	observationID := hobbyGraphStableID("hobby_titleobs", req.Category, normalizedTitle, req.Source, req.SourceBatchID)
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO hobby_items(item_id, category, item_type, title, normalized_title, external_ids_json, metadata_json, created_at, updated_at)
+VALUES(?, ?, ?, ?, ?, '{}', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(item_id) DO UPDATE SET
+	category = excluded.category,
+	item_type = excluded.item_type,
+	title = excluded.title,
+	normalized_title = excluded.normalized_title,
+	updated_at = excluded.updated_at
+`, itemID, req.Category, req.ItemType, req.Title, normalizedTitle); err != nil {
+		return hobbyGraphInteractionResponse{}, err
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO hobby_interactions(interaction_id, item_id, category, interaction_type, original_title, occurred_at, source, source_batch_id, rating, note, created_at)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(interaction_id) DO UPDATE SET
+	item_id = excluded.item_id,
+	category = excluded.category,
+	interaction_type = excluded.interaction_type,
+	original_title = excluded.original_title,
+	occurred_at = excluded.occurred_at,
+	source = excluded.source,
+	source_batch_id = excluded.source_batch_id,
+	rating = excluded.rating,
+	note = excluded.note
+`, interactionID, itemID, req.Category, req.InteractionType, req.Title, nullableString(req.OccurredAt), req.Source, nullableString(req.SourceBatchID), req.Rating, nullableString(req.Note)); err != nil {
+		return hobbyGraphInteractionResponse{}, err
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO hobby_title_observations(observation_id, category, original_title, normalized_title, source, source_batch_id, status, resolved_item_id, resolution_note, created_at, resolved_at)
+VALUES(?, ?, ?, ?, ?, ?, 'resolved', ?, 'manual interaction registration', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(observation_id) DO UPDATE SET
+	original_title = excluded.original_title,
+	normalized_title = excluded.normalized_title,
+	status = excluded.status,
+	resolved_item_id = excluded.resolved_item_id,
+	resolution_note = excluded.resolution_note,
+	resolved_at = excluded.resolved_at
+`, observationID, req.Category, req.Title, normalizedTitle, req.Source, nullableString(req.SourceBatchID), itemID); err != nil {
+		return hobbyGraphInteractionResponse{}, err
+	}
+	return hobbyGraphInteractionResponse{
+		Item: hobbyGraphItemDTO{
+			ItemID:          itemID,
+			Category:        req.Category,
+			ItemType:        req.ItemType,
+			Title:           req.Title,
+			NormalizedTitle: normalizedTitle,
+		},
+		Interaction: hobbyGraphInteractionDTO{
+			InteractionID:   interactionID,
+			ItemID:          itemID,
+			Category:        req.Category,
+			InteractionType: req.InteractionType,
+			OriginalTitle:   req.Title,
+			OccurredAt:      req.OccurredAt,
+			Source:          req.Source,
+			SourceBatchID:   req.SourceBatchID,
+			Rating:          req.Rating,
+			Note:            req.Note,
+		},
+		Observation: hobbyGraphObservationDTO{
+			ObservationID:   observationID,
+			Category:        req.Category,
+			OriginalTitle:   req.Title,
+			NormalizedTitle: normalizedTitle,
+			Status:          "resolved",
+			ResolvedItemID:  itemID,
+		},
+	}, nil
 }
 
 func resolveHobbyGraphDBPath(configured string) string {
@@ -262,7 +454,39 @@ func hobbyGraphStats(db *sql.DB) (map[string]int, error) {
 	return out, nil
 }
 
+func normalizeHobbyGraphToken(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.ReplaceAll(value, "-", "_")
+	value = strings.ReplaceAll(value, " ", "_")
+	return value
+}
+
+func normalizeHobbyGraphTitle(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "　", " ")
+	value = strings.Join(strings.Fields(value), " ")
+	return strings.ToLower(value)
+}
+
+func hobbyGraphStableID(prefix string, parts ...string) string {
+	h := sha1.New()
+	_, _ = h.Write([]byte(strings.Join(parts, "\x00")))
+	return prefix + ":" + hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+func nullableString(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
 func writeHobbyGraphJSON(w http.ResponseWriter, payload hobbyGraphResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeHobbyGraphInteractionJSON(w http.ResponseWriter, payload hobbyGraphInteractionResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }
