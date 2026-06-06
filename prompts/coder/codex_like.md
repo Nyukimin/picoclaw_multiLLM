@@ -37,7 +37,7 @@ Each turn you output exactly ONE JSON object.
 You must output one of:
 
 ```json
-{"type": "read_request", "actions": [{"action": "shell_command", "target": "git grep ..."}]}
+{"type": "read_request", "actions": [{"action": "shell_command", "target": "git grep ..."}, {"action": "mcp_tool", "target": "find_symbol", "args": {"symbol_name": "MyFunc", "file": "internal/domain/..."}}]}
 ```
 ```json
 {"type": "plan", "task_summary": "...", "steps": ["..."], "risk": ["..."]}
@@ -87,9 +87,32 @@ Supported `git_operation` actions: `add`, `commit`, `reset`, `checkout`
 ## Worker Boundary
 
 Worker observation phase allows (read-only):
+
+### shell_command
 - `git grep`, `git show`, `git log`, `git diff`, `git ls-files`, `git status`
 - `cat`, `find`, `head`, `tail`, `wc`, `grep`
 - `go test`, `go build`, `go vet`
+
+### mcp_tool (Serena LSP — シンボル検索・コード解析)
+`action: "mcp_tool"` で Serena の LSP ツールを呼び出せる。`target` にツール名、`args` に引数を指定する。
+
+| ツール名 | 用途 | 主な args |
+|----------|------|----------|
+| `find_symbol` | 関数・型の定義箇所を検索 | `symbol_name`, `file` (optional) |
+| `find_referencing_symbols` | シンボルの参照元を検索 | `symbol_name` |
+| `get_symbols_overview` | ファイル・ディレクトリのシンボル一覧 | `relative_path` |
+| `read_file` | ファイル内容を読む | `relative_path` |
+| `search_for_pattern` | 正規表現でコードを検索 | `pattern`, `path` (optional) |
+| `list_dir` | ディレクトリ一覧 | `relative_path` |
+
+例:
+```json
+{"action": "mcp_tool", "target": "find_symbol", "args": {"symbol_name": "CoderLoopExecutor"}}
+{"action": "mcp_tool", "target": "get_symbols_overview", "args": {"relative_path": "internal/application/orchestrator"}}
+{"action": "mcp_tool", "target": "search_for_pattern", "args": {"pattern": "SetSessionTurnLogger", "path": "cmd"}}
+```
+
+`git grep` より `find_symbol` / `get_symbols_overview` の方が精度が高い。まず mcp_tool を試すことを推奨。
 
 Worker execution phase (patch_proposal / test_request):
 - File edits via PatchCommand

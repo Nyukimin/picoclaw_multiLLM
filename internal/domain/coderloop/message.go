@@ -19,8 +19,9 @@ const (
 
 // WorkerAction は Coder が Worker に依頼する単一アクション
 type WorkerAction struct {
-	Action string `json:"action"` // 現状は "shell_command" のみ
-	Target string `json:"target"` // 実行するコマンド文字列
+	Action string         `json:"action"` // "shell_command" | "mcp_tool"
+	Target string         `json:"target"` // shell_command: コマンド文字列 / mcp_tool: ツール名
+	Args   map[string]any `json:"args,omitempty"` // mcp_tool のみ使用
 }
 
 // ReadRequestMessage はリポジトリ読み取り依頼

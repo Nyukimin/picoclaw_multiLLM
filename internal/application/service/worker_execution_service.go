@@ -15,16 +15,27 @@ type WorkerExecutionService interface {
 	ExecuteObservation(ctx context.Context, actions []ObservationAction) ([]ObservationActionResult, error)
 }
 
+// MCPToolCaller は MCP プロトコル経由でツールを呼び出すインターフェース
+type MCPToolCaller interface {
+	CallTool(ctx context.Context, toolName string, args map[string]any) (string, error)
+}
+
 // workerExecutionService はWorkerExecutionServiceの実装
 type workerExecutionService struct {
-	config config.WorkerConfig
+	config    config.WorkerConfig
+	mcpCaller MCPToolCaller // optional: Serena MCP ツール呼び出し
 }
 
 // NewWorkerExecutionService は新しいWorkerExecutionServiceを作成
-func NewWorkerExecutionService(cfg config.WorkerConfig) WorkerExecutionService {
+func NewWorkerExecutionService(cfg config.WorkerConfig) *workerExecutionService {
 	return &workerExecutionService{
 		config: cfg,
 	}
+}
+
+// SetMCPToolCaller は MCP ツールランナーを注入する（オプション）
+func (w *workerExecutionService) SetMCPToolCaller(caller MCPToolCaller) {
+	w.mcpCaller = caller
 }
 
 // ExecuteProposal はProposalのPatchを解析・実行する

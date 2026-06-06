@@ -38,6 +38,7 @@ import (
 	knowledgememorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/knowledgememory"
 	personapersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/persona"
 	revenuepersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/revenue"
+	mcpinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	sandboxpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/sandbox"
 	skillpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/skillgovernance"
 	superagentpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/superagent"
@@ -287,6 +288,17 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	workerExecutionService := service.NewWorkerExecutionService(cfg.Worker)
 	log.Printf("WorkerExecutionService initialized (Workspace: %s, Parallel: %v)",
 		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
+
+	// Serena MCP クライアントを起動してCoderLoopの観測アクションに接続
+	serenaClient := mcpinfra.NewSerenaClient(cfg.Worker.Workspace)
+	if err := serenaClient.Start(context.Background()); err != nil {
+		log.Printf("Serena MCP client failed to start (non-fatal): %v", err)
+	} else {
+		workerExecutionService.SetMCPToolCaller(serenaClient)
+		if tools, err := serenaClient.ListTools(context.Background()); err == nil {
+			log.Printf("Serena MCP ready: %d tools available (%v)", len(tools), tools[:min(5, len(tools))])
+		}
+	}
 
 	deps := &Dependencies{}
 	deps.moduleLLMProviders = llmRuntime.ModuleProviders

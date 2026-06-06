@@ -46,18 +46,32 @@ func (w *workerExecutionService) executeSingleObservation(
 	ctx context.Context,
 	a ObservationAction,
 ) ObservationActionResult {
-	if a.Action != "shell_command" {
+	switch a.Action {
+	case "shell_command":
+		if err := checkObservationCommand(a.Target); err != nil {
+			return coderloop.NewObservationActionResult(a.Action, a.Target, "", err)
+		}
+		cmd := workerShellCommand(ctx, a.Target)
+		cmd.Dir = w.config.Workspace
+		output, err := cmd.CombinedOutput()
+		return coderloop.NewObservationActionResult(a.Action, a.Target, string(output), err)
+
+	case "mcp_tool":
+		if w.mcpCaller == nil {
+			return coderloop.NewObservationActionResult(a.Action, a.Target, "",
+				fmt.Errorf("mcp_tool requested but MCP caller not configured"))
+		}
+		args := a.Args
+		if args == nil {
+			args = map[string]any{}
+		}
+		output, err := w.mcpCaller.CallTool(ctx, a.Target, args)
+		return coderloop.NewObservationActionResult(a.Action, a.Target, output, err)
+
+	default:
 		return coderloop.NewObservationActionResult(a.Action, a.Target, "",
 			fmt.Errorf("unsupported observation action: %q", a.Action))
 	}
-	if err := checkObservationCommand(a.Target); err != nil {
-		return coderloop.NewObservationActionResult(a.Action, a.Target, "", err)
-	}
-
-	cmd := workerShellCommand(ctx, a.Target)
-	cmd.Dir = w.config.Workspace
-	output, err := cmd.CombinedOutput()
-	return coderloop.NewObservationActionResult(a.Action, a.Target, string(output), err)
 }
 
 func checkObservationCommand(target string) error {
