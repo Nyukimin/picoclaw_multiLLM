@@ -291,6 +291,9 @@ func TestRuntimeConfig(t *testing.T) {
 	if cfg.RuntimeReadiness.SourceRegistryAvailable == nil || !*cfg.RuntimeReadiness.SourceRegistryAvailable {
 		t.Fatalf("runtime readiness should include source registry availability: %#v", cfg.RuntimeReadiness)
 	}
+	if cfg.RuntimeReadiness.DomainGraphAvailable == nil || !*cfg.RuntimeReadiness.DomainGraphAvailable || cfg.RuntimeReadiness.DomainGraphStatus == nil || !*cfg.RuntimeReadiness.DomainGraphStatus {
+		t.Fatalf("runtime readiness should include domain graph availability: %#v", cfg.RuntimeReadiness)
+	}
 }
 
 func TestDebugSystemSnapshot(t *testing.T) {
@@ -819,6 +822,13 @@ func TestRuntimeConfigRejectsMalformedResponse(t *testing.T) {
 			*c.RuntimeReadiness.SourceRegistryAvailable = true
 			*c.RuntimeReadiness.SourceRegistryStatus = false
 		}, want: "source_registry_available"},
+		{name: "missing domain graph readiness", mutate: func(c *RuntimeConfig) {
+			c.RuntimeReadiness.DomainGraphAvailable = nil
+		}, want: "missing runtime_readiness"},
+		{name: "domain graph available without status route", mutate: func(c *RuntimeConfig) {
+			*c.RuntimeReadiness.DomainGraphAvailable = true
+			*c.RuntimeReadiness.DomainGraphStatus = false
+		}, want: "domain_graph_available"},
 		{name: "missing memory layers readiness", mutate: func(c *RuntimeConfig) {
 			c.RuntimeReadiness.MemoryLayersAvailable = nil
 		}, want: "missing runtime_readiness"},
@@ -8508,6 +8518,8 @@ func fullRuntimeReadinessWithConfig(value bool, sttConfig bool, ttsConfig bool) 
 		MemoryLayersStatus:           boolPtr(true),
 		SourceRegistryAvailable:      boolPtr(true),
 		SourceRegistryStatus:         boolPtr(true),
+		DomainGraphAvailable:         boolPtr(true),
+		DomainGraphStatus:            boolPtr(true),
 		KnowledgeMemoryEnabled:       boolPtr(true),
 		KnowledgeMemoryStatus:        boolPtr(true),
 		BrowserTraceAPIEnabled:       boolPtr(true),

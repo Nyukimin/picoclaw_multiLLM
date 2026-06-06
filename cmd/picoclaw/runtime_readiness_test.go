@@ -55,14 +55,15 @@ func TestBuildRuntimeDependencyReadinessAcceptsAlternateAudioEnv(t *testing.T) {
 
 func TestBuildRuntimeDependencyReadinessReportsSourceRegistryAvailability(t *testing.T) {
 	disabled := buildRuntimeDependencyReadiness(&config.Config{}, &Dependencies{
-		viewerMemoryLayers:   http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
-		viewerSourceRegistry: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		viewerMemoryLayers:          http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		viewerSourceRegistry:        http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		viewerDomainGraphAssertions: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
 	})
-	if disabled.ConversationEnabled || disabled.L1SQLiteConfigPresent || disabled.MemoryLayersAvailable || disabled.SourceRegistryAvailable {
-		t.Fatalf("source registry readiness should be false without conversation L1 config: %+v", disabled)
+	if disabled.ConversationEnabled || disabled.L1SQLiteConfigPresent || disabled.MemoryLayersAvailable || disabled.SourceRegistryAvailable || disabled.DomainGraphAvailable {
+		t.Fatalf("L1-backed readiness should be false without conversation L1 config: %+v", disabled)
 	}
-	if !disabled.MemoryLayersStatus || !disabled.SourceRegistryStatus {
-		t.Fatalf("disabled L1 runtime should still expose blocked memory/source status routes: %+v", disabled)
+	if !disabled.MemoryLayersStatus || !disabled.SourceRegistryStatus || !disabled.DomainGraphStatus {
+		t.Fatalf("disabled L1 runtime should still expose blocked memory/source/domain graph status routes: %+v", disabled)
 	}
 
 	enabled := buildRuntimeDependencyReadiness(&config.Config{
@@ -71,11 +72,12 @@ func TestBuildRuntimeDependencyReadinessReportsSourceRegistryAvailability(t *tes
 			L1SQLitePath: "/home/nyukimi/.picoclaw/l1_memory.db",
 		},
 	}, &Dependencies{
-		viewerMemoryLayers:   http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
-		viewerSourceRegistry: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		viewerMemoryLayers:          http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		viewerSourceRegistry:        http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		viewerDomainGraphAssertions: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
 	})
-	if !enabled.ConversationEnabled || !enabled.L1SQLiteConfigPresent || !enabled.MemoryLayersAvailable || !enabled.MemoryLayersStatus || !enabled.SourceRegistryAvailable || !enabled.SourceRegistryStatus {
-		t.Fatalf("source registry readiness should be true with conversation L1 config: %+v", enabled)
+	if !enabled.ConversationEnabled || !enabled.L1SQLiteConfigPresent || !enabled.MemoryLayersAvailable || !enabled.MemoryLayersStatus || !enabled.SourceRegistryAvailable || !enabled.SourceRegistryStatus || !enabled.DomainGraphAvailable || !enabled.DomainGraphStatus {
+		t.Fatalf("L1-backed readiness should be true with conversation L1 config: %+v", enabled)
 	}
 }
 

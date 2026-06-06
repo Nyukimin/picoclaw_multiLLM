@@ -31,6 +31,8 @@ func buildRuntimeDependencyReadiness(cfg *config.Config, dependencies *Dependenc
 	memoryLayersStatusAvailable := dependencies != nil && dependencies.viewerMemoryLayers != nil
 	sourceRegistryAvailable := conversationEnabled && l1SQLiteConfigPresent
 	sourceRegistryStatusAvailable := dependencies != nil && dependencies.viewerSourceRegistry != nil
+	domainGraphAvailable := conversationEnabled && l1SQLiteConfigPresent
+	domainGraphStatusAvailable := dependencies != nil && dependencies.viewerDomainGraphAssertions != nil
 	sandboxEnabled := cfg != nil && cfg.Sandbox.Enabled
 	sandboxStatusAvailable := dependencies != nil && dependencies.sandboxStatus != nil
 	knowledgeMemoryEnabled := cfg != nil && cfg.KnowledgeMemory.IsEnabled()
@@ -61,6 +63,8 @@ func buildRuntimeDependencyReadiness(cfg *config.Config, dependencies *Dependenc
 		MemoryLayersStatus:           memoryLayersStatusAvailable,
 		SourceRegistryAvailable:      sourceRegistryAvailable,
 		SourceRegistryStatus:         sourceRegistryStatusAvailable,
+		DomainGraphAvailable:         domainGraphAvailable,
+		DomainGraphStatus:            domainGraphStatusAvailable,
 		KnowledgeMemoryEnabled:       knowledgeMemoryEnabled,
 		KnowledgeMemoryStatus:        knowledgeMemoryStatusAvailable,
 		BrowserTraceAPIEnabled:       browserTraceAPIEnabled,

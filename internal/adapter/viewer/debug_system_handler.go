@@ -93,6 +93,8 @@ type RuntimeDependencyReadiness struct {
 	MemoryLayersStatus           bool `json:"memory_layers_status_available"`
 	SourceRegistryAvailable      bool `json:"source_registry_available"`
 	SourceRegistryStatus         bool `json:"source_registry_status_available"`
+	DomainGraphAvailable         bool `json:"domain_graph_available"`
+	DomainGraphStatus            bool `json:"domain_graph_status_available"`
 	KnowledgeMemoryEnabled       bool `json:"knowledge_memory_enabled"`
 	KnowledgeMemoryStatus        bool `json:"knowledge_memory_status_available"`
 	BrowserTraceAPIEnabled       bool `json:"browser_trace_api_enabled"`

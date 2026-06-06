@@ -219,6 +219,8 @@ type RuntimeDependencyReadiness struct {
 	MemoryLayersStatus           *bool `json:"memory_layers_status_available"`
 	SourceRegistryAvailable      *bool `json:"source_registry_available"`
 	SourceRegistryStatus         *bool `json:"source_registry_status_available"`
+	DomainGraphAvailable         *bool `json:"domain_graph_available"`
+	DomainGraphStatus            *bool `json:"domain_graph_status_available"`
 	KnowledgeMemoryEnabled       *bool `json:"knowledge_memory_enabled"`
 	KnowledgeMemoryStatus        *bool `json:"knowledge_memory_status_available"`
 	BrowserTraceAPIEnabled       *bool `json:"browser_trace_api_enabled"`
@@ -6432,6 +6434,8 @@ func validateRuntimeConfig(resp RuntimeConfig) error {
 		resp.RuntimeReadiness.MemoryLayersStatus == nil ||
 		resp.RuntimeReadiness.SourceRegistryAvailable == nil ||
 		resp.RuntimeReadiness.SourceRegistryStatus == nil ||
+		resp.RuntimeReadiness.DomainGraphAvailable == nil ||
+		resp.RuntimeReadiness.DomainGraphStatus == nil ||
 		resp.RuntimeReadiness.KnowledgeMemoryEnabled == nil ||
 		resp.RuntimeReadiness.KnowledgeMemoryStatus == nil ||
 		resp.RuntimeReadiness.BrowserTraceAPIEnabled == nil ||
@@ -6457,6 +6461,9 @@ func validateRuntimeConfig(resp RuntimeConfig) error {
 	}
 	if *resp.RuntimeReadiness.SourceRegistryAvailable && !*resp.RuntimeReadiness.SourceRegistryStatus {
 		return fmt.Errorf("runtime config source_registry_available requires source_registry_status_available")
+	}
+	if *resp.RuntimeReadiness.DomainGraphAvailable && (!*resp.RuntimeReadiness.ConversationEnabled || !*resp.RuntimeReadiness.L1SQLiteConfigPresent || !*resp.RuntimeReadiness.DomainGraphStatus) {
+		return fmt.Errorf("runtime config domain_graph_available requires conversation, l1 sqlite config, and domain_graph_status_available")
 	}
 	if *resp.RuntimeReadiness.KnowledgeMemoryEnabled && !*resp.RuntimeReadiness.KnowledgeMemoryStatus {
 		return fmt.Errorf("runtime config knowledge_memory_enabled requires knowledge_memory_status_available")
