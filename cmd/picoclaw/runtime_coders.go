@@ -8,6 +8,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	llmfactory "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/factory"
@@ -24,6 +25,10 @@ func (a *coderAdapter) Generate(ctx context.Context, t task.Task, systemPrompt s
 
 func (a *coderAdapter) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
 	return a.domainCoder.GenerateProposal(ctx, t)
+}
+
+func (a *coderAdapter) GenerateWithContext(ctx context.Context, messages []llm.Message) (string, error) {
+	return a.domainCoder.GenerateWithContext(ctx, messages)
 }
 
 // buildCoderCapabilities は NodeCapabilities と config から []CoderCapability を構築する（Phase 3）

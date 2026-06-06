@@ -25,7 +25,8 @@ func VerifyAutonomousAttempt(route string, contract AutonomousContract, last Aut
 	}
 
 	if isCodeRouteName(route) {
-		if LooksLikeNonExecutable(last.Response) {
+		// CoderLoop の final_report は実行可能コードを含まない調査レポートも正常出力
+		if !LooksLikeCoderLoopReport(last.Response) && LooksLikeNonExecutable(last.Response) {
 			return false, "non_executable_output",
 				"Coder output contains design document only; executable patch is required"
 		}
@@ -65,6 +66,13 @@ func VerifyTTSAttempt(last AutonomousAttemptResult) (bool, string, string) {
 			fmt.Sprintf("再生コマンドが終了コード %d で終了した", last.PlaybackCode)
 	}
 	return true, "", ""
+}
+
+// LooksLikeCoderLoopReport は CoderLoop の final_report フォーマットかを判定する。
+// CoderLoop 完了レポートは実行可能コードを含まなくても正常出力。
+func LooksLikeCoderLoopReport(response string) bool {
+	return strings.HasPrefix(response, "✅ CoderLoop:") ||
+		strings.HasPrefix(response, "⚠️ CoderLoop:")
 }
 
 func LooksLikeNonExecutable(response string) bool {
