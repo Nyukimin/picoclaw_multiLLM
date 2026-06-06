@@ -161,6 +161,9 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.viewerDomainGraphAssertions != nil {
 		mux.HandleFunc("/viewer/domain-graph/assertions", dependencies.viewerDomainGraphAssertions)
 	}
+	if dependencies.viewerMovieDomainGraphSync != nil {
+		mux.HandleFunc("/viewer/movie-catalog/domain-graph-sync", dependencies.viewerMovieDomainGraphSync)
+	}
 	if dependencies.verificationRecent != nil {
 		mux.HandleFunc("/viewer/verification/recent", dependencies.verificationRecent)
 	}
