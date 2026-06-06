@@ -481,14 +481,14 @@ func TestMioAgent_Chat_WebSearchTriggered(t *testing.T) {
 	}
 
 	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil)
-	testTask := task.NewTask(task.NewJobID(), "Go言語について教えて", "line", "U123")
+	testTask := task.NewTask(task.NewJobID(), "Go言語を検索して", "line", "U123")
 
 	_, err := mio.Chat(context.Background(), testTask)
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
 	if !searchCalled {
-		t.Error("web_search should have been called for message with '教えて'")
+		t.Error("web_search should have been called for explicit search request")
 	}
 	// Verify search results injected into messages
 	hasSearchContext := false
@@ -524,6 +524,30 @@ func TestMioAgent_Chat_WebSearchNotTriggered(t *testing.T) {
 	}
 	if searchCalled {
 		t.Error("web_search should NOT be called for simple greeting")
+	}
+}
+
+func TestMioAgent_Chat_WebSearchNotTriggeredForTimelyKeywordOnly(t *testing.T) {
+	searchCalled := false
+	toolRunner := &mockToolRunner{
+		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+			if toolName == "web_search" {
+				searchCalled = true
+			}
+			return "", nil
+		},
+	}
+
+	provider := &mockLLMProvider{}
+	mio := NewMioAgent(provider, &mockClassifier{}, &mockRuleDictionary{}, toolRunner, &mockMCPClient{}, nil)
+	testTask := task.NewTask(task.NewJobID(), "今日のニュースについて教えて", "line", "U123")
+
+	_, err := mio.Chat(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if searchCalled {
+		t.Error("web_search should NOT be called for timely keyword without explicit search instruction")
 	}
 }
 

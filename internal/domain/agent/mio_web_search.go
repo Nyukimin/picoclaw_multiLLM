@@ -115,44 +115,28 @@ func cleanSearchQuery(query string) string {
 	return strings.TrimSpace(cleaned)
 }
 
-// needsWebSearch はWeb検索が必要かをキーワードベースで判定する
-// 明示的な検索指示キーワード OR 時事・最新情報系のキーワードでトリガー
+// needsWebSearch はGoogle Custom Search APIを使うWeb検索が必要かを判定する。
+// API quota保護のため、時事・最新キーワードだけでは発火させず、明示的な検索/調査指示だけを許可する。
 func needsWebSearch(message string) bool {
 	message = strings.TrimSpace(message)
 	if message == "" || looksLikeUserMemoryRecallQuestion(message) {
 		return false
 	}
-	// 明示的な検索意図
-	directKeywords := []string{
-		"調べて", "検索",
+	explicitKeywords := []string{
+		"検索して",
+		"検索",
+		"調べて",
+		"調査して",
+		"webで",
+		"Webで",
+		"WEBで",
+		"ウェブで",
+		"ネットで",
+		"インターネットで",
+		"Googleで",
+		"googleで",
 	}
-	// 時事・最新情報・鮮度依存
-	timelyKeywords := []string{
-		"最新", "ニュース", "今日", "昨日", "今週", "今月", "今年",
-		"最近", "現在", "いま", "速報", "話題",
-		"どうなった", "どうなってる", "進捗", "状況",
-		"2024", "2025", "2026", "2027",
-		"予定", "リリース", "発売", "公開",
-		"結果", "スコア", "勝った", "負けた",
-		"値段", "価格", "相場", "株価", "為替",
-		"天気", "気温",
-	}
-	// トピック系（「〜について」で情報を求めている）
-	topicKeywords := []string{
-		"について教えて", "について調べて", "について検索", "とは",
-	}
-
-	for _, kw := range directKeywords {
-		if strings.Contains(message, kw) {
-			return true
-		}
-	}
-	for _, kw := range timelyKeywords {
-		if strings.Contains(message, kw) {
-			return true
-		}
-	}
-	for _, kw := range topicKeywords {
+	for _, kw := range explicitKeywords {
 		if strings.Contains(message, kw) {
 			return true
 		}

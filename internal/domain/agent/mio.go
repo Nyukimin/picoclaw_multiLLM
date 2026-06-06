@@ -140,7 +140,7 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 	return routing.NewDecisionWithEvidence(routing.RouteCHAT, 0.7, "No rule match, default to CHAT", evidence...), nil
 }
 
-// Chat は会話を実行（v5.1: ConversationEngine + キーワードベース自動Web検索）
+// Chat は会話を実行（v5.1: ConversationEngine + 明示指示時のみWeb検索）
 func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	userMessage := t.UserMessage()
 
@@ -192,7 +192,7 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 		}
 	}
 
-	// キーワードベースでWeb検索が必要か判定
+	// Google API quota保護のため、Web検索は明示的な検索/調査指示がある時だけ使う。
 	needsSearch := needsWebSearch(userMessage)
 
 	// Web検索を実行してコンテキストに追加

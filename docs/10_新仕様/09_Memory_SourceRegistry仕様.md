@@ -87,16 +87,17 @@ RenCrow の memory 周辺 API / CLI / Viewer 表示では、次の3系統を基�
 
 ### 外部 Recall / KB 混入の抑制
 
-Chat の通常会話では、会話記憶と UserMemory を優先する。Knowledge DB / SearchCache / Web検索は、外部情報要求が明確な場合だけ使う。
+Chat の通常会話では、会話記憶と UserMemory を優先する。Knowledge DB / SearchCache は、外部情報要求が明確な場合だけ使う。
+
+Google Custom Search API を使う Web検索は、quota を消費するためさらに強く制限する。`最新`、`今日`、`ニュース`、`Xについて教えて` だけでは Google API を叩かない。ユーザーが明示的に検索・調査を求めた場合だけ `web_search` を使う。
 
 外部情報要求の例:
 
 - `検索して`
 - `調べて`
-- `最新`
-- `今日`
-- `Xについて教えて`
-- `Xとは`
+- `調査して`
+- `Webで調べて`
+- `インターネットで検索して`
 
 ユーザー自身の記憶確認や好みの自己申告は、外部検索や KB 検索へ流さない。外部検索結果を user memory として扱ってはいけない。
 
