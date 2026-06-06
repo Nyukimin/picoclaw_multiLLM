@@ -176,6 +176,8 @@ func isCodeEditRequest(message string) bool {
 			switch ext {
 			case ".go", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".md", ".html", ".css", ".sh", ".txt":
 				hasFileRef = true
+			}
+			if hasFileRef {
 				break
 			}
 		}
