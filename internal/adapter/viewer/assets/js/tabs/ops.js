@@ -167,6 +167,7 @@ function renderOps() {
     superAgentOpsCard(),
     heavyWorkerRuntimeOpsCard(),
     knowledgeMemoryOpsCard(),
+    typeof hobbyGraphOpsCard === 'function' ? hobbyGraphOpsCard() : {title: 'Hobby Graph', big: 'not loaded', sub: 'hobby graph ops card not loaded'},
     runtimeBlockedRoutesOpsCard(),
   ];
   renderOpsCardList(cards, primaryCards);
@@ -2181,6 +2182,49 @@ function knowledgeMemoryOpsCard() {
     title: 'Knowledge Memory',
     big: String(personal.length) + '/' + String(creative.length),
     sub: personal.length || creative.length || news.length || intake.length || temporal.length || dreams.length ? ('daily intake: ' + String(intake.length) + ' news: ' + String(news.length) + '\ntemporal: ' + String(temporal.length) + ' dream pending: ' + String(pendingDreams) + '\nlatest: ' + String(sandboxField(latest, 'title', 'Title') || sandboxField(latest, 'topic', 'Topic') || sandboxField(latest, 'entry_id', 'EntryID') || '-') + '\nreview-only: promote not verified') : 'knowledge memory record なし\nblocked: empty ledger\nblocked: no memory promote verified',
+  };
+}
+
+function hobbyGraphOpsCard() {
+  const fetchError = String(state.ops.hobbyGraphOverviewFetchError || '');
+  if (fetchError) {
+    return {
+      title: 'Hobby Graph',
+      big: 'unavailable',
+      sub: 'hobby graph overview fetch failed: ' + compactOpsDetail(fetchError, 120),
+    };
+  }
+  const overview = state.ops.hobbyGraphOverview || null;
+  if (!overview) {
+    return {
+      title: 'Hobby Graph',
+      big: 'not checked',
+      sub: 'overview not loaded',
+    };
+  }
+  if (overview.available === false) {
+    return {
+      title: 'Hobby Graph',
+      big: 'no DB',
+      sub: String(overview.error || 'hobby graph database not found') + '\npath: ' + String(overview.db_path || '-'),
+    };
+  }
+  const stats = overview.stats && typeof overview.stats === 'object' ? overview.stats : {};
+  const items = Number(stats.hobby_items || 0);
+  const relations = Number(stats.hobby_relations || 0);
+  const topics = Number(stats.hobby_topic_candidates || 0);
+  const latestCandidate = Array.isArray(overview.topic_candidates) && overview.topic_candidates.length ? overview.topic_candidates[0] : null;
+  const latestRelation = Array.isArray(overview.relations) && overview.relations.length ? overview.relations[0] : null;
+  const relationText = latestRelation
+    ? String(latestRelation.from_title || latestRelation.from_item_id || '-') + ' -> ' + String(latestRelation.relation_type || '-') + ' -> ' + String(latestRelation.to_title || latestRelation.to_item_id || '-')
+    : 'relation なし';
+  const candidateText = latestCandidate
+    ? String(latestCandidate.title || latestCandidate.reason || latestCandidate.candidate_id || '-')
+    : 'topic candidate なし';
+  return {
+    title: 'Hobby Graph',
+    big: String(items) + ' / ' + String(relations) + ' / ' + String(topics),
+    sub: 'items / relations / topics\nlatest topic: ' + compactOpsDetail(candidateText, 88) + '\nlatest relation: ' + compactOpsDetail(relationText, 88),
   };
 }
 

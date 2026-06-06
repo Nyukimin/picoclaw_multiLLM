@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -26,6 +27,61 @@ type hobbyGraphResponse struct {
 	Action    string         `json:"action"`
 	Stats     map[string]int `json:"stats,omitempty"`
 	Error     string         `json:"error,omitempty"`
+}
+
+type hobbyGraphOverviewResponse struct {
+	Available       bool                          `json:"available"`
+	DBPath          string                        `json:"db_path"`
+	Action          string                        `json:"action"`
+	Stats           map[string]int                `json:"stats,omitempty"`
+	Items           []hobbyGraphOverviewItemDTO   `json:"items,omitempty"`
+	Relations       []hobbyGraphOverviewRelation  `json:"relations,omitempty"`
+	Interactions    []hobbyGraphOverviewEventDTO  `json:"interactions,omitempty"`
+	TopicCandidates []hobbyGraphTopicCandidateDTO `json:"topic_candidates,omitempty"`
+	Error           string                        `json:"error,omitempty"`
+}
+
+type hobbyGraphOverviewItemDTO struct {
+	ItemID          string `json:"item_id"`
+	Category        string `json:"category"`
+	ItemType        string `json:"item_type"`
+	Title           string `json:"title"`
+	NormalizedTitle string `json:"normalized_title"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type hobbyGraphOverviewRelation struct {
+	RelationID   string `json:"relation_id"`
+	FromItemID   string `json:"from_item_id"`
+	FromTitle    string `json:"from_title"`
+	ToItemID     string `json:"to_item_id"`
+	ToTitle      string `json:"to_title"`
+	RelationType string `json:"relation_type"`
+	Source       string `json:"source"`
+	CreatedAt    string `json:"created_at"`
+}
+
+type hobbyGraphOverviewEventDTO struct {
+	InteractionID   string `json:"interaction_id"`
+	ItemID          string `json:"item_id"`
+	Title           string `json:"title"`
+	Category        string `json:"category"`
+	InteractionType string `json:"interaction_type"`
+	Source          string `json:"source"`
+	CreatedAt       string `json:"created_at"`
+}
+
+type hobbyGraphTopicCandidateDTO struct {
+	CandidateID  string `json:"candidate_id"`
+	Category     string `json:"category"`
+	TopicType    string `json:"topic_type"`
+	TargetItemID string `json:"target_item_id"`
+	TargetTitle  string `json:"target_title"`
+	Title        string `json:"title"`
+	Reason       string `json:"reason"`
+	Status       string `json:"status"`
+	GeneratedBy  string `json:"generated_by"`
+	GeneratedAt  string `json:"generated_at"`
 }
 
 type hobbyGraphInteractionRequest struct {
@@ -124,12 +180,21 @@ func HandleHobbyGraph(opts HobbyGraphOptions) http.HandlerFunc {
 		if action == "" {
 			action = "stats"
 		}
-		if action != "stats" {
+		if action != "stats" && action != "overview" {
 			http.Error(w, "unsupported action", http.StatusBadRequest)
 			return
 		}
 		dbPath := resolveHobbyGraphDBPath(opts.DBPath)
 		if dbPath == "" {
+			if action == "overview" {
+				writeHobbyGraphOverviewJSON(w, hobbyGraphOverviewResponse{
+					Available: false,
+					DBPath:    strings.TrimSpace(opts.DBPath),
+					Action:    action,
+					Error:     "hobby graph database not found",
+				})
+				return
+			}
 			writeHobbyGraphJSON(w, hobbyGraphResponse{
 				Available: false,
 				DBPath:    strings.TrimSpace(opts.DBPath),
@@ -144,6 +209,23 @@ func HandleHobbyGraph(opts HobbyGraphOptions) http.HandlerFunc {
 			return
 		}
 		defer db.Close()
+		if action == "overview" {
+			limit, err := hobbyGraphOverviewLimit(r)
+			if err != nil {
+				http.Error(w, "invalid hobby graph overview request", http.StatusBadRequest)
+				return
+			}
+			overview, err := hobbyGraphOverview(db, limit)
+			if err != nil {
+				http.Error(w, "failed to load hobby graph", http.StatusInternalServerError)
+				return
+			}
+			overview.Available = true
+			overview.DBPath = dbPath
+			overview.Action = action
+			writeHobbyGraphOverviewJSON(w, overview)
+			return
+		}
 		stats, err := hobbyGraphStats(db)
 		if err != nil {
 			http.Error(w, "failed to load hobby graph", http.StatusInternalServerError)
@@ -598,6 +680,173 @@ func hobbyGraphStats(db *sql.DB) (map[string]int, error) {
 	return out, nil
 }
 
+func hobbyGraphOverviewLimit(r *http.Request) (int, error) {
+	limit := 5
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("invalid limit")
+		}
+		if n > 20 {
+			n = 20
+		}
+		limit = n
+	}
+	return limit, nil
+}
+
+func hobbyGraphOverview(db *sql.DB, limit int) (hobbyGraphOverviewResponse, error) {
+	stats, err := hobbyGraphStats(db)
+	if err != nil {
+		return hobbyGraphOverviewResponse{}, err
+	}
+	items, err := hobbyGraphOverviewItems(db, limit)
+	if err != nil {
+		return hobbyGraphOverviewResponse{}, err
+	}
+	relations, err := hobbyGraphOverviewRelations(db, limit)
+	if err != nil {
+		return hobbyGraphOverviewResponse{}, err
+	}
+	interactions, err := hobbyGraphOverviewInteractions(db, limit)
+	if err != nil {
+		return hobbyGraphOverviewResponse{}, err
+	}
+	candidates, err := hobbyGraphOverviewTopicCandidates(db, limit)
+	if err != nil {
+		return hobbyGraphOverviewResponse{}, err
+	}
+	return hobbyGraphOverviewResponse{
+		Stats:           stats,
+		Items:           items,
+		Relations:       relations,
+		Interactions:    interactions,
+		TopicCandidates: candidates,
+	}, nil
+}
+
+func hobbyGraphOverviewItems(db *sql.DB, limit int) ([]hobbyGraphOverviewItemDTO, error) {
+	rows, err := db.Query(`
+SELECT item_id, category, item_type, title, normalized_title, updated_at
+FROM hobby_items
+ORDER BY updated_at DESC, created_at DESC, title
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []hobbyGraphOverviewItemDTO{}
+	for rows.Next() {
+		var item hobbyGraphOverviewItemDTO
+		if err := rows.Scan(&item.ItemID, &item.Category, &item.ItemType, &item.Title, &item.NormalizedTitle, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func hobbyGraphOverviewRelations(db *sql.DB, limit int) ([]hobbyGraphOverviewRelation, error) {
+	rows, err := db.Query(`
+SELECT r.relation_id,
+       r.from_item_id,
+       COALESCE(fi.title, r.from_item_id) AS from_title,
+       r.to_item_id,
+       COALESCE(ti.title, r.to_item_id) AS to_title,
+       r.relation_type,
+       r.source,
+       r.created_at
+FROM hobby_relations r
+LEFT JOIN hobby_items fi ON fi.item_id = r.from_item_id
+LEFT JOIN hobby_items ti ON ti.item_id = r.to_item_id
+ORDER BY r.created_at DESC, r.relation_id
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []hobbyGraphOverviewRelation{}
+	for rows.Next() {
+		var relation hobbyGraphOverviewRelation
+		if err := rows.Scan(&relation.RelationID, &relation.FromItemID, &relation.FromTitle, &relation.ToItemID, &relation.ToTitle, &relation.RelationType, &relation.Source, &relation.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, relation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func hobbyGraphOverviewInteractions(db *sql.DB, limit int) ([]hobbyGraphOverviewEventDTO, error) {
+	rows, err := db.Query(`
+SELECT i.interaction_id,
+       COALESCE(i.item_id, '') AS item_id,
+       COALESCE(h.title, i.original_title) AS title,
+       i.category,
+       i.interaction_type,
+       i.source,
+       i.created_at
+FROM hobby_interactions i
+LEFT JOIN hobby_items h ON h.item_id = i.item_id
+ORDER BY i.created_at DESC, i.interaction_id
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []hobbyGraphOverviewEventDTO{}
+	for rows.Next() {
+		var event hobbyGraphOverviewEventDTO
+		if err := rows.Scan(&event.InteractionID, &event.ItemID, &event.Title, &event.Category, &event.InteractionType, &event.Source, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func hobbyGraphOverviewTopicCandidates(db *sql.DB, limit int) ([]hobbyGraphTopicCandidateDTO, error) {
+	rows, err := db.Query(`
+SELECT c.candidate_id,
+       COALESCE(c.category, '') AS category,
+       c.topic_type,
+       COALESCE(c.target_item_id, '') AS target_item_id,
+       COALESCE(h.title, c.target_item_id, '') AS target_title,
+       c.title,
+       c.reason,
+       c.status,
+       c.generated_by,
+       c.generated_at
+FROM hobby_topic_candidates c
+LEFT JOIN hobby_items h ON h.item_id = c.target_item_id
+ORDER BY c.generated_at DESC, c.candidate_id
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []hobbyGraphTopicCandidateDTO{}
+	for rows.Next() {
+		var candidate hobbyGraphTopicCandidateDTO
+		if err := rows.Scan(&candidate.CandidateID, &candidate.Category, &candidate.TopicType, &candidate.TargetItemID, &candidate.TargetTitle, &candidate.Title, &candidate.Reason, &candidate.Status, &candidate.GeneratedBy, &candidate.GeneratedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func normalizeHobbyGraphToken(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	value = strings.ReplaceAll(value, "-", "_")
@@ -626,6 +875,11 @@ func nullableString(value string) any {
 }
 
 func writeHobbyGraphJSON(w http.ResponseWriter, payload hobbyGraphResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeHobbyGraphOverviewJSON(w http.ResponseWriter, payload hobbyGraphOverviewResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
 }

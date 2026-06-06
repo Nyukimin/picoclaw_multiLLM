@@ -90,6 +90,103 @@ func TestHandleHobbyGraphRejectsUnsupportedAction(t *testing.T) {
 	}
 }
 
+func TestHandleHobbyGraphOverviewReturnsRecentRows(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "hobby_graph.sqlite")
+	interaction := HandleHobbyGraphInteraction(HobbyGraphOptions{DBPath: dbPath})
+	workID := createHobbyGraphTestItem(t, interaction, `{
+		"category":"manga",
+		"item_type":"work",
+		"title":"ダンジョン飯",
+		"interaction_type":"read"
+	}`)
+	creatorID := createHobbyGraphTestItem(t, interaction, `{
+		"category":"manga",
+		"item_type":"creator",
+		"title":"九井諒子",
+		"interaction_type":"interested"
+	}`)
+	relation := HandleHobbyGraphRelation(HobbyGraphOptions{DBPath: dbPath})
+	relationRec := httptest.NewRecorder()
+	relation(relationRec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/relation", strings.NewReader(`{
+		"from_item_id":"`+workID+`",
+		"to_item_id":"`+creatorID+`",
+		"relation_type":"created_by",
+		"source":"manual"
+	}`)))
+	if relationRec.Code != http.StatusOK {
+		t.Fatalf("seed relation expected 200, got %d: %s", relationRec.Code, relationRec.Body.String())
+	}
+	candidates := HandleHobbyTopicCandidatesGenerate(HobbyGraphOptions{DBPath: dbPath})
+	candidateRec := httptest.NewRecorder()
+	candidates(candidateRec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/topic-candidates/generate", nil))
+	if candidateRec.Code != http.StatusOK {
+		t.Fatalf("generate candidates expected 200, got %d: %s", candidateRec.Code, candidateRec.Body.String())
+	}
+
+	h := HandleHobbyGraph(HobbyGraphOptions{DBPath: dbPath})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/viewer/hobby-graph?action=overview&limit=5", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out hobbyGraphOverviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if !out.Available || out.DBPath != dbPath || out.Action != "overview" {
+		t.Fatalf("unexpected overview identity: %+v", out)
+	}
+	if out.Stats["hobby_items"] != 2 || out.Stats["hobby_relations"] != 1 || out.Stats["hobby_interactions"] != 2 || out.Stats["hobby_topic_candidates"] != 1 {
+		t.Fatalf("unexpected stats: %+v", out.Stats)
+	}
+	if len(out.Items) != 2 || len(out.Relations) != 1 || len(out.Interactions) != 2 || len(out.TopicCandidates) != 1 {
+		t.Fatalf("unexpected overview lengths items=%d relations=%d interactions=%d candidates=%d", len(out.Items), len(out.Relations), len(out.Interactions), len(out.TopicCandidates))
+	}
+	if out.Relations[0].FromTitle != "ダンジョン飯" || out.Relations[0].ToTitle != "九井諒子" || out.Relations[0].RelationType != "created_by" {
+		t.Fatalf("unexpected relation overview: %+v", out.Relations[0])
+	}
+	if out.TopicCandidates[0].TargetTitle != "九井諒子" || out.TopicCandidates[0].Status != "candidate" {
+		t.Fatalf("unexpected topic candidate overview: %+v", out.TopicCandidates[0])
+	}
+}
+
+func TestHandleHobbyGraphOverviewMissingDBIsSoftUnavailable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "missing.sqlite")
+	h := HandleHobbyGraph(HobbyGraphOptions{DBPath: dbPath})
+
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/viewer/hobby-graph?action=overview", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out hobbyGraphOverviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if out.Available || out.DBPath != dbPath || out.Action != "overview" || out.Error != "hobby graph database not found" {
+		t.Fatalf("unexpected unavailable overview: %+v", out)
+	}
+}
+
+func TestHandleHobbyGraphOverviewRejectsInvalidLimit(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "hobby_graph.sqlite")
+	bootstrap := HandleHobbyGraphBootstrap(HobbyGraphOptions{DBPath: dbPath})
+	bootstrapRec := httptest.NewRecorder()
+	bootstrap(bootstrapRec, httptest.NewRequest(http.MethodPost, "/viewer/hobby-graph/bootstrap", nil))
+	if bootstrapRec.Code != http.StatusOK {
+		t.Fatalf("bootstrap expected 200, got %d: %s", bootstrapRec.Code, bootstrapRec.Body.String())
+	}
+	h := HandleHobbyGraph(HobbyGraphOptions{DBPath: dbPath})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/viewer/hobby-graph?action=overview&limit=0", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid hobby graph overview request") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
 func TestHandleHobbyGraphBootstrapRejectsInvalidMethod(t *testing.T) {
 	h := HandleHobbyGraphBootstrap(HobbyGraphOptions{DBPath: filepath.Join(t.TempDir(), "hobby_graph.sqlite")})
 

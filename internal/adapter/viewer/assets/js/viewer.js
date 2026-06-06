@@ -289,15 +289,17 @@ const state = {
     superAgentFetchError: '',
     heavyWorkerRuntimeDiagnostics: null,
     heavyWorkerRuntimeDiagnosticsFetchError: '',
-    knowledgePersonalArchive: [],
-    knowledgeCreativeItems: [],
-    knowledgeNewsItems: [],
-    knowledgeDailyIntakeRules: [],
-    knowledgeTemporalMarkers: [],
-    knowledgeDreamRuns: [],
-    knowledgeMemoryFetchError: '',
-    knowledgeMemoryDetail: null,
-    runtimeBlockedRoutes: [],
+	    knowledgePersonalArchive: [],
+	    knowledgeCreativeItems: [],
+	    knowledgeNewsItems: [],
+	    knowledgeDailyIntakeRules: [],
+	    knowledgeTemporalMarkers: [],
+	    knowledgeDreamRuns: [],
+	    knowledgeMemoryFetchError: '',
+	    knowledgeMemoryDetail: null,
+	    hobbyGraphOverview: null,
+	    hobbyGraphOverviewFetchError: '',
+	    runtimeBlockedRoutes: [],
     lastMioReport: null,
     latestJobID: '',
     latestRoute: '',
@@ -2239,9 +2241,32 @@ function refreshKnowledgeMemoryData() {
       state.ops.knowledgeCreativeItems = [];
       state.ops.knowledgeNewsItems = [];
       state.ops.knowledgeDailyIntakeRules = [];
-      state.ops.knowledgeTemporalMarkers = [];
-      state.ops.knowledgeDreamRuns = [];
-      state.ops.knowledgeMemoryDetail = null;
+	      state.ops.knowledgeTemporalMarkers = [];
+	      state.ops.knowledgeDreamRuns = [];
+	      state.ops.knowledgeMemoryDetail = null;
+	      renderOps();
+	      console.error(err);
+	    });
+}
+
+function refreshHobbyGraphOverviewData() {
+  fetch('/viewer/hobby-graph?action=overview&limit=5', {cache: 'no-store'})
+    .then((r) => {
+      if (!r.ok) {
+        return r.text().then((text) => {
+          throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'hobby graph overview unavailable'));
+        });
+      }
+      return r.json();
+    })
+    .then((data) => {
+      state.ops.hobbyGraphOverviewFetchError = '';
+      state.ops.hobbyGraphOverview = data && typeof data === 'object' ? data : null;
+      renderOps();
+    })
+    .catch((err) => {
+      state.ops.hobbyGraphOverviewFetchError = String(err && err.message ? err.message : err);
+      state.ops.hobbyGraphOverview = null;
       renderOps();
       console.error(err);
     });
@@ -2730,6 +2755,7 @@ function refreshOptionalPanelData() {
   refreshSuperAgentData();
   refreshHeavyWorkerRuntimeDiagnostics();
   refreshKnowledgeMemoryData();
+  if (typeof refreshHobbyGraphOverviewData === 'function') refreshHobbyGraphOverviewData();
   refreshEvidence();
   refreshEvidenceSummary();
   refreshMemorySnapshot();
@@ -2760,6 +2786,7 @@ function setOptionalPanelRefreshIntervals() {
   setInterval(refreshSuperAgentData, 5000);
   setInterval(refreshHeavyWorkerRuntimeDiagnostics, 5000);
   setInterval(refreshKnowledgeMemoryData, 5000);
+  setInterval(() => { if (typeof refreshHobbyGraphOverviewData === 'function') refreshHobbyGraphOverviewData(); }, 5000);
   setInterval(() => { if (shouldRefreshOpsPanelDiagnostics()) refreshRuntimeBlockedRouteData(); }, 5000);
   setInterval(refreshEvidence, 5000);
   setInterval(refreshEvidenceSummary, 5000);

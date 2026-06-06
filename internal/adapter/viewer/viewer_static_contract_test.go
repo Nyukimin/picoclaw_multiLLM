@@ -103,3 +103,26 @@ func TestViewerStaticContractMovieDatabaseTabSwitchMapping(t *testing.T) {
 		t.Fatal("viewer.js missing Movie Database panel switch mapping")
 	}
 }
+
+func TestViewerStaticContractHobbyGraphOpsOverview(t *testing.T) {
+	viewerJS, err := os.ReadFile("assets/js/viewer.js")
+	if err != nil {
+		t.Fatalf("read viewer.js: %v", err)
+	}
+	opsJS, err := os.ReadFile("assets/js/tabs/ops.js")
+	if err != nil {
+		t.Fatalf("read ops.js: %v", err)
+	}
+	if !strings.Contains(string(viewerJS), "function refreshHobbyGraphOverviewData()") {
+		t.Fatal("viewer.js missing Hobby Graph overview refresh function")
+	}
+	if !strings.Contains(string(viewerJS), "/viewer/hobby-graph?action=overview&limit=5") {
+		t.Fatal("viewer.js missing Hobby Graph overview endpoint fetch")
+	}
+	if !strings.Contains(string(opsJS), "function hobbyGraphOpsCard()") {
+		t.Fatal("ops.js missing Hobby Graph Ops card")
+	}
+	if !strings.Contains(string(opsJS), "hobbyGraphOpsCard()") {
+		t.Fatal("ops.js missing Hobby Graph Ops card registration")
+	}
+}
