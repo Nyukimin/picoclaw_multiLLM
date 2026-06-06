@@ -502,21 +502,29 @@ func (c ToolHarnessConfig) ShouldRecordEvents() bool {
 	return c.RecordEvents == nil || *c.RecordEvents
 }
 
+// DCISessionLogSource はDCIが参照するセッションログソースの設定
+type DCISessionLogSource struct {
+	Name    string `yaml:"name"`    // 表示名 ("rencrow", "codex", "claude")
+	PathDir string `yaml:"path_dir"` // ベースディレクトリ（$HOME等の環境変数展開あり）
+	Format  string `yaml:"format"`  // "rencrow" | "codex" | "claude"
+}
+
 type DCIConfig struct {
-	Enabled             *bool    `yaml:"enabled"`
-	Storage             string   `yaml:"storage"`
-	TracePath           string   `yaml:"trace_path"`
-	SQLitePath          string   `yaml:"sqlite_path"`
-	CorpusAllowlist     []string `yaml:"corpus_allowlist"`
-	CorpusDenylist      []string `yaml:"corpus_denylist"`
-	KnowledgeFTSDomains []string `yaml:"knowledge_fts_domains"`
-	ExplicitKeywords    []string `yaml:"explicit_keywords"`
-	MaxSeconds          int      `yaml:"max_seconds"`
-	MaxSteps            int      `yaml:"max_steps"`
-	MaxCandidateFiles   int      `yaml:"max_candidate_files"`
-	MaxFilesRead        int      `yaml:"max_files_read"`
-	MaxEvidence         int      `yaml:"max_evidence"`
-	MaxSnippetChars     int      `yaml:"max_snippet_chars"`
+	Enabled             *bool                 `yaml:"enabled"`
+	Storage             string                `yaml:"storage"`
+	TracePath           string                `yaml:"trace_path"`
+	SQLitePath          string                `yaml:"sqlite_path"`
+	CorpusAllowlist     []string              `yaml:"corpus_allowlist"`
+	CorpusDenylist      []string              `yaml:"corpus_denylist"`
+	KnowledgeFTSDomains []string              `yaml:"knowledge_fts_domains"`
+	ExplicitKeywords    []string              `yaml:"explicit_keywords"`
+	SessionLogSources   []DCISessionLogSource `yaml:"session_log_sources"`
+	MaxSeconds          int                   `yaml:"max_seconds"`
+	MaxSteps            int                   `yaml:"max_steps"`
+	MaxCandidateFiles   int                   `yaml:"max_candidate_files"`
+	MaxFilesRead        int                   `yaml:"max_files_read"`
+	MaxEvidence         int                   `yaml:"max_evidence"`
+	MaxSnippetChars     int                   `yaml:"max_snippet_chars"`
 }
 
 func (c DCIConfig) IsEnabled() bool {

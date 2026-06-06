@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -359,9 +360,24 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		if conversationRuntime.Manager != nil {
 			dciOptions = append(dciOptions, dciapp.WithSourceCandidateProvider(dcipersistence.NewVectorKBCandidateProvider(conversationRuntime.Manager, cfg.DCI.KnowledgeFTSDomains)))
 		}
+		// セッションログ候補プロバイダーを構築（設定またはデフォルト）
+		sessionLogSources := buildSessionLogSources(cfg)
+		if len(sessionLogSources) > 0 {
+			dciOptions = append(dciOptions, dciapp.WithSourceCandidateProvider(
+				dcipersistence.NewSessionLogCandidateProvider(sessionLogSources),
+			))
+			log.Printf("DCI session log sources registered: %d source(s)", len(sessionLogSources))
+		}
+
+		// セッションログディレクトリをCorpusAllowlistに自動追加
+		allowlist := cfg.DCI.CorpusAllowlist
+		for _, src := range sessionLogSources {
+			allowlist = append(allowlist, os.ExpandEnv(src.PathDir))
+		}
+
 		dciExplorer := dciapp.NewExplorer(dciapp.Config{
 			Enabled:           cfg.DCI.IsEnabled(),
-			Allowlist:         cfg.DCI.CorpusAllowlist,
+			Allowlist:         allowlist,
 			DenylistPatterns:  cfg.DCI.CorpusDenylist,
 			ExplicitKeywords:  cfg.DCI.ExplicitKeywords,
 			MaxSeconds:        cfg.DCI.MaxSeconds,
@@ -923,4 +939,42 @@ func triggerKeywordsFromMarkdown(content string) []string {
 		}
 	}
 	return keywords
+}
+
+// buildSessionLogSources は設定からSessionLogSourcesを構築する。
+// 設定が空の場合はデフォルト（RenCrow/Codex/Claude）を返す。
+func buildSessionLogSources(cfg *config.Config) []dcipersistence.SessionLogSource {
+	if len(cfg.DCI.SessionLogSources) > 0 {
+		sources := make([]dcipersistence.SessionLogSource, 0, len(cfg.DCI.SessionLogSources))
+		for _, s := range cfg.DCI.SessionLogSources {
+			sources = append(sources, dcipersistence.SessionLogSource{
+				Name:    s.Name,
+				PathDir: os.ExpandEnv(s.PathDir),
+				Format:  dcipersistence.SessionLogFormat(s.Format),
+			})
+		}
+		return sources
+	}
+	// デフォルト: RenCrow/Codex/Claude の既知パス
+	home := os.Getenv("HOME")
+	if home == "" {
+		return nil
+	}
+	return []dcipersistence.SessionLogSource{
+		{
+			Name:    "rencrow",
+			PathDir: filepath.Join(home, ".picoclaw", "logs", "sessions"),
+			Format:  dcipersistence.SessionLogFormatRenCrow,
+		},
+		{
+			Name:    "codex",
+			PathDir: filepath.Join(home, ".codex", "sessions"),
+			Format:  dcipersistence.SessionLogFormatCodex,
+		},
+		{
+			Name:    "claude",
+			PathDir: filepath.Join(home, ".claude", "projects", "-home-nyukimi-picoclaw-multiLLM"),
+			Format:  dcipersistence.SessionLogFormatClaude,
+		},
+	}
 }

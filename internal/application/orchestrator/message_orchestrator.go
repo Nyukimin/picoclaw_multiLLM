@@ -139,6 +139,12 @@ type CoderAgentWithProposal interface {
 	GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error)
 }
 
+// SessionTurnLogger はセッション単位の会話ターンを記録するインターフェース
+type SessionTurnLogger interface {
+	WriteUser(sessionID, channel, content string)
+	WriteAssistant(sessionID, channel, route, jobID, content string)
+}
+
 // MessageOrchestrator はメッセージ処理を統括
 type MessageOrchestrator struct {
 	sessionRepo               SessionRepository
@@ -171,6 +177,7 @@ type MessageOrchestrator struct {
 	personaTriggers           []domainpersona.TriggerDefinition
 	personaCanonicalResponses []domainpersona.CanonicalResponseDefinition
 	maxRepair                 int // 0以下は1とみなす
+	sessionTurnLogger         SessionTurnLogger
 
 	sessions             *messageSessionLifecycle
 	responses            messageResponseAssembler
@@ -282,6 +289,11 @@ func (o *MessageOrchestrator) SetCoderLoopPrompt(prompt string) {
 			"coder4": prompt,
 		})
 	}
+}
+
+// SetSessionTurnLogger はセッション会話ターンロガーを設定する
+func (o *MessageOrchestrator) SetSessionTurnLogger(l SessionTurnLogger) {
+	o.sessionTurnLogger = l
 }
 
 // SetCoderCapabilities は診断用の能力情報を注入する。Coder 選択は明示 route と Coder1 既定に限定する。
@@ -420,6 +432,9 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 
 	o.events.EmitMessageReceived(req)
+	if o.sessionTurnLogger != nil {
+		o.sessionTurnLogger.WriteUser(req.SessionID, req.Channel, req.UserMessage)
+	}
 	if err := o.recordPersonaRuntimeObservation(ctx, req); err != nil {
 		return ProcessMessageResponse{}, err
 	}
@@ -516,6 +531,9 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 
 	log.Printf("[MessageOrch] ProcessMessage COMPLETE: jobID=%s route=%s response_len=%d",
 		jobID.String(), decision.Route, len(response))
+	if o.sessionTurnLogger != nil {
+		o.sessionTurnLogger.WriteAssistant(req.SessionID, req.Channel, string(decision.Route), jobID.String(), response)
+	}
 
 	return o.responses.BuildWithVerification(response, decision, jobID, verificationReport), nil
 }

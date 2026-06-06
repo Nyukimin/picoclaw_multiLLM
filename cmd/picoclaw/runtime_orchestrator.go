@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
@@ -10,6 +12,7 @@ import (
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
 	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	logginginfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/logging"
 )
 
 func buildOrchestratorRuntime(
@@ -73,6 +76,11 @@ func buildOrchestratorRuntime(
 		orch.SetCoderLoopPrompt(cfg.Prompts.CoderLoop)
 		log.Printf("CoderLoop prompt loaded (%d bytes); all coder slots use multi-turn loop", len(cfg.Prompts.CoderLoop))
 	}
+
+	// セッション会話ターンロガー: ~/.picoclaw/logs/sessions/ に記録
+	sessionLogDir := filepath.Join(os.Getenv("HOME"), ".picoclaw", "logs", "sessions")
+	orch.SetSessionTurnLogger(logginginfra.NewSessionLogWriter(sessionLogDir))
+	log.Printf("Session turn logger initialized: %s", sessionLogDir)
 	orch.SetEventListener(deps.eventRelay)
 	if deps.reportStore != nil {
 		orch.SetReportStore(deps.reportStore)
