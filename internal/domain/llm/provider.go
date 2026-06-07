@@ -15,6 +15,7 @@ type MessagePartType string
 const (
 	MessagePartText  MessagePartType = "text"
 	MessagePartImage MessagePartType = "image"
+	MessagePartVideo MessagePartType = "video"
 )
 
 // MessagePart is an optional multimodal payload for Generate requests.

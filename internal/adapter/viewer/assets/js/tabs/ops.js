@@ -2506,17 +2506,18 @@ function renderLocalLLMRuntimeConfig() {
     return;
   }
   const localLLM = state.ops.localLLM || {};
+  const liveModels = localLLM.live_models || {};
   if (!localLLM.enabled) {
     el.innerHTML = '<div class="debug-empty">local_llm disabled</div>';
     return;
   }
   const rows = [
-    llmRuntimeRoleRow('Chat', localLLM.chat_model, localLLM.chat_base_url, ''),
-    llmRuntimeRoleRow('Worker', localLLM.worker_model, localLLM.worker_base_url, ''),
+    llmRuntimeRoleRow('Chat', localLLM.chat_model, localLLM.chat_base_url, '', liveModels.chat),
+    llmRuntimeRoleRow('Worker', localLLM.worker_model, localLLM.worker_base_url, '', liveModels.worker),
     llmRuntimeRoleRow('Heavy', localLLM.heavy_model, localLLM.heavy_base_url,
-      sameLocalLLMEndpoint(localLLM.heavy_base_url, localLLM.worker_base_url, localLLM.heavy_model, localLLM.worker_model) ? 'shared' : ''),
+      sameLocalLLMEndpoint(localLLM.heavy_base_url, localLLM.worker_base_url, localLLM.heavy_model, localLLM.worker_model) ? 'shared' : '', liveModels.heavy),
     llmRuntimeRoleRow('Wild', localLLM.wild_model, localLLM.wild_base_url,
-      sameLocalLLMEndpoint(localLLM.wild_base_url, localLLM.chat_base_url, localLLM.wild_model, localLLM.chat_model) ? 'shared' : ''),
+      sameLocalLLMEndpoint(localLLM.wild_base_url, localLLM.chat_base_url, localLLM.wild_model, localLLM.chat_model) ? 'shared' : '', liveModels.wild),
   ].filter((row) => row.model || row.url);
   const params = [
     localLLM.provider ? 'provider=' + localLLM.provider : '',
@@ -2673,7 +2674,7 @@ function runtimeHealthDetailText(report, errorText) {
   }).join('; ');
 }
 
-function llmRuntimeRoleRow(role, configModel, configURL, configuredState) {
+function llmRuntimeRoleRow(role, configModel, configURL, configuredState, live) {
   const status = state.ops.llmStatus || {};
   const roleState = status.roles && status.roles[role] ? status.roles[role] : null;
   const memoryRole = status.memory && status.memory.llm_by_role && status.memory.llm_by_role[role]
@@ -2682,7 +2683,10 @@ function llmRuntimeRoleRow(role, configModel, configURL, configuredState) {
   const livePort = memoryRole && memoryRole.port != null ? Number(memoryRole.port) : null;
   const liveURL = Number.isFinite(livePort) ? replaceURLPort(configURL, livePort) : '';
   const liveModel = memoryRole && memoryRole.model ? String(memoryRole.model) : '';
+  const serverModel = liveLLMEffectiveModel(live);
+  const alias = live && live.alias ? String(live.alias) : String(configModel || '');
   const pid = memoryRole && memoryRole.pid != null ? 'pid ' + String(memoryRole.pid) : '';
+  const liveState = liveLLMState(live);
   let runtimeState = configuredState || 'configured';
   let stateClassName = configuredState === 'shared' ? 'thinking' : 'offline';
 
@@ -2700,16 +2704,42 @@ function llmRuntimeRoleRow(role, configModel, configURL, configuredState) {
   } else if (memoryRole && memoryRole.pid != null) {
     runtimeState = 'running';
     stateClassName = 'running';
+  } else if (liveState.state) {
+    runtimeState = liveState.state;
+    stateClassName = liveState.stateClass;
   }
+
+  const meta = [
+    alias ? 'alias=' + alias : '',
+    serverModel && alias && serverModel !== alias ? 'server=' + serverModel : '',
+    live && live.default_model && live.default_model !== serverModel ? 'default=' + live.default_model : '',
+    pid,
+    live && live.error ? 'probe=' + live.error : '',
+  ].filter(Boolean).join('\n');
 
   return {
     role,
-    model: liveModel || configModel,
-    url: liveURL || configURL,
+    model: liveModel || serverModel || configModel,
+    url: liveURL || (live && live.base_url ? live.base_url : '') || configURL,
     state: runtimeState,
     stateClass: stateClassName,
-    meta: pid,
+    meta,
   };
+}
+
+function liveLLMEffectiveModel(live) {
+  if (!live || typeof live !== 'object') return '';
+  return String(live.backend_model || live.loaded_model || '').trim();
+}
+
+function liveLLMState(live) {
+  if (!live || typeof live !== 'object') return {state: '', stateClass: ''};
+  if (live.error && !live.backend_model && !live.loaded_model) return {state: 'probe error', stateClass: 'error'};
+  if (live.loaded === true) return {state: 'loaded', stateClass: 'running'};
+  if (live.loaded === false) return {state: 'not loaded', stateClass: 'offline'};
+  const status = String(live.status || '').toLowerCase();
+  if (status === 'healthy' || status === 'ok') return {state: 'healthy', stateClass: 'running'};
+  return {state: live.backend_model || live.loaded_model ? 'resolved' : '', stateClass: live.backend_model || live.loaded_model ? 'running' : ''};
 }
 
 function replaceURLPort(rawURL, port) {

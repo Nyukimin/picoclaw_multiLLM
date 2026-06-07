@@ -9,9 +9,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -34,9 +38,34 @@ type chatCLIEvent struct {
 }
 
 type chatCLIOptions struct {
-	BaseURL string
-	Message string
-	Timeout time.Duration
+	BaseURL     string
+	Message     string
+	Timeout     time.Duration
+	AudioPath   string
+	Attachments []string
+}
+
+type chatCLISendPayload struct {
+	Message     string
+	Attachments []string
+}
+
+type chatCLIStringList []string
+
+func (l *chatCLIStringList) String() string {
+	if l == nil {
+		return ""
+	}
+	return strings.Join(*l, ",")
+}
+
+func (l *chatCLIStringList) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("path is required")
+	}
+	*l = append(*l, value)
+	return nil
 }
 
 func cmdChat() {
@@ -52,10 +81,14 @@ func runChatCommand(args []string, in io.Reader, out, errOut io.Writer, client *
 	if client == nil {
 		client = http.DefaultClient
 	}
-	if opts.Message != "" {
+	if shouldRunChatCLIOneShot(opts) {
 		return runChatOneShot(opts, out, errOut, client)
 	}
 	return runChatInteractive(opts, in, out, errOut, client)
+}
+
+func shouldRunChatCLIOneShot(opts chatCLIOptions) bool {
+	return strings.TrimSpace(opts.Message) != "" || strings.TrimSpace(opts.AudioPath) != "" || len(opts.Attachments) > 0
 }
 
 func parseChatCLIOptions(args []string) (chatCLIOptions, error) {
@@ -71,8 +104,12 @@ func parseChatCLIOptions(args []string) (chatCLIOptions, error) {
 	fs.StringVar(&opts.BaseURL, "url", opts.BaseURL, "RenCrow server base URL")
 	fs.StringVar(&opts.Message, "message", "", "send one message and wait for the first response event")
 	fs.DurationVar(&opts.Timeout, "timeout", opts.Timeout, "one-shot wait timeout")
+	fs.StringVar(&opts.AudioPath, "audio", "", "transcribe a WAV audio file via the same STT chat-input path used by Viewer")
+	fs.Var((*chatCLIStringList)(&opts.Attachments), "attach", "attach a Viewer-supported file; may be repeated")
+	fs.Var((*chatCLIStringList)(&opts.Attachments), "image", "attach an image file; may be repeated")
+	fs.Var((*chatCLIStringList)(&opts.Attachments), "video", "attach a video file; may be repeated")
 	if err := fs.Parse(args); err != nil {
-		return opts, fmt.Errorf("usage: picoclaw chat [--url URL] [--message TEXT] [--timeout 30s]")
+		return opts, fmt.Errorf("usage: picoclaw chat [--url URL] [--message TEXT] [--audio WAV] [--image PATH] [--video PATH] [--attach PATH] [--timeout 30s]")
 	}
 	if opts.Message == "" && len(fs.Args()) > 0 {
 		opts.Message = strings.Join(fs.Args(), " ")
@@ -87,6 +124,7 @@ func parseChatCLIOptions(args []string) (chatCLIOptions, error) {
 	if opts.Timeout <= 0 {
 		return opts, fmt.Errorf("timeout must be positive")
 	}
+	opts.AudioPath = strings.TrimSpace(opts.AudioPath)
 	return opts, nil
 }
 
@@ -103,7 +141,12 @@ func runChatOneShot(opts chatCLIOptions, out, errOut io.Writer, client *http.Cli
 		fmt.Fprintf(errOut, "chat events unavailable: %v\n", err)
 		return 1
 	}
-	if err := sendChatCLIMessage(ctx, client, opts.BaseURL, opts.Message); err != nil {
+	payload, err := buildChatCLISendPayload(ctx, client, opts)
+	if err != nil {
+		fmt.Fprintf(errOut, "chat input failed: %v\n", err)
+		return 1
+	}
+	if err := sendChatCLIMessage(ctx, client, opts.BaseURL, payload); err != nil {
 		fmt.Fprintf(errOut, "chat send failed: %v\n", err)
 		return 1
 	}
@@ -161,7 +204,7 @@ func runChatInteractive(opts chatCLIOptions, in io.Reader, out, errOut io.Writer
 		if line == "/quit" || line == "/exit" {
 			break
 		}
-		if err := sendChatCLIMessage(ctx, client, opts.BaseURL, line); err != nil {
+		if err := sendChatCLIMessage(ctx, client, opts.BaseURL, chatCLISendPayload{Message: line}); err != nil {
 			fmt.Fprintf(errOut, "chat send failed: %v\n", err)
 			continue
 		}
@@ -196,8 +239,34 @@ func runChatInteractive(opts chatCLIOptions, in io.Reader, out, errOut io.Writer
 	return 0
 }
 
-func sendChatCLIMessage(ctx context.Context, client *http.Client, baseURL, message string) error {
-	body, err := json.Marshal(map[string]string{"message": message})
+func buildChatCLISendPayload(ctx context.Context, client *http.Client, opts chatCLIOptions) (chatCLISendPayload, error) {
+	message := strings.TrimSpace(opts.Message)
+	if opts.AudioPath != "" {
+		text, err := transcribeChatCLIAudio(ctx, client, opts.BaseURL, opts.AudioPath)
+		if err != nil {
+			return chatCLISendPayload{}, fmt.Errorf("audio transcription failed: %w", err)
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return chatCLISendPayload{}, fmt.Errorf("audio transcription returned empty text")
+		}
+		if message == "" {
+			message = text
+		} else {
+			message = message + "\n\n" + text
+		}
+	}
+	if message == "" && len(opts.Attachments) == 0 {
+		return chatCLISendPayload{}, fmt.Errorf("message, audio, or attachment is required")
+	}
+	return chatCLISendPayload{Message: message, Attachments: opts.Attachments}, nil
+}
+
+func sendChatCLIMessage(ctx context.Context, client *http.Client, baseURL string, payload chatCLISendPayload) error {
+	if len(payload.Attachments) > 0 {
+		return sendChatCLIMultipartMessage(ctx, client, baseURL, payload)
+	}
+	body, err := json.Marshal(map[string]string{"message": payload.Message})
 	if err != nil {
 		return err
 	}
@@ -216,6 +285,121 @@ func sendChatCLIMessage(ctx context.Context, client *http.Client, baseURL, messa
 		return fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(text)))
 	}
 	return nil
+}
+
+func sendChatCLIMultipartMessage(ctx context.Context, client *http.Client, baseURL string, payload chatCLISendPayload) error {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("message", payload.Message); err != nil {
+		return err
+	}
+	for _, path := range payload.Attachments {
+		if err := addChatCLIMultipartFile(writer, "attachments", path); err != nil {
+			_ = writer.Close()
+			return err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/viewer/send", &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		text, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
+		return fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(text)))
+	}
+	return nil
+}
+
+func transcribeChatCLIAudio(ctx context.Context, client *http.Client, baseURL, audioPath string) (string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := addChatCLIMultipartFile(writer, "file", audioPath); err != nil {
+		_ = writer.Close()
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/stt/chat-input", &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	res, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(res.Body, 1024*1024))
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	var out struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return "", fmt.Errorf("decode STT response: %w", err)
+	}
+	return out.Text, nil
+}
+
+func addChatCLIMultipartFile(writer *multipart.Writer, fieldName, path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("%s path is required", fieldName)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s %q: %w", fieldName, path, err)
+	}
+	defer file.Close()
+	filename := filepath.Base(path)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeMultipartQuotes(fieldName), escapeMultipartQuotes(filename)))
+	if contentType := chatCLIContentType(path); contentType != "" {
+		header.Set("Content-Type", contentType)
+	}
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return fmt.Errorf("copy %s %q: %w", fieldName, path, err)
+	}
+	return nil
+}
+
+func chatCLIContentType(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		return ct
+	}
+	switch ext {
+	case ".m4v":
+		return "video/x-m4v"
+	case ".md":
+		return "text/markdown; charset=utf-8"
+	case ".yaml", ".yml":
+		return "application/yaml"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func escapeMultipartQuotes(s string) string {
+	return strings.NewReplacer("\\", "\\\\", `"`, "\\\"").Replace(s)
 }
 
 func streamChatCLIEvents(ctx context.Context, client *http.Client, baseURL string, events chan<- chatCLIEvent, ready chan<- error) error {

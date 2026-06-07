@@ -13,6 +13,7 @@ func TestKindFromContentType(t *testing.T) {
 	}{
 		{"image/png", KindImage, true},
 		{"image/jpeg; charset=binary", KindImage, true},
+		{"video/mp4", KindVideo, true},
 		{"application/pdf", KindDocument, true},
 		{"text/plain", KindDocument, true},
 		{"application/json", KindDocument, true},
@@ -48,6 +49,9 @@ func TestKindFromFilename(t *testing.T) {
 	}
 	if got, ok := KindFromFilename("camera.webp"); got != KindImage || !ok {
 		t.Fatalf("KindFromFilename(camera.webp) = (%q, %v)", got, ok)
+	}
+	if got, ok := KindFromFilename("clip.mp4"); got != KindVideo || !ok {
+		t.Fatalf("KindFromFilename(clip.mp4) = (%q, %v)", got, ok)
 	}
 	if _, ok := KindFromFilename("archive.zip"); ok {
 		t.Fatal("KindFromFilename accepted unsupported extension")

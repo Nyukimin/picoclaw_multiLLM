@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	modulewebgather "github.com/Nyukimin/picoclaw_multiLLM/modules/webgather"
@@ -213,7 +212,7 @@ func buildWebwrightConverterCommand(cfg WebwrightFetcherConfig, reportPath strin
 
 func execWebwrightCommand(ctx context.Context, command string, args []string) (string, string, int, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureWebwrightCommand(cmd)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -232,7 +231,7 @@ func execWebwrightCommand(ctx context.Context, command string, args []string) (s
 	case err = <-done:
 	case <-ctx.Done():
 		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = killWebwrightCommand(cmd)
 		}
 		err = <-done
 		if err == nil {

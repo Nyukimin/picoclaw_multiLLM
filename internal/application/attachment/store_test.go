@@ -97,6 +97,24 @@ func TestStoreSaveAllAcceptsKnownExtensionWhenContentTypeIsOctetStream(t *testin
 	}
 }
 
+func TestStoreSaveAllAcceptsVideoAttachment(t *testing.T) {
+	store := NewStore(t.TempDir())
+	store.NewID = func() string { return "att-video" }
+
+	got, err := store.SaveAll(context.Background(), []IncomingFile{
+		{Filename: "clip.mp4", ContentType: "video/mp4", Reader: strings.NewReader("mp4-data")},
+	})
+	if err != nil {
+		t.Fatalf("SaveAll returned error: %v", err)
+	}
+	if len(got) != 1 || got[0].Kind != domainattachment.KindVideo {
+		t.Fatalf("unexpected video attachment: %#v", got)
+	}
+	if got[0].ExtractedText != "" || got[0].ExtractionError != "" {
+		t.Fatalf("video attachment should not run document extraction: %#v", got[0])
+	}
+}
+
 func TestStoreSaveAllExtractsTextDocumentContent(t *testing.T) {
 	store := NewStore(t.TempDir())
 	store.NewID = func() string { return "att-1" }

@@ -12,6 +12,7 @@ type Kind string
 const (
 	KindImage    Kind = "image"
 	KindDocument Kind = "document"
+	KindVideo    Kind = "video"
 )
 
 // Attachment is the domain representation of a user supplied file.
@@ -48,6 +49,9 @@ func KindFromContentType(contentType string) (Kind, bool) {
 	if strings.HasPrefix(ct, "image/") {
 		return KindImage, true
 	}
+	if strings.HasPrefix(ct, "video/") {
+		return KindVideo, true
+	}
 	if ct == "application/pdf" || strings.HasPrefix(ct, "text/") {
 		return KindDocument, true
 	}
@@ -65,6 +69,8 @@ func KindFromFilename(name string) (Kind, bool) {
 	switch ext {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
 		return KindImage, true
+	case ".mp4", ".mov", ".webm", ".m4v":
+		return KindVideo, true
 	case ".pdf", ".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".xml":
 		return KindDocument, true
 	default:

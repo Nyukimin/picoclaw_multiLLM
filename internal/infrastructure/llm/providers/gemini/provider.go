@@ -174,7 +174,7 @@ func convertMessages(messages []llm.Message) []geminiContent {
 			parts = make([]geminiPart, 0, len(msg.Parts))
 			for _, part := range msg.Parts {
 				switch part.Type {
-				case llm.MessagePartImage:
+				case llm.MessagePartImage, llm.MessagePartVideo:
 					if len(part.Data) == 0 || part.MimeType == "" {
 						continue
 					}

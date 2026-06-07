@@ -87,6 +87,16 @@ func (p *OpenAIProvider) convertMessages(req llm.GenerateRequest) []map[string]i
 							"url": "data:" + part.MimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
 						},
 					})
+				case llm.MessagePartVideo:
+					if len(part.Data) == 0 || part.MimeType == "" {
+						continue
+					}
+					parts = append(parts, map[string]interface{}{
+						"type": "video_url",
+						"video_url": map[string]interface{}{
+							"url": "data:" + part.MimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
+						},
+					})
 				default:
 					text := part.Text
 					if text == "" {

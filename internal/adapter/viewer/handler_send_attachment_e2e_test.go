@@ -70,11 +70,12 @@ func TestHandleSendAttachmentE2EAcceptsImageAndText(t *testing.T) {
 	}
 }
 
-func TestHandleSendAttachmentE2ERejectsVideo(t *testing.T) {
+func TestHandleSendAttachmentE2EAcceptsVideo(t *testing.T) {
 	store := appattachment.NewStore(t.TempDir())
-	h := HandleSendWithAttachments(func(_ context.Context, _ SendRequest) (string, error) {
-		t.Fatal("handler should not be called for unsupported video")
-		return "", nil
+	received := make(chan SendRequest, 1)
+	h := HandleSendWithAttachments(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req
+		return "ok", nil
 	}, nil, store)
 
 	body, contentType := multipartBody(t, map[string]string{"message": "動画を見て"}, []testUpload{
@@ -85,8 +86,16 @@ func TestHandleSendAttachmentE2ERejectsVideo(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case got := <-received:
+		if len(got.Attachments) != 1 || got.Attachments[0].Kind != domainattachment.KindVideo {
+			t.Fatalf("video attachment was not passed through: %#v", got.Attachments)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler was not called")
 	}
 }
 

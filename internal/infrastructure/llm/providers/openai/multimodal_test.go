@@ -29,3 +29,27 @@ func TestConvertMessagesUsesImageURLParts(t *testing.T) {
 		t.Fatalf("image url = %q", imageURL)
 	}
 }
+
+func TestConvertMessagesUsesVideoURLParts(t *testing.T) {
+	p := NewOpenAIProviderWithOptions("key", "model", "http://example.test", 0)
+	got := p.convertMessages(llm.GenerateRequest{Messages: []llm.Message{{
+		Role:    "user",
+		Content: "動画を見て",
+		Parts: []llm.MessagePart{
+			{Type: llm.MessagePartText, Text: "動画を見て"},
+			{Type: llm.MessagePartVideo, MimeType: "video/mp4", Data: []byte("mp4")},
+		},
+	}}})
+
+	content, ok := got[0]["content"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("content type = %T, want multipart array", got[0]["content"])
+	}
+	if content[0]["type"] != "text" || content[1]["type"] != "video_url" {
+		t.Fatalf("unexpected content parts: %#v", content)
+	}
+	videoURL := content[1]["video_url"].(map[string]interface{})["url"].(string)
+	if videoURL != "data:video/mp4;base64,bXA0" {
+		t.Fatalf("video url = %q", videoURL)
+	}
+}

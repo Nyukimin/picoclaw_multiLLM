@@ -24,3 +24,22 @@ func TestConvertMessagesUsesInlineDataParts(t *testing.T) {
 		t.Fatalf("unexpected inline data: %#v", parts[1].InlineData)
 	}
 }
+
+func TestConvertMessagesUsesVideoInlineDataParts(t *testing.T) {
+	got := convertMessages([]llm.Message{{
+		Role:    "user",
+		Content: "動画を見て",
+		Parts: []llm.MessagePart{
+			{Type: llm.MessagePartText, Text: "動画を見て"},
+			{Type: llm.MessagePartVideo, MimeType: "video/mp4", Data: []byte("mp4")},
+		},
+	}})
+
+	parts := got[0].Parts
+	if parts[0].Text != "動画を見て" {
+		t.Fatalf("text part = %q", parts[0].Text)
+	}
+	if parts[1].InlineData == nil || parts[1].InlineData.MimeType != "video/mp4" || parts[1].InlineData.Data != "bXA0" {
+		t.Fatalf("unexpected inline video data: %#v", parts[1].InlineData)
+	}
+}

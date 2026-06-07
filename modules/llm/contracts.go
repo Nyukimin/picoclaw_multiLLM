@@ -12,6 +12,7 @@ type MessagePartType string
 const (
 	MessagePartText  MessagePartType = "text"
 	MessagePartImage MessagePartType = "image"
+	MessagePartVideo MessagePartType = "video"
 )
 
 type MessagePart struct {

@@ -161,7 +161,7 @@ func HandleSendWithAttachments(handler MessageHandler, onError func(error), save
 
 		effectiveMessage, aliasSpec, aliasApplied := viewerEffectiveMessage(req)
 		if strings.TrimSpace(effectiveMessage) == "" && len(attachments) > 0 {
-			effectiveMessage = "添付ファイルを確認してください。"
+			effectiveMessage = defaultAttachmentMessage(attachments)
 		}
 		if aliasApplied {
 			log.Printf("[Viewer] HandleSend: message received: %q alias=%s base_url=%s model=%s route_prefix=%s",
@@ -217,6 +217,15 @@ func HandleSendWithAttachments(handler MessageHandler, onError func(error), save
 		}
 		log.Printf("[Viewer] HandleSend: sent OK response")
 	}
+}
+
+func defaultAttachmentMessage(attachments []domainattachment.Attachment) string {
+	for _, att := range attachments {
+		if att.Kind == domainattachment.KindVideo {
+			return "添付動画を解析してください。"
+		}
+	}
+	return "添付ファイルを確認してください。"
 }
 
 func parseViewerSendRequest(r *http.Request, saver AttachmentSaver) (viewerSendRequest, []domainattachment.Attachment, error) {

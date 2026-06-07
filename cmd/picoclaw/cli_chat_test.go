@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +211,120 @@ func TestParseChatCLIOptionsUsesEnvironmentURL(t *testing.T) {
 	}
 	if opts.Message != "hello" {
 		t.Fatalf("unexpected message: %q", opts.Message)
+	}
+}
+
+func TestShouldRunChatCLIOneShotForViewerStyleInputs(t *testing.T) {
+	if !shouldRunChatCLIOneShot(chatCLIOptions{Attachments: []string{"photo.png"}}) {
+		t.Fatal("attachment-only chat should run as one-shot like Viewer send")
+	}
+	if !shouldRunChatCLIOneShot(chatCLIOptions{AudioPath: "voice.wav"}) {
+		t.Fatal("audio-only chat should run as one-shot after STT")
+	}
+	if shouldRunChatCLIOneShot(chatCLIOptions{}) {
+		t.Fatal("empty chat should remain interactive")
+	}
+}
+
+func TestParseChatCLIOptionsAcceptsViewerStyleInputs(t *testing.T) {
+	opts, err := parseChatCLIOptions([]string{
+		"--url", "http://example.test",
+		"--audio", "voice.wav",
+		"--image", "photo.png",
+		"--video", "clip.mp4",
+		"--attach", "note.txt",
+		"--message", "見て",
+	})
+	if err != nil {
+		t.Fatalf("parseChatCLIOptions: %v", err)
+	}
+	if opts.AudioPath != "voice.wav" {
+		t.Fatalf("unexpected audio path: %q", opts.AudioPath)
+	}
+	want := []string{"photo.png", "clip.mp4", "note.txt"}
+	if strings.Join(opts.Attachments, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected attachments: %#v", opts.Attachments)
+	}
+}
+
+func TestSendChatCLIMessageUsesMultipartForAttachments(t *testing.T) {
+	dir := t.TempDir()
+	imagePath := filepath.Join(dir, "photo.png")
+	if err := os.WriteFile(imagePath, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, 0o644); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	var seenMessage string
+	var seenFile string
+	var seenContentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/viewer/send" {
+			http.NotFound(w, r)
+			return
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			t.Fatalf("expected multipart content type, got %q", r.Header.Get("Content-Type"))
+		}
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		seenMessage = r.FormValue("message")
+		file, header, err := r.FormFile("attachments")
+		if err != nil {
+			t.Fatalf("missing attachment: %v", err)
+		}
+		defer file.Close()
+		_, _ = io.ReadAll(file)
+		seenFile = header.Filename
+		seenContentType = header.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"attachment_count":1}`))
+	}))
+	defer srv.Close()
+
+	err := sendChatCLIMessage(context.Background(), srv.Client(), srv.URL, chatCLISendPayload{
+		Message:     "見て",
+		Attachments: []string{imagePath},
+	})
+	if err != nil {
+		t.Fatalf("sendChatCLIMessage: %v", err)
+	}
+	if seenMessage != "見て" || seenFile != "photo.png" {
+		t.Fatalf("unexpected multipart payload: message=%q file=%q", seenMessage, seenFile)
+	}
+	if !strings.HasPrefix(seenContentType, "image/") {
+		t.Fatalf("expected image content type, got %q", seenContentType)
+	}
+}
+
+func TestTranscribeChatCLIAudioUsesViewerSTTChatInput(t *testing.T) {
+	const wav = "RIFF$\x00\x00\x00WAVEfmt "
+	dir := t.TempDir()
+	audioPath := filepath.Join(dir, "voice.wav")
+	if err := os.WriteFile(audioPath, []byte(wav), 0o644); err != nil {
+		t.Fatalf("write audio: %v", err)
+	}
+
+	var seenPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		if r.URL.Path != "/stt/chat-input" {
+			http.NotFound(w, r)
+			return
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			t.Fatalf("expected multipart content type, got %q", r.Header.Get("Content-Type"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":"音声からの入力です","provider":"local_stt"}`))
+	}))
+	defer srv.Close()
+
+	text, err := transcribeChatCLIAudio(context.Background(), srv.Client(), srv.URL, audioPath)
+	if err != nil {
+		t.Fatalf("transcribeChatCLIAudio: %v", err)
+	}
+	if text != "音声からの入力です" || seenPath != "/stt/chat-input" {
+		t.Fatalf("unexpected transcript/path: text=%q path=%q", text, seenPath)
 	}
 }

@@ -4121,8 +4121,8 @@ function addViewerAttachments(files, input) {
 function viewerAttachmentAccepted(file) {
   const type = String(file && file.type || '').toLowerCase();
   const name = String(file && file.name || '').toLowerCase();
-  return type.startsWith('image/') || type === 'application/pdf' || type.startsWith('text/') ||
-    /\.(txt|md|json|csv|yaml|yml)$/.test(name);
+  return type.startsWith('image/') || type.startsWith('video/') || type === 'application/pdf' || type.startsWith('text/') ||
+    /\.(txt|md|json|csv|yaml|yml|mp4|mov|webm|m4v)$/.test(name);
 }
 
 function renderAttachmentTray() {
