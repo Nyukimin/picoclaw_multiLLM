@@ -71,6 +71,31 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("web_gather.searxng_base_url must start with http:// or https://")
 		}
 	}
+	if c.BrowserActor.Enabled {
+		if strings.TrimSpace(c.BrowserActor.RunnerPath) == "" {
+			return fmt.Errorf("browser_actor.runner_path is required when browser_actor.enabled=true")
+		}
+		if strings.TrimSpace(c.BrowserActor.NodeBinary) == "" {
+			return fmt.Errorf("browser_actor.node_binary is required when browser_actor.enabled=true")
+		}
+		if strings.TrimSpace(c.BrowserActor.ArtifactRoot) == "" {
+			return fmt.Errorf("browser_actor.artifact_root is required when browser_actor.enabled=true")
+		}
+		if c.BrowserActor.TimeoutMS < 1 {
+			return fmt.Errorf("browser_actor.timeout_ms must be >= 1")
+		}
+		if c.BrowserActor.MaxActions < 1 || c.BrowserActor.MaxActions > 100 {
+			return fmt.Errorf("browser_actor.max_actions must be between 1 and 100")
+		}
+	}
+	if strings.TrimSpace(c.BrowserActor.NetworkScope) != "" && c.BrowserActor.NetworkScope != "allowlist" && c.BrowserActor.NetworkScope != "blocked" {
+		return fmt.Errorf("browser_actor.network_scope must be one of [allowlist, blocked]")
+	}
+	for _, p := range []string{c.BrowserActor.ProfileRoot, c.BrowserActor.ArtifactRoot} {
+		if strings.Contains(p, "..") {
+			return fmt.Errorf("browser_actor paths must not contain '..'")
+		}
+	}
 
 	if !c.LocalLLM.Enabled {
 		// Ollama設定検証

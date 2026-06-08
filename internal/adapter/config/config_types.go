@@ -33,6 +33,9 @@ type Config struct {
 	// === Web Gather public web collection tool ===
 	WebGather WebGatherConfig `yaml:"web_gather"`
 
+	// === Browser Actor user-like browser operation sidecar ===
+	BrowserActor BrowserActorConfig `yaml:"browser_actor"`
+
 	// === ComfyUI image generation backend ===
 	ComfyUI ComfyUIConfig `yaml:"comfyui"`
 
@@ -223,6 +226,48 @@ type WebwrightFetchConfig struct {
 type WebGatherConfig struct {
 	SearXNGBaseURL string `yaml:"searxng_base_url"`
 	YaCyBaseURL    string `yaml:"yacy_base_url"`
+}
+
+// BrowserActorConfig は headless browser 操作 sidecar 設定。
+// 実行は tools/browser_actor/run_browser_actor.mjs が担当し、本体 runtime dependency にはしない。
+type BrowserActorConfig struct {
+	Enabled         bool     `yaml:"enabled"`
+	RunnerPath      string   `yaml:"runner_path"`
+	NodeBinary      string   `yaml:"node_binary"`
+	Browser         string   `yaml:"browser"`
+	HeadlessDefault *bool    `yaml:"headless_default"`
+	ProfileRoot     string   `yaml:"profile_root"`
+	ArtifactRoot    string   `yaml:"artifact_root"`
+	TimeoutMS       int      `yaml:"timeout_ms"`
+	MaxActions      int      `yaml:"max_actions"`
+	NetworkScope    string   `yaml:"network_scope"`
+	AllowedOrigins  []string `yaml:"allowed_origins"`
+	SaveTrace       *bool    `yaml:"save_trace"`
+	SaveScreenshot  *bool    `yaml:"save_screenshot"`
+	MaskSecrets     *bool    `yaml:"mask_secrets"`
+}
+
+func (c BrowserActorConfig) HeadlessDefaultEnabled() bool {
+	return boolValueOrDefault(c.HeadlessDefault, true)
+}
+
+func (c BrowserActorConfig) SaveTraceEnabled() bool {
+	return boolValueOrDefault(c.SaveTrace, true)
+}
+
+func (c BrowserActorConfig) SaveScreenshotEnabled() bool {
+	return boolValueOrDefault(c.SaveScreenshot, true)
+}
+
+func (c BrowserActorConfig) MaskSecretsEnabled() bool {
+	return boolValueOrDefault(c.MaskSecrets, true)
+}
+
+func boolValueOrDefault(value *bool, def bool) bool {
+	if value == nil {
+		return def
+	}
+	return *value
 }
 
 // ComfyUIConfig is the Wild-owned image generation backend.
@@ -505,9 +550,9 @@ func (c ToolHarnessConfig) ShouldRecordEvents() bool {
 
 // DCISessionLogSource はDCIが参照するセッションログソースの設定
 type DCISessionLogSource struct {
-	Name    string `yaml:"name"`    // 表示名 ("rencrow", "codex", "claude")
+	Name    string `yaml:"name"`     // 表示名 ("rencrow", "codex", "claude")
 	PathDir string `yaml:"path_dir"` // ベースディレクトリ（$HOME等の環境変数展開あり）
-	Format  string `yaml:"format"`  // "rencrow" | "codex" | "claude"
+	Format  string `yaml:"format"`   // "rencrow" | "codex" | "claude"
 }
 
 type DCIConfig struct {

@@ -151,7 +151,7 @@ func (e *PolicyEngine) profileByMode() domainsecurity.SecurityProfile {
 
 func isNetworkTool(toolName string) bool {
 	switch strings.TrimSpace(strings.ToLower(toolName)) {
-	case "web_search", "http_request", "fetch_url":
+	case "web_search", "http_request", "fetch_url", "browser.run":
 		return true
 	default:
 		return false

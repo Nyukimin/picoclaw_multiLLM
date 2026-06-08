@@ -106,6 +106,27 @@ webwright_fetch:
   model: "Coder1"
   api_key: "dummy"
 
+# Browser Actor は RenCrow 本体から分離した任意のブラウザ操作 sidecar。
+# run は enabled=true のときだけ許可し、cookie 等は profile_root 配下の profile 単位で保持する。
+browser_actor:
+  enabled: false
+  runner_path: "tools/browser_actor/run_browser_actor.mjs"
+  node_binary: "node"
+  browser: "chromium"
+  headless_default: true
+  profile_root: "workspace/browser_profiles"
+  artifact_root: "workspace/browser_runs"
+  timeout_ms: 30000
+  max_actions: 30
+  network_scope: "allowlist"
+  allowed_origins:
+    - "http://127.0.0.1:18790"
+    - "http://localhost:18790"
+    - "file://"
+  save_trace: true
+  save_screenshot: true
+  mask_secrets: true
+
 # セッション設定
 session:
   storage_dir: "./sessions"

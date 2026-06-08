@@ -72,4 +72,8 @@ func TestSandboxGuard_ExtractNetworkHost(t *testing.T) {
 	if !ok || host != "localhost" {
 		t.Fatalf("expected host localhost, got ok=%v host=%q", ok, host)
 	}
+	host, ok = g.ExtractNetworkHost(map[string]any{"start_url": "https://example.com/path"})
+	if !ok || host != "example.com" {
+		t.Fatalf("expected host example.com, got ok=%v host=%q", ok, host)
+	}
 }

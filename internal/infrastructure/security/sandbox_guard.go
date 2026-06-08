@@ -115,6 +115,18 @@ func (g *SandboxGuard) ExtractNetworkHost(args map[string]any) (string, bool) {
 			}
 		}
 	}
+	if u, ok := args["start_url"].(string); ok {
+		u = strings.TrimSpace(u)
+		if u != "" {
+			parsed, err := url.Parse(u)
+			if err == nil && parsed != nil && parsed.Host != "" {
+				host := parsed.Hostname()
+				if host != "" {
+					return strings.ToLower(host), true
+				}
+			}
+		}
+	}
 	if h, ok := args["host"].(string); ok {
 		h = strings.TrimSpace(h)
 		if h != "" {

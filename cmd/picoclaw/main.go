@@ -56,6 +56,8 @@ func main() {
 		cmdSourceRegistry()
 	case "web-gather":
 		cmdWebGather()
+	case "browser-actor":
+		cmdBrowserActor()
 	case "knowledge":
 		cmdKnowledge()
 	case "help", "-h", "--help":
@@ -140,6 +142,22 @@ func cmdRun() {
 		FetchCache:     true,
 		FailureCache:   true,
 		RateState:      true,
+	}
+	debugSystemOpts.BrowserActor = viewer.BrowserActorRuntimeConfig{
+		Enabled:            cfg.BrowserActor.Enabled,
+		RunnerPath:         cfg.BrowserActor.RunnerPath,
+		NodeBinary:         cfg.BrowserActor.NodeBinary,
+		Browser:            cfg.BrowserActor.Browser,
+		HeadlessDefault:    cfg.BrowserActor.HeadlessDefaultEnabled(),
+		ProfileRoot:        cfg.BrowserActor.ProfileRoot,
+		ArtifactRoot:       cfg.BrowserActor.ArtifactRoot,
+		TimeoutMS:          cfg.BrowserActor.TimeoutMS,
+		MaxActions:         cfg.BrowserActor.MaxActions,
+		NetworkScope:       cfg.BrowserActor.NetworkScope,
+		AllowedOriginCount: len(cfg.BrowserActor.AllowedOrigins),
+		SaveTrace:          cfg.BrowserActor.SaveTraceEnabled(),
+		SaveScreenshot:     cfg.BrowserActor.SaveScreenshotEnabled(),
+		MaskSecrets:        cfg.BrowserActor.MaskSecretsEnabled(),
 	}
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")

@@ -3145,3 +3145,46 @@ func TestConfig_Validate_LLMOps(t *testing.T) {
 		}
 	})
 }
+
+func TestConfig_Validate_BrowserActor(t *testing.T) {
+	base := func() *Config {
+		cfg := &Config{
+			Server:  ServerConfig{Port: 8080},
+			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
+			Session: SessionConfig{StorageDir: "./data"},
+		}
+		cfg.Coder1.Name = "aka"
+		cfg.Coder2.Name = "ao"
+		cfg.Coder3.Name = "gin"
+		cfg.Coder4.Name = "kin"
+		cfg.setDefaults()
+		return cfg
+	}
+	t.Run("defaults are valid", func(t *testing.T) {
+		cfg := base()
+		if cfg.BrowserActor.RunnerPath != "tools/browser_actor/run_browser_actor.mjs" {
+			t.Fatalf("unexpected browser actor runner path: %s", cfg.BrowserActor.RunnerPath)
+		}
+		if !cfg.BrowserActor.HeadlessDefaultEnabled() || !cfg.BrowserActor.SaveTraceEnabled() || !cfg.BrowserActor.SaveScreenshotEnabled() || !cfg.BrowserActor.MaskSecretsEnabled() {
+			t.Fatalf("browser actor safe defaults not applied: %+v", cfg.BrowserActor)
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("enabled validates max actions", func(t *testing.T) {
+		cfg := base()
+		cfg.BrowserActor.Enabled = true
+		cfg.BrowserActor.MaxActions = 101
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "browser_actor.max_actions") {
+			t.Fatalf("expected browser_actor.max_actions error, got %v", err)
+		}
+	})
+	t.Run("path traversal rejected", func(t *testing.T) {
+		cfg := base()
+		cfg.BrowserActor.ArtifactRoot = "../escape"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "browser_actor paths") {
+			t.Fatalf("expected browser_actor path error, got %v", err)
+		}
+	})
+}

@@ -47,6 +47,7 @@ Commands:
   evidence  List/show/summarize execution evidence
   source-registry  List/register L1 source registry entries
   web-gather  Fetch public web pages into pending L1 staging
+  browser-actor  Operate an allowlisted browser session from JSON
   knowledge  Import Knowledge DB seed data
   help      Show this help message
 

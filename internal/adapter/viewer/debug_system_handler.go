@@ -51,6 +51,7 @@ type DebugSystemOptions struct {
 	LocalLLM         LocalLLMRuntimeConfig
 	WebwrightFetch   WebwrightFetchRuntimeConfig
 	WebGather        WebGatherRuntimeConfig
+	BrowserActor     BrowserActorRuntimeConfig
 	RuntimeReadiness RuntimeDependencyReadiness
 }
 
@@ -65,6 +66,7 @@ type RuntimeConfig struct {
 	LocalLLM         LocalLLMRuntimeConfig       `json:"local_llm,omitempty"`
 	WebwrightFetch   WebwrightFetchRuntimeConfig `json:"webwright_fetch,omitempty"`
 	WebGather        WebGatherRuntimeConfig      `json:"web_gather,omitempty"`
+	BrowserActor     BrowserActorRuntimeConfig   `json:"browser_actor,omitempty"`
 	RuntimeReadiness RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
 }
 
@@ -156,6 +158,23 @@ type WebGatherRuntimeConfig struct {
 	RateState         bool   `json:"rate_state"`
 }
 
+type BrowserActorRuntimeConfig struct {
+	Enabled            bool   `json:"enabled"`
+	RunnerPath         string `json:"runner_path,omitempty"`
+	NodeBinary         string `json:"node_binary,omitempty"`
+	Browser            string `json:"browser,omitempty"`
+	HeadlessDefault    bool   `json:"headless_default"`
+	ProfileRoot        string `json:"profile_root,omitempty"`
+	ArtifactRoot       string `json:"artifact_root,omitempty"`
+	TimeoutMS          int    `json:"timeout_ms,omitempty"`
+	MaxActions         int    `json:"max_actions,omitempty"`
+	NetworkScope       string `json:"network_scope,omitempty"`
+	AllowedOriginCount int    `json:"allowed_origin_count"`
+	SaveTrace          bool   `json:"save_trace"`
+	SaveScreenshot     bool   `json:"save_screenshot"`
+	MaskSecrets        bool   `json:"mask_secrets"`
+}
+
 func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -174,6 +193,7 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			LocalLLM:         runtimeLocalLLMConfig(r.Context(), opts.LocalLLM),
 			WebwrightFetch:   normalizeWebwrightFetchRuntimeConfig(opts.WebwrightFetch),
 			WebGather:        normalizeWebGatherRuntimeConfig(opts.WebGather),
+			BrowserActor:     normalizeBrowserActorRuntimeConfig(opts.BrowserActor),
 			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
 		})
 	}
@@ -426,6 +446,16 @@ func normalizeWebGatherRuntimeConfig(in WebGatherRuntimeConfig) WebGatherRuntime
 	in.YaCyBaseURL = strings.TrimRight(strings.TrimSpace(in.YaCyBaseURL), "/")
 	in.SearXNGConfigured = in.SearXNGConfigured || in.SearXNGBaseURL != ""
 	in.YaCyConfigured = in.YaCyConfigured || in.YaCyBaseURL != ""
+	return in
+}
+
+func normalizeBrowserActorRuntimeConfig(in BrowserActorRuntimeConfig) BrowserActorRuntimeConfig {
+	in.RunnerPath = strings.TrimSpace(in.RunnerPath)
+	in.NodeBinary = strings.TrimSpace(in.NodeBinary)
+	in.Browser = strings.TrimSpace(in.Browser)
+	in.ProfileRoot = strings.TrimSpace(in.ProfileRoot)
+	in.ArtifactRoot = strings.TrimSpace(in.ArtifactRoot)
+	in.NetworkScope = strings.TrimSpace(in.NetworkScope)
 	return in
 }
 

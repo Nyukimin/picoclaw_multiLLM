@@ -106,6 +106,45 @@ func (c *Config) setDefaults() {
 	if c.WebwrightFetch.APIKey == "" {
 		c.WebwrightFetch.APIKey = "dummy"
 	}
+	if c.BrowserActor.RunnerPath == "" {
+		c.BrowserActor.RunnerPath = "tools/browser_actor/run_browser_actor.mjs"
+	}
+	if c.BrowserActor.NodeBinary == "" {
+		c.BrowserActor.NodeBinary = "node"
+	}
+	if c.BrowserActor.Browser == "" {
+		c.BrowserActor.Browser = "chromium"
+	}
+	if c.BrowserActor.ProfileRoot == "" {
+		c.BrowserActor.ProfileRoot = "workspace/browser_profiles"
+	}
+	if c.BrowserActor.ArtifactRoot == "" {
+		c.BrowserActor.ArtifactRoot = "workspace/browser_runs"
+	}
+	if c.BrowserActor.TimeoutMS <= 0 {
+		c.BrowserActor.TimeoutMS = 30000
+	}
+	if c.BrowserActor.MaxActions <= 0 {
+		c.BrowserActor.MaxActions = 30
+	}
+	if c.BrowserActor.NetworkScope == "" {
+		c.BrowserActor.NetworkScope = "allowlist"
+	}
+	if len(c.BrowserActor.AllowedOrigins) == 0 {
+		c.BrowserActor.AllowedOrigins = []string{"http://127.0.0.1:18790", "http://localhost:18790", "file://"}
+	}
+	if c.BrowserActor.HeadlessDefault == nil {
+		c.BrowserActor.HeadlessDefault = boolConfigPtr(true)
+	}
+	if c.BrowserActor.SaveTrace == nil {
+		c.BrowserActor.SaveTrace = boolConfigPtr(true)
+	}
+	if c.BrowserActor.SaveScreenshot == nil {
+		c.BrowserActor.SaveScreenshot = boolConfigPtr(true)
+	}
+	if c.BrowserActor.MaskSecrets == nil {
+		c.BrowserActor.MaskSecrets = boolConfigPtr(true)
+	}
 
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
@@ -791,6 +830,10 @@ func (c *Config) setDefaults() {
 	if c.Coder4.LightMemory.MaxTurns == 0 {
 		c.Coder4.LightMemory.MaxTurns = 3
 	}
+}
+
+func boolConfigPtr(value bool) *bool {
+	return &value
 }
 
 func (c *Config) applyIdleChatSpeakerLLMDefaults() {

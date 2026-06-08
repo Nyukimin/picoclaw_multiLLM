@@ -13,6 +13,7 @@ import (
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domaintool "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
+	browseractorinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/browseractor"
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
 	toolharnesspersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/toolharness"
 	securityinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/security"
@@ -57,6 +58,9 @@ func buildToolRuntime(
 		ToolRegistry:         runtimeToolRegistry,
 		WorkspaceDir:         cfg.WorkspaceDir,
 		DisableToolHarness:   true,
+	}
+	if cfg.BrowserActor.Enabled {
+		workerToolRunnerCfg.BrowserActorRunner = browseractorinfra.NewRunner(browserActorConfigFromRuntime(cfg.BrowserActor))
 	}
 
 	chatToolRunnerV2 := tools.NewToolRunner(chatToolRunnerCfg)

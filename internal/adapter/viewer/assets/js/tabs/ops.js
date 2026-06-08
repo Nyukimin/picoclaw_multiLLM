@@ -2403,6 +2403,7 @@ function syncLLMOpsPanel(cfg, fetchError) {
   state.ops.localLLM = cfg && cfg.local_llm ? cfg.local_llm : null;
   state.ops.webGather = cfg && cfg.web_gather ? cfg.web_gather : null;
   state.ops.webwrightFetch = cfg && cfg.webwright_fetch ? cfg.webwright_fetch : null;
+  state.ops.browserActor = cfg && cfg.browser_actor ? cfg.browser_actor : null;
   state.ops.runtimeReadiness = cfg && cfg.runtime_readiness ? cfg.runtime_readiness : null;
   state.ops.runtimeSTTBaseURL = cfg && cfg.stt_base_url ? String(cfg.stt_base_url) : '';
   state.ops.runtimeSTTStreamURL = cfg && cfg.stt_stream_url ? String(cfg.stt_stream_url) : '';
@@ -2541,6 +2542,7 @@ function renderRuntimeDependencyReadiness() {
   const runtimeConfigError = String(state.ops.runtimeConfigFetchError || '').trim();
   const runtimeDebugError = String(state.ops.runtimeDebugSystemFetchError || '').trim();
   const readiness = state.ops.runtimeReadiness || {};
+  const browserActor = state.ops.browserActor || {};
   const audio = state.ops.runtimeDebugSystem && state.ops.runtimeDebugSystem.audio ? state.ops.runtimeDebugSystem.audio : null;
   const sttItems = [
     runtimeReadinessItem('env', readiness.stt_gateway_env_present),
@@ -2565,6 +2567,13 @@ function renderRuntimeDependencyReadiness() {
     readiness.distributed_enabled ? 'distributed runtime configured' : 'blocked: distributed disabled',
     'blocked: Wild SSH/multi-machine E2E not verified',
   ].join('\n');
+  const browserActorDetail = browserActor.enabled ? [
+    'runner: ' + String(browserActor.runner_path || '-'),
+    'browser: ' + String(browserActor.browser || '-'),
+    'profile: ' + String(browserActor.profile_root || '-'),
+    'artifacts: ' + String(browserActor.artifact_root || '-'),
+    'origins: ' + String(browserActor.allowed_origin_count || 0),
+  ].join('\n') : 'blocked: browser_actor disabled';
   const runtimeHealth = state.ops.runtimeHealth || null;
   const runtimeHealthChecks = runtimeHealthChecksByName(runtimeHealth);
   const runtimeHealthChat = runtimeHealthChecks.local_llm_chat || runtimeHealthChecks.chat || null;
@@ -2625,6 +2634,12 @@ function renderRuntimeDependencyReadiness() {
       runtimeReadinessItem('status', readiness.browser_trace_api_status_available),
       runtimeReadinessItem('fetcher', readiness.browser_trace_api_fetcher_available),
     ], readiness.browser_trace_api_enabled ? 'review-only: discover and fetcher proposal require evidence' : 'blocked: browser trace API disabled'),
+    runtimeReadinessCard('Browser Actor', [
+      runtimeReadinessItem('enabled', browserActor.enabled),
+      runtimeReadinessItem('headless', browserActor.headless_default),
+      runtimeReadinessItem('trace', browserActor.save_trace),
+      runtimeReadinessItem('mask', browserActor.mask_secrets),
+    ], browserActorDetail),
     runtimeReadinessCard('Sandbox', [
       runtimeReadinessItem('enabled', readiness.sandbox_enabled),
       runtimeReadinessItem('status', readiness.sandbox_status_available),

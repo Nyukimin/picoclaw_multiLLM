@@ -70,6 +70,9 @@ func (r *ToolRunner) registerOptionalTools() {
 	if r.config.WebGatherSearchFetch != nil {
 		r.toolsV2["web_gather.search_and_fetch"] = r.executeWebGatherSearchAndFetchV2
 	}
+	if r.config.BrowserActorRunner != nil {
+		r.toolsV2["browser.run"] = r.executeBrowserRunV2
+	}
 
 	// Phase 4: register_tool（ToolRegistry が有効な場合のみ登録）
 	if r.config.ToolRegistry != nil {
@@ -214,6 +217,39 @@ func (r *ToolRunner) registerToolMetadata() {
 					},
 				},
 				"required": []any{"query"},
+			},
+		}
+	}
+	if r.config.BrowserActorRunner != nil {
+		r.metadata["browser.run"] = tool.ToolMetadata{
+			ToolID: "browser.run", Version: "0.1.0", Category: "query",
+			Description: "Headless browser 操作を 1 run として実行し、screenshot / snapshot / network / console artifact を保存する。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"run_id":             map[string]any{"type": "string"},
+					"goal":               map[string]any{"type": "string"},
+					"start_url":          map[string]any{"type": "string"},
+					"profile_id":         map[string]any{"type": "string"},
+					"storage_state_path": map[string]any{"type": "string"},
+					"headless":           map[string]any{"type": "boolean"},
+					"artifact_dir":       map[string]any{"type": "string"},
+					"timeout_ms":         map[string]any{"type": "integer"},
+					"max_actions":        map[string]any{"type": "integer"},
+					"allowed_origins":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"viewport": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"width":  map[string]any{"type": "integer"},
+							"height": map[string]any{"type": "integer"},
+						},
+					},
+					"actions": map[string]any{
+						"type":  "array",
+						"items": map[string]any{"type": "object"},
+					},
+				},
+				"required": []any{"start_url", "actions"},
 			},
 		}
 	}

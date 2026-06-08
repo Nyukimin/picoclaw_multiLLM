@@ -67,6 +67,27 @@ func TestPolicyEngine_Evaluate_StrictNetworkAllowlist(t *testing.T) {
 	}
 }
 
+func TestPolicyEngine_Evaluate_BrowserRunNetworkAllowlist(t *testing.T) {
+	engine := NewPolicyEngine(PolicyConfig{
+		NetworkScope:   "allowlist",
+		NetworkAllowed: []string{"localhost"},
+	})
+	allow := execution.Action{
+		Tool:      "browser.run",
+		Arguments: map[string]any{"start_url": "http://localhost:18790/viewer"},
+	}
+	if d := engine.Evaluate(allow); d.Decision != execution.DecisionAllow {
+		t.Fatalf("expected allow for browser.run allowlisted host, got %s reason=%s", d.Decision, d.Reason)
+	}
+	deny := execution.Action{
+		Tool:      "browser.run",
+		Arguments: map[string]any{"start_url": "https://example.com"},
+	}
+	if d := engine.Evaluate(deny); d.Decision != execution.DecisionDeny {
+		t.Fatalf("expected deny for browser.run non-allowlisted host, got %s", d.Decision)
+	}
+}
+
 func TestPolicyEngine_Evaluate_SandboxWriteOnly(t *testing.T) {
 	engine := NewPolicyEngine(PolicyConfig{
 		SandboxRoot:      "/workspace/sandbox",

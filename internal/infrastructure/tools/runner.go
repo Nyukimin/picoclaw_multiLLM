@@ -61,6 +61,7 @@ type ToolRunnerConfig struct {
 	WebGatherFetcher     WebGatherFetcher        // nil = web_gather.fetch 無効
 	WebGatherSearcher    WebGatherSearcher       // nil = web_gather.search 無効
 	WebGatherSearchFetch WebGatherSearchAndFetcher
+	BrowserActorRunner   BrowserActorRunner
 	ToolHarnessRecorder  toolharness.Recorder // nil = mediation event 永続化なし
 	DisableToolHarness   bool                 // true = ToolRunner内の入力調停を無効化する
 

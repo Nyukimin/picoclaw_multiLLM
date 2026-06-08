@@ -125,6 +125,22 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			FailureCache:   true,
 			RateState:      true,
 		},
+		BrowserActor: BrowserActorRuntimeConfig{
+			Enabled:            true,
+			RunnerPath:         "tools/browser_actor/run_browser_actor.mjs",
+			NodeBinary:         "node",
+			Browser:            "chromium",
+			HeadlessDefault:    true,
+			ProfileRoot:        "workspace/browser_profiles",
+			ArtifactRoot:       "workspace/browser_runs",
+			TimeoutMS:          30000,
+			MaxActions:         30,
+			NetworkScope:       "allowlist",
+			AllowedOriginCount: 3,
+			SaveTrace:          true,
+			SaveScreenshot:     true,
+			MaskSecrets:        true,
+		},
 	})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
@@ -158,6 +174,12 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.WebGather.FetchCache || !body.WebGather.FailureCache || !body.WebGather.RateState {
 		t.Fatalf("expected web gather cache flags: %+v", body.WebGather)
+	}
+	if !body.BrowserActor.Enabled || body.BrowserActor.RunnerPath != "tools/browser_actor/run_browser_actor.mjs" || body.BrowserActor.ProfileRoot != "workspace/browser_profiles" || body.BrowserActor.AllowedOriginCount != 3 {
+		t.Fatalf("unexpected browser actor runtime config: %+v", body.BrowserActor)
+	}
+	if !body.BrowserActor.HeadlessDefault || !body.BrowserActor.SaveTrace || !body.BrowserActor.SaveScreenshot || !body.BrowserActor.MaskSecrets {
+		t.Fatalf("expected browser actor safe flags: %+v", body.BrowserActor)
 	}
 }
 
