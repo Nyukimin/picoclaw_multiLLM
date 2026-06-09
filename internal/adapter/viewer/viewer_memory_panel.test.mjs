@@ -4282,6 +4282,7 @@ function short(value) { return String(value || ''); }
 function recordSTTCaptureEvent() {}
 function renderDebugPanels() {}
 function handleSTTFinalText() {}
+function clearSTTFinalWaitTimer() {}
 function scheduleSTTReconnect() {}
 var document = {getElementById() { return null; }};
 ` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
@@ -4312,7 +4313,7 @@ globalThis.__wsInstances = wsInstances;
   assert.equal(sessionState.title, 'Session: stt_session_3 / STT websocket unavailable: socket refused');
 });
 
-test('viewer finalizes latest STT partial text on microphone stop', async () => {
+test('viewer sends STT stop before locally finalizing latest partial on timeout', async () => {
   const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const source = `
 var wsInstances = [];
@@ -4320,13 +4321,15 @@ class FakeWebSocket {
   static OPEN = 1;
   static CONNECTING = 0;
   constructor(url) {
-    this.url = url;
-    this.readyState = FakeWebSocket.CONNECTING;
-    this.closed = false;
-    wsInstances.push(this);
-  }
-  close() { this.closed = true; this.readyState = 3; }
-}
+	    this.url = url;
+	    this.readyState = FakeWebSocket.CONNECTING;
+	    this.closed = false;
+	    this.sent = [];
+	    wsInstances.push(this);
+	  }
+	  send(payload) { this.sent.push(payload); }
+	  close() { this.closed = true; this.readyState = 3; }
+	}
 var WebSocket = FakeWebSocket;
 var sttState = {
   ws: null,
@@ -4340,13 +4343,22 @@ var sttState = {
   chunkBuffer: [],
   draftBuffer: [],
   captureActionError: '',
-  captureSessionID: 'stt_session_partial',
-  lastRecognitionText: '',
-  lastRecognitionType: '',
-  voiceBridgeURL: 'ws://127.0.0.1:18790/stt',
-};
-function updateSTTInputIndicators() {}
-function showToast(message, type) { globalThis.__toasts.push({message, type}); }
+	  captureSessionID: 'stt_session_partial',
+	  lastRecognitionText: '',
+	  lastRecognitionType: '',
+	  finalReceived: false,
+	  finalWaitTimer: null,
+	  stopControlSent: false,
+	  sampleRate: 16000,
+	  chunkSamples: 1600,
+	  voiceBridgeURL: 'ws://127.0.0.1:18790/stt',
+	};
+	const STT_FINAL_WAIT_TIMEOUT_MS = 90000;
+	const STT_STOP_TAIL_SILENCE_MS = 1000;
+	function updateSTTInputIndicators() {}
+	function updateSTTInputLevel() {}
+	function updateSTTCaption() {}
+	function showToast(message, type) { globalThis.__toasts.push({message, type}); }
 function ftime() { return '12:00:00'; }
 function pushDebugTrace(kind, payload) { globalThis.__debug.push({kind, payload}); }
 function short(value) { return String(value || ''); }
@@ -4368,25 +4380,31 @@ function isVoiceChatAllowed() {
 }
 function autoResize() { globalThis.__autoResizeCalled = true; }
 function send() { globalThis.__sendCalled = true; }
-` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
-sourceBetween(viewerJs, 'function connectSTTWebSocket', 'function resampleToPCM16') +
-sourceBetween(viewerJs, 'function handleSTTFinalText', 'function scheduleSTTReconnect') +
-viewerJs.slice(viewerJs.indexOf('function stopSTT()')) + `
+	` + sourceBetween(viewerJs, 'function describeSTTActionError', 'function copySTTCaptureLog') +
+	sourceBetween(viewerJs, 'function connectSTTWebSocket', 'function resampleToPCM16') +
+	sourceBetween(viewerJs, 'function flushSTTAudioChunkBuffer', 'function handleSTTFinalText') +
+	sourceBetween(viewerJs, 'function handleSTTFinalText', 'function scheduleSTTReconnect') +
+	viewerJs.slice(viewerJs.indexOf('function stopSTT()')) + `
 globalThis.__connectSTTWebSocket = connectSTTWebSocket;
 globalThis.__stopSTT = stopSTT;
 globalThis.__wsInstances = wsInstances;
 globalThis.__sttState = sttState;
 `;
-  const context = vm.createContext({
-    __capture: [],
-    __debug: [],
-    __input: {value: '', focus() { this.focused = true; }},
+  const contextGlobals = {
+	    __capture: [],
+	    __debug: [],
+	    __input: {value: '', focus() { this.focused = true; }},
     __autoResizeCalled: false,
     __sendCalled: false,
-    __toasts: [],
-    console: {error() {}, warn() {}, log() {}},
-    clearTimeout() {},
-  });
+	    __toasts: [],
+	    console: {error() {}, warn() {}, log() {}},
+	    clearTimeout() {},
+	    setTimeout(fn) {
+	      contextGlobals.__scheduledTimeout = fn;
+	      return 1;
+	    },
+	  };
+  const context = vm.createContext(contextGlobals);
   vm.runInContext(source, context);
 
   context.__connectSTTWebSocket();
@@ -4396,23 +4414,31 @@ globalThis.__sttState = sttState;
   assert.equal(context.__sttState.lastRecognitionText, 'テスト');
   assert.equal(context.__sttState.lastRecognitionType, 'partial');
 
-  context.__stopSTT();
-  await new Promise((resolve) => setImmediate(resolve));
+	  context.__stopSTT();
+	  await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(context.__input.value, 'テスト');
-  assert.equal(context.__input.focused, true);
-  assert.equal(context.__autoResizeCalled, true);
-  assert.equal(context.__sendCalled, true);
-  assert.equal(ws.closed, true);
-  const recognitionCapture = context.__capture
-    .filter((item) => item.type === 'partial' || item.type === 'final')
-    .map((item) => ({type: item.type, payload: item.payload}));
-  assert.deepEqual(recognitionCapture, [
-    {type: 'partial', payload: 'テスト'},
-    {type: 'final', payload: 'テスト'},
-  ]);
-  assert.equal(context.__toasts.at(-1).type, 'success');
-});
+	  assert.equal(context.__sendCalled, false);
+	  assert.equal(ws.closed, false);
+	  assert.ok(ws.sent.some((item) => String(item) === '{"type":"stop"}'));
+
+	  context.__scheduledTimeout();
+	  await new Promise((resolve) => setImmediate(resolve));
+
+	  assert.equal(context.__input.value, 'テスト');
+	  assert.equal(context.__input.focused, true);
+	  assert.equal(context.__autoResizeCalled, true);
+	  assert.equal(context.__sendCalled, true);
+	  assert.equal(context.__sttState.finalReceived, true);
+	  assert.equal(ws.closed, true);
+	  const recognitionCapture = context.__capture
+	    .filter((item) => item.type === 'partial' || item.type === 'final' || item.type === 'final_fallback')
+	    .map((item) => ({type: item.type, payload: item.payload}));
+	  assert.deepEqual(recognitionCapture, [
+	    {type: 'partial', payload: 'テスト'},
+	    {type: 'final', payload: 'テスト'},
+	    {type: 'final_fallback', payload: 'timeout'},
+	  ]);
+	});
 
 test('viewer renders home send failures as visible desk state', async () => {
   const homeJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/home.js', 'utf8');

@@ -15,6 +15,8 @@ import (
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
+var idleChatTTSPrefetch *idleChatTTSPrefetchManager
+
 func buildIdleChatRuntime(
 	cfg *config.Config,
 	deps *Dependencies,
@@ -73,6 +75,12 @@ func buildIdleChatRuntime(
 		log.Printf("IdleChat topic store enabled: %s", topicStorePath)
 	}
 	if deps.eventHub != nil {
+		idleChatTTSPrefetch = newIdleChatTTSPrefetchManager(ttsBridge)
+		idleChatOrch.SetTTSPrefetchEmitter(func(ev idlechat.TTSPrefetchEvent) {
+			if idleChatTTSPrefetch != nil {
+				idleChatTTSPrefetch.Push(ev)
+			}
+		})
 		idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) <-chan struct{} {
 			if ev.Type != "idlechat.tts" {
 				viewerType := ev.Type
@@ -102,6 +110,12 @@ func buildIdleChatRuntime(
 				deps.eventHub.OnEvent(viewerEvent)
 			}
 			if ev.Type == "idlechat.viewer" {
+				return nil
+			}
+			if ev.Type == "idlechat.message" && idleChatTTSPrefetch != nil && idleChatTTSPrefetch.HasActive(ev.SessionID, ev.MessageID) {
+				if waitCh, ok := idleChatTTSPrefetch.Close(ev); ok {
+					return waitCh
+				}
 				return nil
 			}
 			return emitIdleChatTTSAsync(ttsBridge, ev)

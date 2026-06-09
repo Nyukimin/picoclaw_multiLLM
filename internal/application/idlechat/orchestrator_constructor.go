@@ -78,6 +78,12 @@ func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan s
 	o.emitEvent = emit
 }
 
+func (o *IdleChatOrchestrator) SetTTSPrefetchEmitter(emit func(TTSPrefetchEvent)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.emitTTSPrefetch = emit
+}
+
 func (o *IdleChatOrchestrator) SetTTSTimeoutReporter(report func(TTSTimeoutEvent)) {
 	o.mu.Lock()
 	defer o.mu.Unlock()

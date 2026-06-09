@@ -1,0 +1,158 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - img "RenCrow" [ref=e4]
+      - generic [ref=e5]: RenCrow Live
+    - generic:
+      - generic:
+        - img
+        - generic: Mio
+      - generic:
+        - img
+        - generic: Shiro
+    - generic [ref=e6]:
+      - generic "Viewer theme" [ref=e7]:
+        - button "○" [ref=e8] [cursor=pointer]
+        - button "◐" [ref=e9] [cursor=pointer]
+        - button "▦" [ref=e10] [cursor=pointer]
+      - generic [ref=e13]: Connected
+  - generic [ref=e14]:
+    - navigation "Viewer navigation" [ref=e15]:
+      - button "Home" [ref=e16] [cursor=pointer]
+      - button "Chat" [ref=e17] [cursor=pointer]
+      - button "Develop" [ref=e18] [cursor=pointer]
+      - button "Instructions" [ref=e19] [cursor=pointer]
+      - button "Reports" [ref=e20] [cursor=pointer]
+      - button "Memory" [ref=e21] [cursor=pointer]
+      - button "Movies" [ref=e22] [cursor=pointer]
+      - button "News Pack" [ref=e23] [cursor=pointer]
+      - button "IdleChat" [ref=e24] [cursor=pointer]
+      - button "Ops" [ref=e25] [cursor=pointer]
+      - button "Overview" [ref=e26] [cursor=pointer]
+      - button "Roles" [ref=e27] [cursor=pointer]
+      - button "Progress" [ref=e28] [cursor=pointer]
+      - button "System" [ref=e29] [cursor=pointer]
+      - button "Sessions" [ref=e30] [cursor=pointer]
+      - button "Jobs" [ref=e31] [cursor=pointer]
+    - main [ref=e32]:
+      - text: + + +
+      - generic [ref=e34]:
+        - complementary "Chat character panel" [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]: R
+            - generic [ref=e38]:
+              - generic [ref=e39]: RenCrow
+              - generic [ref=e40]: Chat workspace
+          - generic [ref=e41]:
+            - generic [ref=e43]: Mio / Chat
+            - generic [ref=e44]: 会話、相談、指示の入口
+          - generic [ref=e45]:
+            - generic [ref=e46]:
+              - generic [ref=e47]: 状態
+              - strong [ref=e48]: 待機中
+            - generic [ref=e49]:
+              - generic [ref=e50]: 入力
+              - strong [ref=e51]: 通常 Chat
+            - generic [ref=e52]:
+              - generic [ref=e53]: 音声
+              - strong [ref=e54]: Chat のみ
+        - region "Chat content" [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - generic [ref=e58]: Chat
+              - heading "会話と指示をここから始める" [level=3] [ref=e59]
+              - paragraph [ref=e60]: ユーザー会話と、Mio / Shiro / Worker の内部連携を読みやすく表示します。
+            - group [ref=e61]:
+              - generic "詳細フィルタ" [ref=e62] [cursor=pointer]
+              - 'option "type: all" [selected]'
+              - option "message.received"
+              - option "routing.decision"
+              - option "agent.delegate"
+              - option "agent.note"
+              - option "agent.start"
+              - option "agent.thinking"
+              - option "agent.response"
+              - option "agent.report"
+              - option "worker.request"
+              - option "worker.result"
+              - option "tts.audio_chunk"
+              - 'option "agent: all" [selected]'
+              - option "れん"
+              - option "みお"
+              - option "しろ"
+              - option "あか"
+              - option "あお"
+              - option "ぎん"
+              - option "きん"
+              - 'option "route: all" [selected]'
+              - option "CHAT"
+              - option "OPS"
+              - option "PLAN"
+              - option "ANALYZE"
+              - option "RESEARCH"
+              - option "CODE"
+              - option "CODE1"
+              - option "CODE2"
+              - option "CODE3"
+              - option "CODE4"
+          - generic [ref=e63]:
+            - generic [ref=e64]:
+              - generic [ref=e65]: 👤
+              - generic [ref=e66]:
+                - generic [ref=e67]:
+                  - generic [ref=e68]: れん
+                  - generic [ref=e69]: → 🌸 みお
+                  - generic [ref=e70]: 09:25:45
+                - button "Copy" [ref=e71] [cursor=pointer]
+                - generic [ref=e72]: /chat live text input smoke test。OKとだけ返して。
+            - generic [ref=e73]:
+              - generic [ref=e74]: 👤
+              - generic [ref=e75]:
+                - generic [ref=e76]:
+                  - generic [ref=e77]: れん
+                  - generic [ref=e78]: → 🌸 みお
+                  - generic [ref=e79]: 09:25:45
+                - button "Copy" [ref=e80] [cursor=pointer]
+                - generic [ref=e81]: 動画添付の受け口テストです。解析は不要。
+            - generic [ref=e82]:
+              - generic [ref=e83]: 👤
+              - generic [ref=e84]:
+                - generic [ref=e85]:
+                  - generic [ref=e86]: れん
+                  - generic [ref=e87]: 09:25:45
+                - generic "Thinking" [ref=e89]
+            - generic [ref=e93]:
+              - generic [ref=e94]: 👤
+              - generic [ref=e95]:
+                - generic [ref=e96]:
+                  - generic [ref=e97]: れん
+                  - generic [ref=e98]: → 🌸 みお
+                  - generic [ref=e99]: 09:26:20
+                - button "Copy" [ref=e100] [cursor=pointer]
+                - generic [ref=e101]: /analyze 添付動画に人物が映っているか確認してください。回答は1文。
+            - generic [ref=e102]:
+              - generic [ref=e103]: 👤
+              - generic [ref=e104]:
+                - generic [ref=e105]:
+                  - generic [ref=e106]: れん
+                  - generic [ref=e107]: → 🌸 みお
+                  - generic [ref=e108]: 09:26:39
+                - button "Copy" [ref=e109] [cursor=pointer]
+                - generic [ref=e110]: /chat live text input smoke test 2。OKとだけ返して。
+  - generic [ref=e113]:
+    - generic [ref=e114]:
+      - generic [ref=e115]:
+        - button "音声を有効化" [ref=e116] [cursor=pointer]: 🔊
+        - button "🎤" [ref=e117] [cursor=pointer]
+        - button "📎" [ref=e118] [cursor=pointer]
+        - button "📷" [ref=e119] [cursor=pointer]
+      - generic [ref=e120]:
+        - generic [ref=e121]: "Mic: off"
+        - generic [ref=e122]: "STT: off"
+        - 'generic "Session: (unknown)" [ref=e123]'
+    - generic [ref=e124]:
+      - textbox "Mio にメッセージを送る..." [ref=e126]
+      - button "➤" [ref=e127] [cursor=pointer]
+  - generic [ref=e128]:
+    - text: "Messages:"
+    - generic [ref=e129]: "4"

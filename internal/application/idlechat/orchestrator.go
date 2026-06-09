@@ -93,6 +93,15 @@ type TimelineEvent struct {
 	Strategy   TopicStrategy
 }
 
+type TTSPrefetchEvent struct {
+	SessionID string
+	MessageID string
+	From      string
+	To        string
+	TurnIndex int
+	Token     string
+}
+
 type PersonaRuntimeRecorder interface {
 	SaveTriggerLog(ctx context.Context, item domainpersona.TriggerLog) error
 	SaveCanonicalResponseLog(ctx context.Context, item domainpersona.CanonicalResponseLog) error
@@ -138,6 +147,7 @@ type IdleChatOrchestrator struct {
 	nextTopicAt               time.Time
 	history                   []SessionSummary
 	emitEvent                 func(TimelineEvent) <-chan struct{}
+	emitTTSPrefetch           func(TTSPrefetchEvent)
 	reportTTSTimeout          func(TTSTimeoutEvent)
 	topicStore                *TopicStore
 	topicStockBuf             *forecastTopicStock // 未来展望お題ストック

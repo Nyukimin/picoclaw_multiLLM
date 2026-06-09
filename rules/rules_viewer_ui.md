@@ -595,7 +595,89 @@ RenCrow が新しい HTML タブを生成するときは、必ず次を守る。
 
 ---
 
-## 11. 新 UI 作成プロンプト雛形
+## 11. Viewer 再構築で使う Skill / ツール
+
+Viewer の再構築、既存タブの新 UI 化、大きなレイアウト変更では、作業段階ごとに次の Skill / ツールを優先して使う。
+
+### 11.1 調査・棚卸し
+
+目的: 既存 Viewer の構造、状態管理、API、CSS、タブ責務、表示契約を壊さないための事前確認。
+
+優先:
+
+- `analyze-codebase`: Viewer 周辺コード、仕様、関連 docs / rules の棚卸し
+- `debug-investigate`: 表示崩れ、状態不整合、クリック不能、イベント更新不良の原因調査
+- `rg` / `git diff` / `go test`: 既存仕様、差分、近接テストの確認
+
+確認すること:
+
+- `DESIGN.md`、`docs/01_正本仕様/実装仕様.md`、`docs/09_Viewer/Viewer仕様.md`、このファイルを読んでいる
+- `internal/adapter/viewer/viewer.html`、`assets/css/`、`assets/js/`、対象タブの責務を把握している
+- 既存 API、表示 state、イベント、WebSocket、localStorage / sessionStorage の扱いを壊さない
+
+### 11.2 UI 案・デザイン検討
+
+目的: いきなり本体へ大きな差分を入れず、Viewer として使える画面密度、情報量、導線を確認する。
+
+優先:
+
+- `aidesigner-frontend`: Viewer 再設計、画面案、UI 構成の生成・改善
+- `ui-design`: 1 ファイル HTML の検討用モック作成
+- Figma MCP / `figma-generate-design` / `figma-use`: Figma 上で画面、コンポーネント、デザインシステムを作る場合
+- `imagegen`: キャラクター、背景、補助ビジュアルなど、bitmap 素材が必要な場合
+
+注意:
+
+- `DESIGN.md` を視覚方針の正本にする
+- 検討用モックを本体へそのまま貼り付けない
+- Figma や画像生成は補助であり、最終判断は Viewer の実装制約、表示契約、実ブラウザ検証に戻す
+
+### 11.3 実装・組み込み
+
+目的: Viewer 本体へ、責務を崩さず段階的に組み込む。
+
+優先:
+
+- `apply_patch`: 小さい差分で HTML / CSS / JavaScript を編集する
+- `shadcn`: shadcn/ui または同等のコンポーネント方針を導入・参照する必要がある場合
+- 既存の `assets/css/`、`assets/js/tabs/`、Viewer API helper を優先する
+
+注意:
+
+- 既存タブ、既存 API、Viewer 表示契約を壊さない
+- 1 画面ずつ実装し、差分を追える単位にする
+- 新規依存、外部 UI ライブラリ、ビルド方式変更は高リスク操作として扱う
+
+### 11.4 実ブラウザ検証
+
+目的: 見た目だけでなく、実際に操作できる Viewer として成立していることを確認する。
+
+優先:
+
+- `playwright`: Viewer の実ブラウザ操作、DOM、console、network、スクリーンショット検証
+- `playwright-interactive`: 継続ブラウザセッションで見ながら調整する場合
+- `chrome-devtools`: performance trace、console / network、ページスクリーンショット確認
+- `screenshot`: OS レベルのスクリーンショットが必要な場合
+- RenCrow Browser Actor: RenCrow 内の browser 操作機能として検証・将来連携する場合
+
+必須確認:
+
+- desktop と narrow / mobile 幅で表示が破綻していない
+- 主要タブ、ボタン、入力欄、select、copy / export / send が実クリックできる
+- `pointer-events`、`z-index`、`position`、`background`、`border`、`box-shadow`、`backdrop-filter` が主要操作を妨げていない
+- console error、network error、WebSocket 更新不良がない、または残リスクとして明示されている
+
+### 11.5 完了条件
+
+Viewer 再構築を完了扱いにするには、少なくとも次を満たす。
+
+- 仕様、デザイン方針、Viewer 実務ルールを読んだ上で実装している
+- 変更対象の責務と既存表示契約を説明できる
+- desktop と narrow / mobile の実ブラウザ確認をしている
+- スクリーンショットまたは検証ログで、主要導線が操作可能であることを確認している
+- 未検証箇所、壊したくない既存機能、残リスクを報告している
+
+## 12. 新 UI 作成プロンプト雛形
 
 新しい Viewer UI を Codex や別 LLM に作らせるときは、`docs/09_Viewer/Viewer新UIタブ生成プロンプト.md` を使う。
 

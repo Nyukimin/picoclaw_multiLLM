@@ -544,6 +544,12 @@
           <div class="chat-status-row"><span>入力</span><strong>通常 Chat</strong></div>
           <div class="chat-status-row"><span>音声</span><strong>Chat のみ</strong></div>
         </div>
+        <div class="chat-agent-grid" aria-label="Chat quick actions">
+          <button class="chat-agent-card" type="button" onclick="document.getElementById('inp').focus()">話す<span>通常会話</span></button>
+          <button class="chat-agent-card" type="button" onclick="switchTab('develop')">開発<span>作業を見る</span></button>
+          <button class="chat-agent-card" type="button" onclick="switchTab('reports')">報告<span>結果確認</span></button>
+          <button class="chat-agent-card" type="button" onclick="switchTab('idlechat')">雑談<span>IdleChat</span></button>
+        </div>
       </aside>
 
       <section class="chat-main-pane" aria-label="Chat content">
@@ -583,6 +589,20 @@
             </div>
           </details>
         </header>
+        <div class="chat-intent-strip" aria-label="Chat workflow guide">
+          <div>
+            <span class="chat-intent-label">入力</span>
+            <strong>下の固定入力欄から送信</strong>
+          </div>
+          <div>
+            <span class="chat-intent-label">音声</span>
+            <strong>🎤でSTT / 🔊でTTS</strong>
+          </div>
+          <div>
+            <span class="chat-intent-label">添付</span>
+            <strong>📎で画像・PDF・テキスト</strong>
+          </div>
+        </div>
         <div id="chat" class="chat-conversation">
           <div class="empty chat-empty" id="empty">
             <div class="chat-empty-mark">R</div>
@@ -1005,57 +1025,85 @@
     </div>
   </section>
 
-  <section id="panel-idlechat" class="panel">
-    <div class="grid">
-      <div class="card">
-        <h4>Mode</h4>
-        <div class="row"><span>Manual</span><span id="idleManual" class="badge state-offline">off</span></div>
-        <div class="row"><span>Chat Active</span><span id="idleActive" class="badge state-offline">off</span></div>
-      </div>
-      <div class="card">
-        <h4>Current Topic</h4>
-        <div id="idleTopicNow" style="font-size:13px;line-height:1.6;color:var(--t1)">-</div>
-      </div>
-    </div>
-    <div class="idle-subtabs" role="tablist" aria-label="IdleChat views">
-      <button class="idle-subtab active" data-idle-view="live" type="button" role="tab" aria-controls="idleViewLive">Live Timeline</button>
-      <button class="idle-subtab" data-idle-view="summary" type="button" role="tab" aria-controls="idleViewSummary">Summary Review</button>
-      <button class="idle-subtab" data-idle-view="history" type="button" role="tab" aria-controls="idleViewHistory">History</button>
-    </div>
-    <div id="idleViewLive" class="idle-subview active" role="tabpanel">
-      <div class="panel-head">
-        <h3>IdleChat Live Timeline</h3>
-        <div class="sub">今日のお題 / Mio・Shiro発話 / 要約</div>
-      </div>
-      <div id="idleLiveLog" class="table-wrap idle-live">
-        <div class="idle-live-empty">No live idleChat messages yet</div>
-      </div>
-    </div>
-    <div id="idleViewSummary" class="idle-subview" role="tabpanel">
-      <div class="panel-head">
-        <h3>Summary Review</h3>
-        <div class="sub">後から読み返して内容チェック</div>
-      </div>
-      <div id="idleSummaryReview" class="idle-review">
-        <div class="table-wrap idle-review-list" id="idleSummaryList">
-          <div class="idle-empty">No summaries yet</div>
+  <section id="panel-idlechat" class="panel idle-desk-panel">
+    <div class="idle-desk-shell">
+      <aside class="idle-character-pane" aria-label="IdleChat status and controls">
+        <div class="idle-brand-row">
+          <div class="chat-logo-mark">I</div>
+          <div>
+            <div class="chat-brand-name">IdleChat</div>
+            <div class="chat-brand-sub">Mio / Shiro background talk</div>
+          </div>
         </div>
-        <div class="table-wrap idle-review-detail" id="idleSummaryDetail">
-          <div class="idle-empty">Select a summary</div>
+        <div class="idle-character-portrait" aria-hidden="true">
+          <img class="idle-character-avatar mio" src="/viewer/assets/images/mio/parts/expressions/mio_normal.png" alt="">
+          <img class="idle-character-avatar shiro" src="/viewer/assets/images/shiro/parts/expressions/shiro_normal.png" alt="">
+          <div class="idle-character-title">ふたりの雑談</div>
+          <div class="idle-character-sub">話題、発話、要約を分けて読む</div>
         </div>
-      </div>
-    </div>
-    <div id="idleViewHistory" class="idle-subview" role="tabpanel">
-      <div class="panel-head">
-        <h3>History</h3>
-        <div class="sub">過去セッション一覧</div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Title</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
-          <tbody id="idlechatBody"></tbody>
-        </table>
-      </div>
+        <div class="idle-status-board">
+          <div class="chat-status-row"><span>Manual</span><span id="idleManual" class="badge state-offline">off</span></div>
+          <div class="chat-status-row"><span>Chat Active</span><span id="idleActive" class="badge state-offline">off</span></div>
+          <div class="idle-topic-card">
+            <span>Current Topic</span>
+            <strong id="idleTopicNow">-</strong>
+          </div>
+        </div>
+        <div class="idle-mode-board" aria-label="IdleChat mode controls">
+          <div class="idle-mode-title">開始モード</div>
+          <div class="idle-mode-note">下の固定バーのボタンで開始・停止します。ここでは状態と読み返しを確認します。</div>
+        </div>
+      </aside>
+
+      <section class="idle-main-pane" aria-label="IdleChat content">
+        <header class="idle-desk-head">
+          <div>
+            <div class="chat-kicker">IdleChat</div>
+            <h3>雑談を、ライブと要約で読む</h3>
+            <p>現在の会話はLive、後から見る内容はSummary Review、過去一覧はHistoryに分けます。</p>
+          </div>
+          <div class="idle-subtabs" role="tablist" aria-label="IdleChat views">
+            <button class="idle-subtab active" data-idle-view="live" type="button" role="tab" aria-controls="idleViewLive">Live</button>
+            <button class="idle-subtab" data-idle-view="summary" type="button" role="tab" aria-controls="idleViewSummary">Review</button>
+            <button class="idle-subtab" data-idle-view="history" type="button" role="tab" aria-controls="idleViewHistory">History</button>
+          </div>
+        </header>
+        <div id="idleViewLive" class="idle-subview active" role="tabpanel">
+          <div class="panel-head idle-panel-head">
+            <h3>Live Timeline</h3>
+            <div class="sub">今日のお題 / Mio・Shiro発話 / 要約</div>
+          </div>
+          <div id="idleLiveLog" class="idle-live">
+            <div class="idle-live-empty">No live IdleChat messages yet</div>
+          </div>
+        </div>
+        <div id="idleViewSummary" class="idle-subview" role="tabpanel">
+          <div class="panel-head idle-panel-head">
+            <h3>Summary Review</h3>
+            <div class="sub">後から読み返して内容チェック</div>
+          </div>
+          <div id="idleSummaryReview" class="idle-review">
+            <div class="idle-review-list" id="idleSummaryList">
+              <div class="idle-empty">No summaries yet</div>
+            </div>
+            <div class="idle-review-detail" id="idleSummaryDetail">
+              <div class="idle-empty">Select a summary</div>
+            </div>
+          </div>
+        </div>
+        <div id="idleViewHistory" class="idle-subview" role="tabpanel">
+          <div class="panel-head idle-panel-head">
+            <h3>History</h3>
+            <div class="sub">過去セッション一覧</div>
+          </div>
+          <div class="idle-history-wrap">
+            <table>
+              <thead><tr><th>Title</th><th>Topic</th><th>Turns</th><th>Loop Restart</th><th>Started (JST)</th><th>Ended (JST)</th><th>Summary</th></tr></thead>
+              <tbody id="idlechatBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   </section>
 

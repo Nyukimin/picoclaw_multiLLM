@@ -89,10 +89,30 @@ func (o *IdleChatOrchestrator) generateResponseWithRaw(speaker, target, sessionI
 		})
 	}
 
+	messageID := idleChatMessageID(sessionID, turn+1)
+	o.mu.Lock()
+	prefetchEmitter := o.emitTTSPrefetch
+	o.mu.Unlock()
 	req := llm.GenerateRequest{
 		Messages:    messages,
 		MaxTokens:   idleMaxTokensForSpeaker(speaker, idleChatResponseMaxTokens),
 		Temperature: temp,
+	}
+	if prefetchEmitter != nil {
+		req.OnToken = func(token string) {
+			token = strings.TrimSpace(token)
+			if token == "" {
+				return
+			}
+			prefetchEmitter(TTSPrefetchEvent{
+				SessionID: sessionID,
+				MessageID: messageID,
+				From:      speaker,
+				To:        target,
+				TurnIndex: turn + 1,
+				Token:     token,
+			})
+		}
 	}
 
 	provider := o.providerForSpeaker(speaker)
