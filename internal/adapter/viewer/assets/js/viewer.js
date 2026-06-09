@@ -320,6 +320,10 @@ const state = {
   debug: {
     gpu: null,
     audio: null,
+    latencyMetrics: [],
+    latencyLatest: {},
+    latencySeen: {},
+    eventReceiveTimes: {},
     sttTrace: [],
     thinkTrace: [],
   },
@@ -1127,8 +1131,172 @@ function pushDebugTrace(kind, payload) {
   if (bucket.length > 40) bucket.shift();
 }
 
+function nowLatencyMS() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function' && performance.timeOrigin) {
+    return performance.timeOrigin + performance.now();
+  }
+  return Date.now();
+}
+
+function recordLatencyMetric(kind, point, options = {}) {
+  const normalizedKind = String(kind || '').trim().toLowerCase();
+  const normalizedPoint = String(point || '').trim();
+  if (!normalizedKind || !normalizedPoint) return null;
+  const atMS = Number.isFinite(Number(options.atMS)) ? Number(options.atMS) : nowLatencyMS();
+  const valueMS = Number.isFinite(Number(options.valueMS)) ? Number(options.valueMS) : NaN;
+  const elapsedMS = Number.isFinite(Number(options.elapsedMS)) ? Number(options.elapsedMS) : valueMS;
+  const item = {
+    kind: normalizedKind,
+    point: normalizedPoint,
+    time: ftime(new Date(atMS).toISOString()),
+    atMS,
+    valueMS: Number.isFinite(valueMS) ? valueMS : NaN,
+    elapsedMS: Number.isFinite(elapsedMS) ? elapsedMS : NaN,
+    detail: String(options.detail || '').trim(),
+    route: String(options.route || '').trim(),
+    job: String(options.job || '').trim(),
+    session: String(options.session || '').trim(),
+    source: String(options.source || 'viewer').trim(),
+  };
+  state.debug.latencyMetrics.push(item);
+  if (state.debug.latencyMetrics.length > 120) state.debug.latencyMetrics.shift();
+  state.debug.latencyLatest[normalizedKind + ':' + normalizedPoint] = item;
+  return item;
+}
+
+function recordLatencyMetricOnce(key, kind, point, options = {}) {
+  const normalizedKey = String(key || '').trim();
+  if (!normalizedKey) return recordLatencyMetric(kind, point, options);
+  if (state.debug.latencySeen[normalizedKey]) return null;
+  state.debug.latencySeen[normalizedKey] = true;
+  return recordLatencyMetric(kind, point, options);
+}
+
+function parseLatencyMetricContent(content) {
+  try {
+    const payload = JSON.parse(String(content || '{}'));
+    if (!payload || typeof payload !== 'object') return null;
+    return payload;
+  } catch (_) {
+    return null;
+  }
+}
+
+function ingestLatencyMetricEvent(ev) {
+  const payload = parseLatencyMetricContent(ev && ev.content);
+  if (!payload) return;
+  recordLatencyMetric(payload.kind, payload.point, {
+    atMS: Number(payload.at_unix_ms || 0),
+    elapsedMS: Number(payload.elapsed_ms),
+    valueMS: Number(payload.since_ms !== undefined ? payload.since_ms : payload.elapsed_ms),
+    detail: payload.detail || '',
+    route: ev.route || '',
+    job: ev.job_id || '',
+    session: ev.session_id || '',
+    source: 'server',
+  });
+  const emittedAt = Number(payload.at_unix_ms || 0);
+  if (emittedAt > 0) {
+    recordLatencyMetric('network', 'sse_metric_receive_lag', {
+      valueMS: Math.max(0, nowLatencyMS() - emittedAt),
+      detail: String(payload.kind || '-') + '/' + String(payload.point || '-'),
+      route: ev.route || '',
+      job: ev.job_id || '',
+      session: ev.session_id || '',
+    });
+  }
+}
+
+function noteViewerEventLatency(ev, receivedMS) {
+  if (!ev || !ev.type) return;
+  if (ev.type === 'metrics.latency') {
+    ingestLatencyMetricEvent(ev);
+    return;
+  }
+  const job = String(ev.job_id || '').trim();
+  const eventType = String(ev.type || '').trim();
+  if (eventType === 'message.received') {
+    const key = 'sse-message:' + String(ev.seq || ev.timestamp || receivedMS);
+    recordLatencyMetricOnce(key, 'network', 'sse_message_received', {
+      atMS: receivedMS,
+      detail: short(ev.content || '', 80),
+      route: ev.route || '',
+      job,
+      session: ev.session_id || '',
+    });
+    return;
+  }
+  if (eventType === 'agent.thinking') {
+    const key = 'llm-thinking:' + (job || ev.session_id || 'unknown');
+    recordLatencyMetricOnce(key, 'llm', 'agent_thinking_received', {
+      atMS: receivedMS,
+      detail: short(ev.content || '', 80),
+      route: ev.route || '',
+      job,
+      session: ev.session_id || '',
+    });
+    return;
+  }
+  if (eventType === 'agent.response') {
+    const key = 'llm-response:' + (job || ev.message_id || receivedMS);
+    recordLatencyMetricOnce(key, 'llm', 'agent_response_received', {
+      atMS: receivedMS,
+      detail: 'len=' + String(String(ev.content || '').length),
+      route: ev.route || '',
+      job,
+      session: ev.session_id || '',
+    });
+    return;
+  }
+  if (eventType === 'tts.audio_chunk') {
+    const key = 'tts-chunk-received:' + String(ev.seq || ev.content || receivedMS);
+    recordLatencyMetricOnce(key, 'tts', 'audio_chunk_received', {
+      atMS: receivedMS,
+      detail: 'sse audio chunk',
+      route: ev.route || '',
+      job,
+      session: ev.session_id || '',
+    });
+  }
+}
+
+function formatLatencyMS(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '-';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 1 : 2) + 's';
+  return Math.round(n) + 'ms';
+}
+
+function latencyKindLabel(kind) {
+  const value = String(kind || '').toLowerCase();
+  if (value === 'llm') return 'LLM';
+  if (value === 'tts') return 'TTS';
+  if (value === 'stt') return 'STT';
+  if (value === 'network') return 'Network';
+  return value || '-';
+}
+
+function renderLatencySummary(el) {
+  if (!el) return;
+  const items = state.debug.latencyMetrics.slice(-24).reverse();
+  if (items.length === 0) {
+    el.innerHTML = '<div class="debug-empty">まだ速度計測イベントがありません</div>';
+    return;
+  }
+  el.innerHTML = items.map((item) => {
+    const value = Number.isFinite(Number(item.valueMS)) ? item.valueMS : item.elapsedMS;
+    const detail = item.detail ? ' · ' + esc(item.detail) : '';
+    const meta = esc(item.time || '-') + ' · ' + esc(latencyKindLabel(item.kind)) + ' · ' + esc(item.point || '-') + ' · ' + esc(item.source || 'viewer');
+    return '<div class="debug-item">' +
+      '<div class="debug-meta">' + meta + '</div>' +
+      '<div><span class="badge state-running">' + esc(formatLatencyMS(value)) + '</span>' + detail + '</div>' +
+    '</div>';
+  }).join('');
+}
+
 function renderDebugPanels() {
   const gpuEl = document.getElementById('debugGpuSummary');
+  const latencyEl = document.getElementById('debugLatencySummary');
   const sttEl = document.getElementById('debugSttTrace');
   const thinkEl = document.getElementById('debugThinkTrace');
   if (!gpuEl || !sttEl || !thinkEl) return;
@@ -1156,6 +1324,8 @@ function renderDebugPanels() {
       gpuEl.innerHTML += '<div class="ops-sub">error: ' + esc(a.last_error) + '</div>';
     }
   }
+
+  if (typeof renderLatencySummary === 'function') renderLatencySummary(latencyEl);
 
   const sttList = state.debug.sttTrace.slice().reverse();
   if (sttList.length === 0) {
@@ -2931,6 +3101,8 @@ function ingestEvent(ev) {
   const key = eventKey(ev);
   if (seenEventKeys.has(key)) return;
   rememberEventKey(key);
+  const receivedMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  noteViewerEventLatency(ev, receivedMS);
 
   state.logs.push(ev);
   if (state.logs.length > MAX_LOGS) state.logs.shift();
@@ -3198,6 +3370,13 @@ function createChatAudioSync() {
     if (chunkKey && seenUtterances.has(chunkKey)) return;
     if (chunkKey) seenUtterances.add(chunkKey);
     chunk.seq = ++state.seq;
+    if (typeof recordLatencyMetric === 'function') {
+      recordLatencyMetric('tts', 'audio_queue_enqueue', {
+        detail: 'chunk=' + String(chunk.chunkIndex),
+        job: chunk.responseId,
+        session: chunk.sessionId,
+      });
+    }
     incrementResponsePlaybackCount(chunk.responseId);
     state.queue.push(chunk);
     sortQueue();
@@ -3571,6 +3750,13 @@ function createChatAudioSync() {
     const audio = state.audio;
     if (audio && audio.currentTime <= 0 && audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
     state.currentShown = true;
+    if (typeof recordLatencyMetric === 'function') {
+      recordLatencyMetric('tts', 'audio_play_start', {
+        detail: 'chunk=' + String(state.currentChunkIndex),
+        job: state.currentResponseId,
+        session: state.currentSessionId,
+      });
+    }
     startLipSyncInternal(state.currentCharacterId);
     setNowPlayingText(state.currentCharacterId, state.currentText);
     showChunkTextInternal({
@@ -4056,7 +4242,7 @@ function autoResize() {
 function interruptIdleChatForUserInput(reason) {
   const normalizedReason = String(reason || 'user_input').trim() || 'user_input';
   const now = Date.now();
-  const shouldNotifyServer = now - lastIdleInterruptAt > 500 || normalizedReason === 'chat_send' || normalizedReason === 'stt_button';
+  const shouldNotifyServer = now - lastIdleInterruptAt > 500 || normalizedReason === 'chat_send' || normalizedReason === 'stt_button' || normalizedReason === 'stt_test_record';
   lastIdleInterruptAt = now;
   state.idleChat.mode = '';
   state.idleChat.manualMode = false;
@@ -4233,7 +4419,24 @@ async function sendViewerMessage(message, attachments = []) {
       body: JSON.stringify(body),
     };
   }
+  const sendStartedAt = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('network', 'viewer_send_start', {
+      atMS: sendStartedAt,
+      detail: short(body.message || '', 80),
+      session: body.session_id || 'viewer',
+    });
+  }
   const r = await fetch('/viewer/send', request);
+  if (typeof recordLatencyMetric === 'function') {
+    const sendFinishedAt = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+    recordLatencyMetric('network', 'viewer_send_response', {
+      atMS: sendFinishedAt,
+      valueMS: sendFinishedAt - sendStartedAt,
+      detail: 'HTTP ' + String(r.status),
+      session: body.session_id || 'viewer',
+    });
+  }
   if (!r.ok) {
     const text = await r.text();
     throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'send failed'));
@@ -4444,6 +4647,9 @@ const sttState = {
   captureSessionID: '(unknown)',
   captureEventID: '',
   captureActionError: '',
+  latencySpeechStartMS: 0,
+  latencyStopMS: 0,
+  latencyFinalMS: 0,
   sentAudioSamples: 0,
   sentAudioBytes: 0,
   sentAudioFrames: 0,
@@ -4476,6 +4682,214 @@ const STT_SILENCE_END_MS = 700;
 const STT_STOP_TAIL_SILENCE_MS = 300;
 const STT_VAD_START_LEVEL = 12;
 const STT_VAD_END_LEVEL = 8;
+
+const sttTestRecordState = {
+  isRecording: false,
+  capturePCM: [],
+  startedAt: '',
+  lastSavedAt: '',
+  lastSavedSamples: 0,
+  lastSavedRawSamples: 0,
+  lastTranscript: '',
+  inputLevel: 0,
+  lastError: '',
+  audioStream: null,
+  audioContext: null,
+  scriptNode: null,
+  sampleRate: 16000,
+  inputSampleRate: 48000,
+};
+
+const sttTestRecordStartBtn = document.getElementById('sttTestRecordStartBtn');
+const sttTestRecordStopBtn = document.getElementById('sttTestRecordStopBtn');
+const sttTestRecordStatusEl = document.getElementById('sttTestRecordStatus');
+const sttTestRecordTranscriptEl = document.getElementById('sttTestRecordTranscript');
+
+function extractSTTAutoTestTranscript(result) {
+  const inference = Array.isArray(result && result.inference) ? result.inference : [];
+  for (const item of inference) {
+    const text = String(item && item.text ? item.text : '').trim();
+    if (item && item.ok && text) return text;
+  }
+  const ws = Array.isArray(result && result.ws) ? result.ws : [];
+  for (const item of ws) {
+    const text = String(item && item.final ? item.final : '').trim();
+    if (item && item.ok && text) return text;
+  }
+  return '';
+}
+
+function isSTTTestRecording() {
+  return !!sttTestRecordState.isRecording;
+}
+
+function updateSTTTestRecordUI() {
+  const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
+  if (sttTestRecordStartBtn) {
+    sttTestRecordStartBtn.disabled = sttTestRecordState.isRecording || !!microphoneUnavailable || !!sttState.isRecording;
+  }
+  if (sttTestRecordStopBtn) {
+    sttTestRecordStopBtn.disabled = !sttTestRecordState.isRecording;
+  }
+  if (sttTestRecordStatusEl) {
+    if (sttTestRecordState.isRecording) {
+      const sec = sttTestRecordState.capturePCM.length / (sttTestRecordState.sampleRate || 16000);
+      sttTestRecordStatusEl.textContent = `録音中 / 入力 ${Math.round(sttTestRecordState.inputLevel)}% / ${sec.toFixed(1)}s`;
+    } else if (sttTestRecordState.lastError) {
+      sttTestRecordStatusEl.textContent = 'エラー: ' + sttTestRecordState.lastError;
+    } else if (sttTestRecordState.lastSavedAt) {
+      const sec = sttTestRecordState.lastSavedSamples / (sttTestRecordState.sampleRate || 16000);
+      const rawSec = sttTestRecordState.lastSavedRawSamples / (sttTestRecordState.sampleRate || 16000);
+      sttTestRecordStatusEl.textContent = `保存済み raw ${rawSec.toFixed(1)}s / trimmed ${sec.toFixed(1)}s`;
+    } else {
+      sttTestRecordStatusEl.textContent = '待機中';
+    }
+  }
+  if (sttTestRecordTranscriptEl) {
+    const transcript = String(sttTestRecordState.lastTranscript || '').trim();
+    sttTestRecordTranscriptEl.textContent = transcript ? ('確定文: ' + transcript) : '確定文: -';
+  }
+}
+
+function releaseSTTTestRecordAudio() {
+  if (sttTestRecordState.scriptNode) {
+    sttTestRecordState.scriptNode.disconnect();
+    sttTestRecordState.scriptNode = null;
+  }
+  if (sttTestRecordState.audioContext) {
+    sttTestRecordState.audioContext.close();
+    sttTestRecordState.audioContext = null;
+  }
+  if (sttTestRecordState.audioStream) {
+    sttTestRecordState.audioStream.getTracks().forEach((track) => track.stop());
+    sttTestRecordState.audioStream = null;
+  }
+}
+
+async function startSTTTestRecording() {
+  if (sttTestRecordState.isRecording) return;
+  if (sttState.isRecording) {
+    showToast('通常マイク使用中のためテスト録音を開始できません', 'error');
+    return;
+  }
+  const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
+  if (microphoneUnavailable) {
+    sttTestRecordState.lastError = microphoneUnavailable;
+    updateSTTTestRecordUI();
+    showToast('マイク利用不可', 'error');
+    return;
+  }
+  try {
+    interruptChatOutputForUserInput('stt_test_record');
+    interruptIdleChatForUserInput('stt_test_record');
+    if (typeof claimViewerControl === 'function') {
+      await claimViewerControl('input', 'stt_test_record_start');
+    }
+    sttTestRecordState.lastError = '';
+    sttTestRecordState.lastSavedAt = '';
+    sttTestRecordState.lastSavedSamples = 0;
+    sttTestRecordState.lastSavedRawSamples = 0;
+    sttTestRecordState.lastTranscript = '';
+    sttTestRecordState.capturePCM = [];
+    sttTestRecordState.startedAt = new Date().toISOString();
+    sttTestRecordState.inputLevel = 0;
+    sttTestRecordState.audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true,
+      },
+    });
+    sttTestRecordState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    sttTestRecordState.inputSampleRate = Math.round(sttTestRecordState.audioContext.sampleRate || 48000);
+    sttTestRecordState.sampleRate = 16000;
+    sttTestRecordState.isRecording = true;
+    const source = sttTestRecordState.audioContext.createMediaStreamSource(sttTestRecordState.audioStream);
+    sttTestRecordState.scriptNode = sttTestRecordState.audioContext.createScriptProcessor(4096, 1, 1);
+    sttTestRecordState.scriptNode.onaudioprocess = (e) => {
+      if (!sttTestRecordState.isRecording) return;
+      const pcm = e.inputBuffer.getChannelData(0);
+      const pcm16 = resampleToPCM16(pcm, sttTestRecordState.inputSampleRate || 48000, 16000);
+      sttTestRecordState.inputLevel = calculateSTTInputLevel(pcm16);
+      sttTestRecordState.capturePCM.push(...pcm16);
+      updateSTTTestRecordUI();
+    };
+    source.connect(sttTestRecordState.scriptNode);
+    sttTestRecordState.scriptNode.connect(sttTestRecordState.audioContext.destination);
+    updateSTTTestRecordUI();
+    updateSTTInputIndicators();
+    showToast('テスト録音を開始しました', 'success');
+  } catch (err) {
+    sttTestRecordState.lastError = describeSTTActionError('STT test record start unavailable', err);
+    releaseSTTTestRecordAudio();
+    sttTestRecordState.isRecording = false;
+    updateSTTTestRecordUI();
+    updateSTTInputIndicators();
+    console.error('[STT Test Record] Failed:', err);
+    showToast('テスト録音開始失敗', 'error');
+  }
+}
+
+async function stopSTTTestRecordingAndSave() {
+  if (!sttTestRecordState.isRecording) return;
+  sttTestRecordState.isRecording = false;
+  sttTestRecordState.inputLevel = 0;
+  releaseSTTTestRecordAudio();
+  updateSTTTestRecordUI();
+  updateSTTInputIndicators();
+  try {
+    const rawPCM = new Int16Array(sttTestRecordState.capturePCM);
+    if (!rawPCM.length) {
+      throw new Error('録音データが空です');
+    }
+    const rawWav = pcm16ToWav(rawPCM, sttTestRecordState.sampleRate || 16000);
+    await persistSTTRawWavToServer(rawWav);
+    sttTestRecordState.lastSavedRawSamples = rawPCM.length;
+    const trimFn = typeof trimSTTPcmSilence === 'function' ? trimSTTPcmSilence : null;
+    const trimmed = trimFn
+      ? trimFn(rawPCM, { minLevel: STT_VAD_END_LEVEL, minVoiceMs: 300, frameSamples: 160, sampleRate: sttTestRecordState.sampleRate, edgeOnly: true })
+      : rawPCM;
+    if (!trimmed || trimmed.length === 0) {
+      throw new Error('録音データが空です（無音のみ）');
+    }
+    const wav = pcm16ToWav(trimmed, sttTestRecordState.sampleRate || 16000);
+    await persistSTTWavToServer(wav);
+    sttTestRecordState.lastSavedAt = new Date().toISOString();
+    sttTestRecordState.lastSavedSamples = trimmed.length;
+    sttTestRecordState.lastError = '';
+    sttTestRecordState.capturePCM = [];
+    if (sttTestRecordStatusEl) sttTestRecordStatusEl.textContent = 'STT確認中...';
+    updateSTTTestRecordUI();
+    if (!sttState.runtimeConfigLoaded) {
+      await loadViewerRuntimeConfig();
+    }
+    const autoTest = await runSTTAutoTest({ provider_rounds: 1, ws_rounds: 0 });
+    const transcript = extractSTTAutoTestTranscript(autoTest);
+    if (!transcript) {
+      throw new Error('STT確定文を取得できませんでした');
+    }
+    sttTestRecordState.lastTranscript = transcript;
+    updateSTTTestRecordUI();
+    showToast('テスト録音とSTT確認が完了しました', 'success');
+  } catch (err) {
+    sttTestRecordState.lastError = describeSTTActionError('STT test record save unavailable', err);
+    updateSTTTestRecordUI();
+    console.error('[STT Test Record] Save failed:', err);
+    showToast('テスト録音保存失敗', 'error');
+  }
+}
+
+if (sttTestRecordStartBtn) {
+  sttTestRecordStartBtn.addEventListener('click', () => {
+    startSTTTestRecording();
+  });
+}
+if (sttTestRecordStopBtn) {
+  sttTestRecordStopBtn.addEventListener('click', () => {
+    stopSTTTestRecordingAndSave();
+  });
+}
+updateSTTTestRecordUI();
 if (micBtn) {
   micBtn.addEventListener('click', () => {
     interruptIdleChatForUserInput('stt_button');
@@ -4676,6 +5090,9 @@ function clearSTTCaptureLog() {
   sttState.capturePCM = [];
   sttState.captureStartedAt = '';
   sttState.captureEndedAt = '';
+  sttState.latencySpeechStartMS = 0;
+  sttState.latencyStopMS = 0;
+  sttState.latencyFinalMS = 0;
   sttState.partialCaptionText = '';
   sttState.finalCaptionText = '';
   sttState.errorCaptionText = '';
@@ -4726,22 +5143,36 @@ async function persistSTTWavToServer(wavBuffer) {
   }
 }
 
-async function runSTTAutoTest() {
+async function persistSTTRawWavToServer(wavBuffer) {
+  const res = await fetch('/viewer/stt/wav/raw', {
+    method: 'POST',
+    headers: {'Content-Type': 'audio/wav'},
+    body: wavBuffer,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'stt raw wav save failed'));
+  }
+}
+
+async function runSTTAutoTest(options) {
+  const opts = options || {};
   const providerURL = buildSTTProviderURLForAutoTest();
   const res = await fetch('/viewer/stt/autotest', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       provider_url: providerURL,
-      provider_rounds: 1,
-      ws_rounds: 1,
-      ws_wait: 8,
+      provider_rounds: Number.isFinite(opts.provider_rounds) ? opts.provider_rounds : 1,
+      ws_rounds: Number.isFinite(opts.ws_rounds) ? opts.ws_rounds : 1,
+      ws_wait: Number.isFinite(opts.ws_wait) ? opts.ws_wait : 8,
     }),
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'stt autotest failed'));
   }
+  return res.json();
 }
 
 function buildSTTProviderURLForAutoTest() {
@@ -4768,8 +5199,10 @@ function updateSTTInputIndicators() {
     micBtn.classList.toggle('ready', !!sttState.isRecording);
     micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
     micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
-    micBtn.disabled = !!microphoneUnavailable && !sttState.isRecording;
-    micBtn.title = microphoneUnavailable
+    micBtn.disabled = (!!microphoneUnavailable && !sttState.isRecording) || isSTTTestRecording();
+    micBtn.title = isSTTTestRecording()
+      ? 'テスト録音中は通常マイクを使えません'
+      : microphoneUnavailable
       ? '音声入力不可: ' + microphoneUnavailable
       : voiceAllowed
       ? (sttState.isRecording ? `音声入力監視中（入力レベル ${Math.round(sttState.inputLevel)}%・無音で自動確定）` : '音声入力')
@@ -4854,6 +5287,10 @@ if (typeof ensureVoiceChatForMobileControl !== 'function') {
 }
 
 async function toggleSTT() {
+  if (isSTTTestRecording()) {
+    showToast('テスト録音中は通常マイクを使えません', 'error');
+    return;
+  }
   if (sttState.isRecording) {
     stopSTT();
   } else {
@@ -4866,6 +5303,10 @@ async function toggleSTT() {
 }
 
 async function startSTT() {
+  if (isSTTTestRecording()) {
+    showToast('テスト録音中は通常マイクを使えません', 'error');
+    return;
+  }
   if (typeof ensureVoiceChatForMobileControl !== 'function' && typeof globalThis !== 'undefined') {
     globalThis.ensureVoiceChatForMobileControl = function() { return true; };
   }
@@ -4976,6 +5417,13 @@ function connectSTTWebSocket() {
   sttState.ws.onopen = () => {
     sttState.reconnecting = false;
     recordSTTCaptureEvent('ws_open', '');
+    if (sttState.latencySpeechStartMS && typeof recordLatencyMetric === 'function') {
+      const sttWsOpenMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+      recordLatencyMetric('network', 'stt_ws_open', {
+        valueMS: sttWsOpenMS - sttState.latencySpeechStartMS,
+        session: sttState.captureSessionID || '',
+      });
+    }
     sendSTTStartControl();
     flushSTTAudioChunkBuffer();
     console.log('[STT] Connected - streaming PCM16 16kHz chunks');
@@ -5004,6 +5452,13 @@ function connectSTTWebSocket() {
           } else if (msg.type === 'ready') {
             sttState.streamReady = true;
             if (msg.sample_rate) sttState.sampleRate = Number(msg.sample_rate) || sttState.sampleRate;
+            if (sttState.latencySpeechStartMS && typeof recordLatencyMetric === 'function') {
+              const sttReadyMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+              recordLatencyMetric('stt', 'stream_ready', {
+                valueMS: sttReadyMS - sttState.latencySpeechStartMS,
+                session: sttState.captureSessionID || '',
+              });
+            }
             updateSTTInputIndicators();
           } else if (msg.type === 'transcribing') {
             recordSTTCaptureEvent('progress', 'transcribing');
@@ -5032,6 +5487,22 @@ function connectSTTWebSocket() {
 	          sttState.lastRecognitionText = String(msg.text || '').trim();
           sttState.lastRecognitionType = 'final';
           sttState.finalReceived = true;
+          sttState.latencyFinalMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+          if (typeof recordLatencyMetric === 'function') {
+            recordLatencyMetric('stt', 'final_received', {
+              atMS: sttState.latencyFinalMS,
+              valueMS: sttState.latencySpeechStartMS ? sttState.latencyFinalMS - sttState.latencySpeechStartMS : NaN,
+              detail: 'len=' + String(sttState.lastRecognitionText.length),
+              session: sttState.captureSessionID || '',
+            });
+          }
+          if (sttState.latencyStopMS && typeof recordLatencyMetric === 'function') {
+            recordLatencyMetric('stt', 'stop_to_final', {
+              atMS: sttState.latencyFinalMS,
+              valueMS: sttState.latencyFinalMS - sttState.latencyStopMS,
+              session: sttState.captureSessionID || '',
+            });
+          }
           clearSTTFinalWaitTimer();
           sttState.finalCaptionText = sttState.lastRecognitionText;
           sttState.partialCaptionText = '';
@@ -5064,6 +5535,14 @@ function connectSTTWebSocket() {
             return;
           }
           sttState.finalReceived = true;
+          if (typeof recordLatencyMetric === 'function') {
+            const sttErrorMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+            recordLatencyMetric('stt', 'error_received', {
+              valueMS: sttState.latencySpeechStartMS ? sttErrorMS - sttState.latencySpeechStartMS : NaN,
+              detail: sttErrorText,
+              session: sttState.captureSessionID || '',
+            });
+          }
           clearSTTFinalWaitTimer();
           sttState.captureActionError = describeSTTActionError('STT recognition unavailable', sttErrorText);
           if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttErrorText);
@@ -5166,6 +5645,9 @@ function resetSTTUtteranceState() {
   sttState.captureEndedAt = '';
   sttState.captureEventID = '';
   sttState.captureActionError = '';
+  sttState.latencySpeechStartMS = 0;
+  sttState.latencyStopMS = 0;
+  sttState.latencyFinalMS = 0;
   sttState.sentAudioSamples = 0;
   sttState.sentAudioBytes = 0;
   sttState.sentAudioFrames = 0;
@@ -5191,8 +5673,18 @@ function beginSTTUtterance(reason) {
   sttState.vadLastVoiceAt = Date.now();
   sttState.pendingSpeechRestart = false;
   sttState.pendingSpeechRestartInterrupted = false;
+  sttState.latencySpeechStartMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  sttState.latencyStopMS = 0;
+  sttState.latencyFinalMS = 0;
   interruptChatOutputForUserInput('stt_voice_start');
   interruptIdleChatForUserInput('stt_voice_start');
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('stt', 'speech_start', {
+      atMS: sttState.latencySpeechStartMS,
+      detail: String(reason || 'vad_voice'),
+      session: sttState.captureSessionID || '',
+    });
+  }
   recordSTTCaptureEvent('speech_start', String(reason || 'vad_voice'));
   connectSTTWebSocket();
   updateSTTInputIndicators();
@@ -5299,7 +5791,16 @@ function sendSTTStopControl(reason) {
   if (sttState.stopControlSent) return true;
   sttState.ws.send(JSON.stringify({ type: 'stop' }));
   sttState.stopControlSent = true;
+  sttState.latencyStopMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
   const reasonText = String(reason || 'requested').trim() || 'requested';
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('stt', 'stop_sent', {
+      atMS: sttState.latencyStopMS,
+      valueMS: sttState.latencySpeechStartMS ? sttState.latencyStopMS - sttState.latencySpeechStartMS : NaN,
+      detail: reasonText,
+      session: sttState.captureSessionID || '',
+    });
+  }
   recordSTTCaptureEvent('stop', reasonText);
   return true;
 }
@@ -5337,6 +5838,23 @@ function finalizeSTTLocalDraft(reason) {
   if (!finalText || sttState.lastRecognitionType === 'final') return false;
   sttState.finalReceived = true;
   sttState.lastRecognitionType = 'final';
+  sttState.latencyFinalMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('stt', 'final_received', {
+      atMS: sttState.latencyFinalMS,
+      valueMS: sttState.latencySpeechStartMS ? sttState.latencyFinalMS - sttState.latencySpeechStartMS : NaN,
+      detail: 'local_draft:' + String(reason || 'local_draft'),
+      session: sttState.captureSessionID || '',
+    });
+  }
+  if (sttState.latencyStopMS && typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('stt', 'stop_to_final', {
+      atMS: sttState.latencyFinalMS,
+      valueMS: sttState.latencyFinalMS - sttState.latencyStopMS,
+      detail: 'local_draft',
+      session: sttState.captureSessionID || '',
+    });
+  }
   sttState.finalCaptionText = finalText;
   sttState.partialCaptionText = '';
   sttState.errorCaptionText = '';

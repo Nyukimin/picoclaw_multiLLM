@@ -255,13 +255,32 @@ Viewer はSTT補助UIを持つ。
 - 入力WAV保存
 - STT自動テスト起動
 
+### 12.1 Ops テスト録音（ゴールデンサンプル作成）
+
+入口: **Ops → Runtime / LLM / Audio → STT テスト録音**
+
+| 操作 | 動作 |
+|------|------|
+| 録音開始 | TTS / IdleChat 中断、Chat 🎤 無効、マイク連続キャプチャ |
+| 録音停止・保存 | raw 保存 → 両端トリム → trim 保存 → HTTP STT autotest |
+
+読み上げ文:
+
+| 版 | ファイル | 想定時間 |
+|----|---------|---------|
+| ゴールデン 25 s | `tmp/viewer_test_recording_script_golden_25s.md` | 約 25 s |
+| 長尺 35 s | `tmp/viewer_test_recording_script.md` | 約 35 s |
+
+固定データセット・E2E コマンド: **`docs/STT_TTS/STT_ゴールデンテストデータセット仕様.md`**
+
 関連API:
 
 | エンドポイント | メソッド | 用途 |
 |---|---|---|
 | `/stt` | `WS` | RenCrow STT bridge |
 | `/viewer/stt/log` | `POST` | クライアント側STTログ保存 |
-| `/viewer/stt/wav` | `POST` | 入力WAV保存 |
+| `/viewer/stt/wav/raw` | `POST` | トリム前 WAV 保存 |
+| `/viewer/stt/wav` | `POST` | トリム後 WAV 保存 |
 | `/viewer/stt/autotest` | `POST` | STT自動テスト |
 
 ## 13. Viewer送信

@@ -30,6 +30,7 @@ TTS / Viewer 同期の正本は `docs/01_正本仕様/15_TTS_Viewer同期.md` �
 - `docs/STT_TTS/AUDIO_Server仕様/README.md`
 
 ### 現行外部連携メモ
+- `docs/STT_TTS/STT_ゴールデンテストデータセット仕様.md` - Viewer 実マイク録音の固定 WAV + 原文（E2E / 回帰 / 開発用）
 - `docs/STT_TTS/STT_Remote_HTTPS仕様.md` - Mac上の `rencrow-stt` をHTTPS reverse proxy越しに使う仕様
 - `docs/STT_TTS/STT_Streaming_Client仕様.md` - Mac上の `rencrow-stt` へWSS PCM chunkを送るブラウザクライアント仕様
 - `docs/STT_TTS/IrodoriTTS_HTTP_API仕様.md` - Mac上のIrodori-TTS Gradio HTTP API仕様

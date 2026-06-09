@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -50,6 +51,38 @@ func TestMessageOrchestrator_RouteChainContract_RoutingDecisionBeforeDispatch(t 
 	}
 }
 
+func TestMessageOrchestrator_RouteChainContract_EmitsLatencyMetrics(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecisionWithEvidence(routing.RouteCHAT, 0.91, "chat", routing.DecisionEvidence{
+			Source:     routing.EvidenceSourceRuleDictionary,
+			Matched:    true,
+			Route:      routing.RouteCHAT,
+			Confidence: 0.91,
+			Reason:     "test rule",
+		}),
+		response: "chat response",
+	}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	_, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+
+	if !hasLatencyMetric(rec.events, "network", "server_received") {
+		t.Fatalf("missing server receive latency metric: %#v", rec.events)
+	}
+	if !hasLatencyMetric(rec.events, "llm", "route_decision") {
+		t.Fatalf("missing route decision latency metric: %#v", rec.events)
+	}
+	if !hasLatencyMetric(rec.events, "llm", "response_complete") {
+		t.Fatalf("missing response complete latency metric: %#v", rec.events)
+	}
+}
+
 func TestMessageOrchestrator_RouteChainContract_ChatCommandBypassesRouteDecision(t *testing.T) {
 	decideCalled := false
 	mio := &mockMioAgent{
@@ -81,6 +114,25 @@ func TestMessageOrchestrator_RouteChainContract_ChatCommandBypassesRouteDecision
 	if indexOfEvent(rec.events, "agent.response", "mio", "user", "CHAT") < 0 {
 		t.Fatalf("chat command response event missing: %#v", rec.events)
 	}
+}
+
+func hasLatencyMetric(events []OrchestratorEvent, kind, point string) bool {
+	for _, ev := range events {
+		if ev.Type != "metrics.latency" {
+			continue
+		}
+		var payload struct {
+			Kind  string `json:"kind"`
+			Point string `json:"point"`
+		}
+		if err := json.Unmarshal([]byte(ev.Content), &payload); err != nil {
+			continue
+		}
+		if payload.Kind == kind && payload.Point == point {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMessageOrchestrator_RouteChainContract_InvalidProposalDoesNotReachWorker(t *testing.T) {

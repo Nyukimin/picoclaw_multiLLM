@@ -20,6 +20,7 @@ const (
 	DefaultViewerChatInputEndpoint  = "/stt/chat-input"
 	DefaultViewerClientLogPath      = "tmp/client_stt_log.txt"
 	DefaultViewerLatestWAVPath      = "tmp/client_stt_input_latest.wav"
+	DefaultViewerLatestRawWAVPath   = "tmp/client_stt_input_latest_raw.wav"
 	DefaultViewerArchiveDir         = "tmp/stt_inputs"
 	DefaultViewerAutoTestScriptPath = "scripts/stt_e2e_probe.py"
 	DefaultViewerAutoTestOutputPath = "tmp/stt_e2e_from_mic_latest.json"
@@ -93,6 +94,13 @@ func BuildViewerInputArchivePath(archiveDir string, capturedAt time.Time) string
 		capturedAt = time.Now()
 	}
 	return filepath.Join(defaultString(archiveDir, DefaultViewerArchiveDir), fmt.Sprintf("client_stt_input_%s.wav", capturedAt.Format("20060102_150405")))
+}
+
+func BuildViewerInputRawArchivePath(archiveDir string, capturedAt time.Time) string {
+	if capturedAt.IsZero() {
+		capturedAt = time.Now()
+	}
+	return filepath.Join(defaultString(archiveDir, DefaultViewerArchiveDir), fmt.Sprintf("client_stt_input_%s_raw.wav", capturedAt.Format("20060102_150405")))
 }
 
 func defaultString(value string, fallback string) string {

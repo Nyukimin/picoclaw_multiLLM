@@ -59,6 +59,17 @@ func buildTTSClientBridge(
 		if onChunk == nil {
 			return
 		}
+		metricJSON, metricErr := json.Marshal(map[string]any{
+			"kind":        "tts",
+			"point":       "audio_chunk_ready",
+			"at_unix_ms":  time.Now().UnixMilli(),
+			"detail":      fmt.Sprintf("chunk=%d text_len=%d", payload.ChunkIndex, len(payload.DisplayText)),
+			"chunk_index": payload.ChunkIndex,
+		})
+		if metricErr == nil {
+			route := moduletts.PlaybackEventRouteForSession(payload.SessionID)
+			onChunk(orchestrator.NewEvent("metrics.latency", "metrics", "viewer", string(metricJSON), "TTS", payload.ResponseID, payload.SessionID, route.Channel, route.ChatID))
+		}
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
 			log.Printf("WARN: tts chunk payload marshal failed: %v", err)

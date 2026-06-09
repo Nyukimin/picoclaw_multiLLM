@@ -20,6 +20,22 @@ test('viewer microphone input is the STT production entrypoint', () => {
   assert.match(js, /sendViewerMessage\(message\)/);
 });
 
+test('viewer records latency metrics for STT, LLM, TTS, and network paths', () => {
+  const html = fs.readFileSync('internal/adapter/viewer/viewer.html', 'utf8');
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(html, /id="debugLatencySummary"/);
+  assert.match(js, /function recordLatencyMetric\(/);
+  assert.match(js, /function ingestLatencyMetricEvent\(/);
+  assert.match(js, /recordLatencyMetric\('stt', 'speech_start'/);
+  assert.match(js, /recordLatencyMetric\('stt', 'final_received'/);
+  assert.match(js, /recordLatencyMetric\('network', 'viewer_send_start'/);
+  assert.match(js, /recordLatencyMetric\('network', 'viewer_send_response'/);
+  assert.match(js, /agent_thinking_received/);
+  assert.match(js, /audio_chunk_received/);
+  assert.match(js, /recordLatencyMetric\('tts', 'audio_play_start'/);
+  assert.match(js, /ev\.type === 'metrics\.latency'/);
+});
+
 test('viewer sends STT start control before streaming audio chunks', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /function sendSTTStartControl\(\)/);
@@ -51,7 +67,7 @@ test('viewer voice chat sends final text only in normal timeline chat without st
   assert.ok(switchTabStart >= 0 && switchTabEnd > switchTabStart, 'switchTab block not found');
   const switchTabSource = js.slice(switchTabStart, switchTabEnd);
   assert.doesNotMatch(switchTabSource, /stopSTT\(\)/);
-  assert.match(js, /micBtn\.disabled = !!microphoneUnavailable && !sttState\.isRecording;/);
+  assert.match(js, /micBtn\.disabled = \(!!microphoneUnavailable && !sttState\.isRecording\) \|\| isSTTTestRecording\(\)/);
   assert.match(js, /if \(!ensureVoiceChatForMobileControl\(\)\) \{\s*showToast\('音声入力は通常チャットでのみ有効です', 'error'\);/);
   assert.match(js, /if \(!isVoiceChatAllowed\(\)\) \{\s*console\.warn\('\[STT\] Final ignored outside normal chat:', finalText\);/);
 });
@@ -63,7 +79,7 @@ test('viewer marks microphone unavailable on insecure origins before getUserMedi
   assert.match(js, /window\.isSecureContext === false/);
   assert.match(js, /HTTPSまたはlocalhostでViewerを開いてください/);
   assert.match(js, /typeof navigator === 'undefined' \|\| !navigator\.mediaDevices \|\| typeof navigator\.mediaDevices\.getUserMedia !== 'function'/);
-  assert.match(js, /micBtn\.disabled = !!microphoneUnavailable && !sttState\.isRecording;/);
+  assert.match(js, /micBtn\.disabled = \(!!microphoneUnavailable && !sttState\.isRecording\) \|\| isSTTTestRecording\(\)/);
   assert.match(js, /Mic: unavailable/);
   assert.match(js, /describeSTTActionError\('STT microphone start unavailable', microphoneUnavailable\)/);
   assert.match(css, /\.stt-state\.mic-unavailable/);
@@ -322,4 +338,31 @@ test('viewer renders live microphone input level on the mic button', () => {
   assert.match(js, /updateSTTInputLevel\(0\);/);
   assert.match(css, /#micBtn\.has-level/);
   assert.match(css, /var\(--mic-level-pct\)/);
+});
+
+test('viewer exposes Ops test recording mode that trims silence and saves Latest WAV', () => {
+  const html = fs.readFileSync('internal/adapter/viewer/viewer.html', 'utf8');
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(html, /stt_test_record_utils\.js/);
+  assert.match(html, /id="sttTestRecordStartBtn"/);
+  assert.match(html, /id="sttTestRecordStopBtn"/);
+  assert.match(html, /id="sttTestRecordStatus"/);
+  assert.match(html, /id="sttTestRecordTranscript"/);
+  assert.match(html, /STT テスト録音/);
+  assert.match(js, /const sttTestRecordState = \{/);
+  assert.match(js, /function extractSTTAutoTestTranscript\(result\)/);
+  assert.match(js, /function isSTTTestRecording\(\)/);
+  assert.match(js, /function startSTTTestRecording\(\)/);
+  assert.match(js, /function stopSTTTestRecordingAndSave\(\)/);
+  assert.match(js, /edgeOnly: true/);
+  assert.match(js, /await persistSTTRawWavToServer\(rawWav\)/);
+  assert.match(js, /\/viewer\/stt\/wav\/raw/);
+  assert.match(js, /await persistSTTWavToServer\(wav\)/);
+  assert.match(js, /await runSTTAutoTest\(\{ provider_rounds: 1, ws_rounds: 0 \}\)/);
+  assert.match(js, /sttTestRecordState\.lastTranscript = transcript/);
+  assert.match(js, /interruptChatOutputForUserInput\('stt_test_record'\)/);
+  assert.match(js, /interruptIdleChatForUserInput\('stt_test_record'\)/);
+  assert.match(js, /テスト録音中は通常マイクを使えません/);
+  assert.doesNotMatch(js.slice(js.indexOf('function startSTTTestRecording()'), js.indexOf('async function stopSTTTestRecordingAndSave()')), /connectSTTWebSocket/);
+  assert.doesNotMatch(js.slice(js.indexOf('function startSTTTestRecording()'), js.indexOf('async function stopSTTTestRecordingAndSave()')), /handleSTTVADFrame/);
 });

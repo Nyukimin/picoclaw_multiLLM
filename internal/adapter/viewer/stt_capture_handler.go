@@ -64,7 +64,17 @@ func HandleSTTClientLogSave(logPath string) http.HandlerFunc {
 	}
 }
 
+type sttInputArchivePathBuilder func(archiveDir string, capturedAt time.Time) string
+
 func HandleSTTInputWAVSave(latestPath, archiveDir string) http.HandlerFunc {
+	return handleSTTInputWAVSave(latestPath, archiveDir, modulestt.BuildViewerInputArchivePath)
+}
+
+func HandleSTTInputRawWAVSave(latestPath, archiveDir string) http.HandlerFunc {
+	return handleSTTInputWAVSave(latestPath, archiveDir, modulestt.BuildViewerInputRawArchivePath)
+}
+
+func handleSTTInputWAVSave(latestPath, archiveDir string, buildArchivePath sttInputArchivePathBuilder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -79,21 +89,9 @@ func HandleSTTInputWAVSave(latestPath, archiveDir string) http.HandlerFunc {
 			http.Error(w, "invalid wav", http.StatusBadRequest)
 			return
 		}
-		if err := os.MkdirAll(filepath.Dir(latestPath), 0o755); err != nil {
-			http.Error(w, "mkdir failed", http.StatusInternalServerError)
-			return
-		}
-		if err := os.MkdirAll(archiveDir, 0o755); err != nil {
-			http.Error(w, "mkdir failed", http.StatusInternalServerError)
-			return
-		}
-		if err := os.WriteFile(latestPath, body, 0o644); err != nil {
-			http.Error(w, "write failed", http.StatusInternalServerError)
-			return
-		}
-		archivePath := modulestt.BuildViewerInputArchivePath(archiveDir, time.Now())
-		if err := os.WriteFile(archivePath, body, 0o644); err != nil {
-			http.Error(w, "archive write failed", http.StatusInternalServerError)
+		latestPath, archivePath, err := writeSTTInputWAVFiles(body, latestPath, archiveDir, buildArchivePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeMonitorJSON(w, map[string]any{
@@ -103,6 +101,23 @@ func HandleSTTInputWAVSave(latestPath, archiveDir string) http.HandlerFunc {
 			"bytes":        len(body),
 		})
 	}
+}
+
+func writeSTTInputWAVFiles(body []byte, latestPath, archiveDir string, buildArchivePath sttInputArchivePathBuilder) (string, string, error) {
+	if err := os.MkdirAll(filepath.Dir(latestPath), 0o755); err != nil {
+		return "", "", fmt.Errorf("mkdir failed")
+	}
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("mkdir failed")
+	}
+	if err := os.WriteFile(latestPath, body, 0o644); err != nil {
+		return "", "", fmt.Errorf("write failed")
+	}
+	archivePath := buildArchivePath(archiveDir, time.Now())
+	if err := os.WriteFile(archivePath, body, 0o644); err != nil {
+		return "", "", fmt.Errorf("archive write failed")
+	}
+	return latestPath, archivePath, nil
 }
 
 func HandleSTTAutoTest(scriptPath, wavPath, outputPath string) http.HandlerFunc {
@@ -127,7 +142,9 @@ func HandleSTTAutoTest(scriptPath, wavPath, outputPath string) http.HandlerFunc 
 		if req.ProviderRounds > 0 {
 			args = append(args, "--provider-rounds", strconv.Itoa(req.ProviderRounds))
 		}
-		if req.WSRounds > 0 {
+		if len(strings.TrimSpace(string(body))) > 0 {
+			args = append(args, "--ws-rounds", strconv.Itoa(req.WSRounds))
+		} else if req.WSRounds > 0 {
 			args = append(args, "--ws-rounds", strconv.Itoa(req.WSRounds))
 		}
 		if req.WSWait > 0 {

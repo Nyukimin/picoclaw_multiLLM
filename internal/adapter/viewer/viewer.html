@@ -374,6 +374,10 @@
         <div id="debugGpuSummary" class="small">loading...</div>
       </div>
       <div class="debug-box">
+        <h4>速度計測（LLM / TTS / STT / Network）</h4>
+        <div id="debugLatencySummary" class="debug-list"></div>
+      </div>
+      <div class="debug-box">
         <h4>STT 認識経緯（途中判断含む）</h4>
         <div class="debug-actions">
           <button id="sttCaptureCopyBtn" class="ctl-btn" type="button">STTログコピー</button>
@@ -383,6 +387,16 @@
         </div>
         <div id="debugSttSession" class="small">Session: (unknown)</div>
         <div id="debugSttTrace" class="debug-list"></div>
+      </div>
+      <div class="debug-box">
+        <h4>STT テスト録音</h4>
+        <div class="small" style="margin-bottom:8px">Ops 専用: マイク ON から OFF まで連続録音し、まず <code>client_stt_input_latest_raw.wav</code> を保存してから両端トリムした <code>client_stt_input_latest.wav</code> を保存します。録音中は Chat の 🎤 は無効になります。</div>
+        <div class="debug-actions">
+          <button id="sttTestRecordStartBtn" class="ctl-btn" type="button">録音開始</button>
+          <button id="sttTestRecordStopBtn" class="ctl-btn" type="button" disabled>録音停止・保存</button>
+        </div>
+        <div id="sttTestRecordStatus" class="small">待機中</div>
+        <div id="sttTestRecordTranscript" class="small">確定文: -</div>
       </div>
       <div class="debug-box" id="llmOpsPanel">
         <h4>MLX LLM 管理（Viewer 経由）</h4>
@@ -1236,7 +1250,8 @@
 <script src="/viewer/assets/js/tabs/idlechat.js?v=20260527-tts-history-guard" defer></script>
 <script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
 <script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
-<script src="/viewer/assets/js/viewer.js?v=20260528-tts-prefetch" defer></script>
+<script src="/viewer/assets/js/stt_test_record_utils.js?v=20260609-stt-test-record" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260609-stt-test-record" defer></script>
 <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </body>
 </html>

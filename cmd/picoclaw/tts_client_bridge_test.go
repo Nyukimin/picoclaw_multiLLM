@@ -139,11 +139,12 @@ func TestTTSClientBridgeIdleChatChunkPayloadIncludesCanonicalSpeechFields(t *tes
 		t.Fatalf("push text: %v", err)
 	}
 
-	if len(chunks) != 1 {
-		t.Fatalf("expected one chunk event, got %d", len(chunks))
+	audioChunks := ttsAudioChunkEvents(chunks)
+	if len(audioChunks) != 1 {
+		t.Fatalf("expected one audio chunk event, got %d events=%#v", len(audioChunks), chunks)
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(chunks[0].Content), &payload); err != nil {
+	if err := json.Unmarshal([]byte(audioChunks[0].Content), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
 	if payload["session_id"] != "idle-canon" || payload["message_id"] != "idle-canon:msg:0003" {
@@ -204,16 +205,27 @@ func TestTTSClientBridgeTopicPayloadIncludesBrightTopicPrefix(t *testing.T) {
 		t.Fatalf("push text: %v", err)
 	}
 
-	if len(chunks) != 1 {
-		t.Fatalf("expected one chunk event, got %d", len(chunks))
+	audioChunks := ttsAudioChunkEvents(chunks)
+	if len(audioChunks) != 1 {
+		t.Fatalf("expected one audio chunk event, got %d events=%#v", len(audioChunks), chunks)
 	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(chunks[0].Content), &payload); err != nil {
+	if err := json.Unmarshal([]byte(audioChunks[0].Content), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
 	if payload["speech_text"] != "😊"+topicSpeech || payload["text"] != "😊"+topicSpeech {
 		t.Fatalf("topic speech must preserve bright prefix and full topic speech text: %#v", payload)
 	}
+}
+
+func ttsAudioChunkEvents(events []orchestrator.OrchestratorEvent) []orchestrator.OrchestratorEvent {
+	filtered := make([]orchestrator.OrchestratorEvent, 0, len(events))
+	for _, ev := range events {
+		if ev.Type == "tts.audio_chunk" {
+			filtered = append(filtered, ev)
+		}
+	}
+	return filtered
 }
 
 func TestTTSPublicSessionRouteSurvivesSessionCompletedUntilPlaybackAck(t *testing.T) {

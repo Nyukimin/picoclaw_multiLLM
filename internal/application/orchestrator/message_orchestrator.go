@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	appsubagent "github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
@@ -420,6 +421,8 @@ func (o *MessageOrchestrator) ttsEnabled() bool {
 
 // ProcessMessage はメッセージを処理
 func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMessageRequest) (ProcessMessageResponse, error) {
+	latencyStartedAt := time.Now()
+	ctx = contextWithLatencyTrace(ctx, latencyStartedAt)
 	log.Printf("[MessageOrch] ProcessMessage START: sessionID=%s channel=%s chatID=%s message=%q",
 		req.SessionID, req.Channel, req.ChatID, req.UserMessage)
 
@@ -432,6 +435,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	}
 
 	o.events.EmitMessageReceived(req)
+	emitLatencyMetric(o.events.Emit, "network", "server_received", latencyStartedAt, "", "", req.SessionID, req.Channel, req.ChatID, "")
 	if o.sessionTurnLogger != nil {
 		o.sessionTurnLogger.WriteUser(req.SessionID, req.Channel, req.UserMessage)
 	}
@@ -460,6 +464,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	if err != nil {
 		return ProcessMessageResponse{}, err
 	}
+	emitLatencyMetric(o.events.Emit, "llm", "route_decision", latencyStartedAt, string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID, decision.Reason)
 
 	t = t.WithRoute(decision.Route)
 	if err := o.recordRouteSkillBootstrap(ctx, req, decision.Route); err != nil {
@@ -483,6 +488,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	ctx = appsubagent.WithSuperAgentRuntime(ctx, leadRunID, []string{"session:" + req.SessionID, "route:" + string(decision.Route)}, nil, "return summary-only subagent result to Lead Agent")
 
 	// 4. ルートに応じて実行
+	emitLatencyMetric(o.events.Emit, "llm", "dispatch_start", latencyStartedAt, string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID, "")
 	response, err := o.routeDispatcher.ExecuteTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
 	if err != nil {
 		if o.superAgentRunController != nil && o.superAgentRunController.IsPauseRequested(leadRunID) {
@@ -492,6 +498,7 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		}
 		return ProcessMessageResponse{}, fmt.Errorf("task execution failed: %w", err)
 	}
+	emitLatencyMetric(o.events.Emit, "llm", "response_complete", latencyStartedAt, string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID, fmt.Sprintf("response_len=%d", len(response)))
 	o.ttsLifecycle.EndSession(ctx, ttsSessionID)
 
 	var verificationReport *domainverification.VerificationReport

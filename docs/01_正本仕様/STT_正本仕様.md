@@ -226,8 +226,20 @@ voice-bridge の起動には以下が必要：
 - `STT_GATEWAY_URL` 未設定時は Go のフォールバック実装が動作するが、VAD なしのため認識品質が低下する
 - `session_info` による `session_id` はフォールバック実装では送出されない
 
+## 11. ゴールデンテストデータセット
+
+Viewer 実マイク録音由来の固定 WAV + 原文ペアを E2E / 回帰 / 開発確認に使う。
+
+| ID | 用途 | trim WAV |
+|----|------|----------|
+| `golden_25s_v1` | **デフォルト成功系**（約 25 s） | `tmp/stt_inputs/client_stt_input_20260609_140311.wav` |
+| `long_35s_v1` | 長尺・30 s チャンク劣化再現（約 35 s） | `tmp/stt_inputs/client_stt_input_20260609_135459.wav` |
+
+詳細（原文、STT 許容差分、probe コマンド、マニフェスト）: **`docs/STT_TTS/STT_ゴールデンテストデータセット仕様.md`**
+
 ## 12. 参照
 
+- `docs/STT_TTS/STT_ゴールデンテストデータセット仕様.md`
 - `docs/01_正本仕様/15_TTS_Viewer同期.md`
 - `docs/STT_TTS/README.md`
 - `docs/STT_TTS/AUDIO_Server仕様/STT/STT仕様.md`

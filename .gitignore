@@ -61,7 +61,16 @@ node_modules/
 scripts/__pycache__/
 
 # Local generated artifacts
-/tmp/
+/tmp/*
+!/tmp/stt_inputs/
+/tmp/stt_inputs/*
+!/tmp/stt_inputs/client_stt_input_20260609_140311*
+!/tmp/stt_inputs/client_stt_input_20260609_135459*
+!/tmp/stt_test_golden_25s_dataset.json
+!/tmp/stt_test_golden_25s_reference.txt
+!/tmp/stt_test_dataset_latest.json
+!/tmp/viewer_test_recording_script_golden_25s.md
+!/tmp/viewer_test_recording_script.md
 /vault/
 /test-story
 /.serena/go-build/

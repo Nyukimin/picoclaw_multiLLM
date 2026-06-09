@@ -92,3 +92,11 @@ func TestBuildViewerInputArchivePathUsesDefaultDir(t *testing.T) {
 		t.Fatalf("archive path = %q, want %q", got, want)
 	}
 }
+
+func TestBuildViewerInputRawArchivePath(t *testing.T) {
+	got := BuildViewerInputRawArchivePath("tmp/stt_inputs", time.Date(2026, 6, 9, 13, 35, 8, 0, time.UTC))
+	want := "tmp/stt_inputs/client_stt_input_20260609_133508_raw.wav"
+	if got != want {
+		t.Fatalf("raw archive path = %q, want %q", got, want)
+	}
+}

@@ -82,11 +82,15 @@ func (l *distributedTTSLifecycle) WithStreamHooks(
 	jid, sessionID, channel, chatID, ttsSessionID string,
 ) (context.Context, *streamBundle) {
 	prev := llm.StreamCallbackFromContext(ctx)
+	latency := latencyTraceFromContext(ctx)
 	ttsStream := newTTSStreamForwarder(l.ttsBridge, ttsSessionID, route, "agent.response", "[DistributedOrch] TTS push degraded:")
 	vtuberStream := newVTuberStreamForwarder(l.vtuberBridge, ttsSessionID, route, "agent.response", "[DistributedOrch] VTuber push degraded:")
 	return llm.ContextWithStreamCallback(ctx, func(token string) {
 		if prev != nil {
 			prev(token)
+		}
+		if latency != nil && latency.markFirstToken() {
+			emitLatencyMetric(l.emit, "llm", "first_token", latency.startedAt, string(route), jid, sessionID, channel, chatID, "")
 		}
 		l.emit("agent.thinking", "mio", "user", token, string(route), jid, sessionID, channel, chatID)
 		ttsStream.OnToken(ctx, token)

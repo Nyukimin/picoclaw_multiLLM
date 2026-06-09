@@ -2,7 +2,9 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -39,6 +41,42 @@ func TestPhase10TTSLifecycleUsesUpdatedTTSBridge(t *testing.T) {
 	lifecycle.EndSession(context.Background(), "tts-1")
 	if len(bridge.ended) != 1 || bridge.ended[0] != "tts-1" {
 		t.Fatalf("expected TTS end for tts-1, got %#v", bridge.ended)
+	}
+}
+
+func TestPhase10TTSLifecycleStreamHooksEmitFirstTokenLatencyMetric(t *testing.T) {
+	var metrics []OrchestratorEvent
+	lifecycle := newMessageTTSLifecycle(nil, nil, func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
+		metrics = append(metrics, NewEvent(eventType, from, to, content, route, jobID, sessionID, channel, chatID))
+	})
+
+	ctx := contextWithLatencyTrace(context.Background(), time.Now())
+	streamCtx, _ := lifecycle.WithStreamHooks(ctx, routing.RouteCHAT, "job-1", "sess-1", "line", "U123", "")
+	callback := llm.StreamCallbackFromContext(streamCtx)
+	if callback == nil {
+		t.Fatal("expected stream callback")
+	}
+	callback("tok")
+	callback("en")
+
+	count := 0
+	for _, ev := range metrics {
+		if ev.Type != "metrics.latency" {
+			continue
+		}
+		var payload struct {
+			Kind  string `json:"kind"`
+			Point string `json:"point"`
+		}
+		if err := json.Unmarshal([]byte(ev.Content), &payload); err != nil {
+			t.Fatalf("latency metric content should be JSON: %v", err)
+		}
+		if payload.Kind == "llm" && payload.Point == "first_token" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one llm first_token metric, got %d events=%#v", count, metrics)
 	}
 }
 

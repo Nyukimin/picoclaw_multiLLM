@@ -230,7 +230,7 @@ def main():
         args.ws_chunk_ms,
         args.ws_realtime,
         args.ws_tail_silence_ms,
-    )
+    ) if args.ws_rounds > 0 else []
     result = build_result(args, wav_path, inf, chat, ws)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     sys.exit(result_exit_code(args, result))

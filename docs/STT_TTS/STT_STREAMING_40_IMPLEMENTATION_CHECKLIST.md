@@ -82,7 +82,23 @@ GOCACHE=/tmp/picoclaw-gocache go test ./cmd/picoclaw ./internal/adapter/viewer .
 git diff --check
 ```
 
-Runtime probes, after the service is installed/restarted:
+Runtime probes, after the service is installed/restarted.
+
+固定 WAV は **`docs/STT_TTS/STT_ゴールデンテストデータセット仕様.md`** を参照。デフォルト入力: `golden_25s_v1`（`tmp/stt_inputs/client_stt_input_20260609_140311.wav`）。
+
+```bash
+python3 scripts/stt_e2e_probe.py \
+  --wav tmp/stt_inputs/client_stt_input_20260609_140311.wav \
+  --provider-rounds 0 \
+  --ws-rounds 1 \
+  --ws-wait 70 \
+  --ws-realtime \
+  --ws-tail-silence-ms 1000 \
+  --require-ws-final \
+  --ws-url ws://127.0.0.1:18790/stt
+```
+
+旧 probe 入力（参照のみ）:
 
 ```bash
 python3 scripts/stt_e2e_probe.py \
