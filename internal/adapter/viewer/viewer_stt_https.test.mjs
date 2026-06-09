@@ -209,6 +209,9 @@ test('viewer uses VAD silence under one second instead of button endpoint stop',
 
 test('viewer interrupts LLM output when VAD detects a new utterance', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /resetChat: resetChatInternal/);
+  assert.match(js, /function resetChatInternal\(reason\)/);
+  assert.match(js, /rememberInterruptedChatOutput\(\{\s*sessionId: centralTTSSpeech\.sessionId,\s*responseId: centralTTSSpeech\.responseId,/);
   const beginStart = js.indexOf('function beginSTTUtterance');
   const beginEnd = js.indexOf('function handleSTTVADFrame', beginStart);
   assert.ok(beginStart >= 0 && beginEnd > beginStart, 'beginSTTUtterance block not found');

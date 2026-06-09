@@ -15,6 +15,7 @@ function parseArgs(argv) {
     partialTimeoutMs: 30000,
     finalTimeoutMs: 70000,
     headless: true,
+    requireTTSInterrupt: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -30,6 +31,7 @@ function parseArgs(argv) {
     else if (a === '--final-timeout-ms') args.finalTimeoutMs = Number(argv[++i]) || args.finalTimeoutMs;
     else if (a === '--headed') args.headless = false;
     else if (a === '--headless') args.headless = true;
+    else if (a === '--require-tts-interrupt') args.requireTTSInterrupt = true;
     else throw new Error(`unknown arg: ${a}`);
   }
   if (args.realMic && args.speakMs <= 0) args.manualStop = true;
@@ -74,6 +76,8 @@ function parseJSONFrames(frames) {
   });
 }
 
+const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAA';
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const repo = process.cwd();
@@ -111,8 +115,51 @@ async function main() {
 
   await page.goto(args.url, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('body[data-viewer-tab="timeline"]', { timeout: 10000 });
+  let ttsInterruptBefore = null;
+  if (args.requireTTSInterrupt) {
+    ttsInterruptBefore = await page.evaluate(async (silentWavURL) => {
+      viewerControl.activeAudioViewerId = viewerControl.clientId;
+      const audio = new Audio();
+      audio.src = silentWavURL;
+      ttsPlayback.audio = audio;
+      ttsPlayback.playing = true;
+      ttsPlayback.currentCharacterId = 'mio';
+      ttsPlayback.currentText = 'stt tts interrupt speech';
+      ttsPlayback.currentDisplayText = 'STT TTS interrupt display';
+      ttsPlayback.currentSessionId = 'stt-tts-e2e-session';
+      ttsPlayback.currentChunkIndex = 0;
+      ttsPlayback.currentUtteranceId = 'stt-tts-e2e-utterance-0';
+      ttsPlayback.currentResponseId = 'stt-tts-e2e-response';
+      setCentralTTSSpeechText(
+        'mio',
+        'STT TTS interrupt display',
+        'stt-tts-e2e-session',
+        0,
+        'stt-tts-e2e-utterance-0',
+        'stt-tts-e2e-response',
+      );
+      await new Promise(resolve => setTimeout(resolve, 120));
+      return {
+        playing: Boolean(ttsPlayback.playing),
+        current_session_id: String(ttsPlayback.currentSessionId || ''),
+        current_response_id: String(ttsPlayback.currentResponseId || ''),
+        audio_src: String((ttsPlayback.audio && ttsPlayback.audio.src) || ''),
+        chat_children: document.querySelector('#chat') ? document.querySelector('#chat').children.length : -1,
+      };
+    }, SILENT_WAV_DATA_URL);
+  }
   await page.click('#micBtn');
   await page.waitForFunction(() => document.querySelector('#micState')?.textContent?.includes('on'), null, { timeout: 10000 });
+  const ttsInterrupted = args.requireTTSInterrupt
+    ? await waitOrNull(page, () => {
+        return Boolean(
+          typeof ttsPlayback !== 'undefined'
+          && ttsPlayback.playing === false
+          && String(ttsPlayback.currentSessionId || '') === ''
+          && String((ttsPlayback.audio && ttsPlayback.audio.src) || '') === ''
+        );
+      }, 10000)
+    : false;
 
   let sawPartial = false;
   if (args.manualStop) {
@@ -134,6 +181,37 @@ async function main() {
   if (!sawPartial) sawPartial = finalCaption.includes('暫定字幕:');
   const deadline = Date.now() + (args.requireSend ? 15000 : 1000);
   while (!sendBody && Date.now() < deadline) await page.waitForTimeout(200);
+  let ttsInterruptAfter = null;
+  if (args.requireTTSInterrupt) {
+    ttsInterruptAfter = await page.evaluate(async (silentWavURL) => {
+      const chatEl = document.querySelector('#chat');
+      const before = chatEl ? chatEl.children.length : -1;
+      chatAudioSync.handleEvent({
+        type: 'tts.audio_chunk',
+        content: JSON.stringify({
+          audio_url: silentWavURL,
+          session_id: 'stt-tts-e2e-session',
+          response_id: 'stt-tts-e2e-response',
+          utterance_id: 'stt-tts-e2e-utterance-1',
+          chunk_index: 1,
+          character_id: 'mio',
+          text: 'stale interrupted speech',
+          display_text: 'STT TTS stale interrupted display',
+        }),
+      });
+      await new Promise(resolve => setTimeout(resolve, 120));
+      const after = chatEl ? chatEl.children.length : -1;
+      return {
+        playing: Boolean(ttsPlayback.playing),
+        current_session_id: String(ttsPlayback.currentSessionId || ''),
+        audio_src: String((ttsPlayback.audio && ttsPlayback.audio.src) || ''),
+        queue_length: Array.isArray(ttsPlayback.queue) ? ttsPlayback.queue.length : -1,
+        chat_children_before_stale: before,
+        chat_children_after_stale: after,
+        stale_chunk_dropped: before === after && !ttsPlayback.playing && (Array.isArray(ttsPlayback.queue) ? ttsPlayback.queue.length === 0 : true),
+      };
+    }, SILENT_WAV_DATA_URL);
+  }
 
   const sentText = wsSent.filter(p => typeof p === 'string');
   const sentBinary = wsSent.filter(p => typeof p !== 'string');
@@ -164,6 +242,10 @@ async function main() {
     recv_text_frames: recvFrames.length,
     recv_recent: recvFrames.slice(-8).map(s => s.slice(0, 240)),
     chat_send_observed: Boolean(sendBody),
+    tts_interrupt_before: ttsInterruptBefore,
+    tts_interrupted_on_stt_start: Boolean(ttsInterrupted),
+    tts_interrupt_after: ttsInterruptAfter,
+    tts_stale_chunk_dropped: Boolean(ttsInterruptAfter && ttsInterruptAfter.stale_chunk_dropped),
     send_message: sendBody ? JSON.parse(sendBody).message || '' : '',
     input_value: await page.inputValue('#inp').catch(() => ''),
     session: await page.textContent('#sttSessionState').catch(() => ''),
@@ -183,6 +265,9 @@ async function main() {
   if (args.requireFinal && !result.saw_final) failures.push('missing final caption');
   if (args.requireSend && !result.chat_send_observed) failures.push('missing /viewer/send');
   if (args.requireSend && !String(result.send_message || '').trim()) failures.push('empty send message');
+  if (args.requireTTSInterrupt && !(result.tts_interrupt_before && result.tts_interrupt_before.playing)) failures.push('tts did not start before STT');
+  if (args.requireTTSInterrupt && !result.tts_interrupted_on_stt_start) failures.push('tts was not interrupted on STT start');
+  if (args.requireTTSInterrupt && !result.tts_stale_chunk_dropped) failures.push('stale tts chunk was not dropped after STT start');
   if (failures.length > 0) {
     result.ok = false;
     result.failures = failures;

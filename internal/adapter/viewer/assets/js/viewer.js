@@ -3420,6 +3420,12 @@ function createChatAudioSync() {
     const current = currentAudioItemInternal();
     const currentIsChat = state.currentSessionId && !isIdleChatSessionId(state.currentSessionId);
     if (currentIsChat) rememberInterruptedChatOutput(current);
+    if (centralTTSSpeech && (centralTTSSpeech.sessionId || centralTTSSpeech.responseId)) {
+      rememberInterruptedChatOutput({
+        sessionId: centralTTSSpeech.sessionId,
+        responseId: centralTTSSpeech.responseId,
+      });
+    }
     state.queue = state.queue.filter((item) => {
       if (isIdleChatPlaybackItem(item)) return true;
       rememberInterruptedChatOutput(item);

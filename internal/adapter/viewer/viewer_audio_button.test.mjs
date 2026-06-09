@@ -221,6 +221,7 @@ function loadAudioHarness(options = {}) {
     scrollToBottom() {},
     refreshMemorySnapshot() {},
     refreshMemoryEvents() {},
+    refreshDomainGraphAssertions() {},
     saveSourceRegistryEntry() {},
     exportSourceRegistryYAML() {},
     importSourceRegistryYAML() {},
@@ -389,15 +390,17 @@ test('tts queue preloads the next audio chunk without starting it', async () => 
 });
 
 test('chat output interrupt stops current audio and drops stale chat chunks', async () => {
-  const {harness} = loadAudioHarness();
+  const {harness, elements} = loadAudioHarness();
 
   harness.enqueueTTSAudio('/audio/first.wav', 'mio', 'chat-interrupt-session', 'default', 0, 'first speech', '一つ目です。', 'chat-interrupt-response', 'chat-interrupt-0');
   harness.enqueueTTSAudio('/audio/second.wav', 'mio', 'chat-interrupt-session', 'default', 1, 'second speech', '二つ目です。', 'chat-interrupt-response', 'chat-interrupt-1');
   await Promise.resolve();
+  harness.setCentralTTSSpeechText('mio', '表示中です。', 'display-interrupt-session', 0, 'display-interrupt-0', 'display-interrupt-response');
 
   assert.equal(harness.ttsPlayback.playing, true);
   assert.equal(harness.ttsPlayback.audio.src, '/audio/first.wav');
   assert.equal(harness.ttsPlayback.queue.length, 1);
+  const beforeCount = elements.get('chat').children.length;
 
   harness.chatAudioSync.resetChat('user_input');
 
@@ -419,11 +422,25 @@ test('chat output interrupt stops current audio and drops stale chat chunks', as
       display_text: '古い続きです。',
     }),
   });
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      audio_url: '/audio/stale-visible.wav',
+      session_id: 'display-interrupt-session',
+      response_id: 'display-interrupt-response',
+      utterance_id: 'display-interrupt-1',
+      chunk_index: 1,
+      character_id: 'mio',
+      text: 'stale visible speech',
+      display_text: '表示中だった古い続きです。',
+    }),
+  });
   await Promise.resolve();
 
   assert.equal(harness.ttsPlayback.playing, false);
   assert.equal(harness.ttsPlayback.queue.length, 0);
   assert.equal(harness.ttsPlayback.audio.src, '');
+  assert.equal(elements.get('chat').children.length, beforeCount);
 });
 
 test('audio error does not start the next tts chunk until fallback delay completes', async () => {

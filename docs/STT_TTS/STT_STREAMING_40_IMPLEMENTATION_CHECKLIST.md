@@ -112,6 +112,25 @@ node scripts/stt_viewer_browser_e2e.js \
   --final-timeout-ms 90000
 ```
 
+STT start -> TTS interrupt browser gate:
+
+```bash
+node scripts/stt_viewer_browser_e2e.js \
+  --wav /tmp/rencrow_stt_tts_interrupt_e2e.wav \
+  --speak-ms 2600 \
+  --no-require-final \
+  --no-require-send \
+  --require-tts-interrupt \
+  --partial-timeout-ms 1000 \
+  --final-timeout-ms 1000
+```
+
+Success additionally requires:
+
+- `tts_interrupt_before.playing=true`
+- `tts_interrupted_on_stt_start=true`
+- `tts_stale_chunk_dropped=true`
+
 Real microphone gate:
 
 ```bash
