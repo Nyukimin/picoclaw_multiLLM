@@ -11,7 +11,7 @@ RenCrow の STT は、Viewer からマイク音声を逐次送信し、STT 側�
 
 現行 Viewer は、ブラウザのマイク入力を 16kHz mono PCM16 に resample し、WebSocket binary frame として chunk 送信している。207 STT server は、`start` control、PCM16 raw chunk、`stop` control を受け取り、`progress` / `partial` / `final` を返す。
 
-この仕様では、旧仕様の「暫定字幕 / 確定字幕」方式を、207 STT server の現行 protocol と RenCrow Viewer / Go proxy の実装境界に合わせて再定義する。
+この仕様では、旧仕様の「暫定字幕 / 確定字幕」方式を、207 STT server の現行 protocol と RenCrow Viewer / RenCrow STT bridge の実装境界に合わせて再定義する。
 
 ## 2. 用語定義
 
@@ -54,13 +54,13 @@ Browser Viewer
 - `final` だけを通常 chat input へ渡す。
 - IdleChat へ STT input を直接流さない。
 
-### RenCrow Go `/stt` proxy
+### RenCrow STT bridge
 
 - Viewer から見える `/stt` / `/stt-ws` / `/ws` の互換 endpoint を提供する。
-- `STT_GATEWAY_URL` または `RENCROW_STT_URL` が設定されている場合、STT server へ WebSocket を透過 proxy する。
+- `STT_GATEWAY_URL` または `RENCROW_STT_URL` が設定されている場合、STT server へ WebSocket を透過する。
 - text frame と binary frame を破壊せず転送する。
 - STT server への接続失敗は `error` として Viewer に返す。
-- Proxy は認識 text を生成しない。HTTP file inference と WS streaming を混同しない。
+- RenCrow STT bridge は認識 text を生成しない。HTTP file inference と WS streaming を混同しない。
 
 ### 207 STT server
 
@@ -366,7 +366,7 @@ STT log は観測証跡であり、Chat / LLM 入力そのものではない。
 | invalid audio format | WAV header 直送、sample width 不一致など | invalid audio | 送らない |
 | sample rate mismatch | `start.sample_rate` と実 chunk が一致しない | config error | 送らない |
 | 207 STT unreachable | 207 `/stt` に接続不可 | STT unreachable | 送らない |
-| RenCrow proxy failure | Go `/stt` proxy 失敗 | proxy failure | 送らない |
+| RenCrow STT bridge failure | RenCrow STT bridge 失敗 | bridge failure | 送らない |
 
 Error path を fallback 成功として扱わない。Unit test や HTTP health が OK でも、実 microphone -> WS -> `final` -> normal chat input が成立しない場合は E2E 成功ではない。
 

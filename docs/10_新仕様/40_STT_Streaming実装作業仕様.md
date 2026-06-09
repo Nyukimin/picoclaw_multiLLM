@@ -15,7 +15,7 @@
 実装対象:
 
 - RenCrow Viewer の microphone capture / STT WebSocket / 字幕表示 / normal chat input 接続。
-- RenCrow Go `/stt` proxy の WebSocket frame 透過。
+- RenCrow STT bridge の WebSocket frame 透過。
 - `scripts/stt_e2e_probe.py` と `scripts/stt_viewer_browser_e2e.js` による local / browser gate。
 - 実装証跡の docs 更新。
 
@@ -33,10 +33,10 @@ RenCrow 側の非対象:
 | `internal/adapter/viewer/assets/js/viewer.js` | microphone capture、16kHz PCM16 変換、STT WS control、字幕 UI、final-only chat input 接続 |
 | `internal/adapter/viewer/viewer.html` | STT caption / mic UI の DOM anchor |
 | `internal/adapter/viewer/assets/css/viewer.css` | mic input level、暫定字幕、確定字幕、error caption の見た目 |
-| `cmd/picoclaw/stt_runtime_websocket.go` | `/stt` / `/stt-ws` / `/ws` の WebSocket proxy、text/binary frame 透過 |
-| `cmd/picoclaw/main_stt_gateway_test.go` | Go proxy の JSON control / binary chunk / final 透過 test |
+| `cmd/picoclaw/stt_runtime_websocket.go` | `/stt` / `/stt-ws` / `/ws` の RenCrow STT bridge、text/binary frame 透過 |
+| `cmd/picoclaw/main_stt_gateway_test.go` | RenCrow STT bridge の JSON control / binary chunk / final 透過 test |
 | `internal/adapter/viewer/viewer_stt_https.test.mjs` | Viewer STT contract test |
-| `scripts/stt_e2e_probe.py` | direct/proxy/Tailscale WS probe。WAV decode -> PCM16 raw streaming |
+| `scripts/stt_e2e_probe.py` | direct/bridge/Tailscale WS probe。WAV decode -> PCM16 raw streaming |
 | `scripts/stt_e2e_probe_test.py` | probe の protocol test |
 | `scripts/stt_viewer_browser_e2e.js` | Playwright browser gate。実ブラウザの STT WS frame と `/viewer/send` を観測 |
 
@@ -92,9 +92,9 @@ Viewer は通常 chat timeline 上の mic button を STT entrypoint とする。
 - STT message handling は debug panel render 例外で止めない。
 - `renderDebugPanels()` は safe wrapper 経由で呼び、例外時も `partial` / `final` / `error` の本処理を継続する。
 
-### 2.4 Go `/stt` proxy 実装詳細
+### 2.4 RenCrow STT bridge 実装詳細
 
-Go proxy は認識 text を生成しない。STT server への transport boundary である。
+RenCrow STT bridge は認識 text を生成しない。STT server への transport boundary である。
 
 - Viewer からの text frame を STT server へそのまま転送する。
 - Viewer からの binary frame を STT server へそのまま転送する。
@@ -144,7 +144,7 @@ RenCrow Viewer は defensive に `final` 後 error を無視するが、これ�
 | Viewer audio | PCM16 raw chunk 送信済み | 継続 |
 | partial / draft | `partial` / `draft` を lastRecognition として保持 | 暫定字幕 UI として明示し、Chat へ送らない |
 | final 未到達時 | 停止時に latest partial を final 扱いで送る補助実装がある | 原則禁止。診断モード以外では Chat へ送らない |
-| Go proxy | text / binary frame を透過 | 継続 |
+| RenCrow STT bridge | text / binary frame を透過 | 継続 |
 | Go fallback WS | provider に chunk ごと WAV 化して推論し `draft` を返す | fallback は正常系ではない。E2E 成功扱いしない |
 | WS probe | WAV bytes を直送していた | PCM16 raw + `start` + `stop` に修正する |
 | HTTP inference | 保存 WAV の推論確認に使用 | WS streaming の代替にしない |
@@ -210,7 +210,7 @@ RenCrow Viewer は defensive に `final` 後 error を無視するが、これ�
 - `scripts/stt_e2e_probe.py` を WAV decode -> PCM16 raw chunk -> `start` -> binary chunks -> `stop` protocol に修正し、`final` がない WS 結果を success 扱いしないようにした。
 - `scripts/stt_e2e_probe.py` に `--require-ws-final` を追加し、WS round の `final` が欠ける場合は non-zero exit にした。
 - `scripts/stt_viewer_browser_e2e.js` を追加し、Viewer browser 経由の `start` / PCM16 binary / `stop` / `final` / `/viewer/send` を Playwright で確認できるようにした。
-- Go `/stt` proxy が JSON control と PCM16 binary chunk を透過する E2E test を追加した。
+- RenCrow STT bridge が JSON control と PCM16 binary chunk を透過する E2E test を追加した。
 - Viewer は `final` 受信済み状態を保持し、`final` 後の stop で `stop` control を再送せず WS close に寄せるようにした。
 - Viewer は `final` 後に STT server から `error` が届いても、確定字幕と chat input 接続を上書きしない。
 - Viewer の STT message handling は debug panel render 例外で止めない。
@@ -272,7 +272,7 @@ node scripts/stt_viewer_browser_e2e.js --real-mic --headed --speak-ms 6000 --par
 
 | 分類 | 項目 |
 | --- | --- |
-| local regression | Viewer start/stop control、partial UI、final-only Chat 接続、probe 修正、Go proxy test |
+| local regression | Viewer start/stop control、partial UI、final-only Chat 接続、probe 修正、RenCrow STT bridge test |
 | external dependency | 207 STT server、WhisperKit、MacBook 207 launchd、Tailscale Serve |
 | blocked | 実マイク・実ブラウザ・207 runtime が必要な E2E、final 未返却時の chat 接続 |
 
@@ -282,10 +282,10 @@ node scripts/stt_viewer_browser_e2e.js --real-mic --headed --speak-ms 6000 --par
 
 各単位では、実装前に次を定義する。
 
-- 対象: Viewer / Go proxy / probe / docs / runtime 確認のどれか。
+- 対象: Viewer / RenCrow STT bridge / probe / docs / runtime 確認のどれか。
 - 変更範囲: 触るファイルと触らないファイル。
 - 検証コマンド: Node test、Go test、`git diff --check`、runtime / Viewer 確認のどれを行うか。
-- 完了条件: `partial` / `draft` / `final`、Chat input、error 表示、proxy 透過など、何が確認できれば完了か。
+- 完了条件: `partial` / `draft` / `final`、Chat input、error 表示、bridge 透過など、何が確認できれば完了か。
 
 実装後は、該当テストと必要な runtime / Viewer 確認を行う。確認済みの関連ファイルだけを選択的に stage し、日本語 commit message で commit する。commit 後は push する。push できたら、不要なユーザー確認を待たずに次の未完了項目へ進む。
 
@@ -297,10 +297,10 @@ node scripts/stt_viewer_browser_e2e.js --real-mic --headed --speak-ms 6000 --par
 4. Viewer の `partial` / `draft` 暫定字幕 UI を追加する。
 5. `final` 未到達時に latest partial を通常 chat 送信する fallback を削除または診断モードへ隔離する。
 6. Viewer の final 後 error 上書き防止と debug render 例外隔離を実装する。
-7. Go `/stt` proxy の JSON control / binary chunk 透過 test を追加する。
+7. RenCrow STT bridge の JSON control / binary chunk 透過 test を追加する。
 8. runtime / Viewer E2E 確認結果をこの作業仕様または残課題台帳へ反映する。
 
-各 commit は 1 つの責務だけを持つ。Viewer / Go proxy / probe / docs / runtime 証跡を、責務が曖昧なまま 1 commit に混ぜない。
+各 commit は 1 つの責務だけを持つ。Viewer / RenCrow STT bridge / probe / docs / runtime 証跡を、責務が曖昧なまま 1 commit に混ぜない。
 
 ### 標準検証
 

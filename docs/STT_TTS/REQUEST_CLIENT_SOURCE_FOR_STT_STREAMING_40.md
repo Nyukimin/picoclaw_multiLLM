@@ -48,7 +48,7 @@ scripts/stt_viewer_browser_e2e.js
 これが通ったら、`40_STT_Streaming実装作業仕様.md` に沿って以下を進めます。
 
 - Viewer 側 STT streaming 実装確認・不足修正
-- Go `/stt` WebSocket proxy の frame 透過確認・不足修正
+- RenCrow STT bridge の frame 透過確認・不足修正
 - `scripts/stt_e2e_probe.py` の PCM16 raw streaming 確認・不足修正
 - browser E2E gate の確認・不足修正
 - source-level tests の実行

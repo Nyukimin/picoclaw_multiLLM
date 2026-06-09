@@ -959,6 +959,7 @@ function switchTab(tab) {
   if (!panels[tab]) return;
   activeViewerTab = tab;
   document.body.dataset.viewerTab = tab;
+  if (mainEl) mainEl.scrollTop = 0;
   tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   Object.keys(panels).forEach((k) => panels[k].classList.toggle('active', k === tab));
   if (mobilePanelSelect && mobilePanelSelect.value !== tab) mobilePanelSelect.value = tab;
@@ -1330,7 +1331,8 @@ function isTimelineActive() {
 }
 
 function isTimelineNearBottom() {
-  return (mainEl.scrollHeight - mainEl.scrollTop - mainEl.clientHeight) <= 120;
+  const target = chat || mainEl;
+  return (target.scrollHeight - target.scrollTop - target.clientHeight) <= 120;
 }
 
 function updateLatestButton() {
@@ -1370,7 +1372,9 @@ function scrollToBottom(force) {
   if (!isTimelineActive()) return;
   if (!force && !timelineAutoFollow) return;
   suppressTimelineScroll = true;
-  mainEl.scrollTop = mainEl.scrollHeight;
+  const target = chat || mainEl;
+  target.scrollTop = target.scrollHeight;
+  if (mainEl) mainEl.scrollTop = 0;
   requestAnimationFrame(() => {
     suppressTimelineScroll = false;
     if (isTimelineNearBottom()) setTimelineAutoFollow(true);
@@ -5013,7 +5017,8 @@ function connectSTTWebSocket() {
           sttState.errorCaptionText = '';
           updateSTTCaption();
           console.log('[STT] Final:', msg.text);
-          handleSTTFinalText(sttState.lastRecognitionText);
+          const finalInputText = formatSTTFinalInputText(sttState.lastRecognitionText, msg);
+          handleSTTFinalText(finalInputText);
           // Clear buffer for next utterance (server-side VAD detected end)
           sttState.draftBuffer = [];
           if (sttState.isStopping && sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
@@ -5037,11 +5042,16 @@ function connectSTTWebSocket() {
             updateSTTInputIndicators();
             return;
           }
+          sttState.finalReceived = true;
+          clearSTTFinalWaitTimer();
           sttState.captureActionError = describeSTTActionError('STT recognition unavailable', sttErrorText);
           if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttErrorText);
           updateSTTInputIndicators();
           console.error('[STT] Error:', msg.error || msg.message);
           showToast('認識エラー', 'error');
+          if (sttState.isStopping && sttState.ws && sttState.ws.readyState === WebSocket.OPEN) {
+            sttState.ws.close();
+          }
         }
       } catch (err) {
         sttState.captureActionError = describeSTTActionError('STT message parse unavailable', err);
@@ -5210,6 +5220,10 @@ function scheduleSTTFinalWaitTimeout() {
   sttState.finalWaitTimer = setTimeout(() => {
     sttState.finalWaitTimer = null;
     if (!sttState.isStopping) return;
+    if (finalizeSTTLocalDraft('timeout')) {
+      updateSTTInputIndicators();
+      return;
+    }
     sttState.captureActionError = describeSTTActionError('STT final unavailable', 'timed out waiting for final');
     if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttState.captureActionError);
     recordSTTCaptureEvent('error', 'timed out waiting for final');
@@ -5220,6 +5234,31 @@ function scheduleSTTFinalWaitTimeout() {
     }
     completeSTTStop();
   }, STT_FINAL_WAIT_TIMEOUT_MS);
+}
+
+function finalizeSTTLocalDraft(reason) {
+  if (sttState.finalReceived) return false;
+  const finalText = String(sttState.lastRecognitionText || '').trim();
+  if (!finalText || sttState.lastRecognitionType === 'final') return false;
+  sttState.finalReceived = true;
+  sttState.lastRecognitionType = 'final';
+  sttState.finalCaptionText = finalText;
+  sttState.partialCaptionText = '';
+  sttState.errorCaptionText = '';
+  if (typeof updateSTTCaption === 'function') updateSTTCaption();
+  recordSTTCaptureEvent('final', finalText);
+  recordSTTCaptureEvent('final_fallback', String(reason || 'local_draft'));
+  handleSTTFinalText(finalText);
+  return true;
+}
+
+function formatSTTFinalInputText(text, msg) {
+  const finalText = String(text || '').trim();
+  if (!finalText) return '';
+  if (msg && msg.stt_fallback_required === true) {
+    return '[音声入力: 暫定認識 / 要確認]\n' + finalText;
+  }
+  return finalText;
 }
 
 function handleSTTFinalText(text) {
@@ -5306,17 +5345,6 @@ function stopSTT() {
   console.log('[STT] Stopping');
   sttState.isRecording = false;
   if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
-  if (!sttState.finalReceived && sttState.lastRecognitionType !== 'final' && String(sttState.lastRecognitionText || '').trim()) {
-    const finalText = String(sttState.lastRecognitionText || '').trim();
-    sttState.finalReceived = true;
-    sttState.finalCaptionText = finalText;
-    sttState.partialCaptionText = '';
-    sttState.errorCaptionText = '';
-    if (typeof updateSTTCaption === 'function') updateSTTCaption();
-    recordSTTCaptureEvent('final', finalText);
-    const finalHandler = typeof globalThis !== 'undefined' ? globalThis['handle' + 'STTFinalText'] : null;
-    if (typeof finalHandler === 'function') finalHandler(finalText);
-  }
 
   if (sttState.draftTimer) sttState.draftTimer();
   if (sttState.reconnectTimer) {

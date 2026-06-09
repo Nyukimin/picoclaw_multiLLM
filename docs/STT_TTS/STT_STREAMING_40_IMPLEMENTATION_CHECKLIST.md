@@ -45,10 +45,10 @@ The implementation repository must contain:
 | Error before final shows error caption and no Chat send | `viewer.js`, `viewer_stt_https.test.mjs` | Test verifies error caption and no `/viewer/send` |
 | Error after final does not overwrite confirmed caption/chat input | `viewer.js`, test | Test verifies final remains authoritative |
 | Debug panel render exceptions do not stop STT handling | `viewer.js`, test | Test injects render exception and still processes final |
-| Go `/stt` proxy forwards Viewer text frames unchanged | `cmd/picoclaw/stt_runtime_websocket.go`, Go test | Go test compares upstream text frame payload |
-| Go `/stt` proxy forwards Viewer binary frames unchanged | `stt_runtime_websocket.go`, Go test | Go test compares upstream binary bytes |
-| Go `/stt` proxy forwards STT server text frames unchanged | `stt_runtime_websocket.go`, Go test | Go test observes downstream final frame |
-| Go `/stt` proxy does not interpret `start` / `stop` / `final_pending` | `stt_runtime_websocket.go`, Go test | Go test verifies JSON controls are byte-preserved |
+| RenCrow STT bridge forwards Viewer text frames unchanged | `cmd/picoclaw/stt_runtime_websocket.go`, Go test | Go test compares upstream text frame payload |
+| RenCrow STT bridge forwards Viewer binary frames unchanged | `stt_runtime_websocket.go`, Go test | Go test compares upstream binary bytes |
+| RenCrow STT bridge forwards STT server text frames unchanged | `stt_runtime_websocket.go`, Go test | Go test observes downstream final frame |
+| RenCrow STT bridge does not interpret `start` / `stop` / `final_pending` | `stt_runtime_websocket.go`, Go test | Go test verifies JSON controls are byte-preserved |
 | Go fallback WS is not counted as success | docs/tests | E2E scripts fail without real upstream final |
 | Probe decodes WAV with `wave` and sends PCM16 raw only | `scripts/stt_e2e_probe.py`, `scripts/stt_e2e_probe_test.py` | Unit test rejects WAV header on WS binary payload |
 | Probe sends `start` before audio | probe/test | Unit test observes start frame first |

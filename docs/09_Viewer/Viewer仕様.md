@@ -259,7 +259,7 @@ Viewer はSTT補助UIを持つ。
 
 | エンドポイント | メソッド | 用途 |
 |---|---|---|
-| `/stt` | `WS` | STT Gateway WebSocket proxy |
+| `/stt` | `WS` | RenCrow STT bridge |
 | `/viewer/stt/log` | `POST` | クライアント側STTログ保存 |
 | `/viewer/stt/wav` | `POST` | 入力WAV保存 |
 | `/viewer/stt/autotest` | `POST` | STT自動テスト |

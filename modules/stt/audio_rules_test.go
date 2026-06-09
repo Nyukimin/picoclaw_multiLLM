@@ -39,6 +39,10 @@ func TestParseControlMessage(t *testing.T) {
 	if !ok || got != "final_pending" {
 		t.Fatalf("ParseControlMessage() = %q,%t", got, ok)
 	}
+	got, ok = ParseControlMessage([]byte(`{"type":"stop"}`))
+	if !ok || got != "stop" {
+		t.Fatalf("ParseControlMessage(stop) = %q,%t", got, ok)
+	}
 	if got, ok := ParseControlMessage([]byte(`{"type":`)); ok || got != "" {
 		t.Fatalf("ParseControlMessage(invalid) = %q,%t", got, ok)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	sttinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/stt"
+	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 	"golang.org/x/net/websocket"
 )
 
@@ -117,7 +118,7 @@ func TestIsSTTTextFramePayload(t *testing.T) {
 	}
 }
 
-func TestSTTWebSocketProxyE2E_RelaysStartStopTextAndPCM16Binary(t *testing.T) {
+func TestSTTWebSocketBridgeE2E_RelaysStartStopTextAndPCM16Binary(t *testing.T) {
 	pcm := rawPCM16Chunk()
 	gatewayDone := make(chan error, 1)
 	gateway := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
@@ -161,13 +162,13 @@ func TestSTTWebSocketProxyE2E_RelaysStartStopTextAndPCM16Binary(t *testing.T) {
 
 	mux := http.NewServeMux()
 	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
-	registerSTTRoutes(mux, handleSTTWebSocketProxy(gatewayURL))
-	proxy := httptest.NewServer(mux)
-	defer proxy.Close()
+	registerSTTRoutes(mux, handleSTTWebSocketBridge(gatewayURL, ""))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
 
-	conn, err := websocket.Dial("ws"+strings.TrimPrefix(proxy.URL, "http")+"/stt", "", "http://localhost/")
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+"/stt", "", "http://localhost/")
 	if err != nil {
-		t.Fatalf("dial proxy websocket: %v", err)
+		t.Fatalf("dial bridge websocket: %v", err)
 	}
 	defer conn.Close()
 
@@ -187,6 +188,295 @@ func TestSTTWebSocketProxyE2E_RelaysStartStopTextAndPCM16Binary(t *testing.T) {
 	}
 	if !strings.Contains(final, `"type":"final"`) || !strings.Contains(final, `"text":"テスト"`) {
 		t.Fatalf("unexpected final event: %s", final)
+	}
+	if err := <-gatewayDone; err != nil {
+		t.Fatalf("gateway relay: %v", err)
+	}
+}
+
+func TestSTTWebSocketBridgeE2E_ConvertsGatewayFinalNoiseToErrorWithoutHTTPFallback(t *testing.T) {
+	pcm := rawPCM16Chunk()
+	gatewayDone := make(chan error, 1)
+	gateway := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var start string
+		if err := websocket.Message.Receive(conn, &start); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if !strings.Contains(start, `"type":"start"`) {
+			gatewayDone <- fmt.Errorf("unexpected start control: %s", start)
+			return
+		}
+		var gotPCM []byte
+		if err := websocket.Message.Receive(conn, &gotPCM); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if string(gotPCM) != string(pcm) {
+			gatewayDone <- fmt.Errorf("unexpected pcm chunk: got %d bytes", len(gotPCM))
+			return
+		}
+		var stop string
+		if err := websocket.Message.Receive(conn, &stop); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if strings.TrimSpace(stop) != `{"type":"stop"}` {
+			gatewayDone <- fmt.Errorf("unexpected stop control: %s", stop)
+			return
+		}
+		if err := websocket.Message.Send(conn, `{"type":"final","text":"<|channel>thought\n<channel|>"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		gatewayDone <- nil
+	}))
+	defer gateway.Close()
+
+	providerCalled := make(chan struct{}, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerCalled <- struct{}{}
+		if err := r.ParseMultipartForm(16 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		if _, _, err := r.FormFile("file"); err != nil {
+			t.Fatalf("file missing: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": "切手"})
+	}))
+	defer provider.Close()
+
+	mux := http.NewServeMux()
+	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
+	registerSTTRoutes(mux, handleSTTWebSocketBridge(gatewayURL, provider.URL))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+"/stt", "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial bridge websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"start","sample_rate":16000,"channels":1,"format":"pcm_s16le"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	if err := websocket.Message.Send(conn, pcm); err != nil {
+		t.Fatalf("send pcm: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"stop"}`); err != nil {
+		t.Fatalf("send stop: %v", err)
+	}
+
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive event: %v", err)
+	}
+	if !strings.Contains(final, `"type":"error"`) || !strings.Contains(final, modulestt.ProviderTranscriptErrorMessage) {
+		t.Fatalf("unexpected bridge error event: %s", final)
+	}
+	select {
+	case <-providerCalled:
+		t.Fatal("bridge should not call HTTP fallback for gateway final noise")
+	default:
+	}
+	if err := <-gatewayDone; err != nil {
+		t.Fatalf("gateway relay: %v", err)
+	}
+}
+
+func TestSTTWebSocketBridgeE2E_WaitsForRenCrowSTTFinalAfterStop(t *testing.T) {
+	gatewayDone := make(chan error, 1)
+	gateway := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var start string
+		if err := websocket.Message.Receive(conn, &start); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if !strings.Contains(start, `"type":"start"`) {
+			gatewayDone <- fmt.Errorf("unexpected start control: %s", start)
+			return
+		}
+		var gotPCM []byte
+		if err := websocket.Message.Receive(conn, &gotPCM); err != nil {
+			gatewayDone <- err
+			return
+		}
+		var stop string
+		if err := websocket.Message.Receive(conn, &stop); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if strings.TrimSpace(stop) != `{"type":"stop"}` {
+			gatewayDone <- fmt.Errorf("unexpected stop control: %s", stop)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+		if err := websocket.Message.Send(conn, `{"type":"final","text":"RenCrow_STT final","reason":"stop"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		gatewayDone <- nil
+	}))
+	defer gateway.Close()
+
+	providerCalled := make(chan struct{}, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerCalled <- struct{}{}
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": "bridge fallback should not be used"})
+	}))
+	defer provider.Close()
+
+	mux := http.NewServeMux()
+	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
+	registerSTTRoutes(mux, handleSTTWebSocketBridge(gatewayURL, provider.URL))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+"/stt", "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial bridge websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"start","sample_rate":16000,"channels":1,"format":"pcm_s16le"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	if err := websocket.Message.Send(conn, rawPCM16Chunk()); err != nil {
+		t.Fatalf("send pcm: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"stop"}`); err != nil {
+		t.Fatalf("send stop: %v", err)
+	}
+
+	start := time.Now()
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive final: %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("final took too long: %s", time.Since(start))
+	}
+	if !strings.Contains(final, `"type":"final"`) || !strings.Contains(final, `"text":"RenCrow_STT final"`) {
+		t.Fatalf("unexpected final event: %s", final)
+	}
+	select {
+	case <-providerCalled:
+		t.Fatal("bridge should not use HTTP fallback while waiting for RenCrow_STT final")
+	default:
+	}
+	if err := <-gatewayDone; err != nil {
+		t.Fatalf("gateway relay: %v", err)
+	}
+}
+
+func TestSTTWebSocketBridgeE2E_DoesNotPromoteCachedPartialOnStop(t *testing.T) {
+	pcm := rawPCM16Chunk()
+	gatewayDone := make(chan error, 1)
+	gateway := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var start string
+		if err := websocket.Message.Receive(conn, &start); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if !strings.Contains(start, `"type":"start"`) {
+			gatewayDone <- fmt.Errorf("unexpected start control: %s", start)
+			return
+		}
+		var gotPCM []byte
+		if err := websocket.Message.Receive(conn, &gotPCM); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if string(gotPCM) != string(pcm) {
+			gatewayDone <- fmt.Errorf("unexpected pcm chunk: got %d bytes", len(gotPCM))
+			return
+		}
+		if err := websocket.Message.Send(conn, `{"type":"partial","text":"And so"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		var stop string
+		if err := websocket.Message.Receive(conn, &stop); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if strings.TrimSpace(stop) != `{"type":"stop"}` {
+			gatewayDone <- fmt.Errorf("unexpected stop control: %s", stop)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+		if err := websocket.Message.Send(conn, `{"type":"final","text":"RenCrow_STT owns final","reason":"stop"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		gatewayDone <- nil
+	}))
+	defer gateway.Close()
+
+	providerCalled := make(chan struct{}, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerCalled <- struct{}{}
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": "HTTP fallback should not be used"})
+	}))
+	defer provider.Close()
+
+	mux := http.NewServeMux()
+	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
+	registerSTTRoutes(mux, handleSTTWebSocketBridge(gatewayURL, provider.URL))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+"/stt", "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial bridge websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"start","sample_rate":16000,"channels":1,"format":"pcm_s16le"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	if err := websocket.Message.Send(conn, pcm); err != nil {
+		t.Fatalf("send pcm: %v", err)
+	}
+
+	var partial string
+	if err := websocket.Message.Receive(conn, &partial); err != nil {
+		t.Fatalf("receive partial: %v", err)
+	}
+	if !strings.Contains(partial, `"type":"partial"`) || !strings.Contains(partial, `"text":"And so"`) {
+		t.Fatalf("unexpected partial event: %s", partial)
+	}
+
+	if err := websocket.Message.Send(conn, `{"type":"stop"}`); err != nil {
+		t.Fatalf("send stop: %v", err)
+	}
+
+	start := time.Now()
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive final: %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("final took too long: %s", time.Since(start))
+	}
+	var ev map[string]any
+	if err := json.Unmarshal([]byte(final), &ev); err != nil {
+		t.Fatalf("decode final: %v", err)
+	}
+	if ev["type"] != "final" || ev["text"] != "RenCrow_STT owns final" {
+		t.Fatalf("unexpected final event: %+v", ev)
+	}
+	if ev["stt_fallback_required"] == true || ev["source"] == "cached_partial" || ev["fallback_reason"] == "partial_fast_path" {
+		t.Fatalf("bridge should not emit provisional final metadata, got %+v", ev)
+	}
+	select {
+	case <-providerCalled:
+		t.Fatal("bridge should not call HTTP fallback when RenCrow_STT owns finalization")
+	default:
 	}
 	if err := <-gatewayDone; err != nil {
 		t.Fatalf("gateway relay: %v", err)

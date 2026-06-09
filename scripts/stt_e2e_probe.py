@@ -58,15 +58,16 @@ def load_pcm16_chunks(wav_path: Path, chunk_ms: int, tail_silence_ms: int = 0):
     bytes_per_frame = channels * sample_width
     chunk_bytes = frames_per_chunk * bytes_per_frame
     chunks = [frames[i : i + chunk_bytes] for i in range(0, len(frames), chunk_bytes)]
+    silence_start_index = len(chunks)
     if tail_silence_ms > 0:
         tail_frames = int(sample_rate * (tail_silence_ms / 1000.0))
         tail_bytes = b"\x00" * (tail_frames * bytes_per_frame)
         chunks.extend(tail_bytes[i : i + chunk_bytes] for i in range(0, len(tail_bytes), chunk_bytes))
-    return sample_rate, channels, chunks
+    return sample_rate, channels, chunks, silence_start_index
 
 
 def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_ms: int, realtime: bool, tail_silence_ms: int):
-    sample_rate, channels, chunks = load_pcm16_chunks(wav_path, chunk_ms, tail_silence_ms)
+    sample_rate, channels, chunks, silence_start_index = load_pcm16_chunks(wav_path, chunk_ms, tail_silence_ms)
     out = []
     for i in range(rounds):
         rec = {
@@ -83,17 +84,27 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_
             "final": "",
             "ok": False,
             "err": "",
+            "timings": {},
         }
         try:
             ws = websocket.create_connection(ws_url, timeout=6)
             ws.settimeout(max(1.0, wait_s))
+            send_start_at = time.time()
+            first_audio_sent_at = None
+            silence_start_at = None
+            first_provisional_at = None
+            final_at = None
             ws.send(json.dumps({
                 "type": "start",
                 "sample_rate": sample_rate,
                 "channels": channels,
                 "format": "pcm_s16le",
             }))
-            for chunk in chunks:
+            for idx, chunk in enumerate(chunks):
+                if first_audio_sent_at is None and len(chunk) > 0:
+                    first_audio_sent_at = time.time()
+                if silence_start_at is None and tail_silence_ms > 0 and idx >= silence_start_index:
+                    silence_start_at = time.time()
                 ws.send_binary(chunk)
                 if realtime:
                     time.sleep(chunk_ms / 1000.0)
@@ -125,8 +136,11 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_
                     compact["bytes"] = obj.get("bytes")
                 rec["messages"].append({k: v for k, v in compact.items() if v != ""})
                 if ev_type == "partial" and obj.get("text"):
+                    if first_provisional_at is None:
+                        first_provisional_at = time.time()
                     rec["partial"] = str(obj["text"])[:140]
                 if ev_type == "final" and obj.get("text"):
+                    final_at = time.time()
                     rec["final"] = str(obj["text"])[:140]
                     rec["ok"] = True
                     break
@@ -136,6 +150,16 @@ def run_ws_bench(ws_url: str, wav_path: Path, rounds: int, wait_s: float, chunk_
             ws.close()
             if not rec["ok"] and not rec["err"]:
                 rec["err"] = "timed out waiting for final"
+            if first_audio_sent_at is not None:
+                rec["timings"]["first_audio_send_ms"] = round((first_audio_sent_at - send_start_at) * 1000, 1)
+            if silence_start_at is not None:
+                rec["timings"]["silence_start_ms"] = round((silence_start_at - send_start_at) * 1000, 1)
+            if first_provisional_at is not None:
+                rec["timings"]["first_provisional_ms"] = round((first_provisional_at - send_start_at) * 1000, 1)
+            if final_at is not None:
+                rec["timings"]["final_ms"] = round((final_at - send_start_at) * 1000, 1)
+            if silence_start_at is not None and final_at is not None:
+                rec["timings"]["silence_to_final_ms"] = round((final_at - silence_start_at) * 1000, 1)
         except Exception as e:
             rec["err"] = str(e)
         out.append(rec)

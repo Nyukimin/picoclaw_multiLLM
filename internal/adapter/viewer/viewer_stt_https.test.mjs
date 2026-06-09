@@ -126,10 +126,24 @@ test('viewer renders STT errors in the caption area without keeping stale partia
   assert.match(js.slice(timeoutStart, timeoutStart + 260), /setSTTCaptionError\(sttState\.captureActionError\)/);
 
   const serverErrorStart = js.indexOf("} else if (msg.type === 'error') {");
-  const serverErrorEnd = js.indexOf('        }', serverErrorStart);
+  const serverErrorEnd = js.indexOf('      } catch (err) {', serverErrorStart);
   assert.ok(serverErrorStart >= 0 && serverErrorEnd > serverErrorStart, 'server error path not found');
   const serverErrorSource = js.slice(serverErrorStart, serverErrorEnd);
-  assert.doesNotMatch(serverErrorSource, /sttState\.ws\.close\(\)/);
+  assert.doesNotMatch(serverErrorSource, /handleSTTFinalText/);
+});
+
+test('viewer treats STT error as terminal response during final wait', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const errorStart = js.indexOf("} else if (msg.type === 'error') {");
+  const errorEnd = js.indexOf('      } catch (err) {', errorStart);
+  assert.ok(errorStart >= 0 && errorEnd > errorStart, 'server error path not found');
+  const errorSource = js.slice(errorStart, errorEnd);
+  assert.match(errorSource, /sttState\.finalReceived = true;/);
+  assert.match(errorSource, /clearSTTFinalWaitTimer\(\);/);
+  assert.match(errorSource, /setSTTCaptionError\(sttErrorText\)/);
+  assert.match(errorSource, /showToast\('認識エラー', 'error'\)/);
+  assert.match(errorSource, /if \(sttState\.isStopping && sttState\.ws && sttState\.ws\.readyState === WebSocket\.OPEN\) \{\s*sttState\.ws\.close\(\);/);
+  assert.doesNotMatch(errorSource, /handleSTTFinalText/);
 });
 
 test('viewer sends STT stop control and waits for final or error before closing', () => {
@@ -144,6 +158,7 @@ test('viewer sends STT stop control and waits for final or error before closing'
   assert.match(js, /const STT_FINAL_WAIT_TIMEOUT_MS = 90000/);
   assert.match(js, /}, STT_FINAL_WAIT_TIMEOUT_MS\)/);
   assert.match(js, /timed out waiting for final/);
+  assert.match(js, /function finalizeSTTLocalDraft\(reason\)/);
   assert.match(js, /function completeSTTStop\(\)/);
 
   const stopStart = js.indexOf('function stopSTT()');
@@ -155,12 +170,20 @@ test('viewer sends STT stop control and waits for final or error before closing'
   assert.match(stopSource, /sendSTTStopControl\(\);/);
   assert.match(stopSource, /scheduleSTTFinalWaitTimeout\(\);/);
   assert.doesNotMatch(stopSource, /handleSTTFinalText/);
+  assert.doesNotMatch(stopSource, /finalizeSTTLocalDraft/);
+
+  const timeoutStart = js.indexOf('function scheduleSTTFinalWaitTimeout()');
+  const timeoutEnd = js.indexOf('function finalizeSTTLocalDraft(reason)', timeoutStart);
+  assert.ok(timeoutStart >= 0 && timeoutEnd > timeoutStart, 'final wait timeout block not found');
+  const timeoutSource = js.slice(timeoutStart, timeoutEnd);
+  assert.match(timeoutSource, /finalizeSTTLocalDraft\('timeout'\)/);
 
   const finalStart = js.indexOf("} else if (msg.type === 'final') {");
   const finalEnd = js.indexOf("} else if (msg.type === 'reply_reset')", finalStart);
   assert.ok(finalStart >= 0 && finalEnd > finalStart, 'final message block not found');
   const finalSource = js.slice(finalStart, finalEnd);
-  assert.match(finalSource, /handleSTTFinalText\(sttState\.lastRecognitionText\)/);
+	assert.match(finalSource, /const finalInputText = formatSTTFinalInputText\(sttState\.lastRecognitionText, msg\)/);
+	assert.match(finalSource, /handleSTTFinalText\(finalInputText\)/);
   assert.match(finalSource, /sttState\.ws\.close\(\)/);
 });
 
@@ -193,7 +216,7 @@ test('viewer preserves received STT final when later stop or error arrives', () 
   const finalSource = js.slice(finalStart, finalEnd);
   assert.match(finalSource, /sttState\.finalReceived = true;/);
   assert.match(finalSource, /clearSTTFinalWaitTimer\(\);/);
-  assert.match(finalSource, /handleSTTFinalText\(sttState\.lastRecognitionText\)/);
+	assert.match(finalSource, /handleSTTFinalText\(finalInputText\)/);
 
   const errorStart = js.indexOf("} else if (msg.type === 'error') {");
   const errorEnd = js.indexOf('        }', errorStart);
@@ -213,6 +236,15 @@ test('viewer preserves received STT final when later stop or error arrives', () 
   const finalReceivedSource = stopSource.slice(finalReceivedBranch, openStopBranch);
   assert.match(finalReceivedSource, /sttState\.ws\.close\(\);/);
   assert.doesNotMatch(finalReceivedSource, /sendSTTStopControl\(\);/);
+});
+
+test('viewer marks provisional STT final before sending it to chat', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /function formatSTTFinalInputText\(text, msg\)/);
+  assert.match(js, /msg && msg\.stt_fallback_required === true/);
+  assert.match(js, /\[音声入力: 暫定認識 \/ 要確認\]/);
+  assert.match(js, /const finalInputText = formatSTTFinalInputText\(sttState\.lastRecognitionText, msg\)/);
+  assert.match(js, /handleSTTFinalText\(finalInputText\)/);
 });
 
 test('viewer STT message handling is not blocked by debug panel rendering', () => {
