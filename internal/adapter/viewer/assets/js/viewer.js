@@ -4414,6 +4414,11 @@ const sttState = {
   isRecording: false,
   isStopping: false,
   keepSessionChannel: false,
+  vadSpeechActive: false,
+  vadSilenceStartedAt: 0,
+  vadLastVoiceAt: 0,
+  pendingSpeechRestart: false,
+  pendingSpeechRestartInterrupted: false,
   streamReady: false,
   sampleRate: 16000,
   inputSampleRate: 48000,
@@ -4461,14 +4466,13 @@ const sttCaptureDownloadBtn = document.getElementById('sttCaptureDownloadBtn');
 const sttCaptureClearBtn = document.getElementById('sttCaptureClearBtn');
 const sttSessionCopyBtn = document.getElementById('sttSessionCopyBtn');
 const STT_FINAL_WAIT_TIMEOUT_MS = 90000;
-const STT_STOP_TAIL_SILENCE_MS = 1000;
+const STT_SILENCE_END_MS = 700;
+const STT_STOP_TAIL_SILENCE_MS = 300;
+const STT_VAD_START_LEVEL = 12;
+const STT_VAD_END_LEVEL = 8;
 if (micBtn) {
   micBtn.addEventListener('click', () => {
     interruptIdleChatForUserInput('stt_button');
-    if (sttState.isRecording) {
-      stopSTT();
-      return;
-    }
     toggleSTT();
   });
 }
@@ -4536,7 +4540,7 @@ async function loadViewerDebugSystemSnapshot() {
 }
 
 function recordSTTCaptureEvent(type, payload) {
-  if (type !== 'speech_start' && type !== 'start' && type !== 'stop' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'progress' && type !== 'audio_sent' && type !== 'ready' && type !== 'closed' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
+  if (type !== 'speech_start' && type !== 'start' && type !== 'stop' && type !== 'draft' && type !== 'partial' && type !== 'final' && type !== 'final_fallback' && type !== 'final_ignored' && type !== 'progress' && type !== 'audio_sent' && type !== 'ready' && type !== 'closed' && type !== 'error' && type !== 'ws_open' && type !== 'ws_error' && type !== 'ws_close') return;
   const rawPayload = String(payload || '').trim();
   if (type === 'speech_start' || type === 'ready' || type === 'closed' || type === 'ws_open' || type === 'ws_close') {
     payload = '-';
@@ -4758,11 +4762,11 @@ function updateSTTInputIndicators() {
     micBtn.classList.toggle('ready', !!sttState.isRecording);
     micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
     micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
-    micBtn.disabled = (!mobileControlAllowed || !!microphoneUnavailable) && !sttState.isRecording;
+    micBtn.disabled = !!microphoneUnavailable && !sttState.isRecording;
     micBtn.title = microphoneUnavailable
       ? '音声入力不可: ' + microphoneUnavailable
       : voiceAllowed
-      ? (sttState.isRecording ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
+      ? (sttState.isRecording ? `音声入力監視中（入力レベル ${Math.round(sttState.inputLevel)}%・無音で自動確定）` : '音声入力')
       : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
   }
   if (micStateEl) {
@@ -4775,7 +4779,7 @@ function updateSTTInputIndicators() {
     const ws = sttState.ws;
     if (sttState.isRecording) {
       if (ws && ws.readyState === WebSocket.OPEN) {
-        text = 'STT: connected';
+        text = sttState.vadSpeechActive || sttState.isStopping ? 'STT: connected' : 'STT: listening';
         cls = 'stt-state conn-on';
       } else if (sttState.reconnecting || (ws && ws.readyState === WebSocket.CONNECTING)) {
         text = 'STT: reconnecting';
@@ -4893,6 +4897,11 @@ async function startSTT() {
     sttState.errorCaptionText = '';
     sttState.stopControlSent = false;
     sttState.finalReceived = false;
+    sttState.vadSpeechActive = false;
+    sttState.vadSilenceStartedAt = 0;
+    sttState.vadLastVoiceAt = 0;
+    sttState.pendingSpeechRestart = false;
+    sttState.pendingSpeechRestartInterrupted = false;
     if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
     if (typeof updateSTTCaption === 'function') updateSTTCaption();
     if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
@@ -4921,10 +4930,16 @@ async function startSTT() {
       if (!sttState.isRecording) return;
       const pcm = e.inputBuffer.getChannelData(0);
       const pcm16 = resampleToPCM16(pcm, sttState.inputSampleRate || 48000, 16000);
-      updateSTTInputLevel(calculateSTTInputLevel(pcm16));
-      sttState.draftBuffer.push(...pcm16);
-      sttState.capturePCM.push(...pcm16);
-      sendSTTAudioChunk(pcm16);
+      const level = calculateSTTInputLevel(pcm16);
+      updateSTTInputLevel(level);
+      handleSTTVADFrame(pcm16, level);
+      if (sttState.vadSpeechActive && !sttState.isStopping) {
+        sttState.draftBuffer.push(...pcm16);
+        sttState.capturePCM.push(...pcm16);
+        sendSTTAudioChunk(pcm16);
+      } else if (sttState.isStopping) {
+        sttState.capturePCM.push(...pcm16);
+      }
       const maxDraftSamples = sttState.sampleRate;
       if (sttState.draftBuffer.length > maxDraftSamples) {
         sttState.draftBuffer = sttState.draftBuffer.slice(-maxDraftSamples);
@@ -4933,7 +4948,6 @@ async function startSTT() {
 
     sttState.isRecording = true;
     updateSTTInputIndicators();
-    connectSTTWebSocket();
   } catch (err) {
     sttState.captureActionError = describeSTTActionError('STT microphone start unavailable', err);
     updateSTTInputIndicators();
@@ -4957,6 +4971,7 @@ function connectSTTWebSocket() {
     sttState.reconnecting = false;
     recordSTTCaptureEvent('ws_open', '');
     sendSTTStartControl();
+    flushSTTAudioChunkBuffer();
     console.log('[STT] Connected - streaming PCM16 16kHz chunks');
     updateSTTInputIndicators();
   };
@@ -5073,6 +5088,7 @@ function connectSTTWebSocket() {
   sttState.ws.onclose = () => {
     recordSTTCaptureEvent('ws_close', '');
     sttState.streamReady = false;
+    sttState.ws = null;
     updateSTTInputIndicators();
     if (sttState.isStopping) {
       completeSTTStop();
@@ -5137,9 +5153,81 @@ function updateSTTInputLevel(level) {
   micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
 }
 
+function resetSTTUtteranceState() {
+  sttState.captureLog = [];
+  sttState.capturePCM = [];
+  sttState.captureStartedAt = '';
+  sttState.captureEndedAt = '';
+  sttState.captureEventID = '';
+  sttState.captureActionError = '';
+  sttState.sentAudioSamples = 0;
+  sttState.sentAudioBytes = 0;
+  sttState.sentAudioFrames = 0;
+  sttState.lastLoggedAudioSecond = 0;
+  sttState.lastRecognitionText = '';
+  sttState.lastRecognitionType = '';
+  sttState.partialCaptionText = '';
+  sttState.finalCaptionText = '';
+  sttState.errorCaptionText = '';
+  sttState.stopControlSent = false;
+  sttState.finalReceived = false;
+  sttState.chunkBuffer = [];
+  sttState.draftBuffer = [];
+  if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
+  if (typeof updateSTTCaption === 'function') updateSTTCaption();
+}
+
+function beginSTTUtterance(reason) {
+  if (!sttState.isRecording || sttState.isStopping || sttState.vadSpeechActive) return false;
+  resetSTTUtteranceState();
+  sttState.vadSpeechActive = true;
+  sttState.vadSilenceStartedAt = 0;
+  sttState.vadLastVoiceAt = Date.now();
+  sttState.pendingSpeechRestart = false;
+  sttState.pendingSpeechRestartInterrupted = false;
+  interruptChatOutputForUserInput('stt_voice_start');
+  interruptIdleChatForUserInput('stt_voice_start');
+  recordSTTCaptureEvent('speech_start', String(reason || 'vad_voice'));
+  connectSTTWebSocket();
+  updateSTTInputIndicators();
+  return true;
+}
+
+function handleSTTVADFrame(pcm16, level) {
+  if (!sttState.isRecording) return;
+  const now = Date.now();
+  const inputLevel = Math.max(0, Number(level) || 0);
+  const isVoice = inputLevel >= (sttState.vadSpeechActive ? STT_VAD_END_LEVEL : STT_VAD_START_LEVEL);
+  if (isVoice) {
+    sttState.vadLastVoiceAt = now;
+    sttState.vadSilenceStartedAt = 0;
+    if (sttState.isStopping) {
+      sttState.pendingSpeechRestart = true;
+      if (!sttState.pendingSpeechRestartInterrupted) {
+        sttState.pendingSpeechRestartInterrupted = true;
+        interruptChatOutputForUserInput('stt_voice_resume');
+        interruptIdleChatForUserInput('stt_voice_resume');
+        recordSTTCaptureEvent('speech_start', 'pending_restart');
+      }
+      return;
+    }
+    beginSTTUtterance('vad_voice');
+    return;
+  }
+  if (!sttState.vadSpeechActive || sttState.isStopping) return;
+  if (!sttState.vadSilenceStartedAt) {
+    sttState.vadSilenceStartedAt = now;
+    return;
+  }
+  if (now - sttState.vadSilenceStartedAt >= STT_SILENCE_END_MS) {
+    stopSTTUtteranceBySilence();
+  }
+}
+
 function sendSTTAudioChunk(pcm16) {
-  if (!sttState.isRecording || !sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return;
+  if (!sttState.isRecording || !sttState.vadSpeechActive) return;
   sttState.chunkBuffer.push(...pcm16);
+  if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return;
   while (sttState.chunkBuffer.length >= sttState.chunkSamples) {
     const chunk = new Int16Array(sttState.chunkBuffer.slice(0, sttState.chunkSamples));
     sttState.chunkBuffer = sttState.chunkBuffer.slice(sttState.chunkSamples);
@@ -5200,12 +5288,13 @@ function sendSTTStartControl() {
   return true;
 }
 
-function sendSTTStopControl() {
+function sendSTTStopControl(reason) {
   if (!sttState.ws || sttState.ws.readyState !== WebSocket.OPEN) return false;
   if (sttState.stopControlSent) return true;
   sttState.ws.send(JSON.stringify({ type: 'stop' }));
   sttState.stopControlSent = true;
-  recordSTTCaptureEvent('stop', 'requested');
+  const reasonText = String(reason || 'requested').trim() || 'requested';
+  recordSTTCaptureEvent('stop', reasonText);
   return true;
 }
 
@@ -5344,6 +5433,10 @@ function stopSTT() {
   sttState.isStopping = true;
   console.log('[STT] Stopping');
   sttState.isRecording = false;
+  sttState.vadSpeechActive = false;
+  sttState.vadSilenceStartedAt = 0;
+  sttState.pendingSpeechRestart = false;
+  sttState.pendingSpeechRestartInterrupted = false;
   if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
 
   if (sttState.draftTimer) sttState.draftTimer();
@@ -5393,10 +5486,29 @@ function stopSTT() {
   completeSTTStop();
 }
 
+function stopSTTUtteranceBySilence() {
+  if (sttState.isStopping || !sttState.vadSpeechActive) return false;
+  sttState.isStopping = true;
+  sttState.vadSpeechActive = false;
+  const silenceMs = sttState.vadSilenceStartedAt ? Math.max(0, Date.now() - sttState.vadSilenceStartedAt) : STT_SILENCE_END_MS;
+  console.log('[STT] Silence detected - finalizing utterance');
+  if (typeof flushSTTAudioChunkBuffer === 'function') flushSTTAudioChunkBuffer();
+  if (typeof sendSTTStopTailSilence === 'function') sendSTTStopTailSilence();
+  if (typeof sendSTTStopControl === 'function') sendSTTStopControl('silence ' + String(Math.round(silenceMs)) + 'ms');
+  if (typeof scheduleSTTFinalWaitTimeout === 'function') scheduleSTTFinalWaitTimeout();
+  updateSTTInputIndicators();
+  return true;
+}
+
 function abortSTTImmediately(reason) {
   const abortReason = String(reason || 'immediate_abort').trim() || 'immediate_abort';
   sttState.isRecording = false;
   sttState.isStopping = false;
+  sttState.vadSpeechActive = false;
+  sttState.vadSilenceStartedAt = 0;
+  sttState.vadLastVoiceAt = 0;
+  sttState.pendingSpeechRestart = false;
+  sttState.pendingSpeechRestartInterrupted = false;
   sttState.stopControlSent = false;
   if (typeof clearSTTFinalWaitTimer === 'function') clearSTTFinalWaitTimer();
   if (sttState.reconnectTimer) {
@@ -5439,6 +5551,8 @@ function completeSTTStop() {
   sttState.draftBuffer = [];
   sttState.stopControlSent = false;
   sttState.isStopping = false;
+  sttState.vadSpeechActive = false;
+  sttState.vadSilenceStartedAt = 0;
   updateSTTInputIndicators();
   persistSTTArtifacts().then(() => {
     showToast('STTログ/WAVを tmp に保存しました', 'success');

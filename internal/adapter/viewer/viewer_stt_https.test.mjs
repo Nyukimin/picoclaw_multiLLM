@@ -51,7 +51,7 @@ test('viewer voice chat sends final text only in normal timeline chat without st
   assert.ok(switchTabStart >= 0 && switchTabEnd > switchTabStart, 'switchTab block not found');
   const switchTabSource = js.slice(switchTabStart, switchTabEnd);
   assert.doesNotMatch(switchTabSource, /stopSTT\(\)/);
-  assert.match(js, /micBtn\.disabled = \(!mobileControlAllowed \|\| !!microphoneUnavailable\) && !sttState\.isRecording;/);
+  assert.match(js, /micBtn\.disabled = !!microphoneUnavailable && !sttState\.isRecording;/);
   assert.match(js, /if \(!ensureVoiceChatForMobileControl\(\)\) \{\s*showToast\('音声入力は通常チャットでのみ有効です', 'error'\);/);
   assert.match(js, /if \(!isVoiceChatAllowed\(\)\) \{\s*console\.warn\('\[STT\] Final ignored outside normal chat:', finalText\);/);
 });
@@ -63,7 +63,7 @@ test('viewer marks microphone unavailable on insecure origins before getUserMedi
   assert.match(js, /window\.isSecureContext === false/);
   assert.match(js, /HTTPSまたはlocalhostでViewerを開いてください/);
   assert.match(js, /typeof navigator === 'undefined' \|\| !navigator\.mediaDevices \|\| typeof navigator\.mediaDevices\.getUserMedia !== 'function'/);
-  assert.match(js, /micBtn\.disabled = \(!mobileControlAllowed \|\| !!microphoneUnavailable\) && !sttState\.isRecording;/);
+  assert.match(js, /micBtn\.disabled = !!microphoneUnavailable && !sttState\.isRecording;/);
   assert.match(js, /Mic: unavailable/);
   assert.match(js, /describeSTTActionError\('STT microphone start unavailable', microphoneUnavailable\)/);
   assert.match(css, /\.stt-state\.mic-unavailable/);
@@ -148,12 +148,15 @@ test('viewer treats STT error as terminal response during final wait', () => {
 
 test('viewer sends STT stop control and waits for final or error before closing', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
-  assert.match(js, /function sendSTTStopControl\(\)/);
-  assert.match(js, /const STT_STOP_TAIL_SILENCE_MS = 1000/);
+  assert.match(js, /function sendSTTStopControl\(reason\)/);
+  assert.match(js, /const STT_SILENCE_END_MS = 700/);
+  assert.match(js, /const STT_STOP_TAIL_SILENCE_MS = 300/);
+  assert.match(js, /function handleSTTVADFrame\(pcm16, level\)/);
+  assert.match(js, /function stopSTTUtteranceBySilence\(\)/);
   assert.match(js, /function sendSTTStopTailSilence\(\)/);
   assert.match(js, /stop tail silence/);
   assert.match(js, /sttState\.ws\.send\(JSON\.stringify\(\{ type: 'stop' \}\)\)/);
-  assert.match(js, /recordSTTCaptureEvent\('stop', 'requested'\)/);
+  assert.match(js, /recordSTTCaptureEvent\('stop', reasonText\)/);
   assert.match(js, /function scheduleSTTFinalWaitTimeout\(\)/);
   assert.match(js, /const STT_FINAL_WAIT_TIMEOUT_MS = 90000/);
   assert.match(js, /}, STT_FINAL_WAIT_TIMEOUT_MS\)/);
@@ -165,10 +168,11 @@ test('viewer sends STT stop control and waits for final or error before closing'
   const stopEnd = js.indexOf('function completeSTTStop()', stopStart);
   assert.ok(stopStart >= 0 && stopEnd > stopStart, 'stopSTT block not found');
   const stopSource = js.slice(stopStart, stopEnd);
-  assert.match(stopSource, /flushSTTAudioChunkBuffer\(\);/);
-  assert.match(stopSource, /sendSTTStopTailSilence\(\);/);
-  assert.match(stopSource, /sendSTTStopControl\(\);/);
-  assert.match(stopSource, /scheduleSTTFinalWaitTimeout\(\);/);
+  assert.match(js, /stopSTTUtteranceBySilence\(\)/);
+  assert.match(js, /flushSTTAudioChunkBuffer\(\);/);
+  assert.match(js, /sendSTTStopTailSilence\(\);/);
+  assert.match(js, /sendSTTStopControl\('silence '/);
+  assert.match(js, /scheduleSTTFinalWaitTimeout\(\);/);
   assert.doesNotMatch(stopSource, /handleSTTFinalText/);
   assert.doesNotMatch(stopSource, /finalizeSTTLocalDraft/);
 
@@ -185,6 +189,39 @@ test('viewer sends STT stop control and waits for final or error before closing'
 	assert.match(finalSource, /const finalInputText = formatSTTFinalInputText\(sttState\.lastRecognitionText, msg\)/);
 	assert.match(finalSource, /handleSTTFinalText\(finalInputText\)/);
   assert.match(finalSource, /sttState\.ws\.close\(\)/);
+});
+
+test('viewer uses VAD silence under one second instead of button endpoint stop', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  assert.match(js, /vadSpeechActive:\s*false/);
+  assert.match(js, /vadSilenceStartedAt:\s*0/);
+  assert.match(js, /const STT_VAD_START_LEVEL = 12/);
+  assert.match(js, /const STT_VAD_END_LEVEL = 8/);
+  assert.match(js, /const STT_SILENCE_END_MS = 700/);
+  assert.match(js, /now - sttState\.vadSilenceStartedAt >= STT_SILENCE_END_MS/);
+  assert.match(js, /stopSTTUtteranceBySilence\(\)/);
+  const clickStart = js.indexOf("micBtn.addEventListener('click'");
+  const clickEnd = js.indexOf('});', clickStart);
+  assert.ok(clickStart >= 0 && clickEnd > clickStart, 'mic click handler not found');
+  const clickSource = js.slice(clickStart, clickEnd);
+  assert.doesNotMatch(clickSource, /if \(sttState\.isRecording\) \{\s*stopSTT\(\);/);
+});
+
+test('viewer interrupts LLM output when VAD detects a new utterance', () => {
+  const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const beginStart = js.indexOf('function beginSTTUtterance');
+  const beginEnd = js.indexOf('function handleSTTVADFrame', beginStart);
+  assert.ok(beginStart >= 0 && beginEnd > beginStart, 'beginSTTUtterance block not found');
+  const beginSource = js.slice(beginStart, beginEnd);
+  assert.match(beginSource, /interruptChatOutputForUserInput\('stt_voice_start'\)/);
+  assert.match(beginSource, /interruptIdleChatForUserInput\('stt_voice_start'\)/);
+  const vadStart = js.indexOf('function handleSTTVADFrame');
+  const vadEnd = js.indexOf('function sendSTTAudioChunk', vadStart);
+  assert.ok(vadStart >= 0 && vadEnd > vadStart, 'handleSTTVADFrame block not found');
+  const vadSource = js.slice(vadStart, vadEnd);
+  assert.match(vadSource, /sttState\.pendingSpeechRestart = true/);
+  assert.match(vadSource, /interruptChatOutputForUserInput\('stt_voice_resume'\)/);
+  assert.match(vadSource, /interruptIdleChatForUserInput\('stt_voice_resume'\)/);
 });
 
 test('viewer logs sent audio and STT event timing for stream correlation', () => {
@@ -275,7 +312,9 @@ test('viewer renders live microphone input level on the mic button', () => {
   const css = fs.readFileSync('internal/adapter/viewer/assets/css/viewer.css', 'utf8');
   assert.match(js, /inputLevel:\s*0/);
   assert.match(js, /function calculateSTTInputLevel\(pcm16\)/);
-  assert.match(js, /updateSTTInputLevel\(calculateSTTInputLevel\(pcm16\)\)/);
+  assert.match(js, /const level = calculateSTTInputLevel\(pcm16\)/);
+  assert.match(js, /updateSTTInputLevel\(level\)/);
+  assert.match(js, /handleSTTVADFrame\(pcm16, level\)/);
   assert.match(js, /micBtn\.style\.setProperty\('--mic-level-pct'/);
   assert.match(js, /updateSTTInputLevel\(0\);/);
   assert.match(css, /#micBtn\.has-level/);

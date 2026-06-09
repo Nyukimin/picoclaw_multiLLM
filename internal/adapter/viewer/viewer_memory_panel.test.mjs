@@ -4354,7 +4354,7 @@ var sttState = {
 	  voiceBridgeURL: 'ws://127.0.0.1:18790/stt',
 	};
 	const STT_FINAL_WAIT_TIMEOUT_MS = 90000;
-	const STT_STOP_TAIL_SILENCE_MS = 1000;
+	const STT_STOP_TAIL_SILENCE_MS = 300;
 	function updateSTTInputIndicators() {}
 	function updateSTTInputLevel() {}
 	function updateSTTCaption() {}
@@ -4785,7 +4785,9 @@ test('viewer wires chat input and stt button to idlechat immediate interrupt', (
   assert.match(viewerJs, /inp\.addEventListener\('beforeinput', \(\) => handleChatInputIntent\('user_input'\)\)/);
   assert.match(viewerJs, /inp\.addEventListener\('paste', \(\) => handleChatInputIntent\('paste'\)\)/);
   assert.match(viewerJs, /inp\.addEventListener\('compositionstart', \(\) => handleChatInputIntent\('composition_start'\)\)/);
-  assert.match(viewerJs, /if \(sttState\.isRecording\) \{\s*stopSTT\(\);/);
+  assert.match(viewerJs, /function beginSTTUtterance/);
+  assert.match(viewerJs, /interruptIdleChatForUserInput\('stt_voice_start'\)/);
+  assert.match(viewerJs, /interruptChatOutputForUserInput\('stt_voice_start'\)/);
   assert.match(viewerJs, /function abortSTTImmediately\(reason\)/);
   assert.match(viewerJs, /if \(typeof clearSTTFinalWaitTimer === 'function'\) clearSTTFinalWaitTimer\(\)/);
   assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !isIdleChatActiveForTTS\(chunk\.sessionId\)\) return/);
