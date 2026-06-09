@@ -11,6 +11,7 @@ type Kind string
 
 const (
 	KindImage    Kind = "image"
+	KindAudio    Kind = "audio"
 	KindDocument Kind = "document"
 	KindVideo    Kind = "video"
 )
@@ -52,6 +53,9 @@ func KindFromContentType(contentType string) (Kind, bool) {
 	if strings.HasPrefix(ct, "video/") {
 		return KindVideo, true
 	}
+	if strings.HasPrefix(ct, "audio/") {
+		return KindAudio, true
+	}
 	if ct == "application/pdf" || strings.HasPrefix(ct, "text/") {
 		return KindDocument, true
 	}
@@ -71,6 +75,8 @@ func KindFromFilename(name string) (Kind, bool) {
 		return KindImage, true
 	case ".mp4", ".mov", ".webm", ".m4v":
 		return KindVideo, true
+	case ".wav", ".mp3", ".flac", ".ogg", ".m4a":
+		return KindAudio, true
 	case ".pdf", ".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".xml":
 		return KindDocument, true
 	default:

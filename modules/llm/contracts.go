@@ -12,6 +12,7 @@ type MessagePartType string
 const (
 	MessagePartText  MessagePartType = "text"
 	MessagePartImage MessagePartType = "image"
+	MessagePartAudio MessagePartType = "audio"
 	MessagePartVideo MessagePartType = "video"
 )
 

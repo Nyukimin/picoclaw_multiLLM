@@ -221,6 +221,9 @@ func TestShouldRunChatCLIOneShotForViewerStyleInputs(t *testing.T) {
 	if !shouldRunChatCLIOneShot(chatCLIOptions{AudioPath: "voice.wav"}) {
 		t.Fatal("audio-only chat should run as one-shot after STT")
 	}
+	if !shouldRunChatCLIOneShot(chatCLIOptions{AudioDirectPath: "voice.wav"}) {
+		t.Fatal("audio-direct chat should run as one-shot")
+	}
 	if shouldRunChatCLIOneShot(chatCLIOptions{}) {
 		t.Fatal("empty chat should remain interactive")
 	}

@@ -38,11 +38,12 @@ type chatCLIEvent struct {
 }
 
 type chatCLIOptions struct {
-	BaseURL     string
-	Message     string
-	Timeout     time.Duration
-	AudioPath   string
-	Attachments []string
+	BaseURL         string
+	Message         string
+	Timeout         time.Duration
+	AudioPath       string
+	AudioDirectPath string
+	Attachments     []string
 }
 
 type chatCLISendPayload struct {
@@ -88,7 +89,7 @@ func runChatCommand(args []string, in io.Reader, out, errOut io.Writer, client *
 }
 
 func shouldRunChatCLIOneShot(opts chatCLIOptions) bool {
-	return strings.TrimSpace(opts.Message) != "" || strings.TrimSpace(opts.AudioPath) != "" || len(opts.Attachments) > 0
+	return strings.TrimSpace(opts.Message) != "" || strings.TrimSpace(opts.AudioPath) != "" || strings.TrimSpace(opts.AudioDirectPath) != "" || len(opts.Attachments) > 0
 }
 
 func parseChatCLIOptions(args []string) (chatCLIOptions, error) {
@@ -105,11 +106,12 @@ func parseChatCLIOptions(args []string) (chatCLIOptions, error) {
 	fs.StringVar(&opts.Message, "message", "", "send one message and wait for the first response event")
 	fs.DurationVar(&opts.Timeout, "timeout", opts.Timeout, "one-shot wait timeout")
 	fs.StringVar(&opts.AudioPath, "audio", "", "transcribe a WAV audio file via the same STT chat-input path used by Viewer")
+	fs.StringVar(&opts.AudioDirectPath, "audio-direct", "", "send a WAV file directly to Chat LLM as input_audio (skip STT)")
 	fs.Var((*chatCLIStringList)(&opts.Attachments), "attach", "attach a Viewer-supported file; may be repeated")
 	fs.Var((*chatCLIStringList)(&opts.Attachments), "image", "attach an image file; may be repeated")
 	fs.Var((*chatCLIStringList)(&opts.Attachments), "video", "attach a video file; may be repeated")
 	if err := fs.Parse(args); err != nil {
-		return opts, fmt.Errorf("usage: picoclaw chat [--url URL] [--message TEXT] [--audio WAV] [--image PATH] [--video PATH] [--attach PATH] [--timeout 30s]")
+		return opts, fmt.Errorf("usage: picoclaw chat [--url URL] [--message TEXT] [--audio WAV] [--audio-direct WAV] [--image PATH] [--video PATH] [--attach PATH] [--timeout 30s]")
 	}
 	if opts.Message == "" && len(fs.Args()) > 0 {
 		opts.Message = strings.Join(fs.Args(), " ")
@@ -125,6 +127,10 @@ func parseChatCLIOptions(args []string) (chatCLIOptions, error) {
 		return opts, fmt.Errorf("timeout must be positive")
 	}
 	opts.AudioPath = strings.TrimSpace(opts.AudioPath)
+	opts.AudioDirectPath = strings.TrimSpace(opts.AudioDirectPath)
+	if opts.AudioPath != "" && opts.AudioDirectPath != "" {
+		return opts, fmt.Errorf("--audio and --audio-direct are mutually exclusive")
+	}
 	return opts, nil
 }
 
@@ -241,6 +247,14 @@ func runChatInteractive(opts chatCLIOptions, in io.Reader, out, errOut io.Writer
 
 func buildChatCLISendPayload(ctx context.Context, client *http.Client, opts chatCLIOptions) (chatCLISendPayload, error) {
 	message := strings.TrimSpace(opts.Message)
+	attachments := append([]string(nil), opts.Attachments...)
+	if opts.AudioDirectPath != "" {
+		attachments = append(attachments, opts.AudioDirectPath)
+		if message == "" {
+			message = "この音声を聞いて、話している内容を日本語で要約し、最後に数字も書き出してください。"
+		}
+		return chatCLISendPayload{Message: message, Attachments: attachments}, nil
+	}
 	if opts.AudioPath != "" {
 		text, err := transcribeChatCLIAudio(ctx, client, opts.BaseURL, opts.AudioPath)
 		if err != nil {

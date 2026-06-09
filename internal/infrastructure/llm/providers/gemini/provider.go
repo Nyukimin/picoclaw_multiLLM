@@ -174,8 +174,20 @@ func convertMessages(messages []llm.Message) []geminiContent {
 			parts = make([]geminiPart, 0, len(msg.Parts))
 			for _, part := range msg.Parts {
 				switch part.Type {
-				case llm.MessagePartImage, llm.MessagePartVideo:
+				case llm.MessagePartImage, llm.MessagePartVideo, llm.MessagePartAudio:
 					if len(part.Data) == 0 || part.MimeType == "" {
+						if part.Type != llm.MessagePartAudio {
+							continue
+						}
+					}
+					if part.Type == llm.MessagePartAudio {
+						if len(part.Data) == 0 {
+							continue
+						}
+						parts = append(parts, geminiPart{InlineData: &geminiInlineData{
+							MimeType: part.MimeType,
+							Data:     base64.StdEncoding.EncodeToString(part.Data),
+						}})
 						continue
 					}
 					parts = append(parts, geminiPart{InlineData: &geminiInlineData{

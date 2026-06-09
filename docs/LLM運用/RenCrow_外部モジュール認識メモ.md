@@ -18,8 +18,8 @@ RenCrow ルート配下には、`picoclaw_multiLLM` から参照できる独立�
 - 現行の音声会話は `Viewer -> RenCrow_STT -> text -> picoclaw_multiLLM -> RenCrow_LLM(Chat)` の経路。
 - `RenCrow_STT` はすでに Gemma4 12B IT 4bit をSTT providerとして使っている。
 - `RenCrow_LLM` の現在の Chat backend も `/Users/yukimi/models/gemma-4-12B-it-4bit` で、Chat系音声直接入力の最有力実装先。
-- ただし、現時点で確認した `RenCrow_LLM` の OpenAI互換仕様と `alias_proxy.py` は text / image / video 方面が中心で、`input_audio` / `audio_url` のChat入力仕様は未整備。
-- `picoclaw_multiLLM` 側も `MessagePartImage` / `MessagePartVideo` までで、`MessagePartAudio` は未定義。
+- ただし、現時点で確認した `RenCrow_LLM` の OpenAI互換仕様と `alias_proxy.py` は text / image / video / **input_audio** を受け付ける。
+- `picoclaw_multiLLM` 側は `MessagePartAudio` を追加済み。`picoclaw chat --audio-direct WAV` または Viewer 添付 WAV で Chat LLM へ直接投入できる。
 
 ## 実装方針メモ
 Chat系へ音声を直接入れる場合は、まず `RenCrow_LLM` に音声partを受ける公式インタフェースを追加し、`picoclaw_multiLLM` 側に `MessagePartAudio` と Viewer音声添付/送信経路を追加するのが自然。既存STTは字幕・ログ・fallback用に残し、速度測定で `STT -> text -> Chat` と `audio -> Chat` を比較する。

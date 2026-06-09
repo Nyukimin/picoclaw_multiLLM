@@ -33,6 +33,13 @@ func userMessageWithAttachments(message string, attachments []domainattachment.A
 				Data:     append([]byte(nil), att.Data...),
 			})
 		}
+		if att.Kind == domainattachment.KindAudio && len(att.Data) > 0 {
+			parts = append(parts, llm.MessagePart{
+				Type:     llm.MessagePartAudio,
+				MimeType: att.ContentType,
+				Data:     append([]byte(nil), att.Data...),
+			})
+		}
 		if att.Kind == domainattachment.KindVideo && len(att.Data) > 0 {
 			parts = append(parts, llm.MessagePart{
 				Type:     llm.MessagePartVideo,

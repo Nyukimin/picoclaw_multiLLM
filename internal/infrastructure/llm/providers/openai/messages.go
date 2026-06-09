@@ -87,6 +87,18 @@ func (p *OpenAIProvider) convertMessages(req llm.GenerateRequest) []map[string]i
 							"url": "data:" + part.MimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
 						},
 					})
+				case llm.MessagePartAudio:
+					if len(part.Data) == 0 {
+						continue
+					}
+					format := audioFormatFromMimeType(part.MimeType)
+					parts = append(parts, map[string]interface{}{
+						"type": "input_audio",
+						"input_audio": map[string]interface{}{
+							"data":   base64.StdEncoding.EncodeToString(part.Data),
+							"format": format,
+						},
+					})
 				case llm.MessagePartVideo:
 					if len(part.Data) == 0 || part.MimeType == "" {
 						continue
@@ -126,4 +138,14 @@ func (p *OpenAIProvider) convertMessages(req llm.GenerateRequest) []map[string]i
 	}
 
 	return messages
+}
+
+func audioFormatFromMimeType(mimeType string) string {
+	ct := strings.ToLower(strings.TrimSpace(strings.Split(mimeType, ";")[0]))
+	switch ct {
+	case "audio/mpeg", "audio/mp3":
+		return "mp3"
+	default:
+		return "wav"
+	}
 }
