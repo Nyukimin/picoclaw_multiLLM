@@ -72,6 +72,7 @@ type Dependencies struct {
 	viewerAuditSummary             http.HandlerFunc                            // viewer audit summary API
 	viewerJobDetail                http.HandlerFunc                            // viewer job detail API
 	viewerSend                     http.HandlerFunc                            // viewer message sender
+	voiceDirectHandler             voiceDirectFinalHandler                     // VDS llm.final -> SSE
 	evidenceHandler                http.HandlerFunc                            // viewer evidence API
 	evidenceDetail                 http.HandlerFunc                            // viewer evidence detail API
 	evidenceSummary                http.HandlerFunc                            // viewer evidence summary API

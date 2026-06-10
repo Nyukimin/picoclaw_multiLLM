@@ -53,6 +53,10 @@ type DebugSystemOptions struct {
 	WebGather        WebGatherRuntimeConfig
 	BrowserActor     BrowserActorRuntimeConfig
 	RuntimeReadiness RuntimeDependencyReadiness
+	VoiceChatEnabled           bool
+	VoiceChatGatewayConfigured bool
+	VoiceChatStreamURL         string
+	VoiceInputMode             string
 }
 
 type RuntimeConfig struct {
@@ -68,6 +72,9 @@ type RuntimeConfig struct {
 	WebGather        WebGatherRuntimeConfig      `json:"web_gather,omitempty"`
 	BrowserActor     BrowserActorRuntimeConfig   `json:"browser_actor,omitempty"`
 	RuntimeReadiness RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
+	VoiceChatEnabled   bool   `json:"voice_chat_enabled"`
+	VoiceChatStreamURL string `json:"voice_chat_stream_url,omitempty"`
+	VoiceInputMode     string `json:"voice_input_mode,omitempty"`
 }
 
 type RuntimeDependencyReadiness struct {
@@ -183,18 +190,21 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(RuntimeConfig{
-			STTStreamURL:     browserFacingSTTStreamURL(r, opts.STTStreamURL),
-			STTBaseURL:       strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
-			TTSBaseURL:       strings.TrimRight(strings.TrimSpace(opts.TTSBaseURL), "/"),
-			TTSHealthPath:    strings.TrimSpace(opts.TTSHealthPath),
-			LLMOpsConfigured: opts.LLMOpsConfigured,
-			LLMOpsEnabled:    opts.LLMOpsEnabled,
-			LLMOpsBaseURL:    strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
-			LocalLLM:         runtimeLocalLLMConfig(r.Context(), opts.LocalLLM),
-			WebwrightFetch:   normalizeWebwrightFetchRuntimeConfig(opts.WebwrightFetch),
-			WebGather:        normalizeWebGatherRuntimeConfig(opts.WebGather),
-			BrowserActor:     normalizeBrowserActorRuntimeConfig(opts.BrowserActor),
-			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
+			STTStreamURL:       browserFacingSTTStreamURL(r, opts.STTStreamURL),
+			STTBaseURL:         strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+			TTSBaseURL:         strings.TrimRight(strings.TrimSpace(opts.TTSBaseURL), "/"),
+			TTSHealthPath:      strings.TrimSpace(opts.TTSHealthPath),
+			LLMOpsConfigured:   opts.LLMOpsConfigured,
+			LLMOpsEnabled:      opts.LLMOpsEnabled,
+			LLMOpsBaseURL:      strings.TrimRight(strings.TrimSpace(opts.LLMOpsBaseURL), "/"),
+			LocalLLM:           runtimeLocalLLMConfig(r.Context(), opts.LocalLLM),
+			WebwrightFetch:     normalizeWebwrightFetchRuntimeConfig(opts.WebwrightFetch),
+			WebGather:          normalizeWebGatherRuntimeConfig(opts.WebGather),
+			BrowserActor:       normalizeBrowserActorRuntimeConfig(opts.BrowserActor),
+			RuntimeReadiness:   normalizeRuntimeDependencyReadiness(opts),
+			VoiceChatEnabled:   opts.VoiceChatEnabled,
+			VoiceChatStreamURL: browserFacingVoiceChatStreamURL(r),
+			VoiceInputMode:     normalizeVoiceInputMode(opts.VoiceInputMode),
 		})
 	}
 }
@@ -212,6 +222,29 @@ func browserFacingSTTStreamURL(r *http.Request, configured string) string {
 		return "wss://" + host + "/stt"
 	}
 	return "ws://" + host + "/stt"
+}
+
+func browserFacingVoiceChatStreamURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := forwardedHost(r)
+	if host == "" {
+		return ""
+	}
+	if isHTTPSRequest(r) || isTailscaleHost(host) {
+		return "wss://" + host + "/voice-chat"
+	}
+	return "ws://" + host + "/voice-chat"
+}
+
+func normalizeVoiceInputMode(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "vds_sub", "parallel_caption":
+		return strings.TrimSpace(raw)
+	default:
+		return "stt_primary"
+	}
 }
 
 func forwardedHost(r *http.Request) string {

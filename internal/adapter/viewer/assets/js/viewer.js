@@ -547,6 +547,7 @@ function handleViewerActiveControlEvent(ev) {
   if (kind === 'input' && owner && owner !== viewerControl.clientId) {
     try {
       if (sttState && sttState.isRecording) abortSTTImmediately('active_input_transferred');
+      if (vdsState && vdsState.isRecording) abortVDSImmediately('active_input_transferred');
     } catch (_) {}
   }
 }
@@ -4278,6 +4279,7 @@ function handleChatInputIntent(reason) {
   interruptChatOutputForUserInput(reason);
   interruptIdleChatForUserInput(reason);
   if (sttState && sttState.isRecording) abortSTTImmediately('chat_input');
+  if (vdsState && vdsState.isRecording) abortVDSImmediately('chat_input');
 }
 inp.addEventListener('beforeinput', () => handleChatInputIntent('user_input'));
 inp.addEventListener('input', () => {
@@ -4665,6 +4667,42 @@ const sttState = {
   runtimeConfigLoaded: false
 };
 
+const vdsState = {
+  voiceInputMode: 'stt_primary',
+  voiceChatURL: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/voice-chat`,
+  voiceChatEnabled: false,
+  ws: null,
+  audioContext: null,
+  audioStream: null,
+  scriptNode: null,
+  isRecording: false,
+  isStopping: false,
+  vadSpeechActive: false,
+  vadSilenceStartedAt: 0,
+  vadLastVoiceAt: 0,
+  streamReady: false,
+  utteranceID: '',
+  sessionID: '',
+  chunkBuffer: [],
+  chunkSamples: 1600,
+  sentAudioBytes: 0,
+  sentAudioSamples: 0,
+  sentAudioFrames: 0,
+  sampleRate: 16000,
+  inputSampleRate: 48000,
+  inputLevel: 0,
+  captureLog: [],
+  llmDeltaText: '',
+  llmFinalText: '',
+  errorText: '',
+  latencySpeechStartMS: 0,
+  latencyCommitMS: 0,
+  latencyFirstDeltaMS: 0,
+  latencyFinalMS: 0,
+  finalWaitTimer: null,
+  runtimeConfigLoaded: false,
+};
+
 const micBtn = document.getElementById('micBtn');
 const micStateEl = document.getElementById('micState');
 const sttConnStateEl = document.getElementById('sttConnState');
@@ -4726,7 +4764,7 @@ function isSTTTestRecording() {
 function updateSTTTestRecordUI() {
   const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
   if (sttTestRecordStartBtn) {
-    sttTestRecordStartBtn.disabled = sttTestRecordState.isRecording || !!microphoneUnavailable || !!sttState.isRecording;
+    sttTestRecordStartBtn.disabled = sttTestRecordState.isRecording || !!microphoneUnavailable || !!sttState.isRecording || !!vdsState.isRecording;
   }
   if (sttTestRecordStopBtn) {
     sttTestRecordStopBtn.disabled = !sttTestRecordState.isRecording;
@@ -4893,7 +4931,7 @@ updateSTTTestRecordUI();
 if (micBtn) {
   micBtn.addEventListener('click', () => {
     interruptIdleChatForUserInput('stt_button');
-    toggleSTT();
+    toggleVoiceInput();
   });
 }
 if (sttCaptureCopyBtn) {
@@ -4916,6 +4954,16 @@ function isVoiceChatAllowed() {
   return activeViewerTab === 'timeline' && !document.body.classList.contains('live-mode');
 }
 
+function normalizeVoiceInputMode(raw) {
+  const mode = String(raw || '').trim();
+  if (mode === 'vds_sub' || mode === 'parallel_caption') return mode;
+  return 'stt_primary';
+}
+
+function isVDSSubMode() {
+  return normalizeVoiceInputMode(vdsState.voiceInputMode) === 'vds_sub';
+}
+
 async function loadViewerRuntimeConfig() {
   try {
     const res = await fetch('/viewer/runtime-config', { cache: 'no-store' });
@@ -4931,7 +4979,17 @@ async function loadViewerRuntimeConfig() {
     if (cfg && cfg.stt_base_url) {
       sttState.sttBaseURL = String(cfg.stt_base_url).trim();
     }
+    if (cfg && cfg.voice_chat_stream_url) {
+      vdsState.voiceChatURL = String(cfg.voice_chat_stream_url).trim() || vdsState.voiceChatURL;
+    }
+    if (cfg && typeof cfg.voice_chat_enabled === 'boolean') {
+      vdsState.voiceChatEnabled = cfg.voice_chat_enabled;
+    }
+    if (cfg && cfg.voice_input_mode) {
+      vdsState.voiceInputMode = normalizeVoiceInputMode(cfg.voice_input_mode);
+    }
     sttState.runtimeConfigLoaded = true;
+    vdsState.runtimeConfigLoaded = true;
     updateSTTInputIndicators();
     syncLLMOpsPanel(cfg, '');
     loadViewerDebugSystemSnapshot();
@@ -5195,22 +5253,25 @@ function updateSTTInputIndicators() {
   const voiceAllowed = isVoiceChatAllowed();
   const mobileControlAllowed = voiceAllowed || isMobileControlViewport();
   const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
+  const voiceRecording = !!sttState.isRecording || !!vdsState.isRecording;
+  const voiceInputLevel = vdsState.isRecording ? vdsState.inputLevel : sttState.inputLevel;
   if (micBtn) {
-    micBtn.classList.toggle('ready', !!sttState.isRecording);
-    micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
-    micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
+    micBtn.classList.toggle('ready', voiceRecording);
+    micBtn.classList.toggle('has-level', voiceRecording && voiceInputLevel > 0);
+    micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, voiceInputLevel)))}%`);
     micBtn.disabled = (!!microphoneUnavailable && !sttState.isRecording) || isSTTTestRecording();
+    if (vdsState.isRecording) micBtn.disabled = false;
     micBtn.title = isSTTTestRecording()
       ? 'テスト録音中は通常マイクを使えません'
       : microphoneUnavailable
       ? '音声入力不可: ' + microphoneUnavailable
       : voiceAllowed
-      ? (sttState.isRecording ? `音声入力監視中（入力レベル ${Math.round(sttState.inputLevel)}%・無音で自動確定）` : '音声入力')
+      ? (voiceRecording ? `音声入力監視中（入力レベル ${Math.round(voiceInputLevel)}%・無音で自動確定）` : '音声入力')
       : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
   }
   if (micStateEl) {
-    micStateEl.textContent = sttState.isRecording ? 'Mic: on' : (microphoneUnavailable ? 'Mic: unavailable' : 'Mic: off');
-    micStateEl.className = 'stt-state' + (sttState.isRecording ? ' mic-on' : (microphoneUnavailable ? ' mic-unavailable' : ''));
+    micStateEl.textContent = voiceRecording ? 'Mic: on' : (microphoneUnavailable ? 'Mic: unavailable' : 'Mic: off');
+    micStateEl.className = 'stt-state' + (voiceRecording ? ' mic-on' : (microphoneUnavailable ? ' mic-unavailable' : ''));
   }
   if (sttConnStateEl) {
     let text = 'STT: off';
@@ -5284,6 +5345,431 @@ function setSTTCaptionError(text) {
 
 if (typeof ensureVoiceChatForMobileControl !== 'function') {
   var ensureVoiceChatForMobileControl = function() { return true; };
+}
+
+const VDS_FINAL_WAIT_TIMEOUT_MS = 120000;
+const VDS_READY_WAIT_TIMEOUT_MS = 5000;
+
+function buildVDSWebSocketURL() {
+  const base = String(vdsState.voiceChatURL || '');
+  const viewerClientID = (typeof viewerControl !== 'undefined' && viewerControl && viewerControl.clientId)
+    ? String(viewerControl.clientId || '')
+    : '';
+  if (!viewerClientID) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return base + sep + 'viewer_client_id=' + encodeURIComponent(viewerClientID);
+}
+
+function extractVDSMessageText(msg) {
+  if (!msg) return '';
+  if (msg.text) return String(msg.text);
+  if (msg.message) return String(msg.message);
+  if (typeof msg.error === 'string') return msg.error;
+  if (msg.error && msg.error.message) return String(msg.error.message);
+  if (msg.error_code) return String(msg.error_code);
+  return '';
+}
+
+function updateVDSInputLevel(level) {
+  vdsState.inputLevel = Math.max(0, Math.min(100, Number(level) || 0));
+  updateSTTInputIndicators();
+}
+
+function recordVDSAudioSent(samples) {
+  const count = Math.max(0, Number(samples) || 0);
+  if (count <= 0) return;
+  vdsState.sentAudioSamples += count;
+  vdsState.sentAudioBytes += count * 2;
+  vdsState.sentAudioFrames += 1;
+}
+
+function sendVDSSessionStart() {
+  if (!vdsState.ws || vdsState.ws.readyState !== WebSocket.OPEN) return false;
+  vdsState.utteranceID = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : ('utt-' + String(Date.now()));
+  const sampleRate = Number(vdsState.sampleRate || 16000) || 16000;
+  const control = {
+    type: 'session.start',
+    utterance_id: vdsState.utteranceID,
+    sample_rate: sampleRate,
+    channels: 1,
+    format: 'pcm16le',
+    voice_input_mode: 'vds_sub',
+    channel: 'viewer',
+    chat_id: 'default',
+  };
+  vdsState.ws.send(JSON.stringify(control));
+  return true;
+}
+
+function sendVDSSessionCommit() {
+  if (!vdsState.ws || vdsState.ws.readyState !== WebSocket.OPEN) return false;
+  const control = {
+    type: 'session.commit',
+    utterance_id: vdsState.utteranceID,
+  };
+  vdsState.ws.send(JSON.stringify(control));
+  vdsState.latencyCommitMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  return true;
+}
+
+function sendVDSAudioChunk(pcm16) {
+  if (!vdsState.isRecording || !vdsState.vadSpeechActive || vdsState.isStopping) return;
+  vdsState.chunkBuffer.push(...pcm16);
+  if (!vdsState.ws || vdsState.ws.readyState !== WebSocket.OPEN || !vdsState.streamReady) return;
+  while (vdsState.chunkBuffer.length >= vdsState.chunkSamples) {
+    const chunk = new Int16Array(vdsState.chunkBuffer.slice(0, vdsState.chunkSamples));
+    vdsState.chunkBuffer = vdsState.chunkBuffer.slice(vdsState.chunkSamples);
+    vdsState.ws.send(chunk.buffer);
+    recordVDSAudioSent(chunk.length);
+  }
+}
+
+function flushVDSAudioChunkBuffer() {
+  if (!vdsState.ws || vdsState.ws.readyState !== WebSocket.OPEN || vdsState.chunkBuffer.length === 0) return false;
+  const chunk = new Int16Array(vdsState.chunkBuffer);
+  vdsState.chunkBuffer = [];
+  vdsState.ws.send(chunk.buffer);
+  recordVDSAudioSent(chunk.length);
+  return true;
+}
+
+function sendVDSTailSilence() {
+  if (!vdsState.ws || vdsState.ws.readyState !== WebSocket.OPEN) return false;
+  const sampleRate = Number(vdsState.sampleRate || 16000) || 16000;
+  const totalSamples = Math.max(0, Math.round(sampleRate * STT_STOP_TAIL_SILENCE_MS / 1000));
+  if (totalSamples <= 0) return false;
+  const chunkSamples = Math.max(1, Number(vdsState.chunkSamples || 1600) || 1600);
+  for (let offset = 0; offset < totalSamples; offset += chunkSamples) {
+    const size = Math.min(chunkSamples, totalSamples - offset);
+    vdsState.ws.send(new Int16Array(size).buffer);
+  }
+  return true;
+}
+
+function clearVDSFinalWaitTimer() {
+  if (!vdsState.finalWaitTimer) return;
+  clearTimeout(vdsState.finalWaitTimer);
+  vdsState.finalWaitTimer = null;
+}
+
+function scheduleVDSFinalWaitTimeout() {
+  clearVDSFinalWaitTimer();
+  vdsState.finalWaitTimer = setTimeout(() => {
+    vdsState.finalWaitTimer = null;
+    if (!vdsState.isStopping) return;
+    vdsState.errorText = 'timed out waiting for llm.final';
+    showToast('Voice Direct 応答タイムアウト', 'error');
+    completeVDSUtteranceStop('timeout');
+  }, VDS_FINAL_WAIT_TIMEOUT_MS);
+}
+
+function resetVDSUtteranceState() {
+  vdsState.streamReady = false;
+  vdsState.utteranceID = '';
+  vdsState.sessionID = '';
+  vdsState.chunkBuffer = [];
+  vdsState.sentAudioBytes = 0;
+  vdsState.sentAudioSamples = 0;
+  vdsState.sentAudioFrames = 0;
+  vdsState.llmDeltaText = '';
+  vdsState.llmFinalText = '';
+  vdsState.errorText = '';
+  vdsState.latencySpeechStartMS = 0;
+  vdsState.latencyCommitMS = 0;
+  vdsState.latencyFirstDeltaMS = 0;
+  vdsState.latencyFinalMS = 0;
+  clearVDSFinalWaitTimer();
+}
+
+function connectVDSWebSocket() {
+  if (vdsState.isStopping) return;
+  if (!vdsState.isRecording) return;
+  if (vdsState.ws && vdsState.ws.readyState === WebSocket.OPEN) return;
+  if (vdsState.ws && vdsState.ws.readyState === WebSocket.CONNECTING) return;
+  vdsState.ws = new WebSocket(buildVDSWebSocketURL());
+  vdsState.ws.binaryType = 'arraybuffer';
+  vdsState.ws.onopen = () => {
+    sendVDSSessionStart();
+    console.log('[VDS] Connected - waiting for session.ready');
+    updateSTTInputIndicators();
+  };
+  vdsState.ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      const eventText = extractVDSMessageText(msg);
+      pushDebugTrace('vds', {
+        time: ftime(new Date().toISOString()),
+        step: msg.type || 'message',
+        text: short(eventText, 240),
+      });
+      if (msg.type === 'session.ready') {
+        vdsState.streamReady = true;
+        if (msg.session_id) vdsState.sessionID = String(msg.session_id).trim();
+        if (vdsState.latencySpeechStartMS && typeof recordLatencyMetric === 'function') {
+          const readyMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+          recordLatencyMetric('vds', 'session_ready', {
+            valueMS: readyMS - vdsState.latencySpeechStartMS,
+            session: vdsState.sessionID || '',
+          });
+        }
+        flushVDSAudioChunkBuffer();
+        updateSTTInputIndicators();
+      } else if (msg.type === 'session.progress') {
+        console.log('[VDS] Progress:', msg);
+      } else if (msg.type === 'llm.delta' && msg.text) {
+        vdsState.llmDeltaText += String(msg.text || '');
+        if (!vdsState.latencyFirstDeltaMS) {
+          vdsState.latencyFirstDeltaMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+          if (typeof recordLatencyMetric === 'function') {
+            recordLatencyMetric('vds', 'first_delta', {
+              atMS: vdsState.latencyFirstDeltaMS,
+              valueMS: vdsState.latencyCommitMS ? vdsState.latencyFirstDeltaMS - vdsState.latencyCommitMS : NaN,
+              session: vdsState.sessionID || '',
+            });
+          }
+        }
+      } else if (msg.type === 'llm.final') {
+        handleVDSFinalMessage(msg);
+      }
+      if (msg.type === 'error') {
+        vdsState.errorText = extractVDSMessageText(msg) || 'unknown error';
+        showToast('Voice Direct エラー', 'error');
+        console.error('[VDS] Error:', msg);
+        completeVDSUtteranceStop('error');
+      }
+    } catch (err) {
+      console.warn('[VDS] Non-JSON message ignored:', err);
+    }
+  };
+  vdsState.ws.onerror = (err) => {
+    console.error('[VDS] WebSocket error:', err);
+    vdsState.errorText = 'websocket error';
+    updateSTTInputIndicators();
+  };
+  vdsState.ws.onclose = () => {
+    vdsState.streamReady = false;
+    updateSTTInputIndicators();
+  };
+}
+
+function handleVDSFinalMessage(msg) {
+  const finalText = String((msg && msg.text) || '').trim();
+  vdsState.llmFinalText = finalText;
+  vdsState.latencyFinalMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  clearVDSFinalWaitTimer();
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('vds', 'final_received', {
+      atMS: vdsState.latencyFinalMS,
+      valueMS: vdsState.latencyCommitMS ? vdsState.latencyFinalMS - vdsState.latencyCommitMS : NaN,
+      detail: 'len=' + String(finalText.length),
+      session: vdsState.sessionID || '',
+    });
+  }
+  console.log('[VDS] LLM final received (SSE displays chat response):', finalText);
+  completeVDSUtteranceStop('llm.final');
+}
+
+async function toggleVDS() {
+  if (isSTTTestRecording()) {
+    showToast('テスト録音中は通常マイクを使えません', 'error');
+    return;
+  }
+  if (vdsState.isRecording) {
+    stopVDS();
+  } else {
+    if (typeof ensureVoiceChatForMobileControl === 'function' && !ensureVoiceChatForMobileControl()) {
+      showToast('音声入力は通常チャットでのみ有効です', 'error');
+      return;
+    }
+    await startVDS();
+  }
+}
+
+async function startVDS() {
+  if (isSTTTestRecording()) {
+    showToast('テスト録音中は通常マイクを使えません', 'error');
+    return;
+  }
+  if (!ensureVoiceChatForMobileControl()) {
+    showToast('音声入力は通常チャットでのみ有効です', 'error');
+    return;
+  }
+  const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
+  if (microphoneUnavailable) {
+    showToast('マイク利用不可', 'error');
+    return;
+  }
+  if (!vdsState.runtimeConfigLoaded) {
+    await loadViewerRuntimeConfig();
+  }
+  if (!vdsState.voiceChatEnabled) {
+    showToast('Voice Direct は無効です', 'error');
+    return;
+  }
+  try {
+    if (typeof claimViewerControl === 'function') {
+      await claimViewerControl('input', 'vds_start');
+    }
+    resetVDSUtteranceState();
+    vdsState.isStopping = false;
+    vdsState.vadSpeechActive = false;
+    vdsState.vadSilenceStartedAt = 0;
+    vdsState.vadLastVoiceAt = 0;
+    updateVDSInputLevel(0);
+    vdsState.audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true,
+      },
+    });
+    vdsState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    vdsState.inputSampleRate = Math.round(vdsState.audioContext.sampleRate || 48000);
+    vdsState.sampleRate = 16000;
+    const source = vdsState.audioContext.createMediaStreamSource(vdsState.audioStream);
+    vdsState.scriptNode = vdsState.audioContext.createScriptProcessor(4096, 1, 1);
+    source.connect(vdsState.scriptNode);
+    vdsState.scriptNode.connect(vdsState.audioContext.destination);
+    vdsState.scriptNode.onaudioprocess = (e) => {
+      if (!vdsState.isRecording) return;
+      const pcm = e.inputBuffer.getChannelData(0);
+      const pcm16 = resampleToPCM16(pcm, vdsState.inputSampleRate || 48000, 16000);
+      const level = calculateSTTInputLevel(pcm16);
+      updateVDSInputLevel(level);
+      handleVDSVADFrame(pcm16, level);
+      if (vdsState.vadSpeechActive && !vdsState.isStopping) {
+        sendVDSAudioChunk(pcm16);
+      }
+    };
+    vdsState.isRecording = true;
+    updateSTTInputIndicators();
+  } catch (err) {
+    console.error('[VDS] Failed:', err);
+    showToast('マイクアクセス拒否', 'error');
+    stopVDS();
+  }
+}
+
+function beginVDSUtterance(reason) {
+  if (!vdsState.isRecording || vdsState.isStopping || vdsState.vadSpeechActive) return false;
+  resetVDSUtteranceState();
+  vdsState.vadSpeechActive = true;
+  vdsState.vadSilenceStartedAt = 0;
+  vdsState.vadLastVoiceAt = Date.now();
+  vdsState.latencySpeechStartMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  interruptChatOutputForUserInput('vds_voice_start');
+  interruptIdleChatForUserInput('vds_voice_start');
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('vds', 'speech_start', {
+      atMS: vdsState.latencySpeechStartMS,
+      detail: String(reason || 'vad_voice'),
+      session: vdsState.sessionID || '',
+    });
+  }
+  connectVDSWebSocket();
+  updateSTTInputIndicators();
+  return true;
+}
+
+function handleVDSVADFrame(pcm16, level) {
+  if (!vdsState.isRecording) return;
+  const now = Date.now();
+  const inputLevel = Math.max(0, Number(level) || 0);
+  const isVoice = inputLevel >= (vdsState.vadSpeechActive ? STT_VAD_END_LEVEL : STT_VAD_START_LEVEL);
+  if (isVoice) {
+    vdsState.vadLastVoiceAt = now;
+    vdsState.vadSilenceStartedAt = 0;
+    if (vdsState.isStopping) return;
+    beginVDSUtterance('vad_voice');
+    return;
+  }
+  if (!vdsState.vadSpeechActive || vdsState.isStopping) return;
+  if (!vdsState.vadSilenceStartedAt) {
+    vdsState.vadSilenceStartedAt = now;
+    return;
+  }
+  if (now - vdsState.vadSilenceStartedAt >= STT_SILENCE_END_MS) {
+    stopVDSUtteranceBySilence();
+  }
+}
+
+function stopVDSUtteranceBySilence() {
+  if (vdsState.isStopping || !vdsState.vadSpeechActive) return false;
+  vdsState.isStopping = true;
+  vdsState.vadSpeechActive = false;
+  console.log('[VDS] Silence detected - committing utterance');
+  flushVDSAudioChunkBuffer();
+  sendVDSTailSilence();
+  sendVDSSessionCommit();
+  scheduleVDSFinalWaitTimeout();
+  updateSTTInputIndicators();
+  return true;
+}
+
+function completeVDSUtteranceStop(reason) {
+  clearVDSFinalWaitTimer();
+  vdsState.isStopping = false;
+  vdsState.vadSpeechActive = false;
+  vdsState.vadSilenceStartedAt = 0;
+  vdsState.streamReady = false;
+  vdsState.chunkBuffer = [];
+  if (vdsState.ws && (vdsState.ws.readyState === WebSocket.OPEN || vdsState.ws.readyState === WebSocket.CONNECTING)) {
+    try { vdsState.ws.close(); } catch (_) {}
+  }
+  vdsState.ws = null;
+  updateSTTInputIndicators();
+  console.log('[VDS] Utterance complete:', String(reason || 'done'));
+}
+
+function stopVDS() {
+  if (vdsState.vadSpeechActive && !vdsState.isStopping) {
+    stopVDSUtteranceBySilence();
+    return;
+  }
+  abortVDSImmediately('mic_off');
+}
+
+function abortVDSImmediately(reason) {
+  const abortReason = String(reason || 'immediate_abort').trim() || 'immediate_abort';
+  vdsState.isRecording = false;
+  vdsState.isStopping = false;
+  vdsState.vadSpeechActive = false;
+  vdsState.vadSilenceStartedAt = 0;
+  vdsState.vadLastVoiceAt = 0;
+  clearVDSFinalWaitTimer();
+  if (vdsState.scriptNode) {
+    try { vdsState.scriptNode.disconnect(); } catch (_) {}
+    vdsState.scriptNode = null;
+  }
+  if (vdsState.audioContext) {
+    try { vdsState.audioContext.close(); } catch (_) {}
+    vdsState.audioContext = null;
+  }
+  if (vdsState.audioStream) {
+    vdsState.audioStream.getTracks().forEach((t) => {
+      try { t.stop(); } catch (_) {}
+    });
+    vdsState.audioStream = null;
+  }
+  if (vdsState.ws && (vdsState.ws.readyState === WebSocket.OPEN || vdsState.ws.readyState === WebSocket.CONNECTING)) {
+    try { vdsState.ws.close(); } catch (_) {}
+  }
+  vdsState.ws = null;
+  vdsState.streamReady = false;
+  vdsState.chunkBuffer = [];
+  updateVDSInputLevel(0);
+  updateSTTInputIndicators();
+  console.log('[VDS] Aborted:', abortReason);
+}
+
+async function toggleVoiceInput() {
+  if (isVDSSubMode()) {
+    await toggleVDS();
+    return;
+  }
+  await toggleSTT();
 }
 
 async function toggleSTT() {

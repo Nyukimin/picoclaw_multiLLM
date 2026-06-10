@@ -238,3 +238,48 @@ func TestHandleRuntimeConfig_ReturnsRuntimeReadinessWithoutSecretValues(t *testi
 		t.Fatalf("runtime config leaked env names or secrets: %s", rec.Body.String())
 	}
 }
+
+func TestHandleRuntimeConfig_ReturnsVoiceChatFields(t *testing.T) {
+	handler := HandleRuntimeConfig(DebugSystemOptions{
+		STTStreamURL:     "ws://127.0.0.1/stt",
+		VoiceChatEnabled:   true,
+		VoiceInputMode:     "vds_sub",
+	})
+	req := httptest.NewRequest(http.MethodGet, "https://fujitsu-ubunts.tailb07d8d.ts.net/viewer/runtime-config", nil)
+	req.Header.Set("X-Forwarded-Host", "fujitsu-ubunts.tailb07d8d.ts.net")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	var body RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode runtime config: %v", err)
+	}
+	if !body.VoiceChatEnabled {
+		t.Fatalf("expected voice_chat_enabled=true, got %+v", body)
+	}
+	if body.VoiceChatStreamURL != "wss://fujitsu-ubunts.tailb07d8d.ts.net/voice-chat" {
+		t.Fatalf("unexpected voice chat stream url: %+v", body)
+	}
+	if body.VoiceInputMode != "vds_sub" {
+		t.Fatalf("unexpected voice input mode: %+v", body)
+	}
+}
+
+func TestHandleRuntimeConfig_DefaultVoiceInputModeIsSTTPrimary(t *testing.T) {
+	handler := HandleRuntimeConfig(DebugSystemOptions{STTStreamURL: "ws://127.0.0.1/stt"})
+	rec := httptest.NewRecorder()
+	handler(rec, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18790/viewer/runtime-config", nil))
+
+	var body RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode runtime config: %v", err)
+	}
+	if body.VoiceInputMode != "stt_primary" {
+		t.Fatalf("unexpected voice input mode: %+v", body)
+	}
+	if body.VoiceChatEnabled {
+		t.Fatalf("expected voice chat disabled by default: %+v", body)
+	}
+}

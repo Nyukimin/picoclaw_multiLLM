@@ -80,7 +80,7 @@ func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *
 	log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
 }
 
-func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, dependencies *Dependencies) {
+func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, voiceChatRuntime voiceChatRuntime, dependencies *Dependencies) {
 	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave(modulestt.DefaultViewerClientLogPath))
 	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave(modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerArchiveDir))
 	mux.HandleFunc("/viewer/stt/wav/raw", viewer.HandleSTTInputRawWAVSave(modulestt.DefaultViewerLatestRawWAVPath, modulestt.DefaultViewerArchiveDir))
@@ -88,6 +88,7 @@ func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, depend
 	mux.HandleFunc("/viewer/stt/admin/restart", viewer.HandleSTTRestart(viewer.STTAdminOptions{BaseURL: sttRuntime.DebugOptions.STTBaseURL}))
 	dependencies.moduleSTTViewerInput = newSTTViewerInputObserver(sttRuntime)
 	registerSTTRuntimeRoutes(mux, sttRuntime)
+	registerVoiceChatRuntimeRoutes(mux, voiceChatRuntime)
 	registerModuleRoutes(mux, dependencies, sttRuntime)
 	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 }

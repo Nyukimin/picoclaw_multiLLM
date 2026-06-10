@@ -148,6 +148,7 @@ func buildOrchestratorRuntime(
 	deps.viewerSend = bridges.ViewerSendFromOrch(orch)
 	deps.entryHandler = bridges.EntryFromOrch(orch)
 	deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = bridges.ChromeBridgeFromOrch(orch)
+	deps.voiceDirectHandler = orch
 	startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, orch)
 }
 

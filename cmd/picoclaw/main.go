@@ -103,6 +103,7 @@ func cmdRun() {
 
 	// Live Viewer
 	sttRuntime := buildSTTRuntime(cfg)
+	voiceChatRuntime := buildVoiceChatRuntime(cfg, dependencies.voiceDirectHandler)
 	debugSystemOpts := sttRuntime.DebugOptions
 	llmOpsToken := strings.TrimSpace(os.Getenv("LLM_OPS_TOKEN"))
 	debugSystemOpts.LLMOpsConfigured = cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != ""
@@ -159,12 +160,16 @@ func cmdRun() {
 		SaveScreenshot:     cfg.BrowserActor.SaveScreenshotEnabled(),
 		MaskSecrets:        cfg.BrowserActor.MaskSecretsEnabled(),
 	}
+	voiceChatOpts := voiceChatDebugOptions(cfg, voiceChatRuntime)
+	debugSystemOpts.VoiceChatEnabled = voiceChatOpts.VoiceChatEnabled
+	debugSystemOpts.VoiceChatGatewayConfigured = voiceChatOpts.VoiceChatGatewayConfigured
+	debugSystemOpts.VoiceInputMode = voiceChatOpts.VoiceInputMode
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}
 	registerViewerBaseRoutes(mux, cfg, dependencies, debugSystemOpts)
 	registerLLMOpsRoutes(mux, cfg, dependencies, &debugSystemOpts)
-	registerSTTAndAudioRoutes(mux, sttRuntime, dependencies)
+	registerSTTAndAudioRoutes(mux, sttRuntime, voiceChatRuntime, dependencies)
 	registerViewerDynamicRoutes(mux, dependencies)
 	registerEntryAndChromeRoutes(mux, dependencies)
 	registerIdleChatRoutes(mux, dependencies)
