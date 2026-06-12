@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
@@ -23,6 +24,38 @@ func TestNewCoderAgent(t *testing.T) {
 
 	if coder.llmProvider != llmProvider {
 		t.Error("llmProvider not set correctly")
+	}
+}
+
+func TestCoderAgentBuilderOptionsAndGenerateWithContext(t *testing.T) {
+	var gotReq llm.GenerateRequest
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			gotReq = req
+			return llm.GenerateResponse{Content: "context response"}, nil
+		},
+	}
+	memory := NewLightMemory(2)
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "base prompt").
+		WithPersona(AgentPersona{Name: "Aka", Personality: "Be direct"}).
+		WithLightMemory(memory)
+
+	if coder.persona == nil || coder.persona.Name != "Aka" || coder.lightMemory != memory {
+		t.Fatalf("builder options not set: %#v", coder)
+	}
+	resp, err := coder.GenerateWithContext(context.Background(), []llm.Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatalf("GenerateWithContext failed: %v", err)
+	}
+	if resp != "context response" || len(gotReq.Messages) != 1 || gotReq.MaxTokens != 8192 || gotReq.Temperature != 0.5 {
+		t.Fatalf("resp=%q req=%#v", resp, gotReq)
+	}
+
+	llmProvider.generateFunc = func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+		return llm.GenerateResponse{}, errors.New("context failed")
+	}
+	if _, err := coder.GenerateWithContext(context.Background(), nil); err == nil {
+		t.Fatal("expected GenerateWithContext error")
 	}
 }
 
@@ -437,6 +470,58 @@ Step 1: Create file`
 	}
 	if !retryable {
 		t.Fatal("expected missing patch to be retryable")
+	}
+}
+
+func TestProposalErrorAndFailureInfoBranches(t *testing.T) {
+	if got := (&ProposalError{Reason: "  failed  "}).Error(); got != "failed" {
+		t.Fatalf("error without kind should trim reason, got %q", got)
+	}
+	if got := (&ProposalError{Kind: "kind"}).Error(); got != "kind: proposal generation failed" {
+		t.Fatalf("error without reason should use default reason, got %q", got)
+	}
+
+	kind, reason, retryable, ok := ProposalFailureInfo(errors.New("plain error"))
+	if ok || kind != "" || reason != "" || retryable {
+		t.Fatalf("plain error should not expose proposal metadata: %q %q %v %v", kind, reason, retryable, ok)
+	}
+}
+
+func TestCoderAgentSelfCheckProposalFailures(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	if err := coder.selfCheckProposal(nil); err == nil || err.Error() != "proposal is nil" {
+		t.Fatalf("expected nil proposal error, got %v", err)
+	}
+
+	emptyPatch := proposal.NewProposal("plan", "   ", "", "")
+	err := coder.selfCheckProposal(emptyPatch)
+	if err == nil {
+		t.Fatal("expected missing patch error")
+	}
+	kind, _, retryable, ok := ProposalFailureInfo(err)
+	if !ok || kind != ProposalFailureMissingPatch || !retryable {
+		t.Fatalf("unexpected missing patch metadata: %q %v %v", kind, retryable, ok)
+	}
+
+	invalidPatch := proposal.NewProposal("plan", "not a runnable patch", "", "")
+	err = coder.selfCheckProposal(invalidPatch)
+	if err == nil {
+		t.Fatal("expected invalid patch error")
+	}
+	kind, _, retryable, ok = ProposalFailureInfo(err)
+	if !ok || kind != ProposalFailureInvalidPatch || !retryable {
+		t.Fatalf("unexpected invalid patch metadata: %q %v %v", kind, retryable, ok)
+	}
+
+	barePip := proposal.NewProposal("plan", `[{"type":"shell_command","action":"run","target":"pip install demo"}]`, "", "")
+	err = coder.selfCheckProposal(barePip)
+	if err == nil {
+		t.Fatal("expected bare pip error")
+	}
+	kind, _, retryable, ok = ProposalFailureInfo(err)
+	if !ok || kind != ProposalFailureDisallowedCommand || retryable {
+		t.Fatalf("unexpected bare pip metadata: %q %v %v", kind, retryable, ok)
 	}
 }
 

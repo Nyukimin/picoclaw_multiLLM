@@ -67,3 +67,77 @@ triggers:
 		t.Fatalf("path=%q want %q", manifests[0].Path, dir)
 	}
 }
+
+func TestParseManifestYAMLDefaultsAndTopLevelFields(t *testing.T) {
+	manifest := ParseManifestYAML(`
+# comment
+human_approval_required: true
+skill:
+  id: project.local
+  name: Local Skill
+  enabled: false
+  unknown line without colon
+triggers:
+  keywords:
+    - local
+`)
+	if manifest.SkillID != "project.local" || manifest.Name != "Local Skill" {
+		t.Fatalf("manifest=%#v", manifest)
+	}
+	if manifest.Enabled || !manifest.HumanApprovalRequired {
+		t.Fatalf("enabled/human approval flags wrong: %#v", manifest)
+	}
+	if len(manifest.KeywordTriggers) != 1 || manifest.KeywordTriggers[0] != "local" {
+		t.Fatalf("keywords=%#v", manifest.KeywordTriggers)
+	}
+}
+
+func TestLoadManifestsFromDirsSkipsInvalidDuplicateAndInfersScopes(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		filepath.Join(root, "plugin", "alpha", "skill_manifest.yaml"): `skill:
+  id: "plugin.alpha"
+  name: "Alpha"
+`,
+		filepath.Join(root, "plugins", "beta", "skill_manifest.yaml"): `skill:
+  id: "plugin.beta"
+  name: "Beta"
+`,
+		filepath.Join(root, "projects", "gamma", "skill_manifest.yaml"): `skill:
+  id: "project.gamma"
+  name: "Gamma"
+`,
+		filepath.Join(root, "project", "duplicate", "skill_manifest.yaml"): `skill:
+  id: "plugin.alpha"
+  name: "Duplicate"
+`,
+		filepath.Join(root, "project", "missing-id", "skill_manifest.yaml"): `skill:
+  name: "Missing ID"
+`,
+	}
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifests, err := LoadManifestsFromDirs("", filepath.Join(root, "does-not-exist"), root)
+	if err != nil {
+		t.Fatalf("LoadManifestsFromDirs failed: %v", err)
+	}
+	byID := map[string]SkillManifest{}
+	for _, manifest := range manifests {
+		byID[manifest.SkillID] = manifest
+		if manifest.Version != "0.0.0" || manifest.UpdatedAt.IsZero() {
+			t.Fatalf("default fields missing: %#v", manifest)
+		}
+	}
+	if len(byID) != 3 {
+		t.Fatalf("manifests=%#v", manifests)
+	}
+	if byID["plugin.alpha"].Scope != ScopePlugin || byID["plugin.beta"].Scope != ScopePlugin || byID["project.gamma"].Scope != ScopeProject {
+		t.Fatalf("scopes=%#v", byID)
+	}
+}

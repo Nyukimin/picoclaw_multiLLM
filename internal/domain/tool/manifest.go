@@ -15,13 +15,13 @@ const (
 // ToolManifest はツールの公開契約
 // v1 では既存 ToolMetadata をラップして利用する。
 type ToolManifest struct {
-	ID               string         `json:"id"`
-	Version          string         `json:"version"`
-	Description      string         `json:"description,omitempty"`
-	InputSchema      map[string]any `json:"input_schema,omitempty"`
-	OutputSchema     map[string]any `json:"output_schema,omitempty"`
-	SideEffect       SideEffect     `json:"side_effect"`
-	TimeoutSec       int            `json:"timeout_sec,omitempty"`
+	ID           string         `json:"id"`
+	Version      string         `json:"version"`
+	Description  string         `json:"description,omitempty"`
+	InputSchema  map[string]any `json:"input_schema,omitempty"`
+	OutputSchema map[string]any `json:"output_schema,omitempty"`
+	SideEffect   SideEffect     `json:"side_effect"`
+	TimeoutSec   int            `json:"timeout_sec,omitempty"`
 }
 
 func (m ToolManifest) Validate() error {
@@ -39,7 +39,7 @@ func (m ToolManifest) Validate() error {
 	}
 }
 
-// ManifestFromMetadata converts legacy metadata to manifest.
+// ManifestFromMetadata converts tool metadata to a manifest.
 func ManifestFromMetadata(meta ToolMetadata) ToolManifest {
 	sideEffect := SideEffectNone
 	switch meta.Category {

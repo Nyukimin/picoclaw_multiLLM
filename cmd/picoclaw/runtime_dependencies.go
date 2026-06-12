@@ -30,6 +30,7 @@ import (
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
+	mcpinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	aiworkflowpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/aiworkflow"
 	browsertracepersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/browsertrace"
 	complexitypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/complexity"
@@ -38,7 +39,6 @@ import (
 	knowledgememorypersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/knowledgememory"
 	personapersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/persona"
 	revenuepersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/revenue"
-	mcpinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/mcp"
 	sandboxpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/sandbox"
 	skillpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/skillgovernance"
 	superagentpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/superagent"
@@ -276,8 +276,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		llmRuntime.Wild,
 		classifier,
 		ruleDictionary,
-		toolRuntime.ChatLegacy,
-		toolRuntime.WorkerLegacy,
+		toolRuntime.ChatRuntimeRunnerV2,
+		toolRuntime.WorkerRuntimeRunnerV2,
 		mcpClient,
 		conversationRuntime.Engine,
 		glossaryRuntime.RecentContext,

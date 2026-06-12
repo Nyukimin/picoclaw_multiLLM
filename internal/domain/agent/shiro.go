@@ -131,7 +131,14 @@ func ensureShiroJapaneseResponsePrompt(systemPrompt string) string {
 
 // ExecuteTool はツールを実行
 func (s *ShiroAgent) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
-	return s.toolRunner.Execute(ctx, toolName, args)
+	resp, err := s.toolRunner.ExecuteV2(ctx, toolName, args)
+	if err != nil {
+		return "", err
+	}
+	if resp.IsError() {
+		return "", fmt.Errorf("%s", resp.Error.Message)
+	}
+	return resp.String(), nil
 }
 
 // ExecuteMCPTool はMCPツールを実行

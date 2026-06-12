@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildContext_ChatRoute(t *testing.T) {
@@ -59,6 +60,21 @@ func TestBuildContext_WithSkills(t *testing.T) {
 
 	if !strings.Contains(got, "weather: Weather lookup") {
 		t.Error("expected skills summary")
+	}
+}
+
+func TestBuildContext_WithMemoryStoreAndFewShot(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "AGENT.md"), []byte("Agent rules"), 0644)
+	os.WriteFile(filepath.Join(dir, "FewShot_01.md"), []byte("Example turn"), 0644)
+
+	b := NewBuilder(dir).WithMemoryStore(fakeMemoryStore{context: "# MEMORY\nremember this"})
+	got := b.BuildContext("CHAT")
+
+	for _, want := range []string{"# AGENT\nAgent rules", "# MEMORY\nremember this", "# FewShot Example\nExample turn"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("context=%q, missing %q", got, want)
+		}
 	}
 }
 
@@ -152,3 +168,21 @@ func TestBuildSkillsSummary_WithSkillDirsWorkspacePriority(t *testing.T) {
 		t.Fatalf("expected prompt-only skill: %q", got)
 	}
 }
+
+type fakeMemoryStore struct {
+	context string
+}
+
+func (s fakeMemoryStore) ReadLongTerm() string { return "" }
+
+func (s fakeMemoryStore) WriteLongTerm(string) error { return nil }
+
+func (s fakeMemoryStore) ReadToday() string { return "" }
+
+func (s fakeMemoryStore) AppendToday(string) error { return nil }
+
+func (s fakeMemoryStore) GetRecentDailyNotes(int) string { return "" }
+
+func (s fakeMemoryStore) SaveDailyNoteForDate(time.Time, string) error { return nil }
+
+func (s fakeMemoryStore) GetMemoryContext() string { return s.context }

@@ -46,6 +46,14 @@ func (m *mockToolRunner) List(ctx context.Context) ([]string, error) {
 	return []string{"shell", "file_read", "web_search"}, nil
 }
 
+func (m *mockToolRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error) {
+	return []tool.ToolMetadata{
+		{ToolID: "shell", Version: "test", Category: "admin"},
+		{ToolID: "file_read", Version: "test", Category: "query"},
+		{ToolID: "web_search", Version: "test", Category: "query"},
+	}, nil
+}
+
 type mockMCPClient struct{}
 
 func (m *mockMCPClient) CallTool(ctx context.Context, serverName, toolName string, args map[string]interface{}) (string, error) {

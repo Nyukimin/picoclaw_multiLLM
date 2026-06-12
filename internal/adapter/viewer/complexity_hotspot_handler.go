@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	complexityapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/complexity"
 	domaincomplexity "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/complexity"
-	domaindci "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/dci"
 	domainsandbox "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/sandbox"
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	domainworkstream "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/workstream"
@@ -193,12 +191,12 @@ func HandleComplexityHotspotScan(store ComplexityHotspotStore, analyzer Complexi
 				http.Error(w, "dci trace store unavailable for complexity candidate extraction", http.StatusServiceUnavailable)
 				return
 			}
-			derived, err := deriveComplexityCandidatePatterns(r.Context(), dciTraces, req.DCITraceLimit)
+			derived, err := complexityapp.DeriveCandidatePatterns(r.Context(), dciTraces, req.DCITraceLimit)
 			if err != nil {
 				http.Error(w, "failed to derive complexity candidate patterns from dci traces", http.StatusInternalServerError)
 				return
 			}
-			candidatePatterns = mergeComplexityCandidatePatterns(candidatePatterns, derived)
+			candidatePatterns = complexityapp.MergeCandidatePatterns(candidatePatterns, derived)
 		}
 		if skillBootstrap != nil {
 			if _, err := skillBootstrap.Record(r.Context(), domainskill.TaskContext{
@@ -898,73 +896,6 @@ func complexitySkillTaskText(req ComplexityHotspotScanRequest) string {
 	parts := []string{"complexity hotspot scan", req.Repo}
 	parts = append(parts, req.ScanScope...)
 	return strings.TrimSpace(strings.Join(parts, " "))
-}
-
-func deriveComplexityCandidatePatterns(ctx context.Context, dciTraces any, limit int) ([]string, error) {
-	if limit <= 0 {
-		limit = 5
-	}
-	if limit > 20 {
-		limit = 20
-	}
-	var traces []domaindci.SearchTrace
-	var err error
-	switch store := dciTraces.(type) {
-	case DCITraceContextLister:
-		traces, err = store.ListRecent(ctx, limit)
-	case DCITraceLister:
-		traces, err = store.ListRecent(limit)
-	default:
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var candidates []string
-	for _, trace := range traces {
-		candidates = append(candidates, complexityCandidateWords(trace.UserQuery)...)
-		for _, step := range trace.Steps {
-			if step.Status != "" && step.Status != "ok" && step.Status != "completed" {
-				continue
-			}
-			candidates = append(candidates, complexityCandidateWords(step.CommandText)...)
-			if base := strings.TrimSuffix(filepath.Base(step.FilePath), filepath.Ext(step.FilePath)); base != "." && base != "" {
-				candidates = append(candidates, base)
-			}
-		}
-	}
-	return mergeComplexityCandidatePatterns(nil, candidates), nil
-}
-
-func complexityCandidateWords(text string) []string {
-	return strings.FieldsFunc(text, func(r rune) bool {
-		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.')
-	})
-}
-
-func mergeComplexityCandidatePatterns(primary []string, derived []string) []string {
-	seen := make(map[string]struct{})
-	out := make([]string, 0, len(primary)+len(derived))
-	for _, pattern := range append(primary, derived...) {
-		pattern = strings.TrimSpace(pattern)
-		if len(pattern) < 3 {
-			continue
-		}
-		lower := strings.ToLower(pattern)
-		switch lower {
-		case "rg", "grep", "find", "docs", "src", "internal", "complexity", "hotspot", "search":
-			continue
-		}
-		if _, ok := seen[pattern]; ok {
-			continue
-		}
-		seen[pattern] = struct{}{}
-		out = append(out, pattern)
-		if len(out) >= 50 {
-			break
-		}
-	}
-	return out
 }
 
 func findComplexityHotspot(ctx context.Context, store ComplexityHotspotLister, hotspotID string) (domaincomplexity.Hotspot, bool, error) {

@@ -81,4 +81,12 @@ func TestPatchCommandGetMetadataNotExist(t *testing.T) {
 	if ok {
 		t.Error("GetMetadata should return false for nonexistent key")
 	}
+
+	cmd.Metadata = nil
+	if cmdWithMeta := cmd.WithMetadata("owner", "agent"); cmdWithMeta.Metadata["owner"] != "agent" {
+		t.Fatalf("WithMetadata should handle nil metadata: %#v", cmdWithMeta.Metadata)
+	}
+	if _, ok := cmd.GetMetadata("owner"); ok {
+		t.Fatal("original nil metadata command should remain unchanged")
+	}
 }

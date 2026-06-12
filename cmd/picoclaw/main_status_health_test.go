@@ -16,40 +16,37 @@ import (
 	domainhealth "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/health"
 )
 
-func TestCollectOllamaHealthRequirements_IncludesWorkerModel(t *testing.T) {
+func TestCollectOllamaHealthRequirements_UsesSingleModel(t *testing.T) {
 	cfg := &config.Config{
 		Ollama: config.OllamaConfig{
-			BaseURL:     "http://127.0.0.1:11434",
-			Model:       "Chat",
-			WorkerModel: "Worker",
-			MaxContext:  4096,
-		},
-	}
-
-	got := collectOllamaHealthRequirements(cfg)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 requirements, got %d: %#v", len(got), got)
-	}
-	if got[0].Name != "Chat" || got[1].Name != "Worker" {
-		t.Fatalf("unexpected requirements: %#v", got)
-	}
-	if got[0].MaxContext != 4096 || got[1].MaxContext != 4096 {
-		t.Fatalf("expected max context to propagate, got %#v", got)
-	}
-}
-
-func TestCollectOllamaHealthRequirements_DeduplicatesModels(t *testing.T) {
-	cfg := &config.Config{
-		Ollama: config.OllamaConfig{
-			Model:       "Chat",
-			WorkerModel: "Chat",
-			MaxContext:  4096,
+			BaseURL:    "http://127.0.0.1:11434",
+			Model:      "Chat",
+			MaxContext: 4096,
 		},
 	}
 
 	got := collectOllamaHealthRequirements(cfg)
 	if len(got) != 1 {
-		t.Fatalf("expected deduplicated requirements, got %#v", got)
+		t.Fatalf("expected 1 requirement, got %d: %#v", len(got), got)
+	}
+	if got[0].Name != "Chat" {
+		t.Fatalf("unexpected requirements: %#v", got)
+	}
+	if got[0].MaxContext != 4096 {
+		t.Fatalf("expected max context to propagate, got %#v", got)
+	}
+}
+
+func TestCollectOllamaHealthRequirements_SkipsEmptyModel(t *testing.T) {
+	cfg := &config.Config{
+		Ollama: config.OllamaConfig{
+			MaxContext: 4096,
+		},
+	}
+
+	got := collectOllamaHealthRequirements(cfg)
+	if len(got) != 0 {
+		t.Fatalf("expected no requirements, got %#v", got)
 	}
 }
 

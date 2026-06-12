@@ -263,10 +263,14 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .chat-brand-name{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--t1)}
 .chat-brand-sub{font-size:10px;color:var(--t3);line-height:1.4}
 .chat-character-portrait{
-  position:relative;z-index:10;display:grid;align-content:end;min-height:0;border:1px solid rgba(135,165,255,.22);
-  border-radius:16px;padding:14px;overflow:hidden;
-  background:radial-gradient(circle at 52% 24%,rgba(143,183,255,.24),transparent 36%),
-    linear-gradient(180deg,rgba(30,48,86,.62),rgba(9,16,31,.92));
+  position:relative;z-index:10;display:grid;align-content:end;min-height:0;
+  margin:-12px -12px 0 -12px;
+  border-radius:18px;padding:0;overflow:hidden;
+  background:transparent;
+  border:3px solid red !important;
+}
+#chatLive2DMio {
+  border:3px solid blue !important;
 }
 .chat-character-avatar{
   position:absolute;left:50%;bottom:44px;z-index:1;

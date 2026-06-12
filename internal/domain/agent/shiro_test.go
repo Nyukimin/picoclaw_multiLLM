@@ -16,21 +16,17 @@ import (
 type mockToolRunner struct {
 	executeFunc   func(ctx context.Context, toolName string, args map[string]interface{}) (string, error)
 	executeV2Func func(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error)
-	listFunc      func(ctx context.Context) ([]string, error)
+	listFunc      func(ctx context.Context) ([]tool.ToolMetadata, error)
 }
 
-func (m *mockToolRunner) Execute(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
-	if m.executeFunc != nil {
-		return m.executeFunc(ctx, toolName, args)
-	}
-	return "tool executed", nil
-}
-
-func (m *mockToolRunner) List(ctx context.Context) ([]string, error) {
+func (m *mockToolRunner) ListTools(ctx context.Context) ([]tool.ToolMetadata, error) {
 	if m.listFunc != nil {
 		return m.listFunc(ctx)
 	}
-	return []string{"tool1", "tool2"}, nil
+	return []tool.ToolMetadata{
+		{ToolID: "tool1"},
+		{ToolID: "tool2"},
+	}, nil
 }
 
 // Mock MCPClient
@@ -89,6 +85,21 @@ func TestNewShiroAgent(t *testing.T) {
 
 	if shiro.mcpClient != mcpClient {
 		t.Error("mcpClient not set correctly")
+	}
+}
+
+func TestShiroAgentWithPersona(t *testing.T) {
+	shiro := NewShiroAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt", nil)
+	persona := AgentPersona{Name: "Shiro", Personality: "precise worker"}
+
+	if got := shiro.WithPersona(persona); got != shiro {
+		t.Fatal("WithPersona should return the same agent")
+	}
+	if shiro.persona == nil {
+		t.Fatal("persona was not set")
+	}
+	if shiro.persona.Name != "Shiro" || shiro.persona.Personality != "precise worker" {
+		t.Fatalf("unexpected persona: %#v", shiro.persona)
 	}
 }
 
@@ -280,6 +291,18 @@ func TestShiroAgentExecuteMCPTool(t *testing.T) {
 	}
 }
 
+func TestEnsureShiroJapaneseResponsePromptBranches(t *testing.T) {
+	guarded := ensureShiroJapaneseResponsePrompt("")
+	if !strings.Contains(guarded, "必ず自然な日本語で応答") {
+		t.Fatalf("empty prompt should return Japanese guard, got %q", guarded)
+	}
+
+	alreadyGuarded := "Shiroは必ず自然な日本語で応答します"
+	if got := ensureShiroJapaneseResponsePrompt(alreadyGuarded); got != alreadyGuarded {
+		t.Fatalf("existing guard should be preserved, got %q", got)
+	}
+}
+
 func TestShiroAgentExecuteTool_Error(t *testing.T) {
 	toolRunner := &mockToolRunner{
 		executeFunc: func(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
@@ -300,13 +323,33 @@ func TestShiroAgentExecuteTool_Error(t *testing.T) {
 	}
 }
 
+func TestShiroAgentExecuteTool_ToolResponseError(t *testing.T) {
+	toolRunner := &mockToolRunner{
+		executeV2Func: func(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
+			return tool.NewError(tool.ErrValidationFailed, "bad input", nil), nil
+		},
+	}
+	shiro := NewShiroAgent(&mockLLMProvider{}, toolRunner, &mockMCPClient{}, "test prompt", nil)
+
+	_, err := shiro.ExecuteTool(context.Background(), "bad_tool", map[string]interface{}{})
+	if err == nil {
+		t.Fatal("expected ToolResponse error")
+	}
+	if err.Error() != "bad input" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func (m *mockToolRunner) ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) {
 	if m.executeV2Func != nil {
 		return m.executeV2Func(ctx, toolName, args)
 	}
-	result, err := m.Execute(ctx, toolName, args)
-	if err != nil {
-		return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil
+	if m.executeFunc != nil {
+		result, err := m.executeFunc(ctx, toolName, args)
+		if err != nil {
+			return tool.NewError(tool.ErrInternalError, err.Error(), nil), nil
+		}
+		return tool.NewSuccess(result), nil
 	}
-	return tool.NewSuccess(result), nil
+	return tool.NewSuccess("tool executed"), nil
 }

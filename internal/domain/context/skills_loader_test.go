@@ -186,6 +186,26 @@ description: Shell context only.
 	}
 }
 
+func TestSkillsLoader_LoadAllUsesConfiguredRoot(t *testing.T) {
+	dir := t.TempDir()
+	skillsDir := filepath.Join(dir, "skills")
+	mustWriteSkill(t, filepath.Join(skillsDir, "weather"), `---
+name: weather
+description: Weather lookup.
+---
+
+# weather`)
+
+	loader := NewSkillsLoader(skillsDir)
+	skills, err := loader.LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll failed: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Name != "weather" {
+		t.Fatalf("skills=%#v", skills)
+	}
+}
+
 func TestSkillsLoader_LoadAllFromDirsSkipsBrokenSkillAndRemainsContextOnly(t *testing.T) {
 	dir := t.TempDir()
 	skillsDir := filepath.Join(dir, "skills")

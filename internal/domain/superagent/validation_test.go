@@ -19,6 +19,66 @@ func TestValidateSubagentTaskRequiresScopeAndTermination(t *testing.T) {
 	}
 }
 
+func TestValidateSuperAgentAcceptsCompleteRecords(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 0, 0, 0, time.UTC)
+	if err := ValidateAgentRun(AgentRun{
+		RunID:       "run_1",
+		AgentType:   "LeadAgent",
+		Status:      "completed",
+		StartedAt:   now,
+		CompletedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("agent run should validate: %v", err)
+	}
+	if err := ValidateSubagentTask(SubagentTask{
+		SubagentID:           "sub_1",
+		ParentRunID:          "run_1",
+		AgentType:            "ResearchAgent",
+		Task:                 "調査",
+		Scope:                []string{"docs/"},
+		TerminationCondition: "report",
+		Status:               "pending",
+		CreatedAt:            now,
+	}); err != nil {
+		t.Fatalf("subagent task should validate: %v", err)
+	}
+	if err := ValidateContextPack(ContextPack{
+		ContextPackID: "ctx_1",
+		RunID:         "run_1",
+		Summary:       "summary",
+		TokenEstimate: 3000,
+		CreatedAt:     now,
+	}, 3000); err != nil {
+		t.Fatalf("context pack should validate: %v", err)
+	}
+	if err := ValidateMessageChannel(MessageChannel{
+		ChannelID:   "chan_1",
+		ChannelType: "superagent",
+		Status:      "active",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("message channel should validate: %v", err)
+	}
+	if err := ValidateTraceEvent(TraceEvent{
+		EventID:   "evt_1",
+		EventType: "lead_agent_started",
+		Status:    "completed",
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("trace event should validate: %v", err)
+	}
+	if err := ValidateRunQueueItem(RunQueueItem{
+		QueueID:     "queue_1",
+		Goal:        "resume run",
+		Action:      "resume",
+		Status:      "completed",
+		CreatedAt:   now,
+		CompletedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("run queue item should validate: %v", err)
+	}
+}
+
 func TestValidateContextPackRespectsMaxTokens(t *testing.T) {
 	err := ValidateContextPack(ContextPack{
 		ContextPackID: "ctx_1",
@@ -135,6 +195,65 @@ func TestValidateSuperAgentRejectsTerminalWithoutCompletedAt(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "completed_at") {
 				t.Fatalf("expected completed_at error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateSuperAgentRequiredFields(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "agent run id", err: ValidateAgentRun(AgentRun{AgentType: "LeadAgent", Status: "running", StartedAt: now}), want: "run_id"},
+		{name: "agent type", err: ValidateAgentRun(AgentRun{RunID: "run_1", Status: "running", StartedAt: now}), want: "agent_type"},
+		{name: "agent status", err: ValidateAgentRun(AgentRun{RunID: "run_1", AgentType: "LeadAgent", StartedAt: now}), want: "status"},
+		{name: "subagent id", err: ValidateSubagentTask(SubagentTask{ParentRunID: "run_1", AgentType: "ResearchAgent", Task: "調査", Scope: []string{"docs/"}, TerminationCondition: "report", Status: "pending", CreatedAt: now}), want: "subagent_id"},
+		{name: "subagent parent", err: ValidateSubagentTask(SubagentTask{SubagentID: "sub_1", AgentType: "ResearchAgent", Task: "調査", Scope: []string{"docs/"}, TerminationCondition: "report", Status: "pending", CreatedAt: now}), want: "parent_run_id"},
+		{name: "subagent agent type", err: ValidateSubagentTask(SubagentTask{SubagentID: "sub_1", ParentRunID: "run_1", Task: "調査", Scope: []string{"docs/"}, TerminationCondition: "report", Status: "pending", CreatedAt: now}), want: "agent_type"},
+		{name: "subagent task", err: ValidateSubagentTask(SubagentTask{SubagentID: "sub_1", ParentRunID: "run_1", AgentType: "ResearchAgent", Scope: []string{"docs/"}, TerminationCondition: "report", Status: "pending", CreatedAt: now}), want: "task"},
+		{name: "subagent termination", err: ValidateSubagentTask(SubagentTask{SubagentID: "sub_1", ParentRunID: "run_1", AgentType: "ResearchAgent", Task: "調査", Scope: []string{"docs/"}, Status: "pending", CreatedAt: now}), want: "termination_condition"},
+		{name: "subagent status", err: ValidateSubagentTask(SubagentTask{SubagentID: "sub_1", ParentRunID: "run_1", AgentType: "ResearchAgent", Task: "調査", Scope: []string{"docs/"}, TerminationCondition: "report", CreatedAt: now}), want: "status"},
+		{name: "context id", err: ValidateContextPack(ContextPack{RunID: "run_1", Summary: "summary", CreatedAt: now}, 0), want: "context_pack_id"},
+		{name: "context run", err: ValidateContextPack(ContextPack{ContextPackID: "ctx_1", Summary: "summary", CreatedAt: now}, 0), want: "run_id"},
+		{name: "context summary", err: ValidateContextPack(ContextPack{ContextPackID: "ctx_1", RunID: "run_1", CreatedAt: now}, 0), want: "summary"},
+		{name: "context negative tokens", err: ValidateContextPack(ContextPack{ContextPackID: "ctx_1", RunID: "run_1", Summary: "summary", TokenEstimate: -1, CreatedAt: now}, 0), want: "token_estimate"},
+		{name: "channel id", err: ValidateMessageChannel(MessageChannel{ChannelType: "superagent", Status: "active", CreatedAt: now}), want: "channel_id"},
+		{name: "channel type", err: ValidateMessageChannel(MessageChannel{ChannelID: "chan_1", Status: "active", CreatedAt: now}), want: "channel_type"},
+		{name: "channel status", err: ValidateMessageChannel(MessageChannel{ChannelID: "chan_1", ChannelType: "superagent", CreatedAt: now}), want: "status"},
+		{name: "trace id", err: ValidateTraceEvent(TraceEvent{EventType: "lead_agent_started", Status: "completed", CreatedAt: now}), want: "event_id"},
+		{name: "trace status", err: ValidateTraceEvent(TraceEvent{EventID: "evt_1", EventType: "lead_agent_started", CreatedAt: now}), want: "status"},
+		{name: "queue id", err: ValidateRunQueueItem(RunQueueItem{Goal: "resume run", Action: "resume", Status: "queued", CreatedAt: now}), want: "queue_id"},
+		{name: "queue goal", err: ValidateRunQueueItem(RunQueueItem{QueueID: "queue_1", Action: "resume", Status: "queued", CreatedAt: now}), want: "goal"},
+		{name: "queue action", err: ValidateRunQueueItem(RunQueueItem{QueueID: "queue_1", Goal: "resume run", Status: "queued", CreatedAt: now}), want: "action"},
+		{name: "queue status", err: ValidateRunQueueItem(RunQueueItem{QueueID: "queue_1", Goal: "resume run", Action: "resume", CreatedAt: now}), want: "status"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err == nil || !strings.Contains(tt.err.Error(), tt.want) {
+				t.Fatalf("err=%v, want %s", tt.err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateSuperAgentTerminalStatusVariants(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 0, 0, 0, time.UTC)
+	for _, status := range []string{"completed", "failed", "cancelled", "paused"} {
+		t.Run("agent "+status, func(t *testing.T) {
+			err := ValidateAgentRun(AgentRun{RunID: "run_1", AgentType: "LeadAgent", Status: status, StartedAt: now})
+			if err == nil || !strings.Contains(err.Error(), "completed_at") {
+				t.Fatalf("err=%v, want completed_at", err)
+			}
+		})
+	}
+	for _, status := range []string{"completed", "failed", "cancelled"} {
+		t.Run("queue "+status, func(t *testing.T) {
+			err := ValidateRunQueueItem(RunQueueItem{QueueID: "queue_1", Goal: "resume run", Action: "resume", Status: status, CreatedAt: now})
+			if err == nil || !strings.Contains(err.Error(), "completed_at") {
+				t.Fatalf("err=%v, want completed_at", err)
 			}
 		})
 	}

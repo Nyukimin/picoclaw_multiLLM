@@ -170,8 +170,7 @@ func TestResolveChannelPolicyConfigDisabled(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_V3CompatModel(t *testing.T) {
-	// v3形式のchat_model/worker_modelでも動作することを確認
+func TestLoadConfig_OllamaLegacyModelFieldsAreIgnored(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -192,12 +191,11 @@ session:
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
-		t.Fatalf("LoadConfig with v3 compat fields failed: %v", err)
+		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// chat_model が Model にマッピングされるべき
-	if cfg.Ollama.Model != "Chat" {
-		t.Errorf("Expected Model to be mapped from ChatModel 'Chat', got '%s'", cfg.Ollama.Model)
+	if cfg.Ollama.Model != "picoclaw-v1" {
+		t.Errorf("Expected legacy ollama fields to be ignored and default model to be used, got '%s'", cfg.Ollama.Model)
 	}
 }
 

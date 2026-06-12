@@ -49,3 +49,35 @@ func TestValidateSkillGovernanceAcceptsTimestampedRecords(t *testing.T) {
 		t.Fatalf("transcript should be valid: %v", err)
 	}
 }
+
+func TestValidateSkillGovernanceRejectsMissingRequiredFields(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 40, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "manifest missing skill id", err: ValidateSkillManifest(SkillManifest{Name: "Review", Scope: ScopeCore, Path: "skills/review", UpdatedAt: now}), want: "skill_id"},
+		{name: "manifest missing name", err: ValidateSkillManifest(SkillManifest{SkillID: "core.review", Scope: ScopeCore, Path: "skills/review", UpdatedAt: now}), want: "name"},
+		{name: "manifest missing scope", err: ValidateSkillManifest(SkillManifest{SkillID: "core.review", Name: "Review", Path: "skills/review", UpdatedAt: now}), want: "scope"},
+		{name: "manifest missing path", err: ValidateSkillManifest(SkillManifest{SkillID: "core.review", Name: "Review", Scope: ScopeCore, UpdatedAt: now}), want: "path"},
+		{name: "trigger missing event id", err: ValidateSkillTriggerLog(SkillTriggerLog{SkillID: "core.review", Status: TriggerStatusTriggered, CreatedAt: now}), want: "event_id"},
+		{name: "trigger missing skill id", err: ValidateSkillTriggerLog(SkillTriggerLog{EventID: "evt_1", Status: TriggerStatusTriggered, CreatedAt: now}), want: "skill_id"},
+		{name: "trigger missing status", err: ValidateSkillTriggerLog(SkillTriggerLog{EventID: "evt_1", SkillID: "core.review", CreatedAt: now}), want: "status"},
+		{name: "change missing id", err: ValidateSkillChangeLog(SkillChangeLog{SkillID: "core.review", CreatedAt: now}), want: "change_id"},
+		{name: "change missing skill id", err: ValidateSkillChangeLog(SkillChangeLog{ChangeID: "chg_1", CreatedAt: now}), want: "skill_id"},
+		{name: "contribution missing event id", err: ValidateContributionGateLog(ContributionGateLog{Repo: "example/repo", GateStatus: GateStatusBlocked, CreatedAt: now}), want: "event_id"},
+		{name: "contribution missing repo", err: ValidateContributionGateLog(ContributionGateLog{EventID: "evt_1", GateStatus: GateStatusBlocked, CreatedAt: now}), want: "repo"},
+		{name: "contribution missing gate status", err: ValidateContributionGateLog(ContributionGateLog{EventID: "evt_1", Repo: "example/repo", CreatedAt: now}), want: "gate_status"},
+		{name: "transcript missing event id", err: ValidateCoderTranscriptEntry(CoderTranscriptEntry{Role: "assistant", Segment: "patch_evidence", CreatedAt: now}), want: "event_id"},
+		{name: "transcript missing role", err: ValidateCoderTranscriptEntry(CoderTranscriptEntry{EventID: "evt_1", Segment: "patch_evidence", CreatedAt: now}), want: "role"},
+		{name: "transcript missing segment", err: ValidateCoderTranscriptEntry(CoderTranscriptEntry{EventID: "evt_1", Role: "assistant", CreatedAt: now}), want: "segment"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.err == nil || !strings.Contains(tc.err.Error(), tc.want) {
+				t.Fatalf("err=%v, want %q", tc.err, tc.want)
+			}
+		})
+	}
+}

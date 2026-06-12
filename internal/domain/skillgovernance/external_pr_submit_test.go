@@ -45,6 +45,47 @@ func TestNewBlockedExternalPRSubmitRecordCreatesBlockedAudit(t *testing.T) {
 	}
 }
 
+func TestValidateExternalPRSubmitRecordRejectsMissingRequiredFieldsAndInvalidStatus(t *testing.T) {
+	now := time.Date(2026, 5, 20, 7, 40, 0, 0, time.UTC)
+	validBlocked := ExternalPRSubmitRecord{
+		SubmitID:            "submit_1",
+		ContributionEventID: "evt_contrib_1",
+		Repo:                "example/repo",
+		Title:               "Fix bug",
+		ApprovalStatus:      "approved",
+		HumanApproved:       true,
+		SubmitStatus:        ExternalPRSubmitStatusBlocked,
+		FailureReason:       "external PR adapter is not configured",
+		CreatedAt:           now,
+	}
+	cases := []struct {
+		name   string
+		mutate func(*ExternalPRSubmitRecord)
+		want   string
+	}{
+		{name: "missing submit id", mutate: func(record *ExternalPRSubmitRecord) { record.SubmitID = "" }, want: "submit_id"},
+		{name: "missing contribution event id", mutate: func(record *ExternalPRSubmitRecord) { record.ContributionEventID = "" }, want: "contribution_event_id"},
+		{name: "missing repo", mutate: func(record *ExternalPRSubmitRecord) { record.Repo = "" }, want: "repo"},
+		{name: "missing title", mutate: func(record *ExternalPRSubmitRecord) { record.Title = "" }, want: "title"},
+		{name: "missing human approval", mutate: func(record *ExternalPRSubmitRecord) { record.HumanApproved = false }, want: "human approval"},
+		{name: "pending approval status", mutate: func(record *ExternalPRSubmitRecord) { record.ApprovalStatus = "pending" }, want: "approval_status"},
+		{name: "missing submit status", mutate: func(record *ExternalPRSubmitRecord) { record.SubmitStatus = "" }, want: "submit_status"},
+		{name: "invalid submit status", mutate: func(record *ExternalPRSubmitRecord) { record.SubmitStatus = "queued" }, want: "submit_status"},
+		{name: "missing failure reason", mutate: func(record *ExternalPRSubmitRecord) { record.FailureReason = "" }, want: "failure_reason"},
+		{name: "missing created at", mutate: func(record *ExternalPRSubmitRecord) { record.CreatedAt = time.Time{} }, want: "created_at"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			record := validBlocked
+			tc.mutate(&record)
+			err := ValidateExternalPRSubmitRecord(record)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateExternalPRSubmitRecordRejectsCreatedStatusWithoutCreatedPR(t *testing.T) {
 	record := ExternalPRSubmitRecord{
 		SubmitID:            "submit_1",
@@ -63,6 +104,24 @@ func TestValidateExternalPRSubmitRecordRejectsCreatedStatusWithoutCreatedPR(t *t
 	}
 }
 
+func TestValidateExternalPRSubmitRecordRejectsCreatedFlagWithoutCreatedStatus(t *testing.T) {
+	record := ExternalPRSubmitRecord{
+		SubmitID:            "submit_1",
+		ContributionEventID: "evt_contrib_1",
+		Repo:                "example/repo",
+		Title:               "Fix bug",
+		ApprovalStatus:      "approved",
+		HumanApproved:       true,
+		SubmitStatus:        ExternalPRSubmitStatusBlocked,
+		FailureReason:       "external PR adapter is not configured",
+		ExternalPRCreated:   true,
+	}
+	err := ValidateExternalPRSubmitRecord(record)
+	if err == nil || !strings.Contains(err.Error(), "external_pr_created") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestValidateExternalPRSubmitRecordRejectsPostSubmitVerificationWithoutCreatedPR(t *testing.T) {
 	record := ExternalPRSubmitRecord{
 		SubmitID:            "submit_1",
@@ -75,6 +134,25 @@ func TestValidateExternalPRSubmitRecordRejectsPostSubmitVerificationWithoutCreat
 		FailureReason:       "external PR adapter is not configured",
 		ExternalPRCreated:   false,
 		PostSubmitVerified:  true,
+	}
+	err := ValidateExternalPRSubmitRecord(record)
+	if err == nil || !strings.Contains(err.Error(), "post_submit_verified") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestValidateExternalPRSubmitRecordRejectsCreatedPRWithoutPostSubmitVerification(t *testing.T) {
+	record := ExternalPRSubmitRecord{
+		SubmitID:            "submit_1",
+		ContributionEventID: "evt_contrib_1",
+		Repo:                "example/repo",
+		Title:               "Fix bug",
+		ApprovalStatus:      "approved",
+		HumanApproved:       true,
+		SubmitStatus:        ExternalPRSubmitStatusCreated,
+		PRURL:               "https://github.com/example/repo/pull/1",
+		ExternalPRCreated:   true,
+		PostSubmitVerified:  false,
 	}
 	err := ValidateExternalPRSubmitRecord(record)
 	if err == nil || !strings.Contains(err.Error(), "post_submit_verified") {

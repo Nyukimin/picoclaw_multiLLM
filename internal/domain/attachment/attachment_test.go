@@ -19,6 +19,9 @@ func TestKindFromContentType(t *testing.T) {
 		{"application/pdf", KindDocument, true},
 		{"text/plain", KindDocument, true},
 		{"application/json", KindDocument, true},
+		{" application/xml ; charset=utf-8", KindDocument, true},
+		{"application/x-yaml", KindDocument, true},
+		{"application/yaml", KindDocument, true},
 		{"application/octet-stream", "", false},
 	}
 
@@ -88,5 +91,48 @@ func TestSummaryLineIncludesExtractionError(t *testing.T) {
 	})
 	if !strings.Contains(got, "抽出エラー: pdf text not found") {
 		t.Fatalf("SummaryLine did not include extraction error: %q", got)
+	}
+}
+
+func TestSummaryLineDefaultsKindFormatsSizesAndWarnings(t *testing.T) {
+	got := SummaryLine(Attachment{
+		Filename:            "clip.bin",
+		ContentType:         "application/octet-stream",
+		SizeBytes:           2 * 1024 * 1024,
+		Path:                "/tmp/clip.bin",
+		ExtractedText:       strings.Repeat("a", 700),
+		ExtractionTruncated: true,
+		ExtractionError:     strings.Repeat("e", 300),
+		SecurityWarnings:    []string{"large", "unknown-type"},
+	})
+	for _, want := range []string{"- file: clip.bin", "2 MiB", strings.Repeat("a", 600), " ...", strings.Repeat("e", 200), "警告: large,unknown-type"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("SummaryLine()=%q, missing %q", got, want)
+		}
+	}
+}
+
+func TestCompactPreviewAndFormatBytesBoundaries(t *testing.T) {
+	if got := compactPreview("  hello\n\nworld\t ", 100); got != "hello world" {
+		t.Fatalf("compactPreview whitespace = %q", got)
+	}
+	if got := compactPreview("abcdef", 0); got != "abcdef" {
+		t.Fatalf("compactPreview zero limit = %q", got)
+	}
+	if got := compactPreview("abcdef", 3); got != "abc" {
+		t.Fatalf("compactPreview truncated = %q", got)
+	}
+
+	cases := map[int64]string{
+		-1:        "-1 B",
+		0:         "0 B",
+		1023:      "1023 B",
+		1024:      "1 KiB",
+		1024 * 42: "42 KiB",
+	}
+	for in, want := range cases {
+		if got := formatBytes(in); got != want {
+			t.Fatalf("formatBytes(%d) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,14 +12,8 @@ func (c *Config) setDefaults() {
 		c.Server.Host = "0.0.0.0"
 	}
 
-	// v3後方互換: chat_model/worker_model が設定されている場合は Model にマッピング
 	if c.Ollama.Model == "" {
-		if c.Ollama.ChatModel != "" {
-			log.Printf("WARN: ollama.chat_model is deprecated, use ollama.model instead")
-			c.Ollama.Model = c.Ollama.ChatModel
-		} else {
-			c.Ollama.Model = "picoclaw-v1"
-		}
+		c.Ollama.Model = "picoclaw-v1"
 	}
 
 	if c.Claude.Model == "" {

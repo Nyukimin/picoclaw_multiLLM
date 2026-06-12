@@ -23,6 +23,30 @@ func TestEvaluateContributionGateBlocksMissingRequiredChecks(t *testing.T) {
 	}
 }
 
+func TestEvaluateContributionGateBlocksAllMissingInputs(t *testing.T) {
+	decision := EvaluateContributionGate(ContributionGateLog{})
+	if decision.Status != GateStatusBlocked || decision.CanContribute {
+		t.Fatalf("decision=%#v", decision)
+	}
+	wantReasons := []string{
+		"repo is required",
+		"problem_statement is required",
+		"existing PRs were not checked",
+		"real problem is not verified",
+		"core change fit is not verified",
+		"complete diff was not human-approved",
+		"test result is required",
+	}
+	if len(decision.StopReasons) != len(wantReasons) || len(decision.NextActions) != len(wantReasons) {
+		t.Fatalf("reasons=%#v actions=%#v", decision.StopReasons, decision.NextActions)
+	}
+	for i, want := range wantReasons {
+		if decision.StopReasons[i] != want {
+			t.Fatalf("reason[%d]=%q, want %q", i, decision.StopReasons[i], want)
+		}
+	}
+}
+
 func TestEvaluateContributionGatePassesWhenAllChecksArePresent(t *testing.T) {
 	decision := EvaluateContributionGate(ContributionGateLog{
 		Repo:                "example/repo",

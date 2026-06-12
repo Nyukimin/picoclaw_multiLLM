@@ -2,13 +2,17 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"net"
+	"os"
 	"time"
 )
 
 // RetryConfig はリトライ設定
 type RetryConfig struct {
-	MaxAttempts int
+	MaxAttempts  int
 	InitialDelay time.Duration
 	MaxDelay     time.Duration
 	Multiplier   float64
@@ -39,8 +43,23 @@ func isRetryableError(err error) bool {
 		return re.IsRetryable()
 	}
 
-	// デフォルト: 一時的なネットワークエラーなどをリトライ可能と判定
-	// TODO: より詳細なエラー判定ロジックを追加
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, sql.ErrNoRows) ||
+		errors.Is(err, os.ErrNotExist) ||
+		errors.Is(err, os.ErrPermission) {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+
 	return true
 }
 

@@ -3,14 +3,16 @@ package conversation
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
 	"testing"
 	"time"
 )
 
 // mockRetryableError はリトライ可能なエラー
 type mockRetryableError struct {
-	msg        string
-	retryable  bool
+	msg       string
+	retryable bool
 }
 
 func (e *mockRetryableError) Error() string {
@@ -19,6 +21,22 @@ func (e *mockRetryableError) Error() string {
 
 func (e *mockRetryableError) IsRetryable() bool {
 	return e.retryable
+}
+
+type mockNetError struct {
+	timeout bool
+}
+
+func (e mockNetError) Error() string {
+	return "mock network error"
+}
+
+func (e mockNetError) Timeout() bool {
+	return e.timeout
+}
+
+func (e mockNetError) Temporary() bool {
+	return e.timeout
 }
 
 func TestWithRetry_Success(t *testing.T) {
@@ -187,6 +205,36 @@ func TestIsRetryableError(t *testing.T) {
 			name:      "standard error (default retryable)",
 			err:       errors.New("standard error"),
 			retryable: true,
+		},
+		{
+			name:      "context canceled",
+			err:       context.Canceled,
+			retryable: false,
+		},
+		{
+			name:      "context deadline exceeded",
+			err:       context.DeadlineExceeded,
+			retryable: true,
+		},
+		{
+			name:      "wrapped missing file",
+			err:       errors.Join(errors.New("load failed"), os.ErrNotExist),
+			retryable: false,
+		},
+		{
+			name:      "wrapped permission error",
+			err:       errors.Join(errors.New("open failed"), os.ErrPermission),
+			retryable: false,
+		},
+		{
+			name:      "network timeout",
+			err:       &net.OpError{Op: "dial", Net: "tcp", Err: mockNetError{timeout: true}},
+			retryable: true,
+		},
+		{
+			name:      "network permanent error",
+			err:       &net.OpError{Op: "dial", Net: "tcp", Err: mockNetError{timeout: false}},
+			retryable: false,
 		},
 	}
 

@@ -111,7 +111,7 @@ func primaryRuntimeConfigFromAppConfig(cfg *config.Config) modulellm.PrimaryRunt
 		LegacyOllama: modulellm.LegacyOllamaRuntimeConfig{
 			BaseURL:     cfg.Ollama.BaseURL,
 			ChatModel:   cfg.Ollama.Model,
-			WorkerModel: cfg.Ollama.WorkerModel,
+			WorkerModel: cfg.Ollama.Model,
 		},
 	}
 }

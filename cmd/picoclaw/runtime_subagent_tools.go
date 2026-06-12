@@ -6,8 +6,8 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	healthadapter "github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/health"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/tool"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/claude"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/deepseek"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
@@ -57,7 +57,11 @@ func resolveSubagentProvider(cfg *config.Config, fallback llm.ToolCallingProvide
 }
 
 // mustGetToolList はツールリストを取得（エラーは無視）
-func mustGetToolList(runner agent.ToolRunner) []string {
-	list, _ := runner.List(context.Background())
+func mustGetToolList(runner tool.RunnerV2) []string {
+	metas, _ := runner.ListTools(context.Background())
+	list := make([]string, 0, len(metas))
+	for _, meta := range metas {
+		list = append(list, meta.ToolID)
+	}
 	return list
 }

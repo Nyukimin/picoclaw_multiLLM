@@ -87,3 +87,44 @@ func TestValidateSearchTraceAcceptsCompleteTrace(t *testing.T) {
 		t.Fatalf("ValidateSearchTrace() error = %v", err)
 	}
 }
+
+func TestValidateSearchStepAcceptsTerminalAndErrorStatuses(t *testing.T) {
+	now := time.Date(2026, 5, 20, 8, 0, 0, 0, time.UTC)
+	for _, status := range []string{"ok", "completed", "stopped"} {
+		if err := ValidateSearchStep(SearchStep{StepNo: 1, Tool: "rg", Status: status, CreatedAt: now}); err != nil {
+			t.Fatalf("ValidateSearchStep(%s) failed: %v", status, err)
+		}
+	}
+	if err := ValidateSearchStep(SearchStep{StepNo: 1, Tool: "rg", Status: "error", ErrorMessage: "boom", CreatedAt: now}); err != nil {
+		t.Fatalf("error status with message should validate: %v", err)
+	}
+}
+
+func TestValidateSearchTraceRequiredFieldsAndStatuses(t *testing.T) {
+	now := time.Date(2026, 5, 20, 8, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "event id", err: ValidateSearchTrace(SearchTrace{StartedAt: now, EndedAt: now, Actor: "Worker", Mode: "dci", UserQuery: "query", Status: "completed"}), want: "event_id"},
+		{name: "actor", err: ValidateSearchTrace(SearchTrace{EventID: "evt_1", StartedAt: now, EndedAt: now, Mode: "dci", UserQuery: "query", Status: "completed"}), want: "actor"},
+		{name: "mode", err: ValidateSearchTrace(SearchTrace{EventID: "evt_1", StartedAt: now, EndedAt: now, Actor: "Worker", UserQuery: "query", Status: "completed"}), want: "mode"},
+		{name: "query", err: ValidateSearchTrace(SearchTrace{EventID: "evt_1", StartedAt: now, EndedAt: now, Actor: "Worker", Mode: "dci", Status: "completed"}), want: "user_query"},
+		{name: "status", err: ValidateSearchTrace(SearchTrace{EventID: "evt_1", StartedAt: now, EndedAt: now, Actor: "Worker", Mode: "dci", UserQuery: "query"}), want: "status"},
+		{name: "invalid status", err: ValidateSearchTrace(SearchTrace{EventID: "evt_1", StartedAt: now, EndedAt: now, Actor: "Worker", Mode: "dci", UserQuery: "query", Status: "running"}), want: "invalid status"},
+		{name: "step no", err: ValidateSearchStep(SearchStep{Tool: "rg", Status: "ok", CreatedAt: now}), want: "step_no"},
+		{name: "step tool", err: ValidateSearchStep(SearchStep{StepNo: 1, Status: "ok", CreatedAt: now}), want: "tool"},
+		{name: "step status", err: ValidateSearchStep(SearchStep{StepNo: 1, Tool: "rg", CreatedAt: now}), want: "status"},
+		{name: "step invalid status", err: ValidateSearchStep(SearchStep{StepNo: 1, Tool: "rg", Status: "done", CreatedAt: now}), want: "invalid status"},
+		{name: "step error message", err: ValidateSearchStep(SearchStep{StepNo: 1, Tool: "rg", Status: "error", CreatedAt: now}), want: "error_message"},
+		{name: "step result count", err: ValidateSearchStep(SearchStep{StepNo: 1, Tool: "rg", Status: "ok", ResultCount: -1, CreatedAt: now}), want: "result_count"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err == nil || !strings.Contains(tt.err.Error(), tt.want) {
+				t.Fatalf("err=%v, want %s", tt.err, tt.want)
+			}
+		})
+	}
+}

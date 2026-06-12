@@ -129,7 +129,6 @@ func collectOllamaHealthRequirements(cfg *config.Config) []infrahealth.ModelRequ
 
 	out := make([]infrahealth.ModelRequirement, 0, 3)
 	out = add(out, cfg.Ollama.Model)
-	out = add(out, cfg.Ollama.WorkerModel)
 	return out
 }
 

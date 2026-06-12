@@ -110,3 +110,11 @@ func TestPatchExecutionResultWithGitCommit(t *testing.T) {
 		t.Errorf("Expected git commit '%s', got '%s'", commitHash, resultWithCommit.GitCommit)
 	}
 }
+
+func TestPatchExecutionResultWithFailureMetadata(t *testing.T) {
+	result := NewPatchExecutionResult().WithFailureMetadata("io_error", "disk full", true)
+
+	if result.FailureKind != "io_error" || result.FailureReason != "disk full" || !result.Retryable {
+		t.Fatalf("failure metadata not set: %#v", result)
+	}
+}

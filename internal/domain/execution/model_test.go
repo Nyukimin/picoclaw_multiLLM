@@ -22,9 +22,13 @@ func TestCanTransition(t *testing.T) {
 		{StatusPending, StatusCanceled, true},
 		{StatusRunning, StatusSucceeded, true},
 		{StatusRunning, StatusFailed, true},
+		{StatusRunning, StatusRunning, true},
 		{StatusDenied, StatusRunning, false},
 		{StatusSucceeded, StatusRunning, false},
+		{StatusCanceled, StatusRunning, false},
 		{StatusRunning, StatusDenied, false},
+		{StatusPending, StatusSucceeded, false},
+		{Status("unknown"), StatusRunning, false},
 	}
 
 	for _, tt := range tests {

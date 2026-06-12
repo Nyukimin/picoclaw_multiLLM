@@ -56,6 +56,19 @@ func HandleLive2DCharacter(w http.ResponseWriter, r *http.Request) {
 
 	// Inject mode-specific styles
 	htmlStr := string(content)
+
+	// Replace original .stage style - complete replacement
+	htmlStr = strings.Replace(htmlStr,
+		"  .stage{\n    position:fixed;inset:0;\n    display:flex;align-items:center;justify-content:center;\n  }",
+		"  .stage{\n    position:relative;inset:auto;width:100%;height:100%;\n    display:flex;align-items:center;justify-content:center;\n  }",
+		1)
+
+	// Replace original .scene style - complete replacement
+	htmlStr = strings.Replace(htmlStr,
+		"  .scene{\n    position:relative;\n    width:min(100vmin,900px);\n    aspect-ratio:1/1;",
+		"  .scene{\n    position:relative;\n    width:100%;height:100%;\n    aspect-ratio:auto;",
+		1)
+
 	if mode == "live" {
 		// Large mode for live display
 		htmlStr = injectLive2DStyle(htmlStr, `
@@ -63,23 +76,67 @@ body { margin: 0; padding: 0; overflow: hidden; }
 canvas { width: 100vw !important; height: 100vh !important; }
 `)
 	} else {
-		// Normal mode - responsive
+		// Normal mode - responsive, centered, full width
 		htmlStr = injectLive2DStyle(htmlStr, `
-body { margin: 0; padding: 0; overflow: hidden; }
-canvas {
-	max-width: 100%;
-	max-height: 100vh;
-	width: auto !important;
-	height: auto !important;
+body {
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	width: 100%;
+	height: 100%;
 }
-@media (max-width: 768px) {
-	canvas {
-		width: 100vw !important;
-		height: auto !important;
-	}
+.stage {
+	position: relative !important;
+	inset: auto !important;
+	width: 100% !important;
+	height: 100% !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+}
+.scene {
+	position: relative !important;
+	width: 100% !important;
+	height: 100% !important;
+	max-width: none !important;
+	max-height: none !important;
+	aspect-ratio: auto !important;
+}
+.layers {
+	position: absolute !important;
+	inset: 0 !important;
+	width: 100% !important;
+	height: 100% !important;
+}
+.layers img {
+	position: absolute !important;
+	inset: 0 !important;
+	width: 100% !important;
+	height: 100% !important;
+	object-fit: contain !important;
+	object-position: center !important;
+}
+canvas {
+	width: 100% !important;
+	height: 100% !important;
+	object-fit: contain;
 }
 `)
 	}
+
+	// Inject debug borders
+	debugStyle := `
+.stage {
+	border: 3px solid green !important;
+}
+.scene {
+	border: 3px solid yellow !important;
+}
+.layers {
+	border: 3px solid orange !important;
+}
+`
+	htmlStr = injectLive2DStyle(htmlStr, debugStyle)
 
 	// Inject UI hiding style if requested
 	if hideUI {

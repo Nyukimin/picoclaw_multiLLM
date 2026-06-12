@@ -39,6 +39,55 @@ func TestWildAgentGenerateUsesWildPromptAndStripsCommand(t *testing.T) {
 	}
 }
 
+func TestImageGenerationResultFormatForUserVariants(t *testing.T) {
+	withURLOnly := ImageGenerationResult{ImageURL: " https://example.test/out.png "}
+	got := withURLOnly.FormatForUser()
+	if !strings.Contains(got, "image_url: https://example.test/out.png") {
+		t.Fatalf("URL-only result should include trimmed URL, got %q", got)
+	}
+	if strings.Contains(got, "prompt_id:") {
+		t.Fatalf("URL-only result should not include prompt ID, got %q", got)
+	}
+
+	empty := ImageGenerationResult{PromptID: " prompt-without-url "}
+	if got := empty.FormatForUser(); got != "ComfyUI image generation completed." {
+		t.Fatalf("empty image URL should return completion message, got %q", got)
+	}
+}
+
+func TestNewWildAgentUsesDefaultSystemPrompt(t *testing.T) {
+	wild := NewWildAgent(&mockLLMProvider{}, " \t\n ")
+	if wild.systemPrompt != defaultWildSystemPrompt {
+		t.Fatalf("expected default prompt, got %q", wild.systemPrompt)
+	}
+}
+
+func TestWildAgentBuilderOptionsAndCommandStrip(t *testing.T) {
+	wild := NewWildAgent(&mockLLMProvider{}, "creative")
+	engine := &mockConversationEngine{}
+	generator := &mockWildImageGenerator{}
+
+	if got := wild.WithConversationEngine(engine); got != wild {
+		t.Fatal("WithConversationEngine should return the same agent")
+	}
+	if wild.conversationEngine != engine {
+		t.Fatal("conversation engine was not set")
+	}
+	if got := wild.WithImageGenerator(generator); got != wild {
+		t.Fatal("WithImageGenerator should return the same agent")
+	}
+	if wild.imageGenerator != generator {
+		t.Fatal("image generator was not set")
+	}
+
+	if got := stripWildCommand("  /wild   draw a room  "); got != "draw a room" {
+		t.Fatalf("unexpected stripped command: %q", got)
+	}
+	if got := stripWildCommand("  draw a room  "); got != "draw a room" {
+		t.Fatalf("message without command should only be trimmed, got %q", got)
+	}
+}
+
 func TestWildAgentGenerateAppliesWildRecallRoleFilter(t *testing.T) {
 	engine := &mockConversationEngine{
 		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {
@@ -106,6 +155,25 @@ func TestWildAgentGenerateUsesImageGeneratorForImageGeneration(t *testing.T) {
 	}
 	if !strings.Contains(resp, "prompt-1") || !strings.Contains(resp, "http://comfy.local/view?filename=out.png&type=output") {
 		t.Fatalf("unexpected response: %q", resp)
+	}
+}
+
+func TestWildAgentGenerateReturnsImageGeneratorError(t *testing.T) {
+	provider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			t.Fatal("LLM provider should not be called when image generator handles request")
+			return llm.GenerateResponse{}, nil
+		},
+	}
+	imageTool := &mockWildImageGenerator{err: errors.New("comfyui unavailable")}
+	wild := NewWildAgent(provider, "creative system").WithImageGenerator(imageTool)
+
+	_, err := wild.Generate(context.Background(), task.NewTask(task.NewJobID(), "/wild ComfyUIで画像生成して", "viewer", "viewer-user"))
+	if err == nil {
+		t.Fatal("expected image generator error")
+	}
+	if err.Error() != "comfyui unavailable" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

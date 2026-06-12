@@ -34,7 +34,7 @@ func initHandler(agentType string, cfg *config.Config) (AgentHandler, error) {
 
 // initWorkerHandler はWorkerハンドラを初期化
 func initWorkerHandler(cfg *config.Config) (*workerHandler, error) {
-	model := strings.TrimSpace(cfg.Ollama.WorkerModel)
+	model := strings.TrimSpace(cfg.Ollama.Model)
 	if model == "" {
 		model = cfg.Ollama.Model
 	}

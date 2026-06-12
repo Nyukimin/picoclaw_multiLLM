@@ -20,6 +20,28 @@ func TestEvaluateSkillChangeGateBlocksMissingEvaluation(t *testing.T) {
 	}
 }
 
+func TestEvaluateSkillChangeGateBlocksAllMissingInputs(t *testing.T) {
+	decision := EvaluateSkillChangeGate(SkillChangeLog{})
+	if decision.Status != ChangeGateStatusBlocked || decision.CanApply || !decision.ReviewNeeded {
+		t.Fatalf("decision=%#v", decision)
+	}
+	wantReasons := []string{
+		"skill_id is required",
+		"change_reason is required",
+		"expected_behavior_change is required",
+		"eval_result is required",
+		"human approval is required",
+	}
+	if len(decision.StopReasons) != len(wantReasons) || len(decision.NextActions) != len(wantReasons) {
+		t.Fatalf("reasons=%#v actions=%#v", decision.StopReasons, decision.NextActions)
+	}
+	for i, want := range wantReasons {
+		if decision.StopReasons[i] != want {
+			t.Fatalf("reason[%d]=%q, want %q", i, decision.StopReasons[i], want)
+		}
+	}
+}
+
 func TestEvaluateSkillChangeGatePassesWithEvaluationAndApproval(t *testing.T) {
 	decision := EvaluateSkillChangeGate(SkillChangeLog{
 		SkillID:                "core.pr-readiness",

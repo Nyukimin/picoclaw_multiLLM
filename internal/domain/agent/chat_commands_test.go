@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
 )
 
@@ -12,11 +15,17 @@ type mockUserMemoryManager struct {
 	createInput  domainmemory.CreateUserMemoryInput
 	createInputs []domainmemory.CreateUserMemoryInput
 	listItems    []domainmemory.UserMemory
+	listErr      error
+	createErr    error
+	forgetErr    error
 	forgetID     string
 	forgetReason string
 }
 
 func (m *mockUserMemoryManager) CreateUserMemory(_ context.Context, input domainmemory.CreateUserMemoryInput) (*domainmemory.UserMemory, error) {
+	if m.createErr != nil {
+		return nil, m.createErr
+	}
 	m.createInput = input
 	m.createInputs = append(m.createInputs, input)
 	return &domainmemory.UserMemory{
@@ -34,6 +43,9 @@ func (m *mockUserMemoryManager) CreateUserMemory(_ context.Context, input domain
 }
 
 func (m *mockUserMemoryManager) ListUserMemories(_ context.Context, _ string, _ string, _ bool, _ int) ([]domainmemory.UserMemory, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
 	return append([]domainmemory.UserMemory(nil), m.listItems...), nil
 }
 
@@ -42,6 +54,9 @@ func (m *mockUserMemoryManager) UpdateUserMemoryState(context.Context, string, s
 }
 
 func (m *mockUserMemoryManager) ForgetUserMemory(_ context.Context, id string, reason string) (*domainmemory.UserMemory, error) {
+	if m.forgetErr != nil {
+		return nil, m.forgetErr
+	}
 	m.forgetID = id
 	m.forgetReason = reason
 	return &domainmemory.UserMemory{ID: id, Namespace: "user:ren", UserID: "ren", Statement: "短く答える", Active: false}, nil
@@ -157,6 +172,26 @@ func TestHandleChatCommand_UserMemoryRemember(t *testing.T) {
 	}
 }
 
+func TestHandleChatCommand_UserMemoryRememberUnknownSessionAndCreateError(t *testing.T) {
+	mem := &mockUserMemoryManager{}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "   ", "AIの話は短くを覚えて")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || mem.createInput.EvidenceEventIDs[0] != "chat_memory_command:unknown_session" {
+		t.Fatalf("unexpected result=%+v input=%+v", result, mem.createInput)
+	}
+
+	mem = &mockUserMemoryManager{createErr: errors.New("store down")}
+	m = (&MioAgent{}).WithUserMemoryManager(mem)
+	_, err = m.HandleChatCommand(context.Background(), "session1", "覚えて AIの話は短く")
+	if err == nil || !strings.Contains(err.Error(), "user memory create failed") {
+		t.Fatalf("err=%v, want create wrapper", err)
+	}
+}
+
 func TestHandleChatCommand_UserMemoryPrioritize(t *testing.T) {
 	mem := &mockUserMemoryManager{}
 	m := (&MioAgent{}).WithUserMemoryManager(mem)
@@ -172,6 +207,19 @@ func TestHandleChatCommand_UserMemoryPrioritize(t *testing.T) {
 		mem.createInput.Type != domainmemory.UserMemoryTypeConstraint ||
 		mem.createInput.Source != "user_explicit_priority" {
 		t.Fatalf("unexpected priority input: %+v", mem.createInput)
+	}
+}
+
+func TestHandleChatCommand_UserMemoryEmptyBody(t *testing.T) {
+	mem := &mockUserMemoryManager{}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "session1", "覚えて")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || !strings.Contains(result.Response, "具体的") || len(mem.createInputs) != 0 {
+		t.Fatalf("unexpected result=%+v created=%d", result, len(mem.createInputs))
 	}
 }
 
@@ -197,6 +245,217 @@ func TestHandleChatCommand_UserMemoryForget(t *testing.T) {
 	}
 	if mem.forgetID != "mem-1" || mem.forgetReason != "forget" {
 		t.Fatalf("unexpected forget args: %+v", mem)
+	}
+}
+
+func TestHandleChatCommand_UserMemoryForgetByIDNotFoundAndErrors(t *testing.T) {
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{{
+			ID:        "mem-1",
+			Namespace: "user:ren",
+			UserID:    "ren",
+			Statement: "短く答える",
+			State:     domainmemory.MemoryStateConfirmed,
+			Active:    true,
+		}},
+	}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+	result, err := m.HandleChatCommand(context.Background(), "session1", "これは違う mem-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || mem.forgetID != "mem-1" || mem.forgetReason != "correct" {
+		t.Fatalf("unexpected result=%+v mem=%+v", result, mem)
+	}
+
+	mem = &mockUserMemoryManager{}
+	m = (&MioAgent{}).WithUserMemoryManager(mem)
+	result, err = m.HandleChatCommand(context.Background(), "session1", "忘れて 存在しない")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.Response, "見つけられません") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	mem = &mockUserMemoryManager{listErr: errors.New("list failed")}
+	m = (&MioAgent{}).WithUserMemoryManager(mem)
+	_, err = m.HandleChatCommand(context.Background(), "session1", "忘れて 存在しない")
+	if err == nil || !strings.Contains(err.Error(), "user memory list failed") {
+		t.Fatalf("err=%v, want list wrapper", err)
+	}
+
+	mem = &mockUserMemoryManager{
+		forgetErr: errors.New("forget failed"),
+		listItems: []domainmemory.UserMemory{{
+			ID:        "mem-1",
+			Namespace: "user:ren",
+			UserID:    "ren",
+			Statement: "短く答える",
+			State:     domainmemory.MemoryStateConfirmed,
+			Active:    true,
+		}},
+	}
+	m = (&MioAgent{}).WithUserMemoryManager(mem)
+	_, err = m.HandleChatCommand(context.Background(), "session1", "忘れて mem-1")
+	if err == nil || !strings.Contains(err.Error(), "user memory forget failed") {
+		t.Fatalf("err=%v, want forget wrapper", err)
+	}
+}
+
+func TestParseUserMemoryCommandVariants(t *testing.T) {
+	cases := []struct {
+		input      string
+		wantAction string
+		wantBody   string
+	}{
+		{"優先して: 日本語で答える。", "prioritize", "日本語で答える"},
+		{"覚えて、短く答える", "remember", "、短く答える"},
+		{"この設定は忘れて", "forget", "この設定"},
+		{"これは違う: 前の記憶", "correct", "前の記憶"},
+		{"/status", "", ""},
+		{"普通の発話", "", ""},
+		{"", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			gotAction, gotBody := parseUserMemoryCommand(tc.input)
+			if gotAction != tc.wantAction || gotBody != tc.wantBody {
+				t.Fatalf("got (%q,%q), want (%q,%q)", gotAction, gotBody, tc.wantAction, tc.wantBody)
+			}
+		})
+	}
+}
+
+func TestUserMemoryPromptFiltersAndFormatsInjectableMemories(t *testing.T) {
+	mem := &mockUserMemoryManager{listItems: []domainmemory.UserMemory{
+		{Statement: "確定記憶", State: domainmemory.MemoryStateConfirmed, Active: true, Sensitivity: "normal"},
+		{Statement: "優先記憶", State: domainmemory.MemoryStatePinned, Active: true, Sensitivity: "normal"},
+		{Statement: "候補記憶", State: domainmemory.MemoryStateCandidate, Active: true, Sensitivity: "normal"},
+		{Statement: "機微記憶", State: domainmemory.MemoryStateConfirmed, Active: true, Sensitivity: "sensitive"},
+		{Statement: "無効記憶", State: domainmemory.MemoryStateConfirmed, Active: false, Sensitivity: "normal"},
+		{Statement: "   ", State: domainmemory.MemoryStateConfirmed, Active: true, Sensitivity: "normal"},
+	}}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	prompt, err := m.userMemoryPrompt(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"思い出したこと", "- 確定記憶", "- [優先] 優先記憶", "confirmed/pinned"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt=%q, missing %q", prompt, want)
+		}
+	}
+	for _, notWant := range []string{"候補記憶", "機微記憶", "無効記憶"} {
+		if strings.Contains(prompt, notWant) {
+			t.Fatalf("prompt=%q, unexpectedly contains %q", prompt, notWant)
+		}
+	}
+
+	mem.listItems = nil
+	prompt, err = m.userMemoryPrompt(context.Background())
+	if err != nil || prompt != "" {
+		t.Fatalf("prompt=%q err=%v, want empty", prompt, err)
+	}
+
+	mem.listErr = errors.New("list failed")
+	_, err = m.userMemoryPrompt(context.Background())
+	if err == nil {
+		t.Fatal("expected list error")
+	}
+}
+
+func TestChatCommandsWithConversationEngine(t *testing.T) {
+	now := time.Now().Add(-2 * time.Minute)
+	engine := &mockConversationEngine{
+		persona: conversation.PersonaState{Name: "Mio"},
+		statusFunc: func(context.Context, string) (*conversation.ConversationStatus, error) {
+			return &conversation.ConversationStatus{
+				SessionID:    "session1",
+				ThreadID:     42,
+				ThreadDomain: "default",
+				TurnCount:    7,
+				ThreadStart:  now,
+				ThreadStatus: conversation.ThreadActive,
+			}, nil
+		},
+		beginTurnFunc: func(context.Context, string, string) (*conversation.RecallPack, error) {
+			return &conversation.RecallPack{
+				Persona:      conversation.PersonaState{Name: "Mio"},
+				ShortContext: []conversation.Message{{Speaker: conversation.SpeakerUser, Msg: strings.Repeat("短期", 40)}},
+				MidSummaries: []conversation.ThreadSummary{{Summary: strings.Repeat("中期", 50)}},
+				LongFacts:    []string{strings.Repeat("長期", 50)},
+			}, nil
+		},
+	}
+	mem := &mockUserMemoryManager{listItems: []domainmemory.UserMemory{
+		{State: domainmemory.MemoryStateConfirmed, Active: true},
+		{State: domainmemory.MemoryStatePinned, Active: true},
+		{State: domainmemory.MemoryStateCandidate, Active: true},
+	}}
+	m := (&MioAgent{conversationEngine: engine}).WithUserMemoryManager(mem)
+
+	status, err := m.HandleChatCommand(context.Background(), "session1", "/status")
+	if err != nil {
+		t.Fatalf("status error: %v", err)
+	}
+	if !strings.Contains(status.Response, "スレッドID: 42") || !strings.Contains(status.Response, "ターン数: 7") {
+		t.Fatalf("unexpected status response: %s", status.Response)
+	}
+
+	compact, err := m.HandleChatCommand(context.Background(), "session1", "/compact")
+	if err != nil || !strings.Contains(compact.Response, "フラッシュ") {
+		t.Fatalf("compact=%+v err=%v", compact, err)
+	}
+
+	contextResult, err := m.HandleChatCommand(context.Background(), "session1", "/context")
+	if err != nil {
+		t.Fatalf("context error: %v", err)
+	}
+	for _, want := range []string{"【ペルソナ】Mio", "【短期記憶】1件", "【中期記憶】1件", "【長期記憶】1件", "confirmed=1 pinned=1 candidate=1"} {
+		if !strings.Contains(contextResult.Response, want) {
+			t.Fatalf("context response=%q, missing %q", contextResult.Response, want)
+		}
+	}
+
+	newResult, err := m.HandleChatCommand(context.Background(), "session1", "/new")
+	if err != nil || !strings.Contains(newResult.Response, "リセット") {
+		t.Fatalf("new=%+v err=%v", newResult, err)
+	}
+}
+
+func TestChatCommandsConversationEngineErrors(t *testing.T) {
+	engine := &mockConversationEngine{
+		statusFunc: func(context.Context, string) (*conversation.ConversationStatus, error) {
+			return nil, errors.New("status failed")
+		},
+		flushFunc: func(context.Context, string) error {
+			return errors.New("flush failed")
+		},
+		resetFunc: func(context.Context, string) error {
+			return errors.New("reset failed")
+		},
+		beginTurnFunc: func(context.Context, string, string) (*conversation.RecallPack, error) {
+			return nil, errors.New("begin failed")
+		},
+	}
+	m := &MioAgent{conversationEngine: engine}
+
+	if _, err := m.HandleChatCommand(context.Background(), "session1", "/status"); err == nil || !strings.Contains(err.Error(), "GetStatus failed") {
+		t.Fatalf("status err=%v", err)
+	}
+	compact, err := m.HandleChatCommand(context.Background(), "session1", "/compact")
+	if err != nil || !strings.Contains(compact.Response, "失敗") {
+		t.Fatalf("compact=%+v err=%v", compact, err)
+	}
+	contextResult, err := m.HandleChatCommand(context.Background(), "session1", "/context")
+	if err != nil || !strings.Contains(contextResult.Response, "RecallPack取得に失敗") {
+		t.Fatalf("context=%+v err=%v", contextResult, err)
+	}
+	newResult, err := m.HandleChatCommand(context.Background(), "session1", "/new")
+	if err != nil || !strings.Contains(newResult.Response, "失敗") {
+		t.Fatalf("new=%+v err=%v", newResult, err)
 	}
 }
 

@@ -281,6 +281,9 @@ func TestMioAgentChat_UsesSystemPrompt(t *testing.T) {
 type mockConversationEngine struct {
 	beginTurnFunc func(ctx context.Context, sessionID string, userMessage string) (*conversation.RecallPack, error)
 	endTurnFunc   func(ctx context.Context, sessionID string, userMessage string, response string) error
+	flushFunc     func(ctx context.Context, sessionID string) error
+	statusFunc    func(ctx context.Context, sessionID string) (*conversation.ConversationStatus, error)
+	resetFunc     func(ctx context.Context, sessionID string) error
 	persona       conversation.PersonaState
 }
 
@@ -300,12 +303,21 @@ func (m *mockConversationEngine) EndTurn(ctx context.Context, sessionID string, 
 
 func (m *mockConversationEngine) GetPersona() conversation.PersonaState { return m.persona }
 func (m *mockConversationEngine) FlushCurrentThread(ctx context.Context, sessionID string) error {
+	if m.flushFunc != nil {
+		return m.flushFunc(ctx, sessionID)
+	}
 	return nil
 }
 func (m *mockConversationEngine) GetStatus(ctx context.Context, sessionID string) (*conversation.ConversationStatus, error) {
+	if m.statusFunc != nil {
+		return m.statusFunc(ctx, sessionID)
+	}
 	return &conversation.ConversationStatus{}, nil
 }
 func (m *mockConversationEngine) ResetSession(ctx context.Context, sessionID string) error {
+	if m.resetFunc != nil {
+		return m.resetFunc(ctx, sessionID)
+	}
 	return nil
 }
 
@@ -890,6 +902,69 @@ func TestWithKBManager(t *testing.T) {
 
 	// Verify the manager was set by checking if Process can use it
 	// (This is indirectly verified through integration tests)
+}
+
+func TestMioAgentOptionSetters(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+
+	cacheManager := &mockSearchCacheManager{}
+	if got := mio.WithSearchCacheManager(cacheManager); got != mio {
+		t.Fatal("WithSearchCacheManager should return the same agent")
+	}
+	if mio.searchCacheManager != cacheManager {
+		t.Fatal("search cache manager was not set")
+	}
+
+	userMemory := &mockUserMemoryManager{}
+	if got := mio.WithUserMemoryManager(userMemory); got != mio {
+		t.Fatal("WithUserMemoryManager should return the same agent")
+	}
+	if mio.userMemoryManager != userMemory {
+		t.Fatal("user memory manager was not set")
+	}
+
+	editor := &mockPersonaEditor{}
+	if got := mio.WithPersonaEditor(editor); got != mio {
+		t.Fatal("WithPersonaEditor should return the same agent")
+	}
+	if mio.personaEditor != editor {
+		t.Fatal("persona editor was not set")
+	}
+
+	provider := func(context.Context, int) (string, error) {
+		return "recent context", nil
+	}
+	if got := mio.WithRecentContextProvider(provider); got != mio {
+		t.Fatal("WithRecentContextProvider should return the same agent")
+	}
+	recent, err := mio.recentContext(context.Background(), 3)
+	if err != nil || recent != "recent context" {
+		t.Fatalf("unexpected recent context result: %q, %v", recent, err)
+	}
+
+	mio.WithSystemPrompt("  custom prompt  ")
+	if mio.systemPrompt != "custom prompt" {
+		t.Fatalf("system prompt should be trimmed, got %q", mio.systemPrompt)
+	}
+}
+
+type mockCachedKBManager struct {
+	mockKBManager
+	mockSearchCacheManager
+}
+
+func TestWithKBManagerAlsoSetsSearchCacheWhenSupported(t *testing.T) {
+	mio := NewMioAgent(&mockLLMProvider{}, &mockClassifier{}, &mockRuleDictionary{}, &mockToolRunner{}, &mockMCPClient{}, nil)
+	manager := &mockCachedKBManager{}
+
+	mio.WithKBManager(manager)
+
+	if mio.kbManager != manager {
+		t.Fatal("KB manager was not set")
+	}
+	if mio.searchCacheManager != manager {
+		t.Fatal("search cache manager should be set from KB manager when supported")
+	}
 }
 
 // mockKBManager は KBManager のモック

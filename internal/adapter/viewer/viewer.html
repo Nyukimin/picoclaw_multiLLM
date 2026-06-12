@@ -548,7 +548,7 @@
           </div>
         </div>
         <div class="chat-character-portrait" aria-hidden="true">
-          <div class="chat-character-glow"></div>
+          <div class="chat-character-glow" style="display:none;"></div>
           <div id="chatCharacterMioLayered" class="character-layered chat-character-avatar" style="display:none;">
             <img class="character-part character-base" src="" alt="Mio base">
             <img class="character-part character-eyebrow-left" src="" alt="Left eyebrow">
@@ -557,12 +557,8 @@
             <img class="character-part character-eye-right" src="" alt="Right eye">
             <img class="character-part character-mouth" src="" alt="Mouth">
           </div>
-          <div style="display:flex;justify-content:center;width:100%;">
-            <iframe id="chatLive2DMio" src="/viewer/live2d/embed?character_id=mio&emotion=normal&mode=normal&hide_ui=true"
-                    style="position:relative;z-index:100;width:100%;max-width:450px;height:400px;border:none;background:transparent;" allowtransparency="true"></iframe>
-          </div>
-          <div class="chat-character-name">Mio / Chat</div>
-          <div class="chat-character-role">会話、相談、指示の入口</div>
+          <iframe id="chatLive2DMio" src="/viewer/live2d/embed?character_id=mio&emotion=normal&mode=normal&hide_ui=true"
+                  style="position:absolute;top:0;left:0;z-index:100;width:100%;height:100%;border:none;background:transparent;" allowtransparency="true"></iframe>
         </div>
         <div class="chat-status-card">
           <div class="chat-status-row"><span>状態</span><strong>待機中</strong></div>
@@ -1059,16 +1055,6 @@
             <div class="chat-brand-name">IdleChat</div>
             <div class="chat-brand-sub">Mio / Shiro background talk</div>
           </div>
-        </div>
-        <div class="idle-character-portrait" aria-hidden="true">
-          <div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;">
-            <iframe id="idleLive2DMio" src="/viewer/live2d/embed?character_id=mio&emotion=normal&mode=normal&hide_ui=true"
-                    style="width:180px;height:250px;border:none;background:transparent;" allowtransparency="true"></iframe>
-            <iframe id="idleLive2DShiro" src="/viewer/live2d/embed?character_id=shiro&emotion=normal&mode=normal&hide_ui=true"
-                    style="width:180px;height:250px;border:none;background:transparent;" allowtransparency="true"></iframe>
-          </div>
-          <div class="idle-character-title">ふたりの雑談</div>
-          <div class="idle-character-sub">話題、発話、要約を分けて読む</div>
         </div>
         <div class="idle-status-board">
           <div class="chat-status-row"><span>Manual</span><span id="idleManual" class="badge state-offline">off</span></div>

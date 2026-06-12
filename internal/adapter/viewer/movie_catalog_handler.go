@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/moviecatalog"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -160,17 +161,22 @@ func HandleMovieCatalog(opts MovieCatalogOptions) http.HandlerFunc {
 			return
 		}
 		resp := movieCatalogResponse{Available: true, DBPath: dbPath, Action: action, Limit: limit, Offset: offset}
+		params := moviecatalog.QueryParams{
+			Query:  r.URL.Query().Get("q"),
+			Role:   r.URL.Query().Get("role"),
+			Source: r.URL.Query().Get("source"),
+		}
 		switch action {
 		case "stats":
-			resp.Stats, err = movieCatalogStats(db)
+			resp.Stats, err = moviecatalog.Stats(db)
 		case "movies":
-			resp.Total, resp.Items, err = movieCatalogMovies(db, r, limit, offset)
+			resp.Total, resp.Items, err = moviecatalog.Movies(db, params, limit, offset)
 		case "people":
-			resp.Total, resp.Items, err = movieCatalogPeople(db, r, limit, offset)
+			resp.Total, resp.Items, err = moviecatalog.People(db, params, limit, offset)
 		case "movie":
-			resp.Detail, err = movieCatalogMovieDetail(db, r.URL.Query().Get("id"))
+			resp.Detail, err = moviecatalog.MovieDetail(db, r.URL.Query().Get("id"))
 		case "person":
-			resp.Detail, err = movieCatalogPersonDetail(db, r.URL.Query().Get("id"))
+			resp.Detail, err = moviecatalog.PersonDetail(db, r.URL.Query().Get("id"))
 		default:
 			http.Error(w, "unsupported action", http.StatusBadRequest)
 			return
@@ -298,11 +304,20 @@ func HandleMovieCatalogPreference(opts MovieCatalogOptions) http.HandlerFunc {
 			return
 		}
 		defer db.Close()
-		if err := movieCatalogSetPersonFavorite(db, req); err != nil {
+		prefReq := moviecatalog.PreferenceRequest{
+			Kind:        req.Kind,
+			TargetID:    req.TargetID,
+			TargetLabel: req.TargetLabel,
+			Favorite:    req.Favorite,
+			SignalType:  req.SignalType,
+			Weight:      req.Weight,
+			GeneratedBy: req.GeneratedBy,
+		}
+		if err := moviecatalog.SetPersonFavorite(db, prefReq); err != nil {
 			http.Error(w, "failed to update movie catalog preference", http.StatusInternalServerError)
 			return
 		}
-		count, err := movieCatalogPersonPreferenceCount(db, req.TargetID)
+		count, err := moviecatalog.PersonPreferenceCount(db, req.TargetID)
 		if err != nil {
 			http.Error(w, "failed to reload movie catalog preference", http.StatusInternalServerError)
 			return

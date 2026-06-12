@@ -3,6 +3,7 @@ package task
 import (
 	"testing"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 )
 
@@ -64,5 +65,30 @@ func TestTaskWithRoute(t *testing.T) {
 	// 元のtaskは変更されない
 	if task.Route() != "" {
 		t.Error("Original task should not be modified")
+	}
+}
+
+func TestTaskWithUserMessageAndAttachmentsAreImmutable(t *testing.T) {
+	jobID := NewJobID()
+	task := NewTask(jobID, "old", "viewer", "chat-1")
+	attachments := []attachment.Attachment{{ID: "att-1", Filename: "memo.txt"}}
+
+	updated := task.WithUserMessage("new").WithAttachments(attachments)
+	attachments[0].Filename = "changed.txt"
+
+	if task.UserMessage() != "old" || len(task.Attachments()) != 0 {
+		t.Fatalf("original task mutated: message=%q attachments=%v", task.UserMessage(), task.Attachments())
+	}
+	if updated.UserMessage() != "new" {
+		t.Fatalf("updated message=%q, want new", updated.UserMessage())
+	}
+	got := updated.Attachments()
+	if len(got) != 1 || got[0].Filename != "memo.txt" {
+		t.Fatalf("attachments=%v, want copied memo.txt", got)
+	}
+	got[0].Filename = "mutated.txt"
+	gotAgain := updated.Attachments()
+	if gotAgain[0].Filename != "memo.txt" {
+		t.Fatalf("Attachments returned mutable backing slice: %v", gotAgain)
 	}
 }

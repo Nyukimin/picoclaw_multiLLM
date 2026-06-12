@@ -7,7 +7,6 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/toolloop"
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
 	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
@@ -25,8 +24,6 @@ type toolRuntime struct {
 	WorkerRunnerV2        *tools.ToolRunner
 	ChatRuntimeRunnerV2   domaintool.RunnerV2
 	WorkerRuntimeRunnerV2 domaintool.RunnerV2
-	ChatLegacy            agent.ToolRunner
-	WorkerLegacy          agent.ToolRunner
 	SubagentMgr           *subagent.Manager
 	ToolMediationRecorder *toolharnesspersistence.JSONLRecorder
 }
@@ -155,10 +152,8 @@ func buildToolRuntime(
 		log.Printf("Subagent disabled")
 	}
 
-	chatToolRunner := domaintool.NewLegacyRunner(chatRunnerV2)
-	workerToolRunner := domaintool.NewLegacyRunner(workerRunnerV2)
 	log.Printf("ToolRunner initialized: Chat=%d tools, Worker=%d tools",
-		len(mustGetToolList(chatToolRunner)), len(mustGetToolList(workerToolRunner)))
+		len(mustGetToolList(chatRunnerV2)), len(mustGetToolList(workerRunnerV2)))
 
 	if chatToolRunnerCfg.GoogleAPIKey != "" && chatToolRunnerCfg.GoogleSearchEngineID != "" {
 		log.Printf("Google Search API (Chat) configured")
@@ -172,8 +167,6 @@ func buildToolRuntime(
 		WorkerRunnerV2:        workerToolRunnerV2,
 		ChatRuntimeRunnerV2:   chatRunnerV2,
 		WorkerRuntimeRunnerV2: workerRunnerV2,
-		ChatLegacy:            chatToolRunner,
-		WorkerLegacy:          workerToolRunner,
 		SubagentMgr:           subagentMgr,
 		ToolMediationRecorder: toolMediationRecorder,
 	}

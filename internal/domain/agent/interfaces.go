@@ -20,9 +20,8 @@ type RuleDictionary interface {
 
 // ToolRunner はツール実行のインターフェース
 type ToolRunner interface {
-	Execute(ctx context.Context, toolName string, args map[string]interface{}) (string, error)
 	ExecuteV2(ctx context.Context, toolName string, args map[string]any) (*tool.ToolResponse, error) // Phase 4.2: 構造化レスポンス
-	List(ctx context.Context) ([]string, error)
+	ListTools(ctx context.Context) ([]tool.ToolMetadata, error)
 }
 
 // MCPClient はMCPクライアントのインターフェース
