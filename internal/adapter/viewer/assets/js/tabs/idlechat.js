@@ -338,6 +338,8 @@ function appendIdleLiveMessageEvent(ev, options = {}) {
 	  recordIdleLiveRendered(kind, ev, pending ? '' : displayContent);
   trimTimelineNodesFor(target, MAX_TIMELINE_NODES);
   target.scrollTop = target.scrollHeight;
+  // Update Live2D emotion
+  if (typeof updateLive2DOnMessage === 'function') updateLive2DOnMessage(ev);
   return el;
 }
 

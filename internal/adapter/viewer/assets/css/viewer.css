@@ -263,7 +263,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .chat-brand-name{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--t1)}
 .chat-brand-sub{font-size:10px;color:var(--t3);line-height:1.4}
 .chat-character-portrait{
-  position:relative;display:grid;align-content:end;min-height:0;border:1px solid rgba(135,165,255,.22);
+  position:relative;z-index:10;display:grid;align-content:end;min-height:0;border:1px solid rgba(135,165,255,.22);
   border-radius:16px;padding:14px;overflow:hidden;
   background:radial-gradient(circle at 52% 24%,rgba(143,183,255,.24),transparent 36%),
     linear-gradient(180deg,rgba(30,48,86,.62),rgba(9,16,31,.92));
@@ -944,4 +944,48 @@ body.live-mode .live-audio-btn{
     min-width:48px;
     border-radius:999px;
   }
+}
+
+/* Layered Character Display */
+.character-layered {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.character-part {
+  position: absolute;
+  object-fit: contain;
+  pointer-events: none;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.character-base {
+  z-index: 1;
+  /* Base fills the entire container - set by JS */
+}
+
+.character-eyebrow-left,
+.character-eyebrow-right {
+  z-index: 2;
+  /* Position and size set by JS based on bounds */
+}
+
+.character-eye-left,
+.character-eye-right {
+  z-index: 3;
+  /* Position and size set by JS based on bounds */
+}
+
+.character-mouth {
+  z-index: 4;
+  /* Position and size set by JS based on bounds */
+}
+
+.lipsync-actor .character-layered {
+  width: 256px;
+  height: 256px;
 }

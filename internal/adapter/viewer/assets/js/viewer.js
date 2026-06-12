@@ -388,10 +388,21 @@ const viewerControl = {
 };
 const lipSyncMioEl = document.getElementById('lipSyncMio');
 const lipSyncShiroEl = document.getElementById('lipSyncShiro');
+const chatCharacterMioLayeredEl = document.getElementById('chatCharacterMioLayered');
+const idleCharacterMioLayeredEl = document.getElementById('idleCharacterMioLayered');
 const lipSyncActors = {
   mio: lipSyncMioEl,
   shiro: lipSyncShiroEl,
 };
+
+// Initialize character expressions on page load
+if (chatCharacterMioLayeredEl || idleCharacterMioLayeredEl) {
+  // Mio uses layered display
+  loadCharacterState('mio', 'idle');
+}
+if (lipSyncShiroEl) {
+  loadCharacterState('shiro', 'idle');
+}
 const ttsNowPlayingEl = document.getElementById('ttsNowPlaying');
 const ttsNowPlayingTextEl = document.getElementById('ttsNowPlayingText');
 const centralTTSSpeech = {
@@ -552,8 +563,276 @@ function handleViewerActiveControlEvent(ev) {
   }
 }
 
+// Character expression state management
+const characterStates = {
+  mio: {
+    state: 'idle',
+    expressionURL: '',
+    talkOpenURL: '',
+    talkClosedURL: '',
+    layered: true,
+    currentExpression: 'normal',
+    parts: {
+      base: '',
+      eyebrowLeft: '',
+      eyebrowRight: '',
+      eyeLeft: '',
+      eyeRight: '',
+      mouth: ''
+    }
+  },
+  shiro: {
+    state: 'idle',
+    expressionURL: '',
+    talkOpenURL: '',
+    talkClosedURL: '',
+    layered: false
+  },
+};
+
+async function loadCharacterState(characterId, stateName) {
+  const id = String(characterId || '').trim().toLowerCase();
+  if (!characterStates[id]) return;
+
+  // Check if character uses layered display
+  if (characterStates[id].layered) {
+    return loadLayeredCharacterState(id, stateName);
+  }
+
+  try {
+    const response = await fetch(`/viewer/character/state?character_id=${id}&state=${stateName}`);
+    if (!response.ok) {
+      console.error(`Failed to load character state for ${id}: ${response.statusText}`);
+      return;
+    }
+
+    const data = await response.json();
+    characterStates[id].state = stateName;
+    characterStates[id].expressionURL = data.expression_url;
+    characterStates[id].talkOpenURL = data.talk_open_url;
+    characterStates[id].talkClosedURL = data.talk_closed_url;
+
+    // Update all character images
+    updateCharacterImages(id, data.expression_url, data.talk_open_url);
+  } catch (err) {
+    console.error(`Error loading character state for ${id}:`, err);
+  }
+}
+
+async function loadLayeredCharacterState(characterId, expressionName) {
+  const id = String(characterId || '').trim().toLowerCase();
+  if (!characterStates[id] || !characterStates[id].layered) return;
+
+  try {
+    const response = await fetch(`/viewer/character/layered/state?character_id=${id}&expression=${expressionName}`);
+    if (!response.ok) {
+      console.error(`Failed to load layered character state for ${id}: ${response.statusText}`);
+      return;
+    }
+
+    const data = await response.json();
+    characterStates[id].currentExpression = expressionName;
+    characterStates[id].canvasSize = data.canvas_size;
+    characterStates[id].parts = {
+      base: data.parts.base,
+      eyebrowLeft: data.parts.eyebrow_left,
+      eyebrowRight: data.parts.eyebrow_right,
+      eyeLeft: data.parts.eye_left,
+      eyeRight: data.parts.eye_right,
+      mouth: data.parts.mouth
+    };
+
+    // Update layered character display
+    updateLayeredCharacterParts(id);
+  } catch (err) {
+    console.error(`Error loading layered character state for ${id}:`, err);
+  }
+}
+
+function updateLayeredCharacterParts(characterId) {
+  const id = String(characterId || '').trim().toLowerCase();
+  const state = characterStates[id];
+  if (!state || !state.layered) return;
+
+  // Try multiple container IDs
+  const containerIds = [
+    `chatCharacter${id.charAt(0).toUpperCase() + id.slice(1)}Layered`,
+    `idleCharacter${id.charAt(0).toUpperCase() + id.slice(1)}Layered`
+  ];
+
+  let containers = [];
+  for (const containerId of containerIds) {
+    const el = document.getElementById(containerId);
+    if (el) containers.push(el);
+  }
+
+  if (containers.length === 0) return;
+
+  const parts = state.parts;
+  const canvasSize = state.canvasSize || { w: 1254, h: 1254 };
+
+  // Helper function to set part with bounds
+  function setPartWithBounds(img, partData) {
+    if (!img || !partData) return;
+
+    const url = partData.url || partData;
+    const bounds = partData.bounds;
+
+    img.src = url;
+
+    if (bounds) {
+      // Calculate position and size as percentages of canvas
+      const left = (bounds.x / canvasSize.w) * 100;
+      const top = (bounds.y / canvasSize.h) * 100;
+      const width = (bounds.w / canvasSize.w) * 100;
+      const height = (bounds.h / canvasSize.h) * 100;
+
+      img.style.left = `${left}%`;
+      img.style.top = `${top}%`;
+      img.style.width = `${width}%`;
+      img.style.height = `${height}%`;
+    }
+  }
+
+  // Update all containers
+  for (const container of containers) {
+    const baseImg = container.querySelector('.character-base');
+    const eyebrowLeftImg = container.querySelector('.character-eyebrow-left');
+    const eyebrowRightImg = container.querySelector('.character-eyebrow-right');
+    const eyeLeftImg = container.querySelector('.character-eye-left');
+    const eyeRightImg = container.querySelector('.character-eye-right');
+    const mouthImg = container.querySelector('.character-mouth');
+
+    // Base image fills the entire container
+    if (baseImg && parts.base) {
+      baseImg.src = parts.base.url || parts.base;
+      baseImg.style.width = '100%';
+      baseImg.style.height = '100%';
+      baseImg.style.left = '0';
+      baseImg.style.top = '0';
+    }
+
+    // Set other parts with their bounds
+    setPartWithBounds(eyebrowLeftImg, parts.eyebrowLeft);
+    setPartWithBounds(eyebrowRightImg, parts.eyebrowRight);
+    setPartWithBounds(eyeLeftImg, parts.eyeLeft);
+    setPartWithBounds(eyeRightImg, parts.eyeRight);
+    setPartWithBounds(mouthImg, parts.mouth);
+  }
+}
+
+async function setLayeredMouth(characterId, mouthId) {
+  const id = String(characterId || '').trim().toLowerCase();
+  const state = characterStates[id];
+  if (!state || !state.layered) return;
+
+  try {
+    const response = await fetch(`/viewer/character/layered/mouth?character_id=${id}&expression=${state.currentExpression}&mouth_id=${mouthId}`);
+    if (!response.ok) {
+      console.error(`Failed to set mouth for ${id}: ${response.statusText}`);
+      return;
+    }
+
+    const data = await response.json();
+    state.parts.mouth = data.parts.mouth;
+
+    // Update only the mouth part in all containers
+    const containerIds = [
+      `chatCharacter${id.charAt(0).toUpperCase() + id.slice(1)}Layered`,
+      `idleCharacter${id.charAt(0).toUpperCase() + id.slice(1)}Layered`
+    ];
+
+    const canvasSize = state.canvasSize || { w: 1254, h: 1254 };
+    const partData = state.parts.mouth;
+
+    for (const containerId of containerIds) {
+      const container = document.getElementById(containerId);
+      if (!container) continue;
+
+      const mouthImg = container.querySelector('.character-mouth');
+
+      if (mouthImg && partData) {
+        const url = partData.url || partData;
+        const bounds = partData.bounds;
+
+        mouthImg.src = url;
+
+        if (bounds) {
+          const left = (bounds.x / canvasSize.w) * 100;
+          const top = (bounds.y / canvasSize.h) * 100;
+          const width = (bounds.w / canvasSize.w) * 100;
+          const height = (bounds.h / canvasSize.h) * 100;
+
+          mouthImg.style.left = `${left}%`;
+          mouthImg.style.top = `${top}%`;
+          mouthImg.style.width = `${width}%`;
+          mouthImg.style.height = `${height}%`;
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`Error setting layered mouth for ${id}:`, err);
+  }
+}
+
+function updateCharacterImages(characterId, expressionURL, talkOpenURL) {
+  const id = String(characterId || '').trim().toLowerCase();
+
+  // Update lipsync actor element (for non-layered characters)
+  const lipSyncEl = lipSyncActors[id];
+  if (lipSyncEl) {
+    lipSyncEl.dataset.open = talkOpenURL;
+    lipSyncEl.dataset.closed = expressionURL;
+    // Update the current image if not currently speaking
+    const currentSrc = lipSyncEl.src || '';
+    if (!currentSrc.includes('talk_open')) {
+      lipSyncEl.src = expressionURL;
+    }
+  }
+
+  // For layered characters, the updateLayeredCharacterParts function handles updates
+  // Non-layered character images (like single-image Shiro) are handled here
+  const state = characterStates[id];
+  if (state && state.layered) {
+    // Layered character - already updated by updateLayeredCharacterParts
+    return;
+  }
+
+  // Update chat character avatar (non-layered only)
+  const chatAvatar = document.querySelector('.chat-character-avatar:not(.character-layered)');
+  if (chatAvatar && id === 'mio') {
+    chatAvatar.src = expressionURL;
+  }
+
+  // Update idle character avatars (non-layered only)
+  const idleAvatars = document.querySelectorAll(`.idle-character-avatar.${id}:not(.character-layered)`);
+  idleAvatars.forEach(avatar => {
+    avatar.src = expressionURL;
+  });
+}
+
+function setCharacterExpression(characterId, stateName) {
+  loadCharacterState(characterId, stateName);
+}
+
 function setLipSyncSpeaking(characterId, speaking) {
   const id = String(characterId || '').trim().toLowerCase();
+  const state = characterStates[id];
+
+  // Use layered display for characters that support it
+  if (state && state.layered) {
+    if (speaking) {
+      // Use mouth_06 for open mouth (talk_open uses mouth_06)
+      setLayeredMouth(id, 'mouth_06');
+    } else {
+      // Reload current expression to restore normal mouth
+      const currentExpression = state.currentExpression || 'normal';
+      loadLayeredCharacterState(id, currentExpression);
+    }
+    return;
+  }
+
+  // Fallback to single-image display
   const el = lipSyncActors[id];
   if (!el) return;
   const openSrc = String(el.dataset.open || '').trim();
@@ -1764,6 +2043,24 @@ function updateAgents(ev) {
       updatedAt: ts,
       jobID: jid,
     });
+
+    // Update character expression based on agent state
+    if (from === 'mio' || from === 'shiro') {
+      let characterState = 'idle';
+      if (ev.type === 'agent.thinking') {
+        characterState = 'thinking';
+      } else if (ev.type === 'agent.response') {
+        const c = (ev.content || '').toLowerCase();
+        if (c.includes('error') || c.includes('失敗')) {
+          characterState = 'error';
+        } else if (c.includes('完了') || c.includes('成功') || c.includes('できました')) {
+          characterState = 'happy';
+        } else {
+          characterState = 'idle';
+        }
+      }
+      setCharacterExpression(from, characterState);
+    }
   }
 
   if (ev.type === 'agent.start' && AGENTS.includes(to)) {
@@ -3123,6 +3420,8 @@ function ingestEvent(ev) {
   }
   handleTTSAudioEvent(ev);
   derivedDirty = true;
+  // Update Live2D emotion on messages
+  if (typeof updateLive2DOnMessage === 'function') updateLive2DOnMessage(ev);
 }
 
 function isStaleIdleChatEvent(ev) {
@@ -3802,10 +4101,20 @@ function createChatAudioSync() {
 
   function startLipSyncInternal(characterId) {
     setLipSyncSpeaking(characterId, true);
+    // Set speaking expression when starting to speak
+    const id = String(characterId || '').trim().toLowerCase();
+    if (id === 'mio' || id === 'shiro') {
+      setCharacterExpression(id, 'speaking');
+    }
   }
 
   function stopLipSyncInternal(characterId) {
     setLipSyncSpeaking(characterId, false);
+    // Return to idle expression when finished speaking
+    const id = String(characterId || '').trim().toLowerCase();
+    if (id === 'mio' || id === 'shiro') {
+      setCharacterExpression(id, 'idle');
+    }
   }
 
   function startTextFallbackInternal() {
@@ -6574,3 +6883,82 @@ function completeSTTStop() {
   });
   console.log('[STT] Stopped');
 }
+
+// ============================================================================
+// Live2D Emotion Control
+// ============================================================================
+
+const live2dEmotionMapping = {
+  'normal':   { motion: '', expression: 'f01' },
+  'happy':    { motion: 'tapBody', expression: 'f02' },
+  'sad':      { motion: '', expression: 'f03' },
+  'angry':    { motion: 'shake', expression: 'f04' },
+  'surprise': { motion: 'pinchIn', expression: 'f05' },
+  'think':    { motion: '', expression: 'f06' },
+  'speaking': { motion: 'tapBody', expression: 'f02' }
+};
+
+function setLive2DEmotion(characterId, emotion) {
+  const frameId = characterId === 'mio' ? 
+    (document.getElementById('chatLive2DMio') || document.getElementById('idleLive2DMio')) :
+    document.getElementById('idleLive2DShiro');
+  
+  if (!frameId) {
+    console.warn('[Live2D] Frame not found for:', characterId);
+    return;
+  }
+
+  const state = live2dEmotionMapping[emotion] || live2dEmotionMapping['normal'];
+  
+  console.log('[Live2D] Setting emotion:', characterId, emotion, state);
+  
+  if (frameId.contentWindow) {
+    frameId.contentWindow.postMessage({
+      type: 'emotion',
+      emotion: emotion,
+      state: state
+    }, '*');
+  }
+}
+
+// Auto-detect emotion from message content
+function detectMessageEmotion(content) {
+  const text = String(content || '').toLowerCase();
+  
+  // Angry
+  if (/怒|腹|イライラ|angry|mad/i.test(text)) return 'angry';
+  
+  // Surprise  
+  if (/驚|まさか|すごい|surprise|wow|amazing/i.test(text)) return 'surprise';
+  
+  // Sad
+  if (/悲しい|残念|申し訳|すみません|ごめん|sad|sorry/i.test(text)) return 'sad';
+  
+  // Happy
+  if (/嬉しい|楽しい|ありがとう|感謝|素晴らしい|最高|happy|glad|thank/i.test(text)) return 'happy';
+  
+  // Think
+  if (/考え|検討|確認|調べ|分析|think|consider|check/i.test(text) || /[？?]/.test(text)) return 'think';
+  
+  return 'normal';
+}
+
+// Update Live2D on new messages
+function updateLive2DOnMessage(ev) {
+  if (!ev || !ev.content) return;
+  
+  const from = String(ev.from || '').toLowerCase();
+  const content = String(ev.content || '');
+  
+  // Detect emotion
+  const emotion = detectMessageEmotion(content);
+  
+  // Update character
+  if (from === 'mio') {
+    setLive2DEmotion('mio', emotion);
+  } else if (from === 'shiro') {
+    setLive2DEmotion('shiro', emotion);
+  }
+}
+
+console.log('[Live2D] Emotion control initialized');
