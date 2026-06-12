@@ -548,28 +548,8 @@
           </div>
         </div>
         <div class="chat-character-portrait" aria-hidden="true">
-          <div class="chat-character-glow" style="display:none;"></div>
-          <div id="chatCharacterMioLayered" class="character-layered chat-character-avatar" style="display:none;">
-            <img class="character-part character-base" src="" alt="Mio base">
-            <img class="character-part character-eyebrow-left" src="" alt="Left eyebrow">
-            <img class="character-part character-eyebrow-right" src="" alt="Right eyebrow">
-            <img class="character-part character-eye-left" src="" alt="Left eye">
-            <img class="character-part character-eye-right" src="" alt="Right eye">
-            <img class="character-part character-mouth" src="" alt="Mouth">
-          </div>
           <iframe id="chatLive2DMio" src="/viewer/live2d/embed?character_id=mio&emotion=normal&mode=normal&hide_ui=true"
                   style="position:absolute;top:0;left:0;z-index:100;width:100%;height:100%;border:none;background:transparent;" allowtransparency="true"></iframe>
-        </div>
-        <div class="chat-status-card">
-          <div class="chat-status-row"><span>状態</span><strong>待機中</strong></div>
-          <div class="chat-status-row"><span>入力</span><strong>通常 Chat</strong></div>
-          <div class="chat-status-row"><span>音声</span><strong>Chat のみ</strong></div>
-        </div>
-        <div class="chat-agent-grid" aria-label="Chat quick actions">
-          <button class="chat-agent-card" type="button" onclick="document.getElementById('inp').focus()">話す<span>通常会話</span></button>
-          <button class="chat-agent-card" type="button" onclick="switchTab('develop')">開発<span>作業を見る</span></button>
-          <button class="chat-agent-card" type="button" onclick="switchTab('reports')">報告<span>結果確認</span></button>
-          <button class="chat-agent-card" type="button" onclick="switchTab('idlechat')">雑談<span>IdleChat</span></button>
         </div>
       </aside>
 
@@ -577,10 +557,9 @@
         <header class="chat-desk-head">
           <div>
             <div class="chat-kicker">Chat</div>
-            <h3>会話と指示をここから始める</h3>
-            <p>ユーザー会話と、Mio / Shiro / Worker の内部連携を読みやすく表示します。</p>
+            <h3>Mio / Chat</h3>
           </div>
-          <details class="chat-filter-details">
+          <details class="chat-filter-details" hidden>
             <summary>詳細フィルタ</summary>
             <div class="filters chat-filter-controls">
               <select id="fltType">
@@ -610,20 +589,6 @@
             </div>
           </details>
         </header>
-        <div class="chat-intent-strip" aria-label="Chat workflow guide">
-          <div>
-            <span class="chat-intent-label">入力</span>
-            <strong>下の固定入力欄から送信</strong>
-          </div>
-          <div>
-            <span class="chat-intent-label">音声</span>
-            <strong>🎤でSTT / 🔊でTTS</strong>
-          </div>
-          <div>
-            <span class="chat-intent-label">添付</span>
-            <strong>📎で画像・PDF・テキスト</strong>
-          </div>
-        </div>
         <div id="chat" class="chat-conversation">
           <div class="empty chat-empty" id="empty">
             <div class="chat-empty-mark">R</div>

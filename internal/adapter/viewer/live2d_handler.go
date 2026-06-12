@@ -124,20 +124,6 @@ canvas {
 `)
 	}
 
-	// Inject debug borders
-	debugStyle := `
-.stage {
-	border: 3px solid green !important;
-}
-.scene {
-	border: 3px solid yellow !important;
-}
-.layers {
-	border: 3px solid orange !important;
-}
-`
-	htmlStr = injectLive2DStyle(htmlStr, debugStyle)
-
 	// Inject UI hiding style if requested
 	if hideUI {
 		uiHideStyle := `
@@ -167,6 +153,16 @@ body {
 }
 `
 		htmlStr = injectLive2DStyle(htmlStr, uiHideStyle)
+		htmlStr = injectLive2DScript(htmlStr, `
+<script>
+(function(){
+  document.querySelectorAll('.layers img').forEach(function(img){
+    img.setAttribute('aria-hidden', 'true');
+    img.setAttribute('alt', '');
+  });
+})();
+</script>
+`)
 	}
 
 	// Inject emotion control script
@@ -207,24 +203,28 @@ func HandleLive2DCharacterEmbed(w http.ResponseWriter, r *http.Request) {
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>%s - %s</title>
-	<style>
-		body {
-			margin: 0;
-			padding: 0;
-			overflow: hidden;
-			background: transparent;
-		}
+		<title>%s - %s</title>
+		<style>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				width: 100%%;
+				height: 100%%;
+				overflow: hidden;
+				background: transparent;
+			}
 		#live2d-container {
 			position: relative;
 			width: 100%%;
 			height: 100%%;
 			z-index: 10;
 		}
-		iframe {
-			border: none;
-			width: 100%%;
-			height: 100%%;
+			iframe {
+				display: block;
+				border: none;
+				width: 100%%;
+				height: 100%%;
 			pointer-events: auto;
 		}
 		/* Hide UI controls in iframe */
@@ -367,13 +367,13 @@ iframe {
 	}
 	return `
 #live2d-container {
-	width: 300px;
-	height: 400px;
+	width: 100%;
+	height: 100%;
 }
 @media (max-width: 768px) {
 	#live2d-container {
-		width: 200px;
-		height: 300px;
+		width: 100%;
+		height: 100%;
 	}
 }
 `

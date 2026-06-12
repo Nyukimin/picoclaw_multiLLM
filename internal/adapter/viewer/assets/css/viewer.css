@@ -245,7 +245,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 
 .chat-desk-panel{width:min(100%,1480px);padding-top:10px}
 .chat-desk-shell{
-  display:grid;grid-template-columns:minmax(300px,340px) minmax(0,1fr);gap:12px;
+  display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);gap:12px;
   min-height:calc(100vh - 184px - var(--safe-bottom));
 }
 .chat-character-pane,.chat-main-pane{
@@ -253,7 +253,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
   background:rgba(18,28,48,.72);backdrop-filter:blur(22px) saturate(1.08);
   box-shadow:0 18px 54px rgba(1,6,20,.22),inset 0 1px 0 rgba(255,255,255,.07);
 }
-.chat-character-pane{display:grid;grid-template-rows:auto minmax(180px,1fr) auto auto;gap:10px;padding:12px;overflow:hidden}
+.chat-character-pane{display:grid;grid-template-rows:auto minmax(260px,1fr);gap:10px;padding:12px;overflow:hidden}
 .chat-brand-row{display:flex;align-items:center;gap:10px;min-width:0}
 .chat-logo-mark{
   display:grid;place-items:center;width:32px;height:32px;border:1px solid rgba(135,165,255,.48);
@@ -266,11 +266,8 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
   position:relative;z-index:10;display:grid;align-content:end;min-height:0;
   margin:-12px -12px 0 -12px;
   border-radius:18px;padding:0;overflow:hidden;
-  background:transparent;
-  border:3px solid red !important;
-}
-#chatLive2DMio {
-  border:3px solid blue !important;
+  background:radial-gradient(circle at 50% 26%,rgba(143,183,255,.14),transparent 42%),
+    linear-gradient(180deg,rgba(16,25,48,.28),rgba(7,13,26,.58));
 }
 .chat-character-avatar{
   position:absolute;left:50%;bottom:44px;z-index:1;
@@ -302,7 +299,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .chat-agent-card:hover,.chat-agent-card:focus-visible,.chat-agent-card.active{
   outline:none;border-color:rgba(135,165,255,.48);background:rgba(30,48,86,.86);
 }
-.chat-main-pane{display:grid;grid-template-rows:auto auto minmax(0,1fr);overflow:hidden}
+.chat-main-pane{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
 .chat-desk-head{
   display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
   padding:14px 16px;border-bottom:1px solid var(--border);background:rgba(7,16,31,.42);
