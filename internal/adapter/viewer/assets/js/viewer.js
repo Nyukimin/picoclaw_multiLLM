@@ -5029,6 +5029,8 @@ const STT_SILENCE_END_MS = 700;
 const STT_STOP_TAIL_SILENCE_MS = 300;
 const STT_VAD_START_LEVEL = 12;
 const STT_VAD_END_LEVEL = 8;
+const VDS_VAD_START_LEVEL = 4;
+const VDS_VAD_END_LEVEL = 3;
 
 const sttTestRecordState = {
   isRecording: false,
@@ -5658,6 +5660,8 @@ if (typeof ensureVoiceChatForMobileControl !== 'function') {
 
 const VDS_FINAL_WAIT_TIMEOUT_MS = 120000;
 const VDS_READY_WAIT_TIMEOUT_MS = 5000;
+const VDS_DELTA_IDLE_FINALIZE_MS = 2500;
+const VDS_DEFAULT_PROMPT = '聞こえた音声内容を日本語で2文以内に短く確認してください。数字や固有名詞が聞こえた場合だけ含めてください。';
 
 function buildVDSWebSocketURL() {
   const base = String(vdsState.voiceChatURL || '');
@@ -5707,6 +5711,7 @@ function sendVDSSessionStart() {
     voice_input_mode: 'vds_sub',
     channel: 'viewer',
     chat_id: 'default',
+    prompt: VDS_DEFAULT_PROMPT,
   };
   vdsState.ws.send(JSON.stringify(control));
   return true;
@@ -5763,15 +5768,32 @@ function clearVDSFinalWaitTimer() {
   vdsState.finalWaitTimer = null;
 }
 
+function clearVDSDeltaIdleTimer() {
+  if (!vdsState.deltaIdleTimer) return;
+  clearTimeout(vdsState.deltaIdleTimer);
+  vdsState.deltaIdleTimer = null;
+}
+
 function scheduleVDSFinalWaitTimeout() {
   clearVDSFinalWaitTimer();
   vdsState.finalWaitTimer = setTimeout(() => {
     vdsState.finalWaitTimer = null;
     if (!vdsState.isStopping) return;
+    if (finalizeVDSDeltaResponse('timeout')) return;
     vdsState.errorText = 'timed out waiting for llm.final';
     showToast('Voice Direct 応答タイムアウト', 'error');
     completeVDSUtteranceStop('timeout');
   }, VDS_FINAL_WAIT_TIMEOUT_MS);
+}
+
+function scheduleVDSDeltaIdleFinalize() {
+  clearVDSDeltaIdleTimer();
+  if (!vdsState.isStopping) return;
+  vdsState.deltaIdleTimer = setTimeout(() => {
+    vdsState.deltaIdleTimer = null;
+    if (!vdsState.isStopping) return;
+    finalizeVDSDeltaResponse('delta_idle');
+  }, VDS_DELTA_IDLE_FINALIZE_MS);
 }
 
 function resetVDSUtteranceState() {
@@ -5785,6 +5807,11 @@ function resetVDSUtteranceState() {
   vdsState.llmDeltaText = '';
   vdsState.llmFinalText = '';
   vdsState.errorText = '';
+  vdsState.responseEl = null;
+  vdsState.responseTextEl = null;
+  vdsState.responseRaw = '';
+  vdsState.responseFinalized = false;
+  clearVDSDeltaIdleTimer();
   vdsState.latencySpeechStartMS = 0;
   vdsState.latencyCommitMS = 0;
   vdsState.latencyFirstDeltaMS = 0;
@@ -5829,6 +5856,8 @@ function connectVDSWebSocket() {
         console.log('[VDS] Progress:', msg);
       } else if (msg.type === 'llm.delta' && msg.text) {
         vdsState.llmDeltaText += String(msg.text || '');
+        renderVDSDeltaResponse('stream');
+        scheduleVDSDeltaIdleFinalize();
         if (!vdsState.latencyFirstDeltaMS) {
           vdsState.latencyFirstDeltaMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
           if (typeof recordLatencyMetric === 'function') {
@@ -5868,6 +5897,11 @@ function handleVDSFinalMessage(msg) {
   vdsState.llmFinalText = finalText;
   vdsState.latencyFinalMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
   clearVDSFinalWaitTimer();
+  clearVDSDeltaIdleTimer();
+  if (finalText) {
+    vdsState.llmDeltaText = finalText;
+    renderVDSDeltaResponse('final');
+  }
   if (typeof recordLatencyMetric === 'function') {
     recordLatencyMetric('vds', 'final_received', {
       atMS: vdsState.latencyFinalMS,
@@ -5878,6 +5912,60 @@ function handleVDSFinalMessage(msg) {
   }
   console.log('[VDS] LLM final received (SSE displays chat response):', finalText);
   completeVDSUtteranceStop('llm.final');
+}
+
+function renderVDSDeltaResponse(reason) {
+  const text = String(vdsState.llmDeltaText || '').trim();
+  if (!text || vdsState.responseFinalized) return false;
+  const em = document.getElementById('empty');
+  if (em) em.remove();
+  const f = ag('mio');
+  if (!vdsState.responseEl || !vdsState.responseTextEl) {
+    const el = document.createElement('div');
+    el.className = 'msg assistant vds-local-response';
+    el.innerHTML =
+      '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+      '<div class="mb"><div class="mh">' +
+        '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
+        '<span class="dir">Voice Direct</span>' +
+        '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
+      '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
+      '<div class="mc"></div></div>';
+    vdsState.responseEl = el;
+    vdsState.responseTextEl = el.querySelector('.mc');
+    chat.appendChild(el);
+    trimTimelineNodes();
+    bump();
+  }
+  vdsState.responseRaw = text;
+  vdsState.responseTextEl.dataset.raw = text;
+  vdsState.responseTextEl.innerHTML = fmt(text);
+  pushDebugTrace('vds', {
+    time: ftime(new Date().toISOString()),
+    step: reason === 'final' ? 'local.final' : 'local.delta',
+    text: short(text, 240),
+  });
+  renderDebugPanels();
+  scrollToBottom();
+  return true;
+}
+
+function finalizeVDSDeltaResponse(reason) {
+  if (!renderVDSDeltaResponse('final')) return false;
+  vdsState.responseFinalized = true;
+  vdsState.llmFinalText = String(vdsState.llmDeltaText || '').trim();
+  vdsState.latencyFinalMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+  if (typeof recordLatencyMetric === 'function') {
+    recordLatencyMetric('vds', 'final_received', {
+      atMS: vdsState.latencyFinalMS,
+      valueMS: vdsState.latencyCommitMS ? vdsState.latencyFinalMS - vdsState.latencyCommitMS : NaN,
+      detail: 'local_delta:' + String(reason || 'delta'),
+      session: vdsState.sessionID || '',
+    });
+  }
+  showToast('Voice Direct 応答を表示しました', 'success');
+  completeVDSUtteranceStop('local_delta');
+  return true;
 }
 
 async function toggleVDS() {
@@ -5986,7 +6074,7 @@ function handleVDSVADFrame(pcm16, level) {
   if (!vdsState.isRecording) return;
   const now = Date.now();
   const inputLevel = Math.max(0, Number(level) || 0);
-  const isVoice = inputLevel >= (vdsState.vadSpeechActive ? STT_VAD_END_LEVEL : STT_VAD_START_LEVEL);
+  const isVoice = inputLevel >= (vdsState.vadSpeechActive ? VDS_VAD_END_LEVEL : VDS_VAD_START_LEVEL);
   if (isVoice) {
     vdsState.vadLastVoiceAt = now;
     vdsState.vadSilenceStartedAt = 0;
@@ -6019,6 +6107,7 @@ function stopVDSUtteranceBySilence() {
 
 function completeVDSUtteranceStop(reason) {
   clearVDSFinalWaitTimer();
+  clearVDSDeltaIdleTimer();
   vdsState.isStopping = false;
   vdsState.vadSpeechActive = false;
   vdsState.vadSilenceStartedAt = 0;
@@ -6033,6 +6122,7 @@ function completeVDSUtteranceStop(reason) {
 }
 
 function stopVDS() {
+  if (vdsState.isStopping) return;
   if (vdsState.vadSpeechActive && !vdsState.isStopping) {
     stopVDSUtteranceBySilence();
     return;

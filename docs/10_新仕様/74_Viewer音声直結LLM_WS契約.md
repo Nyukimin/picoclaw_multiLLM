@@ -1,6 +1,7 @@
 # 74 Viewer 音声直結 LLM WebSocket 契約
 
 **親仕様**: `74_Viewer音声直結LLM_Streaming仕様.md`
+**命名仕様**: `77_STT音声_LLM音声_命名と経路仕様.md`
 **実装作業仕様**: `75_Viewer音声直結LLM_Streaming実装作業仕様.md`
 **作成日**: 2026-06-10
 **ステータス**: 設計確定（実装は `75_Viewer音声直結LLM_Streaming実装作業仕様.md`）
@@ -10,6 +11,8 @@
 ## 1. 概要
 
 Viewer と picoclaw 間の **Voice Direct Streaming (VDS)** WebSocket 契約。
+
+短い呼称では、本契約の `/voice-chat` 経路を **LLM音声** と呼ぶ。RenCrow_STT を使う `/stt` 経路は **STT音声** であり、本契約の `llm.delta` / `llm.final` と STT の `partial` / `final` は別物である。
 
 STT `/stt` 契約（`39_STT_Streaming暫定確定字幕仕様.md`）と対称に設計し、学習コストを下げる。
 

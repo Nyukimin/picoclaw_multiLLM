@@ -155,6 +155,79 @@ func TestVoiceChatWebSocketBridgeE2E_RelaysStartPCMCommitAndFinalWithoutClosing(
 	}
 }
 
+func TestVoiceChatInputAudioBridgeE2E_PostsWAVAndReturnsFinal(t *testing.T) {
+	pcm := rawPCM16Chunk()
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		rawMessages, _ := payload["messages"].([]any)
+		if len(rawMessages) != 1 {
+			t.Fatalf("messages = %#v", payload["messages"])
+		}
+		msg, _ := rawMessages[0].(map[string]any)
+		content, _ := msg["content"].([]any)
+		if len(content) != 2 {
+			t.Fatalf("content = %#v", msg["content"])
+		}
+		audioPart, _ := content[1].(map[string]any)
+		inputAudio, _ := audioPart["input_audio"].(map[string]any)
+		data, _ := inputAudio["data"].(string)
+		if data == "" {
+			t.Fatal("missing input_audio data")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"音声を確認しました"}}]}`))
+	}))
+	defer llm.Close()
+
+	mux := http.NewServeMux()
+	registerVoiceChatRoutes(mux, handleVoiceChatInputAudioBridge("ws"+strings.TrimPrefix(llm.URL, "http")+"/v1/chat/audio/sessions", nil))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+modulevoicechat.RoutePathPrimary, "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial bridge websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"session.start","utterance_id":"utt-1","sample_rate":16000,"channels":1,"format":"pcm16le","channel":"viewer","prompt":"短く確認"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	var ready string
+	if err := websocket.Message.Receive(conn, &ready); err != nil {
+		t.Fatalf("receive ready: %v", err)
+	}
+	if !strings.Contains(ready, `"type":"session.ready"`) {
+		t.Fatalf("unexpected ready event: %s", ready)
+	}
+	if err := websocket.Message.Send(conn, pcm); err != nil {
+		t.Fatalf("send pcm: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"session.commit","utterance_id":"utt-1"}`); err != nil {
+		t.Fatalf("send commit: %v", err)
+	}
+	var delta string
+	if err := websocket.Message.Receive(conn, &delta); err != nil {
+		t.Fatalf("receive delta: %v", err)
+	}
+	if !strings.Contains(delta, `"type":"llm.delta"`) || !strings.Contains(delta, `"text":"音声を確認しました"`) {
+		t.Fatalf("unexpected delta event: %s", delta)
+	}
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive final: %v", err)
+	}
+	if !strings.Contains(final, `"type":"llm.final"`) || !strings.Contains(final, `"text":"音声を確認しました"`) {
+		t.Fatalf("unexpected final event: %s", final)
+	}
+}
+
 func TestVoiceChatDisabledHandlerReturnsErrorFrame(t *testing.T) {
 	mux := http.NewServeMux()
 	registerVoiceChatRoutes(mux, handleVoiceChatDisabled())

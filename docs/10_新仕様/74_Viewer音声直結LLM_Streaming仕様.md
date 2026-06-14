@@ -1,6 +1,6 @@
 # 74 Viewer 音声直結 LLM Streaming 仕様
 
-**関連**: `39_STT_Streaming暫定確定字幕仕様.md` / `RenCrow_LLM/docs/RenCrow連携仕様.md` / `73_STT高速化仕様.md`
+**関連**: `39_STT_Streaming暫定確定字幕仕様.md` / `77_STT音声_LLM音声_命名と経路仕様.md` / `RenCrow_LLM/docs/RenCrow連携仕様.md` / `73_STT高速化仕様.md`
 **作成日**: 2026-06-10
 **ステータス**: 設計確定（実装は `75_Viewer音声直結LLM_Streaming実装作業仕様.md`）
 
@@ -9,6 +9,8 @@
 ## 1. 目的
 
 Viewer マイク入力に対し、**STT を経由しない音声直結サブ経路**を追加する。
+
+短い呼称は `77_STT音声_LLM音声_命名と経路仕様.md` に従う。本仕様の VDS / `/voice-chat` 経路は **LLM音声**、RenCrow_STT を使う `/stt` 経路は **STT音声** と呼ぶ。
 
 最終形は **ストリーミング** とする。
 

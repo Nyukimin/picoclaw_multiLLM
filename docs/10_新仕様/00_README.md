@@ -92,6 +92,7 @@
 | `49_Movie_Graph_Mio_Topic仕様.md` | 映画.com カタログ、れんの鑑賞履歴、嗜好シグナル、Mio 話題候補、バックグラウンド収集理由を分離して扱う Movie Graph 仕様 |
 | `50_Hobby_Graph_Mio_Topic仕様.md` | 映画、音楽、小説、漫画、アニメ、演劇、ビデオゲーム、ボードゲームを Mio の話題生成材料として扱う Hobby Graph 横断仕様 |
 | `51_Movie_Watch_Event実装仕様.md` | 映画DBに「見た」鑑賞イベントを保存し、未解決タイトルとViewer表示へ接続する最初の実装仕様 |
+| `77_STT音声_LLM音声_命名と経路仕様.md` | Viewer Chat マイク入力について、RenCrow_STT 経路を STT音声、RenCrow_LLM 直結経路を LLM音声として区別する命名・実装・検証仕様 |
 
 ## 基本方針
 

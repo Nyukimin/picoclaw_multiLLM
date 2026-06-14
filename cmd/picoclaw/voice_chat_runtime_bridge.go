@@ -38,16 +38,22 @@ func (a voiceDirectBridgeAdapter) NotifyVoiceDirectFirstToken(ctx context.Contex
 }
 
 type voiceChatBridgeTracker struct {
-	mu             sync.Mutex
-	active         orchestrator.ProcessVoiceDirectRequest
-	jobID          task.JobID
-	startedAt      time.Time
-	firstTokenSent bool
-	handler        voiceDirectBridgeAdapter
+	mu                     sync.Mutex
+	active                 orchestrator.ProcessVoiceDirectRequest
+	jobID                  task.JobID
+	startedAt              time.Time
+	firstTokenSent         bool
+	deltaText              string
+	deltaIdleFinalizeAfter time.Duration
+	deltaIdleTimer         *time.Timer
+	handler                voiceDirectBridgeAdapter
 }
 
 func newVoiceChatBridgeTracker(handler voiceDirectFinalHandler) *voiceChatBridgeTracker {
-	return &voiceChatBridgeTracker{handler: voiceDirectBridgeAdapter{handler: handler}}
+	return &voiceChatBridgeTracker{
+		deltaIdleFinalizeAfter: 2500 * time.Millisecond,
+		handler:                voiceDirectBridgeAdapter{handler: handler},
+	}
 }
 
 func (t *voiceChatBridgeTracker) observeClientText(payload []byte) {
@@ -79,7 +85,7 @@ func (t *voiceChatBridgeTracker) observeGatewayText(payload []byte) {
 	}
 	switch ev["type"] {
 	case modulevoicechat.EventLLMDelta:
-		t.onLLMDelta()
+		t.onLLMDelta(ev)
 	case modulevoicechat.EventLLMFinal:
 		t.onLLMFinal(ev)
 	case modulevoicechat.EventError:
@@ -88,11 +94,13 @@ func (t *voiceChatBridgeTracker) observeGatewayText(payload []byte) {
 }
 
 func (t *voiceChatBridgeTracker) beginUtterance(ev map[string]any) {
+	t.stopDeltaIdleTimer()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.startedAt = time.Now()
 	t.jobID = task.NewJobID()
 	t.firstTokenSent = false
+	t.deltaText = ""
 	t.active = orchestrator.ProcessVoiceDirectRequest{
 		UtteranceID:   stringField(ev, "utterance_id"),
 		SessionID:     voiceChatFirstNonEmpty(stringField(ev, "viewer_session_id"), stringField(ev, "session_id")),
@@ -117,33 +125,68 @@ func (t *voiceChatBridgeTracker) markCommit(ev map[string]any) {
 	}
 }
 
-func (t *voiceChatBridgeTracker) onLLMDelta() {
+func (t *voiceChatBridgeTracker) onLLMDelta(ev map[string]any) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.firstTokenSent || t.handler.handler == nil {
-		return
+	if delta := stringField(ev, "text"); delta != "" {
+		t.deltaText += delta
+		t.scheduleDeltaIdleFinalizeLocked()
 	}
-	t.firstTokenSent = true
-	req := t.active
-	jobID := t.jobID
-	if jobID.IsZero() {
-		jobID = task.NewJobID()
-		t.jobID = jobID
+	if !t.firstTokenSent && t.handler.handler != nil {
+		t.firstTokenSent = true
+		req := t.active
+		jobID := t.jobID
+		if jobID.IsZero() {
+			jobID = task.NewJobID()
+			t.jobID = jobID
+		}
+		t.mu.Unlock()
+		t.handler.NotifyVoiceDirectFirstToken(context.Background(), req, jobID, time.Now())
+		t.mu.Lock()
 	}
-	t.mu.Unlock()
-	t.handler.NotifyVoiceDirectFirstToken(context.Background(), req, jobID, time.Now())
-	t.mu.Lock()
 }
 
 func (t *voiceChatBridgeTracker) onLLMFinal(ev map[string]any) {
 	if t == nil {
 		return
 	}
+	t.stopDeltaIdleTimer()
 	text := strings.TrimSpace(stringField(ev, "text"))
 	if text == "" {
 		t.reset()
 		return
 	}
+	t.finalizeVoiceDirect(text, stringField(ev, "utterance_id"), "llm.final")
+}
+
+func (t *voiceChatBridgeTracker) scheduleDeltaIdleFinalizeLocked() {
+	if t.deltaIdleFinalizeAfter <= 0 || strings.TrimSpace(t.deltaText) == "" {
+		return
+	}
+	if t.deltaIdleTimer != nil {
+		t.deltaIdleTimer.Stop()
+	}
+	t.deltaIdleTimer = time.AfterFunc(t.deltaIdleFinalizeAfter, func() {
+		t.finalizeDeltaIdle()
+	})
+}
+
+func (t *voiceChatBridgeTracker) finalizeDeltaIdle() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	text := strings.TrimSpace(t.deltaText)
+	utteranceID := t.active.UtteranceID
+	t.deltaIdleTimer = nil
+	t.mu.Unlock()
+	if text == "" {
+		return
+	}
+	t.finalizeVoiceDirect(text, utteranceID, "delta_idle")
+}
+
+func (t *voiceChatBridgeTracker) finalizeVoiceDirect(text, eventUtteranceID, reason string) {
 	t.mu.Lock()
 	req := t.active
 	if strings.TrimSpace(req.UtteranceID) == "" {
@@ -151,18 +194,26 @@ func (t *voiceChatBridgeTracker) onLLMFinal(ev map[string]any) {
 		return
 	}
 	req.FinalText = text
-	if utteranceID := stringField(ev, "utterance_id"); utteranceID != "" {
-		req.UtteranceID = utteranceID
+	if strings.TrimSpace(eventUtteranceID) != "" {
+		req.UtteranceID = strings.TrimSpace(eventUtteranceID)
 	}
 	if req.StartedAt.IsZero() {
 		req.StartedAt = t.startedAt
 	}
+	t.active = orchestrator.ProcessVoiceDirectRequest{}
+	t.jobID = task.JobID{}
+	t.startedAt = time.Time{}
+	t.firstTokenSent = false
+	t.deltaText = ""
 	t.mu.Unlock()
 
 	if t.handler.handler != nil {
 		if _, err := t.handler.ProcessVoiceDirect(context.Background(), req); err != nil {
 			log.Printf("[voice-chat] ProcessVoiceDirect failed utterance_id=%s: %v", req.UtteranceID, err)
 		}
+	}
+	if reason == "delta_idle" {
+		log.Printf("[voice-chat] ProcessVoiceDirect finalized from llm.delta utterance_id=%s len=%d", req.UtteranceID, len([]rune(text)))
 	}
 	t.reset()
 }
@@ -171,12 +222,27 @@ func (t *voiceChatBridgeTracker) reset() {
 	if t == nil {
 		return
 	}
+	t.stopDeltaIdleTimer()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.active = orchestrator.ProcessVoiceDirectRequest{}
 	t.jobID = task.JobID{}
 	t.startedAt = time.Time{}
 	t.firstTokenSent = false
+	t.deltaText = ""
+}
+
+func (t *voiceChatBridgeTracker) stopDeltaIdleTimer() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	timer := t.deltaIdleTimer
+	t.deltaIdleTimer = nil
+	t.mu.Unlock()
+	if timer != nil {
+		timer.Stop()
+	}
 }
 
 func stringField(ev map[string]any, key string) string {

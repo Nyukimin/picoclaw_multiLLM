@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,11 +12,14 @@ import (
 )
 
 type recordingVoiceDirectHandler struct {
+	mu         sync.Mutex
 	finalCalls []orchestrator.ProcessVoiceDirectRequest
 	tokenCalls int
 }
 
 func (h *recordingVoiceDirectHandler) ProcessVoiceDirect(_ context.Context, req orchestrator.ProcessVoiceDirectRequest) (orchestrator.ProcessMessageResponse, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.finalCalls = append(h.finalCalls, req)
 	return orchestrator.ProcessMessageResponse{
 		Response: req.FinalText,
@@ -25,7 +29,16 @@ func (h *recordingVoiceDirectHandler) ProcessVoiceDirect(_ context.Context, req 
 }
 
 func (h *recordingVoiceDirectHandler) NotifyVoiceDirectFirstToken(context.Context, orchestrator.ProcessVoiceDirectRequest, task.JobID, time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.tokenCalls++
+}
+
+func (h *recordingVoiceDirectHandler) snapshot() ([]orchestrator.ProcessVoiceDirectRequest, int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	finals := append([]orchestrator.ProcessVoiceDirectRequest(nil), h.finalCalls...)
+	return finals, h.tokenCalls
 }
 
 func TestVoiceChatBridgeTracker_FinalizesVoiceDirectOnLLMFinal(t *testing.T) {
@@ -37,17 +50,65 @@ func TestVoiceChatBridgeTracker_FinalizesVoiceDirectOnLLMFinal(t *testing.T) {
 	tracker.observeGatewayText([]byte(`{"type":"llm.delta","utterance_id":"utt-1","seq":1,"text":"お"}`))
 	tracker.observeGatewayText([]byte(`{"type":"llm.final","utterance_id":"utt-1","text":"おはよう"}`))
 
-	if len(handler.finalCalls) != 1 {
-		t.Fatalf("expected one ProcessVoiceDirect call, got %d", len(handler.finalCalls))
+	finals, tokenCalls := handler.snapshot()
+	if len(finals) != 1 {
+		t.Fatalf("expected one ProcessVoiceDirect call, got %d", len(finals))
 	}
-	if handler.finalCalls[0].UtteranceID != "utt-1" || handler.finalCalls[0].FinalText != "おはよう" {
-		t.Fatalf("unexpected final call: %+v", handler.finalCalls[0])
+	if finals[0].UtteranceID != "utt-1" || finals[0].FinalText != "おはよう" {
+		t.Fatalf("unexpected final call: %+v", finals[0])
 	}
-	if handler.finalCalls[0].Channel != "viewer" {
-		t.Fatalf("expected viewer channel, got %q", handler.finalCalls[0].Channel)
+	if finals[0].Channel != "viewer" {
+		t.Fatalf("expected viewer channel, got %q", finals[0].Channel)
 	}
-	if handler.tokenCalls != 1 {
-		t.Fatalf("expected one first-token notification, got %d", handler.tokenCalls)
+	if tokenCalls != 1 {
+		t.Fatalf("expected one first-token notification, got %d", tokenCalls)
+	}
+}
+
+func TestVoiceChatBridgeTracker_FinalizesVoiceDirectFromDeltaIdle(t *testing.T) {
+	handler := &recordingVoiceDirectHandler{}
+	tracker := newVoiceChatBridgeTracker(handler)
+	tracker.deltaIdleFinalizeAfter = 10 * time.Millisecond
+
+	tracker.observeClientText([]byte(`{"type":"session.start","utterance_id":"utt-1","channel":"viewer","chat_id":"viewer-user","sample_rate":16000,"channels":1,"format":"pcm16le"}`))
+	tracker.observeClientText([]byte(`{"type":"session.commit","utterance_id":"utt-1"}`))
+	tracker.observeGatewayText([]byte(`{"type":"llm.delta","utterance_id":"utt-1","seq":1,"text":"お"}`))
+	tracker.observeGatewayText([]byte(`{"type":"llm.delta","utterance_id":"utt-1","seq":2,"text":"はよう"}`))
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		finals, tokenCalls := handler.snapshot()
+		if len(finals) == 1 {
+			if finals[0].FinalText != "おはよう" {
+				t.Fatalf("unexpected delta-idle final text: %+v", finals[0])
+			}
+			if tokenCalls != 1 {
+				t.Fatalf("expected one first-token notification, got %d", tokenCalls)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	finals, _ := handler.snapshot()
+	t.Fatalf("expected delta-idle ProcessVoiceDirect call, got %d", len(finals))
+}
+
+func TestVoiceChatBridgeTracker_DeltaIdleDoesNotDoubleFinalizeWhenFinalArrives(t *testing.T) {
+	handler := &recordingVoiceDirectHandler{}
+	tracker := newVoiceChatBridgeTracker(handler)
+	tracker.deltaIdleFinalizeAfter = 10 * time.Millisecond
+
+	tracker.observeClientText([]byte(`{"type":"session.start","utterance_id":"utt-1","channel":"viewer"}`))
+	tracker.observeGatewayText([]byte(`{"type":"llm.delta","utterance_id":"utt-1","seq":1,"text":"お"}`))
+	tracker.observeGatewayText([]byte(`{"type":"llm.final","utterance_id":"utt-1","text":"おはよう"}`))
+	time.Sleep(30 * time.Millisecond)
+
+	finals, _ := handler.snapshot()
+	if len(finals) != 1 {
+		t.Fatalf("expected one ProcessVoiceDirect call, got %d", len(finals))
+	}
+	if finals[0].FinalText != "おはよう" {
+		t.Fatalf("expected llm.final text to win, got %+v", finals[0])
 	}
 }
 
@@ -59,8 +120,9 @@ func TestVoiceChatBridgeTracker_CancelClearsState(t *testing.T) {
 	tracker.observeClientText([]byte(`{"type":"session.cancel","utterance_id":"utt-1"}`))
 	tracker.observeGatewayText([]byte(`{"type":"llm.final","utterance_id":"utt-1","text":"ignored"}`))
 
-	if len(handler.finalCalls) != 0 {
-		t.Fatalf("cancelled utterance must not finalize: %+v", handler.finalCalls)
+	finals, _ := handler.snapshot()
+	if len(finals) != 0 {
+		t.Fatalf("cancelled utterance must not finalize: %+v", finals)
 	}
 }
 

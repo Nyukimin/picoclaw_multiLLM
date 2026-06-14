@@ -15,7 +15,9 @@ RenCrow ルート配下には、`picoclaw_multiLLM` から参照できる独立�
 - `RenCrow_Workspace`: `~/.picoclaw` の非秘密設定・プロンプト・共有可能なワークスペース資産。
 
 ## Chat音声直接入力への関係
-- 現行の音声会話は `Viewer -> RenCrow_STT -> text -> picoclaw_multiLLM -> RenCrow_LLM(Chat)` の経路。
+- 音声経路の短い呼称は `docs/10_新仕様/77_STT音声_LLM音声_命名と経路仕様.md` に従う。
+- **STT音声** は `Viewer -> RenCrow_STT -> text -> picoclaw_multiLLM -> RenCrow_LLM(Chat)` の経路。
+- **LLM音声** は `Viewer -> picoclaw /voice-chat -> RenCrow_LLM audio input -> llm.final` の経路。
 - `RenCrow_STT` はすでに Gemma4 12B IT 4bit をSTT providerとして使っている。
 - `RenCrow_LLM` の現在の Chat backend も `/Users/yukimi/models/gemma-4-12B-it-4bit` で、Chat系音声直接入力の最有力実装先。
 - ただし、現時点で確認した `RenCrow_LLM` の OpenAI互換仕様と `alias_proxy.py` は text / image / video / **input_audio** を受け付ける。
