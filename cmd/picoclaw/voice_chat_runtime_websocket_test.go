@@ -228,6 +228,38 @@ func TestVoiceChatInputAudioBridgeE2E_PostsWAVAndReturnsFinal(t *testing.T) {
 	}
 }
 
+func TestAnnotateVoiceChatFinalMetrics_AddsPicoclawRelayTimings(t *testing.T) {
+	timing := &voiceChatRelayTiming{}
+	commitIn := time.Unix(100, 100*int64(time.Millisecond))
+	commitOut := time.Unix(100, 115*int64(time.Millisecond))
+	finalIn := time.Unix(101, 350*int64(time.Millisecond))
+	timing.markCommitIn(commitIn)
+	timing.markCommitOut(commitOut)
+
+	got := annotateVoiceChatFinalMetrics(
+		[]byte(`{"type":"llm.final","utterance_id":"utt-1","metrics":{"commit_to_final_ms":1234.5},"text":"ok"}`),
+		timing,
+		finalIn,
+	)
+	var ev map[string]any
+	if err := json.Unmarshal(got, &ev); err != nil {
+		t.Fatalf("decode annotated final: %v; payload=%s", err, got)
+	}
+	metrics, _ := ev["metrics"].(map[string]any)
+	if metrics["commit_to_final_ms"] != 1234.5 {
+		t.Fatalf("RenCrow_LLM metrics were not preserved: %#v", metrics)
+	}
+	if metrics["picoclaw_commit_recv_to_sent_ms"] != 15.0 {
+		t.Fatalf("unexpected commit relay ms: %#v", metrics)
+	}
+	if metrics["picoclaw_commit_sent_to_final_recv_ms"] != 1235.0 {
+		t.Fatalf("unexpected final wait ms: %#v", metrics)
+	}
+	if metrics["picoclaw_commit_recv_to_final_recv_ms"] != 1250.0 {
+		t.Fatalf("unexpected total relay ms: %#v", metrics)
+	}
+}
+
 func TestVoiceChatDisabledHandlerReturnsErrorFrame(t *testing.T) {
 	mux := http.NewServeMux()
 	registerVoiceChatRoutes(mux, handleVoiceChatDisabled())

@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	modulevoicechat "github.com/Nyukimin/picoclaw_multiLLM/modules/voicechat"
 	"golang.org/x/net/websocket"
@@ -61,14 +63,49 @@ func handleVoiceChatWebSocketBridge(gatewayURL string, voiceDirect voiceDirectFi
 
 		tracker := newVoiceChatBridgeTracker(voiceDirect)
 		errc := make(chan error, 2)
-		go relayVoiceChatFrames(conn, gw, tracker, true, viewerClientID, errc)
-		go relayVoiceChatFrames(gw, conn, tracker, false, viewerClientID, errc)
+		timing := &voiceChatRelayTiming{}
+		go relayVoiceChatFrames(conn, gw, tracker, timing, true, viewerClientID, errc)
+		go relayVoiceChatFrames(gw, conn, tracker, timing, false, viewerClientID, errc)
 		err = <-errc
 		log.Printf("[voice-chat] bridge closed viewer_client_id=%s err=%v", viewerClientID, err)
 	})
 }
 
-func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTracker, fromClient bool, viewerClientID string, errc chan error) {
+type voiceChatRelayTiming struct {
+	mu        sync.Mutex
+	commitIn  time.Time
+	commitOut time.Time
+}
+
+func (t *voiceChatRelayTiming) markCommitIn(at time.Time) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.commitIn = at
+	t.commitOut = time.Time{}
+}
+
+func (t *voiceChatRelayTiming) markCommitOut(at time.Time) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.commitOut = at
+}
+
+func (t *voiceChatRelayTiming) snapshot() (time.Time, time.Time) {
+	if t == nil {
+		return time.Time{}, time.Time{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.commitIn, t.commitOut
+}
+
+func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTracker, timing *voiceChatRelayTiming, fromClient bool, viewerClientID string, errc chan error) {
 	direction := "gateway_to_viewer"
 	if fromClient {
 		direction = "viewer_to_gateway"
@@ -83,13 +120,23 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 			errc <- err
 			return
 		}
+		eventType := ""
+		receivedAt := time.Now()
+		if modulevoicechat.IsWebSocketTextFramePayload(msg) {
+			eventType = voiceChatTextFrameType(msg)
+		}
+		if fromClient && eventType == modulevoicechat.EventSessionCommit {
+			timing.markCommitIn(receivedAt)
+		}
+		if !fromClient && eventType == modulevoicechat.EventLLMFinal {
+			msg = annotateVoiceChatFinalMetrics(msg, timing, receivedAt)
+		}
 		if tracker != nil && modulevoicechat.IsWebSocketTextFramePayload(msg) {
 			logVoiceChatTextFrame(direction, viewerClientID, msg)
 			if fromClient {
 				tracker.observeClientText(msg)
 			} else {
 				tracker.observeGatewayText(msg)
-				eventType := voiceChatTextFrameType(msg)
 				if eventType == modulevoicechat.EventSessionProgress {
 					continue
 				}
@@ -129,7 +176,44 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 			errc <- sendErr
 			return
 		}
+		if fromClient && eventType == modulevoicechat.EventSessionCommit {
+			timing.markCommitOut(time.Now())
+		}
 	}
+}
+
+func annotateVoiceChatFinalMetrics(msg []byte, timing *voiceChatRelayTiming, finalIn time.Time) []byte {
+	var ev map[string]any
+	if err := json.Unmarshal(msg, &ev); err != nil {
+		return msg
+	}
+	metrics, _ := ev["metrics"].(map[string]any)
+	if metrics == nil {
+		metrics = map[string]any{}
+	}
+	commitIn, commitOut := timing.snapshot()
+	metrics["picoclaw_final_recv_unix_ms"] = finalIn.UnixMilli()
+	if !commitIn.IsZero() {
+		metrics["picoclaw_commit_recv_unix_ms"] = commitIn.UnixMilli()
+		metrics["picoclaw_commit_recv_to_final_recv_ms"] = roundDurationMillis(finalIn.Sub(commitIn))
+	}
+	if !commitOut.IsZero() {
+		metrics["picoclaw_commit_sent_unix_ms"] = commitOut.UnixMilli()
+		metrics["picoclaw_commit_sent_to_final_recv_ms"] = roundDurationMillis(finalIn.Sub(commitOut))
+		if !commitIn.IsZero() {
+			metrics["picoclaw_commit_recv_to_sent_ms"] = roundDurationMillis(commitOut.Sub(commitIn))
+		}
+	}
+	ev["metrics"] = metrics
+	annotated, err := json.Marshal(ev)
+	if err != nil {
+		return msg
+	}
+	return annotated
+}
+
+func roundDurationMillis(d time.Duration) float64 {
+	return float64(d.Round(100*time.Microsecond)) / float64(time.Millisecond)
 }
 
 func voiceChatTextFrameType(msg []byte) string {
