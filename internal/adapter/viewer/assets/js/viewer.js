@@ -4993,7 +4993,7 @@ const vdsState = {
   utteranceID: '',
   sessionID: '',
   chunkBuffer: [],
-  chunkSamples: 1600,
+  chunkSamples: 8000,
   sentAudioBytes: 0,
   sentAudioSamples: 0,
   sentAudioFrames: 0,
@@ -5004,6 +5004,7 @@ const vdsState = {
   llmDeltaText: '',
   llmFinalText: '',
   errorText: '',
+  lastDeltaRenderMS: 0,
   latencySpeechStartMS: 0,
   latencyCommitMS: 0,
   latencyFirstDeltaMS: 0,
@@ -5661,6 +5662,7 @@ if (typeof ensureVoiceChatForMobileControl !== 'function') {
 const VDS_FINAL_WAIT_TIMEOUT_MS = 120000;
 const VDS_READY_WAIT_TIMEOUT_MS = 5000;
 const VDS_DELTA_IDLE_FINALIZE_MS = 2500;
+const VDS_DELTA_RENDER_INTERVAL_MS = 250;
 const VDS_DEFAULT_PROMPT = '聞こえた音声内容を日本語で2文以内に短く確認してください。数字や固有名詞が聞こえた場合だけ含めてください。';
 
 function buildVDSWebSocketURL() {
@@ -5792,7 +5794,7 @@ function scheduleVDSDeltaIdleFinalize() {
   vdsState.deltaIdleTimer = setTimeout(() => {
     vdsState.deltaIdleTimer = null;
     if (!vdsState.isStopping) return;
-    finalizeVDSDeltaResponse('delta_idle');
+    renderVDSDeltaResponse('delta_idle');
   }, VDS_DELTA_IDLE_FINALIZE_MS);
 }
 
@@ -5811,6 +5813,7 @@ function resetVDSUtteranceState() {
   vdsState.responseTextEl = null;
   vdsState.responseRaw = '';
   vdsState.responseFinalized = false;
+  vdsState.lastDeltaRenderMS = 0;
   clearVDSDeltaIdleTimer();
   vdsState.latencySpeechStartMS = 0;
   vdsState.latencyCommitMS = 0;
@@ -5856,7 +5859,11 @@ function connectVDSWebSocket() {
         console.log('[VDS] Progress:', msg);
       } else if (msg.type === 'llm.delta' && msg.text) {
         vdsState.llmDeltaText += String(msg.text || '');
-        renderVDSDeltaResponse('stream');
+        const renderAt = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
+        if (!vdsState.lastDeltaRenderMS || renderAt - vdsState.lastDeltaRenderMS >= VDS_DELTA_RENDER_INTERVAL_MS) {
+          vdsState.lastDeltaRenderMS = renderAt;
+          renderVDSDeltaResponse('stream');
+        }
         scheduleVDSDeltaIdleFinalize();
         if (!vdsState.latencyFirstDeltaMS) {
           vdsState.latencyFirstDeltaMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
@@ -6094,9 +6101,15 @@ function handleVDSVADFrame(pcm16, level) {
 
 function stopVDSUtteranceBySilence() {
   if (vdsState.isStopping || !vdsState.vadSpeechActive) return false;
+  return commitVDSUtterance('silence');
+}
+
+function commitVDSUtterance(reason) {
+  if (vdsState.isStopping) return false;
+  if (!vdsState.vadSpeechActive && !vdsState.utteranceID && !vdsState.sentAudioBytes) return false;
   vdsState.isStopping = true;
   vdsState.vadSpeechActive = false;
-  console.log('[VDS] Silence detected - committing utterance');
+  console.log('[VDS] Committing utterance:', String(reason || 'commit'));
   flushVDSAudioChunkBuffer();
   sendVDSTailSilence();
   sendVDSSessionCommit();
@@ -6123,8 +6136,7 @@ function completeVDSUtteranceStop(reason) {
 
 function stopVDS() {
   if (vdsState.isStopping) return;
-  if (vdsState.vadSpeechActive && !vdsState.isStopping) {
-    stopVDSUtteranceBySilence();
+  if (commitVDSUtterance('mic_off')) {
     return;
   }
   abortVDSImmediately('mic_off');

@@ -70,7 +70,7 @@ test('viewer vds_sub renders llm.delta locally before final', () => {
 test('viewer vds_sub final timeout can finalize received delta', () => {
   assert.match(js, /function finalizeVDSDeltaResponse\(reason\)/);
   assert.match(js, /if \(finalizeVDSDeltaResponse\('timeout'\)\) return/);
-  assert.match(js, /finalizeVDSDeltaResponse\('delta_idle'\)/);
+  assert.match(js, /renderVDSDeltaResponse\('delta_idle'\)/);
   assert.match(js, /const VDS_DELTA_IDLE_FINALIZE_MS = 2500/);
   assert.match(js, /completeVDSUtteranceStop\('local_delta'\)/);
   assert.match(js, /detail:\s*'local_delta:' \+ String\(reason \|\| 'delta'\)/);

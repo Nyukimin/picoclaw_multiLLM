@@ -51,7 +51,7 @@ type voiceChatBridgeTracker struct {
 
 func newVoiceChatBridgeTracker(handler voiceDirectFinalHandler) *voiceChatBridgeTracker {
 	return &voiceChatBridgeTracker{
-		deltaIdleFinalizeAfter: 2500 * time.Millisecond,
+		deltaIdleFinalizeAfter: 0,
 		handler:                voiceDirectBridgeAdapter{handler: handler},
 	}
 }
@@ -128,10 +128,6 @@ func (t *voiceChatBridgeTracker) markCommit(ev map[string]any) {
 func (t *voiceChatBridgeTracker) onLLMDelta(ev map[string]any) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if delta := stringField(ev, "text"); delta != "" {
-		t.deltaText += delta
-		t.scheduleDeltaIdleFinalizeLocked()
-	}
 	if !t.firstTokenSent && t.handler.handler != nil {
 		t.firstTokenSent = true
 		req := t.active
@@ -160,15 +156,8 @@ func (t *voiceChatBridgeTracker) onLLMFinal(ev map[string]any) {
 }
 
 func (t *voiceChatBridgeTracker) scheduleDeltaIdleFinalizeLocked() {
-	if t.deltaIdleFinalizeAfter <= 0 || strings.TrimSpace(t.deltaText) == "" {
-		return
-	}
-	if t.deltaIdleTimer != nil {
-		t.deltaIdleTimer.Stop()
-	}
-	t.deltaIdleTimer = time.AfterFunc(t.deltaIdleFinalizeAfter, func() {
-		t.finalizeDeltaIdle()
-	})
+	// LLM音声の正本は llm.final。delta idle で ProcessVoiceDirect を先行確定すると、
+	// final 到着前に別の LLM 処理を起動して音声応答を遅らせる。
 }
 
 func (t *voiceChatBridgeTracker) finalizeDeltaIdle() {

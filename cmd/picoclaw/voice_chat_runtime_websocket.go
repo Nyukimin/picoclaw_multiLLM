@@ -26,7 +26,7 @@ func resolveVoiceChatWebSocketHandler(plan modulevoicechat.BridgePlan, voiceDire
 	case !plan.Available:
 		return handleVoiceChatUnavailable()
 	default:
-		return handleVoiceChatInputAudioBridge(plan.GatewayURL, voiceDirect)
+		return handleVoiceChatWebSocketBridge(plan.GatewayURL, voiceDirect)
 	}
 }
 
@@ -75,6 +75,7 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 	}
 	binaryFrames := 0
 	binaryBytes := 0
+	forwardedDelta := false
 	for {
 		var msg []byte
 		if err := websocket.Message.Receive(src, &msg); err != nil {
@@ -88,6 +89,27 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 				tracker.observeClientText(msg)
 			} else {
 				tracker.observeGatewayText(msg)
+				eventType := voiceChatTextFrameType(msg)
+				if eventType == modulevoicechat.EventSessionProgress {
+					continue
+				}
+				if eventType == modulevoicechat.EventLLMDelta {
+					if forwardedDelta {
+						continue
+					}
+					forwardedDelta = true
+				}
+			}
+		} else if tracker == nil && !fromClient && modulevoicechat.IsWebSocketTextFramePayload(msg) {
+			eventType := voiceChatTextFrameType(msg)
+			if eventType == modulevoicechat.EventSessionProgress {
+				continue
+			}
+			if eventType == modulevoicechat.EventLLMDelta {
+				if forwardedDelta {
+					continue
+				}
+				forwardedDelta = true
 			}
 		} else if !modulevoicechat.IsWebSocketTextFramePayload(msg) {
 			binaryFrames++
@@ -108,6 +130,15 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 			return
 		}
 	}
+}
+
+func voiceChatTextFrameType(msg []byte) string {
+	var ev map[string]any
+	if err := json.Unmarshal(msg, &ev); err != nil {
+		return ""
+	}
+	eventType, _ := ev["type"].(string)
+	return eventType
 }
 
 func voiceChatViewerClientID(conn *websocket.Conn) string {

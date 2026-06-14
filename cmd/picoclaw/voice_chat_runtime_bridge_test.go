@@ -65,7 +65,7 @@ func TestVoiceChatBridgeTracker_FinalizesVoiceDirectOnLLMFinal(t *testing.T) {
 	}
 }
 
-func TestVoiceChatBridgeTracker_FinalizesVoiceDirectFromDeltaIdle(t *testing.T) {
+func TestVoiceChatBridgeTracker_DeltaIdleDoesNotFinalizeVoiceDirect(t *testing.T) {
 	handler := &recordingVoiceDirectHandler{}
 	tracker := newVoiceChatBridgeTracker(handler)
 	tracker.deltaIdleFinalizeAfter = 10 * time.Millisecond
@@ -75,22 +75,15 @@ func TestVoiceChatBridgeTracker_FinalizesVoiceDirectFromDeltaIdle(t *testing.T) 
 	tracker.observeGatewayText([]byte(`{"type":"llm.delta","utterance_id":"utt-1","seq":1,"text":"お"}`))
 	tracker.observeGatewayText([]byte(`{"type":"llm.delta","utterance_id":"utt-1","seq":2,"text":"はよう"}`))
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		finals, tokenCalls := handler.snapshot()
-		if len(finals) == 1 {
-			if finals[0].FinalText != "おはよう" {
-				t.Fatalf("unexpected delta-idle final text: %+v", finals[0])
-			}
-			if tokenCalls != 1 {
-				t.Fatalf("expected one first-token notification, got %d", tokenCalls)
-			}
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+
+	finals, tokenCalls := handler.snapshot()
+	if len(finals) != 0 {
+		t.Fatalf("delta idle must not finalize before llm.final: %+v", finals)
 	}
-	finals, _ := handler.snapshot()
-	t.Fatalf("expected delta-idle ProcessVoiceDirect call, got %d", len(finals))
+	if tokenCalls != 1 {
+		t.Fatalf("expected one first-token notification, got %d", tokenCalls)
+	}
 }
 
 func TestVoiceChatBridgeTracker_DeltaIdleDoesNotDoubleFinalizeWhenFinalArrives(t *testing.T) {
