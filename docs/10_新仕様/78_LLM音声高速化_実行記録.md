@@ -175,3 +175,50 @@ viewer_results: []
 - picoclaw service 反映済みで `/health` が ok
 
 現状は Mac 側 `git pull` 未実施のため未完了。
+
+## Mac 反映後の最終測定
+
+Mac 側で `git pull` と `uv run mlx-restart Chat` を実施後、picoclaw 側の final relay 順序も修正し、service へ反映した。
+
+修正内容:
+
+- RenCrow_LLM: audio session backend を final 優先の非streamingへ変更
+- RenCrow_LLM: `llm.delta` は多量送信せず、`llm.final` を正本として返す
+- picoclaw: gateway から受けた `llm.final` を Viewer へ先に relay し、その後で `ProcessVoiceDirect` を実行する
+- 測定: `null` mark を `0` と誤解する `deriveTimings` 集計バグを修正
+
+最終 verifier:
+
+```bash
+node scripts/verify_llm_voice_latency.mjs \
+  --out-dir tmp/llm_voice_latency \
+  --rounds 3 \
+  --max-delta-events 1
+```
+
+結果:
+
+```text
+direct_gate.code: 0
+rounds: 3
+ok_count: 3
+viewer_send_count: 0
+commit_to_final_ms values: 1718, 1280, 1611
+commit_to_final_ms median: 1611
+commit_to_final_ms worst: 1718
+RenCrow_LLM commit_to_final_ms median: 1594.7
+viewer_gap_ms values: 95.1, 13.6, 16.3
+viewer_gap_ms median: 16.3
+viewer_gap_ms worst: 95.1
+passed: true
+```
+
+判定:
+
+- Viewer観測 `commit -> llm.final` は安定して 3s 未満
+- RenCrow_LLM 内部との差は 500ms 未満
+- `/viewer/send` は成功経路で呼ばれていない
+- `llm.final` は Viewer Chat に表示されている
+- direct RenCrow_LLM delta gate は pass
+
+この時点で `78_LLM音声高速化_オーケストレーター実装プロンプト.md` の成功条件を満たした。

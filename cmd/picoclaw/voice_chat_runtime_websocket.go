@@ -131,12 +131,12 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 		if !fromClient && eventType == modulevoicechat.EventLLMFinal {
 			msg = annotateVoiceChatFinalMetrics(msg, timing, receivedAt)
 		}
+		observeGatewayAfterSend := false
 		if tracker != nil && modulevoicechat.IsWebSocketTextFramePayload(msg) {
 			logVoiceChatTextFrame(direction, viewerClientID, msg)
 			if fromClient {
 				tracker.observeClientText(msg)
 			} else {
-				tracker.observeGatewayText(msg)
 				if eventType == modulevoicechat.EventSessionProgress {
 					continue
 				}
@@ -145,6 +145,11 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 						continue
 					}
 					forwardedDelta = true
+				}
+				if eventType == modulevoicechat.EventLLMFinal {
+					observeGatewayAfterSend = true
+				} else {
+					tracker.observeGatewayText(msg)
 				}
 			}
 		} else if tracker == nil && !fromClient && modulevoicechat.IsWebSocketTextFramePayload(msg) {
@@ -178,6 +183,9 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 		}
 		if fromClient && eventType == modulevoicechat.EventSessionCommit {
 			timing.markCommitOut(time.Now())
+		}
+		if observeGatewayAfterSend {
+			tracker.observeGatewayText(msg)
 		}
 	}
 }

@@ -57,13 +57,14 @@ export function usage() {
 }
 
 export function deriveTimings(marks) {
-  const commit = Number(marks?.commit);
-  const firstDelta = Number(marks?.first_delta);
-  const final = Number(marks?.final);
+  const numberOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+  const commit = numberOrNull(marks?.commit);
+  const firstDelta = numberOrNull(marks?.first_delta);
+  const final = numberOrNull(marks?.final);
   return {
-    commit_to_first_delta: Number.isFinite(commit) && Number.isFinite(firstDelta) ? firstDelta - commit : null,
-    commit_to_final: Number.isFinite(commit) && Number.isFinite(final) ? final - commit : null,
-    first_delta_to_final: Number.isFinite(firstDelta) && Number.isFinite(final) ? final - firstDelta : null,
+    commit_to_first_delta: commit !== null && firstDelta !== null ? firstDelta - commit : null,
+    commit_to_final: commit !== null && final !== null ? final - commit : null,
+    first_delta_to_final: firstDelta !== null && final !== null ? final - firstDelta : null,
   };
 }
 

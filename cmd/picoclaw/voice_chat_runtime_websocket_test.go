@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,9 +11,27 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	modulevoicechat "github.com/Nyukimin/picoclaw_multiLLM/modules/voicechat"
 	"golang.org/x/net/websocket"
 )
+
+type slowVoiceDirectHandler struct {
+	delay time.Duration
+	done  chan struct{}
+}
+
+func (h *slowVoiceDirectHandler) ProcessVoiceDirect(context.Context, orchestrator.ProcessVoiceDirectRequest) (orchestrator.ProcessMessageResponse, error) {
+	time.Sleep(h.delay)
+	if h.done != nil {
+		close(h.done)
+	}
+	return orchestrator.ProcessMessageResponse{}, nil
+}
+
+func (h *slowVoiceDirectHandler) NotifyVoiceDirectFirstToken(context.Context, orchestrator.ProcessVoiceDirectRequest, task.JobID, time.Time) {
+}
 
 func TestInferVoiceChatGatewayURL_PrioritizesExplicitGateway(t *testing.T) {
 	t.Setenv("VOICE_CHAT_GATEWAY_URL", " ws://192.168.1.207:8081/v1/chat/audio/sessions ")
@@ -149,6 +168,78 @@ func TestVoiceChatWebSocketBridgeE2E_RelaysStartPCMCommitAndFinalWithoutClosing(
 	}
 	if !strings.Contains(final, `"type":"llm.final"`) || !strings.Contains(final, `"text":"おはよう"`) {
 		t.Fatalf("unexpected final event: %s", final)
+	}
+	if err := <-gatewayDone; err != nil {
+		t.Fatalf("gateway relay: %v", err)
+	}
+}
+
+func TestVoiceChatWebSocketBridgeE2E_FinalRelayDoesNotWaitForVoiceDirectProcessing(t *testing.T) {
+	gatewayDone := make(chan error, 1)
+	gateway := httptest.NewServer(websocket.Handler(func(conn *websocket.Conn) {
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var start string
+		if err := websocket.Message.Receive(conn, &start); err != nil {
+			gatewayDone <- err
+			return
+		}
+		var commit string
+		if err := websocket.Message.Receive(conn, &commit); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if err := websocket.Message.Send(conn, `{"type":"session.ready","utterance_id":"utt-1","session_id":"sess-1"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		if err := websocket.Message.Send(conn, `{"type":"llm.final","utterance_id":"utt-1","session_id":"sess-1","text":"おはよう"}`); err != nil {
+			gatewayDone <- err
+			return
+		}
+		gatewayDone <- nil
+	}))
+	defer gateway.Close()
+
+	handlerDone := make(chan struct{})
+	voiceDirect := &slowVoiceDirectHandler{delay: 500 * time.Millisecond, done: handlerDone}
+	mux := http.NewServeMux()
+	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
+	registerVoiceChatRoutes(mux, handleVoiceChatWebSocketBridge(gatewayURL, voiceDirect))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+modulevoicechat.RoutePathPrimary, "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial bridge websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"session.start","utterance_id":"utt-1","sample_rate":16000,"channels":1,"format":"pcm16le","model":"Chat"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"session.commit","utterance_id":"utt-1"}`); err != nil {
+		t.Fatalf("send commit: %v", err)
+	}
+	var ready string
+	if err := websocket.Message.Receive(conn, &ready); err != nil {
+		t.Fatalf("receive ready: %v", err)
+	}
+
+	started := time.Now()
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive final: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 300*time.Millisecond {
+		t.Fatalf("llm.final relay waited for ProcessVoiceDirect: elapsed=%s final=%s", elapsed, final)
+	}
+	if !strings.Contains(final, `"type":"llm.final"`) || !strings.Contains(final, `"text":"おはよう"`) {
+		t.Fatalf("unexpected final event: %s", final)
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected ProcessVoiceDirect to run asynchronously")
 	}
 	if err := <-gatewayDone; err != nil {
 		t.Fatalf("gateway relay: %v", err)
