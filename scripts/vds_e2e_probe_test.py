@@ -100,9 +100,31 @@ class VDSE2EProbeTest(unittest.TestCase):
         self.assertEqual(probe.result_exit_code(args, result), 2)
 
     def test_result_exit_code_checks_phase1_gate(self):
-        args = argparse.Namespace(require_llm_final=False, require_phase1_gate=True)
+        args = argparse.Namespace(require_llm_final=False, require_phase1_gate=True, max_delta_events=0)
         result = {"results": [], "phase1_gate": [{"passed": False, "reasons": ["slow"]}]}
         self.assertEqual(probe.result_exit_code(args, result), 3)
+
+    def test_build_result_counts_delta_events(self):
+        args = argparse.Namespace(
+            warm_gate_first=True,
+            max_delta_events=1,
+            ws_url="ws://example/voice-chat",
+            base_url="http://example",
+        )
+        rec = probe.VDSRoundResult(i=1, ok=True, events=["session.ready", "llm.delta", "llm.delta", "llm.final"])
+        with tempfile.TemporaryDirectory() as tmp:
+            wav_path = Path(tmp) / "sample.wav"
+            self.write_wav(wav_path, 1, 2, 16000, [0, 1, 2, 3])
+            result = probe.build_result(args, wav_path, [rec])
+
+        self.assertEqual(result["results"][0]["delta_event_count"], 2)
+        self.assertEqual(result["delta_event_gate"][0]["passed"], False)
+        self.assertIn("delta_event_count=2", result["delta_event_gate"][0]["reasons"][0])
+
+    def test_result_exit_code_checks_delta_event_gate(self):
+        args = argparse.Namespace(require_llm_final=False, require_phase1_gate=False, max_delta_events=1)
+        result = {"results": [], "phase1_gate": [], "delta_event_gate": [{"passed": False, "reasons": ["too many"]}]}
+        self.assertEqual(probe.result_exit_code(args, result), 4)
 
 
 if __name__ == "__main__":

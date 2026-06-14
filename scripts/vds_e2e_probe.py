@@ -38,6 +38,7 @@ class VDSRoundResult:
     realtime: bool = False
     events: list[str] = field(default_factory=list)
     messages: list[dict] = field(default_factory=list)
+    delta_event_count: int = 0
     delta_text: str = ""
     final_text: str = ""
     error_code: str = ""
@@ -348,12 +349,27 @@ def count_ok(records: list[VDSRoundResult]) -> int:
     return sum(1 for item in records if item.ok)
 
 
+def delta_event_gate(records: list[VDSRoundResult], max_delta_events: int) -> list[dict]:
+    if max_delta_events < 0:
+        return []
+    gates: list[dict] = []
+    for rec in records:
+        count = rec.events.count("llm.delta")
+        rec.delta_event_count = count
+        reasons = []
+        if count > max_delta_events:
+            reasons.append(f"delta_event_count={count} > {max_delta_events}")
+        gates.append({"round": rec.i, "passed": not reasons, "reasons": reasons})
+    return gates
+
+
 def build_result(args, wav_path: Path, rounds: list[VDSRoundResult]) -> dict:
     wav_duration_sec = wav_duration(wav_path)
     gates: list[dict] = []
     for idx, rec in enumerate(rounds):
         passed, reasons = meets_phase1_gate(rec.timings, wav_duration_sec=wav_duration_sec, warm=idx > 0 or args.warm_gate_first)
         gates.append({"round": rec.i, "passed": passed, "reasons": reasons})
+    delta_gates = delta_event_gate(rounds, getattr(args, "max_delta_events", -1))
     return {
         "ws_url": args.ws_url,
         "base_url": args.base_url,
@@ -362,6 +378,7 @@ def build_result(args, wav_path: Path, rounds: list[VDSRoundResult]) -> dict:
         "rounds": len(rounds),
         "success": f"{count_ok(rounds)}/{len(rounds)}",
         "phase1_gate": gates,
+        "delta_event_gate": delta_gates,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "results": [asdict(rec) for rec in rounds],
     }
@@ -377,6 +394,10 @@ def result_exit_code(args, result: dict) -> int:
         for gate in result.get("phase1_gate") or []:
             if not gate.get("passed"):
                 return 3
+    if getattr(args, "max_delta_events", -1) >= 0:
+        for gate in result.get("delta_event_gate") or []:
+            if not gate.get("passed"):
+                return 4
     return 0
 
 
@@ -397,15 +418,16 @@ def render_markdown(report: dict) -> str:
         "",
         "## ラウンド",
         "",
-        "| round | ok | commit→delta(ms) | commit→final(ms) | SSE agent.response(ms) | final preview | error |",
-        "|---:|---:|---:|---:|---:|---|---|",
+        "| round | ok | delta events | commit→delta(ms) | commit→final(ms) | SSE agent.response(ms) | final preview | error |",
+        "|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for item in report["results"]:
         timings = item.get("timings") or {}
         lines.append(
-            "| {i} | {ok} | {first} | {final} | {sse} | {preview} | {err} |".format(
+            "| {i} | {ok} | {delta_events} | {first} | {final} | {sse} | {preview} | {err} |".format(
                 i=item.get("i"),
                 ok="yes" if item.get("ok") else "no",
+                delta_events=item.get("delta_event_count", ""),
                 first=timings.get("commit_to_first_delta_ms", ""),
                 final=timings.get("commit_to_final_ms", ""),
                 sse=item.get("sse_agent_response_ms", ""),
@@ -418,6 +440,12 @@ def render_markdown(report: dict) -> str:
         status = "PASS" if gate.get("passed") else "FAIL"
         reasons = "; ".join(gate.get("reasons") or [])
         lines.append(f"- round {gate.get('round')}: **{status}** {reasons}")
+    if report.get("delta_event_gate"):
+        lines.extend(["", "## Delta event gate", ""])
+        for gate in report.get("delta_event_gate") or []:
+            status = "PASS" if gate.get("passed") else "FAIL"
+            reasons = "; ".join(gate.get("reasons") or [])
+            lines.append(f"- round {gate.get('round')}: **{status}** {reasons}")
     return "\n".join(lines) + "\n"
 
 
@@ -435,6 +463,7 @@ def main() -> None:
     parser.add_argument("--with-sse", action="store_true", help="Also wait for SSE agent.response")
     parser.add_argument("--require-llm-final", action="store_true")
     parser.add_argument("--require-phase1-gate", action="store_true")
+    parser.add_argument("--max-delta-events", type=int, default=-1, help="Fail when a round receives more llm.delta events")
     parser.add_argument("--warm-gate-first", action="store_true", help="Apply phase1 gate to round 1 as well")
     parser.add_argument("--write-md", default="", help="Optional markdown summary path")
     args = parser.parse_args()
