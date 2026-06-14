@@ -145,6 +145,24 @@ for i in 1 2 3; do
 done
 ```
 
+上の2段階は次の verifier で一括実行できる。
+
+```bash
+node scripts/verify_llm_voice_latency.mjs \
+  --out-dir tmp/llm_voice_latency \
+  --rounds 3 \
+  --max-delta-events 1
+```
+
+この verifier は direct RenCrow_LLM delta gate が失敗した場合、Viewer E2E へ進まず exit code `4` で停止する。Mac 側 `git pull` 未反映時の現 live では次のように失敗した。
+
+```text
+direct_gate.code: 4
+summary.passed: false
+summary.failures: ["direct_delta_gate_exit=4"]
+viewer_results: []
+```
+
 ## 完了判定
 
 完了には次が必要。
