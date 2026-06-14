@@ -93,6 +93,8 @@
 | `50_Hobby_Graph_Mio_Topic仕様.md` | 映画、音楽、小説、漫画、アニメ、演劇、ビデオゲーム、ボードゲームを Mio の話題生成材料として扱う Hobby Graph 横断仕様 |
 | `51_Movie_Watch_Event実装仕様.md` | 映画DBに「見た」鑑賞イベントを保存し、未解決タイトルとViewer表示へ接続する最初の実装仕様 |
 | `77_STT音声_LLM音声_命名と経路仕様.md` | Viewer Chat マイク入力について、RenCrow_STT 経路を STT音声、RenCrow_LLM 直結経路を LLM音声として区別する命名・実装・検証仕様 |
+| `78_LLM音声高速化_オーケストレーター実装プロンプト.md` | LLM音声経路を、測定・TDD・E2E・評価・再実装の反復で高速化するためのオーケストレータープロンプト |
+| `78_LLM音声高速化_実行記録.md` | LLM音声高速化の実測結果、実装済みcommit、RenCrow_LLM live反映判定、Mac側反映後の再測定手順 |
 
 ## 基本方針
 
