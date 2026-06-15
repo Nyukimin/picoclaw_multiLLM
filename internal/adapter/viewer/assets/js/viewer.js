@@ -5670,7 +5670,7 @@ const VDS_FINAL_WAIT_TIMEOUT_MS = 120000;
 const VDS_READY_WAIT_TIMEOUT_MS = 5000;
 const VDS_DELTA_IDLE_FINALIZE_MS = 2500;
 const VDS_DELTA_RENDER_INTERVAL_MS = 250;
-const VDS_DEFAULT_PROMPT = '聞こえた音声内容を日本語で2文以内に短く確認してください。数字や固有名詞が聞こえた場合だけ含めてください。';
+const VDS_DEFAULT_PROMPT = 'あなたはMioです。入力された音声をユーザーの発話として扱い、文字起こしや要約ではなく、必ず相手への返事として自然に日本語で1〜2文返してください。音声内の文をそのまま繰り返さないでください。設定や役割名を名乗らないでください。音声ファイルのアップロード要求や「音声内容を入力してください」という案内は禁止です。聞き取れない場合だけ、短く自然に聞き返してください。';
 
 function buildVDSWebSocketURL() {
   const base = String(vdsState.voiceChatURL || '');

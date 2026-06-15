@@ -171,6 +171,9 @@ LLM音声の Chat 表示正本は `llm.final` である。
 
 - `llm.delta` は途中表示に使ってよい。
 - `llm.final` 到達時に表示を確定する。
+- `llm.final` は Mio の対話応答として扱う。音声内容の文字起こし、要約、確認文を生成するタスクにしてはいけない。
+- Viewer から RenCrow_LLM に渡す prompt は「入力音声をユーザー発話として扱い、Mio として自然に返答する」ことを明示する。
+- `音声内容を入力してください`、`音声ファイルをアップロードしてください`、`音声が提供されていない` などの no-audio/meta 応答は Chat 正本にしない。
 - STT音声の `final` と LLM音声の `llm.final` を混同しない。
 - Viewer の debug trace、raw log、Chat 表示、orchestrator event は別物として扱う。
 

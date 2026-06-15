@@ -119,6 +119,37 @@ func TestVoiceChatBridgeTracker_CancelClearsState(t *testing.T) {
 	}
 }
 
+func TestVoiceChatBridgeTracker_DropsMetaNoAudioFinal(t *testing.T) {
+	handler := &recordingVoiceDirectHandler{}
+	tracker := newVoiceChatBridgeTracker(handler)
+
+	tracker.observeClientText([]byte(`{"type":"session.start","utterance_id":"utt-1","channel":"viewer"}`))
+	tracker.observeClientText([]byte(`{"type":"session.commit","utterance_id":"utt-1"}`))
+	tracker.observeGatewayText([]byte(`{"type":"llm.final","utterance_id":"utt-1","text":"申し訳ございませんが、音声が提供されていないため、内容を確認することができません。音声ファイルをアップロードしてください。"}`))
+
+	finals, _ := handler.snapshot()
+	if len(finals) != 0 {
+		t.Fatalf("meta no-audio final must not be emitted as chat response: %+v", finals)
+	}
+}
+
+func TestVoiceDirectMetaNoAudioFinalClassifier(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{text: "音声内容を入力してください。", want: true},
+		{text: "音声内容を提示してください。入力をお待ちしております。", want: true},
+		{text: "音声ファイルをアップロードしていただければ、内容を要約いたします。", want: true},
+		{text: "こんにちは、今日はどうしましたか？", want: false},
+	}
+	for _, tc := range cases {
+		if got := isVoiceDirectMetaNoAudioFinal(tc.text); got != tc.want {
+			t.Fatalf("isVoiceDirectMetaNoAudioFinal(%q)=%v want %v", tc.text, got, tc.want)
+		}
+	}
+}
+
 func TestVoiceChatBridgeTracker_SessionStartUsesViewerDefaults(t *testing.T) {
 	tracker := newVoiceChatBridgeTracker(nil)
 	tracker.observeClientText([]byte(`{"type":"session.start","utterance_id":"utt-9","viewer_session_id":"viewer-session","channel":"viewer"}`))

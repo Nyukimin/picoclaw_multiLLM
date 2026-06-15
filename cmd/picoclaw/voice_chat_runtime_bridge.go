@@ -152,7 +152,41 @@ func (t *voiceChatBridgeTracker) onLLMFinal(ev map[string]any) {
 		t.reset()
 		return
 	}
+	if isVoiceDirectMetaNoAudioFinal(text) {
+		log.Printf("[voice-chat] dropped non-conversational llm.final utterance_id=%s text_sample=%q", stringField(ev, "utterance_id"), truncateVoiceChatLogText(text, 120))
+		t.reset()
+		return
+	}
 	t.finalizeVoiceDirect(text, stringField(ev, "utterance_id"), "llm.final")
+}
+
+func isVoiceDirectMetaNoAudioFinal(text string) bool {
+	normalized := strings.TrimSpace(text)
+	if normalized == "" {
+		return false
+	}
+	metaPhrases := []string{
+		"音声内容を入力してください",
+		"音声内容を提示してください",
+		"音声ファイルをアップロード",
+		"音声が提供されていない",
+		"音声が入力されていない",
+		"入力をお待ちしております",
+	}
+	for _, phrase := range metaPhrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncateVoiceChatLogText(text string, limit int) string {
+	runes := []rune(strings.TrimSpace(text))
+	if limit <= 0 || len(runes) <= limit {
+		return string(runes)
+	}
+	return string(runes[:limit]) + "..."
 }
 
 func (t *voiceChatBridgeTracker) scheduleDeltaIdleFinalizeLocked() {

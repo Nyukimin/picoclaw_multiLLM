@@ -29,6 +29,15 @@ test('viewer vds_sub opens voice-chat websocket with session.start control', () 
   assert.match(js, /type:\s*'session\.commit'/);
 });
 
+test('viewer vds_sub prompt asks for conversation, not audio summary', () => {
+  assert.match(js, /const VDS_DEFAULT_PROMPT = 'あなたはMioです。/);
+  assert.match(js, /入力された音声をユーザーの発話として扱い/);
+  assert.match(js, /文字起こしや要約ではなく/);
+  assert.match(js, /設定や役割名を名乗らないでください/);
+  assert.match(js, /音声ファイルのアップロード要求/);
+  assert.doesNotMatch(js, /聞こえた音声内容を日本語で2文以内に短く確認してください/);
+});
+
 test('viewer vds_sub sends binary pcm through voice-chat websocket', () => {
   assert.match(js, /function sendVDSAudioChunk\(pcm16\)/);
   assert.match(js, /vdsState\.ws\.send\(chunk\.buffer\)/);
