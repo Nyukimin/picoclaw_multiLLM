@@ -158,11 +158,31 @@ async function ensureViewerLLMReadyForRequest(req) {
   if (typeof refreshLlmOpsStatus === 'function') refreshLlmOpsStatus();
 }
 
+const voiceDirectTimelineJobIDs = new Set();
+
+function rememberVoiceDirectTimelineJob(ev) {
+  const jobID = String(ev && ev.job_id || '').trim();
+  if (!jobID) return;
+  const content = String(ev && ev.content || '');
+  if (!content.includes('voice_direct')) return;
+  voiceDirectTimelineJobIDs.add(jobID);
+  if (voiceDirectTimelineJobIDs.size > 80) {
+    const first = voiceDirectTimelineJobIDs.values().next().value;
+    if (first) voiceDirectTimelineJobIDs.delete(first);
+  }
+}
+
+function isVoiceDirectTimelineResponse(ev) {
+  const jobID = String(ev && ev.job_id || '').trim();
+  return !!(jobID && voiceDirectTimelineJobIDs.has(jobID));
+}
+
 function addMsgToTimeline(ev) {
   if (ev.type === 'agent.response') removeThinking(ev.job_id);
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.start') { addThinkingStart(ev); return; }
   if (isCoordinationTraceEvent(ev)) { addCoordinationTraceToTimeline(ev); return; }
+  if (ev.type === 'routing.decision') rememberVoiceDirectTimelineJob(ev);
 
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
@@ -174,10 +194,11 @@ function addMsgToTimeline(ev) {
 
   if (ev.type === 'routing.decision') return;
   if (ev.type === 'agent.response' && (ev.to || '').toLowerCase() !== 'user') return;
-  if (ev.type === 'agent.response' && isTTSSyncedSpeaker(ev.from) && !isViewerLocalFailureMessage(ev)) return;
+  if (ev.type === 'agent.response' && isTTSSyncedSpeaker(ev.from) && !isViewerLocalFailureMessage(ev) && !isVoiceDirectTimelineResponse(ev)) return;
   if (ev.type === 'idlechat.message' && isTTSSyncedSpeaker(ev.from)) return;
   if (ev.type === 'agent.note' && (ev.to || '').toLowerCase() !== 'user') return;
   if (ev.type === 'message.received' && (ev.from || '').toLowerCase() !== 'user') return;
+  if (ev.type === 'message.received' && String(ev.content || '').trim().startsWith('[voice_direct]')) return;
 
   const f = ag(ev.from);
   const t = ev.to ? ag(ev.to) : null;

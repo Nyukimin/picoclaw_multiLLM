@@ -5961,36 +5961,13 @@ function handleVDSFinalMessage(msg) {
 function renderVDSDeltaResponse(reason) {
   const text = String(vdsState.llmDeltaText || '').trim();
   if (!text || vdsState.responseFinalized) return false;
-  const em = document.getElementById('empty');
-  if (em) em.remove();
-  const f = ag('mio');
-  if (!vdsState.responseEl || !vdsState.responseTextEl) {
-    const el = document.createElement('div');
-    el.className = 'msg assistant vds-local-response';
-    el.innerHTML =
-      '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
-      '<div class="mb"><div class="mh">' +
-        '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
-        '<span class="dir">Voice Direct</span>' +
-        '<span class="tm">' + ftime(new Date().toISOString()) + '</span>' +
-      '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
-      '<div class="mc"></div></div>';
-    vdsState.responseEl = el;
-    vdsState.responseTextEl = el.querySelector('.mc');
-    chat.appendChild(el);
-    trimTimelineNodes();
-    bump();
-  }
   vdsState.responseRaw = text;
-  vdsState.responseTextEl.dataset.raw = text;
-  vdsState.responseTextEl.innerHTML = fmt(text);
   pushDebugTrace('vds', {
     time: ftime(new Date().toISOString()),
     step: reason === 'final' ? 'local.final' : 'local.delta',
     text: short(text, 240),
   });
   renderDebugPanels();
-  scrollToBottom();
   return true;
 }
 

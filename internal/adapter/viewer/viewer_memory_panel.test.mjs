@@ -4610,6 +4610,81 @@ globalThis.__addMsgToTimeline = addMsgToTimeline;
   assert.doesNotMatch(chatNode.children[0].innerHTML, /normal tts-synced response/);
 });
 
+test('viewer timeline hides voice direct internal prompt user events', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const chatNode = {
+    children: [],
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+  };
+  const source = `
+const chat = globalThis.__chat;
+function matchesFilters() { return true; }
+function ag(agentID) { return {c: '#69f', e: 'M', l: String(agentID || '')}; }
+function ftime() { return '09:21'; }
+function normalizeViewerDisplayText(value) { return String(value || ''); }
+function fmt(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function removeThinking() {}
+function addThinkingStart() {}
+function addThinking() {}
+function isTTSSyncedSpeaker() { return true; }
+function trimTimelineNodes() {}
+function bump() {}
+` + sourceBetween(timelineJs, 'const voiceDirectTimelineJobIDs', 'bindChatRouteAliasButtons();') + `
+globalThis.__addMsgToTimeline = addMsgToTimeline;
+`;
+  const context = vm.createContext({
+    __chat: chatNode,
+    document: {
+      getElementById() { return {remove() {}}; },
+      createElement() {
+        return {
+          className: '',
+          _innerHTML: '',
+          querySelector(selector) {
+            if (selector === '.mc') return {dataset: {}};
+            return null;
+          },
+          set innerHTML(value) { this._innerHTML = String(value || ''); },
+          get innerHTML() { return this._innerHTML; },
+        };
+      },
+    },
+  });
+  vm.runInContext(source, context);
+
+  context.__addMsgToTimeline({
+    type: 'message.received',
+    from: 'user',
+    to: 'mio',
+    job_id: 'voice-job-1',
+    timestamp: '2026-06-15T02:40:00Z',
+    content: '[voice_direct] あなたはMioです。入力された音声をユーザーの発話として扱い...',
+  });
+  context.__addMsgToTimeline({
+    type: 'routing.decision',
+    from: 'mio',
+    to: '',
+    job_id: 'voice-job-1',
+    timestamp: '2026-06-15T02:40:00Z',
+    content: 'confidence 100% evidence=voice_direct:matched:CHAT utterance_id=utt-1',
+  });
+  context.__addMsgToTimeline({
+    type: 'agent.response',
+    from: 'mio',
+    to: 'user',
+    job_id: 'voice-job-1',
+    timestamp: '2026-06-15T02:40:01Z',
+    content: '承知いたしました。',
+  });
+
+  assert.equal(chatNode.children.length, 1);
+  assert.match(chatNode.children[0].innerHTML, /承知いたしました。/);
+  assert.doesNotMatch(chatNode.children[0].innerHTML, /voice_direct/);
+});
+
 test('viewer llm ops readiness failures keep response bodies', async () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const requested = [];

@@ -81,12 +81,19 @@ test('viewer vds_sub enters cooldown after llm.final without stopping browser mi
   assert.doesNotMatch(handleSource, /abortVDSImmediately\('llm\.final'\)/);
 });
 
-test('viewer vds_sub renders llm.delta locally before final', () => {
+test('viewer vds_sub records llm.delta in debug trace without local chat bubble', () => {
   assert.match(js, /function renderVDSDeltaResponse\(reason\)/);
   assert.match(js, /vdsState\.llmDeltaText \+= String\(msg\.text \|\| ''\)/);
   assert.match(js, /renderVDSDeltaResponse\('stream'\)/);
   assert.match(js, /scheduleVDSDeltaIdleFinalize\(\)/);
-  assert.match(js, /vds-local-response/);
+  const renderStart = js.indexOf('function renderVDSDeltaResponse(reason)');
+  assert.ok(renderStart >= 0, 'renderVDSDeltaResponse not found');
+  const renderEnd = js.indexOf('function finalizeVDSDeltaResponse(reason)', renderStart);
+  assert.ok(renderEnd > renderStart, 'finalizeVDSDeltaResponse block not found');
+  const renderSource = js.slice(renderStart, renderEnd);
+  assert.match(renderSource, /pushDebugTrace\('vds'/);
+  assert.doesNotMatch(renderSource, /vds-local-response/);
+  assert.doesNotMatch(renderSource, /chat\.appendChild/);
 });
 
 test('viewer vds_sub final timeout can finalize received delta', () => {
