@@ -2,7 +2,7 @@
 
 **作成日**: 2026-06-14
 **ステータス**: 現行実装反映
-**関連**: `39_STT_Streaming暫定確定字幕仕様.md` / `74_Viewer音声直結LLM_Streaming仕様.md` / `74_Viewer音声直結LLM_WS契約.md`
+**関連**: `39_STT_Streaming暫定確定字幕仕様.md` / `74_Viewer音声直結LLM_Streaming仕様.md` / `74_Viewer音声直結LLM_WS契約.md` / `79_LLM音声_発話区間判定仕様.md`
 
 ---
 
@@ -150,3 +150,4 @@ picoclaw -> Viewer: llm.delta / llm.final
 - Viewer 表示、STT raw text、LLM final text、orchestrator `agent.response` を同じものとして扱わない。
 - LLM音声で `/voice-chat` が `llm.final` を返した場合、Viewer Chat 表示はその `llm.final` を正本にする。
 - STT音声で RenCrow_STT が `final` を返した場合、Chat へ渡す文字列はその STT final text を正本にする。
+- LLM音声の発話区間判定は `79_LLM音声_発話区間判定仕様.md` に従う。マイク監視の継続と、新規発話として LLM へ送る採用判定は分離する。

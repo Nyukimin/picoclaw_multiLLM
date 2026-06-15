@@ -62,6 +62,24 @@ func TestVoiceChatEnabledFromEnv_DefaultFalse(t *testing.T) {
 	}
 }
 
+func TestVoiceChatWebSocketHandshake_AllowsTailscaleServeWithoutOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:18790/voice-chat", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "fujitsu-ubunts.tailb07d8d.ts.net")
+	cfg := &websocket.Config{Version: websocket.ProtocolVersionHybi13}
+
+	server, ok := voiceChatWebSocketHandler(nil).(websocket.Server)
+	if !ok {
+		t.Fatal("expected voice chat handler to use websocket.Server")
+	}
+	if err := server.Handshake(cfg, req); err != nil {
+		t.Fatalf("handshake rejected no-origin tailscale serve request: %v", err)
+	}
+	if cfg.Origin != nil {
+		t.Fatalf("expected nil origin to be accepted, got %v", cfg.Origin)
+	}
+}
+
 func TestRegisterVoiceChatRoutes_RegistersPrimaryAndAliasPaths(t *testing.T) {
 	mux := http.NewServeMux()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -37,6 +37,7 @@ test('viewer vds_sub sends binary pcm through voice-chat websocket', () => {
 test('viewer vds_sub uses a lower VAD threshold than STT text capture', () => {
   assert.match(js, /const STT_VAD_START_LEVEL = 12/);
   assert.match(js, /const STT_VAD_END_LEVEL = 8/);
+  assert.match(js, /const VDS_SILENCE_END_MS = 500/);
   assert.match(js, /const VDS_VAD_START_LEVEL = 4/);
   assert.match(js, /const VDS_VAD_END_LEVEL = 3/);
   const vadStart = js.indexOf('function handleVDSVADFrame');
@@ -46,6 +47,7 @@ test('viewer vds_sub uses a lower VAD threshold than STT text capture', () => {
   const vadSource = js.slice(vadStart, vadEnd);
   assert.match(vadSource, /VDS_VAD_END_LEVEL/);
   assert.match(vadSource, /VDS_VAD_START_LEVEL/);
+  assert.match(vadSource, /VDS_SILENCE_END_MS/);
 });
 
 test('viewer vds_sub does not call sendViewerMessage on llm.final success path', () => {
@@ -57,6 +59,17 @@ test('viewer vds_sub does not call sendViewerMessage on llm.final success path',
   assert.doesNotMatch(handleSource, /sendViewerMessage\(/);
   assert.doesNotMatch(handleSource, /handleSTTFinalText\(/);
   assert.doesNotMatch(handleSource, /\bsend\(\)/);
+});
+
+test('viewer vds_sub enters cooldown after llm.final without stopping browser mic', () => {
+  const handleStart = js.indexOf('function handleVDSFinalMessage(msg)');
+  assert.ok(handleStart >= 0, 'handleVDSFinalMessage not found');
+  const handleEnd = js.indexOf('function renderVDSDeltaResponse(reason)', handleStart);
+  assert.ok(handleEnd > handleStart, 'renderVDSDeltaResponse block not found');
+  const handleSource = js.slice(handleStart, handleEnd);
+  assert.match(handleSource, /enterVDSCooldown\('llm\.final'\)/);
+  assert.doesNotMatch(handleSource, /completeVDSUtteranceStop\('llm\.final'\)/);
+  assert.doesNotMatch(handleSource, /abortVDSImmediately\('llm\.final'\)/);
 });
 
 test('viewer vds_sub renders llm.delta locally before final', () => {
@@ -72,8 +85,56 @@ test('viewer vds_sub final timeout can finalize received delta', () => {
   assert.match(js, /if \(finalizeVDSDeltaResponse\('timeout'\)\) return/);
   assert.match(js, /renderVDSDeltaResponse\('delta_idle'\)/);
   assert.match(js, /const VDS_DELTA_IDLE_FINALIZE_MS = 2500/);
-  assert.match(js, /completeVDSUtteranceStop\('local_delta'\)/);
+  assert.match(js, /enterVDSCooldown\('local_delta'\)/);
   assert.match(js, /detail:\s*'local_delta:' \+ String\(reason \|\| 'delta'\)/);
+});
+
+test('viewer vds_sub enters cooldown on timeout and error paths', () => {
+  assert.match(js, /enterVDSCooldown\('timeout'\)/);
+  assert.match(js, /enterVDSCooldown\('error'\)/);
+  const cooldownStart = js.indexOf('function enterVDSCooldown(reason)');
+  assert.ok(cooldownStart >= 0, 'enterVDSCooldown not found');
+  const cooldownEnd = js.indexOf('function scheduleVDSFinalWaitTimeout()', cooldownStart);
+  assert.ok(cooldownEnd > cooldownStart, 'scheduleVDSFinalWaitTimeout block not found');
+  const cooldownSource = js.slice(cooldownStart, cooldownEnd);
+  assert.match(cooldownSource, /completeVDSUtteranceStop\(reason\)/);
+  assert.match(cooldownSource, /vdsState\.cooldownUntilMS = Date\.now\(\) \+ VDS_COOLDOWN_MS/);
+  assert.doesNotMatch(cooldownSource, /vdsState\.isRecording = false/);
+});
+
+test('viewer vds_sub suppresses new sessions during cooldown', () => {
+  assert.match(js, /function isVDSInCooldown\(now\)/);
+  const vadStart = js.indexOf('function handleVDSVADFrame');
+  assert.ok(vadStart >= 0, 'handleVDSVADFrame not found');
+  const vadEnd = js.indexOf('function stopVDSUtteranceBySilence', vadStart);
+  assert.ok(vadEnd > vadStart, 'stopVDSUtteranceBySilence block not found');
+  const vadSource = js.slice(vadStart, vadEnd);
+  assert.match(vadSource, /if \(isVDSInCooldown\(now\)\)/);
+  assert.match(vadSource, /return/);
+  const beginStart = js.indexOf('function beginVDSUtterance(reason)');
+  assert.ok(beginStart >= 0, 'beginVDSUtterance not found');
+  const beginEnd = js.indexOf('function handleVDSVADFrame', beginStart);
+  assert.ok(beginEnd > beginStart, 'handleVDSVADFrame block not found');
+  const beginSource = js.slice(beginStart, beginEnd);
+  assert.match(beginSource, /if \(isVDSInCooldown\(Date\.now\(\)\)\) return false/);
+});
+
+test('viewer vds_sub has min and max utterance guards', () => {
+  assert.match(js, /const VDS_MIN_SPEECH_MS = 250/);
+  assert.match(js, /const VDS_MAX_UTTERANCE_MS = 30000/);
+  assert.match(js, /discardVDSUtterance\('too_short:' \+ String\(speechMS\) \+ 'ms'\)/);
+  assert.match(js, /commitVDSUtterance\('max_duration'\)/);
+});
+
+test('viewer vds_sub allows barge-in by interrupting assistant output on speech start', () => {
+  const beginStart = js.indexOf('function beginVDSUtterance(reason)');
+  assert.ok(beginStart >= 0, 'beginVDSUtterance not found');
+  const beginEnd = js.indexOf('function handleVDSVADFrame', beginStart);
+  assert.ok(beginEnd > beginStart, 'handleVDSVADFrame block not found');
+  const beginSource = js.slice(beginStart, beginEnd);
+  assert.match(beginSource, /interruptChatOutputForUserInput\('vds_voice_start'\)/);
+  assert.match(beginSource, /interruptIdleChatForUserInput\('vds_voice_start'\)/);
+  assert.match(beginSource, /connectVDSWebSocket\(\)/);
 });
 
 test('viewer vds_sub does not abort while waiting for final', () => {

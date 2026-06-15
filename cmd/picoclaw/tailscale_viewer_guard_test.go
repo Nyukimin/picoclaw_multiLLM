@@ -11,7 +11,7 @@ func TestTailscaleViewerOnlyGuardAllowsViewerRoutes(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	for _, path := range []string{"/viewer", "/viewer/runtime-config", "/viewer/assets/js/viewer.js", "/audio-router/events", "/stt"} {
+	for _, path := range []string{"/viewer", "/viewer/runtime-config", "/viewer/assets/js/viewer.js", "/audio-router/events", "/stt", "/voice-chat", "/voice-chat-ws"} {
 		req := httptest.NewRequest(http.MethodGet, "https://fujitsu-ubunts.tailb07d8d.ts.net"+path, nil)
 		rec := httptest.NewRecorder()
 

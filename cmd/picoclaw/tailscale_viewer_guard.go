@@ -37,7 +37,7 @@ func isAllowedTailscaleViewerPath(path string) bool {
 	if path == "/viewer" || strings.HasPrefix(path, "/viewer/") {
 		return true
 	}
-	return path == "/audio-router/events" || path == "/stt"
+	return path == "/audio-router/events" || path == "/stt" || path == "/voice-chat" || path == "/voice-chat-ws"
 }
 
 func firstHeaderValue(value string) string {

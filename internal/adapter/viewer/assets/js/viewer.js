@@ -4989,6 +4989,9 @@ const vdsState = {
   vadSpeechActive: false,
   vadSilenceStartedAt: 0,
   vadLastVoiceAt: 0,
+  utteranceStartedAtMS: 0,
+  cooldownUntilMS: 0,
+  cooldownTimer: null,
   streamReady: false,
   utteranceID: '',
   sessionID: '',
@@ -5030,6 +5033,10 @@ const STT_SILENCE_END_MS = 700;
 const STT_STOP_TAIL_SILENCE_MS = 300;
 const STT_VAD_START_LEVEL = 12;
 const STT_VAD_END_LEVEL = 8;
+const VDS_SILENCE_END_MS = 500;
+const VDS_COOLDOWN_MS = 900;
+const VDS_MIN_SPEECH_MS = 250;
+const VDS_MAX_UTTERANCE_MS = 30000;
 const VDS_VAD_START_LEVEL = 4;
 const VDS_VAD_END_LEVEL = 3;
 
@@ -5776,6 +5783,35 @@ function clearVDSDeltaIdleTimer() {
   vdsState.deltaIdleTimer = null;
 }
 
+function clearVDSCooldownTimer() {
+  if (!vdsState.cooldownTimer) return;
+  clearTimeout(vdsState.cooldownTimer);
+  vdsState.cooldownTimer = null;
+}
+
+function isVDSInCooldown(now) {
+  const cooldownUntil = Number(vdsState.cooldownUntilMS || 0) || 0;
+  return cooldownUntil > 0 && (Number(now || Date.now()) || Date.now()) < cooldownUntil;
+}
+
+function enterVDSCooldown(reason) {
+  completeVDSUtteranceStop(reason);
+  vdsState.cooldownUntilMS = Date.now() + VDS_COOLDOWN_MS;
+  clearVDSCooldownTimer();
+  vdsState.cooldownTimer = setTimeout(() => {
+    vdsState.cooldownTimer = null;
+    vdsState.cooldownUntilMS = 0;
+    updateSTTInputIndicators();
+  }, VDS_COOLDOWN_MS);
+  pushDebugTrace('vds', {
+    time: ftime(new Date().toISOString()),
+    step: 'cooldown',
+    text: String(reason || 'done') + ' ' + String(VDS_COOLDOWN_MS) + 'ms',
+  });
+  renderDebugPanels();
+  updateSTTInputIndicators();
+}
+
 function scheduleVDSFinalWaitTimeout() {
   clearVDSFinalWaitTimer();
   vdsState.finalWaitTimer = setTimeout(() => {
@@ -5784,7 +5820,7 @@ function scheduleVDSFinalWaitTimeout() {
     if (finalizeVDSDeltaResponse('timeout')) return;
     vdsState.errorText = 'timed out waiting for llm.final';
     showToast('Voice Direct 応答タイムアウト', 'error');
-    completeVDSUtteranceStop('timeout');
+    enterVDSCooldown('timeout');
   }, VDS_FINAL_WAIT_TIMEOUT_MS);
 }
 
@@ -5815,6 +5851,7 @@ function resetVDSUtteranceState() {
   vdsState.responseFinalized = false;
   vdsState.lastDeltaRenderMS = 0;
   clearVDSDeltaIdleTimer();
+  vdsState.utteranceStartedAtMS = 0;
   vdsState.latencySpeechStartMS = 0;
   vdsState.latencyCommitMS = 0;
   vdsState.latencyFirstDeltaMS = 0;
@@ -5882,7 +5919,7 @@ function connectVDSWebSocket() {
         vdsState.errorText = extractVDSMessageText(msg) || 'unknown error';
         showToast('Voice Direct エラー', 'error');
         console.error('[VDS] Error:', msg);
-        completeVDSUtteranceStop('error');
+        enterVDSCooldown('error');
       }
     } catch (err) {
       console.warn('[VDS] Non-JSON message ignored:', err);
@@ -5918,7 +5955,7 @@ function handleVDSFinalMessage(msg) {
     });
   }
   console.log('[VDS] LLM final received (SSE displays chat response):', finalText);
-  completeVDSUtteranceStop('llm.final');
+  enterVDSCooldown('llm.final');
 }
 
 function renderVDSDeltaResponse(reason) {
@@ -5971,7 +6008,7 @@ function finalizeVDSDeltaResponse(reason) {
     });
   }
   showToast('Voice Direct 応答を表示しました', 'success');
-  completeVDSUtteranceStop('local_delta');
+  enterVDSCooldown('local_delta');
   return true;
 }
 
@@ -6021,6 +6058,8 @@ async function startVDS() {
     vdsState.vadSpeechActive = false;
     vdsState.vadSilenceStartedAt = 0;
     vdsState.vadLastVoiceAt = 0;
+    vdsState.cooldownUntilMS = 0;
+    clearVDSCooldownTimer();
     updateVDSInputLevel(0);
     vdsState.audioStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -6058,10 +6097,12 @@ async function startVDS() {
 
 function beginVDSUtterance(reason) {
   if (!vdsState.isRecording || vdsState.isStopping || vdsState.vadSpeechActive) return false;
+  if (isVDSInCooldown(Date.now())) return false;
   resetVDSUtteranceState();
   vdsState.vadSpeechActive = true;
   vdsState.vadSilenceStartedAt = 0;
   vdsState.vadLastVoiceAt = Date.now();
+  vdsState.utteranceStartedAtMS = vdsState.vadLastVoiceAt;
   vdsState.latencySpeechStartMS = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();
   interruptChatOutputForUserInput('vds_voice_start');
   interruptIdleChatForUserInput('vds_voice_start');
@@ -6081,6 +6122,15 @@ function handleVDSVADFrame(pcm16, level) {
   if (!vdsState.isRecording) return;
   const now = Date.now();
   const inputLevel = Math.max(0, Number(level) || 0);
+  if (isVDSInCooldown(now)) {
+    vdsState.vadSpeechActive = false;
+    vdsState.vadSilenceStartedAt = 0;
+    return;
+  }
+  if (vdsState.vadSpeechActive && vdsState.utteranceStartedAtMS && now - vdsState.utteranceStartedAtMS >= VDS_MAX_UTTERANCE_MS) {
+    commitVDSUtterance('max_duration');
+    return;
+  }
   const isVoice = inputLevel >= (vdsState.vadSpeechActive ? VDS_VAD_END_LEVEL : VDS_VAD_START_LEVEL);
   if (isVoice) {
     vdsState.vadLastVoiceAt = now;
@@ -6094,14 +6144,39 @@ function handleVDSVADFrame(pcm16, level) {
     vdsState.vadSilenceStartedAt = now;
     return;
   }
-  if (now - vdsState.vadSilenceStartedAt >= STT_SILENCE_END_MS) {
+  if (now - vdsState.vadSilenceStartedAt >= VDS_SILENCE_END_MS) {
     stopVDSUtteranceBySilence();
   }
 }
 
 function stopVDSUtteranceBySilence() {
   if (vdsState.isStopping || !vdsState.vadSpeechActive) return false;
+  const speechMS = vdsState.utteranceStartedAtMS ? Date.now() - vdsState.utteranceStartedAtMS : 0;
+  if (speechMS > 0 && speechMS < VDS_MIN_SPEECH_MS) {
+    discardVDSUtterance('too_short:' + String(speechMS) + 'ms');
+    return false;
+  }
   return commitVDSUtterance('silence');
+}
+
+function discardVDSUtterance(reason) {
+  const discardReason = String(reason || 'discard').trim() || 'discard';
+  completeVDSUtteranceStop(discardReason);
+  vdsState.utteranceStartedAtMS = 0;
+  vdsState.cooldownUntilMS = Date.now() + VDS_COOLDOWN_MS;
+  clearVDSCooldownTimer();
+  vdsState.cooldownTimer = setTimeout(() => {
+    vdsState.cooldownTimer = null;
+    vdsState.cooldownUntilMS = 0;
+    updateSTTInputIndicators();
+  }, VDS_COOLDOWN_MS);
+  pushDebugTrace('vds', {
+    time: ftime(new Date().toISOString()),
+    step: 'discard',
+    text: discardReason,
+  });
+  renderDebugPanels();
+  updateSTTInputIndicators();
 }
 
 function commitVDSUtterance(reason) {
@@ -6124,6 +6199,7 @@ function completeVDSUtteranceStop(reason) {
   vdsState.isStopping = false;
   vdsState.vadSpeechActive = false;
   vdsState.vadSilenceStartedAt = 0;
+  vdsState.utteranceStartedAtMS = 0;
   vdsState.streamReady = false;
   vdsState.chunkBuffer = [];
   if (vdsState.ws && (vdsState.ws.readyState === WebSocket.OPEN || vdsState.ws.readyState === WebSocket.CONNECTING)) {
@@ -6149,7 +6225,11 @@ function abortVDSImmediately(reason) {
   vdsState.vadSpeechActive = false;
   vdsState.vadSilenceStartedAt = 0;
   vdsState.vadLastVoiceAt = 0;
+  vdsState.utteranceStartedAtMS = 0;
+  vdsState.cooldownUntilMS = 0;
+  clearVDSCooldownTimer();
   clearVDSFinalWaitTimer();
+  clearVDSDeltaIdleTimer();
   if (vdsState.scriptNode) {
     try { vdsState.scriptNode.disconnect(); } catch (_) {}
     vdsState.scriptNode = null;

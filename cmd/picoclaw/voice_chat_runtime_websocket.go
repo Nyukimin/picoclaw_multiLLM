@@ -33,21 +33,21 @@ func resolveVoiceChatWebSocketHandler(plan modulevoicechat.BridgePlan, voiceDire
 }
 
 func handleVoiceChatDisabled() http.Handler {
-	return websocket.Handler(func(conn *websocket.Conn) {
+	return voiceChatWebSocketHandler(func(conn *websocket.Conn) {
 		defer conn.Close()
 		_ = sendVoiceChatError(conn, modulevoicechat.ErrorVoiceChatDisabled, "voice chat is disabled")
 	})
 }
 
 func handleVoiceChatUnavailable() http.Handler {
-	return websocket.Handler(func(conn *websocket.Conn) {
+	return voiceChatWebSocketHandler(func(conn *websocket.Conn) {
 		defer conn.Close()
 		_ = sendVoiceChatError(conn, modulevoicechat.ErrorLLMSessionUnavailable, "voice chat gateway is not configured")
 	})
 }
 
 func handleVoiceChatWebSocketBridge(gatewayURL string, voiceDirect voiceDirectFinalHandler) http.Handler {
-	return websocket.Handler(func(conn *websocket.Conn) {
+	return voiceChatWebSocketHandler(func(conn *websocket.Conn) {
 		defer conn.Close()
 		viewerClientID := voiceChatViewerClientID(conn)
 		log.Printf("[voice-chat] viewer connected viewer_client_id=%s gateway=%s", viewerClientID, gatewayURL)
@@ -69,6 +69,20 @@ func handleVoiceChatWebSocketBridge(gatewayURL string, voiceDirect voiceDirectFi
 		err = <-errc
 		log.Printf("[voice-chat] bridge closed viewer_client_id=%s err=%v", viewerClientID, err)
 	})
+}
+
+func voiceChatWebSocketHandler(handler websocket.Handler) http.Handler {
+	return websocket.Server{
+		Handler: handler,
+		Handshake: func(config *websocket.Config, req *http.Request) error {
+			origin, err := websocket.Origin(config, req)
+			if err != nil {
+				return err
+			}
+			config.Origin = origin
+			return nil
+		},
+	}
 }
 
 type voiceChatRelayTiming struct {
