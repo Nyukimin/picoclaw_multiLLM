@@ -1822,10 +1822,11 @@ function scrollToBottom(force) {
   if (!isTimelineActive()) return;
   if (!force && !timelineAutoFollow) return;
   suppressTimelineScroll = true;
-  const target = chat || mainEl;
-  target.scrollTop = target.scrollHeight;
-  if (mainEl) mainEl.scrollTop = 0;
+  if (chat) chat.scrollTop = chat.scrollHeight;
+  if (mainEl) mainEl.scrollTop = mainEl.scrollHeight;
   requestAnimationFrame(() => {
+    if (chat) chat.scrollTop = chat.scrollHeight;
+    if (mainEl) mainEl.scrollTop = mainEl.scrollHeight;
     suppressTimelineScroll = false;
     if (isTimelineNearBottom()) setTimelineAutoFollow(true);
   });
@@ -5883,6 +5884,24 @@ function updateVDSCaption(type, text) {
   if (typeof updateSTTCaption === 'function') updateSTTCaption();
 }
 
+function renderVDSFinalTranscriptToChat(text, msg) {
+  const finalText = String(text || '').trim();
+  if (!finalText) return;
+  if (typeof addMsgToTimeline !== 'function') return;
+  addMsgToTimeline({
+    type: 'message.received',
+    from: 'user',
+    to: 'mio',
+    route: 'CHAT',
+    job_id: String((msg && msg.utterance_id) || vdsState.utteranceID || '').trim(),
+    session_id: String((msg && msg.session_id) || vdsState.sessionID || 'viewer').trim(),
+    channel: 'viewer',
+    chat_id: 'default',
+    timestamp: new Date().toISOString(),
+    content: finalText,
+  });
+}
+
 function connectVDSWebSocket() {
   if (vdsState.isStopping) return;
   if (!vdsState.isRecording) return;
@@ -5922,6 +5941,7 @@ function connectVDSWebSocket() {
         updateVDSCaption('partial', msg.text);
       } else if (msg.type === 'transcript.final' && msg.text) {
         updateVDSCaption('final', msg.text);
+        renderVDSFinalTranscriptToChat(msg.text, msg);
       } else if (msg.type === 'llm.delta' && msg.text) {
         vdsState.llmDeltaText += String(msg.text || '');
         const renderAt = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();

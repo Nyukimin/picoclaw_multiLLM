@@ -100,13 +100,28 @@ test('viewer vds_sub records llm.delta in debug trace without local chat bubble'
 test('viewer vds_sub renders transcript events, not Mio response, in voice caption area', () => {
   assert.match(js, /function clearVDSCaption\(\)/);
   assert.match(js, /function updateVDSCaption\(type, text\)/);
+  assert.match(js, /function renderVDSFinalTranscriptToChat\(text, msg\)/);
   assert.match(js, /sttState\.partialCaptionText = captionText/);
   assert.match(js, /sttState\.finalCaptionText = captionText/);
   assert.match(js, /msg\.type === 'transcript\.delta' \|\| msg\.type === 'transcript\.partial'/);
   assert.match(js, /updateVDSCaption\('partial', msg\.text\)/);
   assert.match(js, /msg\.type === 'transcript\.final' && msg\.text/);
   assert.match(js, /updateVDSCaption\('final', msg\.text\)/);
+  assert.match(js, /renderVDSFinalTranscriptToChat\(msg\.text, msg\)/);
+  assert.match(js, /type:\s*'message\.received'/);
+  assert.match(js, /from:\s*'user'/);
   assert.doesNotMatch(js, /updateVDSCaption\('final', finalText\)/);
+});
+
+test('viewer timeline scroll keeps chat at bottom instead of resetting main upward', () => {
+  const start = js.indexOf('function scrollToBottom(force)');
+  assert.ok(start >= 0, 'scrollToBottom not found');
+  const end = js.indexOf('if (latestBtn)', start);
+  assert.ok(end > start, 'latest button block not found after scrollToBottom');
+  const source = js.slice(start, end);
+  assert.match(source, /chat\.scrollTop = chat\.scrollHeight/);
+  assert.match(source, /mainEl\.scrollTop = mainEl\.scrollHeight/);
+  assert.doesNotMatch(source, /mainEl\.scrollTop = 0/);
 });
 
 test('viewer vds_sub final timeout can finalize received delta', () => {
