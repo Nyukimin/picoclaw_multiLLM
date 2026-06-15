@@ -34,7 +34,7 @@ type voiceChatInputAudioSession struct {
 	pcm         bytes.Buffer
 }
 
-func handleVoiceChatInputAudioBridge(gatewayURL string, voiceDirect voiceDirectFinalHandler) http.Handler {
+func handleVoiceChatInputAudioBridge(gatewayURL string, voiceDirect voiceDirectFinalHandler, idleNotifier orchestrator.IdleNotifier) http.Handler {
 	return websocket.Handler(func(conn *websocket.Conn) {
 		defer conn.Close()
 		viewerClientID := voiceChatViewerClientID(conn)
@@ -44,14 +44,22 @@ func handleVoiceChatInputAudioBridge(gatewayURL string, voiceDirect voiceDirectF
 			return
 		}
 		log.Printf("[voice-chat] viewer connected viewer_client_id=%s input_audio_base=%s", viewerClientID, baseURL)
-		if err := serveVoiceChatInputAudio(conn, baseURL, voiceDirect, viewerClientID); err != nil {
+		if err := serveVoiceChatInputAudio(conn, baseURL, voiceDirect, idleNotifier, viewerClientID); err != nil {
 			log.Printf("[voice-chat] input_audio bridge closed viewer_client_id=%s err=%v", viewerClientID, err)
 		}
 	})
 }
 
-func serveVoiceChatInputAudio(conn *websocket.Conn, baseURL string, voiceDirect voiceDirectFinalHandler, viewerClientID string) error {
+func serveVoiceChatInputAudio(conn *websocket.Conn, baseURL string, voiceDirect voiceDirectFinalHandler, idleNotifier orchestrator.IdleNotifier, viewerClientID string) error {
 	var sess *voiceChatInputAudioSession
+	chatBusy := false
+	clearChatBusy := func() {
+		if idleNotifier != nil && chatBusy {
+			idleNotifier.SetChatBusy(false)
+			chatBusy = false
+		}
+	}
+	defer clearChatBusy()
 	for {
 		var msg []byte
 		if err := websocket.Message.Receive(conn, &msg); err != nil {
@@ -66,6 +74,13 @@ func serveVoiceChatInputAudio(conn *websocket.Conn, baseURL string, voiceDirect 
 			}
 			switch stringField(ev, "type") {
 			case modulevoicechat.EventSessionStart:
+				if idleNotifier != nil {
+					idleNotifier.NotifyActivity()
+					if !chatBusy {
+						idleNotifier.SetChatBusy(true)
+						chatBusy = true
+					}
+				}
 				sess = newVoiceChatInputAudioSession(ev)
 				if err := sendVoiceChatJSON(conn, map[string]any{
 					"type":         modulevoicechat.EventSessionReady,
@@ -113,8 +128,10 @@ func serveVoiceChatInputAudio(conn *websocket.Conn, baseURL string, voiceDirect 
 				log.Printf("[voice-chat] input_audio finalized utterance_id=%s bytes=%d text_len=%d", sess.utteranceID, sess.pcm.Len(), len([]rune(text)))
 				processVoiceChatInputAudioFinalAsync(voiceDirect, sess, text)
 				sess = nil
+				clearChatBusy()
 			case modulevoicechat.EventSessionCancel:
 				sess = nil
+				clearChatBusy()
 			}
 			continue
 		}

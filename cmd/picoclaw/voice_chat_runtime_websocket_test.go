@@ -33,6 +33,22 @@ func (h *slowVoiceDirectHandler) ProcessVoiceDirect(context.Context, orchestrato
 func (h *slowVoiceDirectHandler) NotifyVoiceDirectFirstToken(context.Context, orchestrator.ProcessVoiceDirectRequest, task.JobID, time.Time) {
 }
 
+type recordingVoiceChatIdleNotifier struct {
+	activities int
+	chatBusy   []bool
+}
+
+func (n *recordingVoiceChatIdleNotifier) NotifyActivity() {
+	n.activities++
+}
+
+func (n *recordingVoiceChatIdleNotifier) SetChatBusy(busy bool) {
+	n.chatBusy = append(n.chatBusy, busy)
+}
+
+func (n *recordingVoiceChatIdleNotifier) SetWorkerBusy(bool) {
+}
+
 func TestInferVoiceChatGatewayURL_PrioritizesExplicitGateway(t *testing.T) {
 	t.Setenv("VOICE_CHAT_GATEWAY_URL", " ws://192.168.1.207:8081/v1/chat/audio/sessions ")
 	t.Setenv("RENCROW_LLM_CHAT_WS", "ws://ignored/v1/chat/audio/sessions")
@@ -146,7 +162,7 @@ func TestVoiceChatWebSocketBridgeE2E_RelaysStartPCMCommitAndFinalWithoutClosing(
 
 	mux := http.NewServeMux()
 	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
-	registerVoiceChatRoutes(mux, handleVoiceChatWebSocketBridge(gatewayURL, nil))
+	registerVoiceChatRoutes(mux, handleVoiceChatWebSocketBridge(gatewayURL, nil, nil))
 	bridge := httptest.NewServer(mux)
 	defer bridge.Close()
 
@@ -222,7 +238,7 @@ func TestVoiceChatWebSocketBridgeE2E_FinalRelayDoesNotWaitForVoiceDirectProcessi
 	voiceDirect := &slowVoiceDirectHandler{delay: 500 * time.Millisecond, done: handlerDone}
 	mux := http.NewServeMux()
 	gatewayURL := "ws" + strings.TrimPrefix(gateway.URL, "http")
-	registerVoiceChatRoutes(mux, handleVoiceChatWebSocketBridge(gatewayURL, voiceDirect))
+	registerVoiceChatRoutes(mux, handleVoiceChatWebSocketBridge(gatewayURL, voiceDirect, nil))
 	bridge := httptest.NewServer(mux)
 	defer bridge.Close()
 
@@ -295,7 +311,7 @@ func TestVoiceChatInputAudioBridgeE2E_PostsWAVAndReturnsFinal(t *testing.T) {
 	defer llm.Close()
 
 	mux := http.NewServeMux()
-	registerVoiceChatRoutes(mux, handleVoiceChatInputAudioBridge("ws"+strings.TrimPrefix(llm.URL, "http")+"/v1/chat/audio/sessions", nil))
+	registerVoiceChatRoutes(mux, handleVoiceChatInputAudioBridge("ws"+strings.TrimPrefix(llm.URL, "http")+"/v1/chat/audio/sessions", nil, nil))
 	bridge := httptest.NewServer(mux)
 	defer bridge.Close()
 
@@ -334,6 +350,58 @@ func TestVoiceChatInputAudioBridgeE2E_PostsWAVAndReturnsFinal(t *testing.T) {
 	}
 	if !strings.Contains(final, `"type":"llm.final"`) || !strings.Contains(final, `"text":"音声を確認しました"`) {
 		t.Fatalf("unexpected final event: %s", final)
+	}
+}
+
+func TestVoiceChatInputAudioBridge_InterruptsIdleChatDuringVoiceSession(t *testing.T) {
+	pcm := rawPCM16Chunk()
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"音声を確認しました"}}]}`))
+	}))
+	defer llm.Close()
+
+	idle := &recordingVoiceChatIdleNotifier{}
+	mux := http.NewServeMux()
+	registerVoiceChatRoutes(mux, handleVoiceChatInputAudioBridge("ws"+strings.TrimPrefix(llm.URL, "http")+"/v1/chat/audio/sessions", nil, idle))
+	bridge := httptest.NewServer(mux)
+	defer bridge.Close()
+
+	conn, err := websocket.Dial("ws"+strings.TrimPrefix(bridge.URL, "http")+modulevoicechat.RoutePathPrimary, "", "http://localhost/")
+	if err != nil {
+		t.Fatalf("dial bridge websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := websocket.Message.Send(conn, `{"type":"session.start","utterance_id":"utt-1","sample_rate":16000,"channels":1,"format":"pcm16le","channel":"viewer"}`); err != nil {
+		t.Fatalf("send start: %v", err)
+	}
+	var ready string
+	if err := websocket.Message.Receive(conn, &ready); err != nil {
+		t.Fatalf("receive ready: %v", err)
+	}
+	if idle.activities != 1 {
+		t.Fatalf("expected voice session start to notify idle activity, got %d", idle.activities)
+	}
+	if got := idle.chatBusy; len(got) != 1 || got[0] != true {
+		t.Fatalf("expected chat busy to start on input_audio voice input, got %#v", got)
+	}
+	if err := websocket.Message.Send(conn, pcm); err != nil {
+		t.Fatalf("send pcm: %v", err)
+	}
+	if err := websocket.Message.Send(conn, `{"type":"session.commit","utterance_id":"utt-1"}`); err != nil {
+		t.Fatalf("send commit: %v", err)
+	}
+	var delta string
+	if err := websocket.Message.Receive(conn, &delta); err != nil {
+		t.Fatalf("receive delta: %v", err)
+	}
+	var final string
+	if err := websocket.Message.Receive(conn, &final); err != nil {
+		t.Fatalf("receive final: %v", err)
+	}
+	if got := idle.chatBusy; len(got) != 2 || got[1] != false {
+		t.Fatalf("expected chat busy to end after input_audio final, got %#v", got)
 	}
 }
 

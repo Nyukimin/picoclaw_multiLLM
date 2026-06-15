@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	modulevoicechat "github.com/Nyukimin/picoclaw_multiLLM/modules/voicechat"
 	"golang.org/x/net/websocket"
 )
@@ -21,14 +22,17 @@ func registerVoiceChatRoutes(mux *http.ServeMux, handler http.Handler) {
 	}
 }
 
-func resolveVoiceChatWebSocketHandler(plan modulevoicechat.BridgePlan, voiceDirect voiceDirectFinalHandler) http.Handler {
+func resolveVoiceChatWebSocketHandler(plan modulevoicechat.BridgePlan, voiceDirect voiceDirectFinalHandler, idleNotifier orchestrator.IdleNotifier) http.Handler {
 	switch {
 	case plan.Disabled:
 		return handleVoiceChatDisabled()
 	case !plan.Available:
 		return handleVoiceChatUnavailable()
 	default:
-		return handleVoiceChatWebSocketBridge(plan.GatewayURL, voiceDirect)
+		if voiceChatHTTPBaseURLFromGateway(plan.GatewayURL) != "" {
+			return handleVoiceChatInputAudioBridge(plan.GatewayURL, voiceDirect, idleNotifier)
+		}
+		return handleVoiceChatWebSocketBridge(plan.GatewayURL, voiceDirect, idleNotifier)
 	}
 }
 
@@ -46,7 +50,7 @@ func handleVoiceChatUnavailable() http.Handler {
 	})
 }
 
-func handleVoiceChatWebSocketBridge(gatewayURL string, voiceDirect voiceDirectFinalHandler) http.Handler {
+func handleVoiceChatWebSocketBridge(gatewayURL string, voiceDirect voiceDirectFinalHandler, idleNotifier orchestrator.IdleNotifier) http.Handler {
 	return voiceChatWebSocketHandler(func(conn *websocket.Conn) {
 		defer conn.Close()
 		viewerClientID := voiceChatViewerClientID(conn)
@@ -61,7 +65,8 @@ func handleVoiceChatWebSocketBridge(gatewayURL string, voiceDirect voiceDirectFi
 		defer gw.Close()
 		log.Printf("[voice-chat] gateway connected viewer_client_id=%s", viewerClientID)
 
-		tracker := newVoiceChatBridgeTracker(voiceDirect)
+		tracker := newVoiceChatBridgeTracker(voiceDirect, idleNotifier)
+		defer tracker.reset()
 		errc := make(chan error, 2)
 		timing := &voiceChatRelayTiming{}
 		go relayVoiceChatFrames(conn, gw, tracker, timing, true, viewerClientID, errc)

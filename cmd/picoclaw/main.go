@@ -103,7 +103,7 @@ func cmdRun() {
 
 	// Live Viewer
 	sttRuntime := buildSTTRuntime(cfg)
-	voiceChatRuntime := buildVoiceChatRuntime(cfg, dependencies.voiceDirectHandler)
+	voiceChatRuntime := buildVoiceChatRuntime(cfg, dependencies.voiceDirectHandler, dependencies.idleChatOrch)
 	debugSystemOpts := sttRuntime.DebugOptions
 	llmOpsToken := strings.TrimSpace(os.Getenv("LLM_OPS_TOKEN"))
 	debugSystemOpts.LLMOpsConfigured = cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != ""

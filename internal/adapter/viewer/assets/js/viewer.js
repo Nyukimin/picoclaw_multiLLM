@@ -4545,7 +4545,7 @@ updateAudioButton();
 let sending = false;
 let viewerAttachments = [];
 let suppressInputInterrupt = false;
-let lastIdleInterruptAt = 0;
+let lastIdleStopAt = 0;
 function autoResize() {
   inp.style.height = 'auto';
   inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
@@ -4553,8 +4553,19 @@ function autoResize() {
 function interruptIdleChatForUserInput(reason) {
   const normalizedReason = String(reason || 'user_input').trim() || 'user_input';
   const now = Date.now();
-  const shouldNotifyServer = now - lastIdleInterruptAt > 500 || normalizedReason === 'chat_send' || normalizedReason === 'stt_button' || normalizedReason === 'stt_test_record';
-  lastIdleInterruptAt = now;
+  const mustStopNow = [
+    'user_input',
+    'paste',
+    'composition_start',
+    'chat_send',
+    'stt_button',
+    'stt_test_record',
+    'stt_voice_start',
+    'stt_voice_resume',
+    'vds_voice_start',
+  ].includes(normalizedReason);
+  const shouldNotifyServer = mustStopNow || now - lastIdleStopAt > 500;
+  lastIdleStopAt = now;
   state.idleChat.mode = '';
   state.idleChat.manualMode = false;
   state.idleChat.chatActive = false;
@@ -4567,15 +4578,13 @@ function interruptIdleChatForUserInput(reason) {
     chatAudioSync.resetIdleChat();
   }
   if (!shouldNotifyServer) return;
-  fetch('/viewer/idlechat/interrupt', {
+  fetch('/viewer/idlechat/stop', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({reason: normalizedReason, source: 'viewer'}),
     keepalive: true,
   }).catch((err) => {
-    state.idleChat.controlError = 'IdleChat interrupt unavailable: ' + String(err && err.message ? err.message : err);
+    state.idleChat.controlError = 'IdleChat stop unavailable: ' + String(err && err.message ? err.message : err);
     if (typeof renderIdleChat === 'function') renderIdleChat();
-    console.warn('[IdleChat] interrupt failed:', err);
+    console.warn('[IdleChat] stop failed:', err);
   });
 }
 function interruptChatOutputForUserInput(reason) {

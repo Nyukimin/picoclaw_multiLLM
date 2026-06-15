@@ -47,12 +47,15 @@ type voiceChatBridgeTracker struct {
 	deltaIdleFinalizeAfter time.Duration
 	deltaIdleTimer         *time.Timer
 	handler                voiceDirectBridgeAdapter
+	idleNotifier           orchestrator.IdleNotifier
+	idleChatBusy           bool
 }
 
-func newVoiceChatBridgeTracker(handler voiceDirectFinalHandler) *voiceChatBridgeTracker {
+func newVoiceChatBridgeTracker(handler voiceDirectFinalHandler, idleNotifier orchestrator.IdleNotifier) *voiceChatBridgeTracker {
 	return &voiceChatBridgeTracker{
 		deltaIdleFinalizeAfter: 0,
 		handler:                voiceDirectBridgeAdapter{handler: handler},
+		idleNotifier:           idleNotifier,
 	}
 }
 
@@ -97,6 +100,13 @@ func (t *voiceChatBridgeTracker) beginUtterance(ev map[string]any) {
 	t.stopDeltaIdleTimer()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.idleNotifier != nil {
+		t.idleNotifier.NotifyActivity()
+		if !t.idleChatBusy {
+			t.idleNotifier.SetChatBusy(true)
+			t.idleChatBusy = true
+		}
+	}
 	t.startedAt = time.Now()
 	t.jobID = task.NewJobID()
 	t.firstTokenSent = false
@@ -248,6 +258,10 @@ func (t *voiceChatBridgeTracker) reset() {
 	t.stopDeltaIdleTimer()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.idleNotifier != nil && t.idleChatBusy {
+		t.idleNotifier.SetChatBusy(false)
+		t.idleChatBusy = false
+	}
 	t.active = orchestrator.ProcessVoiceDirectRequest{}
 	t.jobID = task.JobID{}
 	t.startedAt = time.Time{}

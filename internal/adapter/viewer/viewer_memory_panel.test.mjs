@@ -188,6 +188,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*overscroll-behavior:contain/);
   assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*-webkit-overflow-scrolling:touch/);
   assert.match(css, /\.audio-btn\{[\s\S]*touch-action:manipulation/);
+  assert.match(css, /\.chat-character-pane\{[\s\S]*grid-template-rows:auto clamp\(320px,48vh,520px\)/);
+  assert.match(css, /\.chat-character-pane\{[\s\S]*align-self:start/);
+  assert.match(css, /\.chat-character-portrait\{[\s\S]*height:clamp\(320px,48vh,520px\)/);
   assert.match(html, /assets\/css\/tabs\/ops\.css/);
   assert.match(html, /assets\/js\/tabs\/ops\.js/);
   assert.match(html, /assets\/js\/tabs\/memory\.js/);
@@ -4851,12 +4854,13 @@ globalThis.__controlIdle = controlIdle;
   assert.doesNotMatch(document.getElementById('idlechatBody').innerHTML, /idlechat control failed/);
 });
 
-test('viewer wires chat input and stt button to idlechat immediate interrupt', () => {
+test('viewer wires chat input and stt button to idlechat immediate stop', () => {
   const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const routesGo = fs.readFileSync('cmd/picoclaw/routes.go', 'utf8');
   const handlersGo = fs.readFileSync('cmd/picoclaw/runtime_idlechat_handlers.go', 'utf8');
   assert.match(viewerJs, /function interruptIdleChatForUserInput/);
-  assert.match(viewerJs, /fetch\('\/viewer\/idlechat\/interrupt'/);
+  assert.match(viewerJs, /fetch\('\/viewer\/idlechat\/stop'/);
+  assert.match(viewerJs, /'user_input'[\s\S]*'stt_voice_start'[\s\S]*'vds_voice_start'/);
   assert.match(viewerJs, /inp\.addEventListener\('beforeinput', \(\) => handleChatInputIntent\('user_input'\)\)/);
   assert.match(viewerJs, /inp\.addEventListener\('paste', \(\) => handleChatInputIntent\('paste'\)\)/);
   assert.match(viewerJs, /inp\.addEventListener\('compositionstart', \(\) => handleChatInputIntent\('composition_start'\)\)/);
@@ -4866,22 +4870,25 @@ test('viewer wires chat input and stt button to idlechat immediate interrupt', (
   assert.match(viewerJs, /function abortSTTImmediately\(reason\)/);
   assert.match(viewerJs, /if \(typeof clearSTTFinalWaitTimer === 'function'\) clearSTTFinalWaitTimer\(\)/);
   assert.match(viewerJs, /if \(chunk\.mode === 'idlechat' && !isIdleChatActiveForTTS\(chunk\.sessionId\)\) return/);
+  assert.match(routesGo, /\/viewer\/idlechat\/stop/);
   assert.match(routesGo, /\/viewer\/idlechat\/interrupt/);
+  assert.match(handlersGo, /handleIdleChatStop/);
   assert.match(handlersGo, /handleIdleChatInterrupt/);
 });
 
-test('viewer idlechat interrupt is fire-and-forget before send', () => {
+test('viewer idlechat stop is fire-and-forget before send', () => {
   const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   const sendSource = sourceBetween(viewerJs, 'function send()', 'async function sendViewerMessage');
   assert.ok(
     sendSource.indexOf("interruptIdleChatForUserInput('chat_send')") >= 0,
-    'send should request idlechat interrupt before viewer send',
+    'send should request idlechat stop before viewer send',
   );
   assert.ok(
     sendSource.indexOf("interruptIdleChatForUserInput('chat_send')") < sendSource.indexOf('sendViewerMessage(message'),
-    'idlechat interrupt should happen before sendViewerMessage',
+    'idlechat stop should happen before sendViewerMessage',
   );
   const interruptSource = sourceBetween(viewerJs, 'function interruptIdleChatForUserInput', 'function handleChatInputIntent');
+  assert.match(interruptSource, /fetch\('\/viewer\/idlechat\/stop'/);
   assert.match(interruptSource, /keepalive: true/);
   assert.doesNotMatch(interruptSource, /await fetch/);
 });
