@@ -5670,7 +5670,7 @@ const VDS_FINAL_WAIT_TIMEOUT_MS = 120000;
 const VDS_READY_WAIT_TIMEOUT_MS = 5000;
 const VDS_DELTA_IDLE_FINALIZE_MS = 2500;
 const VDS_DELTA_RENDER_INTERVAL_MS = 250;
-const VDS_DEFAULT_PROMPT = 'あなたはMioです。入力された音声をユーザーの発話として扱い、文字起こしや要約ではなく、必ず相手への返事として自然に日本語で1〜2文返してください。音声内の文をそのまま繰り返さないでください。設定や役割名を名乗らないでください。音声ファイルのアップロード要求や「音声内容を入力してください」という案内は禁止です。聞き取れない場合だけ、短く自然に聞き返してください。';
+const VDS_DEFAULT_PROMPT = 'あなたはMioです。入力音声からユーザーが実際に話した内容を日本語で短く復元し、その発話への返事を自然に日本語で1〜2文作ってください。必ずJSONだけを返してください。形式: {"user_text":"ユーザー発話の復元文","reply":"Mioとしての返事"}。user_textには返事や要約を入れず、音声内のユーザー発話だけを書いてください。replyには文字起こし説明や音声ファイル要求を書かず、相手への返事だけを書いてください。聞き取れない場合はuser_textを空文字にし、replyで短く聞き返してください。';
 
 function buildVDSWebSocketURL() {
   const base = String(vdsState.voiceChatURL || '');
@@ -5856,7 +5856,31 @@ function resetVDSUtteranceState() {
   vdsState.latencyCommitMS = 0;
   vdsState.latencyFirstDeltaMS = 0;
   vdsState.latencyFinalMS = 0;
+  clearVDSCaption();
   clearVDSFinalWaitTimer();
+}
+
+function clearVDSCaption() {
+  if (!sttState) return;
+  sttState.partialCaptionText = '';
+  sttState.finalCaptionText = '';
+  sttState.errorCaptionText = '';
+  if (typeof updateSTTCaption === 'function') updateSTTCaption();
+}
+
+function updateVDSCaption(type, text) {
+  if (!sttState) return;
+  const captionText = String(text || '').trim();
+  if (!captionText) return;
+  sttState.errorCaptionText = '';
+  if (type === 'final') {
+    sttState.finalCaptionText = captionText;
+    sttState.partialCaptionText = '';
+  } else {
+    sttState.partialCaptionText = captionText;
+    sttState.finalCaptionText = '';
+  }
+  if (typeof updateSTTCaption === 'function') updateSTTCaption();
 }
 
 function connectVDSWebSocket() {
@@ -5894,6 +5918,10 @@ function connectVDSWebSocket() {
         updateSTTInputIndicators();
       } else if (msg.type === 'session.progress') {
         console.log('[VDS] Progress:', msg);
+      } else if ((msg.type === 'transcript.delta' || msg.type === 'transcript.partial') && msg.text) {
+        updateVDSCaption('partial', msg.text);
+      } else if (msg.type === 'transcript.final' && msg.text) {
+        updateVDSCaption('final', msg.text);
       } else if (msg.type === 'llm.delta' && msg.text) {
         vdsState.llmDeltaText += String(msg.text || '');
         const renderAt = typeof nowLatencyMS === 'function' ? nowLatencyMS() : Date.now();

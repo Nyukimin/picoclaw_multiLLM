@@ -369,6 +369,36 @@ func TestAnnotateVoiceChatFinalMetrics_AddsPicoclawRelayTimings(t *testing.T) {
 	}
 }
 
+func TestSplitVoiceChatStructuredFinalExtractsTranscriptAndReply(t *testing.T) {
+	got, transcript := splitVoiceChatStructuredFinal([]byte(`{
+		"type":"llm.final",
+		"utterance_id":"utt-1",
+		"session_id":"sess-1",
+		"text":"{\"user_text\":\"Mioさんいますか\",\"reply\":\"いますよ。どうしましたか？\"}"
+	}`))
+	if transcript != "Mioさんいますか" {
+		t.Fatalf("transcript=%q", transcript)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(got, &ev); err != nil {
+		t.Fatalf("decode final: %v payload=%s", err, got)
+	}
+	if ev["text"] != "いますよ。どうしましたか？" {
+		t.Fatalf("final text=%#v", ev["text"])
+	}
+}
+
+func TestSplitVoiceChatStructuredFinalLeavesPlainTextUnchanged(t *testing.T) {
+	input := []byte(`{"type":"llm.final","utterance_id":"utt-1","text":"いますよ。"}`)
+	got, transcript := splitVoiceChatStructuredFinal(input)
+	if transcript != "" {
+		t.Fatalf("transcript=%q", transcript)
+	}
+	if string(got) != string(input) {
+		t.Fatalf("plain final changed: %s", got)
+	}
+}
+
 func TestVoiceChatDisabledHandlerReturnsErrorFrame(t *testing.T) {
 	mux := http.NewServeMux()
 	registerVoiceChatRoutes(mux, handleVoiceChatDisabled())

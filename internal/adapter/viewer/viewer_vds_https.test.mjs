@@ -31,10 +31,10 @@ test('viewer vds_sub opens voice-chat websocket with session.start control', () 
 
 test('viewer vds_sub prompt asks for conversation, not audio summary', () => {
   assert.match(js, /const VDS_DEFAULT_PROMPT = 'あなたはMioです。/);
-  assert.match(js, /入力された音声をユーザーの発話として扱い/);
-  assert.match(js, /文字起こしや要約ではなく/);
-  assert.match(js, /設定や役割名を名乗らないでください/);
-  assert.match(js, /音声ファイルのアップロード要求/);
+  assert.match(js, /"user_text":"ユーザー発話の復元文"/);
+  assert.match(js, /"reply":"Mioとしての返事"/);
+  assert.match(js, /user_textには返事や要約を入れず/);
+  assert.match(js, /replyには文字起こし説明や音声ファイル要求を書かず/);
   assert.doesNotMatch(js, /聞こえた音声内容を日本語で2文以内に短く確認してください/);
 });
 
@@ -84,6 +84,7 @@ test('viewer vds_sub enters cooldown after llm.final without stopping browser mi
 test('viewer vds_sub records llm.delta in debug trace without local chat bubble', () => {
   assert.match(js, /function renderVDSDeltaResponse\(reason\)/);
   assert.match(js, /vdsState\.llmDeltaText \+= String\(msg\.text \|\| ''\)/);
+  assert.doesNotMatch(js, /updateVDSCaption\('partial', vdsState\.llmDeltaText\)/);
   assert.match(js, /renderVDSDeltaResponse\('stream'\)/);
   assert.match(js, /scheduleVDSDeltaIdleFinalize\(\)/);
   const renderStart = js.indexOf('function renderVDSDeltaResponse(reason)');
@@ -94,6 +95,18 @@ test('viewer vds_sub records llm.delta in debug trace without local chat bubble'
   assert.match(renderSource, /pushDebugTrace\('vds'/);
   assert.doesNotMatch(renderSource, /vds-local-response/);
   assert.doesNotMatch(renderSource, /chat\.appendChild/);
+});
+
+test('viewer vds_sub renders transcript events, not Mio response, in voice caption area', () => {
+  assert.match(js, /function clearVDSCaption\(\)/);
+  assert.match(js, /function updateVDSCaption\(type, text\)/);
+  assert.match(js, /sttState\.partialCaptionText = captionText/);
+  assert.match(js, /sttState\.finalCaptionText = captionText/);
+  assert.match(js, /msg\.type === 'transcript\.delta' \|\| msg\.type === 'transcript\.partial'/);
+  assert.match(js, /updateVDSCaption\('partial', msg\.text\)/);
+  assert.match(js, /msg\.type === 'transcript\.final' && msg\.text/);
+  assert.match(js, /updateVDSCaption\('final', msg\.text\)/);
+  assert.doesNotMatch(js, /updateVDSCaption\('final', finalText\)/);
 });
 
 test('viewer vds_sub final timeout can finalize received delta', () => {

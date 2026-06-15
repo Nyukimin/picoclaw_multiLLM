@@ -144,6 +144,15 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 		}
 		if !fromClient && eventType == modulevoicechat.EventLLMFinal {
 			msg = annotateVoiceChatFinalMetrics(msg, timing, receivedAt)
+			var transcriptText string
+			msg, transcriptText = splitVoiceChatStructuredFinal(msg)
+			if transcriptText != "" {
+				if sendErr := sendVoiceChatTranscriptFinal(dst, msg, transcriptText); sendErr != nil {
+					log.Printf("[voice-chat] relay transcript send failed direction=%s viewer_client_id=%s err=%v", direction, viewerClientID, sendErr)
+					errc <- sendErr
+					return
+				}
+			}
 		}
 		observeGatewayAfterSend := false
 		if tracker != nil && modulevoicechat.IsWebSocketTextFramePayload(msg) {
@@ -202,6 +211,94 @@ func relayVoiceChatFrames(src, dst *websocket.Conn, tracker *voiceChatBridgeTrac
 			tracker.observeGatewayText(msg)
 		}
 	}
+}
+
+func splitVoiceChatStructuredFinal(msg []byte) ([]byte, string) {
+	var ev map[string]any
+	if err := json.Unmarshal(msg, &ev); err != nil {
+		return msg, ""
+	}
+	text := strings.TrimSpace(stringField(ev, "text"))
+	if text == "" {
+		return msg, ""
+	}
+	reply, transcript := splitVoiceChatStructuredText(text)
+	if strings.TrimSpace(reply) == "" || strings.TrimSpace(transcript) == "" {
+		return msg, ""
+	}
+	ev["text"] = reply
+	updated, err := json.Marshal(ev)
+	if err != nil {
+		return msg, ""
+	}
+	return updated, transcript
+}
+
+func splitVoiceChatStructuredText(text string) (reply string, transcript string) {
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return "", ""
+	}
+	jsonText := extractVoiceChatJSONObject(raw)
+	if jsonText != "" {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(jsonText), &payload); err == nil {
+			transcript = firstVoiceChatTextField(payload, "user_text", "transcript", "user_utterance", "recognized_text")
+			reply = firstVoiceChatTextField(payload, "reply", "assistant_text", "mio_response", "response", "answer")
+			if reply != "" {
+				return reply, transcript
+			}
+		}
+	}
+	return raw, ""
+}
+
+func extractVoiceChatJSONObject(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "```") {
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") {
+			lines = lines[1:]
+		}
+		if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+			lines = lines[:len(lines)-1]
+		}
+		trimmed = strings.TrimSpace(strings.Join(lines, "\n"))
+	}
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start >= 0 && end > start {
+		return trimmed[start : end+1]
+	}
+	return ""
+}
+
+func firstVoiceChatTextField(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, _ := payload[key].(string)
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func sendVoiceChatTranscriptFinal(dst *websocket.Conn, finalMsg []byte, transcriptText string) error {
+	var ev map[string]any
+	if err := json.Unmarshal(finalMsg, &ev); err != nil {
+		return err
+	}
+	payload := map[string]any{
+		"type":         "transcript.final",
+		"utterance_id": stringField(ev, "utterance_id"),
+		"session_id":   stringField(ev, "session_id"),
+		"text":         strings.TrimSpace(transcriptText),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return websocket.Message.Send(dst, string(data))
 }
 
 func annotateVoiceChatFinalMetrics(msg []byte, timing *voiceChatRelayTiming, finalIn time.Time) []byte {
