@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
@@ -59,6 +60,8 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/hobby-graph/interaction", viewer.HandleHobbyGraphInteraction(viewer.HobbyGraphOptions{}))
 	mux.HandleFunc("/viewer/hobby-graph/relation", viewer.HandleHobbyGraphRelation(viewer.HobbyGraphOptions{}))
 	mux.HandleFunc("/viewer/hobby-graph/topic-candidates/generate", viewer.HandleHobbyTopicCandidatesGenerate(viewer.HobbyGraphOptions{}))
+	mux.HandleFunc("/viewer/investment/status", viewer.HandleInvestmentStatus(defaultInvestmentDBPath()))
+	mux.HandleFunc("/viewer/investment/notify", viewer.HandleInvestmentNotify(dependencies.eventHub))
 }
 
 func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts *viewer.DebugSystemOptions) {
@@ -465,6 +468,13 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.dreamConsolidationReview != nil {
 		mux.HandleFunc("/viewer/knowledge-memory/dream-runs/review", dependencies.dreamConsolidationReview)
 	}
+}
+
+func defaultInvestmentDBPath() string {
+	if env := strings.TrimSpace(os.Getenv("RENCROW_DATA_DB")); env != "" {
+		return env
+	}
+	return filepath.Join("rencrow-data", "data", "rencrow.db")
 }
 
 func registerEntryAndChromeRoutes(mux *http.ServeMux, dependencies *Dependencies) {

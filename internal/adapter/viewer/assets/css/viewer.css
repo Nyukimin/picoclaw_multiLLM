@@ -246,6 +246,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .chat-desk-panel{width:min(100%,1480px);padding-top:10px}
 .chat-desk-shell{
   display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);gap:12px;
+  align-items:start;
   min-height:calc(100vh - 184px - var(--safe-bottom));
 }
 .chat-character-pane,.chat-main-pane{
@@ -255,7 +256,8 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 }
 .chat-character-pane{
   display:grid;grid-template-rows:auto clamp(320px,48vh,520px);gap:10px;padding:12px;overflow:hidden;
-  align-self:start;
+  align-self:start;height:fit-content;max-height:calc(100dvh - 132px - var(--safe-bottom));
+  position:sticky;top:12px;
 }
 .chat-brand-row{display:flex;align-items:center;gap:10px;min-width:0}
 .chat-logo-mark{
@@ -267,7 +269,7 @@ tr.evi-selected td{background:rgba(34,211,238,.08)}
 .chat-brand-sub{font-size:10px;color:var(--t3);line-height:1.4}
 .chat-character-portrait{
   position:relative;z-index:10;display:grid;align-content:end;min-height:0;
-  height:clamp(320px,48vh,520px);
+  height:clamp(320px,48vh,520px);max-height:clamp(320px,48vh,520px);
   margin:-12px -12px 0 -12px;
   border-radius:18px;padding:0;overflow:hidden;
   background:radial-gradient(circle at 50% 26%,rgba(143,183,255,.14),transparent 42%),

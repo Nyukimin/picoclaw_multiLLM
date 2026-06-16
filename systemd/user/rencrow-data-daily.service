@@ -1,0 +1,14 @@
+[Unit]
+Description=RenCrow data daily ingest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash -lc 'exec "%h/.local/share/picoclaw/scripts/rencrow_data_scheduler.sh" daily'
+WorkingDirectory=%h
+StandardOutput=append:%h/.picoclaw/logs/rencrow-data-daily.log
+StandardError=append:%h/.picoclaw/logs/rencrow-data-daily.log
+
+[Install]
+WantedBy=default.target

@@ -188,9 +188,13 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*overscroll-behavior:contain/);
   assert.match(css, /body\.live-mode #chat\.chat-conversation\{[\s\S]*-webkit-overflow-scrolling:touch/);
   assert.match(css, /\.audio-btn\{[\s\S]*touch-action:manipulation/);
+  assert.match(css, /\.chat-desk-shell\{[\s\S]*align-items:start/);
   assert.match(css, /\.chat-character-pane\{[\s\S]*grid-template-rows:auto clamp\(320px,48vh,520px\)/);
   assert.match(css, /\.chat-character-pane\{[\s\S]*align-self:start/);
+  assert.match(css, /\.chat-character-pane\{[\s\S]*height:fit-content/);
+  assert.match(css, /\.chat-character-pane\{[\s\S]*position:sticky;top:12px/);
   assert.match(css, /\.chat-character-portrait\{[\s\S]*height:clamp\(320px,48vh,520px\)/);
+  assert.match(css, /\.chat-character-portrait\{[\s\S]*max-height:clamp\(320px,48vh,520px\)/);
   assert.match(html, /assets\/css\/tabs\/ops\.css/);
   assert.match(html, /assets\/js\/tabs\/ops\.js/);
   assert.match(html, /assets\/js\/tabs\/memory\.js/);

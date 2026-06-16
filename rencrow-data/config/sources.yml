@@ -1,0 +1,26 @@
+{
+  "macro_sources": [
+    {
+      "source_name": "csv_macro",
+      "fixture": "fixtures/macro_series.csv"
+    },
+    {
+      "source_name": "yahoo_macro_dgs10",
+      "provider": "yahoo",
+      "series_code": "DGS10",
+      "provider_symbol": "^TNX",
+      "value_scale": 0.1,
+      "first_date": "1980-01-01",
+      "unit": "percent"
+    },
+    {
+      "source_name": "yahoo_fx_usdjpy",
+      "provider": "yahoo",
+      "series_code": "USDJPY_BOJ",
+      "provider_symbol": "JPY=X",
+      "first_date": "2000-01-01",
+      "value_scale": 1.0,
+      "unit": "JPY"
+    }
+  ]
+}

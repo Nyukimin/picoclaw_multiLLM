@@ -59,6 +59,24 @@ func TestInferVoiceChatGatewayURL_PrioritizesExplicitGateway(t *testing.T) {
 	}
 }
 
+func TestSplitVoiceChatStructuredFinalKeepsUserTextForServer(t *testing.T) {
+	msg := []byte(`{"type":"llm.final","utterance_id":"utt-1","text":"{\"user_text\":\"Mioさんいますか\",\"reply\":\"はい、います。\"}"}`)
+	updated, transcript := splitVoiceChatStructuredFinal(msg)
+	if transcript != "Mioさんいますか" {
+		t.Fatalf("unexpected transcript: %q", transcript)
+	}
+	var ev map[string]any
+	if err := json.Unmarshal(updated, &ev); err != nil {
+		t.Fatalf("unmarshal updated final: %v", err)
+	}
+	if ev["text"] != "はい、います。" {
+		t.Fatalf("expected llm.final text to be reply, got %#v", ev["text"])
+	}
+	if ev["user_text"] != "Mioさんいますか" {
+		t.Fatalf("expected internal user_text hint, got %#v", ev["user_text"])
+	}
+}
+
 func TestInferVoiceChatGatewayURL_FallsBackToChatBaseURL(t *testing.T) {
 	t.Setenv("VOICE_CHAT_GATEWAY_URL", "")
 	t.Setenv("RENCROW_LLM_CHAT_WS", "")
@@ -400,8 +418,15 @@ func TestVoiceChatInputAudioBridge_InterruptsIdleChatDuringVoiceSession(t *testi
 	if err := websocket.Message.Receive(conn, &final); err != nil {
 		t.Fatalf("receive final: %v", err)
 	}
-	if got := idle.chatBusy; len(got) != 2 || got[1] != false {
-		t.Fatalf("expected chat busy to end after input_audio final, got %#v", got)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		if got := idle.chatBusy; len(got) >= 2 && got[len(got)-1] == false {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected chat busy to end after input_audio final, got %#v", idle.chatBusy)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

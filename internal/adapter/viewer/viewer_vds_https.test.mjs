@@ -23,6 +23,7 @@ test('viewer vds_sub opens voice-chat websocket with session.start control', () 
   assert.match(js, /type:\s*'session\.start'/);
   assert.match(js, /format:\s*'pcm16le'/);
   assert.match(js, /voice_input_mode:\s*'vds_sub'/);
+  assert.match(js, /viewer_session_id:\s*'viewer'/);
   assert.match(js, /prompt:\s*VDS_DEFAULT_PROMPT/);
   assert.match(js, /vdsState\.ws\.send\(JSON\.stringify\(control\)\)/);
   assert.match(js, /function sendVDSSessionCommit\(\)/);

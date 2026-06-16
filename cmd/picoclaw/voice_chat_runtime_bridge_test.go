@@ -65,6 +65,22 @@ func TestVoiceChatBridgeTracker_FinalizesVoiceDirectOnLLMFinal(t *testing.T) {
 	}
 }
 
+func TestVoiceChatBridgeTracker_UsesStructuredFinalUserTextHint(t *testing.T) {
+	handler := &recordingVoiceDirectHandler{}
+	tracker := newVoiceChatBridgeTracker(handler, nil)
+
+	tracker.observeClientText([]byte(`{"type":"session.start","utterance_id":"utt-1","viewer_session_id":"viewer","channel":"viewer","chat_id":"default"}`))
+	tracker.observeGatewayText([]byte(`{"type":"llm.final","utterance_id":"utt-1","text":"はい、います。","user_text":"Mioさんいますか"}`))
+
+	finals, _ := handler.snapshot()
+	if len(finals) != 1 {
+		t.Fatalf("expected one ProcessVoiceDirect call, got %d", len(finals))
+	}
+	if finals[0].UserText != "Mioさんいますか" || finals[0].FinalText != "はい、います。" {
+		t.Fatalf("unexpected final call: %+v", finals[0])
+	}
+}
+
 func TestVoiceChatBridgeTracker_DeltaIdleDoesNotFinalizeVoiceDirect(t *testing.T) {
 	handler := &recordingVoiceDirectHandler{}
 	tracker := newVoiceChatBridgeTracker(handler, nil)

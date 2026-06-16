@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/voiceinput"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	modulevoicechat "github.com/Nyukimin/picoclaw_multiLLM/modules/voicechat"
 )
@@ -167,28 +168,11 @@ func (t *voiceChatBridgeTracker) onLLMFinal(ev map[string]any) {
 		t.reset()
 		return
 	}
-	t.finalizeVoiceDirect(text, stringField(ev, "utterance_id"), "llm.final")
+	t.finalizeVoiceDirect(text, stringField(ev, "utterance_id"), stringField(ev, "user_text"), "llm.final")
 }
 
 func isVoiceDirectMetaNoAudioFinal(text string) bool {
-	normalized := strings.TrimSpace(text)
-	if normalized == "" {
-		return false
-	}
-	metaPhrases := []string{
-		"音声内容を入力してください",
-		"音声内容を提示してください",
-		"音声ファイルをアップロード",
-		"音声が提供されていない",
-		"音声が入力されていない",
-		"入力をお待ちしております",
-	}
-	for _, phrase := range metaPhrases {
-		if strings.Contains(normalized, phrase) {
-			return true
-		}
-	}
-	return false
+	return voiceinput.IsMetaNoAudioFinal(text)
 }
 
 func truncateVoiceChatLogText(text string, limit int) string {
@@ -216,10 +200,10 @@ func (t *voiceChatBridgeTracker) finalizeDeltaIdle() {
 	if text == "" {
 		return
 	}
-	t.finalizeVoiceDirect(text, utteranceID, "delta_idle")
+	t.finalizeVoiceDirect(text, utteranceID, "", "delta_idle")
 }
 
-func (t *voiceChatBridgeTracker) finalizeVoiceDirect(text, eventUtteranceID, reason string) {
+func (t *voiceChatBridgeTracker) finalizeVoiceDirect(text, eventUtteranceID, userText, reason string) {
 	t.mu.Lock()
 	req := t.active
 	if strings.TrimSpace(req.UtteranceID) == "" {
@@ -227,6 +211,7 @@ func (t *voiceChatBridgeTracker) finalizeVoiceDirect(text, eventUtteranceID, rea
 		return
 	}
 	req.FinalText = text
+	req.UserText = strings.TrimSpace(userText)
 	if strings.TrimSpace(eventUtteranceID) != "" {
 		req.UtteranceID = strings.TrimSpace(eventUtteranceID)
 	}

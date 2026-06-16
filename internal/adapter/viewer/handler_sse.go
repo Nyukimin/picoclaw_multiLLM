@@ -90,6 +90,8 @@ func isTransientReplayEvent(ev orchestrator.OrchestratorEvent) bool {
 	switch ev.Type {
 	case "tts.audio_chunk", "tts.session_completed", "idlechat.message", "idlechat.summary":
 		return true
+	case "investment.refresh", "investment.market", "investment.macro", "investment.features", "investment.events", "investment.snapshot":
+		return true
 	default:
 		return false
 	}

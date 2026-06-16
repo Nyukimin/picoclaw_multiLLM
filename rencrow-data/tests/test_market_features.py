@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from rencrow_data import db
+from rencrow_data.features import build_features
+from rencrow_data.market import save_market_csv
+
+
+class MarketFeatureTest(unittest.TestCase):
+    def test_market_ingest_logs_price_revision_and_feature_uses_adjustment(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            price_csv = tmp_path / "prices.csv"
+            price_csv.write_text(
+                "\n".join(
+                    [
+                        "date,open,high,low,close,adj_close,volume,dividend,split",
+                        "2026-01-02,100,101,99,100,50,1000,0,2",
+                        "2026-01-09,102,103,101,102,102,1000,0,1",
+                        "2026-01-16,104,105,103,104,104,1000,0,1",
+                        "2026-01-23,106,107,105,106,106,1000,0,1",
+                        "2026-01-30,108,109,107,108,108,1000,0,1",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            con = db.connect(tmp_path / "rencrow.db")
+            db.init_schema(con)
+            db.upsert_instruments(
+                con,
+                [
+                    {
+                        "symbol": "TEST",
+                        "asset_type": "ETF",
+                        "venue": "TSE",
+                        "currency": "JPY",
+                        "first_date": "2026-01-01",
+                    }
+                ],
+            )
+            item = {"symbol": "TEST", "venue": "TSE", "currency": "JPY", "source_name": "csv_market", "fixture": str(price_csv)}
+            save_market_csv(con, item, tmp_path)
+            build_features(con)
+            close = con.execute("SELECT close_adj_jpy FROM feature_weekly WHERE week_end='2026-01-02'").fetchone()[0]
+            self.assertEqual(close, 50.0)
+            price_csv.write_text(price_csv.read_text(encoding="utf-8").replace("2026-01-30,108", "2026-01-30,109"), encoding="utf-8")
+            save_market_csv(con, item, tmp_path)
+            self.assertGreater(con.execute("SELECT COUNT(*) FROM event_log WHERE reason='price_revision'").fetchone()[0], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -30,6 +30,14 @@ workspace/skills/*
 
 # Secrets & Config (keep templates, ignore actual secrets)
 .env
+rencrow-data/data/
+rencrow-data/logs/
+rencrow-data/.env
+*.sqlite
+*.db
+*.sqlite.gz
+*.zst
+*.parquet
 
 # Test binaries
 coverage.txt
@@ -59,9 +67,13 @@ node_modules/
 .gocache/
 .gomodcache/
 scripts/__pycache__/
+__pycache__/
+*.pyc
 
 # Local generated artifacts
 /tmp/*
+.playwright-cli/
+/output/playwright/
 !/tmp/stt_inputs/
 /tmp/stt_inputs/*
 !/tmp/stt_inputs/client_stt_input_20260609_140311*

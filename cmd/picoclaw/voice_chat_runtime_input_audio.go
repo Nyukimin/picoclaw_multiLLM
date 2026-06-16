@@ -243,6 +243,7 @@ func processVoiceChatInputAudioFinalAsync(handler voiceDirectFinalHandler, sess 
 }
 
 func processVoiceChatInputAudioFinal(handler voiceDirectFinalHandler, sess *voiceChatInputAudioSession, text string) {
+	started := time.Now()
 	req := orchestrator.ProcessVoiceDirectRequest{
 		UtteranceID: sess.utteranceID,
 		SessionID:   sess.sessionID,
@@ -257,7 +258,9 @@ func processVoiceChatInputAudioFinal(handler voiceDirectFinalHandler, sess *voic
 	handler.NotifyVoiceDirectFirstToken(context.Background(), req, task.NewJobID(), time.Now())
 	if _, err := handler.ProcessVoiceDirect(context.Background(), req); err != nil {
 		log.Printf("[voice-chat] ProcessVoiceDirect failed utterance_id=%s: %v", req.UtteranceID, err)
+		return
 	}
+	log.Printf("[voice-chat] ProcessVoiceDirect completed utterance_id=%s text_len=%d elapsed_ms=%d", req.UtteranceID, len([]rune(text)), time.Since(started).Milliseconds())
 }
 
 func encodePCM16WAV(pcm []byte, sampleRate, channels int) []byte {

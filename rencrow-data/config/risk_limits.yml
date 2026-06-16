@@ -1,0 +1,6 @@
+{
+  "required_source_stale_hours": 48,
+  "event_risk_stop_threshold": 0.9,
+  "holdings_stale_days": 40
+}
+

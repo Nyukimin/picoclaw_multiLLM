@@ -53,6 +53,42 @@ func TestProcessVoiceDirect_EmitsRoutingDecisionAndAgentResponse(t *testing.T) {
 	}
 }
 
+func TestProcessVoiceDirect_SplitsStructuredFinalIntoUserAndReply(t *testing.T) {
+	orch := NewMessageOrchestrator(newMockSessionRepository(), &mockMioAgent{}, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+
+	resp, err := orch.ProcessVoiceDirect(context.Background(), ProcessVoiceDirectRequest{
+		UtteranceID: "utt-1",
+		SessionID:   "viewer",
+		Channel:     "viewer",
+		ChatID:      "default",
+		FinalText:   `{"user_text":"Mioさんいますか","reply":"はい、います。"}`,
+	})
+	if err != nil {
+		t.Fatalf("ProcessVoiceDirect failed: %v", err)
+	}
+	if resp.Response != "はい、います。" {
+		t.Fatalf("expected reply response, got %+v", resp)
+	}
+	userIdx := indexOfEvent(rec.events, "message.received", "user", "mio", "")
+	responseIdx := indexOfEvent(rec.events, "agent.response", "mio", "user", "CHAT")
+	if userIdx < 0 || responseIdx < 0 {
+		t.Fatalf("missing split chat events: %#v", rec.events)
+	}
+	if rec.events[userIdx].Content != "Mioさんいますか" {
+		t.Fatalf("expected user_text in message.received, got %#v", rec.events[userIdx])
+	}
+	if rec.events[responseIdx].Content != "はい、います。" {
+		t.Fatalf("expected reply in agent.response, got %#v", rec.events[responseIdx])
+	}
+	for _, ev := range rec.events {
+		if strings.Contains(ev.Content, `"user_text"`) {
+			t.Fatalf("raw structured JSON leaked to chat event: %#v", ev)
+		}
+	}
+}
+
 func TestProcessVoiceDirect_EmitsLatencyMetrics(t *testing.T) {
 	orch := NewMessageOrchestrator(newMockSessionRepository(), &mockMioAgent{}, &mockShiroAgent{}, nil, nil, nil, nil, nil)
 	rec := &recordingEventListener{}

@@ -155,6 +155,41 @@ distributed:
 
 ---
 
+## 株式・ETF 学習基盤
+
+RenCrow には、株式・ETF 向けの学習基盤を `rencrow-data/` として組み込み済みです。
+
+### 目的
+
+- 価格、出来高、分割、配当、為替、マクロ、イベント、ETF holdings を週次判断用に再現可能な形で保存する
+- raw を破壊せず、snapshot を毎週固定する
+- そのまま paper trade 前段までつなげる
+
+### 使い方
+
+```bash
+make rencrow-data-check
+```
+
+個別実行もできます。
+
+```bash
+make rencrow-data-init
+make rencrow-data-market
+make rencrow-data-macro
+make rencrow-data-features
+make rencrow-data-events
+make rencrow-data-snapshot SNAPSHOT_DATE=2026-05-16
+```
+
+### 参照
+
+- [学習基盤_実装仕様書.md](docs/株式/学習基盤_実装仕様書.md)
+- [株式_学習基盤.md](docs/株式/株式_学習基盤.md)
+- [株式_アルゴリズム評価.md](docs/株式/株式_アルゴリズム評価.md)
+
+---
+
 ## 🏗️ アーキテクチャ
 
 ### v3.0 Clean Architecture（現在のブランチ: proposal/clean-architecture）

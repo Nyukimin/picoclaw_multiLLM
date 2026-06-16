@@ -36,6 +36,7 @@ const PROGRESS_RECENT_EVENTS = 8;
 const PROGRESS_DONE_LIMIT = 10;
 const seenEventKeys = new Set();
 const seenEventQueue = [];
+let investmentRefreshTimer = null;
 
 function ag(n) { return A[(n || '').toLowerCase()] || A.system; }
 function agName(n) {
@@ -185,6 +186,21 @@ const state = {
     recallTraceFetchError: '',
     newsPackFetchError: '',
     selectedNewsIndex: 0,
+  },
+  investment: {
+    available: false,
+    loading: false,
+    dbPath: '',
+    status: '',
+    statusMessage: '',
+    fetchError: '',
+    snapshot: null,
+    recentSnapshots: [],
+    sourceHealth: [],
+    featureRows: [],
+    eventRows: [],
+    summary: {},
+    refreshedAt: '',
   },
   agents: {},
   idleChat: {
@@ -1167,6 +1183,7 @@ const panels = {
   memory: document.getElementById('panel-memory'),
   'movie-db': document.getElementById('panel-movie-db'),
   'news-pack': document.getElementById('panel-news-pack'),
+  investment: document.getElementById('panel-investment'),
   idlechat: document.getElementById('panel-idlechat'),
   sessions: document.getElementById('panel-sessions'),
   jobs: document.getElementById('panel-jobs'),
@@ -1256,6 +1273,7 @@ function switchTab(tab) {
     updateSTTInputIndicators();
   }
   if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
+  if (tab === 'investment' && typeof refreshInvestmentData === 'function') refreshInvestmentData();
   if (tab === 'ops') {
     refreshSandboxData();
     refreshRuntimeBlockedRouteData();
@@ -2265,6 +2283,7 @@ function renderDeskViews() {
   if (typeof renderDevelopDesk === 'function') renderDevelopDesk();
   if (typeof renderInstructionsDesk === 'function') renderInstructionsDesk();
   if (typeof renderReportsDesk === 'function') renderReportsDesk();
+  if (typeof renderInvestmentDesk === 'function') renderInvestmentDesk();
 }
 
 function refreshOpsData() {
@@ -3215,6 +3234,7 @@ function shouldRefreshEvidencePanelDiagnostics() {
 
 function refreshOptionalPanelData() {
   if (!shouldRefreshOptionalPanels()) return;
+  refreshInvestmentData();
   refreshOpsData();
   refreshToolHarnessData();
   refreshDCIData();
@@ -3245,6 +3265,7 @@ function refreshOptionalPanelData() {
 
 function setOptionalPanelRefreshIntervals() {
   if (!shouldRefreshOptionalPanels()) return;
+  setInterval(refreshInvestmentData, 30000);
   setInterval(refreshOpsData, 5000);
   setInterval(refreshToolHarnessData, 5000);
   setInterval(refreshDCIData, 5000);
@@ -3420,9 +3441,21 @@ function ingestEvent(ev) {
     });
   }
   handleTTSAudioEvent(ev);
+  if (String(ev.type || '').toLowerCase().startsWith('investment.')) {
+    scheduleInvestmentRefresh();
+  }
   derivedDirty = true;
   // Update Live2D emotion on messages
   if (typeof updateLive2DOnMessage === 'function') updateLive2DOnMessage(ev);
+}
+
+function scheduleInvestmentRefresh() {
+  if (typeof refreshInvestmentData !== 'function') return;
+  if (investmentRefreshTimer) return;
+  investmentRefreshTimer = setTimeout(() => {
+    investmentRefreshTimer = null;
+    refreshInvestmentData();
+  }, 500);
 }
 
 function isStaleIdleChatEvent(ev) {
@@ -4906,6 +4939,7 @@ if (typeof bindHomeDeskControls === 'function') bindHomeDeskControls();
 if (typeof bindDevelopDeskControls === 'function') bindDevelopDeskControls();
 if (typeof bindInstructionsDeskControls === 'function') bindInstructionsDeskControls();
 if (typeof bindReportsDeskControls === 'function') bindReportsDeskControls();
+if (typeof bindInvestmentDeskControls === 'function') bindInvestmentDeskControls();
 renderIdleChat();
 setIdleSelectedMode(state.idleChat.selectedMode);
 setIdleSelectedView(state.idleChat.selectedView);
@@ -5728,6 +5762,7 @@ function sendVDSSessionStart() {
     channels: 1,
     format: 'pcm16le',
     voice_input_mode: 'vds_sub',
+    viewer_session_id: 'viewer',
     channel: 'viewer',
     chat_id: 'default',
     prompt: VDS_DEFAULT_PROMPT,

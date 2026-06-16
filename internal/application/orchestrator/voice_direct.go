@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/voiceinput"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -26,8 +27,10 @@ type ProcessVoiceDirectRequest struct {
 	SampleRate    int
 	Channels      int
 	AudioWAVPath  string
+	UserText      string
 	FinalText     string
 	StartedAt     time.Time
+	CommitAt      time.Time
 	FirstTokenAt  time.Time
 }
 
@@ -56,13 +59,6 @@ func (req ProcessVoiceDirectRequest) normalizedChatID() string {
 		return chatID
 	}
 	return "viewer-user"
-}
-
-func (req ProcessVoiceDirectRequest) userMessageLabel() string {
-	if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
-		return fmt.Sprintf("[voice_direct] %s", prompt)
-	}
-	return "[voice_direct]"
 }
 
 func validateProcessVoiceDirectRequest(req ProcessVoiceDirectRequest) error {
@@ -97,31 +93,40 @@ func (o *MessageOrchestrator) ProcessVoiceDirect(ctx context.Context, req Proces
 	sessionID := req.normalizedSessionID()
 	channel := req.normalizedChannel()
 	chatID := req.normalizedChatID()
-	jobID := task.NewJobID()
+	result, err := voiceinput.BuildFromLLMFinal(voiceinput.BuildLLMRequest{
+		UtteranceID:  req.UtteranceID,
+		SessionID:    sessionID,
+		Channel:      channel,
+		ChatID:       chatID,
+		UserTextHint: req.UserText,
+		FinalText:    req.FinalText,
+		StartedAt:    startedAt,
+		CommitAt:     req.CommitAt,
+		FirstTokenAt: req.FirstTokenAt,
+		FinalAt:      time.Now(),
+	})
+	if err != nil {
+		return ProcessMessageResponse{}, err
+	}
 	decision := routing.NewDecision(routing.RouteCHAT, 1.0, voiceDirectReason)
 
-	userMessage := req.userMessageLabel()
-	o.events.EmitMessageReceived(ProcessMessageRequest{
-		SessionID:   sessionID,
-		Channel:     channel,
-		ChatID:      chatID,
-		UserMessage: userMessage,
-	})
-	emitLatencyMetric(o.events.Emit, "network", "server_received", startedAt, "", "", sessionID, channel, chatID, req.UtteranceID)
-
-	o.events.Emit(
-		"routing.decision",
-		"mio",
-		"",
-		fmt.Sprintf("confidence 100%% evidence=voice_direct:matched:CHAT utterance_id=%s", req.UtteranceID),
-		string(routing.RouteCHAT),
-		jobID.String(),
-		sessionID,
-		channel,
-		chatID,
-	)
-	emitLatencyMetric(o.events.Emit, "llm", "route_decision", startedAt, string(routing.RouteCHAT), jobID.String(), sessionID, channel, chatID, voiceDirectReason)
-	emitLatencyMetric(o.events.Emit, "llm", "dispatch_start", startedAt, string(routing.RouteCHAT), jobID.String(), sessionID, channel, chatID, voiceDirectReason)
+	published, err := voiceinput.Publisher{
+		Events:     o.events,
+		TurnLogger: o.sessionTurnLogger,
+		NewJobID: func() string {
+			return task.NewJobID().String()
+		},
+		EmitMetric: func(kind, point string, startedAt time.Time, route, jobID, sessionID, channel, chatID, detail string) {
+			emitLatencyMetric(o.events.Emit, kind, point, startedAt, route, jobID, sessionID, channel, chatID, detail)
+		},
+	}.Publish(result)
+	if err != nil {
+		return ProcessMessageResponse{}, err
+	}
+	jobID, _ := task.ParseJobID(published.JobID)
+	if jobID.IsZero() {
+		jobID = task.NewJobID()
+	}
 
 	if !req.FirstTokenAt.IsZero() {
 		emitVoiceDirectPointLatency(
@@ -131,7 +136,7 @@ func (o *MessageOrchestrator) ProcessVoiceDirect(ctx context.Context, req Proces
 			startedAt,
 			req.FirstTokenAt,
 			string(routing.RouteCHAT),
-			jobID.String(),
+			published.JobID,
 			sessionID,
 			channel,
 			chatID,
@@ -139,28 +144,8 @@ func (o *MessageOrchestrator) ProcessVoiceDirect(ctx context.Context, req Proces
 		)
 	}
 
-	finalText := strings.TrimSpace(req.FinalText)
-	o.events.Emit("agent.response", "mio", "user", finalText, string(routing.RouteCHAT), jobID.String(), sessionID, channel, chatID)
-	emitLatencyMetric(
-		o.events.Emit,
-		"llm",
-		"response_complete",
-		startedAt,
-		string(routing.RouteCHAT),
-		jobID.String(),
-		sessionID,
-		channel,
-		chatID,
-		fmt.Sprintf("utterance_id=%s response_len=%d", req.UtteranceID, len(finalText)),
-	)
-
-	if o.sessionTurnLogger != nil {
-		o.sessionTurnLogger.WriteUser(sessionID, channel, userMessage)
-		o.sessionTurnLogger.WriteAssistant(sessionID, channel, string(routing.RouteCHAT), jobID.String(), finalText)
-	}
-
 	_ = ctx
-	return o.responses.Build(finalText, decision, jobID), nil
+	return o.responses.Build(result.Reply, decision, jobID), nil
 }
 
 // NotifyVoiceDirectFirstToken は bridge が初回 llm.delta を転送したタイミングで呼ぶ。

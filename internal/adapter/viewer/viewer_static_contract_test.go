@@ -68,11 +68,14 @@ func TestViewerStaticContractDailyDeskTabs(t *testing.T) {
 		`data-tab="instructions"`:                "Instructions tab",
 		`data-tab="reports"`:                     "Reports tab",
 		`data-tab="movie-db"`:                    "Movie Database tab",
+		`data-tab="investment"`:                  "Investment tab",
 		`id="panel-home" class="panel active"`:   "Home is the initial active panel",
 		`id="panel-develop"`:                     "Develop panel",
 		`id="panel-instructions"`:                "Instructions panel",
 		`id="panel-reports"`:                     "Reports panel",
 		`id="panel-movie-db"`:                    "Movie Database panel",
+		`id="panel-investment"`:                  "Investment panel",
+		`id="investmentRefreshBtn"`:              "Investment refresh action",
 		`id="movieDbFetchKind"`:                  "Movie Database fetch kind selector",
 		`id="movieDbFetchQuery"`:                 "Movie Database fetch query input",
 		`id="movieDbFetchBtn"`:                   "Movie Database fetch action",
@@ -82,6 +85,7 @@ func TestViewerStaticContractDailyDeskTabs(t *testing.T) {
 		`/viewer/assets/js/tabs/instructions.js`: "Instructions tab JavaScript",
 		`/viewer/assets/js/tabs/reports.js`:      "Reports tab JavaScript",
 		`/viewer/assets/js/tabs/movie-db.js`:     "Movie Database tab JavaScript",
+		`/viewer/assets/js/tabs/investment.js`:   "Investment tab JavaScript",
 	}
 	for needle, purpose := range required {
 		if !strings.Contains(html, needle) {
@@ -136,6 +140,20 @@ func TestViewerStaticContractMovieDatabaseTabSwitchMapping(t *testing.T) {
 	js := string(data)
 	if !strings.Contains(js, `'movie-db': document.getElementById('panel-movie-db')`) {
 		t.Fatal("viewer.js missing Movie Database panel switch mapping")
+	}
+}
+
+func TestViewerStaticContractInvestmentTabSwitchMapping(t *testing.T) {
+	data, err := os.ReadFile("assets/js/viewer.js")
+	if err != nil {
+		t.Fatalf("read viewer.js: %v", err)
+	}
+	js := string(data)
+	if !strings.Contains(js, `investment: document.getElementById('panel-investment')`) {
+		t.Fatal("viewer.js missing Investment panel switch mapping")
+	}
+	if !strings.Contains(js, "refreshInvestmentData()") {
+		t.Fatal("viewer.js missing Investment tab refresh wiring")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/voiceinput"
 	modulevoicechat "github.com/Nyukimin/picoclaw_multiLLM/modules/voicechat"
 	"golang.org/x/net/websocket"
 )
@@ -227,65 +228,17 @@ func splitVoiceChatStructuredFinal(msg []byte) ([]byte, string) {
 	if text == "" {
 		return msg, ""
 	}
-	reply, transcript := splitVoiceChatStructuredText(text)
+	reply, transcript := voiceinput.SplitStructuredText(text)
 	if strings.TrimSpace(reply) == "" || strings.TrimSpace(transcript) == "" {
 		return msg, ""
 	}
 	ev["text"] = reply
+	ev["user_text"] = transcript
 	updated, err := json.Marshal(ev)
 	if err != nil {
 		return msg, ""
 	}
 	return updated, transcript
-}
-
-func splitVoiceChatStructuredText(text string) (reply string, transcript string) {
-	raw := strings.TrimSpace(text)
-	if raw == "" {
-		return "", ""
-	}
-	jsonText := extractVoiceChatJSONObject(raw)
-	if jsonText != "" {
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(jsonText), &payload); err == nil {
-			transcript = firstVoiceChatTextField(payload, "user_text", "transcript", "user_utterance", "recognized_text")
-			reply = firstVoiceChatTextField(payload, "reply", "assistant_text", "mio_response", "response", "answer")
-			if reply != "" {
-				return reply, transcript
-			}
-		}
-	}
-	return raw, ""
-}
-
-func extractVoiceChatJSONObject(text string) string {
-	trimmed := strings.TrimSpace(text)
-	if strings.HasPrefix(trimmed, "```") {
-		lines := strings.Split(trimmed, "\n")
-		if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") {
-			lines = lines[1:]
-		}
-		if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-			lines = lines[:len(lines)-1]
-		}
-		trimmed = strings.TrimSpace(strings.Join(lines, "\n"))
-	}
-	start := strings.Index(trimmed, "{")
-	end := strings.LastIndex(trimmed, "}")
-	if start >= 0 && end > start {
-		return trimmed[start : end+1]
-	}
-	return ""
-}
-
-func firstVoiceChatTextField(payload map[string]any, keys ...string) string {
-	for _, key := range keys {
-		value, _ := payload[key].(string)
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func sendVoiceChatTranscriptFinal(dst *websocket.Conn, finalMsg []byte, transcriptText string) error {
