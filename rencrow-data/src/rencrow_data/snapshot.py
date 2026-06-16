@@ -11,6 +11,25 @@ from .hashing import stable_db_hash, stable_table_hash
 from .timeutil import utcnow_iso
 
 
+def _active_source_names() -> set[str]:
+    root = Path(__file__).resolve().parents[2]
+    names: set[str] = set()
+    for rel in ("config/instruments.yml", "config/sources.yml", "config/calendars.yml"):
+        path = root / rel
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            for key in ("instruments", "macro_sources", "calendar_sources"):
+                for item in data.get(key) or []:
+                    if isinstance(item, dict) and item.get("source_name"):
+                        names.add(str(item["source_name"]))
+    return names
+
+
 def _event_state(con: sqlite3.Connection) -> dict:
     rows = con.execute(
         "SELECT level, reason, COUNT(*) AS n FROM event_log WHERE resolved_at IS NULL GROUP BY level, reason ORDER BY level, reason"
@@ -19,8 +38,31 @@ def _event_state(con: sqlite3.Connection) -> dict:
 
 
 def precheck_status(con: sqlite3.Connection) -> tuple[str, str]:
-    bad_fetch = con.execute("SELECT COUNT(*) FROM source_fetch_log WHERE status IN ('fail', 'partial')").fetchone()[0]
-    stop_events = con.execute("SELECT COUNT(*) FROM event_log WHERE level='stop' AND resolved_at IS NULL").fetchone()[0]
+    active_sources = _active_source_names()
+    latest_fetches = con.execute(
+        """
+        SELECT f.source_name, f.status, f.fetch_id
+        FROM source_fetch_log f
+        JOIN (
+          SELECT source_name, MAX(fetch_id) AS fetch_id
+          FROM source_fetch_log
+          GROUP BY source_name
+        ) latest
+          ON latest.source_name=f.source_name AND latest.fetch_id=f.fetch_id
+        """
+    ).fetchall()
+    bad_fetch = sum(1 for row in latest_fetches if row["source_name"] in active_sources and row["status"] in ("fail", "partial"))
+    stop_events = 0
+    if active_sources:
+        for row in con.execute(
+            "SELECT context_json FROM event_log WHERE level='stop' AND resolved_at IS NULL AND reason='source_fetch_unresolved'"
+        ).fetchall():
+            try:
+                ctx = json.loads(row["context_json"] or "{}")
+            except Exception:
+                continue
+            if ctx.get("source_name") in active_sources:
+                stop_events += 1
     high_risk = con.execute("SELECT COUNT(*) FROM feature_weekly WHERE COALESCE(event_risk_score, 0) >= 0.9").fetchone()[0]
     if bad_fetch or stop_events or high_risk:
         return "blocked", f"bad_fetch={bad_fetch}; stop_events={stop_events}; high_risk_features={high_risk}"

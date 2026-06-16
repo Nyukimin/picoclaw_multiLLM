@@ -1,2 +1,1 @@
-"""RenCrow stock/ETF learning data foundation."""
-
+"""RenCrow stock/ETF/crypto learning data foundation."""

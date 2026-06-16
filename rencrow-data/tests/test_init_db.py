@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import tempfile
@@ -58,6 +59,96 @@ class InitDBTest(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0], 1)
             with self.assertRaises(sqlite3.IntegrityError):
                 con.execute("INSERT INTO decision_log(decision_date, account_scope) VALUES ('2026-01-01', 'nisa')")
+
+    def test_config_has_broad_market_and_macro_universe(self) -> None:
+        instruments = json.loads((ROOT / "config" / "instruments.yml").read_text(encoding="utf-8"))["instruments"]
+        symbols = {item["symbol"] for item in instruments}
+        required_symbols = {
+            "SPY",
+            "QQQ",
+            "IWM",
+            "TLT",
+            "GLD",
+            "VOO",
+            "VT",
+            "VTI",
+            "QQQM",
+            "SPLG",
+            "SMH",
+            "XBI",
+            "XLC",
+            "XLB",
+            "XLRE",
+            "XOP",
+            "BIL",
+            "SLV",
+            "USO",
+            "^GSPC",
+            "^IXIC",
+            "^DJI",
+            "^RUT",
+            "^N225",
+            "TSM",
+            "ASML",
+            "AMD",
+            "ORCL",
+            "COST",
+            "WMT",
+            "KO",
+            "DIS",
+            "EFA",
+            "EEM",
+            "DIA",
+            "AGG",
+            "BND",
+            "IEF",
+            "SHY",
+            "VNQ",
+            "XLF",
+            "XLK",
+            "XLE",
+            "XLV",
+            "XLI",
+            "XLP",
+            "XLY",
+            "XLU",
+            "HYG",
+            "LQD",
+            "TIP",
+            "IVV",
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "AMZN",
+            "GOOGL",
+            "META",
+            "TSLA",
+            "JPM",
+            "XOM",
+            "UNH",
+            "BTC-USD",
+            "ETH-USD",
+            "SOL-USD",
+            "XRP-USD",
+            "DOGE-USD",
+        }
+        self.assertTrue(required_symbols.issubset(symbols))
+        self.assertGreaterEqual(len(symbols), 60)
+
+        sources = json.loads((ROOT / "config" / "sources.yml").read_text(encoding="utf-8"))["macro_sources"]
+        series_codes = {item["series_code"] for item in sources if "series_code" in item}
+        required_series = {
+            "DGS10",
+            "USDJPY_BOJ",
+            "VIX",
+            "IRX",
+            "FVX",
+            "TYX",
+            "DXY",
+            "GC",
+            "CL",
+        }
+        self.assertTrue(required_series.issubset(series_codes))
 
 
 if __name__ == "__main__":

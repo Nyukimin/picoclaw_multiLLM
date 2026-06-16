@@ -1,6 +1,6 @@
 # RenCrow Data Foundation
 
-This directory contains the stock/ETF learning data foundation described in
+This directory contains the stock/ETF/crypto learning data foundation described in
 `docs/株式/学習基盤_実装仕様書.md`.
 
 MVP commands:

@@ -7,6 +7,8 @@ from datetime import date, timedelta
 from . import db
 from .timeutil import friday_of_week, parse_date
 
+PRICE_ASSET_TYPES = ("ETF", "STOCK", "CASH_PROXY", "CRYPTO", "INDEX")
+
 
 def _nearest_macro(con, series_code: str, obs_date: date, week_end: date) -> float | None:
     row = con.execute(
@@ -45,9 +47,9 @@ def build_features(con) -> int:
         SELECT i.instrument_id, i.currency, p.trade_date, p.open, p.high, p.low, p.close, p.adj_close, p.volume
         FROM price_raw p
         JOIN instruments i ON i.instrument_id=p.instrument_id
-        WHERE i.asset_type IN ('ETF', 'STOCK', 'CASH_PROXY')
+        WHERE i.asset_type IN ({})
         ORDER BY i.instrument_id, p.trade_date
-        """
+        """.format(", ".join(f"'{asset_type}'" for asset_type in PRICE_ASSET_TYPES))
     ).fetchall()
     by_inst: dict[int, list] = defaultdict(list)
     currencies: dict[int, str] = {}

@@ -209,12 +209,14 @@ func loadInvestmentStatus(ctx context.Context, dbPath string) investmentStatusRe
 		return resp
 	}
 
+	activeSources := activeInvestmentSources(dbPath)
+
 	snapshot, snapshots, err := querySnapshots(ctx, db)
 	if err != nil {
 		resp.StatusMessage = "snapshot query failed: " + err.Error()
 		return resp
 	}
-	sources, sourceSummary, err := querySourceHealth(ctx, db)
+	sources, sourceSummary, err := querySourceHealth(ctx, db, activeSources)
 	if err != nil {
 		resp.StatusMessage = "source query failed: " + err.Error()
 		return resp
@@ -256,6 +258,42 @@ func loadInvestmentStatus(ctx context.Context, dbPath string) investmentStatusRe
 		LatestFeatureWeekEnd: featureSummary.latestWeekEnd,
 	}
 	return resp
+}
+
+func activeInvestmentSources(dbPath string) map[string]struct{} {
+	root := filepath.Dir(filepath.Dir(dbPath))
+	candidates := []string{
+		filepath.Join(root, "config", "instruments.yml"),
+		filepath.Join(root, "config", "sources.yml"),
+		filepath.Join(root, "config", "calendars.yml"),
+	}
+	active := map[string]struct{}{}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			continue
+		}
+		for _, key := range []string{"instruments", "macro_sources", "calendar_sources"} {
+			items, ok := parsed[key].([]any)
+			if !ok {
+				continue
+			}
+			for _, item := range items {
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				if sourceName, ok := m["source_name"].(string); ok && strings.TrimSpace(sourceName) != "" {
+					active[sourceName] = struct{}{}
+				}
+			}
+		}
+	}
+	return active
 }
 
 type sourceHealthSummary struct {
@@ -304,7 +342,7 @@ SELECT snapshot_date, COALESCE(snapshot_path, ''), COALESCE(db_hash, ''), COALES
 	return &items[0], items, nil
 }
 
-func querySourceHealth(ctx context.Context, db *sql.DB) ([]investmentSourceHealth, sourceHealthSummary, error) {
+func querySourceHealth(ctx context.Context, db *sql.DB, activeSources map[string]struct{}) ([]investmentSourceHealth, sourceHealthSummary, error) {
 	rows, err := db.QueryContext(ctx, `
 SELECT source_name, status, COALESCE(requested_at, ''), COALESCE(finished_at, ''), COALESCE(rows_fetched, 0), COALESCE(error_message, '')
   FROM source_fetch_log
@@ -326,6 +364,11 @@ SELECT source_name, status, COALESCE(requested_at, ''), COALESCE(finished_at, ''
 		var rowsFetched int64
 		if err := rows.Scan(&sourceName, &status, &requestedAt, &finishedAt, &rowsFetched, &errorMessage); err != nil {
 			return nil, sourceHealthSummary{}, err
+		}
+		if len(activeSources) > 0 {
+			if _, ok := activeSources[sourceName]; !ok {
+				continue
+			}
 		}
 		key := sourceName
 		item := aggs[key]

@@ -7,6 +7,8 @@ from rencrow_data import db
 from rencrow_data.config import config_path, load_config
 from rencrow_data.market import save_market_csv, save_market_item
 
+ALLOWED_ASSET_TYPES = ("ETF", "STOCK", "CASH_PROXY", "CRYPTO", "INDEX")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -24,7 +26,7 @@ def main() -> None:
     total = 0
     failures = 0
     for item in config.get("instruments", []):
-        if item.get("asset_type") not in ("ETF", "STOCK", "CASH_PROXY"):
+        if item.get("asset_type") not in ALLOWED_ASSET_TYPES:
             continue
         if args.mode == "fixture":
             rows, status = save_market_csv(con, item, args.data_root)

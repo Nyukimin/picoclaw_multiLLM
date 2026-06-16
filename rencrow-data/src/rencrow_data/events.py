@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import math
 from datetime import timedelta
 
@@ -8,16 +9,74 @@ from . import db
 from .timeutil import parse_date, utcnow_iso
 
 
-def detect_events(con, stale_hours: int = 48) -> int:
-    count = 0
-    bad_fetches = con.execute(
+def _latest_fetch_statuses(con):
+    return con.execute(
         """
-        SELECT fetch_id, source_name, status, error_message
-        FROM source_fetch_log
-        WHERE status IN ('fail', 'partial')
+        SELECT f.source_name, f.status, f.error_message, f.fetch_id
+        FROM source_fetch_log f
+        JOIN (
+          SELECT source_name, MAX(fetch_id) AS fetch_id
+          FROM source_fetch_log
+          GROUP BY source_name
+        ) latest
+          ON latest.source_name=f.source_name AND latest.fetch_id=f.fetch_id
         """
     ).fetchall()
-    for row in bad_fetches:
+
+
+def _active_source_names() -> set[str]:
+    root = Path(__file__).resolve().parents[2]
+    names: set[str] = set()
+    for rel in ("config/instruments.yml", "config/sources.yml", "config/calendars.yml"):
+        path = root / rel
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            for key in ("instruments", "macro_sources", "calendar_sources"):
+                items = data.get(key) or []
+                for item in items:
+                    if isinstance(item, dict):
+                        source_name = item.get("source_name")
+                        if source_name:
+                            names.add(str(source_name))
+    return names
+
+
+def detect_events(con, stale_hours: int = 48) -> int:
+    count = 0
+    active_sources = _active_source_names()
+    latest_fetches = _latest_fetch_statuses(con)
+    current_bad = []
+    for row in latest_fetches:
+        if row["source_name"] in active_sources and row["status"] in ("fail", "partial"):
+            current_bad.append(row)
+    open_fetch_events = con.execute(
+        "SELECT event_id, context_json FROM event_log WHERE level='stop' AND reason='source_fetch_unresolved' AND resolved_at IS NULL"
+    ).fetchall()
+    open_by_source = {}
+    for row in open_fetch_events:
+        try:
+            ctx = json.loads(row["context_json"] or "{}")
+        except Exception:
+            continue
+        source_name = ctx.get("source_name")
+        if source_name:
+            open_by_source.setdefault(source_name, []).append(int(row["event_id"]))
+    current_bad_sources = {row["source_name"] for row in current_bad}
+    for source_name, event_ids in open_by_source.items():
+        if source_name not in current_bad_sources:
+            con.execute(
+                "UPDATE event_log SET resolved_at=? WHERE event_id IN (%s)" % ",".join("?" for _ in event_ids),
+                [utcnow_iso(), *event_ids],
+            )
+            count += len(event_ids)
+    for row in current_bad:
+        if row["source_name"] in open_by_source:
+            continue
         db.log_event(
             con,
             "system",

@@ -54,6 +54,50 @@ class MarketFeatureTest(unittest.TestCase):
             save_market_csv(con, item, tmp_path)
             self.assertGreater(con.execute("SELECT COUNT(*) FROM event_log WHERE reason='price_revision'").fetchone()[0], 0)
 
+    def test_crypto_asset_type_participates_in_feature_building(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            price_csv = tmp_path / "crypto_prices.csv"
+            price_csv.write_text(
+                "\n".join(
+                    [
+                        "date,open,high,low,close,adj_close,volume,dividend,split",
+                        "2026-01-02,100,101,99,100,100,1000,0,1",
+                        "2026-01-09,102,103,101,102,102,1000,0,1",
+                        "2026-01-16,104,105,103,104,104,1000,0,1",
+                        "2026-01-23,106,107,105,106,106,1000,0,1",
+                        "2026-01-30,108,109,107,108,108,1000,0,1",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            con = db.connect(tmp_path / "rencrow.db")
+            db.init_schema(con)
+            db.upsert_instruments(
+                con,
+                [
+                    {
+                        "symbol": "BTC-USD",
+                        "asset_type": "CRYPTO",
+                        "venue": "YAHOO",
+                        "currency": "USD",
+                        "first_date": "2026-01-01",
+                    }
+                ],
+            )
+            con.execute(
+                "INSERT INTO macro_series(series_code, obs_date, value, vintage_date, release_date, source_name, fetch_id, unit) VALUES ('USDJPY_BOJ', '2026-01-01', 150, '', '2026-01-01', 'csv_macro', 1, 'JPY')"
+            )
+            con.commit()
+            item = {"symbol": "BTC-USD", "venue": "YAHOO", "currency": "USD", "source_name": "csv_market", "fixture": str(price_csv)}
+            save_market_csv(con, item, tmp_path)
+            build_features(con)
+            iid = con.execute("SELECT instrument_id FROM instruments WHERE symbol='BTC-USD'").fetchone()[0]
+            self.assertGreater(
+                con.execute("SELECT COUNT(*) FROM feature_weekly WHERE instrument_id=?", (iid,)).fetchone()[0],
+                0,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
