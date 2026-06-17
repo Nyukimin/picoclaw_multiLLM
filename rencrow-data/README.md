@@ -20,10 +20,16 @@ PYTHONPATH=rencrow-data/src python3 rencrow-data/src/13_llm_report.py --snapshot
 PYTHONPATH=rencrow-data/src python3 rencrow-data/src/14_audit_report.py --snapshot latest --decision latest
 ```
 
+The same weekly research flow can be run through Make:
+
+```bash
+make rencrow-data-weekly-research
+```
+
 Paper trading requires an explicit approval file and does not place broker orders:
 
 ```bash
-PYTHONPATH=rencrow-data/src python3 rencrow-data/src/12_paper_trade.py --decision latest --approval-file rencrow-data/approvals/latest.yml
+make rencrow-data-paper-trade DATA_APPROVAL_FILE=rencrow-data/approvals/latest.yml
 ```
 
 Generated databases, snapshots, backtest CSVs, approval files, and reports are

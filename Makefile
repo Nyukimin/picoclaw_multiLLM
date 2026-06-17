@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test install-watchdog enable-watchdog disable-watchdog watchdog-status watchdog-run-once test-watchdog-mock watchdog-kick install-data-scheduler enable-data-scheduler disable-data-scheduler data-scheduler-status rencrow-data-init rencrow-data-market rencrow-data-market-online rencrow-data-macro rencrow-data-macro-online rencrow-data-features rencrow-data-events rencrow-data-snapshot rencrow-data-test rencrow-data-e2e rencrow-data-backfill rencrow-data-check
+.PHONY: all build install uninstall clean help test install-watchdog enable-watchdog disable-watchdog watchdog-status watchdog-run-once test-watchdog-mock watchdog-kick install-data-scheduler enable-data-scheduler disable-data-scheduler data-scheduler-status rencrow-data-init rencrow-data-market rencrow-data-market-online rencrow-data-macro rencrow-data-macro-online rencrow-data-features rencrow-data-events rencrow-data-snapshot rencrow-data-validate rencrow-data-backtest rencrow-data-risk rencrow-data-decision rencrow-data-llm-report rencrow-data-audit-report rencrow-data-paper-trade rencrow-data-weekly-research rencrow-data-test rencrow-data-e2e rencrow-data-backfill rencrow-data-check
 
 # Build variables
 BINARY_NAME=picoclaw
@@ -25,6 +25,13 @@ SNAPSHOT_DATE?=$(shell date -u +%F)
 DATA_START_DATE?=
 DATA_END_DATE?=
 DATA_LOOKBACK_DAYS?=
+DATA_STRATEGY?=weekly_etf_rotation_v1
+DATA_RISK_CONFIG?=rencrow-data/config/risk_limits.yml
+DATA_BACKTEST_OUTPUT_DIR?=rencrow-data/data/backtests
+DATA_APPROVAL_DIR?=rencrow-data/approvals
+DATA_REPORT_DIR?=rencrow-data/reports
+DATA_APPROVAL_FILE?=$(DATA_APPROVAL_DIR)/latest.yml
+DATA_PAPER_CAPITAL?=1000000
 
 # Installation
 INSTALL_PREFIX?=$(HOME)/.local
@@ -147,9 +154,9 @@ install-data-scheduler:
 	@mkdir -p $(SYSTEMD_USER_DIR)
 	@cp $(DATA_SCHEDULER_SCRIPT_SRC) $(DATA_SCHEDULER_SCRIPT_DST)
 	@chmod +x $(DATA_SCHEDULER_SCRIPT_DST)
-	@cp $(DATA_DAILY_SERVICE_SRC) $(SYSTEMD_USER_DIR)/rencrow-data-daily.service
+	@sed 's#@PICOCLAW_REPO_DIR@#$(CURDIR)#g' $(DATA_DAILY_SERVICE_SRC) > $(SYSTEMD_USER_DIR)/rencrow-data-daily.service
 	@cp $(DATA_DAILY_TIMER_SRC) $(SYSTEMD_USER_DIR)/rencrow-data-daily.timer
-	@cp $(DATA_WEEKLY_SERVICE_SRC) $(SYSTEMD_USER_DIR)/rencrow-data-weekly.service
+	@sed 's#@PICOCLAW_REPO_DIR@#$(CURDIR)#g' $(DATA_WEEKLY_SERVICE_SRC) > $(SYSTEMD_USER_DIR)/rencrow-data-weekly.service
 	@cp $(DATA_WEEKLY_TIMER_SRC) $(SYSTEMD_USER_DIR)/rencrow-data-weekly.timer
 	@systemctl --user daemon-reload
 	@echo "Installed: $(DATA_SCHEDULER_SCRIPT_DST)"
@@ -234,6 +241,52 @@ rencrow-data-events:
 rencrow-data-snapshot:
 	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/06_make_snapshot.py --db $(DATA_DB) --output-dir rencrow-data/data/snapshots --snapshot-date $(SNAPSHOT_DATE)
 
+## rencrow-data-validate: Validate current data quality and fetch status
+rencrow-data-validate:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/08_validate_data.py --db $(DATA_DB) --as-of $(SNAPSHOT_DATE); \
+	status=$$?; \
+	if [ $$status -eq 0 ] || [ $$status -eq 2 ] || [ $$status -eq 3 ]; then exit 0; fi; \
+	exit $$status
+
+## rencrow-data-backtest: Run weekly ETF rotation backtest for the latest snapshot
+rencrow-data-backtest:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/09_backtest_weekly_rotation.py --db $(DATA_DB) --snapshot latest --strategy $(DATA_STRATEGY) --tax-mode approx_jp_taxable --walk-forward --output-dir $(DATA_BACKTEST_OUTPUT_DIR)
+
+## rencrow-data-risk: Run risk checks for the latest snapshot and strategy
+rencrow-data-risk:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/10_risk_check.py --db $(DATA_DB) --snapshot latest --strategy $(DATA_STRATEGY) --risk-config $(DATA_RISK_CONFIG); \
+	status=$$?; \
+	if [ $$status -eq 0 ] || [ $$status -eq 3 ]; then exit 0; fi; \
+	exit $$status
+
+## rencrow-data-decision: Generate a human-approved weekly decision candidate
+rencrow-data-decision:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/11_generate_decision.py --db $(DATA_DB) --snapshot latest --strategy $(DATA_STRATEGY) --output-dir $(DATA_APPROVAL_DIR)
+
+## rencrow-data-llm-report: Generate the local deterministic weekly report
+rencrow-data-llm-report:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/13_llm_report.py --db $(DATA_DB) --snapshot latest --decision latest --output-dir $(DATA_REPORT_DIR)
+
+## rencrow-data-audit-report: Generate the weekly audit report and paper gate status
+rencrow-data-audit-report:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/14_audit_report.py --db $(DATA_DB) --snapshot latest --decision latest --paper-latest --output-dir $(DATA_REPORT_DIR)
+
+## rencrow-data-paper-trade: Record a paper trade only after explicit human approval
+rencrow-data-paper-trade:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/12_paper_trade.py --db $(DATA_DB) --decision latest --approval-file $(DATA_APPROVAL_FILE) --capital $(DATA_PAPER_CAPITAL)
+
+## rencrow-data-weekly-research: Run snapshot, validation, backtest, risk, decision, report, and audit
+rencrow-data-weekly-research:
+	@$(MAKE) rencrow-data-features
+	@$(MAKE) rencrow-data-events
+	@$(MAKE) rencrow-data-snapshot
+	@$(MAKE) rencrow-data-validate
+	@$(MAKE) rencrow-data-backtest
+	@$(MAKE) rencrow-data-risk
+	@$(MAKE) rencrow-data-decision
+	@$(MAKE) rencrow-data-llm-report
+	@$(MAKE) rencrow-data-audit-report
+
 ## rencrow-data-test: Run the Python foundation unit tests
 rencrow-data-test:
 	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest discover -s rencrow-data/tests -p 'test_*.py' -v
@@ -243,9 +296,7 @@ rencrow-data-e2e: rencrow-data-test
 	@$(MAKE) rencrow-data-init
 	@$(MAKE) rencrow-data-market
 	@$(MAKE) rencrow-data-macro
-	@$(MAKE) rencrow-data-features
-	@$(MAKE) rencrow-data-events
-	@$(MAKE) rencrow-data-snapshot
+	@$(MAKE) rencrow-data-weekly-research
 
 ## rencrow-data-check: Run tests and the full offline E2E flow
 rencrow-data-check: rencrow-data-e2e
@@ -255,9 +306,7 @@ rencrow-data-backfill:
 	@$(MAKE) rencrow-data-init
 	@$(MAKE) rencrow-data-market-online
 	@$(MAKE) rencrow-data-macro-online
-	@$(MAKE) rencrow-data-features
-	@$(MAKE) rencrow-data-events
-	@$(MAKE) rencrow-data-snapshot
+	@$(MAKE) rencrow-data-weekly-research
 
 ## watchdog-kick: Obsolete; use make watchdog-run-once for Viewer Serve recovery
 watchdog-kick:

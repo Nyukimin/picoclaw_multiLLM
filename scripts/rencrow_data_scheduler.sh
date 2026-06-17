@@ -2,7 +2,8 @@
 set -euo pipefail
 
 MODE="${1:-daily}"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${PICOCLAW_REPO_DIR:-$SCRIPT_ROOT}"
 LOCK_DIR="${PICOCLAW_DATA_LOCK_DIR:-$HOME/.picoclaw/locks}"
 LOG_DIR="${PICOCLAW_DATA_LOG_DIR:-$HOME/.picoclaw/logs}"
 LOCK_FILE="$LOCK_DIR/rencrow-data-${MODE}.lock"
@@ -24,6 +25,20 @@ log() {
 run_make() {
   log "run: $*"
   (cd "$ROOT_DIR" && make "$@") >> "$LOG_FILE" 2>&1
+}
+
+run_make_allow_status() {
+  local ok_status="$1"
+  shift
+  log "run allow_status=$ok_status: $*"
+  set +e
+  (cd "$ROOT_DIR" && make "$@") >> "$LOG_FILE" 2>&1
+  local status=$?
+  set -e
+  if [[ "$status" == "0" || "$status" == "$ok_status" ]]; then
+    return 0
+  fi
+  return "$status"
 }
 
 notify_viewer() {
@@ -60,6 +75,8 @@ case "$MODE" in
     notify_viewer features success "daily feature refresh"
     run_make rencrow-data-events
     notify_viewer events success "daily event refresh"
+    run_make_allow_status 2 rencrow-data-validate SNAPSHOT_DATE="${SNAPSHOT_DATE:-today}"
+    notify_viewer validate success "daily data validation"
     ;;
   weekly)
     run_make rencrow-data-init
@@ -69,12 +86,17 @@ case "$MODE" in
     run_make rencrow-data-macro-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
       DATA_LOOKBACK_DAYS="${DATA_MACRO_LOOKBACK_DAYS:-45}"
     notify_viewer macro success "weekly macro increment"
-    run_make rencrow-data-features
-    notify_viewer features success "weekly feature refresh"
-    run_make rencrow-data-events
-    notify_viewer events success "weekly event refresh"
-    run_make rencrow-data-snapshot
-    notify_viewer snapshot success "weekly snapshot refresh"
+    run_make rencrow-data-weekly-research SNAPSHOT_DATE="${SNAPSHOT_DATE:-$(date -u +%F)}"
+    notify_viewer research success "weekly research flow"
+    if [[ -f "${DATA_APPROVAL_FILE:-rencrow-data/approvals/latest.yml}" ]]; then
+      run_make rencrow-data-paper-trade DATA_APPROVAL_FILE="${DATA_APPROVAL_FILE:-rencrow-data/approvals/latest.yml}"
+      notify_viewer paper_trade success "weekly paper trade recorded"
+      run_make rencrow-data-audit-report
+      notify_viewer audit success "weekly paper audit refreshed"
+    else
+      log "skip paper trade: approval file not found path=${DATA_APPROVAL_FILE:-rencrow-data/approvals/latest.yml}"
+      notify_viewer paper_trade skipped "approval file not found"
+    fi
     ;;
   *)
     log "error unknown mode=$MODE"

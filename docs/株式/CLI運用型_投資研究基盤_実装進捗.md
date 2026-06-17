@@ -28,6 +28,8 @@
 | 要件 | 状態 | 根拠 |
 |---|---|---|
 | CLIだけで週次研究フローを再現 | 実装済み | `test_weekly_cli_flow.py` |
+| Make経由の週次研究フロー | 実装済み | `make rencrow-data-weekly-research` |
+| systemd schedulerからの週次研究フロー | 実装済み | `scripts/rencrow_data_scheduler.sh weekly` |
 | `01` から `08` までのデータ基盤CLI | 実装済み | `test_pipeline_e2e.py`, `test_quality_validation.py` |
 | `feature_weekly` の再現性 | 実装済み | `test_market_features.py` |
 | 直近1週skipの12週モメンタム | 実装済み | `feature_weekly.ret_12w_skip1`, `test_market_features.py` |
@@ -77,6 +79,9 @@ uv run --with pytest --with requests python -m pytest rencrow-data/tests
 
 ```bash
 git diff --check
+bash -n scripts/rencrow_data_scheduler.sh
+make -n rencrow-data-weekly-research
+make -n install-data-scheduler
 ```
 
 直近確認結果:
