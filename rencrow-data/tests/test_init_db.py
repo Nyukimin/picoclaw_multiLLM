@@ -76,6 +76,8 @@ class InitDBTest(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0], 1)
             with self.assertRaises(sqlite3.IntegrityError):
                 con.execute("INSERT INTO decision_log(decision_date, account_scope) VALUES ('2026-01-01', 'nisa')")
+            with self.assertRaises(sqlite3.IntegrityError):
+                con.execute("INSERT INTO order_log(decision_id, side, quantity, status) VALUES (1, 'BUY', 1, 'submitted')")
 
     def test_config_has_broad_market_and_macro_universe(self) -> None:
         instruments = json.loads((ROOT / "config" / "instruments.yml").read_text(encoding="utf-8"))["instruments"]

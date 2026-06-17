@@ -50,6 +50,7 @@
 | paper tradeのsnapshot参照 | 実装済み | `paper_trade_log.snapshot_id`, `test_paper_trade.py` |
 | TCA summary | 実装済み | `paper.py`, `test_paper_trade.py` |
 | 税ロット近似 | 実装済み | `tax_lot_log`, `test_paper_trade.py` |
+| live order禁止 | 実装済み | live order CLIなし、`order_log` INSERT拒否trigger |
 | LLMは説明補助のみ | 実装済み | `13_llm_report.py`, `llm_audit_log` |
 | LLMが売買判断を変更しない | 実装済み | report-only CLI design |
 | 監査レポート | 実装済み | `14_audit_report.py`, `test_audit_report.py` |

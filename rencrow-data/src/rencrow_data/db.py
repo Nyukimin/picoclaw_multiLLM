@@ -205,6 +205,12 @@ CREATE TABLE IF NOT EXISTS order_log (
   error_message TEXT
 );
 
+CREATE TRIGGER IF NOT EXISTS block_order_log_insert_mvp
+BEFORE INSERT ON order_log
+BEGIN
+  SELECT RAISE(ABORT, 'live order logging is disabled in the initial MVP');
+END;
+
 CREATE TABLE IF NOT EXISTS tax_lot_log (
   tax_lot_id INTEGER PRIMARY KEY,
   account_scope TEXT CHECK(account_scope IS NULL OR account_scope = 'taxable'),

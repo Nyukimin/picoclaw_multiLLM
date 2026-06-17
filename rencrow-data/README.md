@@ -39,6 +39,10 @@ Paper trading requires an explicit approval file and does not place broker order
 make rencrow-data-paper-trade DATA_APPROVAL_FILE=rencrow-data/approvals/latest.yml
 ```
 
+Live broker orders are disabled in the initial MVP. The schema keeps `order_log`
+as a future placeholder, but inserts are blocked until a separate live-trading
+specification explicitly replaces that guard.
+
 Generated databases, snapshots, backtest CSVs, approval files, and reports are
 runtime artifacts. Keep them out of git unless a specific fixture is being added.
 
