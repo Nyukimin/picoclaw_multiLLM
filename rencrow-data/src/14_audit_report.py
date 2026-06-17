@@ -50,6 +50,7 @@ def main() -> None:
                 snapshot_id=snapshot_id,
                 decision_id=_parse_decision(args.decision),
                 output_dir=Path(args.output_dir),
+                paper_latest=args.paper_latest,
             ),
         )
     except ValueError as exc:

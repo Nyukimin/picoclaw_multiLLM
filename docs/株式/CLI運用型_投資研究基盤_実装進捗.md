@@ -52,6 +52,7 @@
 | LLMは説明補助のみ | 実装済み | `13_llm_report.py`, `llm_audit_log` |
 | LLMが売買判断を変更しない | 実装済み | report-only CLI design |
 | 監査レポート | 実装済み | `14_audit_report.py`, `test_audit_report.py` |
+| `--paper-latest` 監査対象解決 | 実装済み | paper trade済み最新decisionを優先 |
 | 紙運用完了ゲート判定 | 実装済み | `paper_gate`, `test_audit_report.py` |
 | 紙運用ログ欠落チェック | 実装済み | snapshot, validation, feature, backtest, risk, paper trade, report |
 | 紙運用週次台帳 | 実装済み | `paper_gate.weeks`, `test_audit_report.py` |
@@ -74,7 +75,7 @@ uv run --with pytest --with requests python -m pytest rencrow-data/tests
 直近確認結果:
 
 ```text
-34 passed
+35 passed
 ```
 
 追加確認:

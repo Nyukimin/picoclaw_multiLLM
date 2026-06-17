@@ -192,6 +192,67 @@ class AuditReportTest(unittest.TestCase):
             self.assertIn("paper_trade", week["missing"])
             self.assertIn("report", week["missing"])
 
+    def test_audit_report_paper_latest_prefers_traded_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            db_path = tmp_path / "rencrow.db"
+            out_dir = tmp_path / "reports"
+            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(tmp_path / "missing_config"))
+            con = sqlite3.connect(db_path)
+            con.execute(
+                """
+                INSERT INTO snapshot_registry(snapshot_id, snapshot_date, db_hash, features_hash, status)
+                VALUES (1, '2026-05-16', 'dbhash', 'featurehash', 'success')
+                """,
+            )
+            for approved in (1, 0):
+                con.execute(
+                    """
+                    INSERT INTO decision_log(snapshot_id, decision_date, account_scope, strategy_name, candidate_json, veto_json, approved)
+                    VALUES (1, '2026-05-16', 'paper', 'weekly_etf_rotation_v1', '{}', '{}', ?)
+                    """,
+                    (approved,),
+                )
+            traded_decision_id = 1
+            latest_untraded_decision_id = 2
+            con.execute(
+                """
+                INSERT INTO paper_trade_log(decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
+                VALUES (?, NULL, 'HOLD', 0, NULL, NULL, 10, 'vetoed')
+                """,
+                (traded_decision_id,),
+            )
+            con.commit()
+            con.close()
+
+            latest_result = run_script(
+                "14_audit_report.py",
+                "--db",
+                str(db_path),
+                "--snapshot",
+                "1",
+                "--output-dir",
+                str(out_dir),
+                "--json",
+            )
+            latest_summary = json.loads(latest_result.stdout)
+            self.assertEqual(latest_summary["decision_id"], latest_untraded_decision_id)
+
+            paper_result = run_script(
+                "14_audit_report.py",
+                "--db",
+                str(db_path),
+                "--snapshot",
+                "1",
+                "--paper-latest",
+                "--output-dir",
+                str(out_dir),
+                "--json",
+            )
+            paper_summary = json.loads(paper_result.stdout)
+            self.assertTrue(paper_summary["paper_latest"])
+            self.assertEqual(paper_summary["decision_id"], traded_decision_id)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,8 @@ make rencrow-data-weekly-research
 The audit report includes a paper-operation gate and a weekly ledger showing
 which snapshot, validation, feature, backtest, risk, paper trade, and report logs
 are present or missing for each paper decision.
+With `--paper-latest`, it audits the latest paper-traded decision for the
+snapshot before falling back to the latest decision candidate.
 
 Paper trading requires an explicit approval file and does not place broker orders:
 

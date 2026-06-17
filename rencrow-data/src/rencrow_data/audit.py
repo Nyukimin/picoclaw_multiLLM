@@ -10,6 +10,7 @@ class AuditOptions:
     snapshot_id: str
     decision_id: int | None = None
     output_dir: Path | None = None
+    paper_latest: bool = False
 
 
 def _snapshot(con, snapshot_id: str):
@@ -22,6 +23,22 @@ def _snapshot(con, snapshot_id: str):
 def _latest_decision(con, snapshot_id: str) -> int | None:
     row = con.execute(
         "SELECT decision_id FROM decision_log WHERE snapshot_id=? ORDER BY created_at DESC, decision_id DESC LIMIT 1",
+        (int(snapshot_id),),
+    ).fetchone()
+    return None if row is None else int(row["decision_id"])
+
+
+def _latest_paper_decision(con, snapshot_id: str) -> int | None:
+    row = con.execute(
+        """
+        SELECT d.decision_id
+          FROM decision_log d
+          JOIN paper_trade_log p ON p.decision_id=d.decision_id
+         WHERE d.snapshot_id=?
+           AND d.account_scope='paper'
+         ORDER BY p.created_at DESC, p.paper_trade_id DESC
+         LIMIT 1
+        """,
         (int(snapshot_id),),
     ).fetchone()
     return None if row is None else int(row["decision_id"])
@@ -155,7 +172,12 @@ def _paper_gate(con) -> dict[str, object]:
 
 def build_audit_report(con, options: AuditOptions) -> dict[str, object]:
     snapshot = _snapshot(con, options.snapshot_id)
-    decision_id = options.decision_id if options.decision_id is not None else _latest_decision(con, options.snapshot_id)
+    if options.decision_id is not None:
+        decision_id = options.decision_id
+    elif options.paper_latest:
+        decision_id = _latest_paper_decision(con, options.snapshot_id) or _latest_decision(con, options.snapshot_id)
+    else:
+        decision_id = _latest_decision(con, options.snapshot_id)
     snapshot_date = snapshot["snapshot_date"]
     fetch_failures = _count(con, "SELECT COUNT(*) FROM source_fetch_log WHERE status='fail'")
     fetch_partials = _count(con, "SELECT COUNT(*) FROM source_fetch_log WHERE status='partial'")
@@ -287,5 +309,6 @@ def build_audit_report(con, options: AuditOptions) -> dict[str, object]:
         "fetch_partials_total": fetch_partials,
         "quality_blockers": quality_blockers,
         "risk_status": None if risk is None else risk["status"],
+        "paper_latest": options.paper_latest,
         "paper_gate": paper_gate,
     }
