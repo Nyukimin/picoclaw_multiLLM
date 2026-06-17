@@ -145,6 +145,52 @@ class AuditReportTest(unittest.TestCase):
             summary = json.loads(result.stdout)
             self.assertEqual(summary["paper_gate"]["status"], "minimum_ready")
             self.assertEqual(summary["paper_gate"]["paper_weeks"], 8)
+            self.assertEqual(len(summary["paper_gate"]["weeks"]), 8)
+            self.assertTrue(all(week["complete"] for week in summary["paper_gate"]["weeks"]))
+            text = Path(summary["output_path"]).read_text(encoding="utf-8")
+            self.assertIn("### Weekly Ledger", text)
+            self.assertIn("| snapshot_date | decision_id | snapshot_id | complete | missing |", text)
+
+    def test_audit_report_lists_missing_weekly_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            db_path = tmp_path / "rencrow.db"
+            out_dir = tmp_path / "reports"
+            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(tmp_path / "missing_config"))
+            con = sqlite3.connect(db_path)
+            con.execute(
+                """
+                INSERT INTO snapshot_registry(snapshot_id, snapshot_date, db_hash, features_hash, status)
+                VALUES (1, '2026-05-16', 'dbhash', 'featurehash', 'success')
+                """,
+            )
+            con.execute(
+                """
+                INSERT INTO decision_log(snapshot_id, decision_date, account_scope, strategy_name, candidate_json, veto_json, approved)
+                VALUES (1, '2026-05-16', 'paper', 'weekly_etf_rotation_v1', '{}', '{}', 0)
+                """,
+            )
+            con.commit()
+            con.close()
+            result = run_script(
+                "14_audit_report.py",
+                "--db",
+                str(db_path),
+                "--snapshot",
+                "1",
+                "--output-dir",
+                str(out_dir),
+                "--json",
+            )
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary["paper_gate"]["status"], "not_ready")
+            self.assertEqual(summary["paper_gate"]["missing_decision_paper"], 1)
+            self.assertEqual(len(summary["paper_gate"]["weeks"]), 1)
+            week = summary["paper_gate"]["weeks"][0]
+            self.assertFalse(week["complete"])
+            self.assertIn("validation", week["missing"])
+            self.assertIn("paper_trade", week["missing"])
+            self.assertIn("report", week["missing"])
 
 
 if __name__ == "__main__":

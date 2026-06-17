@@ -18,7 +18,7 @@
 | `08_validate_data.py` | 実装済み | `data_quality_check` |
 | `09_backtest_weekly_rotation.py` | 実装済み | `backtest_run`, `backtest_metric`, equity/trade CSV |
 | `10_risk_check.py` | 実装済み | `risk_check_result` |
-| `11_generate_decision.py` | 実装済み | `weekly_signal`, `decision_log`, approval JSON |
+| `11_generate_decision.py` | 実装済み | `weekly_signal`, `decision_log`, approval YAML/JSON |
 | `12_paper_trade.py` | 実装済み | `paper_trade_log`, `tax_lot_log` |
 | `13_llm_report.py` | 実装済み | report Markdown, `llm_audit_log` |
 | `14_audit_report.py` | 実装済み | audit Markdown |
@@ -54,6 +54,7 @@
 | 監査レポート | 実装済み | `14_audit_report.py`, `test_audit_report.py` |
 | 紙運用完了ゲート判定 | 実装済み | `paper_gate`, `test_audit_report.py` |
 | 紙運用ログ欠落チェック | 実装済み | snapshot, validation, feature, backtest, risk, paper trade, report |
+| 紙運用週次台帳 | 実装済み | `paper_gate.weeks`, `test_audit_report.py` |
 
 ## 現在の未完了・運用待ち
 
@@ -73,7 +74,7 @@ uv run --with pytest --with requests python -m pytest rencrow-data/tests
 直近確認結果:
 
 ```text
-33 passed
+34 passed
 ```
 
 追加確認:

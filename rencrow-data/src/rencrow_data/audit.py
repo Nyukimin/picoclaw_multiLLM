@@ -72,25 +72,67 @@ def _paper_gate(con) -> dict[str, object]:
         "paper_trade": 0,
         "report": 0,
     }
+    weeks: list[dict[str, object]] = []
     for row in paper_decisions:
         decision_id = int(row["decision_id"])
         snapshot_id = row["snapshot_id"]
         snapshot_date = row["snapshot_date"] or row["decision_date"]
+        week_status = {
+            "decision_id": decision_id,
+            "snapshot_id": snapshot_id,
+            "snapshot_date": snapshot_date,
+            "validation": False,
+            "feature": False,
+            "backtest": False,
+            "risk": False,
+            "paper_trade": False,
+            "report": False,
+            "complete": False,
+            "missing": [],
+        }
         if snapshot_id is None:
             missing_logs["snapshot"] += 1
+            week_status["missing"] = ["snapshot"]
+            weeks.append(week_status)
             continue
-        if _count(con, "SELECT COUNT(*) FROM data_quality_check WHERE check_date=?", (snapshot_date,)) == 0:
+        validation_count = _count(con, "SELECT COUNT(*) FROM data_quality_check WHERE check_date=?", (snapshot_date,))
+        feature_count = _count(con, "SELECT COUNT(*) FROM feature_weekly WHERE week_end<=?", (snapshot_date,))
+        backtest_count = _count(con, "SELECT COUNT(*) FROM backtest_run WHERE snapshot_id=?", (str(snapshot_id),))
+        risk_count = _count(con, "SELECT COUNT(*) FROM risk_check_result WHERE decision_id=?", (str(decision_id),))
+        paper_trade_count = _count(con, "SELECT COUNT(*) FROM paper_trade_log WHERE decision_id=?", (decision_id,))
+        report_count = _count(con, "SELECT COUNT(*) FROM llm_audit_log WHERE snapshot_id=?", (str(snapshot_id),))
+        week_status.update(
+            {
+                "validation": validation_count > 0,
+                "feature": feature_count > 0,
+                "backtest": backtest_count > 0,
+                "risk": risk_count > 0,
+                "paper_trade": paper_trade_count > 0,
+                "report": report_count > 0,
+            }
+        )
+        missing_for_week: list[str] = []
+        if validation_count == 0:
             missing_logs["validation"] += 1
-        if _count(con, "SELECT COUNT(*) FROM feature_weekly WHERE week_end<=?", (snapshot_date,)) == 0:
+            missing_for_week.append("validation")
+        if feature_count == 0:
             missing_logs["feature"] += 1
-        if _count(con, "SELECT COUNT(*) FROM backtest_run WHERE snapshot_id=?", (str(snapshot_id),)) == 0:
+            missing_for_week.append("feature")
+        if backtest_count == 0:
             missing_logs["backtest"] += 1
-        if _count(con, "SELECT COUNT(*) FROM risk_check_result WHERE decision_id=?", (str(decision_id),)) == 0:
+            missing_for_week.append("backtest")
+        if risk_count == 0:
             missing_logs["risk"] += 1
-        if _count(con, "SELECT COUNT(*) FROM paper_trade_log WHERE decision_id=?", (decision_id,)) == 0:
+            missing_for_week.append("risk")
+        if paper_trade_count == 0:
             missing_logs["paper_trade"] += 1
-        if _count(con, "SELECT COUNT(*) FROM llm_audit_log WHERE snapshot_id=?", (str(snapshot_id),)) == 0:
+            missing_for_week.append("paper_trade")
+        if report_count == 0:
             missing_logs["report"] += 1
+            missing_for_week.append("report")
+        week_status["missing"] = missing_for_week
+        week_status["complete"] = not missing_for_week
+        weeks.append(week_status)
     missing_weekly_logs = sum(missing_logs.values())
     if paper_weeks >= 12 and missing_decision_paper == 0 and missing_weekly_logs == 0:
         status = "preferred_ready"
@@ -107,6 +149,7 @@ def _paper_gate(con) -> dict[str, object]:
         "event_veto_rows": event_veto_rows,
         "missing_weekly_logs": missing_weekly_logs,
         "missing_logs": missing_logs,
+        "weeks": weeks,
     }
 
 
@@ -218,8 +261,18 @@ def build_audit_report(con, options: AuditOptions) -> dict[str, object]:
             f"- missing_weekly_logs: {paper_gate['missing_weekly_logs']}",
             f"- missing_logs: {json.dumps(paper_gate['missing_logs'], ensure_ascii=False, sort_keys=True)}",
             "",
+            "### Weekly Ledger",
+            "",
+            "| snapshot_date | decision_id | snapshot_id | complete | missing |",
+            "|---|---:|---:|---|---|",
         ]
     )
+    for week in paper_gate["weeks"]:
+        missing = ", ".join(str(item) for item in week["missing"]) or "-"
+        lines.append(
+            f"| {week['snapshot_date']} | {week['decision_id']} | {week['snapshot_id']} | {str(week['complete']).lower()} | {missing} |"
+        )
+    lines.append("")
 
     output_dir = options.output_dir or Path("rencrow-data/reports")
     output_dir.mkdir(parents=True, exist_ok=True)
