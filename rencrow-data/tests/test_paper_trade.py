@@ -133,11 +133,11 @@ class PaperTradeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             data_root, db_path, decision = prepare_decision(Path(td))
             approval_path = Path(decision["approval_path"])
-            approval = json.loads(approval_path.read_text(encoding="utf-8"))
-            approval["approved"] = True
-            approval["approver"] = "unit-test"
-            approval["approved_at"] = "2026-05-16T00:00:00+00:00"
-            approval_path.write_text(json.dumps(approval, ensure_ascii=False), encoding="utf-8")
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval_path.write_text(approval, encoding="utf-8")
 
             result = run_script(
                 "12_paper_trade.py",

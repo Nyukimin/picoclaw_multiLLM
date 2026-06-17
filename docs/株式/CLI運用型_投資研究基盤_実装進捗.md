@@ -43,8 +43,9 @@
 | risk checkのpass/reduce/stop/kill | 実装済み | `test_risk_check.py` |
 | decision candidate生成 | 実装済み | `test_generate_decision.py` |
 | `--risk-check` 省略時の最新risk check解決 | 実装済み | `test_generate_decision.py`, `test_weekly_cli_flow.py` |
-| human approval前提 | 実装済み | approval JSON, `test_paper_trade.py` |
-| YAML承認ファイル対応 | 実装済み | `test_paper_trade.py` |
+| human approval前提 | 実装済み | approval YAML/JSON, `test_generate_decision.py`, `test_paper_trade.py` |
+| YAML承認案と `latest.yml` 生成 | 実装済み | `test_generate_decision.py` |
+| YAML承認ファイル読込 | 実装済み | `test_paper_trade.py` |
 | paper trade | 実装済み | `paper_trade_log`, `test_paper_trade.py` |
 | TCA summary | 実装済み | `paper.py`, `test_paper_trade.py` |
 | 税ロット近似 | 実装済み | `tax_lot_log`, `test_paper_trade.py` |

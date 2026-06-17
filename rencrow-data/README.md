@@ -29,6 +29,7 @@ make rencrow-data-weekly-research
 Paper trading requires an explicit approval file and does not place broker orders:
 
 ```bash
+# Edit rencrow-data/approvals/latest.yml and set approved: true first.
 make rencrow-data-paper-trade DATA_APPROVAL_FILE=rencrow-data/approvals/latest.yml
 ```
 

@@ -141,6 +141,14 @@ class GenerateDecisionTest(unittest.TestCase):
             self.assertFalse(summary["approved"])
             self.assertEqual(summary["candidates"][0]["symbol"], "1306.T")
             self.assertTrue(Path(summary["approval_path"]).exists())
+            self.assertTrue(summary["approval_path"].endswith(".approval.yml"))
+            self.assertTrue(Path(summary["approval_latest_path"]).exists())
+            self.assertTrue(Path(summary["approval_json_path"]).exists())
+            self.assertEqual(Path(summary["approval_latest_path"]).name, "latest.yml")
+            approval_text = Path(summary["approval_path"]).read_text(encoding="utf-8")
+            self.assertIn(f"decision_id: {summary['decision_id']}", approval_text)
+            self.assertIn("approval_required: true", approval_text)
+            self.assertIn("approved: false", approval_text)
 
             con = sqlite3.connect(db_path)
             con.row_factory = sqlite3.Row

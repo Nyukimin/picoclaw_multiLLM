@@ -118,23 +118,51 @@ def _rank_candidates(con, snapshot_id: str, strategy_id: str, week_end: str, con
     return candidates
 
 
-def _write_approval(path: Path, *, decision_id: int, snapshot_id: str, strategy_id: str, status: str, candidates: list[dict[str, object]]) -> None:
+def _approval_payload(*, decision_id: int, snapshot_id: str, strategy_id: str, status: str, candidates: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "decision_id": decision_id,
+        "snapshot_id": snapshot_id,
+        "strategy_id": strategy_id,
+        "approval_required": True,
+        "approved": False,
+        "approver": "",
+        "approved_at": "",
+        "risk_status": status,
+        "candidate_symbols": [item["symbol"] for item in candidates],
+    }
+
+
+def _write_json_approval(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "{",
-        f'  "decision_id": {decision_id},',
-        f'  "snapshot_id": "{snapshot_id}",',
-        f'  "strategy_id": "{strategy_id}",',
-        '  "approval_required": true,',
-        '  "approved": false,',
-        '  "approver": "",',
-        '  "approved_at": "",',
-        f'  "risk_status": "{status}",',
-        f'  "candidate_symbols": {json.dumps([item["symbol"] for item in candidates], ensure_ascii=False)}',
-        "}",
-        "",
-    ]
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _yaml_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    text = str(value)
+    if text == "":
+        return '""'
+    if any(ch in text for ch in ":#[]{}\",'") or text.lower() in {"true", "false", "null"}:
+        return json.dumps(text, ensure_ascii=False)
+    return text
+
+
+def _write_yaml_approval(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for key, value in payload.items():
+        if isinstance(value, list):
+            lines.append(f"{key}:")
+            if value:
+                lines.extend(f"  - {_yaml_scalar(item)}" for item in value)
+            else:
+                lines.append("  []")
+        else:
+            lines.append(f"{key}: {_yaml_scalar(value)}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
@@ -218,15 +246,19 @@ def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
     con.commit()
 
     output_dir = options.output_dir or Path("rencrow-data/approvals")
-    approval_path = output_dir / f"decision_{decision_id}.approval.json"
-    _write_approval(
-        approval_path,
+    approval_payload = _approval_payload(
         decision_id=decision_id,
         snapshot_id=options.snapshot_id,
         strategy_id=options.strategy_id,
         status=risk_status,
         candidates=selected,
     )
+    approval_path = output_dir / f"decision_{decision_id}.approval.yml"
+    approval_json_path = output_dir / f"decision_{decision_id}.approval.json"
+    latest_path = output_dir / "latest.yml"
+    _write_yaml_approval(approval_path, approval_payload)
+    _write_yaml_approval(latest_path, approval_payload)
+    _write_json_approval(approval_json_path, approval_payload)
     return {
         "decision_id": decision_id,
         "snapshot_id": options.snapshot_id,
@@ -239,4 +271,6 @@ def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
         "week_end": week_end,
         "candidates": candidate_json["candidates"],
         "approval_path": str(approval_path),
+        "approval_latest_path": str(latest_path),
+        "approval_json_path": str(approval_json_path),
     }
