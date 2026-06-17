@@ -35,7 +35,7 @@ snapshot before falling back to the latest decision candidate.
 Paper trading requires an explicit approval file and does not place broker orders:
 
 ```bash
-# Edit rencrow-data/approvals/latest.yml and set approved: true first.
+# Edit latest.yml and set approved, approver, approved_at, and approval_reason first.
 make rencrow-data-paper-trade DATA_APPROVAL_FILE=rencrow-data/approvals/latest.yml
 ```
 

@@ -51,6 +51,12 @@ def _decision(con, decision_id: int):
     return row
 
 
+def _require_approval_metadata(approval: dict[str, object]) -> None:
+    missing = [key for key in ("approver", "approved_at", "approval_reason") if not str(approval.get(key) or "").strip()]
+    if missing:
+        raise PermissionError(f"approval file is missing required metadata: {', '.join(missing)}")
+
+
 def _feature_price(con, instrument_id: int, week_end: str, fill_model: str) -> float | None:
     if fill_model == "close_next_week":
         row = con.execute(
@@ -84,6 +90,7 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
         raise ValueError("approval decision_id does not match")
     if not approval.get("approved"):
         raise PermissionError("approval file is present but approved=false")
+    _require_approval_metadata(approval)
     decision = _decision(con, options.decision_id)
     snapshot_id = decision["snapshot_id"]
     con.execute(

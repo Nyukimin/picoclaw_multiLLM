@@ -46,6 +46,7 @@
 | human approval前提 | 実装済み | approval YAML/JSON, `test_generate_decision.py`, `test_paper_trade.py` |
 | YAML承認案と `latest.yml` 生成 | 実装済み | `test_generate_decision.py` |
 | YAML承認ファイル読込 | 実装済み | `test_paper_trade.py` |
+| 承認者・承認時刻・承認理由の必須化 | 実装済み | `test_paper_trade.py` |
 | paper trade | 実装済み | `paper_trade_log`, `test_paper_trade.py` |
 | paper tradeのsnapshot参照 | 実装済み | `paper_trade_log.snapshot_id`, `test_paper_trade.py` |
 | TCA summary | 実装済み | `paper.py`, `test_paper_trade.py` |
@@ -77,7 +78,7 @@ uv run --with pytest --with requests python -m pytest rencrow-data/tests
 直近確認結果:
 
 ```text
-35 passed
+36 passed
 ```
 
 追加確認:

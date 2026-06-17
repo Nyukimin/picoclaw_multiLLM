@@ -149,6 +149,7 @@ class GenerateDecisionTest(unittest.TestCase):
             self.assertIn(f"decision_id: {summary['decision_id']}", approval_text)
             self.assertIn("approval_required: true", approval_text)
             self.assertIn("approved: false", approval_text)
+            self.assertIn('approval_reason: ""', approval_text)
 
             con = sqlite3.connect(db_path)
             con.row_factory = sqlite3.Row

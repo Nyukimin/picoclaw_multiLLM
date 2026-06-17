@@ -127,6 +127,7 @@ def _approval_payload(*, decision_id: int, snapshot_id: str, strategy_id: str, s
         "approved": False,
         "approver": "",
         "approved_at": "",
+        "approval_reason": "",
         "risk_status": status,
         "candidate_symbols": [item["symbol"] for item in candidates],
     }

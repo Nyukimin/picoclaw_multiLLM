@@ -137,6 +137,7 @@ class PaperTradeTest(unittest.TestCase):
             approval = approval.replace("approved: false", "approved: true")
             approval = approval.replace('approver: ""', "approver: unit-test")
             approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: weekly paper approval")
             approval_path.write_text(approval, encoding="utf-8")
 
             result = run_script(
@@ -186,6 +187,7 @@ class PaperTradeTest(unittest.TestCase):
                         "approved: true",
                         "approver: unit-test",
                         "approved_at: 2026-05-16T00:00:00+00:00",
+                        "approval_reason: weekly paper approval",
                         "",
                     ]
                 ),
@@ -204,6 +206,37 @@ class PaperTradeTest(unittest.TestCase):
             )
             summary = json.loads(result.stdout)
             self.assertEqual(summary["status"], "simulated")
+
+    def test_paper_trade_requires_approval_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root, db_path, decision = prepare_decision(Path(td))
+            approval_path = data_root / "approvals" / "missing_reason.yml"
+            approval_path.write_text(
+                "\n".join(
+                    [
+                        f"decision_id: {decision['decision_id']}",
+                        "approved: true",
+                        "approver: unit-test",
+                        "approved_at: 2026-05-16T00:00:00+00:00",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_script(
+                "12_paper_trade.py",
+                "--db",
+                str(db_path),
+                "--decision",
+                str(decision["decision_id"]),
+                "--approval-file",
+                str(approval_path),
+                "--json",
+                check=False,
+            )
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("approval_reason", result.stderr)
 
 
 if __name__ == "__main__":
