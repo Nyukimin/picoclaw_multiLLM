@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS decision_log (
   approved INTEGER DEFAULT 0,
   approver TEXT,
   approved_at TEXT,
+  approval_reason TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -377,6 +378,7 @@ def init_schema(con: sqlite3.Connection) -> None:
     con.executescript(SCHEMA_SQL)
     _ensure_column(con, "feature_weekly", "ret_12w_skip1", "REAL")
     _ensure_column(con, "paper_trade_log", "snapshot_id", "INTEGER")
+    _ensure_column(con, "decision_log", "approval_reason", "TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_paper_trade_snapshot ON paper_trade_log(snapshot_id)")
     con.execute(
         """

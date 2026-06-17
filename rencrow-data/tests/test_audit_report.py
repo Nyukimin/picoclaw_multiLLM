@@ -103,10 +103,13 @@ class AuditReportTest(unittest.TestCase):
                 )
                 con.execute(
                     """
-                    INSERT INTO decision_log(snapshot_id, decision_date, account_scope, strategy_name, candidate_json, veto_json, approved)
-                    VALUES (?, ?, 'paper', 'weekly_etf_rotation_v1', '{}', '{}', 1)
+                    INSERT INTO decision_log(
+                      snapshot_id, decision_date, account_scope, strategy_name, candidate_json,
+                      veto_json, approved, approver, approved_at, approval_reason
+                    )
+                    VALUES (?, ?, 'paper', 'weekly_etf_rotation_v1', '{}', '{}', 1, 'unit-test', ?, 'weekly approval')
                     """,
-                    (snapshot_id, decision_date),
+                    (snapshot_id, decision_date, f"{decision_date}T00:00:00+00:00"),
                 )
                 decision_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
                 con.execute(
@@ -150,6 +153,7 @@ class AuditReportTest(unittest.TestCase):
             text = Path(summary["output_path"]).read_text(encoding="utf-8")
             self.assertIn("### Weekly Ledger", text)
             self.assertIn("| snapshot_date | decision_id | snapshot_id | complete | missing |", text)
+            self.assertIn("approval_reason: weekly approval", text)
 
     def test_audit_report_lists_missing_weekly_logs(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -167,10 +167,14 @@ class PaperTradeTest(unittest.TestCase):
             self.assertEqual(row[1], "simulated")
             self.assertGreater(row[2], 0)
             self.assertEqual(str(row[3]), str(decision["snapshot_id"]))
-            decision_row = con.execute("SELECT approved, approver, approved_at FROM decision_log WHERE decision_id=?", (decision["decision_id"],)).fetchone()
+            decision_row = con.execute(
+                "SELECT approved, approver, approved_at, approval_reason FROM decision_log WHERE decision_id=?",
+                (decision["decision_id"],),
+            ).fetchone()
             self.assertEqual(decision_row[0], 1)
             self.assertEqual(decision_row[1], "unit-test")
             self.assertEqual(decision_row[2], "2026-05-16T00:00:00+00:00")
+            self.assertEqual(decision_row[3], "weekly paper approval")
             lot = con.execute("SELECT account_scope, quantity, acquisition_price FROM tax_lot_log").fetchone()
             self.assertEqual(lot[0], "taxable")
             self.assertGreater(lot[1], 0)

@@ -96,10 +96,15 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
     con.execute(
         """
         UPDATE decision_log
-           SET approved=1, approver=?, approved_at=?
+           SET approved=1, approver=?, approved_at=?, approval_reason=?
          WHERE decision_id=?
         """,
-        (approval.get("approver") or "", approval.get("approved_at") or "", options.decision_id),
+        (
+            approval.get("approver") or "",
+            approval.get("approved_at") or "",
+            approval.get("approval_reason") or "",
+            options.decision_id,
+        ),
     )
     candidate = json.loads(decision["candidate_json"] or "{}")
     veto = json.loads(decision["veto_json"] or "{}")
