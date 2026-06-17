@@ -40,8 +40,23 @@ class InitDBTest(unittest.TestCase):
                 "paper_trade_log",
                 "order_log",
                 "tax_lot_log",
+                "data_quality_check",
+                "strategy_version",
+                "backtest_run",
+                "backtest_metric",
+                "risk_check_result",
+                "weekly_signal",
+                "llm_audit_log",
             }
             self.assertLessEqual(expected, tables)
+            self.assertEqual(
+                con.execute("SELECT COUNT(*) FROM strategy_version WHERE strategy_id='weekly_etf_rotation_v1'").fetchone()[0],
+                1,
+            )
+            strategy_config = json.loads(
+                con.execute("SELECT config_json FROM strategy_version WHERE strategy_id='weekly_etf_rotation_v1'").fetchone()[0]
+            )
+            self.assertEqual(strategy_config["event_veto_threshold"], 0.7)
 
             db.upsert_instruments(
                 con,

@@ -12,7 +12,22 @@ PYTHONPATH=rencrow-data/src python3 rencrow-data/src/03_fetch_macro.py
 PYTHONPATH=rencrow-data/src python3 rencrow-data/src/04_build_features.py
 PYTHONPATH=rencrow-data/src python3 rencrow-data/src/05_detect_events.py
 PYTHONPATH=rencrow-data/src python3 rencrow-data/src/06_make_snapshot.py
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/08_validate_data.py --as-of latest
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/09_backtest_weekly_rotation.py --snapshot latest
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/10_risk_check.py --snapshot latest
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/11_generate_decision.py --snapshot latest
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/13_llm_report.py --snapshot latest --decision latest
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/14_audit_report.py --snapshot latest --decision latest
 ```
+
+Paper trading requires an explicit approval file and does not place broker orders:
+
+```bash
+PYTHONPATH=rencrow-data/src python3 rencrow-data/src/12_paper_trade.py --decision latest --approval-file rencrow-data/approvals/latest.yml
+```
+
+Generated databases, snapshots, backtest CSVs, approval files, and reports are
+runtime artifacts. Keep them out of git unless a specific fixture is being added.
 
 For historical backfill from online providers:
 

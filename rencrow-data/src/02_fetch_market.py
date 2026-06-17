@@ -12,7 +12,7 @@ ALLOWED_ASSET_TYPES = ("ETF", "STOCK", "CASH_PROXY", "CRYPTO", "INDEX")
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="rencrow-data/data/rencrow.db")
+    parser.add_argument("--db", "--db-path", dest="db", default="rencrow-data/data/rencrow.db")
     parser.add_argument("--config-root", default="rencrow-data/config")
     parser.add_argument("--data-root", default="rencrow-data")
     parser.add_argument("--mode", choices=("fixture", "online", "backfill", "hybrid", "incremental"), default="fixture")
@@ -22,6 +22,7 @@ def main() -> None:
     args = parser.parse_args()
 
     con = db.connect(args.db)
+    db.init_schema(con)
     config = load_config(config_path(args.config_root, "instruments.yml"), default={"instruments": []})
     total = 0
     failures = 0

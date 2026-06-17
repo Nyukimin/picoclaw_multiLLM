@@ -10,7 +10,7 @@ from rencrow_data.config import config_path, load_config
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="rencrow-data/data/rencrow.db")
+    parser.add_argument("--db", "--db-path", dest="db", default="rencrow-data/data/rencrow.db")
     parser.add_argument("--config-root", default="rencrow-data/config")
     args = parser.parse_args()
 
@@ -25,4 +25,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

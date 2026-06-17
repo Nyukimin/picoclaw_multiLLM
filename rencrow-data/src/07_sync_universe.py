@@ -13,7 +13,7 @@ from rencrow_data.universe import broad_v2, broad_v3, broad_v4, broad_v5, sync_c
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="rencrow-data/data/rencrow.db")
+    parser.add_argument("--db", "--db-path", dest="db", default="rencrow-data/data/rencrow.db")
     parser.add_argument("--config-root", default="rencrow-data/config")
     parser.add_argument("--data-root", default="rencrow-data")
     parser.add_argument("--mode", choices=("fixture", "online", "backfill", "hybrid", "incremental"), default="incremental")

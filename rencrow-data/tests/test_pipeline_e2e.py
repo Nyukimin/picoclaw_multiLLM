@@ -80,21 +80,34 @@ class PipelineE2ETest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp_path = Path(td)
             data_root, config_root, db_path = write_fixture_tree(tmp_path)
-            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(config_root))
+            run_script("01_init_db.py", "--db-path", str(db_path), "--config-root", str(config_root))
             run_script("02_fetch_market.py", "--db", str(db_path), "--config-root", str(config_root), "--data-root", str(data_root))
             run_script("03_fetch_macro.py", "--db", str(db_path), "--config-root", str(config_root), "--data-root", str(data_root))
-            run_script("04_build_features.py", "--db", str(db_path))
-            run_script("05_detect_events.py", "--db", str(db_path))
+            run_script("04_build_features.py", "--db-path", str(db_path), "--week-end", "latest")
+            run_script("05_detect_events.py", "--db-path", str(db_path), "--week-end", "latest")
+            run_script(
+                "08_validate_data.py",
+                "--db",
+                str(db_path),
+                "--as-of",
+                "2026-05-15",
+                "--min-history-days",
+                "140",
+                "--max-missing-rate",
+                "0.90",
+            )
             out_dir = data_root / "data" / "snapshots"
-            run_script("06_make_snapshot.py", "--db", str(db_path), "--output-dir", str(out_dir), "--snapshot-date", "2026-05-16")
+            run_script("06_make_snapshot.py", "--db-path", str(db_path), "--output-dir", str(out_dir), "--snapshot-date", "2026-05-16")
 
             con = sqlite3.connect(db_path)
             con.row_factory = sqlite3.Row
             self.assertEqual(con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0], 3)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM price_raw").fetchone()[0], 20)
             self.assertGreaterEqual(con.execute("SELECT COUNT(*) FROM macro_series").fetchone()[0], 20)
+            self.assertGreater(con.execute("SELECT COUNT(*) FROM data_quality_check").fetchone()[0], 0)
             self.assertGreater(con.execute("SELECT COUNT(*) FROM feature_weekly WHERE ret_12w IS NOT NULL").fetchone()[0], 0)
             self.assertGreater(con.execute("SELECT COUNT(*) FROM event_log WHERE reason LIKE 'calendar_%'").fetchone()[0], 0)
+            self.assertEqual(con.execute("SELECT MAX(event_risk_score) FROM feature_weekly").fetchone()[0], 0.7)
             snap = con.execute("SELECT * FROM snapshot_registry WHERE snapshot_date='2026-05-16'").fetchone()
             self.assertIsNotNone(snap)
             self.assertEqual(snap["status"], "success")

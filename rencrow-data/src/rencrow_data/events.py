@@ -98,7 +98,12 @@ def detect_events(con, stale_hours: int = 48) -> int:
         ).fetchall()
         max_score = 0.0
         for ev in events:
-            score = 0.7 if ev["importance"] in ("high", "critical") else 0.4
+            if ev["importance"] == "critical":
+                score = 1.0
+            elif ev["importance"] == "high":
+                score = 0.7
+            else:
+                score = 0.4
             level = "warn" if score < 0.9 else "stop"
             db.log_event(
                 con,

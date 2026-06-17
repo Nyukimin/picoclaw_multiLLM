@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS feature_weekly (
   ret_1w REAL,
   ret_4w REAL,
   ret_12w REAL,
+  ret_12w_skip1 REAL,
   vol_12w REAL,
   drawdown_26w REAL,
   ma_4w_gap REAL,
@@ -217,6 +218,96 @@ CREATE TABLE IF NOT EXISTS tax_lot_log (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS data_quality_check (
+  check_id INTEGER PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  instrument_id INTEGER,
+  check_date TEXT NOT NULL,
+  check_type TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK(severity IN ('info', 'warning', 'blocker')),
+  status TEXT NOT NULL CHECK(status IN ('pass', 'fail', 'partial')),
+  metric_value REAL,
+  detail_json TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS strategy_version (
+  strategy_id TEXT PRIMARY KEY,
+  strategy_name TEXT,
+  version TEXT,
+  config_hash TEXT,
+  config_json TEXT,
+  active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS backtest_run (
+  backtest_id TEXT PRIMARY KEY,
+  strategy_id TEXT,
+  snapshot_id TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  mode TEXT,
+  cost_bps REAL,
+  slippage_bps REAL,
+  tax_mode TEXT,
+  status TEXT,
+  result_json TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS backtest_metric (
+  metric_id INTEGER PRIMARY KEY,
+  backtest_id TEXT,
+  split_name TEXT,
+  metric_name TEXT,
+  metric_value REAL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS risk_check_result (
+  risk_check_id TEXT PRIMARY KEY,
+  snapshot_id TEXT,
+  strategy_id TEXT,
+  decision_id TEXT,
+  status TEXT,
+  max_dd_check TEXT,
+  weekly_loss_check TEXT,
+  concentration_check TEXT,
+  volatility_check TEXT,
+  event_check TEXT,
+  detail_json TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS weekly_signal (
+  signal_id TEXT PRIMARY KEY,
+  snapshot_id TEXT,
+  strategy_id TEXT,
+  week_end TEXT,
+  instrument_id INTEGER,
+  rank INTEGER,
+  target_weight REAL,
+  raw_score REAL,
+  adjusted_score REAL,
+  vetoed INTEGER DEFAULT 0,
+  reason_json TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS llm_audit_log (
+  llm_log_id TEXT PRIMARY KEY,
+  snapshot_id TEXT,
+  task_type TEXT,
+  model TEXT,
+  prompt_version TEXT,
+  input_hash TEXT,
+  output_hash TEXT,
+  output_path TEXT,
+  uncertainty_flag INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_instruments_symbol ON instruments(symbol);
 CREATE INDEX IF NOT EXISTS idx_instruments_asset_type ON instruments(asset_type);
 CREATE INDEX IF NOT EXISTS idx_instruments_active ON instruments(active);
@@ -240,7 +331,29 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_status ON snapshot_registry(status);
 CREATE INDEX IF NOT EXISTS idx_decision_date ON decision_log(decision_date);
 CREATE INDEX IF NOT EXISTS idx_decision_snapshot ON decision_log(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_decision_account ON decision_log(account_scope);
+CREATE INDEX IF NOT EXISTS idx_quality_run ON data_quality_check(run_id);
+CREATE INDEX IF NOT EXISTS idx_quality_date ON data_quality_check(check_date);
+CREATE INDEX IF NOT EXISTS idx_quality_status ON data_quality_check(status, severity);
+CREATE INDEX IF NOT EXISTS idx_quality_instrument ON data_quality_check(instrument_id);
+CREATE INDEX IF NOT EXISTS idx_strategy_active ON strategy_version(active);
+CREATE INDEX IF NOT EXISTS idx_backtest_strategy ON backtest_run(strategy_id);
+CREATE INDEX IF NOT EXISTS idx_backtest_snapshot ON backtest_run(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_backtest_metric_run ON backtest_metric(backtest_id);
+CREATE INDEX IF NOT EXISTS idx_risk_snapshot ON risk_check_result(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_risk_strategy ON risk_check_result(strategy_id);
+CREATE INDEX IF NOT EXISTS idx_risk_status ON risk_check_result(status);
+CREATE INDEX IF NOT EXISTS idx_weekly_signal_snapshot ON weekly_signal(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_signal_strategy ON weekly_signal(strategy_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_signal_week ON weekly_signal(week_end);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_snapshot ON llm_audit_log(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_task ON llm_audit_log(task_type);
 """
+
+
+DEFAULT_STRATEGY_CONFIG_JSON = (
+    '{"cash_proxy":"SHY","drawdown_penalty":0.25,"event_veto_threshold":0.7,"score_min":-999.0,'
+    '"top_n":1,"universe":["SPY","IEF","TLT","GLD","SHY"],"volatility_penalty":0.5}'
+)
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
@@ -255,7 +368,37 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 
 def init_schema(con: sqlite3.Connection) -> None:
     con.executescript(SCHEMA_SQL)
+    _ensure_column(con, "feature_weekly", "ret_12w_skip1", "REAL")
+    con.execute(
+        """
+        INSERT OR IGNORE INTO strategy_version(strategy_id, strategy_name, version, config_hash, config_json, active)
+        VALUES (
+          'weekly_etf_rotation_v1',
+          'Weekly ETF Rotation',
+          '1',
+          'weekly_etf_rotation_v1_default',
+          ?,
+          1
+        )
+        """,
+        (DEFAULT_STRATEGY_CONFIG_JSON,),
+    )
+    con.execute(
+        """
+        UPDATE strategy_version
+           SET config_json=?
+         WHERE strategy_id='weekly_etf_rotation_v1'
+           AND config_hash='weekly_etf_rotation_v1_default'
+        """,
+        (DEFAULT_STRATEGY_CONFIG_JSON,),
+    )
     con.commit()
+
+
+def _ensure_column(con: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+    columns = {row["name"] for row in con.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    if column_name not in columns:
+        con.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
 def upsert_instrument(con: sqlite3.Connection, item: dict) -> int:

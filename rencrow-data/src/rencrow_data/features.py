@@ -102,6 +102,11 @@ def build_features(con) -> int:
                     return None
                 return close / closes[idx - period] - 1.0
 
+            def ret_skip1(period: int) -> float | None:
+                if idx < period + 1 or closes[idx - period - 1] == 0:
+                    return None
+                return closes[idx - 1] / closes[idx - period - 1] - 1.0
+
             daily_cut = [d for d in daily if d["date"] <= week_end]
             returns_cut = []
             for j in range(max(1, len(daily_cut) - 60), len(daily_cut)):
@@ -132,16 +137,17 @@ def build_features(con) -> int:
             con.execute(
                 """
                 INSERT INTO feature_weekly(
-                  instrument_id, week_end, close_adj_jpy, ret_1w, ret_4w, ret_12w, vol_12w,
+                  instrument_id, week_end, close_adj_jpy, ret_1w, ret_4w, ret_12w, ret_12w_skip1, vol_12w,
                   drawdown_26w, ma_4w_gap, ma_12w_gap, volume_change_4w, fx_ret_1w,
                   us10y_change_1w, boj_flag, cpi_flag, fomc_flag, employment_flag,
                   holdings_turnover, event_risk_score
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT event_risk_score FROM feature_weekly WHERE instrument_id=? AND week_end=?), 0))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT event_risk_score FROM feature_weekly WHERE instrument_id=? AND week_end=?), 0))
                 ON CONFLICT(instrument_id, week_end) DO UPDATE SET
                   close_adj_jpy=excluded.close_adj_jpy,
                   ret_1w=excluded.ret_1w,
                   ret_4w=excluded.ret_4w,
                   ret_12w=excluded.ret_12w,
+                  ret_12w_skip1=excluded.ret_12w_skip1,
                   vol_12w=excluded.vol_12w,
                   drawdown_26w=excluded.drawdown_26w,
                   ma_4w_gap=excluded.ma_4w_gap,
@@ -161,6 +167,7 @@ def build_features(con) -> int:
                     ret(1),
                     ret(4),
                     ret(12),
+                    ret_skip1(12),
                     vol_12w,
                     drawdown_26w,
                     None if ma_4 in (None, 0) else close / ma_4 - 1.0,

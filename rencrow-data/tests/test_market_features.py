@@ -98,6 +98,42 @@ class MarketFeatureTest(unittest.TestCase):
                 0,
             )
 
+    def test_feature_builds_12w_skip1_momentum(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            con = db.connect(tmp_path / "rencrow.db")
+            db.init_schema(con)
+            db.upsert_instruments(
+                con,
+                [
+                    {
+                        "symbol": "1306.T",
+                        "asset_type": "ETF",
+                        "venue": "TSE",
+                        "currency": "JPY",
+                        "first_date": "2026-01-01",
+                    }
+                ],
+            )
+            item = {
+                "symbol": "1306.T",
+                "venue": "TSE",
+                "currency": "JPY",
+                "source_name": "csv_market",
+                "fixture": str(ROOT / "fixtures" / "1306T_prices.csv"),
+            }
+            save_market_csv(con, item, tmp_path)
+            build_features(con)
+            row = con.execute(
+                """
+                SELECT ret_12w, ret_12w_skip1
+                  FROM feature_weekly
+                 WHERE week_end='2026-04-03'
+                """
+            ).fetchone()
+            self.assertAlmostEqual(row["ret_12w"], 113 / 101 - 1)
+            self.assertAlmostEqual(row["ret_12w_skip1"], 112 / 100 - 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,7 @@ from rencrow_data.macro import ingest_calendar_csv, ingest_macro_csv, ingest_mac
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="rencrow-data/data/rencrow.db")
+    parser.add_argument("--db", "--db-path", dest="db", default="rencrow-data/data/rencrow.db")
     parser.add_argument("--config-root", default="rencrow-data/config")
     parser.add_argument("--data-root", default="rencrow-data")
     parser.add_argument("--mode", choices=("fixture", "online", "backfill", "hybrid", "incremental"), default="fixture")
@@ -20,6 +20,7 @@ def main() -> None:
     args = parser.parse_args()
 
     con = db.connect(args.db)
+    db.init_schema(con)
     sources = load_config(config_path(args.config_root, "sources.yml"), default={"macro_sources": []})
     calendars = load_config(config_path(args.config_root, "calendars.yml"), default={"calendar_sources": []})
     failures = 0

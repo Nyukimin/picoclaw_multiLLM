@@ -1,6 +1,10 @@
 {
   "required_source_stale_hours": 48,
   "event_risk_stop_threshold": 0.9,
-  "holdings_stale_days": 40
+  "event_lookback_days": 7,
+  "holdings_stale_days": 40,
+  "max_drawdown_limit": 0.25,
+  "weekly_loss_limit": 0.08,
+  "annualized_volatility_limit": 0.30,
+  "turnover_warning_limit": 0.50
 }
-
