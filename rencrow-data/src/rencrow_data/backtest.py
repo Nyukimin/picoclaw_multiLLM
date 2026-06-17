@@ -120,27 +120,122 @@ def _std(values: list[float]) -> float:
     return math.sqrt(sum((v - mean) ** 2 for v in values) / (len(values) - 1))
 
 
-def _metrics(returns: list[float], equity_curve: list[dict[str, object]], turnover: float, cost_drag: float, tax_drag: float) -> dict[str, float]:
+def _worst_month(returns: list[float], equity_curve: list[dict[str, object]]) -> float:
+    monthly: dict[str, float] = {}
+    for idx, ret in enumerate(returns, start=1):
+        if idx >= len(equity_curve):
+            break
+        month = str(equity_curve[idx]["week_end"])[:7]
+        monthly[month] = (1.0 + monthly.get(month, 0.0)) * (1.0 + ret) - 1.0
+    return min(monthly.values()) if monthly else 0.0
+
+
+def _recovery_months(equity: list[float]) -> float:
+    if not equity:
+        return 0.0
+    peak = equity[0]
+    peak_idx = 0
+    worst_dd = 0.0
+    trough_idx = 0
+    recovery_idx: int | None = None
+    for idx, value in enumerate(equity):
+        if value > peak:
+            peak = value
+            peak_idx = idx
+        drawdown = 0.0 if peak == 0 else value / peak - 1.0
+        if drawdown < worst_dd:
+            worst_dd = drawdown
+            trough_idx = idx
+            recovery_idx = None
+        if recovery_idx is None and worst_dd < 0 and idx > trough_idx and value >= equity[peak_idx]:
+            recovery_idx = idx
+    if worst_dd == 0.0:
+        return 0.0
+    end_idx = recovery_idx if recovery_idx is not None else len(equity) - 1
+    return max(end_idx - trough_idx, 0) / 4.345
+
+
+def _metrics(
+    returns: list[float],
+    equity_curve: list[dict[str, object]],
+    turnover: float,
+    cost_drag: float,
+    tax_drag: float,
+) -> dict[str, float]:
     weeks = len(returns)
     final_equity = float(equity_curve[-1]["equity"]) if equity_curve else 1.0
     cagr = final_equity ** (52.0 / weeks) - 1.0 if weeks > 0 and final_equity > 0 else 0.0
     vol = _std(returns) * math.sqrt(52)
     mean = sum(returns) / weeks if weeks else 0.0
     downside = _std([ret for ret in returns if ret < 0])
+    max_dd = _max_drawdown([float(row["equity"]) for row in equity_curve])
+    average_turnover = turnover / weeks if weeks else 0.0
     return {
         "final_equity": final_equity,
         "cagr": cagr,
         "annualized_volatility": vol,
         "sharpe": 0.0 if vol == 0 else mean * 52 / vol,
         "sortino": 0.0 if downside == 0 else mean * 52 / (downside * math.sqrt(52)),
-        "max_dd": _max_drawdown([float(row["equity"]) for row in equity_curve]),
-        "turnover": turnover / weeks if weeks else 0.0,
+        "max_dd": max_dd,
+        "calmar": 0.0 if max_dd == 0 else cagr / abs(max_dd),
+        "turnover": average_turnover,
         "hit_rate": sum(1 for ret in returns if ret > 0) / weeks if weeks else 0.0,
         "exposure": sum(1 for row in equity_curve if row.get("symbol")) / len(equity_curve) if equity_curve else 0.0,
+        "average_holding_period": 0.0 if average_turnover == 0 else 1.0 / average_turnover,
         "cost_drag": cost_drag,
         "tax_drag": tax_drag,
         "worst_week": min(returns) if returns else 0.0,
+        "worst_month": _worst_month(returns, equity_curve),
+        "recovery_months": _recovery_months([float(row["equity"]) for row in equity_curve]),
     }
+
+
+def _slice_equity_curve(returns: list[float], equity_curve: list[dict[str, object]], start_idx: int, end_idx: int) -> tuple[list[float], list[dict[str, object]]]:
+    split_returns = returns[start_idx:end_idx]
+    if not split_returns:
+        return [], []
+    curve_rows = equity_curve[start_idx + 1 : end_idx + 1]
+    base_equity = float(equity_curve[start_idx]["equity"]) if start_idx < len(equity_curve) else 1.0
+    normalized: list[dict[str, object]] = []
+    for row in curve_rows:
+        copied = dict(row)
+        copied["equity"] = 1.0 if base_equity == 0 else float(row["equity"]) / base_equity
+        normalized.append(copied)
+    return split_returns, normalized
+
+
+def _split_metrics(returns: list[float], equity_curve: list[dict[str, object]], trades: list[dict[str, object]], walk_forward: bool) -> dict[str, dict[str, float]]:
+    split_results: dict[str, dict[str, float]] = {
+        "full": _metrics(returns, equity_curve, float(len(trades)), 0.0, 0.0)
+    }
+    if not walk_forward or len(returns) < 8:
+        return split_results
+
+    train_end = max(1, int(len(returns) * 0.7))
+    for split_name, start_idx, end_idx in (("train", 0, train_end), ("test", train_end, len(returns))):
+        split_returns, split_curve = _slice_equity_curve(returns, equity_curve, start_idx, end_idx)
+        split_trades = [
+            trade
+            for trade in trades
+            if split_curve and str(split_curve[0]["week_end"]) <= str(trade["week_end"]) <= str(split_curve[-1]["week_end"])
+        ]
+        split_results[split_name] = _metrics(split_returns, split_curve, float(len(split_trades)), 0.0, 0.0)
+
+    years = sorted({str(row["week_end"])[:4] for row in equity_curve[1:]})
+    for year in years:
+        indexes = [idx - 1 for idx, row in enumerate(equity_curve[1:], start=1) if str(row["week_end"]).startswith(year)]
+        if not indexes:
+            continue
+        start_idx = indexes[0]
+        end_idx = indexes[-1] + 1
+        split_returns, split_curve = _slice_equity_curve(returns, equity_curve, start_idx, end_idx)
+        split_trades = [
+            trade
+            for trade in trades
+            if split_curve and str(split_curve[0]["week_end"]) <= str(trade["week_end"]) <= str(split_curve[-1]["week_end"])
+        ]
+        split_results[f"oos_{year}"] = _metrics(split_returns, split_curve, float(len(split_trades)), 0.0, 0.0)
+    return split_results
 
 
 def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
@@ -241,6 +336,8 @@ def run_weekly_rotation_backtest(con, options: BacktestOptions) -> dict[str, obj
         )
 
     metrics = _metrics(returns, equity_curve, turnover, cost_drag, tax_drag)
+    split_metrics = _split_metrics(returns, equity_curve, trades, options.mode == "walk_forward")
+    split_metrics["full"] = metrics
     backtest_id = f"backtest-{utcnow_iso()}"
     output_dir = options.output_dir or Path("rencrow-data/data/backtests")
     equity_path = output_dir / f"{backtest_id}_equity.csv"
@@ -257,6 +354,7 @@ def run_weekly_rotation_backtest(con, options: BacktestOptions) -> dict[str, obj
         "equity_curve_path": str(equity_path),
         "trades_path": str(trades_path),
         "metrics": metrics,
+        "split_metrics": split_metrics,
         "universe": list(universe),
     }
     con.execute(
@@ -277,13 +375,14 @@ def run_weekly_rotation_backtest(con, options: BacktestOptions) -> dict[str, obj
             _json(result),
         ),
     )
-    for name, value in metrics.items():
-        con.execute(
-            """
-            INSERT INTO backtest_metric(backtest_id, split_name, metric_name, metric_value)
-            VALUES (?, 'full', ?, ?)
-            """,
-            (backtest_id, name, float(value)),
-        )
+    for split_name, split_values in split_metrics.items():
+        for name, value in split_values.items():
+            con.execute(
+                """
+                INSERT INTO backtest_metric(backtest_id, split_name, metric_name, metric_value)
+                VALUES (?, ?, ?, ?)
+                """,
+                (backtest_id, split_name, name, float(value)),
+            )
     con.commit()
     return result

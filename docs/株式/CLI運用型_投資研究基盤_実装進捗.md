@@ -34,6 +34,8 @@
 | snapshot hash保存 | 実装済み | `snapshot_registry`, `test_pipeline_e2e.py` |
 | 週次ETF回転backtest | 実装済み | `test_backtest_weekly_rotation.py` |
 | 税、手数料、スリッページ、1週ラグ | 実装済み | `backtest.py`, `test_backtest_weekly_rotation.py` |
+| `train`/`test`/`oos_YYYY` split metric | 実装済み | `--walk-forward`, `test_backtest_weekly_rotation.py` |
+| Calmar、平均保有期間、worst month、recovery months | 実装済み | `backtest_metric`, `test_backtest_weekly_rotation.py` |
 | event vetoをbacktestへ反映 | 実装済み | `event_vetoed`, `test_backtest_weekly_rotation.py` |
 | event vetoをdecisionへ反映 | 実装済み | `veto_json`, `test_generate_decision.py` |
 | risk checkのpass/reduce/stop/kill | 実装済み | `test_risk_check.py` |
@@ -68,7 +70,7 @@ uv run --with pytest --with requests python -m pytest rencrow-data/tests
 直近確認結果:
 
 ```text
-32 passed
+33 passed
 ```
 
 追加確認:

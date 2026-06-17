@@ -99,6 +99,51 @@ class WeeklyRotationBacktestTest(unittest.TestCase):
             self.assertIn("final_equity", metrics)
             self.assertIn("max_dd", metrics)
             self.assertIn("tax_drag", metrics)
+            self.assertIn("calmar", metrics)
+            self.assertIn("average_holding_period", metrics)
+            self.assertIn("worst_month", metrics)
+            self.assertIn("recovery_months", metrics)
+
+    def test_walk_forward_backtest_writes_train_test_oos_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            data_root, config_root, db_path = write_config(tmp_path)
+            out_dir = data_root / "data" / "snapshots"
+            backtest_dir = data_root / "data" / "backtests"
+            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(config_root))
+            run_script("02_fetch_market.py", "--db", str(db_path), "--config-root", str(config_root), "--data-root", str(data_root))
+            run_script("04_build_features.py", "--db", str(db_path))
+            run_script("06_make_snapshot.py", "--db", str(db_path), "--output-dir", str(out_dir), "--snapshot-date", "2026-05-16")
+            result = run_script(
+                "09_backtest_weekly_rotation.py",
+                "--db",
+                str(db_path),
+                "--snapshot",
+                "latest",
+                "--symbols",
+                "1306.T",
+                "--walk-forward",
+                "--output-dir",
+                str(backtest_dir),
+                "--json",
+            )
+            summary = json.loads(result.stdout)
+            self.assertIn("train", summary["split_metrics"])
+            self.assertIn("test", summary["split_metrics"])
+            self.assertTrue(any(name.startswith("oos_") for name in summary["split_metrics"]))
+
+            con = sqlite3.connect(db_path)
+            split_names = {
+                row[0]
+                for row in con.execute(
+                    "SELECT DISTINCT split_name FROM backtest_metric WHERE backtest_id=?",
+                    (summary["backtest_id"],),
+                )
+            }
+            self.assertIn("full", split_names)
+            self.assertIn("train", split_names)
+            self.assertIn("test", split_names)
+            self.assertTrue(any(name.startswith("oos_") for name in split_names))
 
     def test_event_veto_routes_signal_to_cash_proxy(self) -> None:
         with tempfile.TemporaryDirectory() as td:

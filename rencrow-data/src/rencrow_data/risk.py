@@ -37,7 +37,7 @@ def _metrics(con, backtest_id: str) -> dict[str, float]:
     return {
         row["metric_name"]: float(row["metric_value"])
         for row in con.execute(
-            "SELECT metric_name, metric_value FROM backtest_metric WHERE backtest_id=?",
+            "SELECT metric_name, metric_value FROM backtest_metric WHERE backtest_id=? AND split_name='full'",
             (backtest_id,),
         )
     }
