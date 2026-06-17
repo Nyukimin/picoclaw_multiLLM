@@ -85,6 +85,7 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
     if not approval.get("approved"):
         raise PermissionError("approval file is present but approved=false")
     decision = _decision(con, options.decision_id)
+    snapshot_id = decision["snapshot_id"]
     con.execute(
         """
         UPDATE decision_log
@@ -99,15 +100,16 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
     if veto.get("vetoed") or not candidates:
         con.execute(
             """
-            INSERT INTO paper_trade_log(decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
-            VALUES (?, NULL, 'HOLD', 0, NULL, NULL, ?, ?)
+            INSERT INTO paper_trade_log(snapshot_id, decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
+            VALUES (?, ?, NULL, 'HOLD', 0, NULL, NULL, ?, ?)
             """,
-            (options.decision_id, options.cost_bps, "vetoed" if veto.get("vetoed") else "no_candidate"),
+            (snapshot_id, options.decision_id, options.cost_bps, "vetoed" if veto.get("vetoed") else "no_candidate"),
         )
         con.commit()
         paper_trade_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
         return {
             "paper_trade_id": paper_trade_id,
+            "snapshot_id": snapshot_id,
             "decision_id": options.decision_id,
             "status": "vetoed" if veto.get("vetoed") else "no_candidate",
             "trades": [],
@@ -135,10 +137,10 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
         total_cost += estimated_cost
         con.execute(
             """
-            INSERT INTO paper_trade_log(decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO paper_trade_log(snapshot_id, decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (options.decision_id, instrument_id, side, quantity, decision_price, fill_price, options.cost_bps, status),
+            (snapshot_id, options.decision_id, instrument_id, side, quantity, decision_price, fill_price, options.cost_bps, status),
         )
         paper_trade_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
         if side == "BUY":
@@ -155,6 +157,7 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
         trades.append(
             {
                 "paper_trade_id": paper_trade_id,
+                "snapshot_id": snapshot_id,
                 "instrument_id": instrument_id,
                 "symbol": item.get("symbol"),
                 "side": side,
@@ -171,6 +174,7 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
     con.commit()
     return {
         "decision_id": options.decision_id,
+        "snapshot_id": snapshot_id,
         "status": "simulated",
         "trades": trades,
         "tca": {

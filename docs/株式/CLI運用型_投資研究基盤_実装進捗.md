@@ -47,6 +47,7 @@
 | YAML承認案と `latest.yml` 生成 | 実装済み | `test_generate_decision.py` |
 | YAML承認ファイル読込 | 実装済み | `test_paper_trade.py` |
 | paper trade | 実装済み | `paper_trade_log`, `test_paper_trade.py` |
+| paper tradeのsnapshot参照 | 実装済み | `paper_trade_log.snapshot_id`, `test_paper_trade.py` |
 | TCA summary | 実装済み | `paper.py`, `test_paper_trade.py` |
 | 税ロット近似 | 実装済み | `tax_lot_log`, `test_paper_trade.py` |
 | LLMは説明補助のみ | 実装済み | `13_llm_report.py`, `llm_audit_log` |

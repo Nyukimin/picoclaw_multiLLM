@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS decision_log (
 CREATE TABLE IF NOT EXISTS paper_trade_log (
   paper_trade_id INTEGER PRIMARY KEY,
   decision_id INTEGER,
+  snapshot_id INTEGER,
   instrument_id INTEGER,
   side TEXT,
   quantity REAL,
@@ -369,6 +370,8 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 def init_schema(con: sqlite3.Connection) -> None:
     con.executescript(SCHEMA_SQL)
     _ensure_column(con, "feature_weekly", "ret_12w_skip1", "REAL")
+    _ensure_column(con, "paper_trade_log", "snapshot_id", "INTEGER")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_paper_trade_snapshot ON paper_trade_log(snapshot_id)")
     con.execute(
         """
         INSERT OR IGNORE INTO strategy_version(strategy_id, strategy_name, version, config_hash, config_json, active)

@@ -57,6 +57,8 @@ class InitDBTest(unittest.TestCase):
                 con.execute("SELECT config_json FROM strategy_version WHERE strategy_id='weekly_etf_rotation_v1'").fetchone()[0]
             )
             self.assertEqual(strategy_config["event_veto_threshold"], 0.7)
+            paper_columns = {row[1] for row in con.execute("PRAGMA table_info(paper_trade_log)").fetchall()}
+            self.assertIn("snapshot_id", paper_columns)
 
             db.upsert_instruments(
                 con,
