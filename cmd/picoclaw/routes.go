@@ -120,6 +120,15 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	if dependencies.viewerJobs != nil {
 		mux.HandleFunc("/viewer/jobs", dependencies.viewerJobs)
 	}
+	if dependencies.parallelJobs != nil {
+		mux.HandleFunc("/viewer/parallel-jobs", dependencies.parallelJobs)
+	}
+	if dependencies.parallelJobDetail != nil {
+		mux.HandleFunc("/viewer/parallel-job/detail", dependencies.parallelJobDetail)
+	}
+	if dependencies.jobNotifications != nil {
+		mux.HandleFunc("/viewer/job-notifications", dependencies.jobNotifications)
+	}
 	if dependencies.viewerLogs != nil {
 		mux.HandleFunc("/viewer/logs", dependencies.viewerLogs)
 	}

@@ -68,6 +68,9 @@ type Dependencies struct {
 	viewerAgents                   http.HandlerFunc                            // viewer agents API
 	viewerAgentDetail              http.HandlerFunc                            // viewer agent detail API
 	viewerJobs                     http.HandlerFunc                            // viewer jobs API
+	parallelJobs                   http.HandlerFunc                            // Mio parallel jobs API
+	parallelJobDetail              http.HandlerFunc                            // Mio parallel job detail API
+	jobNotifications               http.HandlerFunc                            // Mio parallel job interrupt notification API
 	viewerLogs                     http.HandlerFunc                            // viewer logs API
 	viewerAuditSummary             http.HandlerFunc                            // viewer audit summary API
 	viewerJobDetail                http.HandlerFunc                            // viewer job detail API

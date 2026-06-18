@@ -52,6 +52,8 @@ func main() {
 		cmdChat()
 	case "evidence":
 		cmdEvidence()
+	case "jobs":
+		cmdJobs()
 	case "source-registry":
 		cmdSourceRegistry()
 	case "web-gather":

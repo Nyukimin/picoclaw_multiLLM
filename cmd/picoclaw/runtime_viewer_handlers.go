@@ -8,6 +8,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
+	jobpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/job"
 )
 
 func buildViewerRuntimeHandlers(
@@ -89,5 +90,16 @@ func buildViewerRuntimeHandlers(
 		deps.evidenceDetail = viewer.HandleEvidenceDetail(reportStore)
 		deps.evidenceSummary = viewer.HandleEvidenceSummary(reportStore)
 		log.Printf("Viewer evidence API enabled: %s", reportPath)
+	}
+	jobStorePath := defaultParallelJobStorePath(cfg.WorkspaceDir)
+	if jobStorePath == "" {
+		log.Printf("WARN: parallel job API disabled: workspace_dir is empty")
+	} else if jobStore, err := jobpersistence.NewJSONLStore(jobStorePath); err != nil {
+		log.Printf("WARN: parallel job API disabled: %v", err)
+	} else {
+		deps.parallelJobs = viewer.HandleParallelJobs(jobStore)
+		deps.parallelJobDetail = viewer.HandleParallelJobDetail(jobStore)
+		deps.jobNotifications = viewer.HandleJobNotifications(jobStore)
+		log.Printf("Viewer parallel job API enabled: %s", jobStorePath)
 	}
 }

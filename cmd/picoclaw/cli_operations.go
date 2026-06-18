@@ -45,6 +45,7 @@ Commands:
   logs      Show logs (use --follow to stream)
   chat      Chat with the running RenCrow server from the terminal
   evidence  List/show/summarize execution evidence
+  jobs      Manage Mio parallel jobs and interrupt notifications
   source-registry  List/register L1 source registry entries
   web-gather  Fetch public web pages into pending L1 staging
   browser-actor  Operate an allowlisted browser session from JSON
