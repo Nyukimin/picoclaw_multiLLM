@@ -105,6 +105,9 @@ type Notification struct {
 	Level       NotificationLevel `json:"level"`
 	JobID       string            `json:"job_id"`
 	Title       string            `json:"title"`
+	Assignee    string            `json:"assignee,omitempty"`
+	Route       Route             `json:"route,omitempty"`
+	ModuleID    string            `json:"module_id,omitempty"`
 	Status      Status            `json:"status"`
 	Summary     string            `json:"summary,omitempty"`
 	NextActions []string          `json:"next_actions,omitempty"`
@@ -254,6 +257,9 @@ func NewNotification(j Job, now time.Time) Notification {
 		Level:       NotificationLevelForStatus(j.Status, j.Priority),
 		JobID:       j.JobID,
 		Title:       j.Title,
+		Assignee:    j.Assignee,
+		Route:       j.Route,
+		ModuleID:    j.ModuleID,
 		Status:      j.Status,
 		Summary:     j.Summary,
 		NextActions: append([]string(nil), j.NextActions...),

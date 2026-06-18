@@ -36,6 +36,8 @@ const PROGRESS_RECENT_EVENTS = 8;
 const PROGRESS_DONE_LIMIT = 10;
 const seenEventKeys = new Set();
 const seenEventQueue = [];
+const seenJobNotificationKeys = new Set();
+let jobNotificationPollInFlight = false;
 let investmentRefreshTimer = null;
 
 function ag(n) { return A[(n || '').toLowerCase()] || A.system; }
@@ -3418,6 +3420,11 @@ function refreshViewerStatus() {
 function ingestEvent(ev) {
   handleViewerActiveControlEvent(ev);
   if (isStaleIdleChatEvent(ev)) return;
+  if (ev && ev.type === 'job.notification') {
+    const key = jobNotificationEventKey(ev);
+    if (key && seenJobNotificationKeys.has(key)) return;
+    if (key) rememberJobNotificationKey(key);
+  }
   const key = eventKey(ev);
   if (seenEventKeys.has(key)) return;
   rememberEventKey(key);
@@ -3447,6 +3454,95 @@ function ingestEvent(ev) {
   derivedDirty = true;
   // Update Live2D emotion on messages
   if (typeof updateLive2DOnMessage === 'function') updateLive2DOnMessage(ev);
+}
+
+function rememberJobNotificationKey(key) {
+  seenJobNotificationKeys.add(key);
+  if (seenJobNotificationKeys.size > 300) {
+    const first = seenJobNotificationKeys.values().next().value;
+    if (first) seenJobNotificationKeys.delete(first);
+  }
+}
+
+function jobNotificationEventKey(ev) {
+  return [
+    ev.job_id || '',
+    ev.status || ev.category || '',
+    ev.level || '',
+    ev.timestamp || '',
+    ev.content || '',
+  ].join('|');
+}
+
+function jobNotificationKey(n) {
+  return [
+    n.job_id || '',
+    n.status || '',
+    n.level || '',
+    n.created_at || '',
+    n.summary || '',
+  ].join('|');
+}
+
+function normalizeJobNotificationAssignee(n) {
+  const raw = String((n && n.assignee) || '').trim().toLowerCase();
+  if (!raw || raw === 'worker' || raw === 'heavy') return 'shiro';
+  if (raw === 'wild') return 'coder1';
+  if (raw === 'aka') return 'coder1';
+  if (raw === 'ao') return 'coder2';
+  if (raw === 'gin') return 'coder3';
+  if (raw === 'kin') return 'coder4';
+  return raw;
+}
+
+function formatJobNotificationContent(n) {
+  const title = String((n && n.title) || 'job').trim();
+  const status = String((n && n.status) || '').trim();
+  const summary = String((n && n.summary) || '').trim();
+  const nextActions = Array.isArray(n && n.next_actions) ? n.next_actions.filter(Boolean) : [];
+  let content = title;
+  if (status) content += '\nstatus: ' + status;
+  if (summary) content += '\n' + summary;
+  if (nextActions.length) content += '\nnext: ' + nextActions.join(' / ');
+  return content;
+}
+
+function jobNotificationToEvent(n) {
+  const status = String((n && n.status) || '').trim();
+  return {
+    type: 'job.notification',
+    from: normalizeJobNotificationAssignee(n),
+    to: 'mio',
+    content: formatJobNotificationContent(n),
+    route: String((n && n.route) || '').trim(),
+    job_id: String((n && n.job_id) || '').trim(),
+    timestamp: String((n && n.created_at) || new Date().toISOString()),
+    category: status,
+    status,
+    level: String((n && n.level) || '').trim(),
+  };
+}
+
+function ingestJobNotification(n) {
+  const key = jobNotificationKey(n);
+  if (!key.trim() || seenJobNotificationKeys.has(key)) return;
+  rememberJobNotificationKey(key);
+  ingestEvent(jobNotificationToEvent(n));
+}
+
+async function refreshJobNotifications() {
+  if (jobNotificationPollInFlight) return;
+  jobNotificationPollInFlight = true;
+  try {
+    const res = await fetch('/viewer/job-notifications?limit=20', {cache: 'no-store'});
+    if (!res.ok) return;
+    const data = await res.json();
+    const items = Array.isArray(data.items) ? data.items.slice().reverse() : [];
+    items.forEach(ingestJobNotification);
+  } catch (_) {
+  } finally {
+    jobNotificationPollInFlight = false;
+  }
 }
 
 function scheduleInvestmentRefresh() {
@@ -4950,6 +5046,7 @@ if (!initLiveMode()) {
 }
 initEvidenceFromQuery();
 refreshOptionalPanelData();
+refreshJobNotifications();
 refreshViewerStatus();
 setInterval(() => {
   if (!derivedDirty) return;
@@ -4957,6 +5054,7 @@ setInterval(() => {
   derivedDirty = false;
 }, 500);
 setInterval(refreshViewerStatus, 5000);
+setInterval(refreshJobNotifications, 3000);
 setInterval(refreshIdleStatus, 3000);
 setInterval(refreshIdleLogs, 5000);
 setOptionalPanelRefreshIntervals();

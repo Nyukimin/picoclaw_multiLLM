@@ -178,6 +178,7 @@ function isVoiceDirectTimelineResponse(ev) {
 }
 
 function addMsgToTimeline(ev) {
+  if (ev.type === 'job.notification') { addJobNotificationToTimeline(ev); return; }
   if (ev.type === 'agent.response') removeThinking(ev.job_id);
   if (ev.type === 'agent.thinking') { addThinking(ev); return; }
   if (ev.type === 'agent.start') { addThinkingStart(ev); return; }
@@ -257,6 +258,32 @@ function matchesCoordinationTraceFilters(ev) {
   if (fltJob.value && !(ev.job_id || '').toLowerCase().includes(fltJob.value.toLowerCase())) return false;
   if (fltText.value && !(ev.content || '').toLowerCase().includes(fltText.value.toLowerCase())) return false;
   return true;
+}
+
+function addJobNotificationToTimeline(ev) {
+  const em = document.getElementById('empty');
+  if (em) em.remove();
+  const fromName = String(ev.from || '').trim() || 'shiro';
+  const f = ag(fromName);
+  const route = String(ev.route || '').trim();
+  const status = String(ev.status || ev.category || '').trim();
+  const jobID = String(ev.job_id || '').trim();
+  const meta = [route, status, jobID].filter(Boolean).join(' / ');
+  const el = document.createElement('div');
+  el.className = 'msg assistant job-interrupt';
+  el.innerHTML =
+    '<div class="av" style="background:' + f.c + '18;color:' + f.c + '">' + f.e + '</div>' +
+    '<div class="mb"><div class="mh">' +
+      '<span class="an" style="color:' + f.c + '">' + f.l + '</span>' +
+      '<span class="dir">割り込み報告</span>' +
+      '<span class="tm">' + ftime(ev.timestamp) + '</span>' +
+    '</div><button class="cp" onclick="copyMsg(this)">Copy</button>' +
+    '<div class="coord-meta">' + esc(meta || 'job.notification') + '</div>' +
+    '<div class="mc">' + fmt(normalizeViewerDisplayText(ev.content || '')) + '</div></div>';
+  el.querySelector('.mc').dataset.raw = ev.content || '';
+  chat.appendChild(el);
+  trimTimelineNodes();
+  bump();
 }
 
 function isViewerLocalFailureMessage(ev) {
