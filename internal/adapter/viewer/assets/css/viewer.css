@@ -99,6 +99,12 @@ table{width:100%;border-collapse:collapse;font-size:12px;min-width:780px}
 th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
 th{color:var(--t2);font-weight:700;background:rgba(24,36,66,.86);position:sticky;top:0;z-index:1}
 td{color:var(--t1)}
+.backlog-table{min-width:980px}
+.backlog-actions{display:flex;gap:5px;flex-wrap:wrap}
+.desk-input{
+  width:100%;min-height:36px;border:1px solid var(--border);border-radius:8px;
+  background:rgba(255,255,255,.05);color:var(--t1);padding:8px 10px;font:inherit
+}
 tr.evi-selected td{background:rgba(34,211,238,.08)}
 .progress-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .progress-head h3{font-size:13px;color:var(--t2);font-weight:700}
@@ -493,6 +499,8 @@ body:not([data-viewer-tab="idlechat"]) .idle-tools{display:none}
 }
 .audio-btn.off{color:var(--warn);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
 .audio-btn.blocked{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
+.repair-btn{color:#fbbf24;border-color:rgba(251,191,36,.36);background:rgba(251,191,36,.08)}
+.repair-btn:hover{color:#fde68a;border-color:rgba(251,191,36,.62);background:rgba(251,191,36,.14)}
 .live-audio-btn{display:none}
 .attachment-tray{display:none;align-items:center;gap:6px;flex-wrap:wrap;min-height:0}
 .attachment-tray.has-items{display:flex}

@@ -1175,6 +1175,7 @@ const panels = {
   home: document.getElementById('panel-home'),
   develop: document.getElementById('panel-develop'),
   instructions: document.getElementById('panel-instructions'),
+  backlog: document.getElementById('panel-backlog'),
   reports: document.getElementById('panel-reports'),
   ops: document.getElementById('panel-ops'),
   overview: document.getElementById('panel-overview'),
@@ -1276,6 +1277,7 @@ function switchTab(tab) {
   }
   if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
   if (tab === 'investment' && typeof refreshInvestmentData === 'function') refreshInvestmentData();
+  if (tab === 'backlog' && typeof refreshBacklog === 'function') refreshBacklog();
   if (tab === 'ops') {
     refreshSandboxData();
     refreshRuntimeBlockedRouteData();
@@ -2284,6 +2286,7 @@ function renderDeskViews() {
   if (typeof renderHomeDesk === 'function') renderHomeDesk();
   if (typeof renderDevelopDesk === 'function') renderDevelopDesk();
   if (typeof renderInstructionsDesk === 'function') renderInstructionsDesk();
+  if (typeof renderBacklogDesk === 'function') renderBacklogDesk();
   if (typeof renderReportsDesk === 'function') renderReportsDesk();
   if (typeof renderInvestmentDesk === 'function') renderInvestmentDesk();
 }
@@ -4663,6 +4666,7 @@ const inp = document.getElementById('inp');
 const sendBtn = document.getElementById('sendBtn');
 const attachBtn = document.getElementById('attachBtn');
 const cameraBtn = document.getElementById('cameraBtn');
+const repairBtn = document.getElementById('repairBtn');
 const attachInput = document.getElementById('attachInput');
 const cameraInput = document.getElementById('cameraInput');
 const attachmentTray = document.getElementById('attachmentTray');
@@ -4743,6 +4747,7 @@ inp.addEventListener('keydown', (e) => {
   }
 });
 sendBtn.addEventListener('click', send);
+if (repairBtn) repairBtn.addEventListener('click', requestRepairFromChat);
 if (attachBtn && attachInput) attachBtn.addEventListener('click', () => attachInput.click());
 if (cameraBtn && cameraInput) cameraBtn.addEventListener('click', () => cameraInput.click());
 if (attachInput) attachInput.addEventListener('change', () => addViewerAttachments(attachInput.files, attachInput));
@@ -4892,6 +4897,54 @@ async function sendViewerMessage(message, attachments = []) {
     throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'send failed'));
   }
   return {ok: true};
+}
+
+async function requestRepairFromChat() {
+  if (!repairBtn) return;
+  const instruction = String(inp && inp.value ? inp.value : '').trim();
+  repairBtn.disabled = true;
+  try {
+    const payload = await sendViewerRepairRun({
+      reason: 'user-directed-repair',
+      instruction: instruction || 'Mioが正常に応答できない可能性があります。直近ログを見て、Chat経路を診断し修復してください。',
+      recent: 100,
+      target_route: 'CHAT',
+      target_agent: 'mio',
+    });
+    showToast('修復ジョブを受け付けました: ' + String(payload.job_id || ''), 'success');
+    ingestJobNotification({
+      type: 'repair',
+      level: 'interrupt',
+      job_id: String(payload.job_id || ''),
+      title: '修復ジョブを受け付けました',
+      assignee: 'shiro',
+      route: 'OPS',
+      status: 'requested',
+      summary: String(payload.summary || '直近ログを見て修復します'),
+      next_actions: ['ログ確認', '原因診断', '修復案作成'],
+      interrupt: true,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    showToast('修復要求に失敗しました: ' + String(err && err.message ? err.message : err), 'error');
+    console.error(err);
+  } finally {
+    repairBtn.disabled = false;
+    if (inp) inp.focus();
+  }
+}
+
+async function sendViewerRepairRun(payload) {
+  const r = await fetch('/viewer/repair/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload || {}),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error('HTTP ' + String(r.status) + ': ' + (text || r.statusText || 'repair failed'));
+  }
+  return r.json();
 }
 
 function buildViewerStatusSnapshot() {
