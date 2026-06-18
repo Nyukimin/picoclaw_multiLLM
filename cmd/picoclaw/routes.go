@@ -50,6 +50,8 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/active-control", handleViewerActiveClaim(dependencies.eventHub.OnEvent))
 	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
 	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
+	mux.HandleFunc("/viewer/docs/search", viewer.HandleDocsSearch())
+	mux.HandleFunc("/viewer/docs/detail", viewer.HandleDocsDetail())
 	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
 	mux.HandleFunc("/viewer/movie-catalog", viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}))
 	mux.HandleFunc("/viewer/movie-catalog/fetch", viewer.HandleMovieCatalogFetch(viewer.MovieCatalogOptions{}))
