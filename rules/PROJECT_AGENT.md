@@ -386,9 +386,11 @@ IdleChat 通常会話では、TTS chunk は `message_id` に従属し、`display
 | モード | 使う場面 | 守ること |
 | ------ | -------- | -------- |
 | Safe Build Mode | 既存コード、DB、環境、設定、運用、memory、Source Registry、validator に触る作業 | 小さい差分、影響範囲、テスト、ログ、ロールバック可能性を優先する |
-| Tool Build Mode | 新規ツール、小物スクリプト、補助アプリ、検証用CLI | `tools/`、`experiments/`、`sandbox/` 配下で既存本体から切り離して作る |
+| Tool Build Mode | 新規ツール、小物スクリプト、補助アプリ、検証用CLI | `/home/nyukimi/RenCrow/RenCrow_Tools`、`experiments/`、`sandbox/` 配下で既存本体から切り離して作る |
 
 判断に迷う場合は Safe Build Mode に倒す。Tool Build Mode の作業中でも、既存本体や正式データに接続する必要が出た時点で Safe Build Mode として扱う。
+
+横断的に再利用するツール、ブラウザ sidecar、データ変換、検証用 CLI は `RenCrow_Tools` を正本とする。`picoclaw_multiLLM/tools/` は既存互換または本体密結合の残置場所であり、新規の横断ツール置き場にしない。
 
 `docs/コーディング/coding_agent_implementation_spec.md` の v0.1 は「コーディングAIの運用判断エンジン」であり、自律実行基盤ではない。v0.1 で行うのは、依頼文分析、モード判定、理由生成、ガードレール判定、Worker / Coder プロンプト生成、WorkLog 雛形生成、MemoryCandidate 生成、CLI確認、代表テストまでに限定する。
 

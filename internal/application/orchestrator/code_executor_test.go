@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	moduleapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/moduleregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
@@ -133,6 +134,53 @@ func TestCodeExecutor_CODE2_WithProposal_ExecutesPatch(t *testing.T) {
 	}
 	if workerService.calls != 1 {
 		t.Fatalf("worker ExecuteProposal calls=%d, want 1", workerService.calls)
+	}
+}
+
+func TestCodeExecutor_ModuleRegistryInjectsContextAndWorkspace(t *testing.T) {
+	testProposal := proposal.NewProposal(
+		"Fix STT",
+		`[{"type": "file_edit", "action": "create", "target": "/home/nyukimi/RenCrow/RenCrow_STT/README.md", "content": "done"}]`,
+		"Low risk",
+		"Low cost",
+	)
+	coder2 := &mockCoderAgentWithProposal{proposal: testProposal}
+	workerService := &recordingCodeWorkerExecutionService{}
+	var events []codeExecutorEvent
+	executor := NewDefaultCodeExecutor(nil, coder2, nil, nil, workerService, nil, func(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
+		events = append(events, codeExecutorEvent{eventType: eventType, from: from, to: to, content: content, route: route, jobID: jobID, sessionID: sessionID, channel: channel, chatID: chatID})
+	}).WithModuleResolver(moduleapp.DefaultRegistry())
+
+	jobID := task.NewJobID()
+	req := CodeExecutionRequest{
+		Task:      task.NewTask(jobID, "RenCrow_STT の音声入力を修正して", "test", "chat-1"),
+		Route:     routing.RouteCODE2,
+		SessionID: "sess-1",
+		Channel:   "test",
+		ChatID:    "chat-1",
+		JobID:     jobID.String(),
+	}
+
+	resp, err := executor.ExecuteCode(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ExecuteCode failed: %v", err)
+	}
+	if !resp.Handled {
+		t.Fatal("expected proposal path")
+	}
+	if !strings.Contains(coder2.lastProposalInput, "RenCrow module context") ||
+		!strings.Contains(coder2.lastProposalInput, "module_id: stt") ||
+		!strings.Contains(coder2.lastProposalInput, "root: /home/nyukimi/RenCrow/RenCrow_STT") {
+		t.Fatalf("coder did not receive module context: %s", coder2.lastProposalInput)
+	}
+	if workerService.workspace != "/home/nyukimi/RenCrow/RenCrow_STT" {
+		t.Fatalf("worker workspace=%q, want RenCrow_STT root", workerService.workspace)
+	}
+	if _, ok := findCodeExecutorEvent(events, "module.selected", "mio", "shiro"); !ok {
+		t.Fatalf("module.selected event not emitted: %+v", events)
+	}
+	if _, ok := findCodeExecutorEvent(events, "worker.workspace", "shiro", "worker"); !ok {
+		t.Fatalf("worker.workspace event not emitted: %+v", events)
 	}
 }
 
@@ -585,10 +633,11 @@ func codeExecutorEventIndex(events []codeExecutorEvent, eventType, from, to stri
 }
 
 type recordingCodeWorkerExecutionService struct {
-	calls    int
-	jobID    task.JobID
-	proposal *proposal.Proposal
-	err      error
+	calls     int
+	jobID     task.JobID
+	proposal  *proposal.Proposal
+	workspace string
+	err       error
 }
 
 func (s *recordingCodeWorkerExecutionService) ExecuteObservation(_ context.Context, _ []service.ObservationAction) ([]service.ObservationActionResult, error) {
@@ -605,6 +654,11 @@ func (s *recordingCodeWorkerExecutionService) ExecuteProposal(ctx context.Contex
 	result := patch.NewPatchExecutionResult()
 	result.AddResult(patch.CommandResult{Success: true, Output: "ok"})
 	return result.WithSummary("実行: 1 件, 成功: 1 件, 失敗: 0 件"), nil
+}
+
+func (s *recordingCodeWorkerExecutionService) ExecuteProposalInWorkspace(ctx context.Context, jobID task.JobID, p *proposal.Proposal, workspace string) (*patch.PatchExecutionResult, error) {
+	s.workspace = workspace
+	return s.ExecuteProposal(ctx, jobID, p)
 }
 
 type recordingCoderProposalEvidenceRecorder struct {

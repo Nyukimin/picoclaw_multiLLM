@@ -4,16 +4,16 @@
 
 `docs/10_新仕様/71_Browser操作ツール仕様.md` を、実装に着手できる粒度へ落とす。
 
-本仕様では、RenCrow に browser operation capability を追加する。ただし初期実装では RenCrow 本体に Playwright を直接組み込まず、`tools/browser_actor` の Node.js sidecar CLI を第一経路とする。Go 側は JSON 入出力で sidecar を呼び、ToolRunner V2 から `browser.run` として公開する。
+本仕様では、RenCrow に browser operation capability を追加する。ただし初期実装では RenCrow 本体に Playwright を直接組み込まず、`RenCrow_Tools/tools/browser_actor` の Node.js sidecar CLI を第一経路とする。Go 側は JSON 入出力で sidecar を呼び、ToolRunner V2 から `browser.run` として公開する。
 
 ## 2. 実装スコープ
 
 ### 2.1 Phase 1 で作るもの
 
-- `tools/browser_actor/run_browser_actor.mjs`
-- `tools/browser_actor/README.md`
-- `tools/browser_actor/fixtures/basic_form.html`
-- `tools/browser_actor/test_browser_actor.mjs`
+- `RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs`
+- `RenCrow_Tools/tools/browser_actor/README.md`
+- `RenCrow_Tools/tools/browser_actor/fixtures/basic_form.html`
+- `RenCrow_Tools/tools/browser_actor/test_browser_actor.mjs`
 - JSON input / JSON output
 - headless Chromium 実行
 - `open`, `wait_for_selector`, `click`, `fill`, `press`, `screenshot`, `snapshot`, `extract_text`, `close`
@@ -80,19 +80,19 @@ internal/infrastructure/browseractor.Runner
   ↓
 picoclaw browser-actor run
   ↓
-tools/browser_actor/run_browser_actor.mjs
+RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs
   ↓
 Playwright Chromium headless
 ```
 
-Phase 1 は `tools/browser_actor` 単体で完結させる。
+Phase 1 は `RenCrow_Tools/tools/browser_actor` 単体で完結させる。
 
 Phase 2 で Go adapter を追加する。Go adapter は sidecar の JSON contract だけに依存し、Playwright API を直接 import しない。
 
 ## 4. ディレクトリ構成
 
 ```text
-tools/browser_actor/
+RenCrow_Tools/tools/browser_actor/
   README.md
   run_browser_actor.mjs
   test_browser_actor.mjs
@@ -123,15 +123,15 @@ cmd/picoclaw/
   cli_browser_actor_test.go
 ```
 
-Phase 1 では `tools/browser_actor` のみ作る。Phase 2 以降で Go package を追加する。
+Phase 1 では `RenCrow_Tools/tools/browser_actor` のみ作る。Phase 2 以降で Go package を追加する。
 
 ## 5. Sidecar CLI contract
 
 ### 5.1 command
 
 ```bash
-node tools/browser_actor/run_browser_actor.mjs run --json < request.json
-node tools/browser_actor/run_browser_actor.mjs doctor --json
+node /home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs run --json < request.json
+node /home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs doctor --json
 ```
 
 Phase 2 の Go CLI はこれを包む。
@@ -148,7 +148,7 @@ picoclaw browser-actor doctor --json
   "schema_version": "1.0",
   "run_id": "browser_run_manual_1",
   "goal": "Open fixture and fill a draft form without submitting",
-  "start_url": "file:///home/nyukimi/picoclaw_multiLLM/tools/browser_actor/fixtures/basic_form.html",
+  "start_url": "file:///home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/fixtures/basic_form.html",
   "profile_id": "",
   "storage_state_path": "",
   "headless": true,
@@ -520,7 +520,7 @@ defaults:
 ```yaml
 browser_actor:
   enabled: false
-  runner_path: "tools/browser_actor/run_browser_actor.mjs"
+  runner_path: "/home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs"
   node_binary: "node"
   browser: "chromium"
   headless_default: true
@@ -731,7 +731,7 @@ Viewer に secret value を表示しない test を追加する。
 command:
 
 ```bash
-node tools/browser_actor/test_browser_actor.mjs
+node /home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/test_browser_actor.mjs
 ```
 
 test cases:
@@ -787,7 +787,7 @@ requirements:
 
 ## 17. Implementation order
 
-1. Create `tools/browser_actor` standalone sidecar.
+1. Create `RenCrow_Tools/tools/browser_actor` standalone sidecar.
 2. Add Node fixture tests.
 3. Add config type/default/validation.
 4. Add Go infrastructure runner.

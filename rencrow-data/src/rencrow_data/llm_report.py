@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .timeutil import utcnow_iso
+from .timeutil import unique_id
 
 
 @dataclass(frozen=True)
@@ -42,24 +42,51 @@ def _decision(con, decision_id: int | None, snapshot_id: str):
     row = con.execute("SELECT * FROM decision_log WHERE decision_id=?", (decision_id,)).fetchone()
     if row is None:
         raise ValueError(f"decision not found: {decision_id}")
+    if str(row["snapshot_id"]) != str(snapshot_id):
+        raise ValueError("decision snapshot_id does not match report snapshot")
     return row
+
+
+def _risk_for_decision(con, decision):
+    if decision is None:
+        return None
+    row = con.execute(
+        """
+        SELECT *
+          FROM risk_check_result
+         WHERE decision_id=?
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        (str(decision["decision_id"]),),
+    ).fetchone()
+    if row is not None:
+        return row
+    try:
+        candidate = json.loads(decision["candidate_json"] or "{}")
+    except Exception:
+        candidate = {}
+    risk_check_id = candidate.get("risk_check_id") if isinstance(candidate, dict) else None
+    if not risk_check_id:
+        return None
+    return con.execute(
+        """
+        SELECT *
+          FROM risk_check_result
+         WHERE risk_check_id=?
+           AND snapshot_id=?
+           AND strategy_id=?
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        (str(risk_check_id), str(decision["snapshot_id"]), decision["strategy_name"]),
+    ).fetchone()
 
 
 def build_llm_report(con, options: LLMReportOptions) -> dict[str, object]:
     snapshot = _snapshot(con, options.snapshot_id)
     decision = _decision(con, options.decision_id, options.snapshot_id)
-    risk = None
-    if decision is not None:
-        risk = con.execute(
-            """
-            SELECT *
-              FROM risk_check_result
-             WHERE decision_id=?
-             ORDER BY created_at DESC
-             LIMIT 1
-            """,
-            (str(decision["decision_id"]),),
-        ).fetchone()
+    risk = _risk_for_decision(con, decision)
     quality_blockers = con.execute(
         """
         SELECT COUNT(*) AS count
@@ -135,6 +162,7 @@ def build_llm_report(con, options: LLMReportOptions) -> dict[str, object]:
     else:
         lines.extend(
             [
+                f"- risk_check_id: {risk['risk_check_id']}",
                 f"- status: {risk['status']}",
                 f"- max_dd_check: {risk['max_dd_check']}",
                 f"- weekly_loss_check: {risk['weekly_loss_check']}",
@@ -159,18 +187,19 @@ def build_llm_report(con, options: LLMReportOptions) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"llm_{options.task}_snapshot_{options.snapshot_id}.md"
     output_path.write_text(output_text, encoding="utf-8")
-    llm_log_id = f"llm-{utcnow_iso()}"
+    llm_log_id = unique_id("llm")
     con.execute(
         """
         INSERT INTO llm_audit_log(
-          llm_log_id, snapshot_id, task_type, model, prompt_version, input_hash,
+          llm_log_id, snapshot_id, decision_id, task_type, model, prompt_version, input_hash,
           output_hash, output_path, uncertainty_flag
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             llm_log_id,
             options.snapshot_id,
+            None if decision is None else int(decision["decision_id"]),
             options.task,
             options.model,
             options.prompt_version,

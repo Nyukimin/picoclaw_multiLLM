@@ -21,7 +21,7 @@ RenCrow が、ブラウザを人間ユーザーのように操作できる能力
 - `docs/10_新仕様/29_Sandbox_Promotion_Gate仕様.md`
 - `docs/10_新仕様/46_Web情報収集ツール仕様.md`
 - `docs/10_新仕様/48_Web情報収集ツール実装仕様.md`
-- `tools/webwright_fetch/README.md`
+- `RenCrow_Tools/tools/webwright_fetch/README.md`
 
 ## 3. Web Gather との責務分離
 
@@ -133,14 +133,14 @@ browser.* tools
   ↓
 browser_actor Go adapter
   ↓
-tools/browser_actor CLI
+RenCrow_Tools/tools/browser_actor CLI
   ↓
 Playwright Chromium headless
   ↓
 Artifacts / BrowserTrace / Workstream / Viewer
 ```
 
-初期実装は、RenCrow 本体に Playwright を直接組み込まない。`tools/browser_actor` を sidecar CLI とし、Go adapter は JSON 入出力で呼び出す。
+初期実装は、RenCrow 本体に Playwright を直接組み込まない。`RenCrow_Tools/tools/browser_actor` を sidecar CLI とし、Go adapter は JSON 入出力で呼び出す。
 
 MCP は Phase 3 以降の差し替え経路とする。汎用 MCP client が安定するまでは、Playwright CLI / Node sidecar を第一経路にする。
 
@@ -534,7 +534,7 @@ Viewer に Cookie 値、Authorization 値、password 値を表示してはいけ
 ```yaml
 browser_actor:
   enabled: false
-  runner_path: "tools/browser_actor/run_browser_actor.mjs"
+  runner_path: "/home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs"
   node_binary: "node"
   browser: "chromium"
   headless_default: true
@@ -560,7 +560,7 @@ browser_actor:
 最初に独立 sidecar として作る。
 
 ```text
-tools/browser_actor/
+RenCrow_Tools/tools/browser_actor/
   README.md
   run_browser_actor.mjs
   fixtures/
@@ -586,7 +586,7 @@ internal/adapter/viewer/
 
 ### Phase 1: standalone CLI
 
-- `tools/browser_actor/run_browser_actor.mjs`
+- `RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs`
 - JSON input / JSON output
 - headless Chromium 起動
 - open / wait / click / fill / press / screenshot / snapshot
@@ -664,7 +664,7 @@ internal/adapter/viewer/
 
 Phase 1 完了条件:
 
-- `tools/browser_actor` が単体で動く
+- `RenCrow_Tools/tools/browser_actor` が単体で動く
 - headless Chromium で fixture 操作が通る
 - artifact が deterministic path に保存される
 - JSON input / output が TOOL_CONTRACT に従う

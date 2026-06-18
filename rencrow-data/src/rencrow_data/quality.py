@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Iterable
 
-from .timeutil import utcnow_iso
+from .timeutil import unique_id
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class QualityOptions:
     max_missing_rate: float = 0.35
     stale_days: int = 7
     outlier_return_abs: float = 0.45
+    volume_outlier_ratio: float = 10.0
     adjustment_ratio_jump: float = 0.25
     fetch_lookback_days: int = 7
     symbols: tuple[str, ...] = ()
@@ -36,6 +37,16 @@ def _business_days(start: date, end: date) -> int:
             days += 1
         current += timedelta(days=1)
     return days
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
 
 
 def _insert_check(
@@ -200,6 +211,40 @@ def _check_instrument(con, run_id: str, item, options: QualityOptions) -> None:
         detail={"symbol": symbol, "date": worst_return_date, "threshold_abs_return": options.outlier_return_abs},
     )
 
+    worst_volume_ratio = 0.0
+    worst_volume_date: str | None = None
+    worst_volume_baseline: float | None = None
+    positive_volumes: list[float] = []
+    for row in rows:
+        volume = row["volume"]
+        if volume is None or volume <= 0:
+            continue
+        baseline = _median(positive_volumes[-20:])
+        if baseline is not None and baseline > 0:
+            ratio = float(volume) / baseline
+            if math.isfinite(ratio) and ratio > worst_volume_ratio:
+                worst_volume_ratio = ratio
+                worst_volume_date = row["trade_date"]
+                worst_volume_baseline = baseline
+        positive_volumes.append(float(volume))
+    volume_status = "fail" if worst_volume_ratio > options.volume_outlier_ratio else "pass"
+    _insert_check(
+        con,
+        run_id=run_id,
+        instrument_id=iid,
+        check_date=options.as_of,
+        check_type="volume_outlier",
+        severity="blocker" if volume_status == "fail" and asset_type in {"ETF", "CASH_PROXY"} else ("warning" if volume_status == "fail" else "info"),
+        status=volume_status,
+        metric_value=worst_volume_ratio,
+        detail={
+            "symbol": symbol,
+            "date": worst_volume_date,
+            "baseline_volume": worst_volume_baseline,
+            "threshold_ratio": options.volume_outlier_ratio,
+        },
+    )
+
     worst_jump = 0.0
     worst_jump_date: str | None = None
     previous_ratio: float | None = None
@@ -289,7 +334,7 @@ def _check_fetch_logs(con, run_id: str, options: QualityOptions) -> None:
 
 
 def validate_data(con, options: QualityOptions) -> dict[str, object]:
-    run_id = f"quality-{utcnow_iso()}"
+    run_id = unique_id("quality")
     instruments = _selected_instruments(con, options)
     for item in instruments:
         _check_instrument(con, run_id, item, options)

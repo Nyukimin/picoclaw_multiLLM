@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -79,6 +80,44 @@ class UniverseSyncTest(unittest.TestCase):
             self.assertIn("2558.T", symbols)
             self.assertIn("BTC-USD", symbols)
             self.assertGreaterEqual(len(symbols), 20)
+
+    def test_unknown_universe_preset_fails_without_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            data_root = tmp_path / "rencrow-data"
+            config_root = data_root / "config"
+            config_root.mkdir(parents=True)
+            instruments_path = config_root / "instruments.yml"
+            original_config = {"instruments": []}
+            instruments_path.write_text(json.dumps(original_config), encoding="utf-8")
+            db_path = data_root / "data" / "rencrow.db"
+
+            cmd = [
+                sys.executable,
+                str(SRC / "07_sync_universe.py"),
+                "--db",
+                str(db_path),
+                "--config-root",
+                str(config_root),
+                "--data-root",
+                str(data_root),
+                "--preset",
+                "unknown",
+                "--json",
+            ]
+            result = subprocess.run(cmd, cwd=ROOT.parents[1], text=True, capture_output=True, check=False, env={"PYTHONPATH": str(SRC)})
+
+            self.assertEqual(result.returncode, 4)
+            self.assertIn("unknown preset", result.stderr)
+            self.assertEqual(json.loads(instruments_path.read_text(encoding="utf-8")), original_config)
+            con = sqlite3.connect(db_path)
+            row = con.execute(
+                "SELECT status, fail_count, detail_json FROM cli_run_log WHERE cli_name='07_sync_universe.py'"
+            ).fetchone()
+            con.close()
+            self.assertEqual(row[0], "fail")
+            self.assertEqual(row[1], 1)
+            self.assertIn("unknown preset", row[2])
 
 
 if __name__ == "__main__":

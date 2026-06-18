@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from rencrow_data import db
+from rencrow_data.config import resolve_repo_relative_path
 from rencrow_data.llm_report import LLMReportOptions, build_llm_report
 
 
@@ -35,15 +35,17 @@ def main() -> None:
     parser.add_argument("--db", "--db-path", dest="db_path", default="rencrow-data/data/rencrow.db")
     parser.add_argument("--snapshot", required=True)
     parser.add_argument("--decision")
-    parser.add_argument("--task", choices=("weekly_report", "anomaly_summary", "event_summary"), default="weekly_report")
+    parser.add_argument("--task", choices=("weekly_report", "anomaly_summary", "event_summary", "spec_generation"), default="weekly_report")
     parser.add_argument("--model", default="local-deterministic")
     parser.add_argument("--prompt-version", default="weekly_report_v1")
     parser.add_argument("--output-dir", default="rencrow-data/reports")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    args.db_path = str(resolve_repo_relative_path(args.db_path))
 
     con = db.connect(args.db_path)
     db.init_schema(con)
+    run = db.start_cli_run(con, "13_llm_report.py", args.db_path)
     try:
         snapshot_id = _resolve_snapshot(con, args.snapshot)
         result = build_llm_report(
@@ -54,10 +56,23 @@ def main() -> None:
                 task=args.task,
                 model=args.model,
                 prompt_version=args.prompt_version,
-                output_dir=Path(args.output_dir),
+                output_dir=resolve_repo_relative_path(args.output_dir),
             ),
         )
+        result.update(
+            {
+                "cli_name": "13_llm_report.py",
+                "db_path": args.db_path,
+                "status": "success",
+                "target_count": 1,
+                "success_count": 1,
+                "partial_count": 0,
+                "fail_count": 0,
+            }
+        )
+        result = db.finish_cli_run(con, run, result)
     except ValueError as exc:
+        db.fail_cli_run(con, run, error_message=str(exc), exit_code=4)
         print(f"data error: {exc}", file=sys.stderr)
         raise SystemExit(4)
     finally:

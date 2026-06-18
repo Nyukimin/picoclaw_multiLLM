@@ -104,7 +104,9 @@ Coder が行うのは次のみ：
 コーディング作業は、`docs/コーディング/coding_agent_modes.md` と `docs/コーディング/coding_agent_implementation_spec.md` を前提に、次の2形態を区別する。
 
 - **Safe Build Mode**: 既存コード、既存DB、既存環境、設定、運用系に触る作業。既存システムを壊さず、小さい差分、影響範囲、テスト、ログを優先する。
-- **Tool Build Mode**: 新規ツール、小物スクリプト、補助アプリ、検証用CLIなどを、`tools/`、`experiments/`、`sandbox/` 配下で既存本体から切り離して作る作業。
+- **Tool Build Mode**: 新規ツール、小物スクリプト、補助アプリ、検証用CLIなどを、`/home/nyukimi/RenCrow/RenCrow_Tools`、`experiments/`、`sandbox/` 配下で既存本体から切り離して作る作業。
+
+横断的に再利用するツール、ブラウザ sidecar、データ変換、検証用 CLI は `RenCrow_Tools` を正本とする。`picoclaw_multiLLM/tools/` は既存互換または本体密結合の残置場所であり、新規の横断ツール置き場にしない。
 
 判断に迷う場合は Safe Build Mode に倒す。Tool Build Mode でも、既存本体、DB、設定、運用、Source Registry、memory、validator に踏み込む場合は Safe Build Mode として扱う。
 
@@ -274,7 +276,7 @@ v0.1 では次を行わない。
 ただし、ユーザーが「危険性を確認した上でインストールしてよい」と明示した作業では、AI は次を満たす場合に限りインストールしてよい。
 
 - 目的、導入元、実行権限、ネットワークアクセス、ファイル書き込み範囲を確認する
-- 既存のインストール済みツール、自作ツール、リポジトリ内 `tools/`、`scripts/`、`experiments/`、`sandbox/` で代替できないか先に確認する
+- 既存のインストール済みツール、自作ツール、`/home/nyukimi/RenCrow/RenCrow_Tools`、リポジトリ内 `scripts/`、`experiments/`、`sandbox/` で代替できないか先に確認する
 - 新規ツール作成より、既存ツールの再利用・拡張を優先する
 - インストールまたは作成したツールは、場所、用途、起動方法を記録し、次回以降は再利用を優先する
 - 危険性が高い、出所が不明、シークレットが必要、既存環境を壊す可能性がある場合は実行前に停止して報告する

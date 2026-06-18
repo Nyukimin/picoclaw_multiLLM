@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .backtest import _load_strategy, _score
-from .timeutil import utcnow_iso
+from .hashing import assert_snapshot_features_unchanged
+from .timeutil import unique_id
+
+
+DEFAULT_TRADABLE_ASSET_TYPES = ("ETF", "CASH_PROXY")
 
 
 @dataclass(frozen=True)
@@ -21,9 +25,10 @@ def _json(value: object) -> str:
 
 
 def _snapshot_date(con, snapshot_id: str) -> str:
-    row = con.execute("SELECT snapshot_date FROM snapshot_registry WHERE snapshot_id=?", (snapshot_id,)).fetchone()
+    row = con.execute("SELECT snapshot_date, features_hash FROM snapshot_registry WHERE snapshot_id=?", (snapshot_id,)).fetchone()
     if row is None:
         raise ValueError(f"snapshot not found: {snapshot_id}")
+    assert_snapshot_features_unchanged(con, snapshot_id, row["snapshot_date"], row["features_hash"])
     return row["snapshot_date"]
 
 
@@ -41,16 +46,39 @@ def _risk_check(con, risk_check_id: str, snapshot_id: str, strategy_id: str):
     return row
 
 
-def _instrument_ids(con, symbols: tuple[str, ...]) -> dict[int, str]:
+def _tradable_asset_types(config: dict[str, object]) -> tuple[str, ...]:
+    configured = config.get("tradable_asset_types")
+    if isinstance(configured, list) and configured:
+        return tuple(str(asset_type) for asset_type in configured)
+    if isinstance(configured, str) and configured.strip():
+        return tuple(part.strip() for part in configured.split(",") if part.strip())
+    return DEFAULT_TRADABLE_ASSET_TYPES
+
+
+def _instrument_metadata(con, symbols: tuple[str, ...], tradable_asset_types: tuple[str, ...]) -> dict[int, dict[str, str]]:
     rows = con.execute(
         f"""
-        SELECT instrument_id, symbol
+        SELECT instrument_id, symbol, asset_type
           FROM instruments
          WHERE symbol IN ({','.join('?' for _ in symbols)}) AND active=1
         """,
         symbols,
     ).fetchall()
-    return {int(row["instrument_id"]): row["symbol"] for row in rows}
+    disallowed = [
+        f"{row['symbol']}({row['asset_type']})"
+        for row in rows
+        if str(row["asset_type"]) not in tradable_asset_types
+    ]
+    if disallowed:
+        allowed = ", ".join(tradable_asset_types)
+        raise ValueError(f"strategy universe contains non-tradable asset types: {', '.join(disallowed)}; allowed={allowed}")
+    return {
+        int(row["instrument_id"]): {
+            "symbol": str(row["symbol"]),
+            "asset_type": str(row["asset_type"]),
+        }
+        for row in rows
+    }
 
 
 def _latest_feature_week(con, snapshot_date: str) -> str:
@@ -67,13 +95,14 @@ def _rank_candidates(con, snapshot_id: str, strategy_id: str, week_end: str, con
     universe = tuple(str(symbol) for symbol in config.get("universe", []))
     if not universe:
         raise ValueError("strategy universe is empty")
-    iid_to_symbol = _instrument_ids(con, universe)
-    if len(iid_to_symbol) != len(universe):
+    instrument_metadata = _instrument_metadata(con, universe, _tradable_asset_types(config))
+    iid_to_symbol = {iid: item["symbol"] for iid, item in instrument_metadata.items()}
+    if len(instrument_metadata) != len(universe):
         missing = sorted(set(universe) - set(iid_to_symbol.values()))
         raise ValueError(f"strategy universe symbols are missing from instruments: {', '.join(missing)}")
     rows = con.execute(
         f"""
-        SELECT instrument_id, ret_12w, ret_12w_skip1, vol_12w, drawdown_26w, event_risk_score, close_adj_jpy
+        SELECT instrument_id, ret_12w, ret_12w_skip1, ret_26w, vol_12w, drawdown_26w, event_risk_score, close_adj_jpy
           FROM feature_weekly
          WHERE week_end=? AND instrument_id IN ({','.join('?' for _ in iid_to_symbol)})
         """,
@@ -84,6 +113,7 @@ def _rank_candidates(con, snapshot_id: str, strategy_id: str, week_end: str, con
         feature = {
             "ret_12w": row["ret_12w"],
             "ret_12w_skip1": row["ret_12w_skip1"],
+            "ret_26w": row["ret_26w"],
             "vol_12w": row["vol_12w"],
             "drawdown_26w": row["drawdown_26w"],
             "event_risk_score": row["event_risk_score"],
@@ -96,6 +126,7 @@ def _rank_candidates(con, snapshot_id: str, strategy_id: str, week_end: str, con
             {
                 "instrument_id": int(row["instrument_id"]),
                 "symbol": iid_to_symbol[int(row["instrument_id"])],
+                "asset_type": instrument_metadata[int(row["instrument_id"])]["asset_type"],
                 "raw_score": score,
                 "adjusted_score": score - float(row["event_risk_score"] or 0.0),
                 "feature": feature,
@@ -110,6 +141,7 @@ def _rank_candidates(con, snapshot_id: str, strategy_id: str, week_end: str, con
                 {
                     "instrument_id": cash_iid,
                     "symbol": cash_proxy,
+                    "asset_type": instrument_metadata[cash_iid]["asset_type"],
                     "raw_score": None,
                     "adjusted_score": None,
                     "feature": {},
@@ -188,7 +220,7 @@ def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                f"signal-{utcnow_iso()}-{idx}",
+                unique_id(f"signal-{idx}"),
                 options.snapshot_id,
                 options.strategy_id,
                 week_end,
@@ -201,6 +233,7 @@ def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
                 _json(
                     {
                         "symbol": item["symbol"],
+                        "asset_type": item["asset_type"],
                         "risk_check_id": options.risk_check_id,
                         "risk_status": risk_status,
                         "approval_required": True,
@@ -218,6 +251,7 @@ def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
         "candidates": [
             {
                 "symbol": item["symbol"],
+                "asset_type": item["asset_type"],
                 "instrument_id": item["instrument_id"],
                 "target_weight": target_weight / len(selected) if selected else 0.0,
                 "raw_score": item["raw_score"],
@@ -243,7 +277,15 @@ def generate_decision(con, options: DecisionOptions) -> dict[str, object]:
         (int(options.snapshot_id), snapshot_date, options.strategy_id, _json(candidate_json), _json(veto_json)),
     )
     decision_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
-    con.execute("UPDATE risk_check_result SET decision_id=? WHERE risk_check_id=?", (str(decision_id), options.risk_check_id))
+    con.execute(
+        """
+        UPDATE risk_check_result
+           SET decision_id=?
+         WHERE risk_check_id=?
+           AND (decision_id IS NULL OR decision_id='')
+        """,
+        (str(decision_id), options.risk_check_id),
+    )
     con.commit()
 
     output_dir = options.output_dir or Path("rencrow-data/approvals")

@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from rencrow_data import db
+from rencrow_data.config import resolve_repo_relative_path
 from rencrow_data.decision import DecisionOptions, generate_decision
 
 
@@ -48,6 +48,14 @@ def _resolve_risk_check(con, value: str, snapshot_id: str, strategy_id: str) -> 
     return value
 
 
+def _strategy_config_hash(con, strategy_id: str) -> str | None:
+    row = con.execute(
+        "SELECT config_hash FROM strategy_version WHERE strategy_id=? AND active=1",
+        (strategy_id,),
+    ).fetchone()
+    return None if row is None else row["config_hash"]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", "--db-path", dest="db_path", default="rencrow-data/data/rencrow.db")
@@ -57,9 +65,12 @@ def main() -> None:
     parser.add_argument("--output-dir", default="rencrow-data/approvals")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    args.db_path = str(resolve_repo_relative_path(args.db_path))
 
     con = db.connect(args.db_path)
     db.init_schema(con)
+    config_hash = _strategy_config_hash(con, args.strategy)
+    run = db.start_cli_run(con, "11_generate_decision.py", args.db_path, config_hash=config_hash)
     try:
         snapshot_id = _resolve_snapshot(con, args.snapshot)
         risk_check_id = _resolve_risk_check(con, args.risk_check, snapshot_id, args.strategy)
@@ -69,10 +80,24 @@ def main() -> None:
                 snapshot_id=snapshot_id,
                 strategy_id=args.strategy,
                 risk_check_id=risk_check_id,
-                output_dir=Path(args.output_dir),
+                output_dir=resolve_repo_relative_path(args.output_dir),
             ),
         )
+        result.update(
+            {
+                "cli_name": "11_generate_decision.py",
+                "db_path": args.db_path,
+                "status": "success",
+                "target_count": 1,
+                "success_count": 1,
+                "partial_count": 0,
+                "fail_count": 0,
+                "config_hash": config_hash,
+            }
+        )
+        result = db.finish_cli_run(con, run, result)
     except ValueError as exc:
+        db.fail_cli_run(con, run, error_message=str(exc), exit_code=4)
         print(f"data error: {exc}", file=sys.stderr)
         raise SystemExit(4)
     finally:

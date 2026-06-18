@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
@@ -116,7 +118,7 @@ func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shi
 			return newLocalAgentError(agentName, msg, fmt.Sprintf("invalid job ID: %v", err))
 		}
 		log.Printf("[LocalWorker] proposal execute start agent=%s job=%s", agentName, msg.JobID)
-		result, err := workerExecution.ExecuteProposal(context.Background(), jobID, p)
+		result, err := executeLocalWorkerProposal(context.Background(), workerExecution, jobID, p, msg)
 		if err != nil {
 			log.Printf("[LocalWorker] proposal execute error agent=%s job=%s err=%v", agentName, msg.JobID, err)
 			return newLocalAgentError(agentName, msg, fmt.Sprintf("patch execution failed: %v", err))
@@ -157,6 +159,31 @@ func handleLocalWorkerMessage(agentName string, msg domaintransport.Message, shi
 	}
 	log.Printf("[LocalWorker] shiro execute complete agent=%s job=%s result_len=%d", agentName, msg.JobID, len(result))
 	return resp
+}
+
+func executeLocalWorkerProposal(ctx context.Context, workerExecution service.WorkerExecutionService, jobID task.JobID, p *proposal.Proposal, msg domaintransport.Message) (*patch.PatchExecutionResult, error) {
+	if root := localMessageContextString(msg, "module_root"); root != "" {
+		if worker, ok := workerExecution.(service.WorkspaceOverrideWorkerExecutionService); ok {
+			log.Printf("[LocalWorker] proposal workspace override job=%s module_root=%s", msg.JobID, root)
+			return worker.ExecuteProposalInWorkspace(ctx, jobID, p, root)
+		}
+		log.Printf("[LocalWorker] workspace override unavailable job=%s module_root=%s", msg.JobID, root)
+	}
+	return workerExecution.ExecuteProposal(ctx, jobID, p)
+}
+
+func localMessageContextString(msg domaintransport.Message, key string) string {
+	if msg.Context == nil {
+		return ""
+	}
+	value, ok := msg.Context[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 func (d *Dependencies) startLocalCoderAgent(agentName string, lt *transport.LocalTransport, coder *coderAdapter) {

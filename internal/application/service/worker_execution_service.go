@@ -15,6 +15,10 @@ type WorkerExecutionService interface {
 	ExecuteObservation(ctx context.Context, actions []ObservationAction) ([]ObservationActionResult, error)
 }
 
+type WorkspaceOverrideWorkerExecutionService interface {
+	ExecuteProposalInWorkspace(ctx context.Context, jobID task.JobID, p *proposal.Proposal, workspace string) (*patch.PatchExecutionResult, error)
+}
+
 // MCPToolCaller は MCP プロトコル経由でツールを呼び出すインターフェース
 type MCPToolCaller interface {
 	CallTool(ctx context.Context, toolName string, args map[string]any) (string, error)
@@ -57,4 +61,19 @@ func (w *workerExecutionService) ExecuteProposal(
 	result := w.executeCommands(ctx, jobID, commands)
 	w.autoCommitAfterExecution(ctx, jobID, result)
 	return w.finalizeExecutionResult(commands, result), nil
+}
+
+func (w *workerExecutionService) ExecuteProposalInWorkspace(
+	ctx context.Context,
+	jobID task.JobID,
+	p *proposal.Proposal,
+	workspace string,
+) (*patch.PatchExecutionResult, error) {
+	if workspace == "" || workspace == w.config.Workspace {
+		return w.ExecuteProposal(ctx, jobID, p)
+	}
+	clone := *w
+	clone.config = w.config
+	clone.config.Workspace = workspace
+	return clone.ExecuteProposal(ctx, jobID, p)
 }

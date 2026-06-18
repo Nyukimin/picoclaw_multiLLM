@@ -98,7 +98,7 @@ func (r *Runner) runCommand(ctx context.Context, command string, args []string, 
 
 func (cfg Config) withDefaults() Config {
 	if strings.TrimSpace(cfg.RunnerPath) == "" {
-		cfg.RunnerPath = "tools/browser_actor/run_browser_actor.mjs"
+		cfg.RunnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs"
 	}
 	if strings.TrimSpace(cfg.NodeBinary) == "" {
 		cfg.NodeBinary = "node"

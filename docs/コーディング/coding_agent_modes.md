@@ -201,7 +201,7 @@ Tool Build Mode の標準手順は次の通り。
    ファイル、標準入力、CLI引数、JSON、Markdown、HTMLなど、入出力形式を明確にする。
 
 4. 新規ディレクトリで作る  
-   `tools/`、`experiments/`、`sandbox/` など、既存本体から切り離した場所で作る。
+   横断的に再利用するツールは `/home/nyukimi/RenCrow/RenCrow_Tools` に作る。実験段階だけなら `experiments/`、`sandbox/` など、既存本体から切り離した場所で作る。
 
 5. 動くものを作る  
    まず最小の実行可能な形にする。
@@ -318,7 +318,7 @@ Tool Build Mode の Coder は、次を担当する。
 
 - 新しい小物ツールを作る。
 - 既存本体にまだ接続しない。
-- `sandbox/`、`tools/`、`experiments/` 配下で作れる。
+- 横断ツールなら `/home/nyukimi/RenCrow/RenCrow_Tools`、実験なら `sandbox/`、`experiments/` 配下で作れる。
 - 入出力が明確である。
 - 失敗しても既存環境に影響しない。
 - 単体で動作確認できる。
@@ -364,7 +364,7 @@ RenCrow のコーディングAIは、作業速度よりも、環境と記憶を�
 - `staging/` への出力
 - `reports/` への出力
 - `logs/` への出力
-- `tools/` 配下での新規作成
+- `/home/nyukimi/RenCrow/RenCrow_Tools` 配下での新規作成
 - `experiments/` 配下での新規作成
 - `sandbox/` 配下での新規作成
 - Pull Request または差分案の作成
@@ -663,7 +663,7 @@ Tool Build Mode では、過去の成功パターンを使って素早く作る�
 作業ルール:
 1. 目的を満たす最小ツールを作ってください。
 2. 入力と出力を明確にしてください。
-3. tools/、experiments/、sandbox/ のいずれかに新規ディレクトリを作ってください。
+3. 横断ツールは /home/nyukimi/RenCrow/RenCrow_Tools に、実験段階のものは experiments/ または sandbox/ に新規ディレクトリを作ってください。
 4. 既存RenCrow本体へ直接接続しないでください。
 5. READMEを付けてください。
 6. サンプル入力と実行例を付けてください。
@@ -725,7 +725,7 @@ Coder の作業:
 - 新規小物ツールである。
 - 単体で動作確認できる。
 - 既存本体に接続しなくても作れる。
-- `tools/` 配下で作れる。
+- `/home/nyukimi/RenCrow/RenCrow_Tools` 配下で作れる。
 
 Worker の作業:
 
@@ -736,7 +736,7 @@ Worker の作業:
 
 Coder の作業:
 
-- `tools/jsonl_validator/` にツールを作る。
+- `/home/nyukimi/RenCrow/RenCrow_Tools/tools/jsonl_validator/` にツールを作る。
 - サンプルJSONLを用意する。
 - 正常系と異常系のテストを書く。
 - READMEを書く。
@@ -789,7 +789,7 @@ Worker の作業:
 
 Coder の作業:
 
-- `tools/md_to_html/` に実装する。
+- `/home/nyukimi/RenCrow/RenCrow_Tools/tools/md_to_html/` に実装する。
 - サンプルMarkdownを用意する。
 - 変換結果のHTMLを確認する。
 - テストを書く。

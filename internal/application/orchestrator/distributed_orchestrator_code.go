@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	moduleapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/moduleregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
@@ -28,6 +29,7 @@ type distributedCodeExecutionCoordinator struct {
 	executeMailbox   distributedMailboxExecutor
 	executeToAgent   distributedAgentExecutor
 	proposalEvidence CoderProposalEvidenceRecorder
+	moduleResolver   ModuleResolver
 }
 
 func newDistributedCodeExecutionCoordinator(
@@ -56,6 +58,10 @@ func (c *distributedCodeExecutionCoordinator) SetCoderProposalEvidenceRecorder(r
 	c.proposalEvidence = recorder
 }
 
+func (c *distributedCodeExecutionCoordinator) SetModuleResolver(resolver ModuleResolver) {
+	c.moduleResolver = resolver
+}
+
 func (c *distributedCodeExecutionCoordinator) Execute(ctx context.Context, t task.Task, route routing.Route, sessionID, jid string) (string, error) {
 	coderAgent := c.selectCoder(route, t.UserMessage())
 	if coderAgent == "" {
@@ -66,6 +72,13 @@ func (c *distributedCodeExecutionCoordinator) Execute(ctx context.Context, t tas
 	c.emit("agent.start", "mio", "shiro", "コードタスクをShiro経由で実行", string(route), jid, sessionID, t.Channel(), t.ChatID())
 	c.emitNote("mio", "user", "しろにコード実装の取りまとめをお願いしたよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
 	requestText := t.UserMessage()
+	if c.moduleResolver == nil {
+		c.moduleResolver = moduleapp.DefaultRegistry()
+	}
+	if resolved := c.moduleResolver.Resolve(t.UserMessage()); resolved.Found() {
+		c.emit("module.selected", "mio", "shiro", resolved.Summary(), string(route), jid, sessionID, t.Channel(), t.ChatID())
+		requestText = appendModuleContextToCodeRequest(requestText, resolved)
+	}
 
 	for attempt := 0; attempt <= c.coderRetryMax(); attempt++ {
 		c.emit("agent.start", "shiro", coderAgent, requestText, string(route), jid, sessionID, t.Channel(), t.ChatID())
@@ -157,6 +170,13 @@ func (c *distributedCodeExecutionCoordinator) executeProposal(ctx context.Contex
 		"retry_attempt": attempt,
 		"channel":       t.Channel(),
 		"chat_id":       t.ChatID(),
+	}
+	if c.moduleResolver != nil {
+		if resolved := c.moduleResolver.Resolve(t.UserMessage()); resolved.Found() {
+			execMsg.Context["module_id"] = resolved.Module.ID
+			execMsg.Context["module_root"] = resolved.Module.Root
+			execMsg.Context["module_display_name"] = resolved.Module.DisplayName
+		}
 	}
 	execMsg.Proposal = coderResult.Proposal
 	c.memory.RecordMessage(execMsg)

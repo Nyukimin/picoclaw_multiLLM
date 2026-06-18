@@ -14,7 +14,7 @@ RenCrow が外部 SaaS / 有料検索 API に依存せず、公開 Web ページ
 - `docs/10_新仕様/46_Web情報収集ツール仕様.md`
 - `docs/10_新仕様/47_Web情報収集ツール実装仕様作成プロンプト.md`
 - `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`
-- `tools/webwright_fetch/README.md`
+- `RenCrow_Tools/tools/webwright_fetch/README.md`
 - `docs/10_新仕様/27_Browser_Trace_to_API_Discovery仕様.md`
 - `docs/10_新仕様/20_Tool_Harness_Contract_Mediation仕様.md`
 - `docs/10_新仕様/10_検証仕様.md`
@@ -68,7 +68,7 @@ Viewer の確認 API は `GET /viewer/source-registry?action=staging&status=pend
 
 ### 3.2 Webwright Fetch
 
-`tools/webwright_fetch` は RenCrow 本体 runtime から切り離された補助ツールである。
+`RenCrow_Tools/tools/webwright_fetch` は RenCrow 本体 runtime から切り離された補助ツールである。
 
 - 本体 runtime へ Webwright / Playwright を必須 dependency として組み込まない
 - Webwright の結果は `external_fetch` の `pending` staging JSONL に変換する
@@ -548,7 +548,7 @@ SearXNG は self-hosted endpoint を必須とする。CLI では `--searxng-url`
 
 `run-source` は Source Registry に登録済みの `kind=web_gather` source だけを実行する。fetch / extract の結果は `pending` staging に保存し、validate / promote は自動実行しない。RSS / Atom / PyPI など他 kind の source は `web-gather run-source` では拒否し、`source-registry sweep` または Viewer の Source Registry 操作に分ける。
 
-`import-webwright-jsonl` は `tools/webwright_fetch/webwright_to_staging.py` が出力した JSONL を L1 staging に取り込む。`Kind=external_fetch`、`ValidationStatus=pending`、`Meta.webwright=true` または `Meta.tool=webwright_fetch`、`Meta.review_required=true`、`Meta.auto_promote=false` を必須とする。raw text に credential-like 文字列がある item は保存しない。
+`import-webwright-jsonl` は `RenCrow_Tools/tools/webwright_fetch/webwright_to_staging.py` が出力した JSONL を L1 staging に取り込む。`Kind=external_fetch`、`ValidationStatus=pending`、`Meta.webwright=true` または `Meta.tool=webwright_fetch`、`Meta.review_required=true`、`Meta.auto_promote=false` を必須とする。raw text に credential-like 文字列がある item は保存しない。
 
 `webwright-fetch` は `webwright_fetch.runner_path` の Python wrapper を明示実行するだけで、RenCrow 本体 runtime に Webwright / Playwright を必須 dependency として組み込まない。実行時は `webwright_fetch.enabled=true` を必須とする。`--dry-run` は設定確認用として enabled=false でも許可する。
 

@@ -89,6 +89,9 @@ class BackfillProviderTest(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM price_raw").fetchone()[0], 2)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM corporate_action").fetchone()[0], 1)
             self.assertEqual(con.execute("SELECT status FROM source_fetch_log ORDER BY fetch_id DESC LIMIT 1").fetchone()[0], "success")
+            usage_terms = con.execute("SELECT usage_terms FROM source_fetch_log ORDER BY fetch_id DESC LIMIT 1").fetchone()[0]
+            self.assertIn("yahoo_finance", usage_terms)
+            self.assertIn("no_redistribution", usage_terms)
 
     def test_online_macro_backfill_writes_rows(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -101,6 +104,9 @@ class BackfillProviderTest(unittest.TestCase):
             self.assertEqual(rows, 1)
             self.assertEqual(con.execute("SELECT value FROM macro_series WHERE series_code='DGS10'").fetchone()[0], 4.1)
             self.assertEqual(con.execute("SELECT status FROM source_fetch_log ORDER BY fetch_id DESC LIMIT 1").fetchone()[0], "success")
+            usage_terms = con.execute("SELECT usage_terms FROM source_fetch_log ORDER BY fetch_id DESC LIMIT 1").fetchone()[0]
+            self.assertIn("fred_public_data", usage_terms)
+            self.assertIn("cite_source", usage_terms)
 
     def test_incremental_mode_uses_recent_lookback(self) -> None:
         with tempfile.TemporaryDirectory() as td:

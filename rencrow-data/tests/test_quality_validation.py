@@ -73,7 +73,7 @@ class QualityValidationTest(unittest.TestCase):
             summary = json.loads(result.stdout)
             self.assertEqual(summary["blockers"], 0)
             self.assertEqual(summary["instrument_count"], 1)
-            self.assertGreaterEqual(summary["total_checks"], 5)
+            self.assertGreaterEqual(summary["total_checks"], 6)
 
             con = sqlite3.connect(db_path)
             statuses = {
@@ -86,6 +86,7 @@ class QualityValidationTest(unittest.TestCase):
             self.assertEqual(statuses["stale"], "pass")
             self.assertEqual(statuses["missing"], "pass")
             self.assertEqual(statuses["return_outlier"], "pass")
+            self.assertEqual(statuses["volume_outlier"], "pass")
             self.assertEqual(statuses["adjustment_anomaly"], "pass")
             self.assertEqual(statuses["fetch_status"], "pass")
 
@@ -113,6 +114,13 @@ class QualityValidationTest(unittest.TestCase):
             self.assertGreater(summary["blockers"], 0)
 
             con = sqlite3.connect(db_path)
+            cli_row = con.execute(
+                "SELECT status, fail_count, finished_at FROM cli_run_log WHERE run_id=?",
+                (summary["cli_run_id"],),
+            ).fetchone()
+            self.assertEqual(cli_row[0], "fail")
+            self.assertGreater(cli_row[1], 0)
+            self.assertTrue(cli_row[2])
             stale = con.execute(
                 """
                 SELECT severity, status, metric_value
@@ -163,6 +171,163 @@ class QualityValidationTest(unittest.TestCase):
                 (summary["run_id"],),
             ).fetchone()
             self.assertEqual(tuple(fetch_fail), ("blocker", "fail"))
+
+    def test_return_outlier_is_blocker_for_etf_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            data_root, config_root, db_path = write_config(tmp_path, fixture_name="outlier_prices.csv")
+            fixture = data_root / "fixtures" / "outlier_prices.csv"
+            fixture.write_text(
+                "\n".join(
+                    [
+                        "date,open,high,low,close,adj_close,volume,dividend,split",
+                        "2026-05-13,100,101,99,100,100,1000,0,1",
+                        "2026-05-14,190,191,189,190,190,1000,0,1",
+                        "2026-05-15,191,192,190,191,191,1000,0,1",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(config_root))
+            run_script("02_fetch_market.py", "--db", str(db_path), "--config-root", str(config_root), "--data-root", str(data_root))
+
+            result = run_script(
+                "08_validate_data.py",
+                "--db",
+                str(db_path),
+                "--as-of",
+                "2026-05-15",
+                "--min-history-days",
+                "3",
+                "--max-missing-rate",
+                "1.0",
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 3)
+            summary = json.loads(result.stdout)
+            con = sqlite3.connect(db_path)
+            row = con.execute(
+                """
+                SELECT severity, status, metric_value, detail_json
+                  FROM data_quality_check
+                 WHERE run_id=? AND check_type='return_outlier'
+                """,
+                (summary["run_id"],),
+            ).fetchone()
+            con.close()
+            self.assertEqual(row[0], "blocker")
+            self.assertEqual(row[1], "fail")
+            self.assertAlmostEqual(row[2], 0.9)
+            self.assertIn("2026-05-14", row[3])
+
+    def test_volume_outlier_is_blocker_for_etf_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            data_root, config_root, db_path = write_config(tmp_path, fixture_name="volume_prices.csv")
+            fixture = data_root / "fixtures" / "volume_prices.csv"
+            fixture.write_text(
+                "\n".join(
+                    [
+                        "date,open,high,low,close,adj_close,volume,dividend,split",
+                        "2026-05-12,100,101,99,100,100,1000,0,1",
+                        "2026-05-13,100,101,99,100,100,1000,0,1",
+                        "2026-05-14,100,101,99,100,100,25000,0,1",
+                        "2026-05-15,100,101,99,100,100,1000,0,1",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(config_root))
+            run_script("02_fetch_market.py", "--db", str(db_path), "--config-root", str(config_root), "--data-root", str(data_root))
+
+            result = run_script(
+                "08_validate_data.py",
+                "--db",
+                str(db_path),
+                "--as-of",
+                "2026-05-15",
+                "--min-history-days",
+                "4",
+                "--max-missing-rate",
+                "1.0",
+                "--volume-outlier-ratio",
+                "10",
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 3)
+            summary = json.loads(result.stdout)
+            con = sqlite3.connect(db_path)
+            row = con.execute(
+                """
+                SELECT severity, status, metric_value, detail_json
+                  FROM data_quality_check
+                 WHERE run_id=? AND check_type='volume_outlier'
+                """,
+                (summary["run_id"],),
+            ).fetchone()
+            con.close()
+            self.assertEqual(row[0], "blocker")
+            self.assertEqual(row[1], "fail")
+            self.assertAlmostEqual(row[2], 25.0)
+            self.assertIn("2026-05-14", row[3])
+            self.assertIn('"baseline_volume":1000.0', row[3])
+
+    def test_adjustment_anomaly_is_blocker_without_corporate_action(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            data_root, config_root, db_path = write_config(tmp_path, fixture_name="adjustment_prices.csv")
+            fixture = data_root / "fixtures" / "adjustment_prices.csv"
+            fixture.write_text(
+                "\n".join(
+                    [
+                        "date,open,high,low,close,adj_close,volume,dividend,split",
+                        "2026-05-13,100,101,99,100,100,1000,0,1",
+                        "2026-05-14,101,102,100,101,50.5,1000,0,1",
+                        "2026-05-15,102,103,101,102,51,1000,0,1",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            run_script("01_init_db.py", "--db", str(db_path), "--config-root", str(config_root))
+            run_script("02_fetch_market.py", "--db", str(db_path), "--config-root", str(config_root), "--data-root", str(data_root))
+
+            result = run_script(
+                "08_validate_data.py",
+                "--db",
+                str(db_path),
+                "--as-of",
+                "2026-05-15",
+                "--min-history-days",
+                "3",
+                "--max-missing-rate",
+                "1.0",
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 3)
+            summary = json.loads(result.stdout)
+            con = sqlite3.connect(db_path)
+            row = con.execute(
+                """
+                SELECT severity, status, metric_value, detail_json
+                  FROM data_quality_check
+                 WHERE run_id=? AND check_type='adjustment_anomaly'
+                """,
+                (summary["run_id"],),
+            ).fetchone()
+            con.close()
+            self.assertEqual(row[0], "blocker")
+            self.assertEqual(row[1], "fail")
+            self.assertAlmostEqual(row[2], -0.5)
+            self.assertIn('"corporate_action_found":false', row[3])
 
 
 if __name__ == "__main__":

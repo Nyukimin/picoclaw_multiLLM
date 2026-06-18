@@ -70,7 +70,7 @@ type LLMOpsConfig struct {
 }
 
 // WebwrightFetchConfig は RenCrow 本体から分離された Webwright 取得 bridge 設定。
-// 実行は tools/webwright_fetch/run_webwright_fetch.py が担当し、本体 runtime dependency にはしない。
+// 実行は RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py が担当し、本体 runtime dependency にはしない。
 type WebwrightFetchConfig struct {
 	Enabled           bool   `yaml:"enabled"`
 	RunnerPath        string `yaml:"runner_path"`
@@ -92,7 +92,7 @@ type WebGatherConfig struct {
 }
 
 // BrowserActorConfig は headless browser 操作 sidecar 設定。
-// 実行は tools/browser_actor/run_browser_actor.mjs が担当し、本体 runtime dependency にはしない。
+// 実行は RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs が担当し、本体 runtime dependency にはしない。
 type BrowserActorConfig struct {
 	Enabled         bool     `yaml:"enabled"`
 	RunnerPath      string   `yaml:"runner_path"`

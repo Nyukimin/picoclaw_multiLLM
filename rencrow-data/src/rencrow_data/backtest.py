@@ -7,10 +7,17 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from .timeutil import utcnow_iso
+from .hashing import assert_snapshot_features_unchanged
+from .timeutil import unique_id
 
 
 JAPAN_TAX_RATE = 0.20315
+DEFAULT_TRADABLE_ASSET_TYPES = ("ETF", "CASH_PROXY")
+STRESS_PERIODS = {
+    "stress_2008": (date(2008, 9, 1), date(2009, 3, 31)),
+    "stress_2020": (date(2020, 2, 24), date(2020, 4, 30)),
+    "stress_2022": (date(2022, 1, 1), date(2022, 12, 31)),
+}
 
 
 @dataclass(frozen=True)
@@ -41,22 +48,52 @@ def _load_strategy(con, strategy_id: str) -> dict[str, object]:
     return json.loads(row["config_json"] or "{}")
 
 
-def _instrument_ids(con, symbols: tuple[str, ...]) -> dict[int, str]:
+def _snapshot(con, snapshot_id: str):
+    row = con.execute("SELECT snapshot_date, features_hash FROM snapshot_registry WHERE snapshot_id=?", (snapshot_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"snapshot not found: {snapshot_id}")
+    return row
+
+
+def _tradable_asset_types(config: dict[str, object]) -> tuple[str, ...]:
+    configured = config.get("tradable_asset_types")
+    if isinstance(configured, list) and configured:
+        return tuple(str(asset_type) for asset_type in configured)
+    if isinstance(configured, str) and configured.strip():
+        return tuple(part.strip() for part in configured.split(",") if part.strip())
+    return DEFAULT_TRADABLE_ASSET_TYPES
+
+
+def _instrument_metadata(con, symbols: tuple[str, ...], tradable_asset_types: tuple[str, ...]) -> dict[int, dict[str, str]]:
     if not symbols:
         raise ValueError("strategy universe is empty")
     rows = con.execute(
         f"""
-        SELECT instrument_id, symbol
+        SELECT instrument_id, symbol, asset_type
           FROM instruments
          WHERE symbol IN ({",".join("?" for _ in symbols)}) AND active=1
         """,
         symbols,
     ).fetchall()
-    found = {int(row["instrument_id"]): row["symbol"] for row in rows}
-    found_symbols = set(found.values())
+    found = {
+        int(row["instrument_id"]): {
+            "symbol": str(row["symbol"]),
+            "asset_type": str(row["asset_type"]),
+        }
+        for row in rows
+    }
+    found_symbols = {item["symbol"] for item in found.values()}
     missing = [symbol for symbol in symbols if symbol not in found_symbols]
     if missing:
         raise ValueError(f"strategy universe symbols are missing from instruments: {', '.join(missing)}")
+    disallowed = [
+        f"{row['symbol']}({row['asset_type']})"
+        for row in rows
+        if str(row["asset_type"]) not in tradable_asset_types
+    ]
+    if disallowed:
+        allowed = ", ".join(tradable_asset_types)
+        raise ValueError(f"strategy universe contains non-tradable asset types: {', '.join(disallowed)}; allowed={allowed}")
     return found
 
 
@@ -235,6 +272,24 @@ def _split_metrics(returns: list[float], equity_curve: list[dict[str, object]], 
             if split_curve and str(split_curve[0]["week_end"]) <= str(trade["week_end"]) <= str(split_curve[-1]["week_end"])
         ]
         split_results[f"oos_{year}"] = _metrics(split_returns, split_curve, float(len(split_trades)), 0.0, 0.0)
+
+    for split_name, (start_date, end_date) in STRESS_PERIODS.items():
+        indexes = [
+            idx - 1
+            for idx, row in enumerate(equity_curve[1:], start=1)
+            if start_date <= date.fromisoformat(str(row["week_end"])) <= end_date
+        ]
+        if not indexes:
+            continue
+        start_idx = indexes[0]
+        end_idx = indexes[-1] + 1
+        split_returns, split_curve = _slice_equity_curve(returns, equity_curve, start_idx, end_idx)
+        split_trades = [
+            trade
+            for trade in trades
+            if split_curve and str(split_curve[0]["week_end"]) <= str(trade["week_end"]) <= str(split_curve[-1]["week_end"])
+        ]
+        split_results[split_name] = _metrics(split_returns, split_curve, float(len(split_trades)), 0.0, 0.0)
     return split_results
 
 
@@ -248,9 +303,16 @@ def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str])
 
 def run_weekly_rotation_backtest(con, options: BacktestOptions) -> dict[str, object]:
     config = _load_strategy(con, options.strategy_id)
+    snapshot = _snapshot(con, options.snapshot_id)
+    snapshot_date_text = str(snapshot["snapshot_date"])
+    assert_snapshot_features_unchanged(con, options.snapshot_id, snapshot_date_text, snapshot["features_hash"])
+    snapshot_date = date.fromisoformat(snapshot_date_text)
+    end = snapshot_date if options.end is None else min(options.end, snapshot_date)
     universe = options.symbols or tuple(str(symbol) for symbol in config.get("universe", []))
-    iid_to_symbol = _instrument_ids(con, universe)
-    by_week = _load_features(con, tuple(iid_to_symbol), options.start, options.end)
+    tradable_asset_types = _tradable_asset_types(config)
+    instrument_metadata = _instrument_metadata(con, universe, tradable_asset_types)
+    iid_to_symbol = {iid: item["symbol"] for iid, item in instrument_metadata.items()}
+    by_week = _load_features(con, tuple(iid_to_symbol), options.start, end)
     weeks = sorted(by_week)
     if len(weeks) < 14:
         raise ValueError("not enough weekly feature rows for backtest")
@@ -338,7 +400,7 @@ def run_weekly_rotation_backtest(con, options: BacktestOptions) -> dict[str, obj
     metrics = _metrics(returns, equity_curve, turnover, cost_drag, tax_drag)
     split_metrics = _split_metrics(returns, equity_curve, trades, options.mode == "walk_forward")
     split_metrics["full"] = metrics
-    backtest_id = f"backtest-{utcnow_iso()}"
+    backtest_id = unique_id("backtest")
     output_dir = options.output_dir or Path("rencrow-data/data/backtests")
     equity_path = output_dir / f"{backtest_id}_equity.csv"
     trades_path = output_dir / f"{backtest_id}_trades.csv"
@@ -353,9 +415,36 @@ def run_weekly_rotation_backtest(con, options: BacktestOptions) -> dict[str, obj
         "weeks": len(returns),
         "equity_curve_path": str(equity_path),
         "trades_path": str(trades_path),
+        "cost_bps": options.cost_bps,
+        "slippage_bps": options.slippage_bps,
+        "tax_mode": options.tax_mode,
         "metrics": metrics,
         "split_metrics": split_metrics,
         "universe": list(universe),
+        "tradable_asset_types": list(tradable_asset_types),
+        "universe_assets": [
+            {
+                "symbol": instrument_metadata[iid]["symbol"],
+                "asset_type": instrument_metadata[iid]["asset_type"],
+            }
+            for iid in sorted(
+                instrument_metadata,
+                key=lambda item: list(universe).index(instrument_metadata[item]["symbol"]),
+            )
+        ],
+        "latest_signal": {
+            "week_end": equity_curve[-1]["week_end"],
+            "symbol": equity_curve[-1]["signal_symbol"],
+            "asset_type": next(
+                (
+                    item["asset_type"]
+                    for item in instrument_metadata.values()
+                    if item["symbol"] == equity_curve[-1]["signal_symbol"]
+                ),
+                "",
+            ),
+            "target_weight": 1.0 if equity_curve[-1]["signal_symbol"] else 0.0,
+        },
     }
     con.execute(
         """

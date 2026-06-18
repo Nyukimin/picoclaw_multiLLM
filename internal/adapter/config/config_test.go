@@ -893,10 +893,10 @@ webwright_fetch:
 	if !cfg.WebwrightFetch.Enabled {
 		t.Fatal("expected webwright_fetch enabled")
 	}
-	if cfg.WebwrightFetch.RunnerPath != "tools/webwright_fetch/run_webwright_fetch.py" {
+	if cfg.WebwrightFetch.RunnerPath != "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py" {
 		t.Fatalf("unexpected runner path: %s", cfg.WebwrightFetch.RunnerPath)
 	}
-	if cfg.WebwrightFetch.ConfigPath != "tools/webwright_fetch/config_local_worker.yaml" {
+	if cfg.WebwrightFetch.ConfigPath != "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/config_local_worker.yaml" {
 		t.Fatalf("unexpected config path: %s", cfg.WebwrightFetch.ConfigPath)
 	}
 	if cfg.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.207:8082/v1/responses" {
@@ -3160,7 +3160,7 @@ func TestConfig_Validate_BrowserActor(t *testing.T) {
 	}
 	t.Run("defaults are valid", func(t *testing.T) {
 		cfg := base()
-		if cfg.BrowserActor.RunnerPath != "tools/browser_actor/run_browser_actor.mjs" {
+		if cfg.BrowserActor.RunnerPath != "/home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs" {
 			t.Fatalf("unexpected browser actor runner path: %s", cfg.BrowserActor.RunnerPath)
 		}
 		if !cfg.BrowserActor.HeadlessDefaultEnabled() || !cfg.BrowserActor.SaveTraceEnabled() || !cfg.BrowserActor.SaveScreenshotEnabled() || !cfg.BrowserActor.MaskSecretsEnabled() {

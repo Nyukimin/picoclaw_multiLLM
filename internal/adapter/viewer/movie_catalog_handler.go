@@ -494,7 +494,7 @@ func movieCatalogFetchCommandArgs(targetURL string, dbPath string, maxPages int,
 	outDir := filepath.Dir(dbPath)
 	jsonlPath := filepath.Join(outDir, "eiga_catalog.jsonl")
 	args := []string{
-		filepath.Join("tools", "eiga_catalog", "eiga_catalog.py"),
+		filepath.Join("/home/nyukimi/RenCrow/RenCrow_Tools", "tools", "eiga_catalog", "eiga_catalog.py"),
 		"--seed-url", targetURL,
 		"--max-pages", strconv.Itoa(maxPages),
 		"--delay", "2",

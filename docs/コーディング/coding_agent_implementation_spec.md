@@ -62,7 +62,7 @@ v0.1 のゴールは、れんの依頼文を入力すると、次の「実装判
   reason: 新規小物ツールで、既存本体に直接接続しないため
   guardrails: allowed
   worker_prompt: 要望整理、最小仕様、入出力定義
-  coder_prompt: tools/jsonl_validator/ で新規実装、README、サンプル、テスト
+  coder_prompt: /home/nyukimi/RenCrow/RenCrow_Tools/tools/jsonl_validator/ で新規実装、README、サンプル、テスト
   worklog: event_id付きの作業ログ雛形
   memory_candidates: 必要に応じて tool_template / recent_tool_patterns 候補
 ```
@@ -412,7 +412,7 @@ modes:
         - 生成
         - 整形
       target_patterns:
-        - "tools/**"
+        - "/home/nyukimi/RenCrow/RenCrow_Tools/**"
         - "experiments/**"
         - "sandbox/**"
     memory_types:
@@ -422,7 +422,7 @@ modes:
       - coding_rule
       - accepted_pattern
     allowed_outputs:
-      - tools/
+      - /home/nyukimi/RenCrow/RenCrow_Tools/
       - experiments/
       - sandbox/
       - reports/
@@ -494,7 +494,7 @@ allowed:
     - "staging/"
     - "reports/"
     - "logs/"
-    - "tools/"
+    - "/home/nyukimi/RenCrow/RenCrow_Tools/"
     - "experiments/"
     - "sandbox/"
   actions:
@@ -624,7 +624,7 @@ def select_mode(
 {
   "mode": "tool_build",
   "confidence": 0.86,
-  "reason": "新規小物ツールであり、tools/ 配下で単体作成できるため",
+  "reason": "新規小物ツールであり、/home/nyukimi/RenCrow/RenCrow_Tools 配下で単体作成できるため",
   "matched_rules": ["tool_build.keyword:ツール", "tool_build.target:tools"],
   "requires_human_review": false
 }
@@ -653,7 +653,7 @@ def select_mode(
 
 - 新しい小物ツールを作る。
 - 既存本体にまだ接続しない。
-- `tools/`、`experiments/`、`sandbox/` 配下で作れる。
+- 横断ツールなら `/home/nyukimi/RenCrow/RenCrow_Tools`、実験なら `experiments/`、`sandbox/` 配下で作れる。
 - 入力と出力が明確。
 - 単体で動作確認できる。
 - 既存DB、既存設定、Source Registry、記憶に触らない。
@@ -681,7 +681,7 @@ def select_mode(
 | RenCrowの記憶DBスキーマを変更したい | `safe_build` | 既存DBと記憶システムに触る。 |
 | MarkdownからHTMLを作る小物ツールが欲しい | `tool_build` | 入出力が明確な新規ツール。 |
 | Source Registryに新しいソースを追加したい | `safe_build` | Source Registry に関係する。 |
-| tools配下にCSV整形ツールを作りたい | `tool_build` | tools配下の新規作成で既存本体に触らない。 |
+| RenCrow_Tools 配下にCSV整形ツールを作りたい | `tool_build` | RenCrow_Tools 配下の新規作成で既存本体に触らない。 |
 
 ---
 
@@ -749,7 +749,7 @@ def check_guardrails(
 - `staging/` への出力
 - `reports/` への出力
 - `logs/` への出力
-- `tools/` 配下の新規作成
+- `/home/nyukimi/RenCrow/RenCrow_Tools` 配下の新規作成
 - `experiments/` 配下の新規作成
 - `sandbox/` 配下の新規作成
 - memory candidate の作成
@@ -764,7 +764,7 @@ def check_guardrails(
 | `Move-Item .venv old_venv` | blocked |
 | `write official DB` | blocked |
 | `reports/coding_agent/evt.json` へ出力 | allowed |
-| `tools/csv_formatter/` を新規作成 | allowed |
+| `/home/nyukimi/RenCrow/RenCrow_Tools/tools/csv_formatter/` を新規作成 | allowed |
 | `config/guardrails.yaml` を変更 | needs_review |
 
 ---
@@ -960,7 +960,7 @@ def generate_memory_candidates(
   {
     "memory_id": "memcand_20260515_174512_a1b2c3",
     "type": "tool_template",
-    "summary": "JSONL validator は tools/ 配下に独立ツールとして作ると本体に影響しにくい",
+    "summary": "JSONL validator は /home/nyukimi/RenCrow/RenCrow_Tools 配下に独立ツールとして作ると本体に影響しにくい",
     "evidence_event_ids": ["evt_20260515_174512_a1b2c3"],
     "status": "candidate",
     "proposed_by": "coding_agent",
@@ -1017,7 +1017,7 @@ python -m rencrow.coding_agent.cli "JSONLの形式チェックツールを作り
 ```text
 Mode: tool_build
 Confidence: 0.88
-Reason: 新規小物ツールであり、tools/ 配下に単体作成できるため
+Reason: 新規小物ツールであり、RenCrow_Tools 配下に単体作成できるため
 Requires Human Review: false
 
 Guardrails:
@@ -1031,7 +1031,7 @@ JSONL validator の最小仕様、入力、出力、README構成を整理して�
 
 Coder Prompt:
 ---
-tools/jsonl_validator/ 配下に新規ツールを作成してください...
+/home/nyukimi/RenCrow/RenCrow_Tools/tools/jsonl_validator/ 配下に新規ツールを作成してください...
 
 WorkLog:
 - event_id: evt_20260515_174512_a1b2c3
@@ -1048,7 +1048,7 @@ Memory Candidates:
   "mode_decision": {
     "mode": "tool_build",
     "confidence": 0.88,
-    "reason": "新規小物ツールであり、tools/ 配下に単体作成できるため",
+    "reason": "新規小物ツールであり、/home/nyukimi/RenCrow/RenCrow_Tools 配下に単体作成できるため",
     "matched_rules": ["tool_build.keyword:ツール"],
     "requires_human_review": false
   },
@@ -1349,7 +1349,7 @@ Memory Candidates:
 
 - 代表例4件で期待モードを返す。
 - Source Registry、DB、config、既存APIに関係する依頼は Safe になる。
-- tools配下の新規小物ツールは Tool になる。
+- RenCrow_Tools 配下の新規小物ツールは Tool になる。
 
 ### Phase 4: Guardrails Checker 実装
 
@@ -1366,7 +1366,7 @@ Memory Candidates:
 - `rm -rf` を blocked にできる。
 - `Move-Item` を blocked にできる。
 - official DB write を blocked にできる。
-- `tools/` 配下新規作成を allowed にできる。
+- `/home/nyukimi/RenCrow/RenCrow_Tools` 配下新規作成を allowed にできる。
 - config変更を needs_review にできる。
 
 ### Phase 5: Prompt Builder 実装
@@ -1473,7 +1473,7 @@ Memory Candidates:
 | RenCrowの記憶DBスキーマを変更したい | Safe Build Mode |
 | MarkdownからHTMLを作る小物ツールが欲しい | Tool Build Mode |
 | Source Registryに新しいソースを追加したい | Safe Build Mode |
-| tools配下にCSV整形ツールを作りたい | Tool Build Mode |
+| RenCrow_Tools 配下にCSV整形ツールを作りたい | Tool Build Mode |
 
 ### 16.2 Guardrails テスト
 
@@ -1483,7 +1483,7 @@ Memory Candidates:
 | `Move-Item` で既存環境を移動 | blocked |
 | official DB write | blocked |
 | `staging/` への出力 | allowed |
-| `tools/` 配下の新規作成 | allowed |
+| `/home/nyukimi/RenCrow/RenCrow_Tools` 配下の新規作成 | allowed |
 | config変更 | needs_review |
 
 ### 16.3 Prompt Builder テスト
@@ -1579,7 +1579,7 @@ Tool Build Mode でよいと思った作業が、実際には既存DBや既存�
 
 対策:
 
-- 初期実装は `tools/`、`experiments/`、`sandbox/` に限定する。
+- 初期実装は `/home/nyukimi/RenCrow/RenCrow_Tools`、`experiments/`、`sandbox/` に限定する。
 - 既存本体接続が出たら Safe Build Mode に切り替える。
 - READMEに「本体連携は後付け」と明記する。
 

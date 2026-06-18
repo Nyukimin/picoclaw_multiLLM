@@ -829,7 +829,7 @@ func parseWebGatherWebwrightFetchArgs(args []string) (webGatherWebwrightFetchReq
 func buildWebGatherWebwrightCommand(cfg config.WebwrightFetchConfig, req webGatherWebwrightFetchRequest) (string, []string, error) {
 	runnerPath := strings.TrimSpace(cfg.RunnerPath)
 	if runnerPath == "" {
-		runnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+		runnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py"
 	}
 	args := []string{
 		runnerPath,
@@ -925,7 +925,7 @@ func runWebGatherDoctor(ctx context.Context, deps webGatherCLIDeps) webGatherDoc
 	add("webwright_enabled", true, "ok", "enabled")
 	runnerPath := strings.TrimSpace(deps.WebwrightFetch.RunnerPath)
 	if runnerPath == "" {
-		runnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+		runnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py"
 	}
 	if st, err := os.Stat(runnerPath); err != nil {
 		add("webwright_runner", false, "fail", err.Error())

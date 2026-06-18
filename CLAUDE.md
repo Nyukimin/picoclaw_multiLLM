@@ -27,6 +27,22 @@
 - **セッション管理**: 日次カットオーバー、メモリ管理
 - **ログ保存**: 構造化ログ、Obsidian 連携
 
+### 1.3.1 RenCrow Module Context
+
+`/home/nyukimi/RenCrow` を RenCrow 全体 root とし、実作業は module root ごとに分離する。
+
+| Module | Root | 用途 |
+| ------ | ---- | ---- |
+| Core / Chat / CLI | `/home/nyukimi/RenCrow/picoclaw_multiLLM` | RenCrow 本体、Viewer、Chat/Worker/Coder orchestration |
+| STT | `/home/nyukimi/RenCrow/RenCrow_STT` | Speech-to-Text server |
+| TTS | `/home/nyukimi/RenCrow/RenCrow_TTS` | Text-to-Speech server |
+| LLM | `/home/nyukimi/RenCrow/RenCrow_LLM` | Chat / Worker / Heavy / Wild role servers |
+| Vision | `/home/nyukimi/RenCrow/RenCrow_Vision` | Vision server |
+| CMD | `/home/nyukimi/RenCrow/RenCrow_CMD` | CLI client / entrypoint |
+| Tools | `/home/nyukimi/RenCrow/RenCrow_Tools` | 横断ツール、browser sidecar、データ変換、検証 CLI |
+
+横断的に再利用するツールは `RenCrow_Tools` を正本とする。`picoclaw_multiLLM/tools/` は既存互換または本体密結合の残置場所であり、新規の横断ツール置き場にしない。
+
 ### 1.4 使用言語・プラットフォーム
 
 - **使用言語**: Go 1.23

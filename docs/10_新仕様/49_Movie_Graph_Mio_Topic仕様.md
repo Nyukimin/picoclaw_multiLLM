@@ -282,6 +282,6 @@ Mio は映画 DB から取得した事実と、れんの鑑賞履歴を混同し
 
 ## 実装メモ
 
-- 現行の `tools/eiga_catalog/eiga_catalog.py` は `movies` へ `INSERT OR REPLACE` するため、ユーザー固有状態は別テーブルに保持する。
+- 現行の `RenCrow_Tools/tools/eiga_catalog/eiga_catalog.py` は `movies` へ `INSERT OR REPLACE` するため、ユーザー固有状態は別テーブルに保持する。
 - `movie_watch_events` / `movie_title_observations` / `movie_preference_signals` / `movie_topic_candidates` は、既存カタログ DB に追加してよい。
 - 将来、Source Registry / Memory Layers と接続する場合も、外部カタログ事実、ユーザー鑑賞履歴、Mio 話題候補の境界は維持する。

@@ -150,13 +150,13 @@ func (f *WebwrightFetcher) run(ctx context.Context, command string, args []strin
 
 func (cfg WebwrightFetcherConfig) withDefaults() WebwrightFetcherConfig {
 	if strings.TrimSpace(cfg.RunnerPath) == "" {
-		cfg.RunnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+		cfg.RunnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py"
 	}
 	if strings.TrimSpace(cfg.ConverterPath) == "" {
-		cfg.ConverterPath = "tools/webwright_fetch/webwright_to_staging.py"
+		cfg.ConverterPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/webwright_to_staging.py"
 	}
 	if strings.TrimSpace(cfg.ConfigPath) == "" {
-		cfg.ConfigPath = "tools/webwright_fetch/config_local_worker.yaml"
+		cfg.ConfigPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/config_local_worker.yaml"
 	}
 	if strings.TrimSpace(cfg.OutputDir) == "" {
 		cfg.OutputDir = "tmp/webwright_runs"

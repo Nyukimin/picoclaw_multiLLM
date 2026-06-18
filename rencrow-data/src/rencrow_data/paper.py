@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from .hashing import assert_snapshot_features_unchanged
+
 
 @dataclass(frozen=True)
 class PaperTradeOptions:
@@ -23,16 +25,25 @@ def _load_approval(path: Path) -> dict[str, object]:
     if text.startswith("{"):
         return json.loads(text)
     approval: dict[str, object] = {}
+    list_key: str | None = None
     for raw_line in text.splitlines():
-        line = raw_line.split("#", 1)[0].strip()
+        line_without_comment = raw_line.split("#", 1)[0]
+        if list_key and line_without_comment.startswith("  - "):
+            if not isinstance(approval.get(list_key), list):
+                approval[list_key] = []
+            approval[list_key].append(line_without_comment[4:].strip())
+            continue
+        line = line_without_comment.strip()
         if not line or ":" not in line:
             continue
         key, value = line.split(":", 1)
+        list_key = None
         value = value.strip()
         if value.lower() in {"true", "false"}:
             parsed: object = value.lower() == "true"
         elif value == "":
             parsed = ""
+            list_key = key.strip()
         elif value.startswith(("'", '"')) and value.endswith(("'", '"')):
             parsed = value[1:-1]
         else:
@@ -51,13 +62,73 @@ def _decision(con, decision_id: int):
     return row
 
 
+def _assert_decision_snapshot_features_unchanged(con, decision) -> None:
+    snapshot_id = str(decision["snapshot_id"])
+    row = con.execute("SELECT snapshot_date, features_hash FROM snapshot_registry WHERE snapshot_id=?", (snapshot_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"snapshot not found: {snapshot_id}")
+    assert_snapshot_features_unchanged(con, snapshot_id, row["snapshot_date"], row["features_hash"])
+
+
 def _require_approval_metadata(approval: dict[str, object]) -> None:
     missing = [key for key in ("approver", "approved_at", "approval_reason") if not str(approval.get(key) or "").strip()]
     if missing:
         raise PermissionError(f"approval file is missing required metadata: {', '.join(missing)}")
 
 
+def _require_approval_scope(approval: dict[str, object], decision, candidate: dict[str, object]) -> None:
+    if decision["account_scope"] != "paper":
+        raise PermissionError("paper trade requires a paper account_scope decision")
+    if "account_scope" in approval and str(approval["account_scope"]) != "paper":
+        raise ValueError("approval account_scope must be paper")
+    if "snapshot_id" in approval and str(approval["snapshot_id"]) != str(decision["snapshot_id"]):
+        raise ValueError("approval snapshot_id does not match decision")
+    if "strategy_id" in approval and str(approval["strategy_id"]) != str(decision["strategy_name"]):
+        raise ValueError("approval strategy_id does not match decision")
+    if "candidate_symbols" in approval:
+        approved_symbols = approval["candidate_symbols"]
+        if isinstance(approved_symbols, str):
+            approved = [approved_symbols]
+        elif isinstance(approved_symbols, list):
+            approved = [str(symbol) for symbol in approved_symbols]
+        else:
+            approved = []
+        current = [str(item.get("symbol")) for item in candidate.get("candidates", [])]
+        if approved != current:
+            raise ValueError("approval candidate_symbols do not match decision")
+
+
 def _feature_price(con, instrument_id: int, week_end: str, fill_model: str) -> float | None:
+    if fill_model == "open_next_session":
+        row = con.execute(
+            """
+            SELECT open
+              FROM price_raw
+             WHERE instrument_id=? AND trade_date>?
+               AND open IS NOT NULL
+             ORDER BY trade_date
+             LIMIT 1
+            """,
+            (instrument_id, week_end),
+        ).fetchone()
+        return None if row is None else float(row["open"])
+    if fill_model == "vwap_approx":
+        row = con.execute(
+            """
+            SELECT open, high, low, close
+              FROM price_raw
+             WHERE instrument_id=? AND trade_date>?
+               AND open IS NOT NULL
+               AND high IS NOT NULL
+               AND low IS NOT NULL
+               AND close IS NOT NULL
+             ORDER BY trade_date
+             LIMIT 1
+            """,
+            (instrument_id, week_end),
+        ).fetchone()
+        if row is not None:
+            return float(row["open"] + row["high"] + row["low"] + row["close"]) / 4.0
     if fill_model == "close_next_week":
         row = con.execute(
             """
@@ -92,7 +163,11 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
         raise PermissionError("approval file is present but approved=false")
     _require_approval_metadata(approval)
     decision = _decision(con, options.decision_id)
+    _assert_decision_snapshot_features_unchanged(con, decision)
     snapshot_id = decision["snapshot_id"]
+    candidate = json.loads(decision["candidate_json"] or "{}")
+    veto = json.loads(decision["veto_json"] or "{}")
+    _require_approval_scope(approval, decision, candidate)
     con.execute(
         """
         UPDATE decision_log
@@ -106,16 +181,18 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
             options.decision_id,
         ),
     )
-    candidate = json.loads(decision["candidate_json"] or "{}")
-    veto = json.loads(decision["veto_json"] or "{}")
     candidates = candidate.get("candidates", [])
     if veto.get("vetoed") or not candidates:
         con.execute(
             """
-            INSERT INTO paper_trade_log(snapshot_id, decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
-            VALUES (?, ?, NULL, 'HOLD', 0, NULL, NULL, ?, ?)
+            INSERT INTO paper_trade_log(
+              snapshot_id, decision_id, instrument_id, side, quantity,
+              decision_price, simulated_fill_price, fill_model, cost_bps,
+              target_weight, notional, estimated_cost, slippage, status
+            )
+            VALUES (?, ?, NULL, 'HOLD', 0, NULL, NULL, ?, ?, 0, 0, 0, NULL, ?)
             """,
-            (snapshot_id, options.decision_id, options.cost_bps, "vetoed" if veto.get("vetoed") else "no_candidate"),
+            (snapshot_id, options.decision_id, options.fill_model, options.cost_bps, "vetoed" if veto.get("vetoed") else "no_candidate"),
         )
         con.commit()
         paper_trade_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -149,10 +226,29 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
         total_cost += estimated_cost
         con.execute(
             """
-            INSERT INTO paper_trade_log(snapshot_id, decision_id, instrument_id, side, quantity, decision_price, simulated_fill_price, cost_bps, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO paper_trade_log(
+              snapshot_id, decision_id, instrument_id, side, quantity,
+              decision_price, simulated_fill_price, fill_model, cost_bps,
+              target_weight, notional, estimated_cost, slippage, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (snapshot_id, options.decision_id, instrument_id, side, quantity, decision_price, fill_price, options.cost_bps, status),
+            (
+                snapshot_id,
+                options.decision_id,
+                instrument_id,
+                side,
+                quantity,
+                decision_price,
+                fill_price,
+                options.fill_model,
+                options.cost_bps,
+                target_weight,
+                notional,
+                estimated_cost,
+                slippage,
+                status,
+            ),
         )
         paper_trade_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
         if side == "BUY":
@@ -176,6 +272,7 @@ def run_paper_trade(con, options: PaperTradeOptions) -> dict[str, object]:
                 "quantity": quantity,
                 "decision_price": decision_price,
                 "simulated_fill_price": fill_price,
+                "fill_model": options.fill_model,
                 "target_weight": target_weight,
                 "notional": notional,
                 "estimated_cost": estimated_cost,

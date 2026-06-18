@@ -333,7 +333,7 @@ Viewer は収集結果を正式 memory として表示してはいけない。pe
 | `modules/webgather` | provider contract、URL正規化、cache key、rate policy、抽出結果 DTO |
 | `internal/application/webgather` | search / fetch / search_and_fetch use case |
 | `internal/infrastructure/webgather` | HTTP / Colly / SearXNG / YaCy / readability 実装 |
-| `tools/webwright_fetch` | JS fallback。既存ツールを再利用 |
+| `RenCrow_Tools/tools/webwright_fetch` | JS fallback。既存ツールを再利用 |
 | `internal/application/sourcefetcher` | staging / validate / promote の既存境界 |
 | `cmd/picoclaw` | CLI / runtime wiring |
 | `internal/adapter/viewer` | 診断表示 |
@@ -369,7 +369,7 @@ Go 本体の第一実装は `http` + `go_readability` + staging writer とする
 ### Phase 4: JS fallback
 
 - `fetch_provider=webwright`
-- 既存 `tools/webwright_fetch` との共通 staging meta
+- 既存 `RenCrow_Tools/tools/webwright_fetch` との共通 staging meta
 - screenshot / trace artifact の保存
 - Browser Trace to API Discovery への接続
 

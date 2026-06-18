@@ -154,19 +154,42 @@ class PaperTradeTest(unittest.TestCase):
             )
             summary = json.loads(result.stdout)
             self.assertEqual(summary["status"], "simulated")
+            self.assertEqual(summary["success_count"], 1)
+            self.assertEqual(summary["fail_count"], 0)
             self.assertEqual(str(summary["snapshot_id"]), str(decision["snapshot_id"]))
             self.assertEqual(len(summary["trades"]), 1)
             self.assertGreater(summary["trades"][0]["quantity"], 0)
             self.assertEqual(str(summary["trades"][0]["snapshot_id"]), str(decision["snapshot_id"]))
             self.assertGreater(summary["tca"]["estimated_total_cost"], 0)
             self.assertIn("notional_weighted_abs_slippage", summary["tca"])
+            self.assertEqual(summary["trades"][0]["fill_model"], "close_next_week")
+            self.assertGreater(summary["trades"][0]["notional"], 0)
+            self.assertGreater(summary["trades"][0]["estimated_cost"], 0)
+            self.assertIsNotNone(summary["trades"][0]["slippage"])
 
             con = sqlite3.connect(db_path)
-            row = con.execute("SELECT side, status, quantity, snapshot_id FROM paper_trade_log").fetchone()
+            row = con.execute(
+                """
+                SELECT side, status, quantity, snapshot_id, fill_model, target_weight, notional, estimated_cost, slippage
+                  FROM paper_trade_log
+                """
+            ).fetchone()
             self.assertEqual(row[0], "BUY")
             self.assertEqual(row[1], "simulated")
             self.assertGreater(row[2], 0)
             self.assertEqual(str(row[3]), str(decision["snapshot_id"]))
+            self.assertEqual(row[4], "close_next_week")
+            self.assertGreater(row[5], 0)
+            self.assertGreater(row[6], 0)
+            self.assertGreater(row[7], 0)
+            self.assertIsNotNone(row[8])
+            cli_row = con.execute(
+                "SELECT status, success_count, fail_count FROM cli_run_log WHERE run_id=?",
+                (summary["cli_run_id"],),
+            ).fetchone()
+            self.assertEqual(cli_row[0], "simulated")
+            self.assertEqual(cli_row[1], 1)
+            self.assertEqual(cli_row[2], 0)
             decision_row = con.execute(
                 "SELECT approved, approver, approved_at, approval_reason FROM decision_log WHERE decision_id=?",
                 (decision["decision_id"],),
@@ -179,6 +202,38 @@ class PaperTradeTest(unittest.TestCase):
             self.assertEqual(lot[0], "taxable")
             self.assertGreater(lot[1], 0)
             self.assertGreater(lot[2], 0)
+
+    def test_changed_snapshot_feature_scope_blocks_paper_trade(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root, db_path, decision = prepare_decision(Path(td))
+            con = sqlite3.connect(db_path)
+            con.execute("UPDATE feature_weekly SET ret_12w_skip1=9.0 WHERE week_end=?", (decision["week_end"],))
+            con.commit()
+            con.close()
+            approval_path = Path(decision["approval_path"])
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: changed feature scope should stop")
+            approval_path.write_text(approval, encoding="utf-8")
+
+            result = run_script(
+                "12_paper_trade.py",
+                "--db",
+                str(db_path),
+                "--decision",
+                str(decision["decision_id"]),
+                "--approval-file",
+                str(approval_path),
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 4)
+            self.assertIn("feature_weekly changed since snapshot", result.stderr)
+            con = sqlite3.connect(db_path)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM paper_trade_log").fetchone()[0], 0)
 
     def test_paper_trade_accepts_yaml_approval_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -211,6 +266,173 @@ class PaperTradeTest(unittest.TestCase):
             summary = json.loads(result.stdout)
             self.assertEqual(summary["status"], "simulated")
 
+    def test_paper_trade_fill_models_use_next_session_price_assumptions(self) -> None:
+        for fill_model, expected_price in (("open_next_session", 123.0), ("vwap_approx", 126.0)):
+            with self.subTest(fill_model=fill_model), tempfile.TemporaryDirectory() as td:
+                data_root, db_path, decision = prepare_decision(Path(td))
+                instrument_id = int(decision["candidates"][0]["instrument_id"])
+                con = sqlite3.connect(db_path)
+                con.execute(
+                    """
+                    INSERT INTO price_raw(
+                      instrument_id, trade_date, open, high, low, close, adj_close, volume, source_name
+                    )
+                    VALUES (?, '2026-05-18', 123, 129, 121, 131, 131, 1000, 'unit_test_next_session')
+                    """,
+                    (instrument_id,),
+                )
+                con.commit()
+                con.close()
+
+                approval_path = Path(decision["approval_path"])
+                approval_path.write_text(
+                    "\n".join(
+                        [
+                            f"decision_id: {decision['decision_id']}",
+                            f"snapshot_id: {decision['snapshot_id']}",
+                            "strategy_id: weekly_etf_rotation_v1",
+                            "approved: true",
+                            "approver: unit-test",
+                            "approved_at: 2026-05-16T00:00:00+00:00",
+                            f"approval_reason: approval via {fill_model}",
+                            "candidate_symbols:",
+                            "  - 1306.T",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = run_script(
+                    "12_paper_trade.py",
+                    "--db",
+                    str(db_path),
+                    "--decision",
+                    str(decision["decision_id"]),
+                    "--approval-file",
+                    str(approval_path),
+                    "--fill-model",
+                    fill_model,
+                    "--capital",
+                    "1000000",
+                    "--json",
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                summary = json.loads(result.stdout)
+                self.assertEqual(summary["status"], "simulated")
+                self.assertEqual(summary["trades"][0]["fill_model"], fill_model)
+                self.assertEqual(summary["trades"][0]["simulated_fill_price"], expected_price)
+                self.assertNotEqual(summary["trades"][0]["decision_price"], expected_price)
+
+    def test_paper_trade_rejects_non_paper_decision_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root, db_path, decision = prepare_decision(Path(td))
+            con = sqlite3.connect(db_path)
+            con.execute("UPDATE decision_log SET account_scope='taxable' WHERE decision_id=?", (decision["decision_id"],))
+            con.commit()
+            con.close()
+            approval_path = Path(decision["approval_path"])
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: taxable decision should not paper trade")
+            approval_path.write_text(approval, encoding="utf-8")
+
+            result = run_script(
+                "12_paper_trade.py",
+                "--db",
+                str(db_path),
+                "--decision",
+                str(decision["decision_id"]),
+                "--approval-file",
+                str(approval_path),
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("paper account_scope", result.stderr)
+            con = sqlite3.connect(db_path)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM paper_trade_log").fetchone()[0], 0)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM tax_lot_log").fetchone()[0], 0)
+
+    def test_paper_trade_rejects_approval_account_scope_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root, db_path, decision = prepare_decision(Path(td))
+            approval_path = Path(decision["approval_path"])
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: wrong account scope")
+            approval += "account_scope: taxable\n"
+            approval_path.write_text(approval, encoding="utf-8")
+
+            result = run_script(
+                "12_paper_trade.py",
+                "--db",
+                str(db_path),
+                "--decision",
+                str(decision["decision_id"]),
+                "--approval-file",
+                str(approval_path),
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 4)
+            self.assertIn("account_scope", result.stderr)
+            con = sqlite3.connect(db_path)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM paper_trade_log").fetchone()[0], 0)
+
+    def test_paper_trade_records_vetoed_no_trade(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root, db_path, decision = prepare_decision(Path(td))
+            con = sqlite3.connect(db_path)
+            con.execute(
+                """
+                UPDATE decision_log
+                   SET veto_json=?, candidate_json=?
+                 WHERE decision_id=?
+                """,
+                (
+                    json.dumps({"vetoed": True, "risk_status": "stop"}, sort_keys=True),
+                    json.dumps({"approval_required": True, "risk_status": "stop", "week_end": decision["week_end"], "candidates": decision["candidates"]}, sort_keys=True),
+                    decision["decision_id"],
+                ),
+            )
+            con.commit()
+            con.close()
+            approval_path = Path(decision["approval_path"])
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: stopped no trade")
+            approval_path.write_text(approval, encoding="utf-8")
+
+            result = run_script(
+                "12_paper_trade.py",
+                "--db",
+                str(db_path),
+                "--decision",
+                str(decision["decision_id"]),
+                "--approval-file",
+                str(approval_path),
+                "--json",
+            )
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary["status"], "vetoed")
+            self.assertEqual(summary["trades"], [])
+            con = sqlite3.connect(db_path)
+            row = con.execute("SELECT side, quantity, status, fill_model FROM paper_trade_log WHERE decision_id=?", (decision["decision_id"],)).fetchone()
+            self.assertEqual(row[0], "HOLD")
+            self.assertEqual(row[1], 0)
+            self.assertEqual(row[2], "vetoed")
+            self.assertEqual(row[3], "close_next_week")
+
     def test_paper_trade_requires_approval_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             data_root, db_path, decision = prepare_decision(Path(td))
@@ -241,6 +463,34 @@ class PaperTradeTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 3)
             self.assertIn("approval_reason", result.stderr)
+
+    def test_paper_trade_rejects_approval_scope_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            data_root, db_path, decision = prepare_decision(Path(td))
+            approval_path = Path(decision["approval_path"])
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace(f"snapshot_id: {decision['snapshot_id']}", "snapshot_id: 999999")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: wrong snapshot approval")
+            approval_path.write_text(approval, encoding="utf-8")
+
+            result = run_script(
+                "12_paper_trade.py",
+                "--db",
+                str(db_path),
+                "--decision",
+                str(decision["decision_id"]),
+                "--approval-file",
+                str(approval_path),
+                "--json",
+                check=False,
+            )
+            self.assertEqual(result.returncode, 4)
+            self.assertIn("snapshot_id", result.stderr)
+            con = sqlite3.connect(db_path)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM paper_trade_log").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

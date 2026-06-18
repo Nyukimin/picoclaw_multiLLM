@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from .timeutil import utcnow_iso
+from .timeutil import unique_id, utcnow_iso
 
 
 SCHEMA_SQL = """
@@ -38,7 +39,25 @@ CREATE TABLE IF NOT EXISTS source_fetch_log (
   checksum TEXT,
   retry_count INTEGER DEFAULT 0,
   error_message TEXT,
-  raw_cache_path TEXT
+  raw_cache_path TEXT,
+  usage_terms TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cli_run_log (
+  run_id TEXT PRIMARY KEY,
+  cli_name TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  target_count INTEGER DEFAULT 0,
+  success_count INTEGER DEFAULT 0,
+  partial_count INTEGER DEFAULT 0,
+  fail_count INTEGER DEFAULT 0,
+  exit_code INTEGER,
+  db_path TEXT,
+  snapshot_id TEXT,
+  config_hash TEXT,
+  detail_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS price_raw (
@@ -114,6 +133,7 @@ CREATE TABLE IF NOT EXISTS feature_weekly (
   ret_4w REAL,
   ret_12w REAL,
   ret_12w_skip1 REAL,
+  ret_26w REAL,
   vol_12w REAL,
   drawdown_26w REAL,
   ma_4w_gap REAL,
@@ -127,6 +147,7 @@ CREATE TABLE IF NOT EXISTS feature_weekly (
   employment_flag INTEGER DEFAULT 0,
   holdings_turnover REAL,
   event_risk_score REAL DEFAULT 0,
+  feature_config_hash TEXT,
   source_snapshot_id INTEGER,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (instrument_id, week_end)
@@ -141,6 +162,7 @@ CREATE TABLE IF NOT EXISTS event_log (
   value REAL,
   event_risk_score REAL,
   context_json TEXT,
+  snapshot_id INTEGER,
   resolved_at TEXT,
   resolution_note TEXT
 );
@@ -185,7 +207,12 @@ CREATE TABLE IF NOT EXISTS paper_trade_log (
   quantity REAL,
   decision_price REAL,
   simulated_fill_price REAL,
+  fill_model TEXT,
   cost_bps REAL,
+  target_weight REAL,
+  notional REAL,
+  estimated_cost REAL,
+  slippage REAL,
   status TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -225,6 +252,20 @@ CREATE TABLE IF NOT EXISTS tax_lot_log (
   source_order_id INTEGER,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TRIGGER IF NOT EXISTS enforce_tax_lot_taxable_scope_insert
+BEFORE INSERT ON tax_lot_log
+WHEN NEW.account_scope IS NULL OR NEW.account_scope <> 'taxable'
+BEGIN
+  SELECT RAISE(ABORT, 'tax_lot_log is restricted to taxable account scope');
+END;
+
+CREATE TRIGGER IF NOT EXISTS enforce_tax_lot_taxable_scope_update
+BEFORE UPDATE OF account_scope ON tax_lot_log
+WHEN NEW.account_scope IS NULL OR NEW.account_scope <> 'taxable'
+BEGIN
+  SELECT RAISE(ABORT, 'tax_lot_log is restricted to taxable account scope');
+END;
 
 CREATE TABLE IF NOT EXISTS data_quality_check (
   check_id INTEGER PRIMARY KEY,
@@ -306,6 +347,7 @@ CREATE TABLE IF NOT EXISTS weekly_signal (
 CREATE TABLE IF NOT EXISTS llm_audit_log (
   llm_log_id TEXT PRIMARY KEY,
   snapshot_id TEXT,
+  decision_id INTEGER,
   task_type TEXT,
   model TEXT,
   prompt_version TEXT,
@@ -322,6 +364,10 @@ CREATE INDEX IF NOT EXISTS idx_instruments_active ON instruments(active);
 CREATE INDEX IF NOT EXISTS idx_fetch_source_requested ON source_fetch_log(source_name, requested_at);
 CREATE INDEX IF NOT EXISTS idx_fetch_status ON source_fetch_log(status);
 CREATE INDEX IF NOT EXISTS idx_fetch_finished ON source_fetch_log(finished_at);
+CREATE INDEX IF NOT EXISTS idx_cli_run_name ON cli_run_log(cli_name);
+CREATE INDEX IF NOT EXISTS idx_cli_run_started ON cli_run_log(started_at);
+CREATE INDEX IF NOT EXISTS idx_cli_run_status ON cli_run_log(status);
+CREATE INDEX IF NOT EXISTS idx_cli_run_snapshot ON cli_run_log(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_price_trade_date ON price_raw(trade_date);
 CREATE INDEX IF NOT EXISTS idx_price_fetch ON price_raw(fetch_id);
 CREATE INDEX IF NOT EXISTS idx_macro_series_obs ON macro_series(series_code, obs_date);
@@ -377,9 +423,22 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 def init_schema(con: sqlite3.Connection) -> None:
     con.executescript(SCHEMA_SQL)
     _ensure_column(con, "feature_weekly", "ret_12w_skip1", "REAL")
+    _ensure_column(con, "feature_weekly", "ret_26w", "REAL")
+    _ensure_column(con, "feature_weekly", "feature_config_hash", "TEXT")
+    _ensure_column(con, "cli_run_log", "exit_code", "INTEGER")
     _ensure_column(con, "paper_trade_log", "snapshot_id", "INTEGER")
+    _ensure_column(con, "paper_trade_log", "fill_model", "TEXT")
+    _ensure_column(con, "paper_trade_log", "target_weight", "REAL")
+    _ensure_column(con, "paper_trade_log", "notional", "REAL")
+    _ensure_column(con, "paper_trade_log", "estimated_cost", "REAL")
+    _ensure_column(con, "paper_trade_log", "slippage", "REAL")
     _ensure_column(con, "decision_log", "approval_reason", "TEXT")
+    _ensure_column(con, "llm_audit_log", "uncertainty_flag", "INTEGER DEFAULT 0")
+    _ensure_column(con, "llm_audit_log", "decision_id", "INTEGER")
+    _ensure_column(con, "event_log", "snapshot_id", "INTEGER")
+    _ensure_column(con, "source_fetch_log", "usage_terms", "TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_paper_trade_snapshot ON paper_trade_log(snapshot_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_event_snapshot ON event_log(snapshot_id)")
     con.execute(
         """
         INSERT OR IGNORE INTO strategy_version(strategy_id, strategy_name, version, config_hash, config_json, active)
@@ -404,6 +463,110 @@ def init_schema(con: sqlite3.Connection) -> None:
         (DEFAULT_STRATEGY_CONFIG_JSON,),
     )
     con.commit()
+
+
+def start_cli_run(
+    con: sqlite3.Connection,
+    cli_name: str,
+    db_path: str | Path,
+    *,
+    snapshot_id: str | None = None,
+    config_hash: str | None = None,
+) -> dict[str, object]:
+    run = {
+        "run_id": unique_id("cli"),
+        "cli_name": cli_name,
+        "started_at": utcnow_iso(),
+        "db_path": str(db_path),
+        "snapshot_id": snapshot_id,
+        "config_hash": config_hash,
+    }
+    con.execute(
+        """
+        INSERT INTO cli_run_log(run_id, cli_name, started_at, status, db_path, snapshot_id, config_hash)
+        VALUES (?, ?, ?, 'running', ?, ?, ?)
+        """,
+        (run["run_id"], cli_name, run["started_at"], str(db_path), snapshot_id, config_hash),
+    )
+    con.commit()
+    return run
+
+
+def finish_cli_run(con: sqlite3.Connection, run: dict[str, object], summary: dict[str, object]) -> dict[str, object]:
+    finished_at = utcnow_iso()
+    summary.setdefault("cli_run_id", run["run_id"])
+    summary.setdefault("run_id", run["run_id"])
+    summary.setdefault("cli_name", run["cli_name"])
+    summary.setdefault("started_at", run["started_at"])
+    summary.setdefault("finished_at", finished_at)
+    summary.setdefault("db_path", run["db_path"])
+    summary.setdefault("snapshot_id", run.get("snapshot_id"))
+    summary.setdefault("config_hash", run.get("config_hash"))
+    status = str(summary.get("status", "success"))
+    if summary.get("exit_code") is None:
+        if status == "partial":
+            summary["exit_code"] = 2
+        elif status == "fail":
+            summary["exit_code"] = 1
+        else:
+            summary["exit_code"] = 0
+    con.execute(
+        """
+        UPDATE cli_run_log
+           SET finished_at=?,
+               status=?,
+               target_count=?,
+               success_count=?,
+               partial_count=?,
+               fail_count=?,
+               exit_code=?,
+               snapshot_id=?,
+               config_hash=?,
+               detail_json=?
+         WHERE run_id=?
+        """,
+        (
+            finished_at,
+            status,
+            int(summary.get("target_count") or 0),
+            int(summary.get("success_count") or 0),
+            int(summary.get("partial_count") or 0),
+            int(summary.get("fail_count") or 0),
+            int(summary.get("exit_code") or 0),
+            None if summary.get("snapshot_id") is None else str(summary.get("snapshot_id")),
+            None if summary.get("config_hash") is None else str(summary.get("config_hash")),
+            json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str),
+            run["run_id"],
+        ),
+    )
+    con.commit()
+    return summary
+
+
+def fail_cli_run(
+    con: sqlite3.Connection,
+    run: dict[str, object],
+    *,
+    status: str = "fail",
+    fail_count: int = 1,
+    error_message: str = "",
+    exit_code: int | None = None,
+) -> dict[str, object]:
+    return finish_cli_run(
+        con,
+        run,
+        {
+            "cli_name": run["cli_name"],
+            "db_path": run["db_path"],
+            "status": status,
+            "target_count": 1,
+            "success_count": 0,
+            "partial_count": 0,
+            "fail_count": fail_count,
+            "error_message": error_message,
+            "exit_code": exit_code,
+        },
+    )
 
 
 def _ensure_column(con: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
@@ -475,10 +638,17 @@ def instrument_id(con: sqlite3.Connection, symbol: str, venue: str | None = None
     return int(row["instrument_id"])
 
 
-def start_fetch(con: sqlite3.Connection, source_name: str, endpoint: str) -> int:
+def _normalized_usage_terms(usage_terms: str | None) -> str:
+    value = str(usage_terms or "").strip()
+    if value:
+        return value
+    return "usage_terms_missing; internal_research_only; no_redistribution"
+
+
+def start_fetch(con: sqlite3.Connection, source_name: str, endpoint: str, usage_terms: str | None = None) -> int:
     con.execute(
-        "INSERT INTO source_fetch_log(source_name, endpoint, requested_at, status) VALUES (?, ?, ?, 'running')",
-        (source_name, endpoint, utcnow_iso()),
+        "INSERT INTO source_fetch_log(source_name, endpoint, requested_at, status, usage_terms) VALUES (?, ?, ?, 'running', ?)",
+        (source_name, endpoint, utcnow_iso(), _normalized_usage_terms(usage_terms)),
     )
     con.commit()
     return int(con.execute("SELECT last_insert_rowid()").fetchone()[0])

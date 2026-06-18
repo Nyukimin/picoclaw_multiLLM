@@ -6,6 +6,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	domainmodule "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/moduleregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
@@ -23,6 +24,7 @@ type CodeExecutionRequest struct {
 	Channel   string
 	ChatID    string
 	JobID     string
+	Module    domainmodule.Resolution
 }
 
 // DefaultCodeExecutor は標準的なCodeExecutor実装
@@ -38,6 +40,11 @@ type DefaultCodeExecutor struct {
 	externalCoders   map[string]bool              // true の coder は明示 route でのみ使う。
 	proposalEvidence CoderProposalEvidenceRecorder
 	coderLoopPrompts map[string]string // coder名 → CoderLoop システムプロンプト
+	moduleResolver   ModuleResolver
+}
+
+type ModuleResolver interface {
+	Resolve(message string) domainmodule.Resolution
 }
 
 // NewDefaultCodeExecutor は新しいDefaultCodeExecutorを作成
@@ -83,8 +90,14 @@ func (e *DefaultCodeExecutor) WithCoderLoopPrompts(prompts map[string]string) *D
 	return e
 }
 
+func (e *DefaultCodeExecutor) WithModuleResolver(resolver ModuleResolver) *DefaultCodeExecutor {
+	e.moduleResolver = resolver
+	return e
+}
+
 // ExecuteCode はコード生成タスクを実行
 func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecutionRequest) (CodeExecutionResponse, error) {
+	req = e.resolveModuleForRequest(req)
 	target, err := e.selectCoderForRoute(req.Route)
 	if err != nil {
 		return CodeExecutionResponse{}, err
@@ -114,4 +127,21 @@ func (e *DefaultCodeExecutor) ExecuteCode(ctx context.Context, req CodeExecution
 	}
 
 	return e.executeCoderGeneratePath(ctx, req, target)
+}
+
+func (e *DefaultCodeExecutor) resolveModuleForRequest(req CodeExecutionRequest) CodeExecutionRequest {
+	if req.Module.Found() || e.moduleResolver == nil {
+		return req
+	}
+	resolved := e.moduleResolver.Resolve(req.Task.UserMessage())
+	if !resolved.Found() {
+		if resolved.Ambiguous {
+			e.emit("module.unresolved", "mio", "shiro", resolved.Summary(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+		}
+		return req
+	}
+	req.Module = resolved
+	e.emit("module.selected", "mio", "shiro", resolved.Summary(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	req.Task = req.Task.WithUserMessage(appendModuleContextToCodeRequest(req.Task.UserMessage(), resolved))
+	return req
 }

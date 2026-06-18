@@ -43,7 +43,7 @@
   - `HandleMovieCatalogPreference`
   - `MovieCatalogOptions{DBPath string}`
   - `movies` / `people` / `movie_people` を read する。
-- `tools/eiga_catalog/eiga_catalog.py`
+- `RenCrow_Tools/tools/eiga_catalog/eiga_catalog.py`
   - `movies(movie_id,title,url,synopsis)` を作成する。
   - `INSERT OR REPLACE INTO movies(movie_id,title,url,synopsis)` を使う。
 
@@ -304,7 +304,7 @@ git diff --check
 
 ## 11. 停止条件
 
-- `movies` schema が現行 `tools/eiga_catalog/eiga_catalog.py` と矛盾する。
+- `movies` schema が現行 `RenCrow_Tools/tools/eiga_catalog/eiga_catalog.py` と矛盾する。
 - assertion の `evidence` に secret / token / raw web text 全文を取り込む必要が出る。
 - numeric movie ID 正規化を同時に行わないと既存 Movie DB と破壊的に衝突する。
 - `movie_people` edge 同期まで同時にやらないと UI が誤表示になる。

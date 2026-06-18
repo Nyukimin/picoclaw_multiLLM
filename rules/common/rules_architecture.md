@@ -258,7 +258,7 @@ def load_config(common_path: str, user_path: str | None = None) -> dict:
 
 判断順序:
 
-1. 既存のインストール済みツール、自作ツール、リポジトリ内 `tools/` / `scripts/` / `experiments/` / `sandbox/` の再利用
+1. 既存のインストール済みツール、自作ツール、`/home/nyukimi/RenCrow/RenCrow_Tools` / リポジトリ内 `scripts/` / `experiments/` / `sandbox/` の再利用
 2. プロジェクト本体の主言語
 3. 対象領域と同じ言語圏
 4. 既存テスト・既存ツールとの整合

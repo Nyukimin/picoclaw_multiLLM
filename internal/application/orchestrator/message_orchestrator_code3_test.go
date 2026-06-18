@@ -13,8 +13,9 @@ import (
 
 // mockCoderAgentWithProposal はProposal生成をサポートするCoderAgent
 type mockCoderAgentWithProposal struct {
-	response string
-	proposal *proposal.Proposal
+	response          string
+	proposal          *proposal.Proposal
+	lastProposalInput string
 }
 
 func (m *mockCoderAgentWithProposal) Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
@@ -22,6 +23,7 @@ func (m *mockCoderAgentWithProposal) Generate(ctx context.Context, t task.Task, 
 }
 
 func (m *mockCoderAgentWithProposal) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
+	m.lastProposalInput = t.UserMessage()
 	return m.proposal, nil
 }
 
@@ -105,11 +107,11 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_MarkdownPatch(t *
 	tmpDir := t.TempDir()
 
 	workerConfig := config.WorkerConfig{
-		AutoCommit:  false,
-		StopOnError: false,
-		Workspace:   tmpDir,
+		AutoCommit:     false,
+		StopOnError:    false,
+		Workspace:      tmpDir,
 		CommandTimeout: 10,
-		GitTimeout: 10,
+		GitTimeout:     10,
 	}
 	workerService := service.NewWorkerExecutionService(workerConfig)
 
@@ -161,9 +163,9 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_InvalidProposal(t *testing.T) 
 	tmpDir := t.TempDir()
 
 	workerConfig := config.WorkerConfig{
-		Workspace: tmpDir,
+		Workspace:      tmpDir,
 		CommandTimeout: 10,
-		GitTimeout: 10,
+		GitTimeout:     10,
 	}
 	workerService := service.NewWorkerExecutionService(workerConfig)
 
@@ -229,11 +231,11 @@ func TestFormatExecutionResult_SuccessWithGitCommit(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	workerConfig := config.WorkerConfig{
-		AutoCommit:           false, // Git repo not initialized in test
-		CommitMessagePrefix:  "[Test]",
-		Workspace:            tmpDir,
-		CommandTimeout:       10,
-		GitTimeout:           10,
+		AutoCommit:          false, // Git repo not initialized in test
+		CommitMessagePrefix: "[Test]",
+		Workspace:           tmpDir,
+		CommandTimeout:      10,
+		GitTimeout:          10,
 	}
 	workerService := service.NewWorkerExecutionService(workerConfig)
 
@@ -277,10 +279,10 @@ func TestFormatExecutionResult_PartialFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	workerConfig := config.WorkerConfig{
-		StopOnError: false, // 継続モード
-		Workspace:   tmpDir,
+		StopOnError:    false, // 継続モード
+		Workspace:      tmpDir,
 		CommandTimeout: 10,
-		GitTimeout: 10,
+		GitTimeout:     10,
 	}
 	workerService := service.NewWorkerExecutionService(workerConfig)
 

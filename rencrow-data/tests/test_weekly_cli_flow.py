@@ -137,6 +137,27 @@ class WeeklyCLIFlowTest(unittest.TestCase):
                     "--json",
                 ).stdout
             )
+            approval_path = Path(decision["approval_path"])
+            approval = approval_path.read_text(encoding="utf-8")
+            approval = approval.replace("approved: false", "approved: true")
+            approval = approval.replace('approver: ""', "approver: unit-test")
+            approval = approval.replace('approved_at: ""', "approved_at: 2026-05-16T00:00:00+00:00")
+            approval = approval.replace('approval_reason: ""', "approval_reason: weekly fixture paper approval")
+            approval_path.write_text(approval, encoding="utf-8")
+            paper = json.loads(
+                run_script(
+                    "12_paper_trade.py",
+                    "--db-path",
+                    str(db_path),
+                    "--decision",
+                    str(decision["decision_id"]),
+                    "--approval-file",
+                    str(approval_path),
+                    "--fill-model",
+                    "close_next_week",
+                    "--json",
+                ).stdout
+            )
             audit = json.loads(
                 run_script(
                     "14_audit_report.py",
@@ -146,6 +167,7 @@ class WeeklyCLIFlowTest(unittest.TestCase):
                     "latest",
                     "--decision",
                     str(decision["decision_id"]),
+                    "--paper-latest",
                     "--output-dir",
                     str(data_root / "reports"),
                     "--json",
@@ -155,9 +177,16 @@ class WeeklyCLIFlowTest(unittest.TestCase):
             self.assertTrue(Path(decision["approval_path"]).exists())
             self.assertTrue(Path(report["output_path"]).exists())
             self.assertTrue(Path(audit["output_path"]).exists())
+            self.assertEqual(paper["decision_id"], decision["decision_id"])
+            self.assertEqual(paper["status"], "simulated")
+            self.assertEqual(paper["tca"]["fill_model"], "close_next_week")
+            self.assertEqual(audit["decision_id"], decision["decision_id"])
+            self.assertGreaterEqual(audit["paper_gate"]["paper_weeks"], 1)
             con = sqlite3.connect(db_path)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM decision_log").fetchone()[0], 1)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM llm_audit_log").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM paper_trade_log").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM tax_lot_log").fetchone()[0], 1)
             self.assertGreater(con.execute("SELECT COUNT(*) FROM backtest_metric").fetchone()[0], 0)
 
 

@@ -6,7 +6,7 @@ import json
 import sys
 
 from rencrow_data import db
-from rencrow_data.config import load_config
+from rencrow_data.config import config_hash_for_paths, load_config, resolve_repo_relative_path
 from rencrow_data.risk import RiskOptions, exit_code, run_risk_check
 
 
@@ -33,9 +33,13 @@ def main() -> None:
     parser.add_argument("--risk-config", default="rencrow-data/config/risk_limits.yml")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    args.db_path = str(resolve_repo_relative_path(args.db_path))
+    args.risk_config = str(resolve_repo_relative_path(args.risk_config))
 
     con = db.connect(args.db_path)
     db.init_schema(con)
+    config_hash = config_hash_for_paths([args.risk_config])
+    run = db.start_cli_run(con, "10_risk_check.py", args.db_path, config_hash=config_hash)
     try:
         snapshot_id = _resolve_snapshot(con, args.snapshot)
         config = load_config(args.risk_config, default={})
@@ -48,7 +52,21 @@ def main() -> None:
                 config=config,
             ),
         )
+        result.update(
+            {
+                "cli_name": "10_risk_check.py",
+                "db_path": args.db_path,
+                "exit_code": exit_code(result),
+                "target_count": 1,
+                "success_count": 1 if result["status"] in {"pass", "reduce"} else 0,
+                "partial_count": 0,
+                "fail_count": 1 if result["status"] in {"stop", "kill_switch"} else 0,
+                "config_hash": config_hash,
+            }
+        )
+        result = db.finish_cli_run(con, run, result)
     except ValueError as exc:
+        db.fail_cli_run(con, run, error_message=str(exc), exit_code=4)
         print(f"data error: {exc}", file=sys.stderr)
         raise SystemExit(4)
     finally:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -96,7 +97,7 @@ func (e *DefaultCodeExecutor) executeProposalWithWorker(
 	e.emit("agent.start", "shiro", "mio", "Patch を実行中...", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 	e.emit("worker.request", "shiro", "worker", formatShiroToWorkerInstruction(req, p), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 
-	result, err := e.workerExecution.ExecuteProposal(ctx, req.Task.JobID(), p)
+	result, err := e.executeProposalWithResolvedWorkspace(ctx, req, p)
 	if err != nil {
 		e.emit("worker.result", "worker", "shiro", formatWorkerToShiroResult(nil, err), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 		e.emit("agent.response", "shiro", "mio", "実行失敗: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
@@ -105,6 +106,21 @@ func (e *DefaultCodeExecutor) executeProposalWithWorker(
 	}
 	e.emit("worker.result", "worker", "shiro", formatWorkerToShiroResult(result, nil), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 	return result, nil
+}
+
+func (e *DefaultCodeExecutor) executeProposalWithResolvedWorkspace(
+	ctx context.Context,
+	req CodeExecutionRequest,
+	p *proposal.Proposal,
+) (*patch.PatchExecutionResult, error) {
+	if req.Module.Found() && req.Module.Module.Root != "" {
+		if worker, ok := e.workerExecution.(service.WorkspaceOverrideWorkerExecutionService); ok {
+			e.emit("worker.workspace", "shiro", "worker", req.Module.Summary(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+			return worker.ExecuteProposalInWorkspace(ctx, req.Task.JobID(), p, req.Module.Module.Root)
+		}
+		e.emit("worker.workspace_unavailable", "shiro", "worker", req.Module.Summary(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+	}
+	return e.workerExecution.ExecuteProposal(ctx, req.Task.JobID(), p)
 }
 
 func (e *DefaultCodeExecutor) emitProposalExecutionResult(req CodeExecutionRequest, formatted string) {

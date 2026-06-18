@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	moduleapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/moduleregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	appsubagent "github.com/Nyukimin/picoclaw_multiLLM/internal/application/subagent"
 	appverification "github.com/Nyukimin/picoclaw_multiLLM/internal/application/verification"
@@ -228,7 +229,7 @@ func NewMessageOrchestrator(
 		workerExecution,
 		coderStatus,
 		nil, // eventEmitterは後でSetEventListenerで設定
-	)
+	).WithModuleResolver(moduleapp.DefaultRegistry())
 	// CoderLoop プロンプトは SetCoderLoopPrompt で後から注入する
 
 	orch := &MessageOrchestrator{

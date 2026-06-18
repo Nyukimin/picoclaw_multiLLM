@@ -8,6 +8,7 @@ LOCK_DIR="${PICOCLAW_DATA_LOCK_DIR:-$HOME/.picoclaw/locks}"
 LOG_DIR="${PICOCLAW_DATA_LOG_DIR:-$HOME/.picoclaw/logs}"
 LOCK_FILE="$LOCK_DIR/rencrow-data-${MODE}.lock"
 LOG_FILE="$LOG_DIR/rencrow-data-${MODE}.log"
+RUN_MAKE_STATUS=0
 
 mkdir -p "$LOCK_DIR" "$LOG_DIR"
 touch "$LOG_FILE"
@@ -25,6 +26,7 @@ log() {
 run_make() {
   log "run: $*"
   (cd "$ROOT_DIR" && make "$@") >> "$LOG_FILE" 2>&1
+  RUN_MAKE_STATUS=0
 }
 
 run_make_allow_status() {
@@ -35,6 +37,7 @@ run_make_allow_status() {
   (cd "$ROOT_DIR" && make "$@") >> "$LOG_FILE" 2>&1
   local status=$?
   set -e
+  RUN_MAKE_STATUS="$status"
   if [[ "$status" == "0" || "$status" == "$ok_status" ]]; then
     return 0
   fi
@@ -65,12 +68,12 @@ PY
 case "$MODE" in
   daily)
     run_make rencrow-data-init
-    run_make rencrow-data-market-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
+    run_make_allow_status 2 rencrow-data-market-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
       DATA_LOOKBACK_DAYS="${DATA_MARKET_LOOKBACK_DAYS:-7}"
-    notify_viewer market success "daily market increment"
-    run_make rencrow-data-macro-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
+    [[ "$RUN_MAKE_STATUS" == "2" ]] && notify_viewer market partial "daily market increment partial" || notify_viewer market success "daily market increment"
+    run_make_allow_status 2 rencrow-data-macro-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
       DATA_LOOKBACK_DAYS="${DATA_MACRO_LOOKBACK_DAYS:-30}"
-    notify_viewer macro success "daily macro increment"
+    [[ "$RUN_MAKE_STATUS" == "2" ]] && notify_viewer macro partial "daily macro increment partial" || notify_viewer macro success "daily macro increment"
     run_make rencrow-data-features
     notify_viewer features success "daily feature refresh"
     run_make rencrow-data-events
@@ -80,12 +83,12 @@ case "$MODE" in
     ;;
   weekly)
     run_make rencrow-data-init
-    run_make rencrow-data-market-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
+    run_make_allow_status 2 rencrow-data-market-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
       DATA_LOOKBACK_DAYS="${DATA_MARKET_LOOKBACK_DAYS:-14}"
-    notify_viewer market success "weekly market increment"
-    run_make rencrow-data-macro-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
+    [[ "$RUN_MAKE_STATUS" == "2" ]] && notify_viewer market partial "weekly market increment partial" || notify_viewer market success "weekly market increment"
+    run_make_allow_status 2 rencrow-data-macro-online DATA_START_DATE="${DATA_START_DATE:-}" DATA_END_DATE="${DATA_END_DATE:-}" \
       DATA_LOOKBACK_DAYS="${DATA_MACRO_LOOKBACK_DAYS:-45}"
-    notify_viewer macro success "weekly macro increment"
+    [[ "$RUN_MAKE_STATUS" == "2" ]] && notify_viewer macro partial "weekly macro increment partial" || notify_viewer macro success "weekly macro increment"
     run_make rencrow-data-weekly-research SNAPSHOT_DATE="${SNAPSHOT_DATE:-$(date -u +%F)}"
     notify_viewer research success "weekly research flow"
     if [[ -f "${DATA_APPROVAL_FILE:-rencrow-data/approvals/latest.yml}" ]]; then

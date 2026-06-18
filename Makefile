@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test install-watchdog enable-watchdog disable-watchdog watchdog-status watchdog-run-once test-watchdog-mock watchdog-kick install-data-scheduler enable-data-scheduler disable-data-scheduler data-scheduler-status rencrow-data-init rencrow-data-market rencrow-data-market-online rencrow-data-macro rencrow-data-macro-online rencrow-data-features rencrow-data-events rencrow-data-snapshot rencrow-data-validate rencrow-data-backtest rencrow-data-risk rencrow-data-decision rencrow-data-llm-report rencrow-data-audit-report rencrow-data-paper-trade rencrow-data-weekly-research rencrow-data-test rencrow-data-e2e rencrow-data-backfill rencrow-data-check
+.PHONY: all build install uninstall clean help test install-watchdog enable-watchdog disable-watchdog watchdog-status watchdog-run-once test-watchdog-mock watchdog-kick install-data-scheduler enable-data-scheduler disable-data-scheduler data-scheduler-status rencrow-data-init rencrow-data-market rencrow-data-market-online rencrow-data-macro rencrow-data-macro-online rencrow-data-features rencrow-data-events rencrow-data-snapshot rencrow-data-validate rencrow-data-backtest rencrow-data-risk rencrow-data-decision rencrow-data-llm-report rencrow-data-audit-report rencrow-data-paper-trade rencrow-data-manual-stop rencrow-data-daily-refresh rencrow-data-weekly-research rencrow-data-test rencrow-data-e2e rencrow-data-backfill rencrow-data-check
 
 # Build variables
 BINARY_NAME=picoclaw
@@ -32,6 +32,9 @@ DATA_APPROVAL_DIR?=rencrow-data/approvals
 DATA_REPORT_DIR?=rencrow-data/reports
 DATA_APPROVAL_FILE?=$(DATA_APPROVAL_DIR)/latest.yml
 DATA_PAPER_CAPITAL?=1000000
+DATA_STOP_OPERATOR?=manual
+DATA_STOP_REASON?=manual stop requested
+DATA_STOP_NOTE?=
 
 # Installation
 INSTALL_PREFIX?=$(HOME)/.local
@@ -274,6 +277,17 @@ rencrow-data-audit-report:
 ## rencrow-data-paper-trade: Record a paper trade only after explicit human approval
 rencrow-data-paper-trade:
 	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/12_paper_trade.py --db $(DATA_DB) --decision latest --approval-file $(DATA_APPROVAL_FILE) --capital $(DATA_PAPER_CAPITAL)
+
+## rencrow-data-manual-stop: Record a manual kill switch event before risk/decision
+rencrow-data-manual-stop:
+	@PYTHONPATH=$(PYTHONPATH) $(PYTHON) rencrow-data/src/15_manual_stop.py --db $(DATA_DB) --operator "$(DATA_STOP_OPERATOR)" --reason "$(DATA_STOP_REASON)" --note "$(DATA_STOP_NOTE)"
+
+## rencrow-data-daily-refresh: Run the standard daily market, macro, and validation flow
+rencrow-data-daily-refresh:
+	@$(MAKE) rencrow-data-init
+	@$(MAKE) rencrow-data-market-online
+	@$(MAKE) rencrow-data-macro-online
+	@$(MAKE) rencrow-data-validate SNAPSHOT_DATE=$(SNAPSHOT_DATE)
 
 ## rencrow-data-weekly-research: Run snapshot, validation, backtest, risk, decision, report, and audit
 rencrow-data-weekly-research:

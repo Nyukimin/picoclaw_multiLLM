@@ -29,6 +29,16 @@ def _stable_json_bytes(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _usage_terms(item: dict[str, Any], provider: str | None = None, mode: str = "fixture") -> str:
+    if item.get("usage_terms"):
+        return str(item["usage_terms"])
+    if mode == "fixture":
+        return "local_fixture; internal_research_only; no_redistribution"
+    if provider == "yahoo":
+        return "yahoo_finance; internal_research_only; no_redistribution; respect_provider_terms"
+    return f"{provider or 'unknown_provider'}; internal_research_only; no_redistribution"
+
+
 def latest_price_date(con, iid: int, source_name: str | None = None) -> date | None:
     if source_name is None:
         row = con.execute("SELECT MAX(trade_date) AS d FROM price_raw WHERE instrument_id=?", (iid,)).fetchone()
@@ -146,7 +156,7 @@ def save_market_item(
             endpoint_path = Path(endpoint)
             if not endpoint_path.is_absolute():
                 endpoint_path = Path(data_root) / endpoint_path
-            fetch_id = db.start_fetch(con, source_name, f"csv:{endpoint_path}")
+            fetch_id = db.start_fetch(con, source_name, f"csv:{endpoint_path}", usage_terms=_usage_terms(item, mode="fixture"))
             endpoint_ref = f"csv:{endpoint_path}"
             payload = endpoint_path.read_bytes()
             checksum = sha256_bytes(payload)
@@ -181,7 +191,7 @@ def save_market_item(
 
         remote_symbol = item.get("provider_symbol") or symbol
         source_name = item.get("source_name", f"{provider}_market")
-        fetch_id = db.start_fetch(con, source_name, f"{provider}:{remote_symbol}")
+        fetch_id = db.start_fetch(con, source_name, f"{provider}:{remote_symbol}", usage_terms=_usage_terms(item, provider=provider, mode=mode))
         endpoint_ref = f"{provider}:{remote_symbol}"
         if start_date is None:
             if mode == "incremental":
@@ -217,7 +227,9 @@ def save_market_item(
         return len(rows), status
     except Exception as exc:
         if fetch_id is None:
-            fetch_id = db.start_fetch(con, source_name, endpoint_ref)
+            db_provider = item.get("provider")
+            db_mode = "fixture" if str(endpoint_ref).startswith("csv:") else mode
+            fetch_id = db.start_fetch(con, source_name, endpoint_ref, usage_terms=_usage_terms(item, provider=db_provider, mode=db_mode))
         db.finish_fetch(con, fetch_id, "fail", error_message=str(exc), raw_cache_path=str(endpoint or symbol))
         return 0, "fail"
 
@@ -226,7 +238,7 @@ def save_market_yahoo(con, item: dict[str, Any], start_date: str | None = None, 
     symbol = item["symbol"]
     remote_symbol = item.get("provider_symbol") or symbol
     source_name = item.get("source_name", "yahoo_market")
-    fetch_id = db.start_fetch(con, source_name, f"yahoo:{remote_symbol}")
+    fetch_id = db.start_fetch(con, source_name, f"yahoo:{remote_symbol}", usage_terms=_usage_terms(item, provider="yahoo", mode="online"))
     try:
         start = None if not start_date else date.fromisoformat(start_date)
         end = None if not end_date else date.fromisoformat(end_date)

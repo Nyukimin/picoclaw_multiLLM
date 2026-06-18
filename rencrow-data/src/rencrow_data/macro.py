@@ -21,6 +21,18 @@ def _stable_json_bytes(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _usage_terms(source: dict[str, Any], provider: str | None = None, mode: str = "fixture") -> str:
+    if source.get("usage_terms"):
+        return str(source["usage_terms"])
+    if mode == "fixture":
+        return "local_fixture; internal_research_only; no_redistribution"
+    if provider == "fred":
+        return "fred_public_data; internal_research_only; cite_source; no_warranty"
+    if provider == "yahoo":
+        return "yahoo_finance; internal_research_only; no_redistribution; respect_provider_terms"
+    return f"{provider or 'unknown_provider'}; internal_research_only; no_redistribution"
+
+
 def latest_macro_date(con, series_code: str, source_name: str | None = None) -> date | None:
     if source_name is None:
         row = con.execute("SELECT MAX(obs_date) AS d FROM macro_series WHERE series_code=?", (series_code,)).fetchone()
@@ -62,7 +74,7 @@ def ingest_macro_source(
         if mode == "fixture":
             if path is None:
                 raise ValueError(f"fixture is required for fixture macro ingest: {source_name}")
-            fetch_id = db.start_fetch(con, source_name, f"csv:{path}")
+            fetch_id = db.start_fetch(con, source_name, f"csv:{path}", usage_terms=_usage_terms(source, mode="fixture"))
             endpoint_ref = f"csv:{path}"
             payload = path.read_bytes()
             rows = _read_csv(path)
@@ -98,7 +110,7 @@ def ingest_macro_source(
         if series_code is None:
             raise ValueError(f"series_code is required for online macro ingest: {source_name}")
 
-        fetch_id = db.start_fetch(con, source_name, f"{provider}:{series_code}")
+        fetch_id = db.start_fetch(con, source_name, f"{provider}:{series_code}", usage_terms=_usage_terms(source, provider=provider, mode=mode))
         endpoint_ref = f"{provider}:{series_code}"
         if start_date is None:
             if mode == "incremental":
@@ -160,7 +172,9 @@ def ingest_macro_source(
         return count, status
     except Exception as exc:
         if fetch_id is None:
-            fetch_id = db.start_fetch(con, source_name, endpoint_ref)
+            db_provider = source.get("provider")
+            db_mode = "fixture" if str(endpoint_ref).startswith("csv:") else mode
+            fetch_id = db.start_fetch(con, source_name, endpoint_ref, usage_terms=_usage_terms(source, provider=db_provider, mode=db_mode))
         db.finish_fetch(con, fetch_id, "fail", error_message=str(exc), raw_cache_path=str(path) if path is not None else endpoint_ref)
         return 0, "fail"
 
@@ -169,7 +183,12 @@ def ingest_calendar_csv(con, source: dict[str, Any], data_root: str | Path) -> t
     path = Path(source["fixture"])
     if not path.is_absolute():
         path = Path(data_root) / path
-    fetch_id = db.start_fetch(con, source.get("source_name", "csv_calendar"), f"csv:{path}")
+    fetch_id = db.start_fetch(
+        con,
+        source.get("source_name", "csv_calendar"),
+        f"csv:{path}",
+        usage_terms=_usage_terms(source, mode="fixture"),
+    )
     try:
         payload = path.read_bytes()
         rows = _read_csv(path)

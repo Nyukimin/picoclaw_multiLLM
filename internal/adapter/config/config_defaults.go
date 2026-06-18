@@ -60,10 +60,10 @@ func (c *Config) setDefaults() {
 		c.LocalLLM.ModelConcurrency = 1
 	}
 	if c.WebwrightFetch.RunnerPath == "" {
-		c.WebwrightFetch.RunnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
+		c.WebwrightFetch.RunnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py"
 	}
 	if c.WebwrightFetch.ConfigPath == "" {
-		c.WebwrightFetch.ConfigPath = "tools/webwright_fetch/config_local_worker.yaml"
+		c.WebwrightFetch.ConfigPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/config_local_worker.yaml"
 	}
 	if c.WebwrightFetch.OutputDir == "" {
 		c.WebwrightFetch.OutputDir = "tmp/webwright_runs"
@@ -100,7 +100,7 @@ func (c *Config) setDefaults() {
 		c.WebwrightFetch.APIKey = "dummy"
 	}
 	if c.BrowserActor.RunnerPath == "" {
-		c.BrowserActor.RunnerPath = "tools/browser_actor/run_browser_actor.mjs"
+		c.BrowserActor.RunnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/browser_actor/run_browser_actor.mjs"
 	}
 	if c.BrowserActor.NodeBinary == "" {
 		c.BrowserActor.NodeBinary = "node"

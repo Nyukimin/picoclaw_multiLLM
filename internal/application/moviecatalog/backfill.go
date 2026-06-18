@@ -225,7 +225,7 @@ func crawlerArgs(targetURL string, dbPath string, maxPages int, crawlerDelay tim
 	outDir := filepath.Dir(dbPath)
 	delaySec := strconv.FormatFloat(crawlerDelay.Seconds(), 'f', -1, 64)
 	return []string{
-		filepath.Join("tools", "eiga_catalog", "eiga_catalog.py"),
+		filepath.Join("/home/nyukimi/RenCrow/RenCrow_Tools", "tools", "eiga_catalog", "eiga_catalog.py"),
 		"--seed-url", targetURL,
 		"--max-pages", strconv.Itoa(maxPages),
 		"--delay", delaySec,

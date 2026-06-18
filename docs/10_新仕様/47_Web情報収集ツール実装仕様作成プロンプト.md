@@ -19,7 +19,7 @@
 3. `docs/01_正本仕様/実装仕様.md`
 4. `docs/10_新仕様/46_Web情報収集ツール仕様.md`
 5. `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`
-6. `tools/webwright_fetch/README.md`
+6. `RenCrow_Tools/tools/webwright_fetch/README.md`
 7. `docs/10_新仕様/27_Browser_Trace_to_API_Discovery仕様.md`
 8. `docs/10_新仕様/20_Tool_Harness_Contract_Mediation仕様.md`
 9. `docs/10_新仕様/10_検証仕様.md`
@@ -49,7 +49,7 @@ internal/domain/tool
 internal/infrastructure/tools
 cmd/picoclaw/cli_*.go
 cmd/picoclaw/runtime_viewer_handlers.go
-tools/webwright_fetch
+RenCrow_Tools/tools/webwright_fetch
 ```
 
 確認観点:

@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS movie_title_observations (
 
 実装位置:
 
-- `tools/eiga_catalog/eiga_catalog.py`
+- `RenCrow_Tools/tools/eiga_catalog/eiga_catalog.py`
 
 解決順:
 
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS movie_title_observations (
 ## CLI
 
 ```bash
-python3 tools/eiga_catalog/eiga_catalog.py \
+python3 /home/nyukimi/RenCrow/RenCrow_Tools/tools/eiga_catalog/eiga_catalog.py \
   --mark-watched-file tmp/movie_watch_today.txt \
   --watched-at 2026-06-03 \
   --watch-source user_list \
@@ -129,7 +129,7 @@ python3 tools/eiga_catalog/eiga_catalog.py \
 好きな俳優・人物の登録:
 
 ```bash
-python3 tools/eiga_catalog/eiga_catalog.py \
+python3 /home/nyukimi/RenCrow/RenCrow_Tools/tools/eiga_catalog/eiga_catalog.py \
   --mark-favorite-people-file tmp/favorite_people.txt \
   --favorite-batch-id favorite_people_20260604 \
   --favorite-generated-by user \

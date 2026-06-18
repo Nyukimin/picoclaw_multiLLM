@@ -71,7 +71,7 @@ func TestRunOnceInvokesCrawlerForOneTarget(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	want := []string{
-		filepath.Join("tools", "eiga_catalog", "eiga_catalog.py"),
+		filepath.Join("/home/nyukimi/RenCrow/RenCrow_Tools", "tools", "eiga_catalog", "eiga_catalog.py"),
 		"--seed-url", "https://eiga.com/movie/200/",
 		"--max-pages", "1",
 		"--delay", "2",

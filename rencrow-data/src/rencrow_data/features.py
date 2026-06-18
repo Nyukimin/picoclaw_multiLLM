@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections import defaultdict
 from datetime import date, timedelta
@@ -8,6 +10,33 @@ from . import db
 from .timeutil import friday_of_week, parse_date
 
 PRICE_ASSET_TYPES = ("ETF", "STOCK", "CASH_PROXY", "CRYPTO", "INDEX")
+FEATURE_CONFIG = {
+    "version": "weekly_features_v1",
+    "asset_types": PRICE_ASSET_TYPES,
+    "return_windows_weeks": (1, 4, 12, 26),
+    "momentum_skip_weeks": 1,
+    "volatility_lookback_trading_days": 60,
+    "drawdown_window_weeks": 26,
+    "moving_average_windows_weeks": (4, 12),
+    "volume_change_window_weeks": 4,
+    "event_flag_window_days": 2,
+    "macro_release_boundary": "release_date<=week_end",
+    "fx_series": "USDJPY_BOJ",
+}
+
+
+def feature_config_hash() -> str:
+    payload = json.dumps(FEATURE_CONFIG, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _split_filters(values: list[str] | None) -> set[str]:
+    if not values:
+        return set()
+    result: set[str] = set()
+    for value in values:
+        result.update(part.strip() for part in value.split(",") if part.strip())
+    return result
 
 
 def _nearest_macro(con, series_code: str, obs_date: date, week_end: date) -> float | None:
@@ -26,9 +55,12 @@ def _nearest_macro(con, series_code: str, obs_date: date, week_end: date) -> flo
 def _event_flag(con, category: str, week_end: date) -> int:
     start = (week_end - timedelta(days=2)).isoformat()
     end = (week_end + timedelta(days=2)).isoformat()
+    categories = ("NFP", "EMPLOYMENT") if category == "EMPLOYMENT" else (category,)
     row = con.execute(
-        "SELECT 1 FROM economic_calendar WHERE category=? AND event_date BETWEEN ? AND ? LIMIT 1",
-        (category, start, end),
+        "SELECT 1 FROM economic_calendar WHERE category IN ({}) AND event_date BETWEEN ? AND ? LIMIT 1".format(
+            ",".join("?" for _ in categories)
+        ),
+        (*categories, start, end),
     ).fetchone()
     return 1 if row else 0
 
@@ -41,15 +73,30 @@ def _std(values: list[float]) -> float | None:
     return math.sqrt(var)
 
 
-def build_features(con) -> int:
+def build_features(con, symbols: list[str] | None = None, asset_types: list[str] | None = None, as_of: date | None = None) -> int:
+    config_hash = feature_config_hash()
+    symbol_filter = _split_filters(symbols)
+    asset_type_filter = _split_filters(asset_types)
+    allowed_asset_types = tuple(asset_type for asset_type in PRICE_ASSET_TYPES if not asset_type_filter or asset_type in asset_type_filter)
+    if not allowed_asset_types:
+        return 0
+    predicates = ["i.asset_type IN ({})".format(", ".join("?" for _ in allowed_asset_types))]
+    params: list[object] = list(allowed_asset_types)
+    if symbol_filter:
+        predicates.append("i.symbol IN ({})".format(", ".join("?" for _ in symbol_filter)))
+        params.extend(sorted(symbol_filter))
+    if as_of is not None:
+        predicates.append("p.trade_date<=?")
+        params.append(as_of.isoformat())
     rows = con.execute(
         """
         SELECT i.instrument_id, i.currency, p.trade_date, p.open, p.high, p.low, p.close, p.adj_close, p.volume
         FROM price_raw p
         JOIN instruments i ON i.instrument_id=p.instrument_id
-        WHERE i.asset_type IN ({})
+        WHERE {}
         ORDER BY i.instrument_id, p.trade_date
-        """.format(", ".join(f"'{asset_type}'" for asset_type in PRICE_ASSET_TYPES))
+        """.format(" AND ".join(predicates)),
+        params,
     ).fetchall()
     by_inst: dict[int, list] = defaultdict(list)
     currencies: dict[int, str] = {}
@@ -137,17 +184,18 @@ def build_features(con) -> int:
             con.execute(
                 """
                 INSERT INTO feature_weekly(
-                  instrument_id, week_end, close_adj_jpy, ret_1w, ret_4w, ret_12w, ret_12w_skip1, vol_12w,
+                  instrument_id, week_end, close_adj_jpy, ret_1w, ret_4w, ret_12w, ret_12w_skip1, ret_26w, vol_12w,
                   drawdown_26w, ma_4w_gap, ma_12w_gap, volume_change_4w, fx_ret_1w,
                   us10y_change_1w, boj_flag, cpi_flag, fomc_flag, employment_flag,
-                  holdings_turnover, event_risk_score
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT event_risk_score FROM feature_weekly WHERE instrument_id=? AND week_end=?), 0))
+                  holdings_turnover, event_risk_score, feature_config_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT event_risk_score FROM feature_weekly WHERE instrument_id=? AND week_end=?), 0), ?)
                 ON CONFLICT(instrument_id, week_end) DO UPDATE SET
                   close_adj_jpy=excluded.close_adj_jpy,
                   ret_1w=excluded.ret_1w,
                   ret_4w=excluded.ret_4w,
                   ret_12w=excluded.ret_12w,
                   ret_12w_skip1=excluded.ret_12w_skip1,
+                  ret_26w=excluded.ret_26w,
                   vol_12w=excluded.vol_12w,
                   drawdown_26w=excluded.drawdown_26w,
                   ma_4w_gap=excluded.ma_4w_gap,
@@ -158,7 +206,8 @@ def build_features(con) -> int:
                   boj_flag=excluded.boj_flag,
                   cpi_flag=excluded.cpi_flag,
                   fomc_flag=excluded.fomc_flag,
-                  employment_flag=excluded.employment_flag
+                  employment_flag=excluded.employment_flag,
+                  feature_config_hash=excluded.feature_config_hash
                 """,
                 (
                     iid,
@@ -168,6 +217,7 @@ def build_features(con) -> int:
                     ret(4),
                     ret(12),
                     ret_skip1(12),
+                    ret(26),
                     vol_12w,
                     drawdown_26w,
                     None if ma_4 in (None, 0) else close / ma_4 - 1.0,
@@ -182,6 +232,7 @@ def build_features(con) -> int:
                     None,
                     iid,
                     week_end.isoformat(),
+                    config_hash,
                 ),
             )
             count += 1
