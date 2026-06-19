@@ -1,5 +1,87 @@
 # コードベース解析実行サマリー
 
+---
+
+## 最新解析（run_20260619_refs）— docs/ 参照モード
+
+**実行 ID**: run_20260619_refs
+**実行日時**: 2026-06-19 (JST)
+**対象プロジェクト**: PicoClaw (picoclaw_multiLLM)
+**解析モード**: `--refs docs/` （仕様文書 ↔ 実装 トレーサビリティ解析）
+**解析対象 docs 数**: 約 80 ファイル
+
+### 主要発見事項
+
+**仕様競合（Critical）**:
+- `docs/06_実装ガイド進行管理/20260228_承認フロー廃止プラン.md` が存在。
+  承認フロー（pkg/approval/）の全廃止を提案（2026-02-28作成、「承認待ち」状態）。
+  `Coder3_Claude_API仕様.md`（承認フロー必須）と直接競合している。
+- 廃止プランにより、潜在バグ #1/#2/#4 を **OBSOLETE に再分類**。
+
+**新規ドキュメント**:
+- `トレーサビリティマトリクス.md` — 仕様 65 要件の実装状況一覧（カバレッジ 60%）
+
+**実装カバレッジサマリー**:
+| 状態 | 件数 | 率 |
+|------|------|----|
+| [OK] / [OK-P] | 39 | 60% |
+| [TODO] | 7 | 11% |
+| [GAP] | 8 | 12% |
+| [CONFLICT] | 3 | 5% |
+| [OBSOLETE] | 4 | 6% |
+| [PLANNED] | 3 | 5% |
+
+**仕様間競合**:
+1. 承認フロー存廃: Coder3仕様（維持）vs 廃止プラン（廃止）→ **未解決**
+2. fit/suggested_route 必須性: 実装仕様_03（required）vs v2統合版（任意）→ v2 で解決
+3. risk=high 時の停止: v2仕様（必須）vs ループ制御（未実装）→ **未実装**
+4. サニタイズ責務場所: 実装仕様_01（pkg/security）vs 実装仕様_05（materials）→ **未解決**
+
+### 新規/更新ドキュメント
+
+**新規**:
+- `トレーサビリティマトリクス.md` — Step 10 成果物
+
+**更新**:
+- `潜在バグ一覧.md` — #1/#2/#4 を OBSOLETE に再分類（廃止プラン発見のため）
+
+---
+
+## 前回解析（run_20260619_000000）
+
+**実行 ID**: run_20260619_000000
+**実行日時**: 2026-06-19 (JST)
+**対象プロジェクト**: PicoClaw (picoclaw_multiLLM)
+**解析フェーズ**: Phase 1-3 全フェーズ再解析
+**プロファイル**: codebase-analysis-profile.yaml
+
+### 新規発見事項サマリー
+
+**最重要 Critical**:
+- `cmd/picoclaw/main.go` が ~40 の `internal/` パッケージを import しているが、**全パッケージ未実装**（ビルド不能状態）
+- `pkg/agent/factory.go` の `resolveProvider()` が常に `nil` を返す（新アーキ有効時に nil panic）
+- `pkg/modules/order/approval.go` の `pendingProposals` マップに mutex 保護なし（data race）
+- `pkg/modules/worker/execution.go` の `response.Usage` nil チェック欠如
+
+**新規ドキュメント追加**:
+- `modules/channels.md` — チャネルハンドラー群
+- `modules/modules_chat.md` — Chat エージェントモジュール
+- `modules/modules_worker.md` — Worker エージェントモジュール（RoutingModule, ExecutionModule 等）
+- `modules/modules_order.md` — Order エージェントモジュール（ProposalGeneration, ApprovalFlow 等）
+- `modules/bus_state_heartbeat.md` — MessageBus / state / heartbeat パッケージ
+- `modules/providers.md` — LLM プロバイダー詳細（既存 llm_provider.md を補完）
+- `影響波及図とリスクマトリクス.md` — 変更影響波及とリスク評価
+
+**更新済みドキュメント**:
+- `アーキテクチャ総合.md` — 二重アーキテクチャ・内部乖離・新パッケージ追記
+- `潜在バグ一覧.md` — #18〜#25 追加（計25項目）
+
+**総異常数**: 25 項目（高優先度 7, 中優先度 10, 低優先度 8）
+
+---
+
+## 前回解析（run_20260228_170007）
+
 **実行 ID**: run_20260228_170007
 **実行日時**: 2026-02-28 17:00 - 2026-02-28 20:30 (JST)
 **対象プロジェクト**: PicoClaw (picoclaw_multiLLM)
