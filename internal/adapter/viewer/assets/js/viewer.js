@@ -3239,7 +3239,7 @@ function shouldRefreshEvidencePanelDiagnostics() {
 
 function refreshOptionalPanelData() {
   if (!shouldRefreshOptionalPanels()) return;
-  refreshInvestmentData();
+  if (typeof refreshInvestmentData === 'function') refreshInvestmentData();
   refreshOpsData();
   refreshToolHarnessData();
   refreshDCIData();
@@ -3270,7 +3270,7 @@ function refreshOptionalPanelData() {
 
 function setOptionalPanelRefreshIntervals() {
   if (!shouldRefreshOptionalPanels()) return;
-  setInterval(refreshInvestmentData, 30000);
+  if (typeof refreshInvestmentData === 'function') setInterval(refreshInvestmentData, 30000);
   setInterval(refreshOpsData, 5000);
   setInterval(refreshToolHarnessData, 5000);
   setInterval(refreshDCIData, 5000);

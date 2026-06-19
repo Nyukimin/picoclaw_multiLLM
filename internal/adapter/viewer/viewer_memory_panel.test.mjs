@@ -4106,9 +4106,13 @@ var micStateEl = null;
 var sttConnStateEl = null;
 var sttSessionStateEl = globalThis.__sessionState;
 var debugSttSessionEl = globalThis.__debugSession;
+var vdsState = {isRecording: false, inputLevel: 0};
 function fdt(s) { return s || '-'; }
 function ftime(s) { return s || '--:--:--'; }
 function isVoiceChatAllowed() { return true; }
+function isMobileControlViewport() { return false; }
+function getSTTMicrophoneUnavailableReason() { return ''; }
+function isSTTTestRecording() { return false; }
 function showToast(message, type) { globalThis.__toasts.push({message, type}); }
 function writeClipboardText() { return Promise.reject(new Error('clipboard denied')); }
 ` + sourceBetween(viewerJs, 'function getSTTCaptureSummaryText', 'async function persistSTTLogToServer') +
@@ -4159,8 +4163,12 @@ var micStateEl = null;
 var sttConnStateEl = null;
 var sttSessionStateEl = globalThis.__sessionState;
 var debugSttSessionEl = globalThis.__debugSession;
+var vdsState = {isRecording: false, inputLevel: 0};
 var navigator = {mediaDevices: {getUserMedia() { return Promise.reject(new Error('permission denied')); }}};
 function isVoiceChatAllowed() { return true; }
+function isSTTTestRecording() { return false; }
+function ensureVoiceChatForMobileControl() { return true; }
+function getSTTMicrophoneUnavailableReason() { return ''; }
 function loadViewerRuntimeConfig() { return Promise.resolve(); }
 function updateSTTInputIndicators() {
   const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
@@ -4574,6 +4582,12 @@ function addThinking() {}
 function isTTSSyncedSpeaker(agentID) { return String(agentID || '').toLowerCase() === 'mio'; }
 function trimTimelineNodes() {}
 function bump() {}
+function isViewerLocalFailureMessage(ev) { return String(ev && ev.content || '').startsWith('Viewer send unavailable:'); }
+function isCoordinationTraceEvent() { return false; }
+function rememberVoiceDirectTimelineJob() {}
+function isVoiceDirectTimelineResponse() { return false; }
+function addJobNotificationToTimeline() {}
+function addCoordinationTraceToTimeline() {}
 ` + sourceBetween(timelineJs, 'function addMsgToTimeline', 'bindChatRouteAliasButtons();') + `
 globalThis.__addMsgToTimeline = addMsgToTimeline;
 `;
