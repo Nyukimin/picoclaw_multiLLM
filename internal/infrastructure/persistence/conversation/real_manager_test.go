@@ -137,13 +137,17 @@ func (m *mockVectorDBStore) GetKBStats(_ context.Context, _ string) (*KBStats, e
 func (m *mockVectorDBStore) DeleteOldKBDocuments(_ context.Context, _ string, _ time.Time) (int, error) {
 	return 0, nil
 }
+func (m *mockVectorDBStore) CleanupMemoryVectors(_ context.Context, items []L1VectorCleanupItem) (*L1VectorCleanupResult, error) {
+	return &L1VectorCleanupResult{Deleted: len(items)}, nil
+}
 func (m *mockVectorDBStore) Close() error { return nil }
 
 type mockL1Store struct {
-	saved  []L1MemoryEvent
-	cache  *L1SearchCacheEntry
-	events []L1EventLogEntry
-	traces []domconv.RecallTrace
+	saved     []L1MemoryEvent
+	cache     *L1SearchCacheEntry
+	knowledge []L1KnowledgeItem
+	events    []L1EventLogEntry
+	traces    []domconv.RecallTrace
 }
 
 func (m *mockL1Store) SaveMessage(_ context.Context, sessionID string, threadID int64, namespace string, msg domconv.Message, memoryState string) error {
@@ -188,6 +192,32 @@ func (m *mockL1Store) InvalidateSearchCache(_ context.Context, provider string, 
 	}
 	m.cache = nil
 	return 1, nil
+}
+func (m *mockL1Store) SearchKnowledgeItemsFTS(_ context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error) {
+	var out []L1KnowledgeItem
+	query = strings.ToLower(strings.TrimSpace(query))
+	for _, item := range m.knowledge {
+		if item.Domain != domain {
+			continue
+		}
+		haystack := strings.ToLower(item.Title + " " + item.RawText + " " + item.SummaryDraft + " " + strings.Join(item.Keywords, " "))
+		if query == "" || strings.Contains(haystack, query) || anyQueryTermMatches(haystack, query) {
+			out = append(out, item)
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func anyQueryTermMatches(haystack string, query string) bool {
+	for _, term := range strings.Fields(query) {
+		if len([]rune(term)) >= 3 && strings.Contains(haystack, term) {
+			return true
+		}
+	}
+	return false
 }
 func (m *mockL1Store) AppendEvent(_ context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error) {
 	entry := L1EventLogEntry{

@@ -56,9 +56,9 @@ func startMemoryLifecycleJob(store *conversationpersistence.L1SQLiteStore) {
 			log.Printf("WARN: memory lifecycle maintenance failed: %v", err)
 			return
 		}
-		if result.RawCompacted > 0 || result.CandidatesQueued > 0 || result.Decayed > 0 || result.VectorCleanupQueued > 0 {
-			log.Printf("Memory lifecycle maintenance complete: raw_compacted=%d candidates_queued=%d decayed=%d vector_cleanup_queued=%d",
-				result.RawCompacted, result.CandidatesQueued, result.Decayed, result.VectorCleanupQueued)
+		if result.RawCompacted > 0 || result.CandidatesQueued > 0 || result.MonthlyHighlightsBuilt > 0 || result.ThreadSummarySeedsQueued > 0 || result.Decayed > 0 || result.VectorCleanupQueued > 0 || result.VectorCleanupExecuted > 0 {
+			log.Printf("Memory lifecycle maintenance complete: raw_compacted=%d candidates_queued=%d monthly_highlights_built=%d thread_summary_seeds_queued=%d decayed=%d vector_cleanup_queued=%d vector_cleanup_executed=%d",
+				result.RawCompacted, result.CandidatesQueued, result.MonthlyHighlightsBuilt, result.ThreadSummarySeedsQueued, result.Decayed, result.VectorCleanupQueued, result.VectorCleanupExecuted)
 		}
 	}
 	go func() {

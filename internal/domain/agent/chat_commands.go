@@ -151,17 +151,20 @@ func (m *MioAgent) handleUserMemoryCommand(ctx context.Context, sessionID string
 			Response: fmt.Sprintf("優先する記憶として固定しました。\n- id: %s\n- 内容: %s", item.ID, item.Statement),
 		}, true, nil
 	case "forget", "correct", "do_not_use":
-		item, err := m.findUserMemoryByText(ctx, body)
+		matches, err := m.findUserMemoryMatches(ctx, body)
 		if err != nil {
 			return ChatCommandResult{}, true, err
 		}
-		if item == nil {
+		if len(matches) == 0 {
 			return ChatCommandResult{
 				Handled:  true,
 				Response: "該当する記憶を見つけられませんでした。忘れる対象の文か memory id を指定してください。",
 			}, true, nil
 		}
-		updated, err := m.userMemoryManager.ForgetUserMemory(ctx, item.ID, action)
+		if len(matches) > 1 {
+			return ChatCommandResult{Handled: true, Response: ambiguousUserMemoryResponse("対象候補が複数あります。memory id で指定してください。", matches)}, true, nil
+		}
+		updated, err := m.userMemoryManager.ForgetUserMemory(ctx, matches[0].ID, action)
 		if err != nil {
 			return ChatCommandResult{}, true, fmt.Errorf("user memory forget failed: %w", err)
 		}
@@ -169,6 +172,8 @@ func (m *MioAgent) handleUserMemoryCommand(ctx context.Context, sessionID string
 			Handled:  true,
 			Response: fmt.Sprintf("記憶を無効化しました。\n- id: %s\n- 内容: %s", updated.ID, updated.Statement),
 		}, true, nil
+	case "supersede":
+		return m.supersedeUserMemoryCommand(ctx, body, evidenceID)
 	case "show":
 		return m.showUserMemoryCommand(ctx, body)
 	default:
@@ -189,6 +194,9 @@ func parseUserMemoryCommand(message string) (string, string) {
 		{"記憶を見せて", "show"},
 		{"要約して保存", "save_summary"},
 		{"この話を要約して保存", "save_summary"},
+		{"記憶を置き換えて", "supersede"},
+		{"これは違う、正しくは", "supersede"},
+		{"これは違う。正しくは", "supersede"},
 		{"今後使わないで", "do_not_use"},
 		{"これを優先して", "prioritize"},
 		{"優先して", "prioritize"},
@@ -207,7 +215,53 @@ func parseUserMemoryCommand(message string) (string, string) {
 	if strings.HasSuffix(trimmed, "は忘れて") {
 		return "forget", cleanupUserMemoryCommandBody(strings.TrimSuffix(trimmed, "は忘れて"))
 	}
+	if oldText, newText, ok := parseJapaneseSupersedePhrase(trimmed); ok {
+		return "supersede", oldText + " => " + newText
+	}
 	return "", ""
+}
+
+func (m *MioAgent) supersedeUserMemoryCommand(ctx context.Context, body string, evidenceID string) (ChatCommandResult, bool, error) {
+	oldQuery, newStatement, ok := parseSupersedeBody(body)
+	if !ok {
+		return ChatCommandResult{
+			Handled:  true,
+			Response: "置き換える記憶を `古い内容 => 新しい内容` の形、または memory id で指定してください。",
+		}, true, nil
+	}
+	matches, err := m.findUserMemoryMatches(ctx, oldQuery)
+	if err != nil {
+		return ChatCommandResult{}, true, err
+	}
+	if len(matches) == 0 {
+		return ChatCommandResult{Handled: true, Response: "置き換える元の記憶を見つけられませんでした。memory id か、より具体的な文を指定してください。"}, true, nil
+	}
+	if len(matches) > 1 {
+		return ChatCommandResult{Handled: true, Response: ambiguousUserMemoryResponse("置き換え対象候補が複数あります。memory id で指定してください。", matches)}, true, nil
+	}
+	old := matches[0]
+	newItem, err := m.userMemoryManager.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             firstNonEmptyString(old.Type, domainmemory.UserMemoryTypePreference),
+		Statement:        newStatement,
+		State:            domainmemory.MemoryStateCandidate,
+		EvidenceEventIDs: []string{evidenceID},
+		Confidence:       0.75,
+		Sensitivity:      firstNonEmptyString(old.Sensitivity, "normal"),
+		Scope:            firstNonEmptyString(old.Scope, "all_personas"),
+		Source:           "user_memory_supersede_command",
+	})
+	if err != nil {
+		return ChatCommandResult{}, true, fmt.Errorf("user memory supersede create failed: %w", err)
+	}
+	updated, err := m.userMemoryManager.SupersedeUserMemory(ctx, old.ID, newItem.ID, "supersede")
+	if err != nil {
+		return ChatCommandResult{}, true, fmt.Errorf("user memory supersede failed: %w", err)
+	}
+	return ChatCommandResult{
+		Handled:  true,
+		Response: fmt.Sprintf("記憶を置き換え候補にしました。\n- old: %s %s\n- new: %s %s", updated.ID, updated.Statement, newItem.ID, newItem.Statement),
+	}, true, nil
 }
 
 func (m *MioAgent) showUserMemoryCommand(ctx context.Context, body string) (ChatCommandResult, bool, error) {
@@ -251,23 +305,111 @@ func cleanupUserMemoryCommandBody(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func (m *MioAgent) findUserMemoryByText(ctx context.Context, query string) (*domainmemory.UserMemory, error) {
+func (m *MioAgent) findUserMemoryMatches(ctx context.Context, query string) ([]domainmemory.UserMemory, error) {
 	items, err := m.userMemoryManager.ListUserMemories(ctx, "ren", "", false, 50)
 	if err != nil {
 		return nil, fmt.Errorf("user memory list failed: %w", err)
 	}
 	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	var matches []domainmemory.UserMemory
 	for _, item := range items {
 		if item.ID == query {
-			found := item
-			return &found, nil
+			return []domainmemory.UserMemory{item}, nil
 		}
-		if strings.Contains(item.Statement, query) || strings.Contains(query, item.Statement) {
-			found := item
-			return &found, nil
+		if userMemoryStatementMatches(item.Statement, query) {
+			matches = append(matches, item)
 		}
 	}
-	return nil, nil
+	if len(matches) > 6 {
+		matches = matches[:6]
+	}
+	return matches, nil
+}
+
+func userMemoryStatementMatches(statement string, query string) bool {
+	statement = strings.TrimSpace(statement)
+	query = strings.TrimSpace(query)
+	if statement == "" || query == "" {
+		return false
+	}
+	if strings.Contains(statement, query) || strings.Contains(query, statement) {
+		return true
+	}
+	statementTerms := userMemoryMatchTerms(statement)
+	queryTerms := userMemoryMatchTerms(query)
+	if len(statementTerms) == 0 || len(queryTerms) == 0 {
+		return false
+	}
+	hits := 0
+	for term := range queryTerms {
+		if statementTerms[term] {
+			hits++
+		}
+	}
+	return hits >= 2
+}
+
+func userMemoryMatchTerms(text string) map[string]bool {
+	replacer := strings.NewReplacer("、", " ", "。", " ", ":", " ", "：", " ", ",", " ", ".", " ", "　", " ")
+	parts := strings.Fields(replacer.Replace(strings.ToLower(text)))
+	out := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if len([]rune(part)) < 2 {
+			continue
+		}
+		out[part] = true
+	}
+	return out
+}
+
+func ambiguousUserMemoryResponse(header string, items []domainmemory.UserMemory) string {
+	var lines []string
+	lines = append(lines, header)
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("- id=%s state=%s type=%s: %s", item.ID, firstNonEmptyString(item.State, "-"), firstNonEmptyString(item.Type, "-"), strings.TrimSpace(item.Statement)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseSupersedeBody(body string) (string, string, bool) {
+	body = cleanupUserMemoryCommandBody(body)
+	for _, sep := range []string{"=>", "->", "→", "⇒"} {
+		if strings.Contains(body, sep) {
+			parts := strings.SplitN(body, sep, 2)
+			oldText := cleanupUserMemoryCommandBody(parts[0])
+			newText := cleanupUserMemoryCommandBody(parts[1])
+			return oldText, newText, oldText != "" && newText != ""
+		}
+	}
+	return "", "", false
+}
+
+func parseJapaneseSupersedePhrase(trimmed string) (string, string, bool) {
+	trimmed = strings.TrimSpace(trimmed)
+	if !strings.HasSuffix(trimmed, "に置き換えて") {
+		return "", "", false
+	}
+	body := strings.TrimSuffix(trimmed, "に置き換えて")
+	parts := strings.SplitN(body, "を", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	oldText := cleanupUserMemoryCommandBody(parts[0])
+	newText := cleanupUserMemoryCommandBody(parts[1])
+	return oldText, newText, oldText != "" && newText != ""
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (m *MioAgent) userMemoryPrompt(ctx context.Context) (string, error) {

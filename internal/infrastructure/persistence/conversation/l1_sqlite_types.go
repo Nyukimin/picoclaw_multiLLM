@@ -203,6 +203,16 @@ type L1DailyDigest struct {
 	UpdatedAt  time.Time
 }
 
+type L1MonthlyHighlight struct {
+	ID        string
+	Month     string
+	Category  string
+	SourceIDs []string
+	Highlight string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type L1KnowledgeItem struct {
 	ID           string
 	StagingID    string
@@ -233,4 +243,19 @@ type DailyDigestSummarizer interface {
 
 type L1KnowledgeVectorSink interface {
 	SaveL1KnowledgeItem(ctx context.Context, item L1KnowledgeItem) error
+}
+
+type L1VectorCleanupItem struct {
+	MemoryID     string
+	Namespace    string
+	SupersededBy string
+	Reason       string
+}
+
+type L1VectorCleanupResult struct {
+	Deleted int
+}
+
+type L1VectorCleanupSink interface {
+	CleanupMemoryVectors(ctx context.Context, items []L1VectorCleanupItem) (*L1VectorCleanupResult, error)
 }

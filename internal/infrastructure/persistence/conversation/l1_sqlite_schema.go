@@ -146,6 +146,15 @@ CREATE TABLE IF NOT EXISTS l1_daily_digest (
 	created_at TIMESTAMP NOT NULL,
 	updated_at TIMESTAMP NOT NULL
 );
+CREATE TABLE IF NOT EXISTS l1_monthly_highlight (
+	id TEXT PRIMARY KEY,
+	month TEXT NOT NULL,
+	category TEXT NOT NULL,
+	source_ids_json TEXT NOT NULL DEFAULT '[]',
+	highlight_text TEXT NOT NULL,
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
 CREATE TABLE IF NOT EXISTS l1_knowledge_item (
 	id TEXT PRIMARY KEY,
 	staging_id TEXT NOT NULL UNIQUE,
@@ -272,6 +281,8 @@ CREATE INDEX IF NOT EXISTS idx_prompt_injection_event_trace ON prompt_injection_
 DROP INDEX IF EXISTS idx_l1_daily_digest_date_category;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_daily_digest_date_category_slot ON l1_daily_digest(digest_date, category, digest_slot);
 CREATE INDEX IF NOT EXISTS idx_l1_daily_digest_category_created ON l1_daily_digest(category, digest_slot, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_l1_monthly_highlight_month_category ON l1_monthly_highlight(month, category);
+CREATE INDEX IF NOT EXISTS idx_l1_monthly_highlight_category_updated ON l1_monthly_highlight(category, updated_at DESC);
 `); err != nil {
 		return fmt.Errorf("failed to initialize l1 daily digest slot indexes: %w", err)
 	}

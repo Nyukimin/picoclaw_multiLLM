@@ -355,6 +355,34 @@ func TestBeginTurn_WithFreshSearchCache(t *testing.T) {
 	}
 }
 
+func TestBeginTurn_UsesL1KnowledgeFTSBeforeVectorKB(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(nil, nil)
+	l1 := &mockL1Store{knowledge: []L1KnowledgeItem{{
+		ID:           "kb-1",
+		Domain:       "general",
+		Title:        "RenCrow memory",
+		RawText:      "RenCrow memory lifecycle local first recall",
+		SummaryDraft: "RenCrow memory lifecycle は local-first recall を優先する",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}}}
+	mgr.WithL1Store(l1)
+	engine := NewRealConversationEngine(mgr, domconv.PersonaState{})
+
+	pack, err := engine.BeginTurn(ctx, "s1", "RenCrow memory lifecycle 最新")
+	if err != nil {
+		t.Fatalf("BeginTurn failed: %v", err)
+	}
+	if len(pack.KBSnippets) != 1 || !strings.Contains(pack.KBSnippets[0], "[L1KB]") {
+		t.Fatalf("expected local L1 KB snippet, got %+v", pack.KBSnippets)
+	}
+	chat := pack.FilterForRole("mio")
+	if len(chat.KBSnippets) != 1 {
+		t.Fatalf("Mio/chat policy should keep local-first KB snippet: %+v", chat)
+	}
+}
+
 func TestEndTurn_BasicStore(t *testing.T) {
 	stored := []string{}
 	mgr := &mockManager{

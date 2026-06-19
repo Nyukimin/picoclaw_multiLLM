@@ -12,14 +12,18 @@ import (
 )
 
 type mockUserMemoryManager struct {
-	createInput  domainmemory.CreateUserMemoryInput
-	createInputs []domainmemory.CreateUserMemoryInput
-	listItems    []domainmemory.UserMemory
-	listErr      error
-	createErr    error
-	forgetErr    error
-	forgetID     string
-	forgetReason string
+	createInput     domainmemory.CreateUserMemoryInput
+	createInputs    []domainmemory.CreateUserMemoryInput
+	listItems       []domainmemory.UserMemory
+	listErr         error
+	createErr       error
+	forgetErr       error
+	forgetID        string
+	forgetReason    string
+	supersedeOldID  string
+	supersedeNewID  string
+	supersedeReason string
+	supersedeErr    error
 }
 
 func (m *mockUserMemoryManager) CreateUserMemory(_ context.Context, input domainmemory.CreateUserMemoryInput) (*domainmemory.UserMemory, error) {
@@ -60,6 +64,16 @@ func (m *mockUserMemoryManager) ForgetUserMemory(_ context.Context, id string, r
 	m.forgetID = id
 	m.forgetReason = reason
 	return &domainmemory.UserMemory{ID: id, Namespace: "user:ren", UserID: "ren", Statement: "短く答える", Active: false}, nil
+}
+
+func (m *mockUserMemoryManager) SupersedeUserMemory(_ context.Context, oldID string, newID string, reason string) (*domainmemory.UserMemory, error) {
+	if m.supersedeErr != nil {
+		return nil, m.supersedeErr
+	}
+	m.supersedeOldID = oldID
+	m.supersedeNewID = newID
+	m.supersedeReason = reason
+	return &domainmemory.UserMemory{ID: oldID, Namespace: "user:ren", UserID: "ren", Type: domainmemory.UserMemoryTypePreference, Statement: "短く答える", Active: false, SupersededBy: newID}, nil
 }
 
 func TestParseChatCommand(t *testing.T) {
@@ -346,6 +360,60 @@ func TestHandleChatCommand_UserMemoryForgetByIDNotFoundAndErrors(t *testing.T) {
 	}
 }
 
+func TestHandleChatCommand_UserMemoryForgetAmbiguousShowsCandidates(t *testing.T) {
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{
+			{ID: "mem-1", Namespace: "user:ren", UserID: "ren", Type: domainmemory.UserMemoryTypePreference, Statement: "短く答える", State: domainmemory.MemoryStateConfirmed, Active: true},
+			{ID: "mem-2", Namespace: "user:ren", UserID: "ren", Type: domainmemory.UserMemoryTypeConstraint, Statement: "短く要点だけ答える", State: domainmemory.MemoryStatePinned, Active: true},
+		},
+	}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "session1", "忘れて 短く")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || !strings.Contains(result.Response, "候補が複数") || !strings.Contains(result.Response, "mem-1") || !strings.Contains(result.Response, "mem-2") {
+		t.Fatalf("unexpected ambiguous result: %+v", result)
+	}
+	if mem.forgetID != "" {
+		t.Fatalf("ambiguous forget should not modify memory: %+v", mem)
+	}
+}
+
+func TestHandleChatCommand_UserMemorySupersedeCreatesCandidateAndSupersedesOld(t *testing.T) {
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{{
+			ID:          "mem-old",
+			Namespace:   "user:ren",
+			UserID:      "ren",
+			Type:        domainmemory.UserMemoryTypePreference,
+			Statement:   "短く答える",
+			State:       domainmemory.MemoryStateConfirmed,
+			Sensitivity: "normal",
+			Scope:       "all_personas",
+			Active:      true,
+		}},
+	}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	result, err := m.HandleChatCommand(context.Background(), "session1", "記憶を置き換えて: 短く答える => 詳しく答える")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Handled || !strings.Contains(result.Response, "置き換え候補") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if mem.createInput.Statement != "詳しく答える" ||
+		mem.createInput.State != domainmemory.MemoryStateCandidate ||
+		mem.createInput.Source != "user_memory_supersede_command" {
+		t.Fatalf("unexpected supersede create input: %+v", mem.createInput)
+	}
+	if mem.supersedeOldID != "mem-old" || mem.supersedeNewID != "mem-1" || mem.supersedeReason != "supersede" {
+		t.Fatalf("unexpected supersede args: %+v", mem)
+	}
+}
+
 func TestParseUserMemoryCommandVariants(t *testing.T) {
 	cases := []struct {
 		input      string
@@ -356,6 +424,8 @@ func TestParseUserMemoryCommandVariants(t *testing.T) {
 		{"要約して保存: 今日の修復方針", "save_summary", "今日の修復方針"},
 		{"この記憶を見せて", "show", ""},
 		{"今後使わないで: 古い制約", "do_not_use", "古い制約"},
+		{"記憶を置き換えて: 古い => 新しい", "supersede", "古い => 新しい"},
+		{"古い記憶を新しい記憶に置き換えて", "supersede", "古い記憶 => 新しい記憶"},
 		{"覚えて、短く答える", "remember", "、短く答える"},
 		{"この設定は忘れて", "forget", "この設定"},
 		{"これは違う: 前の記憶", "correct", "前の記憶"},

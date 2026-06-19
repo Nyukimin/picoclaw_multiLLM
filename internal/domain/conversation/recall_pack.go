@@ -260,6 +260,7 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 	if role == "" {
 		return *rp
 	}
+	policy := RecallPolicyForRole(role)
 	filtered := *rp
 	filtered.MidSummaries = nil
 	filtered.KBSnippets = nil
@@ -272,20 +273,20 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 			filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedThreadSummaryTrace(summary, "role "+role+" does not match candidate roles"))
 		}
 	}
-	if recallRoleAllowsKB(role) {
-		filtered.KBSnippets = append([]string(nil), rp.KBSnippets...)
-	} else {
-		for _, snippet := range rp.KBSnippets {
+	for _, snippet := range rp.KBSnippets {
+		if policyAllowsKnowledgeSnippet(policy, snippet) {
+			filtered.KBSnippets = append(filtered.KBSnippets, snippet)
+		} else {
 			filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedKnowledgeTrace(snippet, "role "+role+" does not use Knowledge DB snippets by default"))
 		}
 	}
 	for _, snippet := range rp.SearchCacheSnippets {
-		if recallRoleAllowsSearchCache(role) && recallRolesMatch(snippet.Roles, role) {
+		if policyAllowsSearchCacheSnippet(policy, role, snippet) {
 			filtered.SearchCacheSnippets = append(filtered.SearchCacheSnippets, snippet)
 			continue
 		}
 		reason := "role " + role + " does not use L1 search cache by default"
-		if recallRoleAllowsSearchCache(role) && !recallRolesMatch(snippet.Roles, role) {
+		if policy.AllowSearchCache && !recallRolesMatch(snippet.Roles, role) {
 			reason = "role " + role + " does not match search cache roles"
 		}
 		filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedSearchCacheTrace(snippet, reason))
@@ -340,22 +341,49 @@ func rejectedSearchCacheTrace(snippet SearchCacheSnippet, reason string) RecallT
 	}
 }
 
-func recallRoleAllowsKB(role string) bool {
+type RecallRolePolicy struct {
+	Role             string
+	AllowKnowledge   bool
+	AllowSearchCache bool
+	RequireExplicit  bool
+}
+
+func RecallPolicyForRole(role string) RecallRolePolicy {
+	role = normalizeRecallRole(role)
 	switch role {
-	case "worker", "wild":
-		return true
+	case "chat", "mio":
+		return RecallRolePolicy{Role: "chat", AllowKnowledge: true, AllowSearchCache: true, RequireExplicit: true}
+	case "worker", "shiro":
+		return RecallRolePolicy{Role: "worker", AllowKnowledge: true, AllowSearchCache: true}
+	case "coder", "code", "aka", "ao", "gin", "kin":
+		return RecallRolePolicy{Role: "coder", AllowKnowledge: true, AllowSearchCache: true}
+	case "heavy", "kuro", "wild":
+		return RecallRolePolicy{Role: role, AllowKnowledge: true, AllowSearchCache: false}
+	case "creative", "midori":
+		return RecallRolePolicy{Role: "creative", AllowKnowledge: true, AllowSearchCache: false}
 	default:
-		return false
+		return RecallRolePolicy{Role: role, AllowKnowledge: false, AllowSearchCache: false}
 	}
 }
 
-func recallRoleAllowsSearchCache(role string) bool {
-	switch role {
-	case "worker":
-		return true
-	default:
+func policyAllowsKnowledgeSnippet(policy RecallRolePolicy, snippet string) bool {
+	if !policy.AllowKnowledge {
 		return false
 	}
+	if !policy.RequireExplicit {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(snippet), "[L1KB]") || strings.HasPrefix(strings.TrimSpace(snippet), "[VectorKB]")
+}
+
+func policyAllowsSearchCacheSnippet(policy RecallRolePolicy, role string, snippet SearchCacheSnippet) bool {
+	if !policy.AllowSearchCache {
+		return false
+	}
+	if policy.RequireExplicit && len(snippet.Roles) == 0 {
+		return false
+	}
+	return recallRolesMatch(snippet.Roles, role)
 }
 
 func recallRolesMatch(roles []string, role string) bool {
@@ -372,7 +400,21 @@ func recallRolesMatch(roles []string, role string) bool {
 }
 
 func normalizeRecallRole(role string) string {
-	return strings.ToLower(strings.TrimSpace(role))
+	role = strings.ToLower(strings.TrimSpace(role))
+	switch role {
+	case "mio":
+		return "chat"
+	case "shiro":
+		return "worker"
+	case "aka", "ao", "gin", "kin":
+		return "coder"
+	case "kuro":
+		return "heavy"
+	case "midori":
+		return "creative"
+	default:
+		return role
+	}
 }
 
 func estimateRecallTokens(text string) int {

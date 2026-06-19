@@ -30,6 +30,7 @@ type UserMemoryManager interface {
 	ListUserMemories(ctx context.Context, userID string, state string, includeInactive bool, limit int) ([]domainmemory.UserMemory, error)
 	UpdateUserMemoryState(ctx context.Context, id string, state string, reason string) (*domainmemory.UserMemory, error)
 	ForgetUserMemory(ctx context.Context, id string, reason string) (*domainmemory.UserMemory, error)
+	SupersedeUserMemory(ctx context.Context, oldID string, newID string, reason string) (*domainmemory.UserMemory, error)
 }
 
 // PersonaEditor はペルソナファイルの読み書きを抽象化する

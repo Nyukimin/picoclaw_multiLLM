@@ -415,7 +415,10 @@ func TestMioAgent_Chat_AppliesChatRecallRoleFilter(t *testing.T) {
 	if !strings.Contains(got, "chat memory") {
 		t.Fatalf("chat role recall should be included, got:\n%s", got)
 	}
-	if strings.Contains(got, "worker memory") || strings.Contains(got, "chat search") || strings.Contains(got, "wild search") {
+	if !strings.Contains(got, "chat search") {
+		t.Fatalf("chat role search cache should be included, got:\n%s", got)
+	}
+	if strings.Contains(got, "worker memory") || strings.Contains(got, "wild search") {
 		t.Fatalf("non-chat role recall should be filtered, got:\n%s", got)
 	}
 }

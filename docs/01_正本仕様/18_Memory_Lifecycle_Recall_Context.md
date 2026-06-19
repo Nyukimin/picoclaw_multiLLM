@@ -1206,6 +1206,8 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 3. decay score update を追加する。
 4. superseded / deleted memory の vector cleanup を追加する。
 5. runtime log GC を startup と scheduled job の両方で実行する。
+6. daily digest を monthly highlight へ統合する。
+7. thread summary を monthly highlight seed として queue する。
 
 完了条件:
 
@@ -1213,6 +1215,8 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 - stale candidate は review queue または archive へ移る。
 - pinned memory は decay されない。
 - superseded memory は prompt に入らない。
+- inactive / superseded memory は vector cleanup executor に渡され、完了状態が `vector_cleanup_status=done` として追跡できる。
+- daily digest から作られた monthly highlight は idempotent に保存され、thread summary は統合候補として重複 queue されない。
 
 ## 10.4 Phase 4: UserMemory commands
 
@@ -1230,12 +1234,53 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 - 「これは違う」
 - 「この話を要約して保存」
 - 「今後使わないで」
+- 「記憶を置き換えて: old => new」
+- 「old を new に置き換えて」
 
 完了条件:
 
 - command 実行結果が UserMemory state に反映される。
 - forget / supersede が次 turn の prompt へ反映される。
 - 操作結果が trace / event log で追える。
+- 曖昧一致が複数ある場合は即変更せず、候補 id を提示して明示指定を求める。
+- supersede は新 memory candidate を作成し、旧 memory を `superseded_by` で prompt 対象外にする。
+
+## 10.5 Phase 5: Knowledge / Source Registry hardening
+
+目的: 外部情報を正式 Knowledge へ昇格する pipeline を prompt recall と接続する。
+
+実装順:
+
+1. Source Registry staging / validation / promotion の状態を維持する。
+2. Recall Context では freshness-sensitive 発話を検出する。
+3. 外部検索前に L1 SearchCache と promoted L1 Knowledge FTS を local-first で参照する。
+4. L1 Knowledge hit は `[L1KB]`、VectorDB hit は `[VectorKB]` として section trace できる形で RecallPack に入れる。
+
+完了条件:
+
+- Source Registry staging は直接 prompt に入らない。
+- promoted L1 Knowledge / SearchCache のみが freshness-sensitive recall に使われる。
+- 複合 query は full text miss 時も有効語 fallback で local Knowledge を検索できる。
+
+## 10.6 Phase 6: Role-specific recall
+
+目的: Mio / Shiro / Aka / Ao / Gin / Kin / Kuro / Midori ごとに RecallPack の利用範囲を分ける。
+
+初期 policy:
+
+| Role | Policy |
+|---|---|
+| Mio / Chat | conversation memory + explicit local-first freshness KB/SearchCache |
+| Shiro / Worker | conversation memory + Knowledge + SearchCache |
+| Aka / Ao / Gin / Kin / Coder | conversation memory + Knowledge + SearchCache |
+| Kuro / Heavy | conversation memory + Knowledge |
+| Midori / Creative | conversation memory + Knowledge |
+
+完了条件:
+
+- role alias は `FilterForRole` で正規化される。
+- role 不一致や policy 外の item は rejected trace item として残る。
+- Mio は汎用 KB/SearchCache を常時読むのではなく、`[L1KB]` / `[VectorKB]` または `Roles: chat` の明示 local-first item だけを読む。
 
 ---
 
@@ -1254,8 +1299,11 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 | `internal/domain/memory` | sensitive memory は auto promote できない |
 | `internal/domain/agent` | UserMemory prompt は confirmed / pinned / active / normal のみ注入 |
 | `internal/domain/agent` | candidate capture は prompt 注入と分離される |
+| `internal/domain/agent` | UserMemory 曖昧一致は候補提示で止まり、即変更しない |
+| `internal/domain/agent` | supersede command は新 candidate 作成と旧 memory の supersede を行う |
 | `internal/infrastructure/persistence/conversation` | recall trace schema が作成され CRUD できる |
 | `internal/infrastructure/persistence/conversation` | forget / supersede 後の memory は prompt helper から除外される |
+| `internal/infrastructure/persistence/conversation` | lifecycle job は monthly highlight / thread summary seed / decay policy / vector cleanup executor を扱う |
 
 ## 11.2 Integration tests
 

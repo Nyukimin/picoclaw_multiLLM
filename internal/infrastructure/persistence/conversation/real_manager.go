@@ -70,6 +70,7 @@ func (r *RealConversationManager) WithL1Store(store l1StoreIface) *RealConversat
 			l1.WithArchiveStore(archiveStore)
 		}
 		l1.WithKnowledgeVectorSink(r)
+		l1.WithVectorCleanupSink(r)
 	}
 	r.l1Store = store
 	return r

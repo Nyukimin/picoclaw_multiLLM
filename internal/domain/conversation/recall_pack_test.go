@@ -433,7 +433,7 @@ func TestRecallPack_FilterForRoleAppliesDefaultUseCasePolicy(t *testing.T) {
 
 	chat := rp.FilterForRole("chat")
 	if len(chat.LongFacts) != 1 || len(chat.KBSnippets) != 0 || len(chat.SearchCacheSnippets) != 0 {
-		t.Fatalf("chat should keep memory and drop KB/search by default: %+v", chat)
+		t.Fatalf("chat should keep memory and drop generic KB/search by default: %+v", chat)
 	}
 	worker := rp.FilterForRole("worker")
 	if len(worker.LongFacts) != 1 || len(worker.KBSnippets) != 1 || len(worker.SearchCacheSnippets) != 1 {
@@ -442,6 +442,24 @@ func TestRecallPack_FilterForRoleAppliesDefaultUseCasePolicy(t *testing.T) {
 	wild := rp.FilterForRole("wild")
 	if len(wild.LongFacts) != 1 || len(wild.KBSnippets) != 1 || len(wild.SearchCacheSnippets) != 0 {
 		t.Fatalf("wild should keep memory and KB but drop search cache by default: %+v", wild)
+	}
+	shiro := rp.FilterForRole("Shiro")
+	if len(shiro.KBSnippets) != 1 || len(shiro.SearchCacheSnippets) != 1 {
+		t.Fatalf("Shiro should use worker recall policy: %+v", shiro)
+	}
+	ao := rp.FilterForRole("Ao")
+	if len(ao.KBSnippets) != 1 || len(ao.SearchCacheSnippets) != 1 {
+		t.Fatalf("Ao should use coder recall policy: %+v", ao)
+	}
+
+	localFirst := (&RecallPack{
+		KBSnippets: []string{"[L1KB] local knowledge"},
+		SearchCacheSnippets: []SearchCacheSnippet{
+			{Query: "fresh local cache", Roles: []string{"chat"}},
+		},
+	}).FilterForRole("Mio")
+	if len(localFirst.KBSnippets) != 1 || len(localFirst.SearchCacheSnippets) != 1 {
+		t.Fatalf("Mio should keep explicit local-first freshness recall: %+v", localFirst)
 	}
 }
 

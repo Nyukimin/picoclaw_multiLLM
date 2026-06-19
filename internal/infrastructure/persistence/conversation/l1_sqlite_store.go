@@ -53,6 +53,7 @@ type L1SQLiteStore struct {
 	archiveStore          L1ArchiveStore
 	dailyDigestSummarizer DailyDigestSummarizer
 	knowledgeVectorSink   L1KnowledgeVectorSink
+	vectorCleanupSink     L1VectorCleanupSink
 }
 
 func NewL1SQLiteStore(dbPath string) (*L1SQLiteStore, error) {
@@ -84,5 +85,10 @@ func (s *L1SQLiteStore) WithDailyDigestSummarizer(summarizer DailyDigestSummariz
 
 func (s *L1SQLiteStore) WithKnowledgeVectorSink(sink L1KnowledgeVectorSink) *L1SQLiteStore {
 	s.knowledgeVectorSink = sink
+	return s
+}
+
+func (s *L1SQLiteStore) WithVectorCleanupSink(sink L1VectorCleanupSink) *L1SQLiteStore {
+	s.vectorCleanupSink = sink
 	return s
 }

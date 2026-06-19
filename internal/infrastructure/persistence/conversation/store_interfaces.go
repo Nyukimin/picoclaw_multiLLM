@@ -45,6 +45,7 @@ type vectordbStoreIface interface {
 	GetKBCollections(ctx context.Context) ([]string, error)
 	GetKBStats(ctx context.Context, domain string) (*KBStats, error)
 	DeleteOldKBDocuments(ctx context.Context, domain string, before time.Time) (int, error)
+	CleanupMemoryVectors(ctx context.Context, items []L1VectorCleanupItem) (*L1VectorCleanupResult, error)
 	Close() error
 }
 
@@ -54,6 +55,7 @@ type l1StoreIface interface {
 	GetFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time) (*L1SearchCacheEntry, error)
 	GetSimilarFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time, threshold float64) (*L1SearchCacheEntry, error)
 	InvalidateSearchCache(ctx context.Context, provider string, rawQuery string) (int64, error)
+	SearchKnowledgeItemsFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error)
 	AppendEvent(ctx context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error)
 	RecentEvents(ctx context.Context, namespace string, limit int) ([]L1EventLogEntry, error)
 	UpdateMemoryState(ctx context.Context, id string, memoryState string) error

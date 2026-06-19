@@ -67,7 +67,60 @@ LIMIT ?
 		return nil, fmt.Errorf("failed to search l1 knowledge fts: %w", err)
 	}
 	defer rows.Close()
+	items, err := scanL1KnowledgeItems(rows)
+	if err != nil || len(items) > 0 {
+		return items, err
+	}
+	return s.searchKnowledgeItemsByTerms(ctx, domain, query, limit)
+}
+
+func (s *L1SQLiteStore) searchKnowledgeItemsByTerms(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error) {
+	terms := knowledgeSearchTerms(query)
+	if len(terms) == 0 {
+		return []L1KnowledgeItem{}, nil
+	}
+	clauses := make([]string, 0, len(terms))
+	args := make([]interface{}, 0, len(terms)*4+2)
+	for _, term := range terms {
+		clauses = append(clauses, `(f.title LIKE ? OR f.raw_text LIKE ? OR f.summary_draft LIKE ? OR f.keywords_text LIKE ?)`)
+		like := likeQuery(term)
+		args = append(args, like, like, like, like)
+	}
+	args = append(args, domain, limit)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT k.id, k.staging_id, k.domain, k.title, k.source_id, k.source_url, k.raw_text, k.raw_hash,
+       k.summary_draft, k.keywords_json, k.license_note, k.meta_json, k.created_at, k.updated_at
+FROM l1_knowledge_item_fts f
+JOIN l1_knowledge_item k ON k.id = f.id
+WHERE (`+strings.Join(clauses, " OR ")+`)
+  AND f.domain = ?
+ORDER BY k.updated_at DESC
+LIMIT ?
+`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search l1 knowledge fts by terms: %w", err)
+	}
+	defer rows.Close()
 	return scanL1KnowledgeItems(rows)
+}
+
+func knowledgeSearchTerms(query string) []string {
+	replacer := strings.NewReplacer("、", " ", "。", " ", ":", " ", "：", " ", ",", " ", ".", " ", "　", " ")
+	parts := strings.Fields(replacer.Replace(strings.ToLower(query)))
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if len([]rune(part)) < 3 || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+		if len(out) >= 6 {
+			break
+		}
+	}
+	return out
 }
 
 func (s *L1SQLiteStore) upsertKnowledgeFTS(ctx context.Context, item *L1KnowledgeItem) error {

@@ -108,6 +108,7 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 					ResultsJSON: cacheEntry.ResultsJSON,
 					SourceURLs:  cacheEntry.SourceURLs,
 					RetrievedAt: cacheEntry.RetrievedAt,
+					Roles:       []string{"chat", "worker", "coder"},
 				})
 			}
 		}
@@ -118,15 +119,30 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 			domain = thread.Domain
 		}
 
+		if realMgr.l1Store != nil {
+			items, err := realMgr.l1Store.SearchKnowledgeItemsFTS(ctx, domain, userMessage, 3)
+			if err != nil {
+				log.Printf("[ConversationEngine] WARN: L1 Knowledge FTS failed: %v", err)
+			} else {
+				for _, item := range items {
+					snippet := strings.TrimSpace(item.SummaryDraft)
+					if snippet == "" {
+						snippet = strings.TrimSpace(item.RawText)
+					}
+					if snippet != "" {
+						pack.KBSnippets = append(pack.KBSnippets, "[L1KB] "+snippet)
+					}
+				}
+			}
+		}
+
 		// KB検索を実行
 		kbDocs, err := realMgr.SearchKB(ctx, domain, userMessage, 3)
 		if err != nil {
 			log.Printf("[ConversationEngine] WARN: SearchKB failed: %v", err)
 		} else if len(kbDocs) > 0 {
-			// KB検索結果を LongFacts に追加
 			for _, doc := range kbDocs {
-				fact := "[KB] " + doc.Content
-				pack.LongFacts = append(pack.LongFacts, fact)
+				pack.KBSnippets = append(pack.KBSnippets, "[VectorKB] "+doc.Content)
 			}
 		}
 	}
