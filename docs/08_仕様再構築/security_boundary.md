@@ -258,6 +258,24 @@ Move-Item のような物理移動は、実行環境・モデル格納・venv・
 
 これらは自動実行しない。提案または手順化までに留める。
 
+### 3.4.1 RenCrow 自己ライフサイクル変更
+
+Repair / Coder Proposal / Worker 自動実行では、RenCrow 本体の稼働プロセスと live binary を変更しない。
+
+manual_only とする対象:
+- `picoclaw.service` の `start` / `stop` / `restart` / `reload` / `enable` / `disable`
+- `picoclaw` プロセスへの `pkill` / `killall`
+- `make install`
+- `~/.local/bin/picoclaw` へのコピー、上書き、削除
+
+正しい処理:
+1. Coder は「再起動または install が必要」と Proposal / plan に明記する
+2. Worker は自動実行せず `approval_required` として停止する
+3. Chat / Viewer はユーザーに manual approval を求める
+4. 承認後、外側の operator が service を停止し、port 停止確認、install、起動、health check を順に行う
+
+自動修復ジョブが自分自身を再起動すると、実行中の HTTP connection、Repair 状態、IdleChat 停止状態を失う可能性がある。そのため、自己ライフサイクル変更は「修復の一部」ではなく「承認済み運用手順」として扱う。
+
 ### 3.5 実行禁止コマンドの例
 
 少なくとも以下は PreToolUse Hook で検出し、原則拒否する。

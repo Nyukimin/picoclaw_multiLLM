@@ -30,14 +30,15 @@ func appendModuleContextToCodeRequest(message string, resolved domainmodule.Reso
 		b.WriteString(fmt.Sprintf("- build_command: %s\n", m.BuildCommand))
 	}
 	if m.InstallCommand != "" {
-		b.WriteString(fmt.Sprintf("- install_command: %s\n", m.InstallCommand))
+		b.WriteString(fmt.Sprintf("- install_command_manual_only: %s\n", m.InstallCommand))
 	}
 	if m.RestartTarget != "" {
-		b.WriteString(fmt.Sprintf("- restart_target: %s\n", m.RestartTarget))
+		b.WriteString(fmt.Sprintf("- restart_target_manual_only: %s\n", m.RestartTarget))
 	}
 	if m.HealthCheck != "" {
 		b.WriteString(fmt.Sprintf("- health_check: %s\n", m.HealthCheck))
 	}
-	b.WriteString("- rule: do not use /home/nyukimi/RenCrow as the edit root; edit, test, build, and restart from the selected module root.\n")
+	b.WriteString("- rule: do not use /home/nyukimi/RenCrow as the edit root; edit, test, and build from the selected module root.\n")
+	b.WriteString("- rule: do not include service restart, service stop/start, make install, or live binary overwrite commands in Worker-executable patches; mention them only as manual approval steps.\n")
 	return b.String()
 }

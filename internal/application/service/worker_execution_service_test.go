@@ -144,6 +144,51 @@ func TestExecuteProposal_ParseError(t *testing.T) {
 	}
 }
 
+func TestExecuteProposal_BlocksSelfServiceRestartBeforeAnyCommandRuns(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.WorkerConfig{
+		Workspace:      tmpDir,
+		CommandTimeout: 10,
+	}
+	service := NewWorkerExecutionService(cfg)
+	markerPath := filepath.Join(tmpDir, "ran.txt")
+	patchJSON := `[
+		{"type":"shell_command","action":"run","target":"echo should-not-run > ` + markerPath + `"},
+		{"type":"shell_command","action":"run","target":"systemctl --user restart picoclaw.service"}
+	]`
+
+	_, err := service.ExecuteProposal(context.Background(), task.NewJobID(), proposal.NewProposal("blocked", patchJSON, "", ""))
+	if err == nil {
+		t.Fatal("expected self lifecycle command to require approval")
+	}
+	if !strings.Contains(err.Error(), "approval required") || !strings.Contains(err.Error(), "picoclaw.service lifecycle change") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(markerPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected preflight to stop all commands before marker creation, statErr=%v", statErr)
+	}
+}
+
+func TestExecuteProposal_BlocksSelfInstallCommands(t *testing.T) {
+	cfg := config.WorkerConfig{
+		Workspace:      t.TempDir(),
+		CommandTimeout: 10,
+	}
+	service := NewWorkerExecutionService(cfg)
+	patchJSON := `[
+		{"type":"shell_command","action":"run","target":"make install"},
+		{"type":"shell_command","action":"run","target":"cp build/picoclaw-linux-amd64 ~/.local/bin/picoclaw"}
+	]`
+
+	_, err := service.ExecuteProposal(context.Background(), task.NewJobID(), proposal.NewProposal("blocked", patchJSON, "", ""))
+	if err == nil {
+		t.Fatal("expected live binary install command to require approval")
+	}
+	if !strings.Contains(err.Error(), "approval required") || !strings.Contains(err.Error(), "RenCrow live binary install") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestExecuteProposal_ClassifiesMissingCommandAsRetryable(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := config.WorkerConfig{

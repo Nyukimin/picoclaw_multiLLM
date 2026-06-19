@@ -44,6 +44,9 @@ func buildIdleChatRuntime(
 		cfg.IdleChat.StoryDataDir,
 	)
 	idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
+	if deps.llmBusyTracker != nil {
+		idleChatOrch.SetExternalLLMBusyFunc(deps.llmBusyTracker.ExternalBusy)
+	}
 	idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":        chatProvider,
 		"shiro":      firstNonNilLLMProvider(chatWorkerProvider, workerProvider),

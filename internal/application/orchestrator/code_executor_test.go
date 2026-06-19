@@ -9,6 +9,7 @@ import (
 	moduleapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/moduleregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
+	domainmodule "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/moduleregistry"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -173,6 +174,14 @@ func TestCodeExecutor_ModuleRegistryInjectsContextAndWorkspace(t *testing.T) {
 		!strings.Contains(coder2.lastProposalInput, "root: /home/nyukimi/RenCrow/RenCrow_STT") {
 		t.Fatalf("coder did not receive module context: %s", coder2.lastProposalInput)
 	}
+	if strings.Contains(coder2.lastProposalInput, "install_command:") ||
+		strings.Contains(coder2.lastProposalInput, "restart_target:") ||
+		strings.Contains(coder2.lastProposalInput, "build, and restart") {
+		t.Fatalf("coder received executable lifecycle context: %s", coder2.lastProposalInput)
+	}
+	if !strings.Contains(coder2.lastProposalInput, "manual approval steps") {
+		t.Fatalf("coder did not receive manual-only lifecycle rule: %s", coder2.lastProposalInput)
+	}
 	if workerService.workspace != "/home/nyukimi/RenCrow/RenCrow_STT" {
 		t.Fatalf("worker workspace=%q, want RenCrow_STT root", workerService.workspace)
 	}
@@ -181,6 +190,29 @@ func TestCodeExecutor_ModuleRegistryInjectsContextAndWorkspace(t *testing.T) {
 	}
 	if _, ok := findCodeExecutorEvent(events, "worker.workspace", "shiro", "worker"); !ok {
 		t.Fatalf("worker.workspace event not emitted: %+v", events)
+	}
+}
+
+func TestAppendModuleContextLifecycleCommandsAreManualOnly(t *testing.T) {
+	got := appendModuleContextToCodeRequest("修復して", domainmodule.Resolution{
+		Module: domainmodule.Module{
+			ID:             "chat",
+			DisplayName:    "picoclaw_multiLLM",
+			Root:           "/home/nyukimi/RenCrow/picoclaw_multiLLM",
+			Kind:           "go",
+			InstallCommand: "cp build/picoclaw-linux-amd64 ~/.local/bin/picoclaw",
+			RestartTarget:  "picoclaw.service",
+		},
+		MatchedBy:  "test",
+		Confidence: 1,
+	})
+	if strings.Contains(got, "install_command:") || strings.Contains(got, "restart_target:") {
+		t.Fatalf("module context exposed executable lifecycle commands:\n%s", got)
+	}
+	for _, want := range []string{"install_command_manual_only:", "restart_target_manual_only:", "manual approval steps"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("module context missing %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -462,10 +494,19 @@ func TestCodeExecutor_ProposalPathEmitsLanguageTrace(t *testing.T) {
 	if !(delegate < request && request < result && result < report) {
 		t.Fatalf("unexpected language trace order: delegate=%d request=%d result=%d report=%d", delegate, request, result, report)
 	}
-	if !strings.Contains(events[request].content, "ShiroからWorkerへの指示") {
+	if !strings.Contains(events[request].content, "Shiro内部実行器への指示") {
 		t.Fatalf("worker request is not verbalized: %q", events[request].content)
 	}
-	if !strings.Contains(events[result].content, "WorkerからShiroへの戻り") {
+	if strings.Contains(events[request].content, "ShiroからWorker") {
+		t.Fatalf("worker request must not describe Shiro and Worker as separate agents: %q", events[request].content)
+	}
+	if strings.Contains(events[request].content, "検証済みとしてWorkerで実行") {
+		t.Fatalf("worker request must not claim unverified proposals are pre-validated: %q", events[request].content)
+	}
+	if !strings.Contains(events[request].content, "実行器側で検証") {
+		t.Fatalf("worker request should require worker-side validation: %q", events[request].content)
+	}
+	if !strings.Contains(events[result].content, "Shiro内部実行器の戻り") {
 		t.Fatalf("worker result is not verbalized: %q", events[result].content)
 	}
 }

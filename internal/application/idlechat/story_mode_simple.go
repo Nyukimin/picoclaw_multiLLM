@@ -79,6 +79,7 @@ func (o *IdleChatOrchestrator) StartSimpleStoryMode() error {
 	if o.chatActive {
 		return fmt.Errorf("chat session already active")
 	}
+	o.disabled = false
 	o.manualMode = false
 	o.chatActive = true
 	o.sessionMode = "story-simple"

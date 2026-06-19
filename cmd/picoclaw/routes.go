@@ -52,7 +52,7 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
 	mux.HandleFunc("/viewer/docs/search", viewer.HandleDocsSearch())
 	mux.HandleFunc("/viewer/docs/detail", viewer.HandleDocsDetail())
-	mux.HandleFunc("/viewer/repair/run", viewer.HandleRepairRun(dependencies.eventRelay))
+	mux.HandleFunc("/viewer/repair/run", viewer.HandleRepairRunWithRunner(dependencies.eventRelay, dependencies.repairRunner))
 	mux.HandleFunc("/viewer/backlog", viewer.HandleBacklog(viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))))
 	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
 	mux.HandleFunc("/viewer/movie-catalog", viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}))

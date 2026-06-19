@@ -331,10 +331,28 @@ func (c *CoderAgent) extractWholeContentPatch(content string) string {
 }
 
 func synthesizePlanFromPatch(patchText string) string {
-	if strings.HasPrefix(strings.TrimSpace(patchText), "[") {
-		return "- Apply the structured patch commands.\n- Run the included verification steps."
+	commands, err := patch.ParsePatch(patchText)
+	if err != nil || len(commands) == 0 {
+		return "- Inspect the runnable patch contents.\n- Apply only the commands that pass Worker validation."
 	}
-	return "- Apply the requested code changes.\n- Run the included verification commands."
+	lines := make([]string, 0, len(commands))
+	for _, cmd := range commands {
+		target := strings.TrimSpace(cmd.Target)
+		if target == "" {
+			target = "(no target)"
+		}
+		switch cmd.Type {
+		case patch.TypeFileEdit:
+			lines = append(lines, fmt.Sprintf("- %s file: %s", cmd.Action, target))
+		case patch.TypeShellCommand:
+			lines = append(lines, fmt.Sprintf("- run verification command: %s", target))
+		case patch.TypeGitOperation:
+			lines = append(lines, fmt.Sprintf("- run git operation: %s", target))
+		default:
+			lines = append(lines, fmt.Sprintf("- %s %s: %s", cmd.Action, cmd.Type, target))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (c *CoderAgent) selfCheckProposal(p *proposal.Proposal) error {

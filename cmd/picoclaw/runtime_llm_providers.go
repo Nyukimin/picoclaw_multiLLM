@@ -25,13 +25,20 @@ type llmRuntimeProviders struct {
 	ModuleProviders    map[string]modulellm.Provider
 }
 
-func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder) llmRuntimeProviders {
+func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddleware.ContextBudgetRecorder, busyTracker *llmBusyTracker) llmRuntimeProviders {
 	primaryProviders := buildPrimaryLLMProviders(cfg, contextBudgetRecorder)
+	primaryProviders = primaryLLMProviders{
+		Chat:       trackLLMProvider("chat", primaryProviders.Chat, busyTracker),
+		Worker:     trackLLMProvider("worker", primaryProviders.Worker, busyTracker),
+		ChatWorker: trackLLMProvider("chatworker", primaryProviders.ChatWorker, busyTracker),
+		Heavy:      trackLLMProvider("heavy", primaryProviders.Heavy, busyTracker),
+		Wild:       trackLLMProvider("wild", primaryProviders.Wild, busyTracker),
+	}
 	workerToolProvider, ok := primaryProviders.Worker.(llm.ToolCallingProvider)
 	if !ok {
 		log.Fatalf("worker provider %s does not support tool calling", primaryProviders.Worker.Name())
 	}
-	coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter := setupCoders(cfg)
+	coder1Adapter, coder2Adapter, coder3Adapter, coder4Adapter := setupCoders(cfg, busyTracker)
 	moduleProviders := modulebridge.NewLLMRoleProviders(primaryProviders.Chat, primaryProviders.Worker, primaryProviders.Heavy, primaryProviders.Wild)
 	return llmRuntimeProviders{
 		Primary:            primaryProviders,

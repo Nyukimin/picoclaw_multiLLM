@@ -108,3 +108,62 @@ func TestIdleChatInterruptDiscardsStaleTimelineEvent(t *testing.T) {
 		t.Fatalf("stale idlechat event emitted %d times, want 0", emitted)
 	}
 }
+
+func TestIdleChatStopManualModeDisablesAutomaticRestart(t *testing.T) {
+	o := NewIdleChatOrchestrator(&capturingIdleProvider{response: "ok"}, session.NewCentralMemory(), []string{"mio", "shiro"}, 1, 10, 0.7, nil, "")
+	o.mu.Lock()
+	o.manualMode = true
+	o.chatActive = true
+	o.lastActivity = time.Now().Add(-time.Hour)
+	o.mu.Unlock()
+
+	o.StopManualMode()
+	if !o.IsDisabled() {
+		t.Fatal("StopManualMode should disable automatic IdleChat restart")
+	}
+
+	o.checkAndStartChat()
+	if o.IsChatActive() {
+		t.Fatal("IdleChat auto monitor restarted after StopManualMode")
+	}
+	if got := o.CurrentMode(); got != "" {
+		t.Fatalf("CurrentMode() after disabled auto check = %q, want empty", got)
+	}
+	if snapshot := o.WatchdogSnapshot(time.Now()); !snapshot.Disabled {
+		t.Fatalf("watchdog disabled = false, want true: %+v", snapshot)
+	}
+}
+
+func TestIdleChatExplicitStartClearsDisabledStopLatch(t *testing.T) {
+	o := NewIdleChatOrchestrator(&capturingIdleProvider{response: "ok"}, session.NewCentralMemory(), []string{"mio", "shiro"}, 1, 10, 0.7, nil, "")
+	o.StopManualMode()
+	if !o.IsDisabled() {
+		t.Fatal("expected disabled stop latch before explicit start")
+	}
+
+	if err := o.StartManualMode(); err != nil {
+		t.Fatalf("StartManualMode failed: %v", err)
+	}
+	if o.IsDisabled() {
+		t.Fatal("explicit StartManualMode should clear disabled stop latch")
+	}
+	if !o.IsManualMode() {
+		t.Fatal("manual mode should be active after explicit start")
+	}
+}
+
+func TestIdleChatExternalLLMBusyPreventsAutomaticStart(t *testing.T) {
+	o := NewIdleChatOrchestrator(&capturingIdleProvider{response: "ok"}, session.NewCentralMemory(), []string{"mio", "shiro"}, 1, 10, 0.7, nil, "")
+	o.SetExternalLLMBusyFunc(func() bool { return true })
+	o.mu.Lock()
+	o.lastActivity = time.Now().Add(-time.Hour)
+	o.mu.Unlock()
+
+	o.checkAndStartChat()
+	if o.IsChatActive() {
+		t.Fatal("IdleChat auto monitor started while external LLM is busy")
+	}
+	if snapshot := o.WatchdogSnapshot(time.Now()); !snapshot.ExternalLLMBusy {
+		t.Fatalf("watchdog external_llm_busy = false, want true: %+v", snapshot)
+	}
+}

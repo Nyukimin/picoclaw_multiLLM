@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 )
 
@@ -71,10 +72,16 @@ func (o *IdleChatOrchestrator) SetWorkerBusy(busy bool) {
 	}
 }
 
+func (o *IdleChatOrchestrator) SetExternalLLMBusyFunc(fn func() bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.externalLLMBusy = fn
+}
+
 // StartManualMode starts idle chat mode immediately.
 
 func (o *IdleChatOrchestrator) StopManualMode() {
-	o.interruptLockedWithReason("manual_stop")
+	o.stopAndDisable("manual_stop")
 }
 
 func (o *IdleChatOrchestrator) Interrupt(reason string) {
@@ -114,6 +121,13 @@ func (o *IdleChatOrchestrator) interruptLockedWithReason(reason string) {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+func (o *IdleChatOrchestrator) stopAndDisable(reason string) {
+	o.mu.Lock()
+	o.disabled = true
+	o.mu.Unlock()
+	o.interruptLockedWithReason(reason)
 }
 
 func (o *IdleChatOrchestrator) beginIdleRunLocked() uint64 {
@@ -162,9 +176,9 @@ func (o *IdleChatOrchestrator) idleRunContext() context.Context {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.runCtx != nil {
-		return o.runCtx
+		return llm.WithBusySource(o.runCtx, "idlechat")
 	}
-	return o.ctx
+	return llm.WithBusySource(o.ctx, "idlechat")
 }
 
 func (o *IdleChatOrchestrator) activateIdleSession(sessionID string) uint64 {
@@ -352,6 +366,7 @@ func (o *IdleChatOrchestrator) StartManualMode() error {
 	if len(o.participants) < 2 {
 		return fmt.Errorf("idlechat requires at least 2 participants")
 	}
+	o.disabled = false
 	o.manualMode = true
 	o.lastActivity = time.Now()
 	log.Println("[IdleChat] Manual mode started")
@@ -369,6 +384,7 @@ func (o *IdleChatOrchestrator) StartForecastMode() error {
 	if o.chatActive {
 		return fmt.Errorf("chat session already active")
 	}
+	o.disabled = false
 	o.manualMode = false
 	o.chatActive = true
 	o.sessionMode = "forecast"
@@ -391,6 +407,7 @@ func (o *IdleChatOrchestrator) StartStoryMode() error {
 	if o.chatActive {
 		return fmt.Errorf("chat session already active")
 	}
+	o.disabled = false
 	o.manualMode = false
 	o.chatActive = true
 	o.sessionMode = "story"
@@ -416,6 +433,12 @@ func (o *IdleChatOrchestrator) IsChatActive() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.chatActive
+}
+
+func (o *IdleChatOrchestrator) IsDisabled() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.disabled
 }
 
 // CurrentMode returns the current idlechat/forecast mode.

@@ -2,6 +2,7 @@ package aiworkflow
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -77,5 +78,35 @@ func TestJSONLStoreListsLatestRegistryStatePerID(t *testing.T) {
 	commands, err := store.ListCommandRegistries(ctx, 10)
 	if err != nil || len(commands) != 1 || commands[0].FilePath != "commands/new.md" {
 		t.Fatalf("commands=%#v err=%v", commands, err)
+	}
+}
+
+func TestJSONLStoreCompactsOperationalContextUsage(t *testing.T) {
+	store := NewJSONLStore(t.TempDir())
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < contextUsageMaxRecords+3; i++ {
+		if err := store.SaveContextUsage(ctx, domainai.ContextUsage{
+			EventID:     "ctx_" + strconv.Itoa(i),
+			Agent:       "Coder",
+			InputTokens: i,
+			CreatedAt:   now.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("SaveContextUsage(%d) error = %v", i, err)
+		}
+	}
+
+	if err := store.CompactOperationalLogs(); err != nil {
+		t.Fatalf("CompactOperationalLogs() error = %v", err)
+	}
+	items, err := store.ListContextUsages(ctx, contextUsageMaxRecords+10)
+	if err != nil {
+		t.Fatalf("ListContextUsages() error = %v", err)
+	}
+	if len(items) != contextUsageMaxRecords {
+		t.Fatalf("context usages len=%d want %d", len(items), contextUsageMaxRecords)
+	}
+	if items[0].EventID != "ctx_"+strconv.Itoa(contextUsageMaxRecords+2) {
+		t.Fatalf("newest context usage=%q", items[0].EventID)
 	}
 }

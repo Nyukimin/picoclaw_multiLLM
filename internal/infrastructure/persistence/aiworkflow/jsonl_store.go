@@ -1,14 +1,17 @@
 package aiworkflow
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
-	"os"
 	"path/filepath"
 
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/jsonlutil"
+)
+
+const (
+	contextUsageMaxRecords = 10000
+	contextUsageMaxBytes   = int64(8 << 20)
 )
 
 type JSONLStore struct {
@@ -32,6 +35,10 @@ func NewJSONLStore(root string) *JSONLStore {
 	}
 }
 
+func (s *JSONLStore) CompactOperationalLogs() error {
+	return jsonlutil.CompactLatestRecords(s.contextUsagePath, contextUsageMaxRecords)
+}
+
 func (s *JSONLStore) SaveWorkflowEvent(_ context.Context, item domainai.WorkflowEvent) error {
 	if err := domainai.ValidateWorkflowEvent(item); err != nil {
 		return err
@@ -40,7 +47,7 @@ func (s *JSONLStore) SaveWorkflowEvent(_ context.Context, item domainai.Workflow
 }
 
 func (s *JSONLStore) ListWorkflowEvents(_ context.Context, limit int) ([]domainai.WorkflowEvent, error) {
-	return listJSONL[domainai.WorkflowEvent](s.eventPath, limit)
+	return jsonlutil.ListLatest[domainai.WorkflowEvent](s.eventPath, limit)
 }
 
 func (s *JSONLStore) SaveProjectMemoryIndex(_ context.Context, item domainai.ProjectMemoryIndex) error {
@@ -86,46 +93,22 @@ func (s *JSONLStore) SaveContextUsage(_ context.Context, item domainai.ContextUs
 	if err := domainai.ValidateContextUsage(item); err != nil {
 		return err
 	}
-	return appendJSONL(s.contextUsagePath, item)
+	return appendJSONLBounded(s.contextUsagePath, item, contextUsageMaxRecords, contextUsageMaxBytes)
 }
 
 func (s *JSONLStore) ListContextUsages(_ context.Context, limit int) ([]domainai.ContextUsage, error) {
-	return listJSONL[domainai.ContextUsage](s.contextUsagePath, limit)
+	return jsonlutil.ListLatest[domainai.ContextUsage](s.contextUsagePath, limit)
 }
 
 func appendJSONL(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	line, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(append(line, '\n'))
-	return err
+	return jsonlutil.Append(path, value)
 }
 
-func listJSONL[T any](path string, limit int) ([]T, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	var items []T
-	if err := readJSONL(path, func(line []byte) error {
-		var item T
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+func appendJSONLBounded(path string, value any, maxRecords int, maxBytes int64) error {
+	return jsonlutil.AppendBounded(path, value, jsonlutil.BoundOptions{
+		MaxRecords: maxRecords,
+		MaxBytes:   maxBytes,
+	})
 }
 
 func listLatestJSONLByKey[T any](path string, limit int, keyFn func(T) string) ([]T, error) {
@@ -160,30 +143,5 @@ func listLatestJSONLByKey[T any](path string, limit int, keyFn func(T) string) (
 }
 
 func readJSONL(path string, fn func([]byte) error) error {
-	f, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if err := fn(scanner.Bytes()); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
-}
-
-func reverseLimit[T any](items []T, limit int) []T {
-	if len(items) == 0 {
-		return []T{}
-	}
-	out := make([]T, 0, min(limit, len(items)))
-	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
-		out = append(out, items[i])
-	}
-	return out
+	return jsonlutil.Read(path, fn)
 }

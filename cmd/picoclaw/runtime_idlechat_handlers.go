@@ -37,6 +37,7 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"disabled":      d.idleChatOrch.IsDisabled(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
@@ -59,6 +60,7 @@ func (d *Dependencies) handleIdleChatStop() http.HandlerFunc {
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"disabled":      d.idleChatOrch.IsDisabled(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
@@ -94,6 +96,7 @@ func (d *Dependencies) handleIdleChatInterrupt() http.HandlerFunc {
 			"interrupted":   true,
 			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"disabled":      d.idleChatOrch.IsDisabled(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
@@ -118,15 +121,24 @@ func (d *Dependencies) handleIdleChatStatus() http.HandlerFunc {
 			"ok":                true,
 			"mode":              d.idleChatOrch.CurrentMode(),
 			"manual_mode":       d.idleChatOrch.IsManualMode(),
+			"disabled":          d.idleChatOrch.IsDisabled(),
 			"chat_active":       d.idleChatOrch.IsChatActive(),
 			"current_topic":     d.idleChatOrch.CurrentTopic(),
 			"active_session_id": activeSessionID,
 			"active_transcript": activeTranscript,
 			"watchdog":          d.idleChatOrch.WatchdogSnapshot(time.Now().UTC()),
+			"llm_busy":          d.snapshotLLMBusy(),
 			"tts_pending":       snapshotIdleChatTTSPending(),
 			"tts_public":        snapshotTTSPublicSessions(),
 		})
 	}
+}
+
+func (d *Dependencies) snapshotLLMBusy() llmBusySnapshot {
+	if d == nil || d.llmBusyTracker == nil {
+		return llmBusySnapshot{}
+	}
+	return d.llmBusyTracker.Snapshot()
 }
 
 func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
@@ -155,6 +167,7 @@ func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"disabled":      d.idleChatOrch.IsDisabled(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
@@ -187,6 +200,7 @@ func (d *Dependencies) handleIdleChatStory() http.HandlerFunc {
 			"ok":            true,
 			"mode":          d.idleChatOrch.CurrentMode(),
 			"manual_mode":   d.idleChatOrch.IsManualMode(),
+			"disabled":      d.idleChatOrch.IsDisabled(),
 			"chat_active":   d.idleChatOrch.IsChatActive(),
 			"current_topic": d.idleChatOrch.CurrentTopic(),
 		})
@@ -218,6 +232,7 @@ func (d *Dependencies) handleIdleChatStorySimple() http.HandlerFunc {
 		writeJSON(w, map[string]any{
 			"ok":          true,
 			"mode":        d.idleChatOrch.CurrentMode(),
+			"disabled":    d.idleChatOrch.IsDisabled(),
 			"chat_active": d.idleChatOrch.IsChatActive(),
 		})
 	}

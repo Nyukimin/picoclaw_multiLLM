@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -101,6 +102,7 @@ func cmdRun() {
 	log.Printf("Starting RenCrow server on %s", addr)
 
 	mux := http.NewServeMux()
+	registerLocalPprofRoutes(mux)
 	registerChannelRoutes(mux, dependencies)
 
 	// Live Viewer
@@ -180,9 +182,11 @@ func cmdRun() {
 	server := &http.Server{
 		Addr:    addr,
 		Handler: withTailscaleViewerOnlyGuard(mux),
-		ConnState: func(conn net.Conn, state http.ConnState) {
+	}
+	if envBool("PICOCLAW_DEBUG_CONNSTATE") {
+		server.ConnState = func(conn net.Conn, state http.ConnState) {
 			log.Printf("[ConnState] %s -> %s (remote: %s)", state.String(), conn.LocalAddr(), conn.RemoteAddr())
-		},
+		}
 	}
 	if cfg.Server.TLS.Enabled {
 		err = server.ListenAndServeTLS(cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile)
@@ -192,6 +196,36 @@ func cmdRun() {
 	if err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func registerLocalPprofRoutes(mux *http.ServeMux) {
+	if mux == nil {
+		return
+	}
+	mux.HandleFunc("/debug/pprof/", localOnlyHandler(pprof.Index))
+	mux.HandleFunc("/debug/pprof/cmdline", localOnlyHandler(pprof.Cmdline))
+	mux.HandleFunc("/debug/pprof/profile", localOnlyHandler(pprof.Profile))
+	mux.HandleFunc("/debug/pprof/symbol", localOnlyHandler(pprof.Symbol))
+	mux.HandleFunc("/debug/pprof/trace", localOnlyHandler(pprof.Trace))
+}
+
+func localOnlyHandler(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackRemoteAddr(r.RemoteAddr) {
+			http.NotFound(w, r)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func isLoopbackRemoteAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
+	if err != nil {
+		host = strings.TrimSpace(remoteAddr)
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // getConfigPath は設定ファイルパスを取得

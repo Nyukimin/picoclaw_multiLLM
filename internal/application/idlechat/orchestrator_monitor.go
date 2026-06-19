@@ -37,7 +37,12 @@ func (o *IdleChatOrchestrator) checkAndStartChat() {
 	chatBusy := o.chatBusy
 	workerBusy := o.workerBusy
 	manualMode := o.manualMode
-	if o.chatActive || chatBusy || workerBusy || (!nextTopicAt.IsZero() && now.Before(nextTopicAt)) || (!manualMode && idleDuration < threshold) {
+	disabled := o.disabled
+	externalLLMBusy := false
+	if o.externalLLMBusy != nil {
+		externalLLMBusy = o.externalLLMBusy()
+	}
+	if disabled || externalLLMBusy || o.chatActive || chatBusy || workerBusy || (!nextTopicAt.IsZero() && now.Before(nextTopicAt)) || (!manualMode && idleDuration < threshold) {
 		o.mu.Unlock()
 		return
 	}

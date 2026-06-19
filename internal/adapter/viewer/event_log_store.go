@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -61,6 +62,10 @@ func (s *EventLogStore) Query(_ context.Context, filter LogFilter) ([]orchestrat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if shouldUseTailEventLogQuery(filter) {
+		return s.queryTail(filter)
+	}
+
 	f, err := os.Open(s.path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
@@ -89,6 +94,78 @@ func (s *EventLogStore) Query(_ context.Context, filter LogFilter) ([]orchestrat
 		items = items[:filter.Limit]
 	}
 	return items, nil
+}
+
+func shouldUseTailEventLogQuery(filter LogFilter) bool {
+	return filter.Limit > 0 &&
+		strings.TrimSpace(filter.Type) == "" &&
+		strings.TrimSpace(filter.Agent) == "" &&
+		strings.TrimSpace(filter.Route) == "" &&
+		strings.TrimSpace(filter.JobID) == "" &&
+		strings.TrimSpace(filter.SessionID) == "" &&
+		strings.TrimSpace(filter.ChatID) == ""
+}
+
+func (s *EventLogStore) queryTail(filter LogFilter) ([]orchestrator.OrchestratorEvent, error) {
+	f, err := os.Open(s.path)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer f.Close()
+
+	st, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+	size := st.Size()
+	if size == 0 {
+		return []orchestrator.OrchestratorEvent{}, nil
+	}
+
+	const initialWindow int64 = 1 << 20
+	const maxWindow int64 = 16 << 20
+	window := initialWindow
+	for {
+		if window > size {
+			window = size
+		}
+		items, complete, err := readTailEventWindow(f, size, window, filter.Limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(items) >= filter.Limit || complete || window >= maxWindow || window >= size {
+			return items, nil
+		}
+		window *= 2
+	}
+}
+
+func readTailEventWindow(f *os.File, size int64, window int64, limit int) ([]orchestrator.OrchestratorEvent, bool, error) {
+	offset := size - window
+	buf := make([]byte, window)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && n == 0 {
+		return nil, false, fmt.Errorf("read tail: %w", err)
+	}
+	buf = buf[:n]
+	lines := bytes.Split(buf, []byte{'\n'})
+	complete := offset == 0
+	if offset > 0 && len(lines) > 0 {
+		lines = lines[1:]
+	}
+	items := make([]orchestrator.OrchestratorEvent, 0, limit)
+	for i := len(lines) - 1; i >= 0 && len(items) < limit; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
+			continue
+		}
+		var ev orchestrator.OrchestratorEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue
+		}
+		items = append(items, ev)
+	}
+	return items, complete, nil
 }
 
 func matchesLogFilter(ev orchestrator.OrchestratorEvent, filter LogFilter) bool {

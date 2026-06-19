@@ -1,9 +1,11 @@
 package viewer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +15,20 @@ import (
 
 type repairEventListener interface {
 	OnEvent(orchestrator.OrchestratorEvent)
+}
+
+type RepairJobRunner interface {
+	StartRepairJob(ctx context.Context, req RepairJobRequest) error
+}
+
+type RepairJobRequest struct {
+	JobID       string
+	Reason      string
+	Instruction string
+	Recent      int
+	TargetRoute string
+	TargetAgent string
+	Source      string
 }
 
 type repairRunRequest struct {
@@ -31,6 +47,10 @@ type repairRunResponse struct {
 }
 
 func HandleRepairRun(listener repairEventListener) http.HandlerFunc {
+	return HandleRepairRunWithRunner(listener, nil)
+}
+
+func HandleRepairRunWithRunner(listener repairEventListener, runner RepairJobRunner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -56,6 +76,28 @@ func HandleRepairRun(listener repairEventListener) http.HandlerFunc {
 		if listener != nil {
 			listener.OnEvent(orchestrator.NewEvent("repair.requested", "user", "repair", string(payload), "OPS", jobID, "", "viewer", "repair"))
 			listener.OnEvent(orchestrator.NewEvent("job.notification", "shiro", "mio", repairNotificationContent(req, jobID), "OPS", jobID, "", "viewer", "repair"))
+		}
+		if runner != nil {
+			runReq := RepairJobRequest{
+				JobID:       jobID,
+				Reason:      req.Reason,
+				Instruction: req.Instruction,
+				Recent:      req.Recent,
+				TargetRoute: req.TargetRoute,
+				TargetAgent: req.TargetAgent,
+				Source:      "viewer",
+			}
+			if err := runner.StartRepairJob(r.Context(), runReq); err != nil {
+				log.Printf("repair job start failed job=%s: %v", jobID, err)
+				if listener != nil {
+					errPayload, _ := json.Marshal(map[string]any{
+						"job_id": jobID,
+						"status": "start_failed",
+						"error":  err.Error(),
+					})
+					listener.OnEvent(orchestrator.NewEvent("repair.start_failed", "repair", "shiro", string(errPayload), "OPS", jobID, "", "viewer", "repair"))
+				}
+			}
 		}
 		writeMonitorJSON(w, repairRunResponse{
 			OK:      true,

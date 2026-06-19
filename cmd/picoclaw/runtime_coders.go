@@ -124,7 +124,7 @@ func coderOutputBySlotName(name string, coder1, coder2, coder3, coder4 **coderAd
 }
 
 // setupCoders は Config から Coder1-4 を初期化（v4.1 Agent Persona 対応）
-func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapter) {
+func setupCoders(cfg *config.Config, busyTracker *llmBusyTracker) (coder1, coder2, coder3, coder4 *coderAdapter) {
 	// Shared LightMemory instances (セッション単位で共有)
 	var globalLightMemory *agent.LightMemory
 
@@ -149,6 +149,7 @@ func setupCoders(cfg *config.Config) (coder1, coder2, coder3, coder4 *coderAdapt
 			log.Printf("[setupCoders] %s (%s) provider is nil (Enabled=false or error)", plan.Name, cc.Name)
 			continue
 		}
+		provider = trackLLMProvider(strings.ToLower(plan.Name), provider, busyTracker)
 
 		// CoderAgent 作成
 		domainCoder := agent.NewCoderAgent(provider, nil, nil, cfg.Prompts.CoderProposal)

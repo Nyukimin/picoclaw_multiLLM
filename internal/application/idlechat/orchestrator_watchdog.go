@@ -8,25 +8,27 @@ import (
 )
 
 type WatchdogSnapshot struct {
-	ChatActive    bool      `json:"chat_active"`
-	ManualMode    bool      `json:"manual_mode"`
-	Mode          string    `json:"mode"`
-	SessionID     string    `json:"session_id"`
-	Generation    uint64    `json:"generation"`
-	Stage         string    `json:"stage"`
-	Detail        string    `json:"detail"`
-	From          string    `json:"from,omitempty"`
-	To            string    `json:"to,omitempty"`
-	MessageID     string    `json:"message_id,omitempty"`
-	TurnIndex     int       `json:"turn_index,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at,omitempty"`
-	AgeSeconds    int64     `json:"age_seconds"`
-	CurrentTopic  string    `json:"current_topic,omitempty"`
-	NextTopicAt   time.Time `json:"next_topic_at,omitempty"`
-	LastActivity  time.Time `json:"last_activity,omitempty"`
-	ChatBusy      bool      `json:"chat_busy"`
-	WorkerBusy    bool      `json:"worker_busy"`
-	RecoveryReady bool      `json:"recovery_ready"`
+	ChatActive      bool      `json:"chat_active"`
+	ManualMode      bool      `json:"manual_mode"`
+	Disabled        bool      `json:"disabled"`
+	Mode            string    `json:"mode"`
+	SessionID       string    `json:"session_id"`
+	Generation      uint64    `json:"generation"`
+	Stage           string    `json:"stage"`
+	Detail          string    `json:"detail"`
+	From            string    `json:"from,omitempty"`
+	To              string    `json:"to,omitempty"`
+	MessageID       string    `json:"message_id,omitempty"`
+	TurnIndex       int       `json:"turn_index,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	AgeSeconds      int64     `json:"age_seconds"`
+	CurrentTopic    string    `json:"current_topic,omitempty"`
+	NextTopicAt     time.Time `json:"next_topic_at,omitempty"`
+	LastActivity    time.Time `json:"last_activity,omitempty"`
+	ChatBusy        bool      `json:"chat_busy"`
+	WorkerBusy      bool      `json:"worker_busy"`
+	ExternalLLMBusy bool      `json:"external_llm_busy"`
+	RecoveryReady   bool      `json:"recovery_ready"`
 }
 
 type WatchdogRecovery struct {
@@ -83,26 +85,32 @@ func (o *IdleChatOrchestrator) WatchdogSnapshot(now time.Time) WatchdogSnapshot 
 		}
 	}
 	recoveryReady := o.chatActive && !o.watchdogUpdatedAt.IsZero()
+	externalLLMBusy := false
+	if o.externalLLMBusy != nil {
+		externalLLMBusy = o.externalLLMBusy()
+	}
 	return WatchdogSnapshot{
-		ChatActive:    o.chatActive,
-		ManualMode:    o.manualMode,
-		Mode:          o.sessionMode,
-		SessionID:     o.activeSessionID,
-		Generation:    o.activeGeneration,
-		Stage:         o.watchdogStage,
-		Detail:        o.watchdogDetail,
-		From:          o.watchdogFrom,
-		To:            o.watchdogTo,
-		MessageID:     o.watchdogMessageID,
-		TurnIndex:     o.watchdogTurnIndex,
-		UpdatedAt:     o.watchdogUpdatedAt,
-		AgeSeconds:    ageSeconds,
-		CurrentTopic:  o.currentTopic,
-		NextTopicAt:   o.nextTopicAt,
-		LastActivity:  o.lastActivity,
-		ChatBusy:      o.chatBusy,
-		WorkerBusy:    o.workerBusy,
-		RecoveryReady: recoveryReady,
+		ChatActive:      o.chatActive,
+		ManualMode:      o.manualMode,
+		Disabled:        o.disabled,
+		Mode:            o.sessionMode,
+		SessionID:       o.activeSessionID,
+		Generation:      o.activeGeneration,
+		Stage:           o.watchdogStage,
+		Detail:          o.watchdogDetail,
+		From:            o.watchdogFrom,
+		To:              o.watchdogTo,
+		MessageID:       o.watchdogMessageID,
+		TurnIndex:       o.watchdogTurnIndex,
+		UpdatedAt:       o.watchdogUpdatedAt,
+		AgeSeconds:      ageSeconds,
+		CurrentTopic:    o.currentTopic,
+		NextTopicAt:     o.nextTopicAt,
+		LastActivity:    o.lastActivity,
+		ChatBusy:        o.chatBusy,
+		WorkerBusy:      o.workerBusy,
+		ExternalLLMBusy: externalLLMBusy,
+		RecoveryReady:   recoveryReady,
 	}
 }
 

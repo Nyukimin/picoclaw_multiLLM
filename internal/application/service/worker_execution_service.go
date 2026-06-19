@@ -54,6 +54,9 @@ func (w *workerExecutionService) ExecuteProposal(
 	}
 
 	w.showExecutionSummaryIfEnabled(jobID, commands)
+	if err := w.validateCommandsBeforeExecution(commands); err != nil {
+		return nil, err
+	}
 	if err := w.autoCommitBeforeExecution(ctx, jobID); err != nil {
 		return nil, err
 	}

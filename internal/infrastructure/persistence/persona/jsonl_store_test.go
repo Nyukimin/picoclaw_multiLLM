@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,53 @@ func TestJSONLStoreRejectsSensitiveAutoApprovedObservation(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected sensitive auto-approved observation to fail")
+	}
+}
+
+func TestJSONLStoreCompactsOperationalInterfaceSessionsOnly(t *testing.T) {
+	store := NewJSONLStore(t.TempDir())
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	if err := store.SaveObservationLog(ctx, domainpersona.ObservationLog{
+		EventID:         "evt_observation_keep",
+		ObserverID:      "lumina",
+		TargetID:        "ren",
+		ObservationType: "daily",
+		Summary:         "有益な観測候補",
+		Sensitivity:     "normal",
+		ReviewStatus:    "pending",
+		CreatedAt:       now,
+	}); err != nil {
+		t.Fatalf("SaveObservationLog() error = %v", err)
+	}
+	for i := 0; i < interfaceSessionMaxRecords+3; i++ {
+		if err := store.SaveInterfaceSession(ctx, domainpersona.InterfaceSession{
+			SessionID:     "persona_session_" + strconv.Itoa(i),
+			CharacterID:   "mio",
+			InterfaceType: "web",
+			SessionKey:    "web:viewer",
+			CreatedAt:     now.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("SaveInterfaceSession(%d) error = %v", i, err)
+		}
+	}
+
+	if err := store.CompactOperationalLogs(); err != nil {
+		t.Fatalf("CompactOperationalLogs() error = %v", err)
+	}
+	sessions, err := store.ListInterfaceSessions(ctx, interfaceSessionMaxRecords+10)
+	if err != nil {
+		t.Fatalf("ListInterfaceSessions() error = %v", err)
+	}
+	if len(sessions) != interfaceSessionMaxRecords {
+		t.Fatalf("sessions len=%d want %d", len(sessions), interfaceSessionMaxRecords)
+	}
+	if sessions[0].SessionID != "persona_session_"+strconv.Itoa(interfaceSessionMaxRecords+2) {
+		t.Fatalf("newest session=%q", sessions[0].SessionID)
+	}
+	observations, err := store.ListObservationLogs(ctx, 10)
+	if err != nil || len(observations) != 1 || observations[0].EventID != "evt_observation_keep" {
+		t.Fatalf("observations=%#v err=%v", observations, err)
 	}
 }
 

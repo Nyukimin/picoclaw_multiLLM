@@ -32,18 +32,18 @@ const (
 )
 
 type AttemptResult struct {
-	Response       string
-	Steps          []string
-	Verification   []string
-	FailureKind    string
-	FailureReason  string
-	TTSProvider    string
-	TTSVoiceID     string
-	TTSAudioFile   string
-	TTSDurationMS  int
-	PlaybackCmd    string
-	PlaybackCode   int
-	TTSErrorKind   string
+	Response      string
+	Steps         []string
+	Verification  []string
+	FailureKind   string
+	FailureReason string
+	TTSProvider   string
+	TTSVoiceID    string
+	TTSAudioFile  string
+	TTSDurationMS int
+	PlaybackCmd   string
+	PlaybackCode  int
+	TTSErrorKind  string
 }
 
 type ExecuteFunc func(ctx context.Context, attempt int, failureKind, failureReason string) (AttemptResult, error)
@@ -224,6 +224,8 @@ func classifyApplyError(err error) string {
 	}
 	lower := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(lower, "approval required"):
+		return "approval_required"
 	case strings.Contains(lower, "proposal_empty"), strings.Contains(lower, "proposal_missing"), strings.Contains(lower, "proposal_invalid"):
 		return "proposal_invalid"
 	case strings.Contains(lower, "command not found"), strings.Contains(lower, "exit status 127"), strings.Contains(lower, "not found"):

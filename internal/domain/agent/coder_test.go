@@ -391,8 +391,34 @@ func TestCoderAgentExtractProposal_PatchOnlySynthesizesPlan(t *testing.T) {
 	if proposal.Plan() == "" {
 		t.Fatal("expected synthesized plan")
 	}
+	if !strings.Contains(proposal.Plan(), "update file: main.go") {
+		t.Fatalf("expected synthesized plan to name the patch target, got %q", proposal.Plan())
+	}
 	if !strings.Contains(proposal.Patch(), "```go:main.go") {
 		t.Fatalf("unexpected patch: %q", proposal.Patch())
+	}
+}
+
+func TestCoderAgentExtractProposal_PatchOnlyJSONSynthesizesSpecificPlan(t *testing.T) {
+	coder := NewCoderAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt")
+
+	content := `## Patch
+[
+  {"type":"file_edit","action":"update","target":"internal/app.go","content":"package main"},
+  {"type":"shell_command","action":"run","target":"go test ./..."}
+]`
+
+	proposal, err := coder.extractProposal(content)
+	if err != nil {
+		t.Fatalf("expected patch-only proposal to be recovered, got %v", err)
+	}
+	if strings.Contains(proposal.Plan(), "Apply the requested code changes") {
+		t.Fatalf("synthesized plan must not use generic audit text: %q", proposal.Plan())
+	}
+	for _, want := range []string{"update file: internal/app.go", "run verification command: go test ./..."} {
+		if !strings.Contains(proposal.Plan(), want) {
+			t.Fatalf("synthesized plan missing %q: %q", want, proposal.Plan())
+		}
 	}
 }
 

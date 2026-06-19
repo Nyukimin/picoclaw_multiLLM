@@ -1,14 +1,16 @@
 package persona
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
-	"errors"
-	"os"
 	"path/filepath"
 
 	domainpersona "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/persona"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/jsonlutil"
+)
+
+const (
+	interfaceSessionMaxRecords = 5000
+	interfaceSessionMaxBytes   = int64(8 << 20)
 )
 
 type JSONLStore struct {
@@ -41,6 +43,10 @@ func NewJSONLStoreWithMetaRoot(root, metaRoot string) *JSONLStore {
 	return store
 }
 
+func (s *JSONLStore) CompactOperationalLogs() error {
+	return jsonlutil.CompactLatestRecords(s.sessionPath, interfaceSessionMaxRecords)
+}
+
 func (s *JSONLStore) SaveDiscomfortLog(_ context.Context, item domainpersona.DiscomfortLog) error {
 	if err := domainpersona.ValidateDiscomfortLog(item); err != nil {
 		return err
@@ -52,18 +58,7 @@ func (s *JSONLStore) ListDiscomfortLogs(_ context.Context, limit int) ([]domainp
 	if limit <= 0 {
 		limit = 50
 	}
-	var items []domainpersona.DiscomfortLog
-	if err := readJSONL(s.discomfortPath, func(line []byte) error {
-		var item domainpersona.DiscomfortLog
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+	return jsonlutil.ListLatest[domainpersona.DiscomfortLog](s.discomfortPath, limit)
 }
 
 func (s *JSONLStore) SaveTriggerLog(_ context.Context, item domainpersona.TriggerLog) error {
@@ -77,18 +72,7 @@ func (s *JSONLStore) ListTriggerLogs(_ context.Context, limit int) ([]domainpers
 	if limit <= 0 {
 		limit = 50
 	}
-	var items []domainpersona.TriggerLog
-	if err := readJSONL(s.triggerPath, func(line []byte) error {
-		var item domainpersona.TriggerLog
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+	return jsonlutil.ListLatest[domainpersona.TriggerLog](s.triggerPath, limit)
 }
 
 func (s *JSONLStore) SaveCanonicalResponseLog(_ context.Context, item domainpersona.CanonicalResponseLog) error {
@@ -102,18 +86,7 @@ func (s *JSONLStore) ListCanonicalResponseLogs(_ context.Context, limit int) ([]
 	if limit <= 0 {
 		limit = 50
 	}
-	var items []domainpersona.CanonicalResponseLog
-	if err := readJSONL(s.canonicalPath, func(line []byte) error {
-		var item domainpersona.CanonicalResponseLog
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+	return jsonlutil.ListLatest[domainpersona.CanonicalResponseLog](s.canonicalPath, limit)
 }
 
 func (s *JSONLStore) SaveObservationLog(_ context.Context, item domainpersona.ObservationLog) error {
@@ -127,18 +100,7 @@ func (s *JSONLStore) ListObservationLogs(_ context.Context, limit int) ([]domain
 	if limit <= 0 {
 		limit = 50
 	}
-	var items []domainpersona.ObservationLog
-	if err := readJSONL(s.observationPath, func(line []byte) error {
-		var item domainpersona.ObservationLog
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+	return jsonlutil.ListLatest[domainpersona.ObservationLog](s.observationPath, limit)
 }
 
 func (s *JSONLStore) SaveMetaProfileUpdate(_ context.Context, item domainpersona.MetaProfileUpdate) error {
@@ -152,87 +114,30 @@ func (s *JSONLStore) ListMetaProfileUpdates(_ context.Context, limit int) ([]dom
 	if limit <= 0 {
 		limit = 50
 	}
-	var items []domainpersona.MetaProfileUpdate
-	if err := readJSONL(s.metaUpdatePath, func(line []byte) error {
-		var item domainpersona.MetaProfileUpdate
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+	return jsonlutil.ListLatest[domainpersona.MetaProfileUpdate](s.metaUpdatePath, limit)
 }
 
 func (s *JSONLStore) SaveInterfaceSession(_ context.Context, item domainpersona.InterfaceSession) error {
 	if err := domainpersona.ValidateInterfaceSession(item); err != nil {
 		return err
 	}
-	return appendJSONL(s.sessionPath, item)
+	return appendJSONLBounded(s.sessionPath, item, interfaceSessionMaxRecords, interfaceSessionMaxBytes)
 }
 
 func (s *JSONLStore) ListInterfaceSessions(_ context.Context, limit int) ([]domainpersona.InterfaceSession, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	var items []domainpersona.InterfaceSession
-	if err := readJSONL(s.sessionPath, func(line []byte) error {
-		var item domainpersona.InterfaceSession
-		if err := json.Unmarshal(line, &item); err != nil {
-			return err
-		}
-		items = append(items, item)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return reverseLimit(items, limit), nil
+	return jsonlutil.ListLatest[domainpersona.InterfaceSession](s.sessionPath, limit)
 }
 
 func appendJSONL(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	line, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(append(line, '\n'))
-	return err
+	return jsonlutil.Append(path, value)
 }
 
-func readJSONL(path string, fn func([]byte) error) error {
-	f, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if err := fn(scanner.Bytes()); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
-}
-
-func reverseLimit[T any](items []T, limit int) []T {
-	if limit <= 0 || limit > len(items) {
-		limit = len(items)
-	}
-	out := make([]T, 0, limit)
-	for i := len(items) - 1; i >= 0 && len(out) < limit; i-- {
-		out = append(out, items[i])
-	}
-	return out
+func appendJSONLBounded(path string, value any, maxRecords int, maxBytes int64) error {
+	return jsonlutil.AppendBounded(path, value, jsonlutil.BoundOptions{
+		MaxRecords: maxRecords,
+		MaxBytes:   maxBytes,
+	})
 }

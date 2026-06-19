@@ -29,18 +29,18 @@ func formatShiroToWorkerInstruction(req CodeExecutionRequest, p *proposal.Propos
 	if p != nil {
 		patchBytes = len(p.Patch())
 	}
-	return fmt.Sprintf("ShiroからWorkerへの指示: job=%s route=%s。Coderが出したProposalを検証済みとしてWorkerで実行して。patch_bytes=%d plan=%s",
+	return fmt.Sprintf("Shiro内部実行器への指示: job=%s route=%s。Coderが出したProposalを実行器側で検証し、実行可能な場合のみ適用して。patch_bytes=%d plan=%s",
 		req.JobID, req.Route.String(), patchBytes, traceShortText(proposalPlanText(p), 700))
 }
 
 func formatWorkerToShiroResult(result *patch.PatchExecutionResult, err error) string {
 	if err != nil {
-		return "WorkerからShiroへの戻り: 実行失敗。error=" + traceShortText(err.Error(), 700)
+		return "Shiro内部実行器の戻り: 実行失敗。error=" + traceShortText(err.Error(), 700)
 	}
 	if result == nil {
-		return "WorkerからShiroへの戻り: 実行結果なし。"
+		return "Shiro内部実行器の戻り: 実行結果なし。"
 	}
-	return fmt.Sprintf("WorkerからShiroへの戻り: success=%t executed=%d failed=%d summary=%s",
+	return fmt.Sprintf("Shiro内部実行器の戻り: success=%t executed=%d failed=%d summary=%s",
 		result.Success, result.ExecutedCmds, result.FailedCmds, traceShortText(result.Summary, 700))
 }
 

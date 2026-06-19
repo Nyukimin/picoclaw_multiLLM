@@ -75,6 +75,7 @@ type Dependencies struct {
 	viewerAuditSummary             http.HandlerFunc                            // viewer audit summary API
 	viewerJobDetail                http.HandlerFunc                            // viewer job detail API
 	viewerSend                     http.HandlerFunc                            // viewer message sender
+	repairRunner                   viewer.RepairJobRunner                      // viewer repair job runner
 	voiceDirectHandler             voiceDirectFinalHandler                     // VDS llm.final -> SSE
 	evidenceHandler                http.HandlerFunc                            // viewer evidence API
 	evidenceDetail                 http.HandlerFunc                            // viewer evidence detail API
@@ -220,6 +221,7 @@ type Dependencies struct {
 	moduleSTTViewerInput           modulestt.ViewerInputObserver               // module contract view of Viewer STT input state
 	moduleWorkerExecutor           moduleworker.Executor                       // module contract view of Worker executor
 	moduleHealth                   http.HandlerFunc                            // module boundary health API
+	llmBusyTracker                 *llmBusyTracker                             // runtime LLM execution tracker for IdleChat gating
 }
 
 type idleChatStartGate interface {
@@ -263,7 +265,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	runtimeToolRegistry := buildRuntimeToolRegistry(cfg)
 	nodeCaps := buildCapabilityRuntime(cfg, runtimeToolRegistry)
 	aiWorkflowStore := buildAIWorkflowStore(cfg)
-	llmRuntime := buildLLMRuntimeProviders(cfg, aiWorkflowStore)
+	llmBusyTracker := newLLMBusyTracker()
+	llmRuntime := buildLLMRuntimeProviders(cfg, aiWorkflowStore, llmBusyTracker)
 	classifier := routing.NewLLMClassifier(llmRuntime.Chat, cfg.Prompts.Classifier)
 	ruleDictionary := routing.NewRuleDictionary()
 	toolRuntime := buildToolRuntime(cfg, llmRuntime.WorkerToolProvider, runtimeToolRegistry, aiWorkflowStore)
@@ -293,27 +296,32 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	log.Printf("WorkerExecutionService initialized (Workspace: %s, Parallel: %v)",
 		cfg.Worker.Workspace, cfg.Worker.ParallelExecution)
 
-	// Serena MCP クライアントを起動してCoderLoopの観測アクションに接続
-	// SelfSourceDir（絶対パス）を渡す。未設定なら Worker.Workspace を絶対化して使う
-	serenaWorkspace := cfg.SelfSourceDir
-	if serenaWorkspace == "" {
-		if abs, err := filepath.Abs(cfg.Worker.Workspace); err == nil {
-			serenaWorkspace = abs
+	if envBool("PICOCLAW_ENABLE_SERENA_MCP") {
+		// Serena MCP クライアントを起動してCoderLoopの観測アクションに接続
+		// SelfSourceDir（絶対パス）を渡す。未設定なら Worker.Workspace を絶対化して使う
+		serenaWorkspace := cfg.SelfSourceDir
+		if serenaWorkspace == "" {
+			if abs, err := filepath.Abs(cfg.Worker.Workspace); err == nil {
+				serenaWorkspace = abs
+			} else {
+				serenaWorkspace = cfg.Worker.Workspace
+			}
+		}
+		serenaClient := mcpinfra.NewSerenaClient(serenaWorkspace)
+		if err := serenaClient.Start(context.Background()); err != nil {
+			log.Printf("Serena MCP client failed to start (non-fatal): %v", err)
 		} else {
-			serenaWorkspace = cfg.Worker.Workspace
+			workerExecutionService.SetMCPToolCaller(serenaClient)
+			if tools, err := serenaClient.ListTools(context.Background()); err == nil {
+				log.Printf("Serena MCP ready: %d tools available (%v)", len(tools), tools[:min(5, len(tools))])
+			}
 		}
-	}
-	serenaClient := mcpinfra.NewSerenaClient(serenaWorkspace)
-	if err := serenaClient.Start(context.Background()); err != nil {
-		log.Printf("Serena MCP client failed to start (non-fatal): %v", err)
 	} else {
-		workerExecutionService.SetMCPToolCaller(serenaClient)
-		if tools, err := serenaClient.ListTools(context.Background()); err == nil {
-			log.Printf("Serena MCP ready: %d tools available (%v)", len(tools), tools[:min(5, len(tools))])
-		}
+		log.Printf("Serena MCP client disabled (set PICOCLAW_ENABLE_SERENA_MCP=true to enable)")
 	}
 
 	deps := &Dependencies{}
+	deps.llmBusyTracker = llmBusyTracker
 	deps.moduleLLMProviders = llmRuntime.ModuleProviders
 	deps.moduleWorkerExecutor = modulebridge.NewRuntimeWorkerExecutor(workerExecutionService)
 	deps.moduleTTSPlayback = ttsPlaybackStateObserver{}
@@ -513,7 +521,11 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 			}
 			personaStore = store
 		} else {
-			personaStore = personapersistence.NewJSONLStoreWithMetaRoot(cfg.PersonaArchitecture.LogPath, cfg.PersonaArchitecture.CharacterRoot)
+			store := personapersistence.NewJSONLStoreWithMetaRoot(cfg.PersonaArchitecture.LogPath, cfg.PersonaArchitecture.CharacterRoot)
+			if err := store.CompactOperationalLogs(); err != nil {
+				log.Printf("WARN: persona operational log GC failed: %v", err)
+			}
+			personaStore = store
 		}
 		characters, err := personainfra.LoadCharacters(cfg.PersonaArchitecture.CharacterRoot)
 		if err != nil {
@@ -792,7 +804,11 @@ func buildAIWorkflowStore(cfg *config.Config) viewer.AIWorkflowStore {
 		}
 		return store
 	}
-	return aiworkflowpersistence.NewJSONLStore(cfg.AIWorkflow.LogPath)
+	store := aiworkflowpersistence.NewJSONLStore(cfg.AIWorkflow.LogPath)
+	if err := store.CompactOperationalLogs(); err != nil {
+		log.Printf("WARN: AI Workflow operational log GC failed: %v", err)
+	}
+	return store
 }
 
 func loadSkillGovernanceManifests(skillRoots []string) []domainskill.SkillManifest {

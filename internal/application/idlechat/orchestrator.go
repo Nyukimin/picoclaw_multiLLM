@@ -138,6 +138,8 @@ type IdleChatOrchestrator struct {
 	chatActive                bool
 	chatBusy                  bool
 	workerBusy                bool
+	disabled                  bool
+	externalLLMBusy           func() bool
 	manualMode                bool
 	sessionMode               string
 	currentTopic              string
