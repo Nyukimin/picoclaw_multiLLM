@@ -47,11 +47,84 @@ func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
 }
 
 func startMemoryLifecycleJob(store *conversationpersistence.L1SQLiteStore) {
+	startMemoryLifecycleJobWithConfig(store, memoryLifecycleJobConfigFromEnv(time.Now))
+}
+
+type memoryLifecycleJobConfig struct {
+	Interval time.Duration
+	Now      func() time.Time
+	Label    string
+}
+
+func memoryLifecycleJobConfigFromEnv(wallNow func() time.Time) memoryLifecycleJobConfig {
+	if wallNow == nil {
+		wallNow = time.Now
+	}
+	cfg := memoryLifecycleJobConfig{
+		Interval: 24 * time.Hour,
+		Now: func() time.Time {
+			return wallNow().UTC()
+		},
+		Label: "normal",
+	}
+	if raw := strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC")); raw != "" {
+		sec, err := strconv.Atoi(raw)
+		if err != nil || sec <= 0 {
+			log.Printf("WARN: invalid RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC=%q", raw)
+		} else {
+			cfg.Interval = time.Duration(sec) * time.Second
+		}
+	}
+	monthSecRaw := strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC"))
+	if monthSecRaw == "" {
+		return cfg
+	}
+	monthSec, err := strconv.Atoi(monthSecRaw)
+	if err != nil || monthSec <= 0 {
+		log.Printf("WARN: invalid RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=%q", monthSecRaw)
+		return cfg
+	}
+	startWall := wallNow().UTC()
+	startSim := startWall
+	scale := (30 * 24 * time.Hour).Seconds() / float64(monthSec)
+	cfg.Now = func() time.Time {
+		elapsed := wallNow().UTC().Sub(startWall)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		return startSim.Add(time.Duration(float64(elapsed) * scale)).UTC()
+	}
+	if strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC")) == "" {
+		tickSec := monthSec / 120
+		if tickSec < 1 {
+			tickSec = 1
+		}
+		if tickSec > 60 {
+			tickSec = 60
+		}
+		cfg.Interval = time.Duration(tickSec) * time.Second
+	}
+	cfg.Label = fmt.Sprintf("accelerated:30d/%ds interval=%s", monthSec, cfg.Interval)
+	return cfg
+}
+
+func startMemoryLifecycleJobWithConfig(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig) {
 	if store == nil {
 		return
 	}
+	if cfg.Interval <= 0 {
+		cfg.Interval = 24 * time.Hour
+	}
+	if cfg.Now == nil {
+		cfg.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if cfg.Label != "" && cfg.Label != "normal" {
+		log.Printf("Memory lifecycle job enabled: %s", cfg.Label)
+	}
 	run := func() {
-		result, err := store.RunMemoryLifecycleMaintenance(context.Background(), conversationpersistence.DefaultMemoryLifecycleOptions())
+		opts := conversationpersistence.DefaultMemoryLifecycleOptions()
+		opts.Now = cfg.Now()
+		result, err := store.RunMemoryLifecycleMaintenance(context.Background(), opts)
 		if err != nil {
 			log.Printf("WARN: memory lifecycle maintenance failed: %v", err)
 			return

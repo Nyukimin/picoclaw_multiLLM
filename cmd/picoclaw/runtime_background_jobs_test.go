@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	domainrouting "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -103,6 +105,63 @@ func TestNewSuperAgentRunQueueProcessorRejectsMissingJobID(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "job_id") {
 		t.Fatalf("ProcessRunQueueItem() error = %v, want job_id error", err)
+	}
+}
+
+func TestMemoryLifecycleJobConfigAcceleratesMonthIntoOneHour(t *testing.T) {
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC", "3600")
+	var wall = time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
+	cfg := memoryLifecycleJobConfigFromEnv(func() time.Time { return wall })
+	if cfg.Interval != 30*time.Second {
+		t.Fatalf("interval=%s, want 30s", cfg.Interval)
+	}
+	wall = wall.Add(time.Hour)
+	got := cfg.Now()
+	want := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("accelerated now=%s, want %s", got, want)
+	}
+}
+
+func TestMemoryLifecycleJobConfigCanRunMonthAsFastAsOneSecond(t *testing.T) {
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC", "1")
+	var wall = time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
+	cfg := memoryLifecycleJobConfigFromEnv(func() time.Time { return wall })
+	if cfg.Interval != time.Second {
+		t.Fatalf("interval=%s, want 1s", cfg.Interval)
+	}
+	wall = wall.Add(time.Second)
+	got := cfg.Now()
+	want := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("accelerated now=%s, want %s", got, want)
+	}
+}
+
+func TestMemoryLifecycleJobConfigAllowsExplicitAcceleratedInterval(t *testing.T) {
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC", "3600")
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC", "5")
+	cfg := memoryLifecycleJobConfigFromEnv(time.Now)
+	if cfg.Interval != 5*time.Second {
+		t.Fatalf("interval=%s, want 5s", cfg.Interval)
+	}
+}
+
+func TestMemoryLifecycleJobConfigIgnoresInvalidAcceleration(t *testing.T) {
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC", "bad")
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC", "bad")
+	cfg := memoryLifecycleJobConfigFromEnv(time.Now)
+	if cfg.Interval != 24*time.Hour {
+		t.Fatalf("interval=%s, want normal 24h", cfg.Interval)
+	}
+}
+
+func TestMemoryLifecycleJobConfigDefaultEnvIsNormal(t *testing.T) {
+	_ = os.Unsetenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC")
+	_ = os.Unsetenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC")
+	cfg := memoryLifecycleJobConfigFromEnv(time.Now)
+	if cfg.Interval != 24*time.Hour || cfg.Label != "normal" {
+		t.Fatalf("unexpected default cfg: %+v", cfg)
 	}
 }
 

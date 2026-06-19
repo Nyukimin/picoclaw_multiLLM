@@ -1218,6 +1218,29 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 - inactive / superseded memory は vector cleanup executor に渡され、完了状態が `vector_cleanup_status=done` として追跡できる。
 - daily digest から作られた monthly highlight は idempotent に保存され、thread summary は統合候補として重複 queue されない。
 
+### 加速テスト
+
+長期運用を待たずに lifecycle を検証するため、runtime の memory lifecycle job は opt-in の加速時計を持つ。
+
+| 環境変数 | 意味 |
+|---|---|
+| `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=3600` | 実時間 1時間を lifecycle 上の 30日として扱う |
+| `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=60` | 実時間 1分を lifecycle 上の 30日として扱う |
+| `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=1` | 実時間 1秒を lifecycle 上の 30日として扱う。最短の smoke test 用 |
+| `RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC=5` | lifecycle job の tick 間隔を明示する |
+
+加速時計は `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC` が設定された場合だけ有効にする。通常運用では設定しない。
+
+検証例:
+
+```bash
+RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=3600 \
+RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC=30 \
+systemctl --user restart picoclaw.service
+```
+
+より短い smoke test では `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=1` を使える。ただし live DB に対して使う場合は、実際に decay / monthly highlight / vector cleanup が進むため、検証用 DB かバックアップ済み DB で行う。
+
 ## 10.4 Phase 4: UserMemory commands
 
 目的: ユーザーが記憶を制御できるようにする。
