@@ -118,9 +118,13 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /id="newsPackDetail"/);
   assert.match(html, /id="newsUsageBody"/);
   assert.match(html, /id="recallTraceBody"/);
-  assert.match(html, /<th>Decision<\/th>/);
+  assert.match(html, /<th>Status<\/th>/);
+  assert.match(html, /<th>Section<\/th>/);
+  assert.match(html, /<th>Tokens<\/th>/);
+  assert.match(html, /<th>Warning<\/th>/);
   assert.match(html, /<th>Reason<\/th>/);
-  assert.match(memoryJs, /item\.Decision/);
+  assert.match(memoryJs, /item\.Status/);
+  assert.match(memoryJs, /item\.PromptSection/);
   assert.match(memoryJs, /item\.Reason/);
   assert.match(memoryJs, /function refreshMemorySnapshot/);
   assert.match(memoryJs, /function refreshKnowledgeMemoryLedger/);
@@ -2112,6 +2116,53 @@ globalThis.__state = state;
   assert.equal(context.__state.memory.events.length, 0);
   assert.equal(context.__state.memory.searchCache.length, 0);
   assert.equal(context.__state.memory.traces.length, 0);
+});
+
+test('viewer renders recall trace status section tokens and warnings', () => {
+  const memoryJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/memory.js', 'utf8');
+  const elements = new Map();
+  const get = (id) => {
+    if (!elements.has(id)) elements.set(id, new FakeElement(id));
+    return elements.get(id);
+  };
+  const document = {
+    getElementById: get,
+    createElement() {
+      return new FakeElement();
+    },
+  };
+  const source = `
+function esc(s) { return String(s || ''); }
+function short(s, n) { const v = String(s || ''); return v.length > n ? v.slice(0, n) + '...' : v; }
+function fdt(s) { return String(s || '-'); }
+const state = {memory: {
+  recallTraceFetchError: '',
+  traces: [{
+    ResponseID: 'turn-1',
+    Role: 'mio',
+    CreatedAt: '2026-06-19T00:00:00Z',
+    Items: [
+      {Layer: 'L3', Kind: 'user_memory', Status: 'injected', PromptSection: '[RecallPack: UserMemory]', TokenCount: 8, Reason: 'candidate passed injection policy', Summary: '短く答える'},
+      {Layer: 'L2', Kind: 'user_memory', Status: 'filtered_status', PromptSection: '[RecallPack: UserMemory]', TokenCount: 4, Reason: 'candidate memory is not confirmed or pinned', Summary: '候補記憶'},
+      {Layer: 'L3', Kind: 'knowledge', Status: 'budget_dropped', PromptSection: '[RecallPack: Knowledge]', TokenCount: 120, Reason: 'token budget dropped Knowledge DB snippet', Summary: '長い知識'}
+    ],
+  }],
+}};
+` + sourceBetween(memoryJs, 'function renderRecallTraces', 'function refreshRecallTraces') + `
+globalThis.__renderRecallTraces = renderRecallTraces;
+`;
+  const context = vm.createContext({document});
+  vm.runInContext(source, context);
+  context.__renderRecallTraces();
+
+  const html = get('recallTraceBody').innerHTML;
+  assert.match(html, /injected/);
+  assert.match(html, /\[RecallPack: UserMemory\]/);
+  assert.match(html, /filtered_status/);
+  assert.match(html, /unpromoted/);
+  assert.match(html, /budget_dropped/);
+  assert.match(html, /budget/);
+  assert.match(html, /120/);
 });
 
 test('viewer renders memory snapshot fetch errors as visible state', async () => {

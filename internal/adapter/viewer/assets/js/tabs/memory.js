@@ -1462,11 +1462,11 @@ function renderRecallTraces() {
   const traces = Array.isArray(state.memory.traces) ? state.memory.traces : [];
   body.innerHTML = '';
   if (fetchError) {
-    body.innerHTML = '<tr><td colspan="9" class="small">Recall traces unavailable: ' + esc(fetchError) + '</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" class="small">Recall traces unavailable: ' + esc(fetchError) + '</td></tr>';
     return;
   }
   if (traces.length === 0) {
-    body.innerHTML = '<tr><td colspan="9" class="small">No recall traces yet</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" class="small">No recall traces yet</td></tr>';
     return;
   }
   traces.forEach((trace) => {
@@ -1476,20 +1476,26 @@ function renderRecallTraces() {
       tr.innerHTML =
         '<td class="code">' + esc(trace.ResponseID || trace.response_id || '-') + '</td>' +
         '<td>' + esc(trace.Role || trace.role || '-') + '</td>' +
-        '<td colspan="6" class="small">No referenced recall items</td>' +
+        '<td colspan="9" class="small">No referenced recall items</td>' +
         '<td>' + esc(fdt(trace.CreatedAt || trace.created_at)) + '</td>';
       body.appendChild(tr);
       return;
     }
     items.forEach((item) => {
       const urls = item.SourceURLs || item.source_urls || [];
+      const status = recallTraceItemStatus(item);
+      const section = item.PromptSection || item.prompt_section || '-';
+      const tokenCount = item.TokenCount ?? item.token_count ?? '-';
       const tr = document.createElement('tr');
       tr.innerHTML =
         '<td class="code">' + esc(trace.ResponseID || trace.response_id || '-') + '</td>' +
         '<td>' + esc(trace.Role || trace.role || '-') + '</td>' +
         '<td>' + esc(item.Layer || item.layer || '-') + '</td>' +
         '<td>' + esc(item.Kind || item.kind || '-') + '</td>' +
-        '<td>' + esc(item.Decision || item.decision || '-') + '</td>' +
+        '<td>' + esc(status) + '</td>' +
+        '<td class="code">' + esc(section) + '</td>' +
+        '<td>' + esc(String(tokenCount)) + '</td>' +
+        '<td>' + esc(recallTraceWarning(item, status)) + '</td>' +
         '<td>' + esc(short(item.Reason || item.reason || '-', 140)) + '</td>' +
         '<td>' + esc(short(item.Summary || item.summary || item.Query || item.query || '-', 180)) + '</td>' +
         '<td class="code">' + esc(short(Array.isArray(urls) ? urls.join(', ') : String(urls || '-'), 100)) + '</td>' +
@@ -1497,6 +1503,30 @@ function renderRecallTraces() {
       body.appendChild(tr);
     });
   });
+}
+
+function recallTraceItemStatus(item) {
+  const status = String(item.Status || item.status || '').trim();
+  if (status) return status;
+  const decision = String(item.Decision || item.decision || '').trim();
+  if (decision === 'included') return 'injected';
+  if (decision === 'rejected') return 'filtered';
+  return decision || '-';
+}
+
+function recallTraceWarning(item, status) {
+  const text = [
+    status,
+    item.Reason || item.reason || '',
+    item.Sensitivity || item.sensitivity || '',
+  ].join(' ').toLowerCase();
+  if (text.includes('superseded')) return 'superseded';
+  if (text.includes('stale') || text.includes('decayed')) return 'stale';
+  if (text.includes('sensitive')) return 'sensitive';
+  if (text.includes('candidate') || text.includes('staging') || text.includes('raw')) return 'unpromoted';
+  if (text.includes('budget')) return 'budget';
+  if (String(status || '').startsWith('filtered_')) return 'filtered';
+  return '';
 }
 
 function refreshRecallTraces() {
