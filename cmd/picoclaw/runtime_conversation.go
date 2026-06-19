@@ -93,6 +93,9 @@ func buildConversationRuntime(
 			realMgr,
 			conversation.NewMioPersona(cfg.Prompts.MioPersona),
 		).WithDetector(detector)
+		if l1Store != nil {
+			engine = engine.WithRecallTraceStore(l1Store)
+		}
 		if profileExtractor != nil {
 			engine = engine.WithProfileExtractor(profileExtractor)
 		}
@@ -137,6 +140,7 @@ func buildConversationRuntime(
 		workerToolRunnerV2.WithWebGatherSearchAndFetcher(webGatherSearchAndFetchUseCase)
 		log.Printf("ToolRunner web_gather.fetch/search/search_and_fetch enabled via Conversation L1")
 		startSourceRegistrySweeper(l1Store)
+		startMemoryLifecycleJob(l1Store)
 	}
 	if realMgr != nil {
 		startParquetExportJob(realMgr)

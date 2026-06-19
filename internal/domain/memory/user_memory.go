@@ -43,6 +43,8 @@ type UserMemory struct {
 	State            string    `json:"state"`
 	Scope            string    `json:"scope"`
 	Active           bool      `json:"active"`
+	LifecycleStatus  string    `json:"lifecycle_status,omitempty"`
+	DecayScore       float64   `json:"decay_score,omitempty"`
 	SupersededBy     string    `json:"superseded_by,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -147,4 +149,31 @@ func CanPromoteUserMemory(state string, evidenceEventIDs []string, sensitivity s
 		return fmt.Errorf("pinned memory requires explicit reason")
 	}
 	return nil
+}
+
+func IsUserMemoryPromptInjectable(mem UserMemory, persona string) bool {
+	if !mem.Active {
+		return false
+	}
+	if strings.TrimSpace(mem.SupersededBy) != "" {
+		return false
+	}
+	if strings.TrimSpace(mem.LifecycleStatus) == "decayed" {
+		return false
+	}
+	switch strings.TrimSpace(mem.State) {
+	case MemoryStateConfirmed, MemoryStatePinned:
+	default:
+		return false
+	}
+	if strings.TrimSpace(mem.Sensitivity) != "" && strings.TrimSpace(mem.Sensitivity) != "normal" {
+		return false
+	}
+	scope := strings.TrimSpace(mem.Scope)
+	if scope == "" || scope == "all_personas" || scope == "all" || scope == "global" {
+		return true
+	}
+	persona = strings.ToLower(strings.TrimSpace(persona))
+	scope = strings.ToLower(scope)
+	return persona != "" && (scope == persona || scope == persona+"_only")
 }

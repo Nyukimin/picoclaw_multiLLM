@@ -84,6 +84,33 @@ func (m *mockExtractor) Extract(ctx context.Context, thread *domconv.Thread, exi
 	return m.result, m.err
 }
 
+type mockRecallTraceStore struct {
+	started  []domconv.RecallTraceRecord
+	items    []domconv.RecallTraceItemRecord
+	events   []domconv.PromptInjectionEventRecord
+	finished []string
+}
+
+func (m *mockRecallTraceStore) StartRecallTrace(_ context.Context, trace domconv.RecallTraceRecord) error {
+	m.started = append(m.started, trace)
+	return nil
+}
+
+func (m *mockRecallTraceStore) AddRecallTraceItems(_ context.Context, _ string, items []domconv.RecallTraceItemRecord) error {
+	m.items = append(m.items, items...)
+	return nil
+}
+
+func (m *mockRecallTraceStore) AddPromptInjectionEvents(_ context.Context, _ string, events []domconv.PromptInjectionEventRecord) error {
+	m.events = append(m.events, events...)
+	return nil
+}
+
+func (m *mockRecallTraceStore) FinishRecallTrace(_ context.Context, traceID string, _ string, _ int, _ int) error {
+	m.finished = append(m.finished, traceID)
+	return nil
+}
+
 // === Tests ===
 
 func TestBeginTurn_EmptyRecall(t *testing.T) {
@@ -145,6 +172,38 @@ func TestBeginTurn_WithShortContext(t *testing.T) {
 	}
 	if pack.ShortContext[0].Msg != "prev question" {
 		t.Errorf("ShortContext[0]: want 'prev question', got %q", pack.ShortContext[0].Msg)
+	}
+}
+
+func TestBeginTurn_SavesRecallTrace(t *testing.T) {
+	mgr := &mockManager{
+		recallFunc: func(ctx context.Context, sessionID, query string, topK int) ([]domconv.Message, error) {
+			return []domconv.Message{{Speaker: domconv.SpeakerUser, Msg: "prev question"}}, nil
+		},
+	}
+	traceStore := &mockRecallTraceStore{}
+	engine := NewRealConversationEngine(mgr, domconv.PersonaState{}).WithRecallTraceStore(traceStore)
+
+	if _, err := engine.BeginTurn(context.Background(), "chat-1", "hello"); err != nil {
+		t.Fatalf("BeginTurn failed: %v", err)
+	}
+	if len(traceStore.started) != 1 {
+		t.Fatalf("StartRecallTrace calls = %d, want 1", len(traceStore.started))
+	}
+	if traceStore.started[0].ChatID != "chat-1" || traceStore.started[0].UserMessageHash == "" {
+		t.Fatalf("unexpected started trace: %+v", traceStore.started[0])
+	}
+	if len(traceStore.items) == 0 {
+		t.Fatal("expected trace items")
+	}
+	if traceStore.items[0].Status != domconv.TraceStatusInjected || traceStore.items[0].PromptSection == "" {
+		t.Fatalf("unexpected trace item: %+v", traceStore.items[0])
+	}
+	if len(traceStore.events) == 0 {
+		t.Fatal("expected prompt injection events")
+	}
+	if len(traceStore.finished) != 1 || traceStore.finished[0] != traceStore.started[0].TraceID {
+		t.Fatalf("unexpected finished traces: %+v started=%+v", traceStore.finished, traceStore.started)
 	}
 }
 

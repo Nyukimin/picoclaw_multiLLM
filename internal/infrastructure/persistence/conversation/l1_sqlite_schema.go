@@ -193,6 +193,65 @@ CREATE TABLE IF NOT EXISTS domain_graph_assertion (
 CREATE INDEX IF NOT EXISTS idx_domain_graph_assertion_domain_created ON domain_graph_assertion(domain, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_domain_graph_assertion_entity ON domain_graph_assertion(domain, entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_domain_graph_assertion_source ON domain_graph_assertion(source_id, raw_hash);
+CREATE TABLE IF NOT EXISTS recall_trace (
+	trace_id TEXT PRIMARY KEY,
+	turn_id TEXT NOT NULL,
+	chat_id TEXT NOT NULL,
+	persona TEXT NOT NULL,
+	route TEXT NOT NULL DEFAULT '',
+	user_message_hash TEXT NOT NULL DEFAULT '',
+	query_text_redacted TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMP NOT NULL,
+	model_id TEXT NOT NULL DEFAULT '',
+	prompt_version TEXT NOT NULL DEFAULT '',
+	recall_policy_version TEXT NOT NULL DEFAULT '',
+	total_candidates INTEGER NOT NULL DEFAULT 0,
+	injected_count INTEGER NOT NULL DEFAULT 0,
+	total_injected_tokens INTEGER NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_recall_trace_chat_created ON recall_trace(chat_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS recall_trace_item (
+	item_id TEXT PRIMARY KEY,
+	trace_id TEXT NOT NULL,
+	layer TEXT NOT NULL,
+	memory_id TEXT NOT NULL DEFAULT '',
+	source_id TEXT NOT NULL DEFAULT '',
+	source_url TEXT NOT NULL DEFAULT '',
+	source_type TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL,
+	score REAL NOT NULL DEFAULT 0,
+	relevance REAL NOT NULL DEFAULT 0,
+	recency REAL NOT NULL DEFAULT 0,
+	confidence REAL NOT NULL DEFAULT 0,
+	source_trust REAL NOT NULL DEFAULT 0,
+	reason TEXT NOT NULL DEFAULT '',
+	injected INTEGER NOT NULL DEFAULT 0,
+	prompt_section TEXT NOT NULL DEFAULT '',
+	token_count INTEGER NOT NULL DEFAULT 0,
+	sensitivity TEXT NOT NULL DEFAULT '',
+	is_raw_or_summary TEXT NOT NULL DEFAULT '',
+	retrieved_at TIMESTAMP,
+	published_at TIMESTAMP,
+	event_id TEXT NOT NULL DEFAULT '',
+	summary TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL DEFAULT '',
+	FOREIGN KEY(trace_id) REFERENCES recall_trace(trace_id)
+);
+CREATE INDEX IF NOT EXISTS idx_recall_trace_item_trace ON recall_trace_item(trace_id);
+CREATE INDEX IF NOT EXISTS idx_recall_trace_item_status ON recall_trace_item(status);
+CREATE TABLE IF NOT EXISTS prompt_injection_event (
+	injection_id TEXT PRIMARY KEY,
+	trace_id TEXT NOT NULL,
+	prompt_section TEXT NOT NULL,
+	order_index INTEGER NOT NULL,
+	item_ids TEXT NOT NULL DEFAULT '[]',
+	token_count INTEGER NOT NULL DEFAULT 0,
+	redaction_level TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMP NOT NULL,
+	FOREIGN KEY(trace_id) REFERENCES recall_trace(trace_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prompt_injection_event_trace ON prompt_injection_event(trace_id, order_index);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to initialize l1 sqlite schema: %w", err)

@@ -186,35 +186,56 @@ func (rp *RecallPack) ApplyRecallBudgetWithEstimator(maxContextTokens int, ratio
 	trimmed.KBSnippets = nil
 	trimmed.SearchCacheSnippets = nil
 	used := 0
-	canAdd := func(text string) bool {
+	canAdd := func(text string) (bool, int) {
 		cost := estimateWithFallback(estimator, text)
 		if cost > budget {
-			return false
+			return false, cost
 		}
 		if used+cost > budget {
-			return false
+			return false, cost
 		}
 		used += cost
-		return true
+		return true, cost
 	}
 	for _, summary := range rp.MidSummaries {
-		if canAdd(summary.Summary) {
+		if ok, _ := canAdd(summary.Summary); ok {
 			trimmed.MidSummaries = append(trimmed.MidSummaries, summary)
+		} else {
+			trace := rejectedThreadSummaryTrace(summary, "token budget dropped L2 thread summary")
+			trace.Status = TraceStatusBudgetDropped
+			trace.TokenCount = estimateWithFallback(estimator, summary.Summary)
+			trimmed.RejectedTraceItems = append(trimmed.RejectedTraceItems, trace)
 		}
 	}
 	for _, fact := range rp.LongFacts {
-		if canAdd(fact) {
+		if ok, _ := canAdd(fact); ok {
 			trimmed.LongFacts = append(trimmed.LongFacts, fact)
+		} else {
+			trace := rejectedKnowledgeTrace(fact, "token budget dropped L3 long fact")
+			trace.Kind = "long_fact"
+			trace.Status = TraceStatusBudgetDropped
+			trace.TokenCount = estimateWithFallback(estimator, fact)
+			trimmed.RejectedTraceItems = append(trimmed.RejectedTraceItems, trace)
 		}
 	}
 	for _, snippet := range rp.KBSnippets {
-		if canAdd(snippet) {
+		if ok, _ := canAdd(snippet); ok {
 			trimmed.KBSnippets = append(trimmed.KBSnippets, snippet)
+		} else {
+			trace := rejectedKnowledgeTrace(snippet, "token budget dropped Knowledge DB snippet")
+			trace.Status = TraceStatusBudgetDropped
+			trace.TokenCount = estimateWithFallback(estimator, snippet)
+			trimmed.RejectedTraceItems = append(trimmed.RejectedTraceItems, trace)
 		}
 	}
 	for _, cache := range rp.SearchCacheSnippets {
-		if canAdd(cache.ToPromptText()) {
+		if ok, _ := canAdd(cache.ToPromptText()); ok {
 			trimmed.SearchCacheSnippets = append(trimmed.SearchCacheSnippets, cache)
+		} else {
+			trace := rejectedSearchCacheTrace(cache, "token budget dropped L1 search cache")
+			trace.Status = TraceStatusBudgetDropped
+			trace.TokenCount = estimateWithFallback(estimator, cache.ToPromptText())
+			trimmed.RejectedTraceItems = append(trimmed.RejectedTraceItems, trace)
 		}
 	}
 	return trimmed
@@ -274,39 +295,48 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 
 func rejectedThreadSummaryTrace(summary ThreadSummary, reason string) RecallTraceItem {
 	return RecallTraceItem{
-		Layer:       "L2",
-		Kind:        "thread_summary",
-		Summary:     summary.Summary,
-		Score:       summary.Score,
-		Decision:    "rejected",
-		Reason:      reason,
-		PromptIndex: -1,
+		Layer:         "L2",
+		Kind:          "thread_summary",
+		Summary:       summary.Summary,
+		Score:         summary.Score,
+		Decision:      "rejected",
+		Status:        TraceStatusFilteredScope,
+		PromptSection: PromptSectionConversation,
+		TokenCount:    estimateRecallTokens(summary.Summary),
+		Reason:        reason,
+		PromptIndex:   -1,
 	}
 }
 
 func rejectedKnowledgeTrace(snippet string, reason string) RecallTraceItem {
 	return RecallTraceItem{
-		Layer:       "L3",
-		Kind:        "knowledge",
-		Summary:     snippet,
-		Decision:    "rejected",
-		Reason:      reason,
-		PromptIndex: -1,
+		Layer:         "L3",
+		Kind:          "knowledge",
+		Summary:       snippet,
+		Decision:      "rejected",
+		Status:        TraceStatusFilteredScope,
+		PromptSection: PromptSectionKnowledge,
+		TokenCount:    estimateRecallTokens(snippet),
+		Reason:        reason,
+		PromptIndex:   -1,
 	}
 }
 
 func rejectedSearchCacheTrace(snippet SearchCacheSnippet, reason string) RecallTraceItem {
 	return RecallTraceItem{
-		Layer:       "L1",
-		Kind:        "search_cache",
-		Summary:     snippet.ResultsJSON,
-		Query:       snippet.Query,
-		Provider:    snippet.Provider,
-		SourceURLs:  append([]string(nil), snippet.SourceURLs...),
-		RetrievedAt: snippet.RetrievedAt,
-		Decision:    "rejected",
-		Reason:      reason,
-		PromptIndex: -1,
+		Layer:         "L1",
+		Kind:          "search_cache",
+		Summary:       snippet.ResultsJSON,
+		Query:         snippet.Query,
+		Provider:      snippet.Provider,
+		SourceURLs:    append([]string(nil), snippet.SourceURLs...),
+		RetrievedAt:   snippet.RetrievedAt,
+		Decision:      "rejected",
+		Status:        TraceStatusFilteredScope,
+		PromptSection: PromptSectionNews,
+		TokenCount:    estimateRecallTokens(snippet.ToPromptText()),
+		Reason:        reason,
+		PromptIndex:   -1,
 	}
 }
 

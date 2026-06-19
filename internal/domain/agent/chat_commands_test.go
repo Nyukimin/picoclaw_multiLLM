@@ -210,6 +210,49 @@ func TestHandleChatCommand_UserMemoryPrioritize(t *testing.T) {
 	}
 }
 
+func TestHandleChatCommand_UserMemorySaveSummaryShowAndDoNotUse(t *testing.T) {
+	mem := &mockUserMemoryManager{
+		listItems: []domainmemory.UserMemory{{
+			ID:          "mem-1",
+			Namespace:   "user:ren",
+			UserID:      "ren",
+			Type:        domainmemory.UserMemoryTypePreference,
+			Statement:   "短く答える",
+			State:       domainmemory.MemoryStateConfirmed,
+			Sensitivity: "normal",
+			Active:      true,
+		}},
+	}
+	m := (&MioAgent{}).WithUserMemoryManager(mem)
+
+	summary, err := m.HandleChatCommand(context.Background(), "session1", "要約して保存: 今日の修復方針を決めた")
+	if err != nil {
+		t.Fatalf("summary command error: %v", err)
+	}
+	if !summary.Handled || !strings.Contains(summary.Response, "保存候補") {
+		t.Fatalf("unexpected summary result: %+v", summary)
+	}
+	if mem.createInput.Type != domainmemory.UserMemoryTypeEpisode || mem.createInput.Source != "user_summary_save_command" {
+		t.Fatalf("unexpected summary create input: %+v", mem.createInput)
+	}
+
+	show, err := m.HandleChatCommand(context.Background(), "session1", "この記憶を見せて")
+	if err != nil {
+		t.Fatalf("show command error: %v", err)
+	}
+	if !show.Handled || !strings.Contains(show.Response, "mem-1") || !strings.Contains(show.Response, "短く答える") {
+		t.Fatalf("unexpected show result: %+v", show)
+	}
+
+	doNotUse, err := m.HandleChatCommand(context.Background(), "session1", "今後使わないで 短く答える")
+	if err != nil {
+		t.Fatalf("do_not_use command error: %v", err)
+	}
+	if !doNotUse.Handled || mem.forgetID != "mem-1" || mem.forgetReason != "do_not_use" {
+		t.Fatalf("unexpected do_not_use result=%+v mem=%+v", doNotUse, mem)
+	}
+}
+
 func TestHandleChatCommand_UserMemoryEmptyBody(t *testing.T) {
 	mem := &mockUserMemoryManager{}
 	m := (&MioAgent{}).WithUserMemoryManager(mem)
@@ -310,6 +353,9 @@ func TestParseUserMemoryCommandVariants(t *testing.T) {
 		wantBody   string
 	}{
 		{"優先して: 日本語で答える。", "prioritize", "日本語で答える"},
+		{"要約して保存: 今日の修復方針", "save_summary", "今日の修復方針"},
+		{"この記憶を見せて", "show", ""},
+		{"今後使わないで: 古い制約", "do_not_use", "古い制約"},
 		{"覚えて、短く答える", "remember", "、短く答える"},
 		{"この設定は忘れて", "forget", "この設定"},
 		{"これは違う: 前の記憶", "correct", "前の記憶"},

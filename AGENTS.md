@@ -31,7 +31,8 @@
    - `rules/routing-policy.md`
    - `rules/rules_viewer_ui.md`
    - `rules/rules_domain.md`
-   - `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`（Memory / Source Registry / 記憶分類を扱う場合）
+   - `docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md`（Memory lifecycle / Recall Context / prompt 注入方針を扱う場合の正本実装仕様）
+   - `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`（Memory / Source Registry / 保存境界を扱う場合の補助仕様）
 
 実装判断で迷った場合、**一次参照は `docs/01_正本仕様/実装仕様.md`** とする。
 Viewer / UI / 見た目の判断で迷った場合、**視覚方針の一次参照は `DESIGN.md`** とし、実装・状態管理・検証の一次参照は正本仕様と rules に戻る。

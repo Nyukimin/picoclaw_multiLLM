@@ -163,6 +163,27 @@ LIMIT ?
 	return memories, nil
 }
 
+func (s *L1SQLiteStore) ListPromptInjectableUserMemories(ctx context.Context, userID string, persona string, limit int) ([]domainmemory.UserMemory, error) {
+	if limit <= 0 {
+		limit = 12
+	}
+	items, err := s.ListUserMemories(ctx, userID, "", false, limit*4)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domainmemory.UserMemory, 0, limit)
+	for _, item := range items {
+		if !domainmemory.IsUserMemoryPromptInjectable(item, persona) {
+			continue
+		}
+		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (s *L1SQLiteStore) UpdateUserMemoryState(ctx context.Context, id string, state string, reason string) (*domainmemory.UserMemory, error) {
 	ev, err := s.memoryByID(ctx, id)
 	if err != nil {
@@ -315,6 +336,8 @@ func l1EventToUserMemory(ev L1MemoryEvent) *domainmemory.UserMemory {
 		State:            ev.MemoryState,
 		Scope:            firstNonEmptyString(metaStringValue(ev.Meta, "scope"), "all_personas"),
 		Active:           active,
+		LifecycleStatus:  metaStringValue(ev.Meta, "lifecycle_status"),
+		DecayScore:       metaFloatValue(ev.Meta, "decay_score"),
 		SupersededBy:     metaStringValue(ev.Meta, "superseded_by"),
 		CreatedAt:        ev.CreatedAt,
 		UpdatedAt:        ev.UpdatedAt,
@@ -354,6 +377,31 @@ func metaStringSliceValue(meta map[string]interface{}, key string) []string {
 		return out
 	default:
 		return nil
+	}
+}
+
+func metaFloatValue(meta map[string]interface{}, key string) float64 {
+	if meta == nil {
+		return 0
+	}
+	raw, ok := meta[key]
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		f, _ := v.Float64()
+		return f
+	default:
+		return 0
 	}
 }
 

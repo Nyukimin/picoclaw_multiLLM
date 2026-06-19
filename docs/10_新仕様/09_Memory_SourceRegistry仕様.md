@@ -1,5 +1,7 @@
 # Memory / Source Registry 仕様
 
+> 正本参照: Memory lifecycle / Recall Context / Prompt Injection Policy は `../01_正本仕様/18_Memory_Lifecycle_Recall_Context.md` を正本実装仕様として一次参照とする。本書は保存媒体、Source Registry、L1 SQLite などの境界仕様として併用する。
+
 ## 目的
 
 Memory / Source Registry は、会話記憶、外部ソース、知識、検証済み情報を扱う永続化境界である。

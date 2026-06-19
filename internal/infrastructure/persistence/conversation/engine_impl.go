@@ -17,6 +17,7 @@ type RealConversationEngine struct {
 	detector         domconv.ThreadBoundaryDetector // nil の場合はスレッド自動検出無効
 	profileExtractor domconv.ProfileExtractor       // nil の場合はプロファイル抽出無効
 	profiles         map[string]domconv.UserProfile // インメモリキャッシュ
+	recallTraceStore domconv.RecallTraceStore
 }
 
 // NewRealConversationEngine は新しい ConversationEngine を作成
@@ -40,6 +41,11 @@ func (e *RealConversationEngine) WithDetector(d domconv.ThreadBoundaryDetector) 
 // WithProfileExtractor はプロファイル抽出器を設定する（オプション）
 func (e *RealConversationEngine) WithProfileExtractor(pe domconv.ProfileExtractor) *RealConversationEngine {
 	e.profileExtractor = pe
+	return e
+}
+
+func (e *RealConversationEngine) WithRecallTraceStore(store domconv.RecallTraceStore) *RealConversationEngine {
+	e.recallTraceStore = store
 	return e
 }
 
@@ -127,7 +133,54 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 
 	applyL0RollingSummary(pack, 6)
 	budgeted := pack.ApplyRecallBudget(pack.Constraints.MaxTotalTokens, pack.Constraints.RecallBudgetRatio)
+	e.saveBeginTurnRecallTrace(ctx, sessionID, userMessage, &budgeted, "completed")
 	return &budgeted, nil
+}
+
+func (e *RealConversationEngine) saveBeginTurnRecallTrace(ctx context.Context, sessionID string, userMessage string, pack *domconv.RecallPack, status string) {
+	if e.recallTraceStore == nil || pack == nil {
+		return
+	}
+	now := timeNowUTC()
+	traceID := recallTraceID(sessionID, now, userMessage)
+	items := traceItemRecordsFromPack(traceID, pack.ToTraceItems())
+	injectedCount := 0
+	totalTokens := 0
+	for _, item := range items {
+		if item.Injected {
+			injectedCount++
+			totalTokens += item.TokenCount
+		}
+	}
+	if err := e.recallTraceStore.StartRecallTrace(ctx, domconv.RecallTraceRecord{
+		TraceID:             traceID,
+		TurnID:              traceID,
+		ChatID:              sessionID,
+		Persona:             "mio",
+		Route:               "chat",
+		UserMessageHash:     hashRecallText(userMessage),
+		QueryTextRedacted:   redactedRecallQuery(userMessage),
+		CreatedAt:           now,
+		RecallPolicyVersion: "memory-lifecycle-v1",
+		TotalCandidates:     len(items),
+		InjectedCount:       injectedCount,
+		TotalInjectedTokens: totalTokens,
+		Status:              status,
+	}); err != nil {
+		log.Printf("[ConversationEngine] WARN: StartRecallTrace failed: %v", err)
+		return
+	}
+	if err := e.recallTraceStore.AddRecallTraceItems(ctx, traceID, items); err != nil {
+		log.Printf("[ConversationEngine] WARN: AddRecallTraceItems failed: %v", err)
+		return
+	}
+	if err := e.recallTraceStore.AddPromptInjectionEvents(ctx, traceID, promptInjectionEventsFromItems(traceID, items, now)); err != nil {
+		log.Printf("[ConversationEngine] WARN: AddPromptInjectionEvents failed: %v", err)
+		return
+	}
+	if err := e.recallTraceStore.FinishRecallTrace(ctx, traceID, status, injectedCount, totalTokens); err != nil {
+		log.Printf("[ConversationEngine] WARN: FinishRecallTrace failed: %v", err)
+	}
 }
 
 func shouldUseExternalRecallForUserMessage(message string) bool {

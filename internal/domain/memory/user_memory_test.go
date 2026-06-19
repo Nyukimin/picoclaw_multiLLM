@@ -128,3 +128,33 @@ func TestCanPromoteUserMemoryRequiresEvidence(t *testing.T) {
 		t.Fatalf("confirmed with evidence should pass: %v", err)
 	}
 }
+
+func TestIsUserMemoryPromptInjectable(t *testing.T) {
+	base := UserMemory{
+		State:       MemoryStateConfirmed,
+		Active:      true,
+		Sensitivity: "normal",
+		Scope:       "all_personas",
+	}
+	if !IsUserMemoryPromptInjectable(base, "mio") {
+		t.Fatal("confirmed active normal all_personas memory should be injectable")
+	}
+	global := base
+	global.Scope = "global"
+	if !IsUserMemoryPromptInjectable(global, "mio") {
+		t.Fatal("global memory should be injectable")
+	}
+	cases := []UserMemory{
+		{State: MemoryStateCandidate, Active: true, Sensitivity: "normal", Scope: "all_personas"},
+		{State: MemoryStateConfirmed, Active: false, Sensitivity: "normal", Scope: "all_personas"},
+		{State: MemoryStateConfirmed, Active: true, Sensitivity: "sensitive", Scope: "all_personas"},
+		{State: MemoryStateConfirmed, Active: true, Sensitivity: "normal", Scope: "worker"},
+		{State: MemoryStateConfirmed, Active: true, Sensitivity: "normal", Scope: "all_personas", SupersededBy: "new"},
+		{State: MemoryStateConfirmed, Active: true, Sensitivity: "normal", Scope: "all_personas", LifecycleStatus: "decayed"},
+	}
+	for _, tc := range cases {
+		if IsUserMemoryPromptInjectable(tc, "mio") {
+			t.Fatalf("memory should not be injectable: %+v", tc)
+		}
+	}
+}

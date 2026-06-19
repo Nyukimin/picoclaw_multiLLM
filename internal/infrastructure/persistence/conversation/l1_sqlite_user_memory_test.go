@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
@@ -61,6 +62,59 @@ func TestL1SQLiteStore_UserMemoryCRUD(t *testing.T) {
 	}
 	if len(memories) != 0 {
 		t.Fatalf("inactive memory should be filtered: %+v", memories)
+	}
+}
+
+func TestL1SQLiteStore_ListPromptInjectableUserMemories(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	confirmed, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "短く答える",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-1"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create confirmed memory failed: %v", err)
+	}
+	if _, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:      "ren",
+		Type:        domainmemory.UserMemoryTypePreference,
+		Statement:   "candidate should stay out",
+		State:       MemoryStateCandidate,
+		Sensitivity: "normal",
+		Scope:       "all_personas",
+	}); err != nil {
+		t.Fatalf("Create candidate memory failed: %v", err)
+	}
+	if _, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "sensitive should stay out",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-2"},
+		Sensitivity:      "private",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	}); err != nil {
+		t.Fatalf("Create private memory failed: %v", err)
+	}
+
+	items, err := store.ListPromptInjectableUserMemories(ctx, "ren", "mio", 10)
+	if err != nil {
+		t.Fatalf("ListPromptInjectableUserMemories failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != confirmed.ID {
+		t.Fatalf("unexpected injectable memories: %+v", items)
 	}
 }
 

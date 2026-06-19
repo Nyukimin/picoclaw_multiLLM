@@ -46,6 +46,31 @@ func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
 	}()
 }
 
+func startMemoryLifecycleJob(store *conversationpersistence.L1SQLiteStore) {
+	if store == nil {
+		return
+	}
+	run := func() {
+		result, err := store.RunMemoryLifecycleMaintenance(context.Background(), conversationpersistence.DefaultMemoryLifecycleOptions())
+		if err != nil {
+			log.Printf("WARN: memory lifecycle maintenance failed: %v", err)
+			return
+		}
+		if result.RawCompacted > 0 || result.CandidatesQueued > 0 || result.Decayed > 0 || result.VectorCleanupQueued > 0 {
+			log.Printf("Memory lifecycle maintenance complete: raw_compacted=%d candidates_queued=%d decayed=%d vector_cleanup_queued=%d",
+				result.RawCompacted, result.CandidatesQueued, result.Decayed, result.VectorCleanupQueued)
+		}
+	}
+	go func() {
+		run()
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			run()
+		}
+	}()
+}
+
 func startDailyIntakeSweeper(rules knowledgememoryapp.DailyIntakeRuleStore, registry knowledgememoryapp.DailyIntakeRegistryStore) {
 	if rules == nil || registry == nil {
 		return

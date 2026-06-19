@@ -80,7 +80,7 @@ func (m *MioAgent) handleUserMemoryCommand(ctx context.Context, sessionID string
 	if action == "" {
 		return ChatCommandResult{}, false, nil
 	}
-	if body == "" {
+	if body == "" && action != "show" {
 		return ChatCommandResult{
 			Handled:  true,
 			Response: "覚える内容または対象をもう少し具体的に書いてください。",
@@ -112,6 +112,25 @@ func (m *MioAgent) handleUserMemoryCommand(ctx context.Context, sessionID string
 			Handled:  true,
 			Response: fmt.Sprintf("覚える候補に入れました。\n- id: %s\n- 内容: %s", item.ID, item.Statement),
 		}, true, nil
+	case "save_summary":
+		item, err := m.userMemoryManager.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+			UserID:           "ren",
+			Type:             domainmemory.UserMemoryTypeEpisode,
+			Statement:        body,
+			State:            domainmemory.MemoryStateCandidate,
+			EvidenceEventIDs: []string{evidenceID},
+			Confidence:       0.75,
+			Sensitivity:      "normal",
+			Scope:            "mio",
+			Source:           "user_summary_save_command",
+		})
+		if err != nil {
+			return ChatCommandResult{}, true, fmt.Errorf("user memory summary save failed: %w", err)
+		}
+		return ChatCommandResult{
+			Handled:  true,
+			Response: fmt.Sprintf("会話要約を保存候補に入れました。\n- id: %s\n- 内容: %s", item.ID, item.Statement),
+		}, true, nil
 	case "prioritize":
 		item, err := m.userMemoryManager.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
 			UserID:           "ren",
@@ -131,7 +150,7 @@ func (m *MioAgent) handleUserMemoryCommand(ctx context.Context, sessionID string
 			Handled:  true,
 			Response: fmt.Sprintf("優先する記憶として固定しました。\n- id: %s\n- 内容: %s", item.ID, item.Statement),
 		}, true, nil
-	case "forget", "correct":
+	case "forget", "correct", "do_not_use":
 		item, err := m.findUserMemoryByText(ctx, body)
 		if err != nil {
 			return ChatCommandResult{}, true, err
@@ -150,6 +169,8 @@ func (m *MioAgent) handleUserMemoryCommand(ctx context.Context, sessionID string
 			Handled:  true,
 			Response: fmt.Sprintf("記憶を無効化しました。\n- id: %s\n- 内容: %s", updated.ID, updated.Statement),
 		}, true, nil
+	case "show":
+		return m.showUserMemoryCommand(ctx, body)
 	default:
 		return ChatCommandResult{}, false, nil
 	}
@@ -164,6 +185,11 @@ func parseUserMemoryCommand(message string) (string, string) {
 		prefix string
 		action string
 	}{
+		{"この記憶を見せて", "show"},
+		{"記憶を見せて", "show"},
+		{"要約して保存", "save_summary"},
+		{"この話を要約して保存", "save_summary"},
+		{"今後使わないで", "do_not_use"},
 		{"これを優先して", "prioritize"},
 		{"優先して", "prioritize"},
 		{"覚えて", "remember"},
@@ -182,6 +208,40 @@ func parseUserMemoryCommand(message string) (string, string) {
 		return "forget", cleanupUserMemoryCommandBody(strings.TrimSuffix(trimmed, "は忘れて"))
 	}
 	return "", ""
+}
+
+func (m *MioAgent) showUserMemoryCommand(ctx context.Context, body string) (ChatCommandResult, bool, error) {
+	items, err := m.userMemoryManager.ListUserMemories(ctx, "ren", "", true, 20)
+	if err != nil {
+		return ChatCommandResult{}, true, fmt.Errorf("user memory list failed: %w", err)
+	}
+	body = strings.TrimSpace(body)
+	var selected []domainmemory.UserMemory
+	for _, item := range items {
+		if body == "" || item.ID == body || strings.Contains(item.Statement, body) || strings.Contains(body, item.Statement) {
+			selected = append(selected, item)
+		}
+	}
+	if len(selected) == 0 {
+		return ChatCommandResult{Handled: true, Response: "該当する記憶は見つかりませんでした。"}, true, nil
+	}
+	if len(selected) > 8 {
+		selected = selected[:8]
+	}
+	var lines []string
+	lines = append(lines, "記憶:")
+	for _, item := range selected {
+		state := strings.TrimSpace(item.State)
+		if state == "" {
+			state = "-"
+		}
+		active := "inactive"
+		if item.Active {
+			active = "active"
+		}
+		lines = append(lines, fmt.Sprintf("- id=%s state=%s %s type=%s: %s", item.ID, state, active, item.Type, strings.TrimSpace(item.Statement)))
+	}
+	return ChatCommandResult{Handled: true, Response: strings.Join(lines, "\n")}, true, nil
 }
 
 func cleanupUserMemoryCommandBody(s string) string {
@@ -220,10 +280,7 @@ func (m *MioAgent) userMemoryPrompt(ctx context.Context) (string, error) {
 	}
 	var lines []string
 	for _, item := range items {
-		if !item.Active || item.Sensitivity == "sensitive" {
-			continue
-		}
-		if item.State != domainmemory.MemoryStateConfirmed && item.State != domainmemory.MemoryStatePinned {
+		if !domainmemory.IsUserMemoryPromptInjectable(item, "mio") {
 			continue
 		}
 		statement := strings.TrimSpace(item.Statement)

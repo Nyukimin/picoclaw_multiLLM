@@ -343,6 +343,15 @@ func TestRecallPack_ApplyRecallBudgetTrimsRecallSections(t *testing.T) {
 	if len(trimmed.SearchCacheSnippets) > 1 {
 		t.Fatalf("budget should trim large search snippets: %+v", trimmed.SearchCacheSnippets)
 	}
+	var budgetDropped int
+	for _, item := range trimmed.RejectedTraceItems {
+		if item.Status == TraceStatusBudgetDropped {
+			budgetDropped++
+		}
+	}
+	if budgetDropped == 0 {
+		t.Fatalf("budget dropped candidates should be retained as rejected trace items: %+v", trimmed.RejectedTraceItems)
+	}
 }
 
 func TestRecallPack_ApplyRecallBudgetNoopsWithoutBudget(t *testing.T) {
