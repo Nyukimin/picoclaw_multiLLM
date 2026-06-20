@@ -2,12 +2,15 @@ package jsonlutil
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 const (
@@ -95,8 +98,16 @@ func CompactLatestRecords(path string, maxRecords int) error {
 	if maxRecords <= 0 {
 		return nil
 	}
-	lines, err := TailLines(path, maxRecords)
+	lines, err := ReadAllLines(path)
 	if err != nil {
+		return err
+	}
+	if len(lines) <= maxRecords {
+		return nil
+	}
+	dropped := lines[:len(lines)-maxRecords]
+	kept := lines[len(lines)-maxRecords:]
+	if err := archiveDroppedRecords(path, dropped); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -107,8 +118,8 @@ func CompactLatestRecords(path string, maxRecords int) error {
 	if err != nil {
 		return err
 	}
-	for i := len(lines) - 1; i >= 0; i-- {
-		if _, err := tmp.Write(append(lines[i], '\n')); err != nil {
+	for _, line := range kept {
+		if _, err := tmp.Write(append(line, '\n')); err != nil {
 			_ = tmp.Close()
 			_ = os.Remove(tmpPath)
 			return err
@@ -123,6 +134,65 @@ func CompactLatestRecords(path string, maxRecords int) error {
 		return err
 	}
 	return nil
+}
+
+func ReadAllLines(path string) ([][]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return [][]byte{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lines := make([][]byte, 0)
+	for scanner.Scan() {
+		line := append([]byte(nil), scanner.Bytes()...)
+		if len(line) == 0 {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func archiveDroppedRecords(path string, lines [][]byte) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	archivePath := compactArchivePath(path, time.Now().UTC())
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(archivePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	zw := gzip.NewWriter(f)
+	for _, line := range lines {
+		if _, err := zw.Write(append(line, '\n')); err != nil {
+			_ = zw.Close()
+			_ = f.Close()
+			return err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func compactArchivePath(path string, now time.Time) string {
+	dir := filepath.Dir(path)
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	stamp := now.UTC().Format("20060102T150405.000000000Z")
+	return filepath.Join(dir, "archive", fmt.Sprintf("%s.compacted.%s.jsonl.gz", base, stamp))
 }
 
 func TailLines(path string, limit int) ([][]byte, error) {

@@ -1217,6 +1217,19 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 - superseded memory は prompt に入らない。
 - inactive / superseded memory は vector cleanup executor に渡され、完了状態が `vector_cleanup_status=done` として追跡できる。
 - daily digest から作られた monthly highlight は idempotent に保存され、thread summary は統合候補として重複 queue されない。
+- runtime / status / audit JSONL は active log から外す前に gzip JSONL archive へ可逆圧縮し、decode / timestamp 不正行は quarantine archive へ退避する。
+
+### Runtime Log 可逆圧縮
+
+Runtime / Status Logs は L0〜L4 memory store に入れないが、監査上あとで復元できる形を優先する。
+
+方針:
+
+- EventLog GC は retention 期限切れの valid JSONL を `archive/*.expired.*.jsonl.gz` へ退避してから active log を compact する。
+- EventLog GC は runtime 起動時に一度実行し、その後 interval ごとに定期実行する。
+- decode error / timestamp error の行は破棄せず、`archive/*.quarantine.*.jsonl.gz` へ退避する。
+- `jsonlutil.CompactLatestRecords` は bounded JSONL から落とす古い行を `archive/*.compacted.*.jsonl.gz` へ退避する。
+- active log は Viewer / runtime が高速に読む対象、gzip archive は監査・復元対象とする。
 
 ### 加速テスト
 
@@ -1226,10 +1239,12 @@ Runtime / Status Logs は L0〜L4 memory store に入れない。
 |---|---|
 | `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=3600` | 実時間 1時間を lifecycle 上の 30日として扱う |
 | `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=60` | 実時間 1分を lifecycle 上の 30日として扱う |
-| `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=1` | 実時間 1秒を lifecycle 上の 30日として扱う。最短の smoke test 用 |
+| `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=1` | 実時間 1秒を lifecycle 上の 30日として扱う |
+| `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_MS=100` | 実時間 100ms を lifecycle 上の 30日として扱う。検証用の最短 smoke test |
 | `RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC=5` | lifecycle job の tick 間隔を明示する |
+| `RENCROW_MEMORY_LIFECYCLE_INTERVAL_MS=100` | lifecycle job の tick 間隔を ms 単位で明示する |
 
-加速時計は `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC` が設定された場合だけ有効にする。通常運用では設定しない。
+加速時計は `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC` または `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_MS` が設定された場合だけ有効にする。通常運用では設定しない。ms 指定は検証用であり、live DB では原則使わない。短周期 tick の下限は 100ms とする。
 
 検証例:
 
@@ -1239,7 +1254,34 @@ RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC=30 \
 systemctl --user restart picoclaw.service
 ```
 
-より短い smoke test では `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=1` を使える。ただし live DB に対して使う場合は、実際に decay / monthly highlight / vector cleanup が進むため、検証用 DB かバックアップ済み DB で行う。
+検証用 DB を作って最短 smoke test を行う例:
+
+```bash
+RENCROW_MEMORY_LIFECYCLE_ACCEL_VERIFY_DB=tmp/memory_lifecycle_accel/l1_accel_test.db \
+RENCROW_MEMORY_LIFECYCLE_ACCEL_VERIFY_MONTHS=12 \
+go test -v ./internal/infrastructure/persistence/conversation -run TestL1SQLiteStore_AcceleratedVerificationDB -count=1
+```
+
+より短い smoke test では `RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_MS=100` と `RENCROW_MEMORY_LIFECYCLE_INTERVAL_MS=100` を使える。ただし live DB に対して使う場合は、実際に decay / monthly highlight / vector cleanup が進むため、検証用 DB かバックアップ済み DB で行う。
+
+### 品質評価
+
+lifecycle がエラーなく走ることと、記憶品質が適切であることは別に評価する。
+
+品質評価では、gold fixture を次の分類で持つ。
+
+| 分類 | 期待 |
+|---|---|
+| `must_keep` | 継続指示、pinned project、置換後の現行記憶が 12か月後も prompt injectable である |
+| `must_compact_or_forget` | 一時的な raw conversation や単発障害調査メモが raw のまま残らない、または decayed になる |
+| `must_not_inject` | sensitive candidate、forgotten、superseded、decayed memory が prompt injectable set に入らない |
+| `must_cleanup_vector` | forgotten / superseded memory の vector cleanup が `done` のまま維持され、後続 lifecycle で `queued` に戻らない |
+
+常時テスト:
+
+```bash
+go test -v ./internal/infrastructure/persistence/conversation -run TestL1SQLiteStore_MemoryRetentionQualityEvalOneYear -count=1
+```
 
 ## 10.4 Phase 4: UserMemory commands
 

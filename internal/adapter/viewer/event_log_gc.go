@@ -2,11 +2,13 @@ package viewer
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +36,10 @@ type EventGCReport struct {
 	DeletedCount        int    `json:"deleted_count"`
 	DecodeErrorCount    int    `json:"decode_error_count,omitempty"`
 	TimestampErrorCount int    `json:"timestamp_error_count,omitempty"`
+	CompressedCount     int    `json:"compressed_count,omitempty"`
+	CompressedPath      string `json:"compressed_path,omitempty"`
+	QuarantineCount     int    `json:"quarantine_count,omitempty"`
+	QuarantinePath      string `json:"quarantine_path,omitempty"`
 	Status              string `json:"status"`
 	Error               string `json:"error,omitempty"`
 }
@@ -73,6 +79,7 @@ func (s *EventLogGCService) Start() {
 			defer close(s.doneCh)
 			ticker := time.NewTicker(s.interval)
 			defer ticker.Stop()
+			_, _ = s.RunOnce(context.Background(), time.Now().UTC())
 			for {
 				select {
 				case <-ticker.C:
@@ -125,22 +132,52 @@ func (s *EventLogGCService) RunOnce(_ context.Context, now time.Time) (EventGCRe
 	}
 
 	cutoff := now.Add(-s.retention)
+	expiredArchive := newCompressedLineArchive(compressedEventLogArchivePath(s.store.path, "expired", now))
+	quarantineArchive := newCompressedLineArchive(compressedEventLogArchivePath(s.store.path, "quarantine", now))
 	sc := bufio.NewScanner(src)
 	enc := json.NewEncoder(tmp)
 	for sc.Scan() {
 		report.BeforeCount++
+		rawLine := append([]byte(nil), sc.Bytes()...)
 		var ev orchestrator.OrchestratorEvent
-		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+		if err := json.Unmarshal(rawLine, &ev); err != nil {
 			report.DecodeErrorCount++
+			if err := quarantineArchive.WriteLine(rawLine); err != nil {
+				_ = tmp.Close()
+				_ = os.Remove(tmpPath)
+				report.Status = "error"
+				report.Error = err.Error()
+				report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = appendGCReport(s.reportPath, report)
+				return report, fmt.Errorf("compress invalid event log line: %w", err)
+			}
 			continue
 		}
 		ts, err := time.Parse(time.RFC3339, ev.Timestamp)
 		if err != nil {
 			report.TimestampErrorCount++
+			if err := quarantineArchive.WriteLine(rawLine); err != nil {
+				_ = tmp.Close()
+				_ = os.Remove(tmpPath)
+				report.Status = "error"
+				report.Error = err.Error()
+				report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = appendGCReport(s.reportPath, report)
+				return report, fmt.Errorf("compress timestamp-invalid event log line: %w", err)
+			}
 			continue
 		}
 		if ts.Before(cutoff) {
 			report.DeletedCount++
+			if err := expiredArchive.WriteLine(rawLine); err != nil {
+				_ = tmp.Close()
+				_ = os.Remove(tmpPath)
+				report.Status = "error"
+				report.Error = err.Error()
+				report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+				_ = appendGCReport(s.reportPath, report)
+				return report, fmt.Errorf("compress expired event log line: %w", err)
+			}
 			continue
 		}
 		if err := enc.Encode(ev); err != nil {
@@ -163,6 +200,28 @@ func (s *EventLogGCService) RunOnce(_ context.Context, now time.Time) (EventGCRe
 		_ = appendGCReport(s.reportPath, report)
 		return report, fmt.Errorf("scan source: %w", err)
 	}
+	if err := expiredArchive.Close(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		report.Status = "error"
+		report.Error = err.Error()
+		report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+		_ = appendGCReport(s.reportPath, report)
+		return report, fmt.Errorf("close expired archive: %w", err)
+	}
+	if err := quarantineArchive.Close(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		report.Status = "error"
+		report.Error = err.Error()
+		report.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+		_ = appendGCReport(s.reportPath, report)
+		return report, fmt.Errorf("close quarantine archive: %w", err)
+	}
+	report.CompressedCount = expiredArchive.Count()
+	report.CompressedPath = expiredArchive.PathIfWritten()
+	report.QuarantineCount = quarantineArchive.Count()
+	report.QuarantinePath = quarantineArchive.PathIfWritten()
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		report.Status = "error"
@@ -188,6 +247,75 @@ func (s *EventLogGCService) RunOnce(_ context.Context, now time.Time) (EventGCRe
 		return report, err
 	}
 	return report, nil
+}
+
+type compressedLineArchive struct {
+	path  string
+	file  *os.File
+	gzip  *gzip.Writer
+	count int
+}
+
+func newCompressedLineArchive(path string) *compressedLineArchive {
+	return &compressedLineArchive{path: path}
+}
+
+func (a *compressedLineArchive) WriteLine(line []byte) error {
+	if a.gzip == nil {
+		if err := os.MkdirAll(filepath.Dir(a.path), 0755); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(a.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			return err
+		}
+		a.file = f
+		a.gzip = gzip.NewWriter(f)
+	}
+	if _, err := a.gzip.Write(bytesWithNewline(line)); err != nil {
+		return err
+	}
+	a.count++
+	return nil
+}
+
+func (a *compressedLineArchive) Close() error {
+	if a.gzip == nil {
+		return nil
+	}
+	if err := a.gzip.Close(); err != nil {
+		_ = a.file.Close()
+		return err
+	}
+	return a.file.Close()
+}
+
+func (a *compressedLineArchive) Count() int {
+	return a.count
+}
+
+func (a *compressedLineArchive) PathIfWritten() string {
+	if a.count == 0 {
+		return ""
+	}
+	return a.path
+}
+
+func bytesWithNewline(line []byte) []byte {
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		return line
+	}
+	out := make([]byte, 0, len(line)+1)
+	out = append(out, line...)
+	out = append(out, '\n')
+	return out
+}
+
+func compressedEventLogArchivePath(sourcePath string, kind string, now time.Time) string {
+	dir := filepath.Dir(sourcePath)
+	base := strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath))
+	stamp := now.UTC().Format("20060102T150405Z")
+	return filepath.Join(dir, "archive", fmt.Sprintf("%s.%s.%s.jsonl.gz", base, kind, stamp))
 }
 
 func appendGCReport(path string, report EventGCReport) error {

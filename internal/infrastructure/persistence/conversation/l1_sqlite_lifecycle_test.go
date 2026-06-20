@@ -3,7 +3,10 @@ package conversation
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -327,6 +330,370 @@ func TestL1SQLiteStore_RunMemoryLifecycleMaintenanceUsesDomainDecayPolicy(t *tes
 	if got := metaStringValue(episodeEvent.Meta, "decay_policy"); got != "short" {
 		t.Fatalf("episode decay_policy=%q, want short", got)
 	}
+}
+
+func TestL1SQLiteStore_AcceleratedVerificationDB(t *testing.T) {
+	dbPath := strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_VERIFY_DB"))
+	if dbPath == "" {
+		t.Skip("set RENCROW_MEMORY_LIFECYCLE_ACCEL_VERIFY_DB to create a persistent accelerated lifecycle verification DB")
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatalf("create verification DB dir failed: %v", err)
+	}
+	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove old verification DB failed: %v", err)
+	}
+
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	store.WithVectorCleanupSink(&stubVectorCleanupSink{})
+
+	base := time.Now().UTC()
+	if err := store.SaveMessage(ctx, "accel-session", 1, "conv:accel", domconv.NewMessage(domconv.SpeakerUser, "accelerated raw memory", nil), MemoryStateObserved); err != nil {
+		t.Fatalf("SaveMessage failed: %v", err)
+	}
+	if _, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:      "accel-user",
+		Type:        domainmemory.UserMemoryTypePreference,
+		Statement:   "accelerated candidate review target",
+		State:       MemoryStateCandidate,
+		Sensitivity: "normal",
+		Scope:       "all_personas",
+	}); err != nil {
+		t.Fatalf("Create candidate failed: %v", err)
+	}
+	if _, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "accel-user",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "accelerated decay target",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-accel-decay"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	}); err != nil {
+		t.Fatalf("Create confirmed failed: %v", err)
+	}
+	forgotten, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "accel-user",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "accelerated vector cleanup target",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-accel-cleanup"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create forgotten target failed: %v", err)
+	}
+	if _, err := store.ForgetUserMemory(ctx, forgotten.ID, "accelerated verification"); err != nil {
+		t.Fatalf("ForgetUserMemory failed: %v", err)
+	}
+	insertDailyDigest(t, store, "digest:accel:ai", base.Format("2006-01-02"), "ai", "day", "accelerated daily digest")
+	insertThreadSummary(t, store, "summary-accel", "conv:thread", 99, "accelerated thread summary", base)
+
+	totals := MemoryLifecycleResult{}
+	months := acceleratedVerificationMonths(t)
+	for tick := 0; tick <= months; tick++ {
+		simNow := base.Add(time.Duration(tick) * 30 * 24 * time.Hour)
+		result, err := store.RunMemoryLifecycleMaintenance(ctx, MemoryLifecycleOptions{
+			Now:                      simNow,
+			RawConversationRetention: 30 * 24 * time.Hour,
+			CandidateReviewAfter:     7 * 24 * time.Hour,
+			MonthlyHighlightAfter:    14 * 24 * time.Hour,
+			ThreadSummarySeedAfter:   14 * 24 * time.Hour,
+			DecayAfter:               90 * 24 * time.Hour,
+			RawCompactLimit:          100,
+			CandidateReviewLimit:     100,
+			MonthlyHighlightLimit:    100,
+			ThreadSummarySeedLimit:   100,
+			DecayLimit:               100,
+			VectorCleanupLimit:       100,
+		})
+		if err != nil {
+			t.Fatalf("accelerated tick %d failed: %v", tick, err)
+		}
+		totals.RawCompacted += result.RawCompacted
+		totals.CandidatesQueued += result.CandidatesQueued
+		totals.MonthlyHighlightsBuilt += result.MonthlyHighlightsBuilt
+		totals.ThreadSummarySeedsQueued += result.ThreadSummarySeedsQueued
+		totals.Decayed += result.Decayed
+		totals.VectorCleanupQueued += result.VectorCleanupQueued
+		totals.VectorCleanupExecuted += result.VectorCleanupExecuted
+		time.Sleep(100 * time.Millisecond)
+	}
+	if totals.RawCompacted == 0 || totals.CandidatesQueued == 0 || totals.MonthlyHighlightsBuilt == 0 || totals.ThreadSummarySeedsQueued == 0 || totals.Decayed == 0 || totals.VectorCleanupQueued == 0 || totals.VectorCleanupExecuted == 0 {
+		t.Fatalf("accelerated verification did not exercise every lifecycle path: %+v", totals)
+	}
+	t.Logf("accelerated lifecycle verification DB=%s months=%d totals=%+v", dbPath, months, totals)
+}
+
+func TestL1SQLiteStore_MemoryRetentionQualityEvalOneYear(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+	store.WithVectorCleanupSink(&stubVectorCleanupSink{})
+
+	base := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	mustKeepConstraint, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypeConstraint,
+		Statement:        "must_keep: ユーザーは結論から短く答えることを継続指示している",
+		State:            MemoryStatePinned,
+		EvidenceEventIDs: []string{"evt-keep-constraint"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create must_keep constraint failed: %v", err)
+	}
+	mustKeepProject, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypeProject,
+		Statement:        "must_keep: RenCrow の記憶品質評価を継続改善している",
+		State:            MemoryStatePinned,
+		EvidenceEventIDs: []string{"evt-keep-project"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create must_keep project failed: %v", err)
+	}
+	if err := store.SaveMessage(ctx, "quality-session", 1, "conv:quality-noise", domconv.NewMessage(domconv.SpeakerUser, "must_compact_or_forget: 一時的なCPU確認ログ", nil), MemoryStateObserved); err != nil {
+		t.Fatalf("SaveMessage noise failed: %v", err)
+	}
+	mustDecayEpisode, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypeEpisode,
+		Statement:        "must_compact_or_forget: その場限りの障害調査メモ",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-decay-episode"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create must_decay episode failed: %v", err)
+	}
+	mustNotInjectSensitive, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:      "ren",
+		Type:        domainmemory.UserMemoryTypeSensitive,
+		Statement:   "must_not_inject: sensitive candidate",
+		State:       MemoryStateCandidate,
+		Sensitivity: "sensitive",
+		Scope:       "all_personas",
+	})
+	if err != nil {
+		t.Fatalf("Create sensitive candidate failed: %v", err)
+	}
+	mustNotInjectForgotten, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "must_not_inject: user forgot this preference",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-forgotten-quality"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create forgotten quality target failed: %v", err)
+	}
+	if _, err := store.ForgetUserMemory(ctx, mustNotInjectForgotten.ID, "quality eval"); err != nil {
+		t.Fatalf("ForgetUserMemory failed: %v", err)
+	}
+	mustNotInjectSuperseded, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "must_not_inject: old superseded preference",
+		State:            MemoryStateConfirmed,
+		EvidenceEventIDs: []string{"evt-old-quality"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create superseded old target failed: %v", err)
+	}
+	replacement, err := store.CreateUserMemory(ctx, domainmemory.CreateUserMemoryInput{
+		UserID:           "ren",
+		Type:             domainmemory.UserMemoryTypePreference,
+		Statement:        "replacement: newer preference",
+		State:            MemoryStatePinned,
+		EvidenceEventIDs: []string{"evt-new-quality"},
+		Sensitivity:      "normal",
+		Scope:            "all_personas",
+		Source:           "user_explicit",
+	})
+	if err != nil {
+		t.Fatalf("Create supersede replacement failed: %v", err)
+	}
+	if _, err := store.SupersedeUserMemory(ctx, mustNotInjectSuperseded.ID, replacement.ID, "quality eval"); err != nil {
+		t.Fatalf("SupersedeUserMemory failed: %v", err)
+	}
+
+	for _, id := range []string{mustKeepConstraint.ID, mustKeepProject.ID, mustDecayEpisode.ID, mustNotInjectSensitive.ID, mustNotInjectSuperseded.ID, replacement.ID} {
+		backdateMemory(t, store, id, base)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE l1_memory_event SET created_at = ?, updated_at = ? WHERE namespace = ?`, base, base, "conv:quality-noise"); err != nil {
+		t.Fatalf("backdate noise memory failed: %v", err)
+	}
+
+	runLifecycleMonths(t, ctx, store, base, 12)
+
+	eval := evaluateMemoryRetentionQuality(t, ctx, store, memoryRetentionQualityFixture{
+		UserID:                 "ren",
+		Persona:                "mio",
+		MustKeepIDs:            []string{mustKeepConstraint.ID, mustKeepProject.ID, replacement.ID},
+		MustCompactNamespaces:  []string{"conv:quality-noise"},
+		MustDecayIDs:           []string{mustDecayEpisode.ID},
+		MustNotInjectIDs:       []string{mustDecayEpisode.ID, mustNotInjectSensitive.ID, mustNotInjectForgotten.ID, mustNotInjectSuperseded.ID},
+		MustCleanupVectorIDs:   []string{mustNotInjectForgotten.ID, mustNotInjectSuperseded.ID},
+		ExpectedMinimumQuality: 1.0,
+	})
+	if !eval.Passed {
+		t.Fatalf("memory retention quality eval failed: score=%.2f failures=%v", eval.Score, eval.Failures)
+	}
+	t.Logf("memory retention quality eval passed: score=%.2f", eval.Score)
+}
+
+func acceleratedVerificationMonths(t *testing.T) int {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_VERIFY_MONTHS"))
+	if raw == "" {
+		return 4
+	}
+	months, err := strconv.Atoi(raw)
+	if err != nil || months <= 0 {
+		t.Fatalf("invalid RENCROW_MEMORY_LIFECYCLE_ACCEL_VERIFY_MONTHS=%q", raw)
+	}
+	return months
+}
+
+type memoryRetentionQualityFixture struct {
+	UserID                 string
+	Persona                string
+	MustKeepIDs            []string
+	MustCompactNamespaces  []string
+	MustDecayIDs           []string
+	MustNotInjectIDs       []string
+	MustCleanupVectorIDs   []string
+	ExpectedMinimumQuality float64
+}
+
+type memoryRetentionQualityResult struct {
+	Passed   bool
+	Score    float64
+	Failures []string
+}
+
+func runLifecycleMonths(t *testing.T, ctx context.Context, store *L1SQLiteStore, base time.Time, months int) {
+	t.Helper()
+	for tick := 0; tick <= months; tick++ {
+		simNow := base.Add(time.Duration(tick) * 30 * 24 * time.Hour)
+		if _, err := store.RunMemoryLifecycleMaintenance(ctx, MemoryLifecycleOptions{
+			Now:                      simNow,
+			RawConversationRetention: 30 * 24 * time.Hour,
+			CandidateReviewAfter:     7 * 24 * time.Hour,
+			MonthlyHighlightAfter:    14 * 24 * time.Hour,
+			ThreadSummarySeedAfter:   14 * 24 * time.Hour,
+			DecayAfter:               90 * 24 * time.Hour,
+			RawCompactLimit:          100,
+			CandidateReviewLimit:     100,
+			MonthlyHighlightLimit:    100,
+			ThreadSummarySeedLimit:   100,
+			DecayLimit:               100,
+			VectorCleanupLimit:       100,
+		}); err != nil {
+			t.Fatalf("RunMemoryLifecycleMaintenance month %d failed: %v", tick, err)
+		}
+	}
+}
+
+func evaluateMemoryRetentionQuality(t *testing.T, ctx context.Context, store *L1SQLiteStore, fixture memoryRetentionQualityFixture) memoryRetentionQualityResult {
+	t.Helper()
+	injectable, err := store.ListPromptInjectableUserMemories(ctx, fixture.UserID, fixture.Persona, 100)
+	if err != nil {
+		t.Fatalf("ListPromptInjectableUserMemories failed: %v", err)
+	}
+	injected := map[string]bool{}
+	for _, mem := range injectable {
+		injected[mem.ID] = true
+	}
+	checks := 0
+	failures := []string{}
+	fail := func(format string, args ...interface{}) {
+		failures = append(failures, fmt.Sprintf(format, args...))
+	}
+	for _, id := range fixture.MustKeepIDs {
+		checks++
+		if !injected[id] {
+			fail("must_keep memory %s is not prompt injectable", id)
+		}
+	}
+	for _, namespace := range fixture.MustCompactNamespaces {
+		checks++
+		if countMemoryEventsByNamespace(t, ctx, store, namespace) != 0 {
+			fail("must_compact namespace %s still has raw L1 events", namespace)
+		}
+	}
+	for _, id := range fixture.MustDecayIDs {
+		checks++
+		ev, err := store.memoryByID(ctx, id)
+		if err != nil {
+			fail("must_decay memory %s missing: %v", id, err)
+			continue
+		}
+		if got := metaStringValue(ev.Meta, "lifecycle_status"); got != "decayed" {
+			fail("must_decay memory %s lifecycle_status=%q, want decayed", id, got)
+		}
+	}
+	for _, id := range fixture.MustNotInjectIDs {
+		checks++
+		if injected[id] {
+			fail("must_not_inject memory %s leaked into prompt injectable set", id)
+		}
+	}
+	for _, id := range fixture.MustCleanupVectorIDs {
+		checks++
+		ev, err := store.memoryByID(ctx, id)
+		if err != nil {
+			fail("must_cleanup_vector memory %s missing: %v", id, err)
+			continue
+		}
+		if got := metaStringValue(ev.Meta, "vector_cleanup_status"); got != "done" {
+			fail("must_cleanup_vector memory %s vector_cleanup_status=%q, want done", id, got)
+		}
+	}
+	passedChecks := checks - len(failures)
+	score := 1.0
+	if checks > 0 {
+		score = float64(passedChecks) / float64(checks)
+	}
+	return memoryRetentionQualityResult{
+		Passed:   len(failures) == 0 && score >= fixture.ExpectedMinimumQuality,
+		Score:    score,
+		Failures: failures,
+	}
+}
+
+func countMemoryEventsByNamespace(t *testing.T, ctx context.Context, store *L1SQLiteStore, namespace string) int {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM l1_memory_event WHERE namespace = ?`, namespace).Scan(&count); err != nil {
+		t.Fatalf("count memory events for namespace %s failed: %v", namespace, err)
+	}
+	return count
 }
 
 type stubVectorCleanupSink struct {

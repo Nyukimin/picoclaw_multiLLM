@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	domainrouting "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	domainsuperagent "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/superagent"
+	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 func TestNewSuperAgentRunQueueProcessorSendsQueueItemToOrchestrator(t *testing.T) {
@@ -127,10 +129,25 @@ func TestMemoryLifecycleJobConfigCanRunMonthAsFastAsOneSecond(t *testing.T) {
 	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC", "1")
 	var wall = time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
 	cfg := memoryLifecycleJobConfigFromEnv(func() time.Time { return wall })
-	if cfg.Interval != time.Second {
-		t.Fatalf("interval=%s, want 1s", cfg.Interval)
+	if cfg.Interval != minimumAcceleratedMemoryLifecycleInterval {
+		t.Fatalf("interval=%s, want %s", cfg.Interval, minimumAcceleratedMemoryLifecycleInterval)
 	}
 	wall = wall.Add(time.Second)
+	got := cfg.Now()
+	want := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("accelerated now=%s, want %s", got, want)
+	}
+}
+
+func TestMemoryLifecycleJobConfigCanRunMonthAsFastAsOneHundredMilliseconds(t *testing.T) {
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_MS", "100")
+	var wall = time.Date(2026, 6, 19, 0, 0, 0, 0, time.UTC)
+	cfg := memoryLifecycleJobConfigFromEnv(func() time.Time { return wall })
+	if cfg.Interval != minimumAcceleratedMemoryLifecycleInterval {
+		t.Fatalf("interval=%s, want %s", cfg.Interval, minimumAcceleratedMemoryLifecycleInterval)
+	}
+	wall = wall.Add(100 * time.Millisecond)
 	got := cfg.Now()
 	want := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
@@ -144,6 +161,15 @@ func TestMemoryLifecycleJobConfigAllowsExplicitAcceleratedInterval(t *testing.T)
 	cfg := memoryLifecycleJobConfigFromEnv(time.Now)
 	if cfg.Interval != 5*time.Second {
 		t.Fatalf("interval=%s, want 5s", cfg.Interval)
+	}
+}
+
+func TestMemoryLifecycleJobConfigAllowsMillisecondIntervalOverride(t *testing.T) {
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_MS", "100")
+	t.Setenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_MS", "100")
+	cfg := memoryLifecycleJobConfigFromEnv(time.Now)
+	if cfg.Interval != 100*time.Millisecond {
+		t.Fatalf("interval=%s, want 100ms", cfg.Interval)
 	}
 }
 
@@ -165,6 +191,20 @@ func TestMemoryLifecycleJobConfigDefaultEnvIsNormal(t *testing.T) {
 	}
 }
 
+func TestStartMemoryLifecycleJobWithConfigUsesConfiguredInterval(t *testing.T) {
+	runner := &countingMemoryLifecycleRunner{}
+	stop := make(chan struct{})
+	defer close(stop)
+	startMemoryLifecycleJobRunner(runner, memoryLifecycleJobConfig{
+		Interval: 10 * time.Millisecond,
+		Now:      func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+		Label:    "test",
+	}, stop)
+	if !countReachesWithin(&runner.calls, 3, 500*time.Millisecond) {
+		t.Fatalf("maintenance calls=%d, want at least 3 using configured interval", runner.calls.Load())
+	}
+}
+
 type captureSuperAgentRunQueueProcessor struct {
 	called   bool
 	request  orchestrator.ProcessMessageRequest
@@ -175,4 +215,24 @@ func (p *captureSuperAgentRunQueueProcessor) ProcessMessage(_ context.Context, r
 	p.called = true
 	p.request = req
 	return p.response, nil
+}
+
+type countingMemoryLifecycleRunner struct {
+	calls atomic.Int64
+}
+
+func (r *countingMemoryLifecycleRunner) RunMemoryLifecycleMaintenance(context.Context, conversationpersistence.MemoryLifecycleOptions) (*conversationpersistence.MemoryLifecycleResult, error) {
+	r.calls.Add(1)
+	return &conversationpersistence.MemoryLifecycleResult{}, nil
+}
+
+func countReachesWithin(count *atomic.Int64, want int64, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if count.Load() >= want {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }

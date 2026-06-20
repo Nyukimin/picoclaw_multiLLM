@@ -56,6 +56,8 @@ type memoryLifecycleJobConfig struct {
 	Label    string
 }
 
+const minimumAcceleratedMemoryLifecycleInterval = 100 * time.Millisecond
+
 func memoryLifecycleJobConfigFromEnv(wallNow func() time.Time) memoryLifecycleJobConfig {
 	if wallNow == nil {
 		wallNow = time.Now
@@ -67,26 +69,23 @@ func memoryLifecycleJobConfigFromEnv(wallNow func() time.Time) memoryLifecycleJo
 		},
 		Label: "normal",
 	}
-	if raw := strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC")); raw != "" {
-		sec, err := strconv.Atoi(raw)
-		if err != nil || sec <= 0 {
-			log.Printf("WARN: invalid RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC=%q", raw)
-		} else {
-			cfg.Interval = time.Duration(sec) * time.Second
-		}
+	explicitInterval, hasExplicitInterval := memoryLifecycleDurationFromEnv(
+		"RENCROW_MEMORY_LIFECYCLE_INTERVAL_MS",
+		"RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC",
+	)
+	if hasExplicitInterval {
+		cfg.Interval = explicitInterval
 	}
-	monthSecRaw := strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC"))
-	if monthSecRaw == "" {
-		return cfg
-	}
-	monthSec, err := strconv.Atoi(monthSecRaw)
-	if err != nil || monthSec <= 0 {
-		log.Printf("WARN: invalid RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC=%q", monthSecRaw)
+	monthDuration, hasAcceleration := memoryLifecycleDurationFromEnv(
+		"RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_MS",
+		"RENCROW_MEMORY_LIFECYCLE_ACCEL_MONTH_SEC",
+	)
+	if !hasAcceleration {
 		return cfg
 	}
 	startWall := wallNow().UTC()
 	startSim := startWall
-	scale := (30 * 24 * time.Hour).Seconds() / float64(monthSec)
+	scale := (30 * 24 * time.Hour).Seconds() / monthDuration.Seconds()
 	cfg.Now = func() time.Time {
 		elapsed := wallNow().UTC().Sub(startWall)
 		if elapsed < 0 {
@@ -94,21 +93,53 @@ func memoryLifecycleJobConfigFromEnv(wallNow func() time.Time) memoryLifecycleJo
 		}
 		return startSim.Add(time.Duration(float64(elapsed) * scale)).UTC()
 	}
-	if strings.TrimSpace(os.Getenv("RENCROW_MEMORY_LIFECYCLE_INTERVAL_SEC")) == "" {
-		tickSec := monthSec / 120
-		if tickSec < 1 {
-			tickSec = 1
+	if !hasExplicitInterval {
+		tick := monthDuration / 120
+		if tick < minimumAcceleratedMemoryLifecycleInterval {
+			tick = minimumAcceleratedMemoryLifecycleInterval
 		}
-		if tickSec > 60 {
-			tickSec = 60
+		if tick > 60*time.Second {
+			tick = 60 * time.Second
 		}
-		cfg.Interval = time.Duration(tickSec) * time.Second
+		cfg.Interval = tick
 	}
-	cfg.Label = fmt.Sprintf("accelerated:30d/%ds interval=%s", monthSec, cfg.Interval)
+	cfg.Label = fmt.Sprintf("accelerated:30d/%s interval=%s", monthDuration, cfg.Interval)
 	return cfg
 }
 
+func memoryLifecycleDurationFromEnv(msKey string, secKey string) (time.Duration, bool) {
+	if raw := strings.TrimSpace(os.Getenv(msKey)); raw != "" {
+		ms, err := strconv.Atoi(raw)
+		if err != nil || ms <= 0 {
+			log.Printf("WARN: invalid %s=%q", msKey, raw)
+			return 0, false
+		}
+		return time.Duration(ms) * time.Millisecond, true
+	}
+	if raw := strings.TrimSpace(os.Getenv(secKey)); raw != "" {
+		sec, err := strconv.Atoi(raw)
+		if err != nil || sec <= 0 {
+			log.Printf("WARN: invalid %s=%q", secKey, raw)
+			return 0, false
+		}
+		return time.Duration(sec) * time.Second, true
+	}
+	return 0, false
+}
+
 func startMemoryLifecycleJobWithConfig(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig) {
+	startMemoryLifecycleJobRunner(store, cfg, nil)
+}
+
+func startMemoryLifecycleJobWithStop(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig, stop <-chan struct{}) {
+	startMemoryLifecycleJobRunner(store, cfg, stop)
+}
+
+type memoryLifecycleMaintenanceRunner interface {
+	RunMemoryLifecycleMaintenance(ctx context.Context, opts conversationpersistence.MemoryLifecycleOptions) (*conversationpersistence.MemoryLifecycleResult, error)
+}
+
+func startMemoryLifecycleJobRunner(store memoryLifecycleMaintenanceRunner, cfg memoryLifecycleJobConfig, stop <-chan struct{}) {
 	if store == nil {
 		return
 	}
@@ -136,10 +167,15 @@ func startMemoryLifecycleJobWithConfig(store *conversationpersistence.L1SQLiteSt
 	}
 	go func() {
 		run()
-		ticker := time.NewTicker(24 * time.Hour)
+		ticker := time.NewTicker(cfg.Interval)
 		defer ticker.Stop()
-		for range ticker.C {
-			run()
+		for {
+			select {
+			case <-ticker.C:
+				run()
+			case <-stop:
+				return
+			}
 		}
 	}()
 }

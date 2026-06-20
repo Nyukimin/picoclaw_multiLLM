@@ -356,7 +356,11 @@ LIMIT ?`, limit)
 		if lifecycleMemoryActive(ev.Meta) && strings.TrimSpace(metaStringValue(ev.Meta, "superseded_by")) == "" {
 			continue
 		}
-		if strings.TrimSpace(metaStringValue(ev.Meta, "vector_cleanup_status")) == "queued" {
+		cleanupStatus := strings.TrimSpace(metaStringValue(ev.Meta, "vector_cleanup_status"))
+		if cleanupStatus == "queued" || cleanupStatus == "done" {
+			continue
+		}
+		if strings.TrimSpace(metaStringValue(ev.Meta, "vector_cleanup_completed_at")) != "" {
 			continue
 		}
 		meta := cloneMeta(ev.Meta)
