@@ -122,11 +122,34 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 		Matched: false,
 		Reason:  "no rule dictionary match",
 	})
-	evidence = append(evidence, routing.DecisionEvidence{
-		Source:  routing.EvidenceSourceClassifier,
-		Matched: false,
-		Reason:  "classifier skipped",
-	})
+
+	// 優先度3: 分類器
+	if m.classifier != nil {
+		classified, err := m.classifier.Classify(ctx, t)
+		if err == nil && classified.Route != "" && classified.Confidence >= 0.7 {
+			classified.Evidence = append(evidence, classifierEvidence(classified)...)
+			return classified, nil
+		}
+		reason := "classifier returned low confidence"
+		if err != nil {
+			reason = fmt.Sprintf("classifier failed: %v", err)
+		} else if classified.Route == "" {
+			reason = "classifier returned empty route"
+		}
+		evidence = append(evidence, routing.DecisionEvidence{
+			Source:     routing.EvidenceSourceClassifier,
+			Matched:    false,
+			Route:      classified.Route,
+			Confidence: classified.Confidence,
+			Reason:     reason,
+		})
+	} else {
+		evidence = append(evidence, routing.DecisionEvidence{
+			Source:  routing.EvidenceSourceClassifier,
+			Matched: false,
+			Reason:  "classifier unavailable",
+		})
+	}
 	evidence = append(evidence, routing.DecisionEvidence{
 		Source:     routing.EvidenceSourceSafeFallback,
 		Matched:    true,
@@ -135,10 +158,22 @@ func (m *MioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decis
 		Reason:     "default to CHAT",
 	})
 
-	// 優先度3: 安全側フォールバック（CHAT）
+	// 優先度4: 安全側フォールバック（CHAT）
 	// 技術的キーワードがルール辞書で捕捉されなかったメッセージは会話として処理
-	// LLM分類器は精度向上のためのオプション（レイテンシ優先で現在はスキップ）
 	return routing.NewDecisionWithEvidence(routing.RouteCHAT, 0.7, "No rule match, default to CHAT", evidence...), nil
+}
+
+func classifierEvidence(decision routing.Decision) []routing.DecisionEvidence {
+	if len(decision.Evidence) > 0 {
+		return decision.Evidence
+	}
+	return []routing.DecisionEvidence{{
+		Source:     routing.EvidenceSourceClassifier,
+		Matched:    true,
+		Route:      decision.Route,
+		Confidence: decision.Confidence,
+		Reason:     decision.Reason,
+	}}
 }
 
 // Chat は会話を実行（v5.1: ConversationEngine + 明示指示時のみWeb検索）

@@ -35,6 +35,27 @@ func TestHandleLive2DCharacterEmbed(t *testing.T) {
 	}
 }
 
+func TestHandleLive2DCharacterEmbedNormalFitsMioToFrame(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/viewer/live2d/character?character_id=mio&emotion=normal&mode=normal&hide_ui=true", nil)
+	w := httptest.NewRecorder()
+
+	HandleLive2DCharacter(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("HandleLive2DCharacter() status = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		"--mio-fit-scale: 1.62",
+		"transform-origin: center bottom !important",
+		"object-position: center bottom !important",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("embed body missing %q", want)
+		}
+	}
+}
+
 func TestHandleLive2DChatAPI(t *testing.T) {
 	reqBody := `{"message":"こんにちは","character_id":"mio","mode":"normal"}`
 	req := httptest.NewRequest(http.MethodPost, "/viewer/api/chat", strings.NewReader(reqBody))

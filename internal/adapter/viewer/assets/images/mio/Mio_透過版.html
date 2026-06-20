@@ -9,6 +9,7 @@
   body.green{background:var(--chroma) !important}
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%}
+  :root{ --mio-fit-scale:1; }
   body{
     background:transparent;
     overflow:hidden;
@@ -29,6 +30,7 @@
   .layers{
     position:absolute;inset:0;
     will-change:transform;
+    transform-origin:center bottom;
   }
   .layers img{
     position:absolute;inset:0;
@@ -204,8 +206,9 @@
     const breathS = breathe ? 1 + Math.sin(t * 1.15) * 0.0035 : 1;
     scene.style.transform =
       'perspective(900px) rotateY(' + (cx * 5) + 'deg) rotateX(' + (-cy * 3.5) + 'deg)';
+    const fitScale = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mio-fit-scale')) || 1;
     layers.style.transform =
-      'translate(' + (cx * 8 + swayX) + 'px,' + (cy * 6 + breathY) + 'px) scale(' + breathS + ')';
+      'translate(' + (cx * 8 + swayX) + 'px,' + (cy * 6 + breathY) + 'px) scale(' + (breathS * fitScale) + ')';
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);

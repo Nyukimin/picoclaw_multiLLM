@@ -82,6 +82,21 @@ func TestRuleDictionary_Match_CodeKeywords(t *testing.T) {
 			expectRoute: routing.RouteCODE2,
 		},
 		{
+			name:        "不具合解消のキーワード",
+			message:     "直近のSystemログ確認して、不具合解消してください",
+			expectRoute: routing.RouteCODE2,
+		},
+		{
+			name:        "対応してのキーワード",
+			message:     "ログの中で可逆圧縮できるものは、積極的に圧縮対応してください",
+			expectRoute: routing.RouteCODE2,
+		},
+		{
+			name:        "入れておいてのキーワード",
+			message:     "CPU負荷を抑える設定を入れておいて",
+			expectRoute: routing.RouteCODE2,
+		},
+		{
 			name:        "リファクタリングのキーワード",
 			message:     "このコードをリファクタリングして",
 			expectRoute: routing.RouteCODE2,

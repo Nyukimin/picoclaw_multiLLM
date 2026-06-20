@@ -9,6 +9,21 @@ import (
 	"strings"
 )
 
+func readViewerAssetFile(path string) ([]byte, error) {
+	content, err := os.ReadFile(path)
+	if err == nil {
+		return content, nil
+	}
+	if filepath.IsAbs(path) {
+		return nil, err
+	}
+	contentFromPackageDir, packageErr := os.ReadFile(filepath.Join("..", "..", "..", path))
+	if packageErr == nil {
+		return contentFromPackageDir, nil
+	}
+	return nil, err
+}
+
 // HandleLive2DCharacter serves Live2D HTML for characters
 func HandleLive2DCharacter(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -39,7 +54,7 @@ func HandleLive2DCharacter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read HTML file
-	content, err := os.ReadFile(htmlPath)
+	content, err := readViewerAssetFile(htmlPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read Live2D file: %v", err), http.StatusInternalServerError)
 		return
@@ -85,6 +100,9 @@ body {
 	width: 100%;
 	height: 100%;
 }
+:root {
+	--mio-fit-scale: 1.62;
+}
 .stage {
 	position: relative !important;
 	inset: auto !important;
@@ -107,6 +125,7 @@ body {
 	inset: 0 !important;
 	width: 100% !important;
 	height: 100% !important;
+	transform-origin: center bottom !important;
 }
 .layers img {
 	position: absolute !important;
@@ -114,7 +133,7 @@ body {
 	width: 100% !important;
 	height: 100% !important;
 	object-fit: contain !important;
-	object-position: center !important;
+	object-position: center bottom !important;
 }
 canvas {
 	width: 100% !important;

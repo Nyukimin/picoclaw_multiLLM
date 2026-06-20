@@ -156,13 +156,21 @@ func TestMioAgentDecideAction_RuleDictionary(t *testing.T) {
 	}
 }
 
-func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
-	// ルール辞書にマッチしない場合、LLM分類器をスキップしてCHATにフォールバック
+func TestMioAgentDecideAction_ClassifierWhenNoRuleMatch(t *testing.T) {
+	// ルール辞書にマッチしない場合、LLM分類器で次の経路を判定する。
 	classifierCalled := false
 	classifier := &mockClassifier{
 		classifyFunc: func(ctx context.Context, tk task.Task) (routing.Decision, error) {
 			classifierCalled = true
-			return routing.Decision{}, nil
+			return routing.NewDecisionWithEvidence(routing.RouteCODE2, 0.8, "classifier selected code",
+				routing.DecisionEvidence{
+					Source:     routing.EvidenceSourceClassifier,
+					Matched:    true,
+					Route:      routing.RouteCODE2,
+					Confidence: 0.8,
+					Reason:     "implementation request",
+				},
+			), nil
 		},
 	}
 
@@ -176,6 +184,59 @@ func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
 	)
 
 	jobID := task.NewJobID()
+	testTask := task.NewTask(jobID, "Worker/Coder経路に届くか確認してください", "line", "U123")
+
+	decision, err := mio.DecideAction(context.Background(), testTask)
+	if err != nil {
+		t.Fatalf("DecideAction failed: %v", err)
+	}
+
+	if decision.Route != routing.RouteCODE2 {
+		t.Errorf("Expected route CODE2, got %s", decision.Route)
+	}
+
+	if decision.Confidence != 0.8 {
+		t.Errorf("Expected confidence 0.8, got %f", decision.Confidence)
+	}
+
+	if !classifierCalled {
+		t.Error("Classifier should be called after rule dictionary miss")
+	}
+	if len(decision.Evidence) != 3 {
+		t.Fatalf("evidence count=%d, want 3: %#v", len(decision.Evidence), decision.Evidence)
+	}
+	wantSources := []string{
+		routing.EvidenceSourceExplicitCommand,
+		routing.EvidenceSourceRuleDictionary,
+		routing.EvidenceSourceClassifier,
+	}
+	for i, source := range wantSources {
+		if decision.Evidence[i].Source != source {
+			t.Fatalf("evidence[%d].source=%q, want %q", i, decision.Evidence[i].Source, source)
+		}
+	}
+	if !decision.Evidence[2].Matched || decision.Evidence[2].Route != routing.RouteCODE2 {
+		t.Fatalf("unexpected classifier evidence: %#v", decision.Evidence[2])
+	}
+}
+
+func TestMioAgentDecideAction_DefaultChatWhenClassifierFails(t *testing.T) {
+	classifier := &mockClassifier{
+		classifyFunc: func(ctx context.Context, tk task.Task) (routing.Decision, error) {
+			return routing.Decision{}, fmt.Errorf("classifier unavailable")
+		},
+	}
+
+	mio := NewMioAgent(
+		&mockLLMProvider{},
+		classifier,
+		&mockRuleDictionary{},
+		&mockToolRunner{},
+		&mockMCPClient{},
+		nil,
+	)
+
+	jobID := task.NewJobID()
 	testTask := task.NewTask(jobID, "こんにちは", "line", "U123")
 
 	decision, err := mio.DecideAction(context.Background(), testTask)
@@ -185,14 +246,6 @@ func TestMioAgentDecideAction_DefaultChatWhenNoRuleMatch(t *testing.T) {
 
 	if decision.Route != routing.RouteCHAT {
 		t.Errorf("Expected route CHAT, got %s", decision.Route)
-	}
-
-	if decision.Confidence != 0.7 {
-		t.Errorf("Expected confidence 0.7, got %f", decision.Confidence)
-	}
-
-	if classifierCalled {
-		t.Error("Classifier should not be called when defaulting to CHAT")
 	}
 	if len(decision.Evidence) != 4 {
 		t.Fatalf("evidence count=%d, want 4: %#v", len(decision.Evidence), decision.Evidence)
