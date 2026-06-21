@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
@@ -67,10 +69,140 @@ func (e *DefaultCodeExecutor) generateProposalForTarget(
 ) (*proposal.Proposal, error) {
 	p, err := coderWithProposal.GenerateProposal(ctx, req.Task)
 	if err != nil {
+		if p, ok := synthesizeNoChangeProposalForRequest(req, err); ok {
+			e.emit("agent.response", target.name, "shiro", "変更なしの診断結果として処理します: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+			return p, nil
+		}
+		if retryableProposalFailure(err) {
+			retryTask := req.Task.WithUserMessage(appendProposalRetryInstruction(req.Task.UserMessage(), err))
+			p, retryErr := coderWithProposal.GenerateProposal(ctx, retryTask)
+			if retryErr == nil {
+				e.emit("agent.response", target.name, "shiro", "Proposal 形式不正を検出し、1回だけ再生成しました", req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
+				return p, nil
+			}
+			err = fmt.Errorf("%w; retry failed: %v", err, retryErr)
+		}
 		e.emit("agent.response", target.name, "shiro", "エラー: "+err.Error(), req.Route.String(), req.JobID, req.SessionID, req.Channel, req.ChatID)
 		return nil, fmt.Errorf("%s proposal generation failed: %w", target.name, err)
 	}
 	return p, nil
+}
+
+func synthesizeNoChangeProposalForRequest(req CodeExecutionRequest, err error) (*proposal.Proposal, bool) {
+	if !isNoChangeCodeRequest(req.Task.UserMessage()) || !retryableProposalFailure(err) {
+		return nil, false
+	}
+	plan := strings.TrimSpace(req.Task.UserMessage())
+	if plan == "" {
+		plan = "No-change diagnostic request"
+	}
+	return proposal.NewProposal(
+		"変更禁止または診断のみの依頼として扱う。\n- Worker/Coder 経路への到達確認を記録する。\n- ファイル変更、コマンド実行、外部書き込みは行わない。\n\n依頼:\n"+plan,
+		"[]",
+		"No file changes and no command execution.",
+		"No-op",
+	), true
+}
+
+func isNoChangeCodeRequest(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+	positive := []string{
+		"診断",
+		"確認だけ",
+		"経路確認",
+		"届いたことだけ",
+		"報告してください",
+		"ファイル変更やコマンド実行はせず",
+		"ファイル変更なし",
+		"変更禁止",
+		"変更しない",
+		"コマンド実行は禁止",
+		"read-only",
+		"read only",
+		"no file changes",
+		"do not change files",
+	}
+	strongNoChange := []string{
+		"ファイル変更やコマンド実行はせず",
+		"ファイル変更なし",
+		"変更禁止",
+		"変更しない",
+		"コマンド実行は禁止",
+		"read-only",
+		"read only",
+		"no file changes",
+		"do not change files",
+	}
+	negative := []string{
+		"作成",
+		"修正",
+		"実装",
+		"変更して",
+		"追加して",
+		"削除して",
+		"create",
+		"modify",
+		"implement",
+		"fix",
+		"patch",
+	}
+	hasPositive := false
+	for _, keyword := range positive {
+		if strings.Contains(lower, strings.ToLower(keyword)) {
+			hasPositive = true
+			break
+		}
+	}
+	if !hasPositive {
+		return false
+	}
+	for _, keyword := range strongNoChange {
+		if strings.Contains(lower, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	for _, keyword := range negative {
+		if strings.Contains(lower, strings.ToLower(keyword)) && !strings.Contains(lower, "変更禁止") && !strings.Contains(lower, "do not change") {
+			return false
+		}
+	}
+	return true
+}
+
+func retryableProposalFailure(err error) bool {
+	if _, _, retryable, ok := agent.ProposalFailureInfo(err); ok {
+		return retryable
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, agent.ProposalFailureEmpty) ||
+		strings.Contains(text, agent.ProposalFailureMissingPlan) ||
+		strings.Contains(text, agent.ProposalFailureMissingPatch) ||
+		strings.Contains(text, agent.ProposalFailureInvalidPatch)
+}
+
+func appendProposalRetryInstruction(message string, err error) string {
+	return strings.TrimSpace(message) + ` 
+
+## Coder Proposal Retry
+The previous Coder response was not executable.
+Failure: ` + err.Error() + `
+
+Return exactly these sections:
+
+## Plan
+- Concrete steps.
+
+## Patch
+Use a runnable JSON patch array or Markdown patch code blocks.
+If the request is diagnostic/read-only and requires no changes, return an empty JSON array:
+[]
+
+## Risk
+- Concrete risk or "No file changes."
+`
 }
 
 func (e *DefaultCodeExecutor) validateGeneratedProposal(

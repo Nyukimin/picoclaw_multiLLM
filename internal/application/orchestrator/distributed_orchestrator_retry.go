@@ -25,6 +25,10 @@ func classifyDistributedExecutionError(err error) (string, string, bool) {
 	text := err.Error()
 	lower := strings.ToLower(text)
 	switch {
+	case strings.Contains(lower, "rate_limit") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "status=429") || strings.Contains(lower, " 429"):
+		return "provider_rate_limited", text, true
+	case strings.Contains(lower, "context deadline exceeded") || strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out"):
+		return "timeout", text, true
 	case strings.Contains(lower, agent.ProposalFailureEmpty),
 		strings.Contains(lower, agent.ProposalFailureMissingPlan),
 		strings.Contains(lower, agent.ProposalFailureMissingPatch),

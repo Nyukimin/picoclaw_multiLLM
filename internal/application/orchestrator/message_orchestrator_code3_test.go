@@ -2,10 +2,14 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/proposal"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -15,7 +19,11 @@ import (
 type mockCoderAgentWithProposal struct {
 	response          string
 	proposal          *proposal.Proposal
+	proposals         []*proposal.Proposal
+	proposalErr       error
+	proposalErrs      []error
 	lastProposalInput string
+	proposalCalls     int
 }
 
 func (m *mockCoderAgentWithProposal) Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error) {
@@ -24,6 +32,17 @@ func (m *mockCoderAgentWithProposal) Generate(ctx context.Context, t task.Task, 
 
 func (m *mockCoderAgentWithProposal) GenerateProposal(ctx context.Context, t task.Task) (*proposal.Proposal, error) {
 	m.lastProposalInput = t.UserMessage()
+	call := m.proposalCalls
+	m.proposalCalls++
+	if call < len(m.proposalErrs) && m.proposalErrs[call] != nil {
+		return nil, m.proposalErrs[call]
+	}
+	if call < len(m.proposals) && m.proposals[call] != nil {
+		return m.proposals[call], nil
+	}
+	if m.proposalErr != nil {
+		return nil, m.proposalErr
+	}
 	return m.proposal, nil
 }
 
@@ -103,6 +122,99 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_JSONPatch(t *test
 	}
 }
 
+func TestMessageOrchestrator_ProcessMessage_CODE2_ReadOnlyDiagnosticNoChangeSucceeds(t *testing.T) {
+	tmpDir := t.TempDir()
+	workerService := service.NewWorkerExecutionService(config.WorkerConfig{
+		AutoCommit:     false,
+		StopOnError:    false,
+		Workspace:      tmpDir,
+		CommandTimeout: 10,
+		GitTimeout:     10,
+	})
+
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE2, 1.0, "CODE2"),
+		response: "chat response",
+	}
+	shiro := &mockShiroAgent{response: "executed"}
+	coder2 := &mockCoderAgentWithProposal{
+		proposalErr: errors.New(agent.ProposalFailureEmpty + ": missing Plan and Patch sections"),
+	}
+
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, coder2, nil, nil, workerService)
+
+	resp, err := orchestrator.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "20260620-viewer-readonly",
+		Channel:     "viewer",
+		ChatID:      "viewer",
+		UserMessage: "/code2 診断です。ファイル変更やコマンド実行はせず、Worker/Coder経路に届いたことだけ短く報告してください。",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteCODE2 {
+		t.Fatalf("route = %s, want CODE2", resp.Route)
+	}
+	for _, want := range []string{"## Execution Result", "Executed**: 0 commands", "Success Rate**: 100.0%"} {
+		if !contains(resp.Response, want) {
+			t.Fatalf("response should contain %q, got:\n%s", want, resp.Response)
+		}
+	}
+}
+
+func TestMessageOrchestrator_ProcessMessage_CODE3_RetriesRetryableProposalFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	workerService := service.NewWorkerExecutionService(config.WorkerConfig{
+		AutoCommit:     false,
+		StopOnError:    false,
+		Workspace:      tmpDir,
+		CommandTimeout: 10,
+		GitTimeout:     10,
+	})
+	jsonPatch := `[
+		{
+			"type": "file_edit",
+			"action": "create",
+			"target": "` + tmpDir + `/retry.txt",
+			"content": "retry ok"
+		}
+	]`
+	retryProposal := proposal.NewProposal("Create retry.txt", jsonPatch, "Low risk", "Low cost")
+
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecision(routing.RouteCODE3, 1.0, "CODE3"),
+		response: "chat response",
+	}
+	shiro := &mockShiroAgent{response: "executed"}
+	coder3 := &mockCoderAgentWithProposal{
+		proposalErrs: []error{errors.New(agent.ProposalFailureInvalidPatch + ": proposal patch is not runnable")},
+		proposals:    []*proposal.Proposal{nil, retryProposal},
+	}
+
+	orchestrator := NewMessageOrchestrator(repo, mio, shiro, nil, nil, coder3, nil, workerService)
+
+	resp, err := orchestrator.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "20260620-viewer-retry",
+		Channel:     "viewer",
+		ChatID:      "viewer",
+		UserMessage: "/code3 retry.txtを作成して",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if coder3.proposalCalls != 2 {
+		t.Fatalf("proposal calls = %d, want 2", coder3.proposalCalls)
+	}
+	if !strings.Contains(coder3.lastProposalInput, "Coder Proposal Retry") {
+		t.Fatalf("retry prompt missing: %q", coder3.lastProposalInput)
+	}
+	if !contains(resp.Response, "retry.txt") {
+		t.Fatalf("response should contain retry result, got:\n%s", resp.Response)
+	}
+}
+
 func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_MarkdownPatch(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -116,7 +228,11 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_MarkdownPatch(t *
 	workerService := service.NewWorkerExecutionService(workerConfig)
 
 	// Markdown形式のPatch
-	markdownPatch := "```go:" + tmpDir + "/hello.go\npackage main\n\nfunc Hello() string {\n\treturn \"Hello\"\n}\n```"
+	helloPath := tmpDir + "/hello.go"
+	if err := os.WriteFile(helloPath, []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("failed to create existing update target: %v", err)
+	}
+	markdownPatch := "```go:" + helloPath + "\npackage main\n\nfunc Hello() string {\n\treturn \"Hello\"\n}\n```"
 
 	testProposal := proposal.NewProposal(
 		"Test plan: Create hello.go",
@@ -289,7 +405,7 @@ func TestFormatExecutionResult_PartialFailure(t *testing.T) {
 	// 最初は成功、2番目は失敗するPatch
 	jsonPatch := `[
 		{"type": "file_edit", "action": "create", "target": "` + tmpDir + `/ok.txt", "content": "OK"},
-		{"type": "file_edit", "action": "delete", "target": "/nonexistent/file.txt"}
+		{"type": "shell_command", "action": "run", "target": "false"}
 	]`
 
 	testProposal := proposal.NewProposal("Test plan", jsonPatch, "Medium", "Low")

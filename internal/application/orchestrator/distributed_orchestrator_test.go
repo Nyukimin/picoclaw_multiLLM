@@ -717,6 +717,39 @@ func TestClassifyDistributedExecutionError_ProposalFailure(t *testing.T) {
 	}
 }
 
+func TestClassifyDistributedExecutionError_TimeoutAndRateLimit(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantKind  string
+		retryable bool
+	}{
+		{
+			name:      "deadline",
+			err:       errors.New("llm queue failed: context deadline exceeded"),
+			wantKind:  "timeout",
+			retryable: true,
+		},
+		{
+			name:      "rate limit",
+			err:       errors.New("claude API error: status=429, body={\"error\":{\"type\":\"rate_limit_error\"}}"),
+			wantKind:  "provider_rate_limited",
+			retryable: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kind, reason, retryable := classifyDistributedExecutionError(tt.err)
+			if kind != tt.wantKind || retryable != tt.retryable {
+				t.Fatalf("kind=%s retryable=%v, want %s %v; reason=%s", kind, retryable, tt.wantKind, tt.retryable, reason)
+			}
+			if reason == "" {
+				t.Fatal("reason should preserve original error")
+			}
+		})
+	}
+}
+
 func TestDistributedOrchestrator_TTSBridge_StreamAndEnd(t *testing.T) {
 	mockMio := &distMockMioAgent{chatResponse: "Hello from Mio!"}
 	mockRepo := &distMockSessionRepo{}

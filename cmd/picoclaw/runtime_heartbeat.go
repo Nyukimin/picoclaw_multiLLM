@@ -117,6 +117,9 @@ func buildHeartbeatRuntime(
 	if deps.workstreamStore != nil {
 		heartbeatSvc.WithWorkstreamStore(deps.workstreamStore)
 	}
+	if deps.backlogStore != nil {
+		heartbeatSvc.WithBacklogStore(deps.backlogStore)
+	}
 	if deps.revenueStore != nil {
 		heartbeatSvc.WithRevenueDailyRoutineStore(deps.revenueStore)
 	}

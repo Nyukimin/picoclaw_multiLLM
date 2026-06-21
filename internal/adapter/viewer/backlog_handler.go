@@ -12,26 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	domainbacklog "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/backlog"
 )
 
-type BacklogItem struct {
-	ItemID         string   `json:"item_id"`
-	Kind           string   `json:"kind"`
-	Title          string   `json:"title"`
-	Body           string   `json:"body,omitempty"`
-	Source         string   `json:"source"`
-	Owner          string   `json:"owner,omitempty"`
-	Status         string   `json:"status"`
-	Priority       string   `json:"priority"`
-	Tags           []string `json:"tags,omitempty"`
-	Implementer    string   `json:"implementer,omitempty"`
-	Implementation string   `json:"implementation,omitempty"`
-	TestResult     string   `json:"test_result,omitempty"`
-	CheckOK        bool     `json:"check_ok"`
-	CheckedBy      string   `json:"checked_by,omitempty"`
-	CreatedAt      string   `json:"created_at"`
-	UpdatedAt      string   `json:"updated_at"`
-}
+type BacklogItem = domainbacklog.Item
 
 type BacklogStore struct {
 	path string
@@ -104,7 +89,7 @@ func (s *BacklogStore) List(_ context.Context, limit int) ([]BacklogItem, error)
 		if err := json.Unmarshal([]byte(line), &item); err != nil {
 			continue
 		}
-		item = normalizeBacklogItem(item)
+		item = normalizeBacklogItemForRead(item)
 		latest[item.ItemID] = item
 	}
 	if err := scanner.Err(); err != nil {
@@ -149,6 +134,33 @@ func (s *BacklogStore) Save(_ context.Context, item BacklogItem) error {
 
 func normalizeBacklogItem(item BacklogItem) BacklogItem {
 	now := time.Now().Format(time.RFC3339)
+	item = normalizeBacklogItemBase(item)
+	if item.CreatedAt == "" {
+		item.CreatedAt = now
+	}
+	item.UpdatedAt = now
+	if item.CheckOK {
+		item.Status = "ok"
+	}
+	return item
+}
+
+func normalizeBacklogItemForRead(item BacklogItem) BacklogItem {
+	now := time.Now().Format(time.RFC3339)
+	item = normalizeBacklogItemBase(item)
+	if item.CreatedAt == "" {
+		item.CreatedAt = now
+	}
+	if item.UpdatedAt == "" {
+		item.UpdatedAt = item.CreatedAt
+	}
+	if item.CheckOK {
+		item.Status = "ok"
+	}
+	return item
+}
+
+func normalizeBacklogItemBase(item BacklogItem) BacklogItem {
 	item.ItemID = strings.TrimSpace(item.ItemID)
 	if item.ItemID == "" {
 		item.ItemID = fmt.Sprintf("backlog-%d", time.Now().UnixNano())
@@ -167,13 +179,6 @@ func normalizeBacklogItem(item BacklogItem) BacklogItem {
 	item.Implementation = strings.TrimSpace(item.Implementation)
 	item.TestResult = strings.TrimSpace(item.TestResult)
 	item.CheckedBy = normalizeBacklogSource(item.CheckedBy)
-	if item.CreatedAt == "" {
-		item.CreatedAt = now
-	}
-	item.UpdatedAt = now
-	if item.CheckOK {
-		item.Status = "ok"
-	}
 	return item
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	skillbootstrap "github.com/Nyukimin/picoclaw_multiLLM/internal/application/skillgovernance"
+	domainbacklog "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/backlog"
 	domainrevenue "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/revenue"
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -83,11 +84,19 @@ func (m *fakeIdleChatSequenceMonitor) CheckIdleChatSequence(_ context.Context, n
 }
 
 type memoryWorkstreamHeartbeatStore struct {
+	workstreams   []domainworkstream.Workstream
+	goals         []domainworkstream.Goal
+	artifacts     []domainworkstream.Artifact
 	schedules     []domainworkstream.HeartbeatSchedule
 	saved         []domainworkstream.HeartbeatSchedule
 	steering      []domainworkstream.SteeringItem
 	savedSteering []domainworkstream.SteeringItem
 	vaultUpdates  []domainworkstream.VaultUpdateLog
+}
+
+type memoryBacklogStore struct {
+	items []domainbacklog.Item
+	saved []domainbacklog.Item
 }
 
 type heartbeatSkillStore struct {
@@ -146,6 +155,30 @@ func (s *memoryRevenueDailyRoutineStore) SaveDailyRoutineReport(_ context.Contex
 	return nil
 }
 
+func (m *memoryWorkstreamHeartbeatStore) SaveWorkstream(_ context.Context, item domainworkstream.Workstream) error {
+	if err := domainworkstream.ValidateWorkstream(item); err != nil {
+		return err
+	}
+	m.workstreams = append([]domainworkstream.Workstream{item}, m.workstreams...)
+	return nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) SaveGoal(_ context.Context, item domainworkstream.Goal) error {
+	if err := domainworkstream.ValidateGoal(item); err != nil {
+		return err
+	}
+	m.goals = append([]domainworkstream.Goal{item}, m.goals...)
+	return nil
+}
+
+func (m *memoryWorkstreamHeartbeatStore) SaveArtifact(_ context.Context, item domainworkstream.Artifact) error {
+	if err := domainworkstream.ValidateArtifact(item); err != nil {
+		return err
+	}
+	m.artifacts = append([]domainworkstream.Artifact{item}, m.artifacts...)
+	return nil
+}
+
 func (m *memoryWorkstreamHeartbeatStore) ListHeartbeatSchedules(_ context.Context, _ int) ([]domainworkstream.HeartbeatSchedule, error) {
 	return append([]domainworkstream.HeartbeatSchedule(nil), m.schedules...), nil
 }
@@ -168,6 +201,24 @@ func (m *memoryWorkstreamHeartbeatStore) SaveSteeringItem(_ context.Context, ite
 
 func (m *memoryWorkstreamHeartbeatStore) SaveVaultUpdateLog(_ context.Context, item domainworkstream.VaultUpdateLog) error {
 	m.vaultUpdates = append(m.vaultUpdates, item)
+	return nil
+}
+
+func (m *memoryBacklogStore) List(_ context.Context, _ int) ([]domainbacklog.Item, error) {
+	return append([]domainbacklog.Item(nil), m.items...), nil
+}
+
+func (m *memoryBacklogStore) Save(_ context.Context, item domainbacklog.Item) error {
+	m.saved = append(m.saved, item)
+	next := append([]domainbacklog.Item(nil), m.items...)
+	for idx, existing := range next {
+		if existing.ItemID == item.ItemID {
+			next[idx] = item
+			m.items = next
+			return nil
+		}
+	}
+	m.items = append([]domainbacklog.Item{item}, next...)
 	return nil
 }
 
@@ -284,6 +335,99 @@ func TestTick_MissingFileEmitsViewerSkipEvent(t *testing.T) {
 	}
 	if listener.events[0].Type != "heartbeat.skip" {
 		t.Fatalf("expected heartbeat.skip, got %+v", listener.events[0])
+	}
+}
+
+func TestRunBacklogIntakePromotesOpenItemToWorkstream(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)
+	backlogStore := &memoryBacklogStore{items: []domainbacklog.Item{
+		{
+			ItemID:    "normal-old",
+			Kind:      "unimplemented",
+			Title:     "通常項目",
+			Body:      "通常優先度の実装",
+			Source:    "user",
+			Status:    "open",
+			Priority:  "normal",
+			CreatedAt: "2026-06-20T00:00:00Z",
+			UpdatedAt: "2026-06-20T00:00:00Z",
+		},
+		{
+			ItemID:    "urgent-new",
+			Kind:      "unimplemented",
+			Title:     "緊急項目",
+			Body:      "緊急優先度の実装",
+			Source:    "mio",
+			Status:    "open",
+			Priority:  "urgent",
+			CreatedAt: "2026-06-21T00:00:00Z",
+			UpdatedAt: "2026-06-21T00:00:00Z",
+		},
+		{
+			ItemID:    "done",
+			Kind:      "unimplemented",
+			Title:     "完了済み",
+			Source:    "coder",
+			Status:    "ok",
+			Priority:  "urgent",
+			CheckOK:   true,
+			CreatedAt: "2026-06-19T00:00:00Z",
+			UpdatedAt: "2026-06-19T00:00:00Z",
+		},
+	}}
+	workstreamStore := &memoryWorkstreamHeartbeatStore{}
+	listener := &recordingEventListener{}
+	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, t.TempDir(), 30).
+		WithBacklogStore(backlogStore).
+		WithWorkstreamStore(workstreamStore).
+		WithEventListener(listener)
+
+	report, err := svc.RunBacklogIntake(context.Background(), now)
+	if err != nil {
+		t.Fatalf("RunBacklogIntake: %v", err)
+	}
+	if report.Promoted != 1 || report.ItemID != "urgent-new" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(workstreamStore.workstreams) != 1 || workstreamStore.workstreams[0].WorkstreamID != "ws_backlog_urgent-new" {
+		t.Fatalf("workstream not created: %+v", workstreamStore.workstreams)
+	}
+	if len(workstreamStore.goals) != 1 || workstreamStore.goals[0].WorkstreamID != "ws_backlog_urgent-new" {
+		t.Fatalf("goal not created: %+v", workstreamStore.goals)
+	}
+	if len(workstreamStore.artifacts) != 1 || workstreamStore.artifacts[0].WorkstreamID != "ws_backlog_urgent-new" {
+		t.Fatalf("artifact not created: %+v", workstreamStore.artifacts)
+	}
+	if len(backlogStore.saved) != 1 || backlogStore.saved[0].Status != "implementing" || backlogStore.saved[0].Implementer != "coder" {
+		t.Fatalf("backlog not updated: %+v", backlogStore.saved)
+	}
+	if !strings.Contains(backlogStore.saved[0].Implementation, "ws_backlog_urgent-new") {
+		t.Fatalf("implementation note missing workstream id: %q", backlogStore.saved[0].Implementation)
+	}
+	if len(listener.events) != 1 || listener.events[0].Type != "backlog.intake.promoted" {
+		t.Fatalf("event not emitted: %+v", listener.events)
+	}
+}
+
+func TestRunBacklogIntakeSkipsWithoutRunnableItems(t *testing.T) {
+	backlogStore := &memoryBacklogStore{items: []domainbacklog.Item{
+		{ItemID: "active", Title: "実装中", Status: "implementing", Priority: "urgent"},
+		{ItemID: "done", Title: "完了", Status: "ok", Priority: "urgent", CheckOK: true},
+	}}
+	workstreamStore := &memoryWorkstreamHeartbeatStore{}
+	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, t.TempDir(), 30).
+		WithBacklogStore(backlogStore).
+		WithWorkstreamStore(workstreamStore)
+
+	report, err := svc.RunBacklogIntake(context.Background(), time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunBacklogIntake: %v", err)
+	}
+	if report.Promoted != 0 || report.Skipped != 2 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(workstreamStore.workstreams) != 0 || len(backlogStore.saved) != 0 {
+		t.Fatalf("unexpected writes: workstreams=%+v backlog=%+v", workstreamStore.workstreams, backlogStore.saved)
 	}
 }
 

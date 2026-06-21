@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	revenueapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/revenue"
 	skillbootstrap "github.com/Nyukimin/picoclaw_multiLLM/internal/application/skillgovernance"
+	domainbacklog "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/backlog"
 	ctxbuilder "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/context"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
@@ -31,11 +33,19 @@ type NotificationSender interface {
 }
 
 type WorkstreamHeartbeatStore interface {
+	SaveWorkstream(ctx context.Context, item domainworkstream.Workstream) error
+	SaveGoal(ctx context.Context, item domainworkstream.Goal) error
+	SaveArtifact(ctx context.Context, item domainworkstream.Artifact) error
 	ListHeartbeatSchedules(ctx context.Context, limit int) ([]domainworkstream.HeartbeatSchedule, error)
 	SaveHeartbeatSchedule(ctx context.Context, item domainworkstream.HeartbeatSchedule) error
 	ListSteeringItems(ctx context.Context, limit int) ([]domainworkstream.SteeringItem, error)
 	SaveSteeringItem(ctx context.Context, item domainworkstream.SteeringItem) error
 	SaveVaultUpdateLog(ctx context.Context, item domainworkstream.VaultUpdateLog) error
+}
+
+type BacklogStore interface {
+	List(ctx context.Context, limit int) ([]domainbacklog.Item, error)
+	Save(ctx context.Context, item domainbacklog.Item) error
 }
 
 type RevenueDailyRoutineStore = revenueapp.DailyRoutineStore
@@ -66,6 +76,7 @@ type HeartbeatService struct {
 	contextBuilder   *ctxbuilder.Builder
 	listener         orchestrator.EventListener
 	workstreamStore  WorkstreamHeartbeatStore
+	backlogStore     BacklogStore
 	revenueStore     RevenueDailyRoutineStore
 	revenueRoutine   *revenueapp.DailyRoutineService
 	skills           *skillbootstrap.BootstrapService
@@ -115,6 +126,11 @@ func (s *HeartbeatService) WithEventListener(listener orchestrator.EventListener
 // WithWorkstreamStore enables draft-only Workstream heartbeat execution.
 func (s *HeartbeatService) WithWorkstreamStore(store WorkstreamHeartbeatStore) *HeartbeatService {
 	s.workstreamStore = store
+	return s
+}
+
+func (s *HeartbeatService) WithBacklogStore(store BacklogStore) *HeartbeatService {
+	s.backlogStore = store
 	return s
 }
 
@@ -172,6 +188,7 @@ func (s *HeartbeatService) loop() {
 	defer ticker.Stop()
 	idleChatTicker := time.NewTicker(s.idleChatInterval)
 	defer idleChatTicker.Stop()
+	s.runScheduledBacklogIntake(context.Background(), time.Now().UTC())
 
 	for {
 		select {
@@ -187,7 +204,20 @@ func (s *HeartbeatService) loop() {
 			if _, err := s.RunDueWorkstreamHeartbeats(ctx, time.Now().UTC()); err != nil {
 				log.Printf("[Heartbeat] workstream tick error: %v", err)
 			}
+			s.runScheduledBacklogIntake(ctx, time.Now().UTC())
 		}
+	}
+}
+
+func (s *HeartbeatService) runScheduledBacklogIntake(ctx context.Context, now time.Time) {
+	report, err := s.RunBacklogIntake(ctx, now)
+	if err != nil {
+		log.Printf("[Heartbeat] backlog intake error: %v", err)
+		return
+	}
+	if report.Promoted > 0 || report.Failed > 0 {
+		log.Printf("[Heartbeat] backlog intake: checked=%d promoted=%d skipped=%d failed=%d item=%s workstream=%s",
+			report.Checked, report.Promoted, report.Skipped, report.Failed, report.ItemID, report.WorkstreamID)
 	}
 }
 
@@ -278,6 +308,215 @@ type WorkstreamHeartbeatRunReport struct {
 	Run     int
 	Skipped int
 	Failed  int
+}
+
+type BacklogIntakeReport struct {
+	Checked      int
+	Promoted     int
+	Skipped      int
+	Failed       int
+	ItemID       string
+	WorkstreamID string
+	GoalID       string
+	ArtifactID   string
+}
+
+func backlogIntakeCandidates(items []domainbacklog.Item) []domainbacklog.Item {
+	candidates := make([]domainbacklog.Item, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		id := strings.TrimSpace(item.ItemID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if item.CheckOK || strings.TrimSpace(item.Title) == "" {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(item.Status)) != "open" {
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		leftRank := backlogPriorityRank(candidates[i].Priority)
+		rightRank := backlogPriorityRank(candidates[j].Priority)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		leftTime := backlogItemTime(candidates[i])
+		rightTime := backlogItemTime(candidates[j])
+		if !leftTime.Equal(rightTime) {
+			return leftTime.Before(rightTime)
+		}
+		return candidates[i].ItemID < candidates[j].ItemID
+	})
+	return candidates
+}
+
+func backlogPriorityRank(priority string) int {
+	switch strings.ToLower(strings.TrimSpace(priority)) {
+	case "urgent":
+		return 0
+	case "high":
+		return 1
+	case "normal", "":
+		return 2
+	case "low":
+		return 3
+	default:
+		return 2
+	}
+}
+
+func backlogItemTime(item domainbacklog.Item) time.Time {
+	for _, raw := range []string{item.UpdatedAt, item.CreatedAt} {
+		if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(raw)); err == nil {
+			return parsed.UTC()
+		}
+	}
+	return time.Time{}
+}
+
+func backlogWorkstreamDescription(item domainbacklog.Item) string {
+	parts := []string{
+		fmt.Sprintf("Backlog item: %s", strings.TrimSpace(item.ItemID)),
+		fmt.Sprintf("kind: %s", strings.TrimSpace(item.Kind)),
+		fmt.Sprintf("priority: %s", strings.TrimSpace(item.Priority)),
+		fmt.Sprintf("source: %s", strings.TrimSpace(item.Source)),
+	}
+	if body := strings.TrimSpace(item.Body); body != "" {
+		parts = append(parts, "", body)
+	}
+	if implementation := strings.TrimSpace(item.Implementation); implementation != "" {
+		parts = append(parts, "", "Existing implementation note:", implementation)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func backlogGoalDescription(item domainbacklog.Item) string {
+	body := strings.TrimSpace(item.Body)
+	if body == "" {
+		body = strings.TrimSpace(item.Title)
+	}
+	return fmt.Sprintf("Backlog item %s を実装可能な作業単位に落とし込み、実装・検証・Backlog更新まで完了させる。\n\n%s",
+		strings.TrimSpace(item.ItemID),
+		body,
+	)
+}
+
+func appendBacklogImplementation(existing, note string) string {
+	existing = strings.TrimSpace(existing)
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return existing
+	}
+	if existing == "" {
+		return note
+	}
+	if strings.Contains(existing, note) {
+		return existing
+	}
+	return existing + "\n\n" + note
+}
+
+func (s *HeartbeatService) RunBacklogIntake(ctx context.Context, now time.Time) (BacklogIntakeReport, error) {
+	var report BacklogIntakeReport
+	if s.backlogStore == nil || s.workstreamStore == nil {
+		return report, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	items, err := s.backlogStore.List(ctx, 500)
+	if err != nil {
+		report.Failed++
+		s.emitEvent("backlog.intake.error", fmt.Sprintf("failed to list backlog: %v", err))
+		return report, err
+	}
+	candidates := backlogIntakeCandidates(items)
+	report.Checked = len(items)
+	report.Skipped = len(items) - len(candidates)
+	if len(candidates) == 0 {
+		return report, nil
+	}
+	item := candidates[0]
+	workstreamID := "ws_backlog_" + safePathSegment(item.ItemID)
+	goalID := "goal_backlog_" + safePathSegment(item.ItemID)
+	artifactID := "art_backlog_" + safePathSegment(item.ItemID)
+
+	if err := s.workstreamStore.SaveWorkstream(ctx, domainworkstream.Workstream{
+		WorkstreamID: workstreamID,
+		Name:         "Backlog: " + item.Title,
+		Description:  backlogWorkstreamDescription(item),
+		Status:       domainworkstream.StatusActive,
+		PrimaryAgent: "Coder",
+		CreatedAt:    now.UTC(),
+		UpdatedAt:    now.UTC(),
+	}); err != nil {
+		report.Failed++
+		s.emitEvent("backlog.intake.error", fmt.Sprintf("failed to save workstream for %s: %v", item.ItemID, err))
+		return report, err
+	}
+	if err := s.workstreamStore.SaveGoal(ctx, domainworkstream.Goal{
+		GoalID:       goalID,
+		WorkstreamID: workstreamID,
+		Title:        item.Title,
+		Description:  backlogGoalDescription(item),
+		SuccessCriteria: []string{
+			"Backlog item の要求が実装または明確な非採用判断に変換されている",
+			"対象 module と根拠ファイルが実装・検証記録から追える",
+			"Backlog item に test_result と最終状態が追記されている",
+		},
+		Verification: []string{
+			"対象範囲の unit / integration test または代替検証を実行する",
+			"必要な場合は live Viewer / API で実動作を確認する",
+			"ユーザー承認が必要な変更は Sandbox / AI Workflow gate を通す",
+		},
+		Status:    domainworkstream.StatusWaiting,
+		CreatedAt: now.UTC(),
+	}); err != nil {
+		report.Failed++
+		s.emitEvent("backlog.intake.error", fmt.Sprintf("failed to save goal for %s: %v", item.ItemID, err))
+		return report, err
+	}
+	if err := s.workstreamStore.SaveArtifact(ctx, domainworkstream.Artifact{
+		ArtifactID:   artifactID,
+		WorkstreamID: workstreamID,
+		Type:         "backlog_intake",
+		Title:        "Backlog intake: " + item.Title,
+		Status:       "pending_review",
+		CreatedAt:    now.UTC(),
+	}); err != nil {
+		report.Failed++
+		s.emitEvent("backlog.intake.error", fmt.Sprintf("failed to save artifact for %s: %v", item.ItemID, err))
+		return report, err
+	}
+
+	item.Status = "implementing"
+	item.Implementer = "coder"
+	item.Implementation = appendBacklogImplementation(item.Implementation, fmt.Sprintf(
+		"Backlog Intake Heartbeat promoted this item to workstream_id=%s goal_id=%s artifact_id=%s at %s.",
+		workstreamID,
+		goalID,
+		artifactID,
+		now.UTC().Format(time.RFC3339),
+	))
+	if err := s.backlogStore.Save(ctx, item); err != nil {
+		report.Failed++
+		s.emitEvent("backlog.intake.error", fmt.Sprintf("failed to update backlog %s: %v", item.ItemID, err))
+		return report, err
+	}
+	report.Promoted = 1
+	report.ItemID = item.ItemID
+	report.WorkstreamID = workstreamID
+	report.GoalID = goalID
+	report.ArtifactID = artifactID
+	s.emitEvent("backlog.intake.promoted", fmt.Sprintf("%s -> %s", item.ItemID, workstreamID))
+	return report, nil
 }
 
 func (s *HeartbeatService) RunDueWorkstreamHeartbeats(ctx context.Context, now time.Time) (WorkstreamHeartbeatRunReport, error) {

@@ -52,11 +52,21 @@ func formatExecutionResult(
 		executionStatusEmoji(result),
 		result.ExecutedCmds,
 		result.FailedCmds,
-		result.SuccessRate()*100,
+		executionSuccessRatePercent(result),
 		formatGitCommitLine(result),
 		formatCommandDetails(result),
 		p.Risk(),
 	)
+}
+
+func executionSuccessRatePercent(result *patch.PatchExecutionResult) float64 {
+	if result == nil {
+		return 0
+	}
+	if result.ExecutedCmds == 0 && result.Success {
+		return 100
+	}
+	return result.SuccessRate() * 100
 }
 
 func executionStatusEmoji(result *patch.PatchExecutionResult) string {

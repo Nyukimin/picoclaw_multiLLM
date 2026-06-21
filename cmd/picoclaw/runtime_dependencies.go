@@ -200,6 +200,7 @@ type Dependencies struct {
 	dreamConsolidationCreate       http.HandlerFunc                            // viewer dream consolidation run API
 	dreamConsolidationProposal     http.HandlerFunc                            // viewer dream consolidation proposal API
 	dreamConsolidationReview       http.HandlerFunc                            // viewer dream consolidation review API
+	backlogStore                   *viewer.BacklogStore                        // Backlog intake store shared by Viewer and Heartbeat
 	workstreamStore                heartbeat.WorkstreamHeartbeatStore          // Workstream heartbeat draft runner
 	revenueStore                   heartbeat.RevenueDailyRoutineStore          // Revenue daily routine draft runner
 	entryHandler                   http.HandlerFunc                            // unified entry endpoint
@@ -330,6 +331,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	}
 	deps.glossaryRecent = glossaryRuntime.RecentHandler
 	deps.toolRegistry = runtimeToolRegistry
+	deps.backlogStore = viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))
 	if toolRuntime.ToolMediationRecorder != nil {
 		deps.toolHarnessRecent = viewer.HandleToolHarnessRecent(toolRuntime.ToolMediationRecorder)
 	}

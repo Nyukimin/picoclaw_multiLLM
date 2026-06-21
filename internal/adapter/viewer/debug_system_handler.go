@@ -41,18 +41,18 @@ type DebugGPUProcess struct {
 }
 
 type DebugSystemOptions struct {
-	STTBaseURL       string
-	STTStreamURL     string
-	TTSBaseURL       string
-	TTSHealthPath    string
-	LLMOpsConfigured bool
-	LLMOpsEnabled    bool
-	LLMOpsBaseURL    string
-	LocalLLM         LocalLLMRuntimeConfig
-	WebwrightFetch   WebwrightFetchRuntimeConfig
-	WebGather        WebGatherRuntimeConfig
-	BrowserActor     BrowserActorRuntimeConfig
-	RuntimeReadiness RuntimeDependencyReadiness
+	STTBaseURL                 string
+	STTStreamURL               string
+	TTSBaseURL                 string
+	TTSHealthPath              string
+	LLMOpsConfigured           bool
+	LLMOpsEnabled              bool
+	LLMOpsBaseURL              string
+	LocalLLM                   LocalLLMRuntimeConfig
+	WebwrightFetch             WebwrightFetchRuntimeConfig
+	WebGather                  WebGatherRuntimeConfig
+	BrowserActor               BrowserActorRuntimeConfig
+	RuntimeReadiness           RuntimeDependencyReadiness
 	VoiceChatEnabled           bool
 	VoiceChatGatewayConfigured bool
 	VoiceChatStreamURL         string
@@ -60,21 +60,21 @@ type DebugSystemOptions struct {
 }
 
 type RuntimeConfig struct {
-	STTStreamURL     string                      `json:"stt_stream_url,omitempty"`
-	STTBaseURL       string                      `json:"stt_base_url,omitempty"`
-	TTSBaseURL       string                      `json:"tts_base_url,omitempty"`
-	TTSHealthPath    string                      `json:"tts_health_path,omitempty"`
-	LLMOpsConfigured bool                        `json:"llm_ops_configured"`
-	LLMOpsEnabled    bool                        `json:"llm_ops_enabled"`
-	LLMOpsBaseURL    string                      `json:"llm_ops_base_url,omitempty"`
-	LocalLLM         LocalLLMRuntimeConfig       `json:"local_llm,omitempty"`
-	WebwrightFetch   WebwrightFetchRuntimeConfig `json:"webwright_fetch,omitempty"`
-	WebGather        WebGatherRuntimeConfig      `json:"web_gather,omitempty"`
-	BrowserActor     BrowserActorRuntimeConfig   `json:"browser_actor,omitempty"`
-	RuntimeReadiness RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
-	VoiceChatEnabled   bool   `json:"voice_chat_enabled"`
-	VoiceChatStreamURL string `json:"voice_chat_stream_url,omitempty"`
-	VoiceInputMode     string `json:"voice_input_mode,omitempty"`
+	STTStreamURL       string                      `json:"stt_stream_url,omitempty"`
+	STTBaseURL         string                      `json:"stt_base_url,omitempty"`
+	TTSBaseURL         string                      `json:"tts_base_url,omitempty"`
+	TTSHealthPath      string                      `json:"tts_health_path,omitempty"`
+	LLMOpsConfigured   bool                        `json:"llm_ops_configured"`
+	LLMOpsEnabled      bool                        `json:"llm_ops_enabled"`
+	LLMOpsBaseURL      string                      `json:"llm_ops_base_url,omitempty"`
+	LocalLLM           LocalLLMRuntimeConfig       `json:"local_llm,omitempty"`
+	WebwrightFetch     WebwrightFetchRuntimeConfig `json:"webwright_fetch,omitempty"`
+	WebGather          WebGatherRuntimeConfig      `json:"web_gather,omitempty"`
+	BrowserActor       BrowserActorRuntimeConfig   `json:"browser_actor,omitempty"`
+	RuntimeReadiness   RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
+	VoiceChatEnabled   bool                        `json:"voice_chat_enabled"`
+	VoiceChatStreamURL string                      `json:"voice_chat_stream_url,omitempty"`
+	VoiceInputMode     string                      `json:"voice_input_mode,omitempty"`
 }
 
 type RuntimeDependencyReadiness struct {
@@ -127,6 +127,7 @@ type LocalLLMRuntimeConfig struct {
 	TimeoutSec        int                          `json:"timeout_sec,omitempty"`
 	GlobalConcurrency int                          `json:"global_concurrency,omitempty"`
 	ModelConcurrency  int                          `json:"model_concurrency,omitempty"`
+	ModelContext      int                          `json:"model_context,omitempty"`
 	LiveModels        map[string]LocalLLMLiveModel `json:"live_models,omitempty"`
 }
 
@@ -355,9 +356,27 @@ func fetchLocalLLMLiveModel(ctx context.Context, client *http.Client, role, alia
 		}
 	}
 	if err := fillLocalLLMHealth(ctx, client, &live); err != nil {
+		if localLLMHealthProbeOptional(err, live) {
+			if live.Status == "" {
+				live.Status = "models_available"
+			}
+			return live
+		}
 		live.Error = joinRuntimeErrors(live.Error, err.Error())
 	}
 	return live
+}
+
+func localLLMHealthProbeOptional(err error, live LocalLLMLiveModel) bool {
+	if err == nil {
+		return false
+	}
+	if !strings.Contains(err.Error(), "HTTP 404") {
+		return false
+	}
+	return strings.TrimSpace(live.BackendModel) != "" ||
+		strings.TrimSpace(live.LoadedModel) != "" ||
+		(live.Loaded != nil && *live.Loaded)
 }
 
 func fillLocalLLMModelList(ctx context.Context, client *http.Client, live *LocalLLMLiveModel) error {
