@@ -5,6 +5,9 @@
 このファイルは、RenCrow リポジトリで作業する AI エージェント向けの最小実務ルールです。  
 詳細設計や背景説明は `CLAUDE.md`、共通方針は `rules/`、実装仕様の正本は `docs/` を参照してください。
 
+このファイルは常時必要な判断基準だけを置く。path 固有の制約は `rules/`、再利用手順は `skills/`、機械的に止めるべき危険操作は hooks / permissions へ分離する。
+指示配置の正本は `docs/10_新仕様/82_Claude_Code指示配置ガバナンス仕様.md` とする。
+
 ---
 
 ## 最初に読む順序
@@ -30,6 +33,8 @@
    - `rules/common/rules_logging.md`
    - `rules/routing-policy.md`
    - `rules/rules_viewer_ui.md`
+   - `rules/rules_instruction_placement.md`
+   - `rules/rules_path_scoped_constraints.md`
    - `rules/rules_domain.md`
    - `docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md`（Memory lifecycle / Recall Context / prompt 注入方針を扱う場合の正本実装仕様）
    - `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`（Memory / Source Registry / 保存境界を扱う場合の補助仕様）

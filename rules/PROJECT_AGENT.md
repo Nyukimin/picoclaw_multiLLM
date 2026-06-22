@@ -22,6 +22,10 @@
   ルーティング判断の実務ポリシー
 - `rules/rules_viewer_ui.md`
   RenCrow Viewer の新 UI / 新タブ追加時の見た目、情報量、常用画面の実務ルール
+- `rules/rules_instruction_placement.md`
+  AGENTS.md / rules / skills / subagents / hooks の指示配置ルール
+- `rules/rules_path_scoped_constraints.md`
+  module / directory 固有制約の入口
 - `rules/PROJECT_AGENT.md`  
   このプロジェクトで AI が実装する際の固有ルール本体
 - `docs/01_正本仕様/実装仕様.md`  
