@@ -676,7 +676,7 @@ body.theme-compact .debug-panels{gap:8px;margin-bottom:10px}
 body.theme-compact .input-bar{padding:8px 18px calc(9px + var(--safe-bottom))}
 body.theme-compact .input-wrap textarea{min-height:38px;max-height:86px}
 
-@media (max-width: 900px){
+@media (max-width: 900px), (max-aspect-ratio: 21/20){
   header{padding:calc(6px + var(--safe-top)) 12px 10px}
   .logo{font-size:15px}
   .logo img{height:52px !important}

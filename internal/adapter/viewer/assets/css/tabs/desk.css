@@ -763,7 +763,7 @@ body:has(.tts-now-playing:not(.hidden)) .movie-db-screen {
   text-decoration: none;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 900px), (max-aspect-ratio: 21/20) {
   .movie-db-screen,
   .movie-db-side {
     grid-template-columns: 1fr;
@@ -980,12 +980,16 @@ body:has(.tts-now-playing:not(.hidden)) .movie-db-screen {
     grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
   }
 
+  .desk-card-list.home-focus {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .instruction-columns {
     grid-template-columns: repeat(3, minmax(150px, 1fr));
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 900px), (max-aspect-ratio: 21/20) {
   .desk-screen {
     min-height: 0;
   }

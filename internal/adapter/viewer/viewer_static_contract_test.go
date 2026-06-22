@@ -196,6 +196,35 @@ func TestViewerStaticContractNowPlayingFloatsAboveComposer(t *testing.T) {
 	}
 }
 
+func TestViewerResponsiveBreakpointsUseViewportShape(t *testing.T) {
+	viewerData, err := os.ReadFile("assets/css/viewer.css")
+	if err != nil {
+		t.Fatalf("read viewer.css: %v", err)
+	}
+	deskData, err := os.ReadFile("assets/css/tabs/desk.css")
+	if err != nil {
+		t.Fatalf("read desk.css: %v", err)
+	}
+	viewerCSS := string(viewerData)
+	deskCSS := string(deskData)
+	narrowQuery := `@media (max-width: 900px), (max-aspect-ratio: 21/20)`
+
+	if !strings.Contains(viewerCSS, narrowQuery) {
+		t.Fatalf("viewer shell narrow breakpoint must use width plus aspect ratio: missing %q", narrowQuery)
+	}
+	if !strings.Contains(deskCSS, narrowQuery) {
+		t.Fatalf("Daily Desk narrow breakpoint must match viewer shell: missing %q", narrowQuery)
+	}
+	if strings.Contains(deskCSS, `@media (max-width: 980px)`) {
+		t.Fatal("Daily Desk must not keep the old 980px-only breakpoint that created desktop shell with narrow content")
+	}
+	if !strings.Contains(deskCSS, `.desk-card-list.home-focus {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }`) {
+		t.Fatal("Daily Desk landscape compact mode must keep Home cards readable before the full wide layout")
+	}
+}
+
 func TestViewerStaticContractHobbyGraphOpsOverview(t *testing.T) {
 	viewerJS, err := os.ReadFile("assets/js/viewer.js")
 	if err != nil {
