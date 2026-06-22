@@ -100,6 +100,9 @@ func TestExecuteProposal_Success_MarkdownPatch(t *testing.T) {
 
 	// Markdown形式のPatch
 	testFilePath := filepath.Join(tmpDir, "hello.go")
+	if err := os.WriteFile(testFilePath, []byte("package main\n"), 0644); err != nil {
+		t.Fatalf("failed to create existing update target: %v", err)
+	}
 	markdownPatch := "```go:" + testFilePath + "\npackage main\n\nfunc main() {\n\tprintln(\"Hello\")\n}\n```"
 
 	p := proposal.NewProposal("Test plan", markdownPatch, "Low risk", "Low cost")
@@ -114,7 +117,7 @@ func TestExecuteProposal_Success_MarkdownPatch(t *testing.T) {
 		t.Error("Expected success, but got failure")
 	}
 
-	// ファイルが作成されたか確認
+	// ファイルが更新されたか確認
 	content, err := os.ReadFile(testFilePath)
 	if err != nil {
 		t.Fatalf("Failed to read created file: %v", err)
@@ -123,6 +126,43 @@ func TestExecuteProposal_Success_MarkdownPatch(t *testing.T) {
 	expected := "package main\n\nfunc main() {\n\tprintln(\"Hello\")\n}\n"
 	if string(content) != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, string(content))
+	}
+}
+
+func TestExecuteProposal_MarkdownPatchCreatesMissingFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.WorkerConfig{
+		AutoCommit:        false,
+		CommandTimeout:    10,
+		GitTimeout:        10,
+		StopOnError:       false,
+		Workspace:         tmpDir,
+		ProtectedPatterns: []string{".env*"},
+		ActionOnProtected: "error",
+	}
+
+	service := NewWorkerExecutionService(cfg)
+
+	testFilePath := filepath.Join(tmpDir, "application", "vocabulary", "app_service_test.go")
+	markdownPatch := "```go:" + testFilePath + "\npackage main\n\nfunc main() {}\n```"
+
+	p := proposal.NewProposal("Create missing file from Markdown patch", markdownPatch, "Low risk", "Low cost")
+	jobID := task.NewJobID()
+
+	result, err := service.ExecuteProposal(context.Background(), jobID, p)
+	if err != nil {
+		t.Fatalf("ExecuteProposal failed: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got result: %#v", result)
+	}
+	content, err := os.ReadFile(testFilePath)
+	if err != nil {
+		t.Fatalf("failed to read created file: %v", err)
+	}
+	if !strings.Contains(string(content), "func main()") {
+		t.Fatalf("created file content mismatch: %s", string(content))
 	}
 }
 
@@ -275,6 +315,86 @@ func TestExecuteFileEdit_Update(t *testing.T) {
 	content, _ := os.ReadFile(testFile)
 	if string(content) != "Updated" {
 		t.Errorf("Expected 'Updated', got '%s'", string(content))
+	}
+}
+
+func TestExecuteFileEdit_UpdateRequiresExistingTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "missing.go")
+	cfg := config.WorkerConfig{Workspace: tmpDir}
+	service := &workerExecutionService{config: cfg}
+
+	jsonPatch := `[{"type": "file_edit", "action": "update", "target": "` + testFile + `", "content": "package main\n"}]`
+	p := proposal.NewProposal("update missing file", jsonPatch, "", "")
+
+	_, err := service.ExecuteProposal(context.Background(), task.NewJobID(), p)
+	if err == nil {
+		t.Fatal("expected update of missing file to be rejected")
+	}
+	if !strings.Contains(err.Error(), "update target does not exist") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(testFile); !os.IsNotExist(statErr) {
+		t.Fatalf("missing update target should not be created: %v", statErr)
+	}
+}
+
+func TestExecuteFileEdit_RejectsPlaceholderTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.WorkerConfig{Workspace: tmpDir}
+	service := &workerExecutionService{config: cfg}
+
+	jsonPatch := `[{"type": "file_edit", "action": "create", "target": "` + filepath.Join(tmpDir, "path", "to", "chat_module.go") + `", "content": "package main\n"}]`
+	p := proposal.NewProposal("placeholder file", jsonPatch, "", "")
+
+	_, err := service.ExecuteProposal(context.Background(), task.NewJobID(), p)
+	if err == nil {
+		t.Fatal("expected placeholder target to be rejected")
+	}
+	if !strings.Contains(err.Error(), "placeholder target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExecuteFileEdit_RejectsGoContentWithoutPackageDeclaration(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "internal", "new.go")
+	cfg := config.WorkerConfig{Workspace: tmpDir}
+	service := &workerExecutionService{config: cfg}
+
+	jsonPatch := `[{"type": "file_edit", "action": "create", "target": "` + testFile + `", "content": "func main() {}\n"}]`
+	p := proposal.NewProposal("bad go file", jsonPatch, "", "")
+
+	_, err := service.ExecuteProposal(context.Background(), task.NewJobID(), p)
+	if err == nil {
+		t.Fatal("expected Go content without package declaration to be rejected")
+	}
+	if !strings.Contains(err.Error(), "package declaration") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(testFile); !os.IsNotExist(statErr) {
+		t.Fatalf("bad Go file should not be created: %v", statErr)
+	}
+}
+
+func TestExecuteFileEdit_RejectsRootGoFileCreation(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "chat.go")
+	cfg := config.WorkerConfig{Workspace: tmpDir}
+	service := &workerExecutionService{config: cfg}
+
+	jsonPatch := `[{"type": "file_edit", "action": "create", "target": "` + testFile + `", "content": "package main\n"}]`
+	p := proposal.NewProposal("root go file", jsonPatch, "", "")
+
+	_, err := service.ExecuteProposal(context.Background(), task.NewJobID(), p)
+	if err == nil {
+		t.Fatal("expected root Go file creation to be rejected")
+	}
+	if !strings.Contains(err.Error(), "workspace root") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(testFile); !os.IsNotExist(statErr) {
+		t.Fatalf("root Go file should not be created: %v", statErr)
 	}
 }
 
@@ -436,15 +556,15 @@ func TestWorkspaceRestriction_Error(t *testing.T) {
 	p := proposal.NewProposal("", jsonPatch, "", "")
 	jobID := task.NewJobID()
 
-	result, _ := service.ExecuteProposal(context.Background(), jobID, p)
-
-	// 失敗すべき
-	if result.Success {
-		t.Error("Expected failure for outside workspace")
+	result, err := service.ExecuteProposal(context.Background(), jobID, p)
+	if err == nil {
+		t.Fatal("expected outside workspace target to be rejected before execution")
 	}
-
-	if result.FailedCmds != 1 {
-		t.Errorf("Expected 1 failed command, got %d", result.FailedCmds)
+	if result != nil {
+		t.Fatalf("preflight rejection should not return an execution result: %#v", result)
+	}
+	if !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -669,10 +789,11 @@ func TestStopOnError_vs_ContinueOnError(t *testing.T) {
 		// 最初は成功、2番目は失敗、3番目は実行されないはず
 		file1 := filepath.Join(tmpDir, "file1.txt")
 		file2 := filepath.Join(tmpDir, "file2.txt")
+		missingFile := filepath.Join(tmpDir, "missing-stop.txt")
 
 		jsonPatch := `[
 			{"type": "file_edit", "action": "create", "target": "` + file1 + `", "content": "OK"},
-			{"type": "file_edit", "action": "delete", "target": "/nonexistent/file.txt"},
+			{"type": "file_edit", "action": "delete", "target": "` + missingFile + `"},
 			{"type": "file_edit", "action": "create", "target": "` + file2 + `", "content": "Should not execute"}
 		]`
 
@@ -706,10 +827,11 @@ func TestStopOnError_vs_ContinueOnError(t *testing.T) {
 
 		file3 := filepath.Join(tmpDir, "file3.txt")
 		file4 := filepath.Join(tmpDir, "file4.txt")
+		missingFile := filepath.Join(tmpDir, "missing-continue.txt")
 
 		jsonPatch := `[
 			{"type": "file_edit", "action": "create", "target": "` + file3 + `", "content": "OK"},
-			{"type": "file_edit", "action": "delete", "target": "/nonexistent/file.txt"},
+			{"type": "file_edit", "action": "delete", "target": "` + missingFile + `"},
 			{"type": "file_edit", "action": "create", "target": "` + file4 + `", "content": "Should execute"}
 		]`
 

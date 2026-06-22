@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/patch"
 )
@@ -19,14 +18,11 @@ func (w *workerExecutionService) executeFileEdit(
 	target := cmd.Target
 
 	// ワークスペース外書き込み禁止
-	absTarget, err := filepath.Abs(target)
+	absTarget, err := w.absoluteWorkspaceTarget(target)
 	if err != nil {
-		return "", fmt.Errorf("invalid file path: %w", err)
+		return "", fmt.Errorf("security error: %w", err)
 	}
-	absWorkspace, _ := filepath.Abs(w.config.Workspace)
-	if !strings.HasPrefix(absTarget, absWorkspace) {
-		return "", fmt.Errorf("security error: file path outside workspace: %s", target)
-	}
+	target = absTarget
 
 	// 保護ファイルチェック
 	if w.isProtectedFile(target) {

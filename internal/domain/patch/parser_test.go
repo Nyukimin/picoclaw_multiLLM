@@ -78,6 +78,11 @@ func TestParseJSONPatchValidation(t *testing.T) {
 			json:    `[{invalid json}]`,
 			wantErr: true,
 		},
+		{
+			name:    "Placeholder target",
+			json:    `[{"type":"file_edit","action":"update","target":"path/to/chat_module.go","content":"package main"}]`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -87,6 +92,18 @@ func TestParseJSONPatchValidation(t *testing.T) {
 				t.Errorf("ParsePatch() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestParseMarkdownPatchRejectsPlaceholderTarget(t *testing.T) {
+	markdownPatch := "```go:path/to/chat_module.go\npackage main\n```"
+
+	_, err := ParsePatch(markdownPatch)
+	if err == nil {
+		t.Fatal("expected placeholder target to be rejected")
+	}
+	if !strings.Contains(err.Error(), "placeholder target") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -52,6 +52,7 @@ func (w *workerExecutionService) ExecuteProposal(
 	if err != nil {
 		return nil, err
 	}
+	commands = w.normalizeParsedCommands(commands)
 
 	w.showExecutionSummaryIfEnabled(jobID, commands)
 	if err := w.validateCommandsBeforeExecution(commands); err != nil {

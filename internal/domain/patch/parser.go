@@ -43,6 +43,9 @@ func parseJSONPatch(patchStr string) ([]PatchCommand, error) {
 		if cmd.Target == "" {
 			return nil, fmt.Errorf("command[%d]: target is required", i)
 		}
+		if cmd.Type == TypeFileEdit && IsPlaceholderTarget(cmd.Target) {
+			return nil, fmt.Errorf("command[%d]: placeholder target is not allowed: %s", i, cmd.Target)
+		}
 	}
 
 	return commands, nil
@@ -67,6 +70,9 @@ func parseMarkdownPatch(patchStr string) ([]PatchCommand, error) {
 		lang := patchStr[match[2]:match[3]]
 		filePath := strings.TrimSpace(patchStr[match[4]:match[5]])
 		content := patchStr[match[6]:match[7]]
+		if IsPlaceholderTarget(filePath) {
+			return nil, fmt.Errorf("placeholder target is not allowed: %s", filePath)
+		}
 
 		// ファイル編集コマンドに変換
 		cmd := PatchCommand{
@@ -76,6 +82,7 @@ func parseMarkdownPatch(patchStr string) ([]PatchCommand, error) {
 			Content: content,
 			Metadata: map[string]string{
 				"language": lang,
+				"format":   "markdown",
 			},
 		}
 		positioned = append(positioned, positionedCommand{pos: match[0], cmd: cmd})
