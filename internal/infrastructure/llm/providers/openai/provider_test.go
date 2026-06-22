@@ -188,6 +188,73 @@ func TestOpenAIProviderGenerate_LocalCompatibleMergesProviderOptions(t *testing.
 	}
 }
 
+func TestOpenAIProviderGenerate_LocalCompatibleSendsModelContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		options, ok := reqBody["options"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected options in local request: %#v", reqBody)
+		}
+		if got := int(options["num_ctx"].(float64)); got != 131072 {
+			t.Fatalf("num_ctx = %d, want 131072", got)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithModelContext("", "Worker", server.URL, 0, 131072)
+	if _, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "ping"}},
+	}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
+func TestOpenAIProviderGenerate_LocalCompatiblePreservesExplicitNumCtx(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		options, ok := reqBody["options"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected options in local request: %#v", reqBody)
+		}
+		if got := int(options["num_ctx"].(float64)); got != 32768 {
+			t.Fatalf("num_ctx = %d, want explicit 32768", got)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message":       map[string]interface{}{"role": "assistant", "content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProviderWithModelContext("", "Worker", server.URL, 0, 131072)
+	if _, err := provider.Generate(context.Background(), llm.GenerateRequest{
+		Messages: []llm.Message{{Role: "user", Content: "ping"}},
+		ProviderOptions: map[string]any{
+			"options": map[string]any{"num_ctx": 32768},
+		},
+	}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+}
+
 func TestOpenAIProviderGenerate_PublicOpenAIDoesNotSendThinkingBridgeFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}

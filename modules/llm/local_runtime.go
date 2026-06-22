@@ -25,9 +25,9 @@ const (
 	LocalQueuePolicyReject = "reject"
 	LocalQueuePolicyLatest = "latest"
 
-	LocalOllamaDefaultNumCtx = 32768
-	LegacyOllamaChatNumCtx   = 32768
-	LegacyOllamaWorkerNumCtx = 16384
+	LocalOllamaDefaultNumCtx = 131072
+	LegacyOllamaChatNumCtx   = 131072
+	LegacyOllamaWorkerNumCtx = 131072
 )
 
 type LocalRuntimeConfig struct {
@@ -43,6 +43,7 @@ type LocalRuntimeConfig struct {
 	WildModel        string
 	TimeoutSec       int
 	ModelConcurrency int
+	ModelContext     int
 }
 
 type LocalAliasConfig struct {
@@ -67,7 +68,7 @@ func BuildLocalAliasConfig(cfg LocalRuntimeConfig, alias string) LocalAliasConfi
 		QueueTimeout: LocalQueueTimeoutForAlias(alias),
 		QueuePolicy:  LocalQueuePolicyWait,
 		Concurrency:  cfg.ModelConcurrency,
-		NumCtx:       LocalOllamaNumCtxForAlias(alias),
+		NumCtx:       LocalModelContextForAlias(cfg, alias),
 	}
 }
 
@@ -82,6 +83,13 @@ func NormalizeLocalProvider(provider string) string {
 
 func LocalOllamaNumCtxForAlias(_ string) int {
 	return LocalOllamaDefaultNumCtx
+}
+
+func LocalModelContextForAlias(cfg LocalRuntimeConfig, alias string) int {
+	if cfg.ModelContext > 0 {
+		return cfg.ModelContext
+	}
+	return LocalOllamaNumCtxForAlias(alias)
 }
 
 func LocalTimeoutForAlias(cfg LocalRuntimeConfig, alias string) time.Duration {

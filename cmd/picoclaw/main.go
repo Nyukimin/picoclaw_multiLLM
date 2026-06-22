@@ -128,6 +128,7 @@ func cmdRun() {
 		TimeoutSec:        cfg.LocalLLM.TimeoutSec,
 		GlobalConcurrency: cfg.LocalLLM.GlobalConcurrency,
 		ModelConcurrency:  cfg.LocalLLM.ModelConcurrency,
+		ModelContext:      cfg.LocalLLM.ModelContext,
 	}
 	debugSystemOpts.WebwrightFetch = viewer.WebwrightFetchRuntimeConfig{
 		Enabled:           cfg.WebwrightFetch.Enabled,

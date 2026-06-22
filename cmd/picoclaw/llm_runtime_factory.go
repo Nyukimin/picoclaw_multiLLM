@@ -98,6 +98,7 @@ func localRuntimeConfigFromAppConfig(cfg *config.Config) modulellm.LocalRuntimeC
 		WildModel:        cfg.LocalLLM.WildModel,
 		TimeoutSec:       cfg.LocalLLM.TimeoutSec,
 		ModelConcurrency: cfg.LocalLLM.ModelConcurrency,
+		ModelContext:     cfg.LocalLLM.ModelContext,
 	}
 }
 

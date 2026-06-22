@@ -14,7 +14,7 @@ server:
 ollama:
   base_url: "http://192.168.1.31:11434"
   model: "picoclaw-v1"  # 全Agent共通モデル
-  max_context: 8192     # 常駐モデルの最大コンテキスト長（超過するモデルはNG）
+  max_context: 131072   # 常駐モデルの最大コンテキスト長（超過するモデルはNG）
 
 # Chat / Worker / Heavy / Wild 用ローカルLLM（Mac MLX OpenAI互換サーバ）
 local_llm:
@@ -36,6 +36,7 @@ local_llm:
   warmup: false
   global_concurrency: 2
   model_concurrency: 1
+  model_context: 131072
 
 # DeepSeek API (Code1)
 deepseek:

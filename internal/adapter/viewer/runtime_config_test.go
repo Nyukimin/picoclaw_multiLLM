@@ -106,6 +106,7 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			TimeoutSec:        120,
 			GlobalConcurrency: 1,
 			ModelConcurrency:  1,
+			ModelContext:      131072,
 		},
 		WebwrightFetch: WebwrightFetchRuntimeConfig{
 			Enabled:           true,
@@ -160,7 +161,7 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	if body.LLMOpsBaseURL != "http://192.168.1.31:8079" {
 		t.Fatalf("unexpected llm ops base url: %+v", body)
 	}
-	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" {
+	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" || body.LocalLLM.ModelContext != 131072 {
 		t.Fatalf("unexpected local llm runtime config: %+v", body.LocalLLM)
 	}
 	if !body.WebwrightFetch.Enabled || body.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.31:8082/v1/responses" || body.WebwrightFetch.Model != "Coder1" {
@@ -242,8 +243,8 @@ func TestHandleRuntimeConfig_ReturnsRuntimeReadinessWithoutSecretValues(t *testi
 func TestHandleRuntimeConfig_ReturnsVoiceChatFields(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
 		STTStreamURL:     "ws://127.0.0.1/stt",
-		VoiceChatEnabled:   true,
-		VoiceInputMode:     "vds_sub",
+		VoiceChatEnabled: true,
+		VoiceInputMode:   "vds_sub",
 	})
 	req := httptest.NewRequest(http.MethodGet, "https://fujitsu-ubunts.tailb07d8d.ts.net/viewer/runtime-config", nil)
 	req.Header.Set("X-Forwarded-Host", "fujitsu-ubunts.tailb07d8d.ts.net")

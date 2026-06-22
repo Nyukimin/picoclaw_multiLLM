@@ -21,6 +21,7 @@ type OpenAIProvider struct {
 	model          string
 	baseURL        string
 	thinkingBridge bool
+	modelContext   int
 	client         *http.Client
 }
 
@@ -31,6 +32,12 @@ func NewOpenAIProvider(apiKey, model string) *OpenAIProvider {
 
 // NewOpenAIProviderWithOptions creates an OpenAI-compatible provider with custom endpoint and timeout.
 func NewOpenAIProviderWithOptions(apiKey, model, baseURL string, timeout time.Duration) *OpenAIProvider {
+	return NewOpenAIProviderWithModelContext(apiKey, model, baseURL, timeout, 0)
+}
+
+// NewOpenAIProviderWithModelContext creates an OpenAI-compatible provider with a default
+// Ollama-compatible options.num_ctx value for local endpoints.
+func NewOpenAIProviderWithModelContext(apiKey, model, baseURL string, timeout time.Duration, modelContext int) *OpenAIProvider {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
@@ -42,6 +49,7 @@ func NewOpenAIProviderWithOptions(apiKey, model, baseURL string, timeout time.Du
 		model:          model,
 		baseURL:        baseURL,
 		thinkingBridge: strings.TrimRight(baseURL, "/") != defaultBaseURL,
+		modelContext:   modelContext,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -64,6 +72,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 	}
 	p.addThinkingBridgeFields(openaiReq, streaming)
 	p.addProviderOptions(openaiReq, req.ProviderOptions)
+	p.addModelContextOption(openaiReq)
 
 	// MaxTokens（OpenAIではmax_tokens）
 	if req.MaxTokens > 0 {
@@ -162,6 +171,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 		"messages": messages,
 	}
 	p.addThinkingBridgeFields(openaiReq, false)
+	p.addModelContextOption(openaiReq)
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]interface{}, 0, len(req.Tools))
 		for _, td := range req.Tools {

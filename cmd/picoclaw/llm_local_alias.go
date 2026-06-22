@@ -44,7 +44,7 @@ func buildLocalAliasProviderFromConfig(cfg *config.Config, aliasConfig modulellm
 		if cfg != nil {
 			apiKey = cfg.LocalLLM.APIKey
 		}
-		raw = openai.NewOpenAIProviderWithOptions(apiKey, aliasConfig.Model, aliasConfig.BaseURL, aliasConfig.Timeout)
+		raw = openai.NewOpenAIProviderWithModelContext(apiKey, aliasConfig.Model, aliasConfig.BaseURL, aliasConfig.Timeout, aliasConfig.NumCtx)
 	}
 	modelSem := make(chan struct{}, aliasConfig.Concurrency)
 	return llmmiddleware.NewLimitedProviderWithOptions(raw, "local-"+aliasConfig.Alias+"-"+aliasConfig.Model, global, modelSem, llmmiddleware.LimitedProviderOptions{

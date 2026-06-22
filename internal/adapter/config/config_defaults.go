@@ -59,6 +59,12 @@ func (c *Config) setDefaults() {
 	if c.LocalLLM.ModelConcurrency <= 0 {
 		c.LocalLLM.ModelConcurrency = 1
 	}
+	if c.Ollama.MaxContext <= 0 {
+		c.Ollama.MaxContext = 131072
+	}
+	if c.LocalLLM.ModelContext <= 0 {
+		c.LocalLLM.ModelContext = 131072
+	}
 	if c.WebwrightFetch.RunnerPath == "" {
 		c.WebwrightFetch.RunnerPath = "/home/nyukimi/RenCrow/RenCrow_Tools/tools/webwright_fetch/run_webwright_fetch.py"
 	}

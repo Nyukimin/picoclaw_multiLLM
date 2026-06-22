@@ -93,3 +93,15 @@ func TestBuildLocalAliasConfigNormalizesProviderAndConcurrency(t *testing.T) {
 		t.Fatalf("unexpected alias config: %+v", got)
 	}
 }
+
+func TestBuildLocalAliasConfigUsesConfiguredModelContext(t *testing.T) {
+	got := BuildLocalAliasConfig(LocalRuntimeConfig{
+		Provider:     "local_openai",
+		ChatModel:    "Chat",
+		ModelContext: 131072,
+	}, "Chat")
+
+	if got.NumCtx != 131072 {
+		t.Fatalf("num_ctx = %d, want 131072", got.NumCtx)
+	}
+}

@@ -60,6 +60,7 @@ type LocalLLMConfig struct {
 	Warmup            *bool  `yaml:"warmup"`
 	GlobalConcurrency int    `yaml:"global_concurrency"`
 	ModelConcurrency  int    `yaml:"model_concurrency"`
+	ModelContext      int    `yaml:"model_context"`
 }
 
 // LLMOpsConfig は MLX 運用デーモン（8079 番管理 API）への Viewer 経由プロキシ用。
