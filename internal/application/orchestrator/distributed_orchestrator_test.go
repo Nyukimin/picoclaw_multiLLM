@@ -10,10 +10,10 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domaindci "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/dci"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
-	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
@@ -960,7 +960,7 @@ func TestDistributedOrchestrator_RouteToCoder_ConnectionAware(t *testing.T) {
 	})
 }
 
-func TestDistributedOrchestrator_RouteToCoderForMessage_UsesDefaultCoderOnly(t *testing.T) {
+func TestDistributedOrchestrator_RouteToCoderForMessage_UsesCapabilityWhenConfigured(t *testing.T) {
 	mockMio := &distMockMioAgent{}
 	mockRepo := &distMockSessionRepo{}
 	router := transport.NewMessageRouter()
@@ -971,15 +971,37 @@ func TestDistributedOrchestrator_RouteToCoderForMessage_UsesDefaultCoderOnly(t *
 	memory := session.NewCentralMemory()
 
 	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
-	orch.SetNodeCapabilities(map[string]domainnode.ResourceProfile{
-		"coder1": {NodeID: "coder1", HasAudioOut: false},
-		"coder2": {NodeID: "coder2", HasAudioOut: true},
-		"coder3": {NodeID: "coder3", HasAudioOut: true},
+	orch.SetCoderCapabilities([]capdomain.CoderCapability{
+		{Name: "coder1", Quality: 3, Available: true},
+		{Name: "coder2", Quality: 4, Available: true},
+		{Name: "coder3", Quality: 5, Available: true},
 	})
 
 	got := orch.routeToCoderForMessage(routing.RouteCODE, "TTSを実装して")
-	if got != "coder1" {
-		t.Fatalf("routeToCoderForMessage(CODE,TTS) = %q, want coder1", got)
+	if got != "coder3" {
+		t.Fatalf("routeToCoderForMessage(CODE,TTS) = %q, want coder3", got)
+	}
+}
+
+func TestDistributedOrchestrator_RouteToCoderForMessage_DegradesByCapability(t *testing.T) {
+	mockMio := &distMockMioAgent{}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	router.RegisterAgent("coder1", transport.NewLocalTransport())
+	router.RegisterAgent("coder2", transport.NewLocalTransport())
+	memory := session.NewCentralMemory()
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetCoderCapabilities([]capdomain.CoderCapability{
+		{Name: "coder1", Quality: 3, Available: true},
+		{Name: "coder2", Quality: 4, Available: true},
+		{Name: "coder3", Quality: 5, Available: true},
+	})
+
+	got := orch.routeToCoderForMessage(routing.RouteCODE3, "高品質レビューをして")
+	if got != "coder2" {
+		t.Fatalf("routeToCoderForMessage(CODE3) = %q, want coder2 degraded from unavailable coder3", got)
 	}
 }
 

@@ -205,11 +205,11 @@ OpenClawの実装実行能力をGo基盤へ段階移植するための仕様。
 
 | 内容 | 状態 |
 |---|---|
-| NodeCapabilities 起動時検出（OS/メモリ/LLM疎通） | 未実装 |
-| ケイパビリティベース LLM ルーティング（静的配線から動的選択へ） | 未実装 |
-| ToolRegistry（Shiro生成ツールの永続化・共有） | 未実装 |
-| Shiro → Coder ツール共有フロー（プラットフォームフィルタ・承認） | 未実装 |
-| クロスプラットフォームバイナリ戦略（Makefile + ビルドタグ） | 未実装 |
+| NodeCapabilities 起動時検出（OS/メモリ/LLM疎通） | 実装完了（起動時検出・profile 判定・ログ出力） |
+| ケイパビリティベース LLM ルーティング（静的配線から動的選択へ） | 部分実装（分散 Coder 選択で接続済み・品質要件ベースの選択と縮退） |
+| ToolRegistry（Shiro生成ツールの永続化・共有） | 実装完了（DuckDB 永続化・platform filter・CapabilityDetector 連携） |
+| Shiro → Coder ツール共有フロー（プラットフォームフィルタ・承認） | 部分実装（ToolRegistry 読み込みと platform filter。承認フローは継続） |
+| クロスプラットフォームバイナリ戦略（Makefile + ビルドタグ） | 部分実装（linux/amd64 DuckDB 実装と非対応環境 stub） |
 
 ### 2.9 04_実装仕様_機能拡張/実装仕様_エージェントペルソナ_v1.md（設計段階）
 

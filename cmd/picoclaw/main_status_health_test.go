@@ -53,15 +53,15 @@ func TestCollectOllamaHealthRequirements_SkipsEmptyModel(t *testing.T) {
 func TestBuildHealthService_LocalLLMUsesOpenAICompatibleChecks(t *testing.T) {
 	var chatHits, workerHits int
 	mux := http.NewServeMux()
-	mux.HandleFunc("/chat/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/chat/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		chatHits++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"Chat"}]}`))
 	})
-	mux.HandleFunc("/worker/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/worker/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		workerHits++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"Worker"}]}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"time"
 
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 )
 
@@ -56,6 +57,14 @@ func (o *DistributedOrchestrator) SetNodeCapabilities(caps map[string]domainnode
 	o.nodeCaps = caps
 	if o.coderSelector != nil {
 		o.coderSelector.SetNodeCapabilities(caps)
+	}
+}
+
+// SetCoderCapabilities sets self-detected LLM quality metadata used for capability-based coder routing.
+func (o *DistributedOrchestrator) SetCoderCapabilities(caps []capdomain.CoderCapability) {
+	o.coderCaps = append([]capdomain.CoderCapability(nil), caps...)
+	if o.coderSelector != nil {
+		o.coderSelector.SetCoderCapabilities(o.coderCaps)
 	}
 }
 

@@ -48,6 +48,7 @@ func buildOrchestratorRuntime(
 			centralMemory,
 			ttsBridge,
 			vtuberBridge,
+			nodeCaps,
 		)
 		deps.moduleChatService = modulebridge.NewRuntimeChatService(deps.distOrch, agents.Mio)
 		deps.viewerSend = bridges.ViewerSendFromOrch(deps.distOrch)

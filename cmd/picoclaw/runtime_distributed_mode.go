@@ -14,6 +14,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/agent"
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
@@ -37,6 +38,7 @@ func (d *Dependencies) buildDistributedMode(
 	centralMemory *domainsession.CentralMemory,
 	ttsBridge orchestrator.TTSBridge,
 	vtuberBridge orchestrator.VTuberBridge,
+	nodeCaps capdomain.NodeCapabilities,
 ) {
 	// Transport Factory でAgent別Transport生成
 	factory := transport.NewTransportFactory()
@@ -112,6 +114,10 @@ func (d *Dependencies) buildDistributedMode(
 		sshTransports,
 	)
 	d.distOrch = distOrch
+	if coderCaps := buildCoderCapabilities(nodeCaps, cfg); coderCaps != nil {
+		distOrch.SetCoderCapabilities(coderCaps)
+		log.Printf("Distributed coder capability routing enabled (%d coders)", len(coderCaps))
+	}
 	distOrch.SetHeavyAgent(heavyAgent)
 	distOrch.SetWildAgent(wildAgent)
 	distOrch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{

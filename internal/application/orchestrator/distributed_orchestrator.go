@@ -5,6 +5,7 @@ import (
 	"time"
 
 	domainai "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/aiworkflow"
+	capdomain "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/capability"
 	domainexecution "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/execution"
 	domainnode "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/node"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -33,6 +34,7 @@ type DistributedOrchestrator struct {
 	idleNotifier            IdleNotifier
 	nodeSelector            *NodeSelector
 	nodeCaps                map[string]domainnode.ResourceProfile
+	coderCaps               []capdomain.CoderCapability
 	coderConfigs            map[string]interface{} // v4.1: coder1-4 の CoderConfig（SSH送信用）
 	ttsBridge               TTSBridge
 	vtuberBridge            VTuberBridge
