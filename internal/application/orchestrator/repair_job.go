@@ -73,6 +73,10 @@ Instruction:
 
 Requirements:
 - Diagnose the requested RenCrow runtime problem from logs and code.
+- Identify concrete existing repository files before proposing file edits.
+- Do not create placeholder/example paths such as chat.go, path/to/*, sample/*, or example/* as a repair.
+- Do not turn illustrative Markdown code blocks into patches; patch blocks must target real files.
+- If no safe concrete code change is identified, return a diagnostic report instead of a patch.
 - Produce a concrete plan and patch when code changes are needed.
 - Keep Chat/Mio out of the repair intake path; report through job events.
 - Do not perform destructive operations in the Coder proposal; Worker applies executable changes.`, req.Reason, req.TargetRoute, req.TargetAgent, req.Recent, req.Source, req.Instruction)
