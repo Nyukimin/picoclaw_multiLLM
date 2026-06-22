@@ -217,11 +217,11 @@ Shiro/Coder に軽量なペルソナ（AgentPersona）とインメモリ短期�
 
 | 内容 | 状態 |
 |------|------|
-| AgentPersona 型（domain layer） | 未実装 |
-| LightMemory 型（インメモリ FIFO） | 未実装 |
-| config.yaml `agents:` セクション拡張 | 未実装 |
-| ShiroAgent / CoderAgent への Builder 注入 | 未実装 |
-| IdleChat personalities との統合（Phase 1） | 未実装 |
+| AgentPersona 型（domain layer） | 実装完了（`internal/domain/agent/persona.go`） |
+| LightMemory 型（インメモリ FIFO） | 実装完了（`internal/domain/agent/light_memory.go`。Shiro / Coder の LLM request に直近 turn を注入し、成功応答を記録） |
+| config.yaml `agents:` セクション拡張 | 現行 config へ統合済み（`worker.persona_file` / `worker.light_memory`、`coder1..4.persona_file/personality/light_memory`） |
+| ShiroAgent / CoderAgent への Builder 注入 | 実装完了（`WithPersona` / `WithLightMemory`、runtime config から注入） |
+| IdleChat personalities との統合（Phase 1） | 実装完了（Persona runtime recorder / canonical responses と Coder runtime personality 解決を接続） |
 
 ### 2.10 02_OpenClaw移植詳細仕様/（分割仕様）
 

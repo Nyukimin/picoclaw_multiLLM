@@ -21,6 +21,7 @@ type ShiroAgent struct {
 	systemPrompt    string
 	subagentManager SubagentManager // v1.0: ReActループ統合
 	persona         *AgentPersona   // v4.2: Optional Agent Persona
+	lightMemory     *LightMemory    // Optional: short-term memory
 	conversation    conversation.ConversationEngine
 }
 
@@ -44,6 +45,12 @@ func NewShiroAgent(
 // WithPersona は AgentPersona を設定する（Builder パターン）
 func (s *ShiroAgent) WithPersona(persona AgentPersona) *ShiroAgent {
 	s.persona = &persona
+	return s
+}
+
+// WithLightMemory は LightMemory を設定する（Builder パターン）。
+func (s *ShiroAgent) WithLightMemory(memory *LightMemory) *ShiroAgent {
+	s.lightMemory = memory
 	return s
 }
 
@@ -74,7 +81,6 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 		return result.Output, nil
 	}
 
-	// フォールバック: SubagentManager がない場合は従来通りの単純な LLM 呼び出し
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	if s.conversation != nil {
 		recallPack, err := s.conversation.BeginTurn(ctx, t.ChatID(), t.UserMessage())
@@ -88,6 +94,9 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 			messages = append(messages, filtered.ToPromptMessages()...)
 		}
 	}
+	if s.lightMemory != nil {
+		messages = append(messages, s.lightMemory.RecentMessages(t.ChatID())...)
+	}
 	messages = append(messages, userMessageWithAttachments(t.UserMessage(), t.Attachments()))
 	req := llm.GenerateRequest{
 		Messages:    messages,
@@ -98,6 +107,9 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 	resp, err := s.llmProvider.Generate(ctx, req)
 	if err != nil {
 		return "", err
+	}
+	if s.lightMemory != nil {
+		s.lightMemory.Record(t.ChatID(), t.UserMessage(), resp.Content)
 	}
 
 	if s.conversation != nil {

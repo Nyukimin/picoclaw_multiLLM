@@ -44,7 +44,7 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/live2d/asset", viewer.HandleLive2DAsset)
 	mux.HandleFunc("/viewer/live2d/chat", viewer.HandleLive2DChat)
 	mux.HandleFunc("/viewer/live2d/emotion", viewer.HandleLive2DEmotionControl)
-	mux.HandleFunc("/viewer/api/chat", viewer.HandleLive2DChatAPI)
+	mux.HandleFunc("/viewer/api/chat", viewer.HandleLive2DChatAPIWithResponder(newLive2DOrchestratorResponder(dependencies)))
 	mux.HandleFunc("/viewer/tts/audio", handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL))
 	mux.HandleFunc("/viewer/tts/playback-ack", handleTTSPlaybackAck())
 	mux.HandleFunc("/viewer/active-control", handleViewerActiveClaim(dependencies.eventHub.OnEvent))
@@ -52,11 +52,32 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
 	mux.HandleFunc("/viewer/docs/search", viewer.HandleDocsSearch())
 	mux.HandleFunc("/viewer/docs/detail", viewer.HandleDocsDetail())
+	if dependencies.historyRepairJSONL != nil {
+		mux.HandleFunc("/viewer/history-repair/jsonl", dependencies.historyRepairJSONL)
+	}
+	if dependencies.packageValidation != nil {
+		mux.HandleFunc("/viewer/package-validation", dependencies.packageValidation)
+	}
+	if dependencies.characterRuntime != nil {
+		mux.HandleFunc("/viewer/character-runtime", dependencies.characterRuntime)
+	}
+	if dependencies.extensionHealth != nil {
+		mux.HandleFunc("/viewer/extensions/health", dependencies.extensionHealth)
+	}
+	if dependencies.otelExport != nil {
+		mux.HandleFunc("/viewer/otel/export", dependencies.otelExport)
+	}
+	if dependencies.artifactCleanup != nil {
+		mux.HandleFunc("/viewer/artifact-cleanup", dependencies.artifactCleanup)
+	}
 	mux.HandleFunc("/viewer/repair/run", viewer.HandleRepairRunWithRunner(dependencies.eventRelay, dependencies.repairRunner))
 	if dependencies.backlogStore == nil {
 		dependencies.backlogStore = viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))
 	}
 	mux.HandleFunc("/viewer/backlog", viewer.HandleBacklog(dependencies.backlogStore))
+	if dependencies.schedulerStatus != nil {
+		mux.HandleFunc("/viewer/scheduler", dependencies.schedulerStatus)
+	}
 	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
 	mux.HandleFunc("/viewer/movie-catalog", viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}))
 	mux.HandleFunc("/viewer/movie-catalog/fetch", viewer.HandleMovieCatalogFetch(viewer.MovieCatalogOptions{}))

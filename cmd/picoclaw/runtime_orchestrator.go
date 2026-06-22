@@ -51,6 +51,7 @@ func buildOrchestratorRuntime(
 			nodeCaps,
 		)
 		deps.moduleChatService = modulebridge.NewRuntimeChatService(deps.distOrch, agents.Mio)
+		deps.live2DChatResponder = &live2DOrchestratorResponder{orch: deps.distOrch}
 		deps.viewerSend = bridges.ViewerSendFromOrch(deps.distOrch)
 		deps.repairRunner = newAsyncRepairJobRunner(deps.distOrch, deps.eventRelay)
 		deps.entryHandler = bridges.EntryFromOrch(deps.distOrch)
@@ -147,6 +148,7 @@ func buildOrchestratorRuntime(
 	}
 	buildChannelRuntimeHandlers(cfg, deps, orch)
 	deps.moduleChatService = modulebridge.NewRuntimeChatService(orch, agents.Mio)
+	deps.live2DChatResponder = &live2DOrchestratorResponder{orch: orch}
 	deps.viewerSend = bridges.ViewerSendFromOrch(orch)
 	deps.repairRunner = newAsyncRepairJobRunner(orch, deps.eventRelay)
 	deps.entryHandler = bridges.EntryFromOrch(orch)

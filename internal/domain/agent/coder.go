@@ -100,14 +100,13 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 		systemPrompt = c.persona.BuildSystemPrompt(c.proposalPrompt)
 	}
 
+	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	if c.lightMemory != nil {
+		messages = append(messages, c.lightMemory.RecentMessages(t.ChatID())...)
+	}
+	messages = append(messages, userMessageWithAttachments(t.UserMessage(), t.Attachments()))
 	req := llm.GenerateRequest{
-		Messages: []llm.Message{
-			{
-				Role:    "system",
-				Content: systemPrompt,
-			},
-			userMessageWithAttachments(t.UserMessage(), t.Attachments()),
-		},
+		Messages:    messages,
 		MaxTokens:   8192,
 		Temperature: 0.5,
 	}
@@ -128,6 +127,9 @@ func (c *CoderAgent) GenerateProposal(ctx context.Context, t task.Task) (*propos
 	if err := c.selfCheckProposal(p); err != nil {
 		log.Printf("[CoderAgent] proposal self-check failed provider=%s job=%s err=%v", c.llmProvider.Name(), t.JobID().String(), err)
 		return nil, err
+	}
+	if c.lightMemory != nil {
+		c.lightMemory.Record(t.ChatID(), t.UserMessage(), resp.Content)
 	}
 	log.Printf("[CoderAgent] proposal extract complete provider=%s job=%s plan_len=%d patch_len=%d", c.llmProvider.Name(), t.JobID().String(), len(p.Plan()), len(p.Patch()))
 	return p, nil
@@ -155,11 +157,13 @@ func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, system
 		finalSystemPrompt = c.persona.BuildSystemPrompt(systemPrompt)
 	}
 
+	messages := []llm.Message{{Role: "system", Content: finalSystemPrompt}}
+	if c.lightMemory != nil {
+		messages = append(messages, c.lightMemory.RecentMessages(t.ChatID())...)
+	}
+	messages = append(messages, userMessageWithAttachments(t.UserMessage(), t.Attachments()))
 	req := llm.GenerateRequest{
-		Messages: []llm.Message{
-			{Role: "system", Content: finalSystemPrompt},
-			userMessageWithAttachments(t.UserMessage(), t.Attachments()),
-		},
+		Messages:    messages,
 		MaxTokens:   8192,
 		Temperature: 0.5,
 	}
@@ -167,6 +171,9 @@ func (c *CoderAgent) GenerateWithPrompt(ctx context.Context, t task.Task, system
 	resp, err := c.llmProvider.Generate(ctx, req)
 	if err != nil {
 		return "", err
+	}
+	if c.lightMemory != nil {
+		c.lightMemory.Record(t.ChatID(), t.UserMessage(), resp.Content)
 	}
 
 	return resp.Content, nil

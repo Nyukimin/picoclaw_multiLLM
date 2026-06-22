@@ -192,6 +192,10 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.Worker.LightMemory.Enabled && (c.Worker.LightMemory.MaxTurns < 1 || c.Worker.LightMemory.MaxTurns > 20) {
+		return fmt.Errorf("worker.light_memory.max_turns must be between 1 and 20, got %d", c.Worker.LightMemory.MaxTurns)
+	}
+
 	// v4.0 IdleChat設定検証
 	if c.IdleChat.Enabled {
 		validAgents := map[string]bool{

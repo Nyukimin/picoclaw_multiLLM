@@ -96,7 +96,7 @@ func TestHandleAIWorkflowStatus(t *testing.T) {
 		memories:  []domainai.ProjectMemoryIndex{{ID: "mem_1", Repo: "repo", FilePath: ".ai/PROJECT_MEMORY.md", MemoryType: "project", UpdatedAt: now}},
 		worktrees: []domainai.WorktreeRegistry{{WorktreeID: "wt_1", Repo: "repo", Path: "../worktrees/repo-feature", Branch: "feature/a", Status: "active", CreatedAt: now}},
 		commands:  []domainai.CommandRegistry{{CommandName: "/review-architecture", FilePath: "commands/review-architecture.md", UpdatedAt: now}},
-		contexts:  []domainai.ContextUsage{{EventID: "ctx_1", Agent: "Coder", CreatedAt: now}},
+		contexts:  []domainai.ContextUsage{{EventID: "ctx_1", JobID: "job_1", WorkstreamID: "ws_1", Agent: "Coder", ContextTokens: 120, CreatedAt: now}},
 	}
 	rec := httptest.NewRecorder()
 	HandleAIWorkflowStatus(store).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/viewer/ai-workflow", nil))
@@ -104,7 +104,7 @@ func TestHandleAIWorkflowStatus(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"workflow_events", "project_memory_indexes", "worktree_registries", "command_registries", "context_usages", "context_budget_policy"} {
+	for _, want := range []string{"workflow_events", "project_memory_indexes", "worktree_registries", "command_registries", "context_usages", "usage_continuity", "context_budget_policy", "job_1", "ws_1"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}
@@ -313,6 +313,46 @@ func TestHandleAIWorkflowCommandAndContextBudgetAreVisibleInStatus(t *testing.T)
 	}
 	body := statusRec.Body.String()
 	for _, want := range []string{"command_invoked", "context_budget_warning", "ctx_ws_1", "run_1", "ws_1", "/review-architecture"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("status response missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestHandleAIWorkflowStatusShowsUsageContinuityAcrossJobAndWorkstream(t *testing.T) {
+	now := time.Date(2026, 6, 22, 7, 0, 0, 0, time.UTC)
+	store := &stubAIWorkflowStore{
+		events: []domainai.WorkflowEvent{{
+			EventID:      "evt_ws_done",
+			RunID:        "run_1",
+			WorkstreamID: "ws_1",
+			EventType:    "backlog_runner",
+			Status:       "completed",
+			CreatedAt:    now.Add(2 * time.Minute),
+		}},
+		contexts: []domainai.ContextUsage{
+			{EventID: "ctx_before", JobID: "job_1", RunID: "run_1", WorkstreamID: "ws_1", SessionID: "session_1", Agent: "Coder", ContextTokens: 100, CreatedAt: now},
+			{EventID: "ctx_after", JobID: "job_1", RunID: "run_1", WorkstreamID: "ws_1", SessionID: "session_1", CompactionID: "compact_1", Agent: "Coder", Model: "Worker", ContextTokens: 80, InputTokens: 12, OutputTokens: 5, CreatedAt: now.Add(time.Minute)},
+		},
+	}
+	rec := httptest.NewRecorder()
+
+	HandleAIWorkflowStatus(store).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/viewer/ai-workflow", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"usage_continuity"`,
+		`"scope":"job"`,
+		`"scope_id":"job_1"`,
+		`"scope":"workstream"`,
+		`"scope_id":"ws_1"`,
+		`"latest_event_id":"ctx_after"`,
+		`"compaction_id":"compact_1"`,
+		`"latest_run_state":"completed"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("status response missing %s: %s", want, body)
 		}

@@ -232,7 +232,8 @@ func sweepWebGatherSource(ctx context.Context, store RegistryStore, source conve
 }
 
 func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversationpersistence.L1SourceRegistryEntry, trustScores map[string]float64, now time.Time, result *SweepResult) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
+	apiPlan := planSourceAPI(source)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiPlan.FetchURL, nil)
 	if err != nil {
 		return err
 	}
@@ -263,11 +264,12 @@ func sweepHTTPSource(ctx context.Context, store RegistryStore, source conversati
 	summary := title
 	keywords := []string{category}
 	meta := map[string]interface{}{
-		"fetcher":   "source_registry_http",
+		"fetcher":   apiPlan.Fetcher,
 		"category":  category,
 		"domain":    domain,
 		"namespace": namespace,
 		"title":     title,
+		"api_url":   apiPlan.FetchURL,
 	}
 	if source.Kind == conversationpersistence.L1SourceKindPyPI {
 		if parsed, ok := parsePyPIPayload(raw); ok {

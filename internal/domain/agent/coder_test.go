@@ -456,6 +456,37 @@ func TestCoderAgentGenerateWithPrompt(t *testing.T) {
 	}
 }
 
+func TestCoderAgentGenerateWithPromptUsesLightMemory(t *testing.T) {
+	var captured []llm.Message
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			captured = append([]llm.Message(nil), req.Messages...)
+			return llm.GenerateResponse{Content: "second response"}, nil
+		},
+	}
+	memory := NewLightMemory(3)
+	memory.Record("U123", "first user", "first assistant")
+	coder := NewCoderAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt").WithLightMemory(memory)
+
+	_, err := coder.GenerateWithPrompt(context.Background(), task.NewTask(task.NewJobID(), "second user", "line", "U123"), "coder prompt")
+	if err != nil {
+		t.Fatalf("GenerateWithPrompt failed: %v", err)
+	}
+
+	if len(captured) != 4 {
+		t.Fatalf("messages=%#v", captured)
+	}
+	if captured[1].Role != "user" || captured[1].Content != "first user" ||
+		captured[2].Role != "assistant" || captured[2].Content != "first assistant" ||
+		captured[3].Content != "second user" {
+		t.Fatalf("LightMemory messages not injected in order: %#v", captured)
+	}
+	recent := memory.RecentMessages("U123")
+	if len(recent) != 4 || recent[3].Content != "second response" {
+		t.Fatalf("LightMemory did not record response: %#v", recent)
+	}
+}
+
 func TestCoderAgentGenerateWithPrompt_Error(t *testing.T) {
 	llmProvider := &mockLLMProvider{
 		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {

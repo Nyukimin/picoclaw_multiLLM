@@ -12,13 +12,17 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	aiworkflowapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/aiworkflow"
+	artifactcleanupapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/artifactcleanup"
 	browsertraceapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/browsertrace"
 	complexityapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/complexity"
 	dciapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/dci"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/heartbeat"
+	historyrepairapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/historyrepair"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
 	knowledgememoryapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/knowledgememory"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
+	otelexportapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/otelexport"
+	packagevalidationapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/packagevalidation"
 	sandboxapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/sandbox"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/service"
 	skillapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/skillgovernance"
@@ -40,6 +44,7 @@ import (
 	personapersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/persona"
 	revenuepersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/revenue"
 	sandboxpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/sandbox"
+	schedulerpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/scheduler"
 	skillpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/skillgovernance"
 	superagentpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/superagent"
 	workstreampersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/workstream"
@@ -75,6 +80,13 @@ type Dependencies struct {
 	viewerAuditSummary             http.HandlerFunc                            // viewer audit summary API
 	viewerJobDetail                http.HandlerFunc                            // viewer job detail API
 	viewerSend                     http.HandlerFunc                            // viewer message sender
+	live2DChatResponder            viewer.Live2DChatResponder                  // viewer Live2D chat -> orchestrator adapter
+	historyRepairJSONL             http.HandlerFunc                            // viewer JSONL history repair API
+	packageValidation              http.HandlerFunc                            // viewer package/update validation API
+	characterRuntime               http.HandlerFunc                            // viewer six-character conversation runtime API
+	extensionHealth                http.HandlerFunc                            // viewer plugin / extension health API
+	otelExport                     http.HandlerFunc                            // viewer OpenTelemetry export API
+	artifactCleanup                http.HandlerFunc                            // viewer stale artifact cleanup API
 	repairRunner                   viewer.RepairJobRunner                      // viewer repair job runner
 	voiceDirectHandler             voiceDirectFinalHandler                     // VDS llm.final -> SSE
 	evidenceHandler                http.HandlerFunc                            // viewer evidence API
@@ -190,6 +202,8 @@ type Dependencies struct {
 	aiWorkflowWorktreeCreate       http.HandlerFunc                            // viewer git worktree create API
 	aiWorkflowWorktreeClose        http.HandlerFunc                            // viewer git worktree close API
 	aiWorkflowStore                viewer.AIWorkflowStore                      // workflow telemetry store
+	schedulerStatus                http.HandlerFunc                            // viewer in-app scheduler API
+	schedulerStore                 viewer.SchedulerStore                       // in-app scheduler persistent store
 	knowledgeMemoryStatus          http.HandlerFunc                            // viewer knowledge memory status API
 	personalArchiveCreate          http.HandlerFunc                            // viewer personal archive API
 	creativeKnowledgeCreate        http.HandlerFunc                            // viewer creative knowledge API
@@ -332,6 +346,18 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 	deps.glossaryRecent = glossaryRuntime.RecentHandler
 	deps.toolRegistry = runtimeToolRegistry
 	deps.backlogStore = viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))
+	deps.schedulerStore = schedulerpersistence.NewJSONLStore(filepath.Join(cfg.WorkspaceDir, "logs", "scheduler"))
+	deps.schedulerStatus = viewer.HandleScheduler(deps.schedulerStore)
+	deps.historyRepairJSONL = viewer.HandleHistoryRepairJSONL(historyrepairapp.NewJSONLRepairService(
+		cfg.WorkspaceDir,
+		filepath.Join(cfg.WorkspaceDir, "logs", "history_repair.jsonl"),
+	))
+	deps.packageValidation = viewer.HandlePackageValidation(packagevalidationapp.NewService(cfg.WorkspaceDir))
+	deps.otelExport = viewer.HandleOTelExport(otelexportapp.NewService(os.Getenv("RENCROW_OTEL_ENDPOINT")))
+	deps.artifactCleanup = viewer.HandleArtifactCleanup(artifactcleanupapp.NewService(
+		cfg.WorkspaceDir,
+		filepath.Join(cfg.WorkspaceDir, "logs", "artifact_cleanup.jsonl"),
+	))
 	if toolRuntime.ToolMediationRecorder != nil {
 		deps.toolHarnessRecent = viewer.HandleToolHarnessRecent(toolRuntime.ToolMediationRecorder)
 	}
@@ -769,9 +795,47 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		verificationRuntime,
 	)
 	buildHeartbeatRuntime(cfg, deps, agents.Mio, sessionRuntime.MemoryStore)
+	deps.extensionHealth = buildExtensionHealthHandler(cfg, deps)
 
 	log.Println("Dependency injection complete")
 	return deps
+}
+
+func buildExtensionHealthHandler(cfg *config.Config, deps *Dependencies) http.HandlerFunc {
+	item := func(id string, kind string, name string, source string, configured bool, loaded bool, message string) viewer.ExtensionHealthItem {
+		status := ""
+		if loaded {
+			status = "ok"
+		}
+		return viewer.ExtensionHealthItem{
+			ID:         id,
+			Kind:       kind,
+			Name:       name,
+			Source:     source,
+			Status:     status,
+			Configured: configured,
+			Loaded:     loaded,
+			Message:    message,
+		}
+	}
+	items := []viewer.ExtensionHealthItem{
+		item("tool-registry", "tool", "Tool Registry", "runtime", true, deps.toolRegistry != nil, ""),
+		item("module-llm", "module", "RenCrow LLM Module", "runtime", true, len(deps.moduleLLMProviders) > 0, ""),
+		item("module-worker", "module", "RenCrow Worker Module", "runtime", true, deps.moduleWorkerExecutor != nil, ""),
+		item("module-stt", "module", "RenCrow STT Module", "runtime", true, deps.moduleSTTViewerInput != nil, ""),
+		item("module-tts", "module", "RenCrow TTS Module", "runtime", true, deps.moduleTTSProvider != nil, ""),
+		item("character-runtime", "module", "Six Character Runtime", "runtime", true, deps.characterRuntime != nil, ""),
+		item("scheduler", "extension", "In-App Scheduler", "runtime", true, deps.schedulerStatus != nil, ""),
+		item("history-repair", "extension", "JSONL History Repair", "runtime", true, deps.historyRepairJSONL != nil, ""),
+		item("package-validation", "extension", "Package Update Validation", "runtime", true, deps.packageValidation != nil, ""),
+		item("skill-governance", "skill", "Skill Governance", "config", cfg.SkillGovernance.IsEnabled(), deps.skillGovernanceRecent != nil, ""),
+		item("sandbox", "extension", "Sandbox Promotion Gate", "config", cfg.Sandbox.Enabled, deps.sandboxStatus != nil, ""),
+		item("browser-trace-api", "extension", "Browser Trace API Discovery", "config", cfg.BrowserTraceToAPI.IsEnabled(), deps.browserTraceAPIStatus != nil, ""),
+		item("superagent-harness", "extension", "SuperAgent Harness", "config", cfg.SuperAgentHarness.IsEnabled(), deps.superAgentStatus != nil, ""),
+		item("ai-workflow", "extension", "AI Workflow", "config", cfg.AIWorkflow.IsEnabled(), deps.aiWorkflowStatus != nil, ""),
+		item("knowledge-memory", "extension", "Knowledge Memory", "config", cfg.KnowledgeMemory.IsEnabled(), deps.knowledgeMemoryStatus != nil, ""),
+	}
+	return viewer.HandleExtensionHealth(viewer.ExtensionHealthOptions{Items: items})
 }
 
 func selectComplexityCoder(runtime llmRuntimeProviders) *coderAdapter {

@@ -25,7 +25,7 @@ func TestJSONLStoreSaveAndListAIWorkflowRecords(t *testing.T) {
 	if err := store.SaveCommandRegistry(ctx, domainai.CommandRegistry{CommandName: "/review-architecture", FilePath: "commands/review-architecture.md", UpdatedAt: now}); err != nil {
 		t.Fatalf("SaveCommandRegistry() error = %v", err)
 	}
-	if err := store.SaveContextUsage(ctx, domainai.ContextUsage{EventID: "ctx_1", Agent: "Coder", InputTokens: 1, CreatedAt: now}); err != nil {
+	if err := store.SaveContextUsage(ctx, domainai.ContextUsage{EventID: "ctx_1", SessionID: "session_1", RunID: "run_1", WorkstreamID: "ws_1", JobID: "job_1", CompactionID: "compact_1", Agent: "Coder", InputTokens: 1, CreatedAt: now}); err != nil {
 		t.Fatalf("SaveContextUsage() error = %v", err)
 	}
 	if items, err := store.ListWorkflowEvents(ctx, 10); err != nil || len(items) != 1 || items[0].EventID != "evt_1" || items[0].RunID != "run_1" || items[0].WorkstreamID != "ws_1" {
@@ -40,7 +40,7 @@ func TestJSONLStoreSaveAndListAIWorkflowRecords(t *testing.T) {
 	if items, err := store.ListCommandRegistries(ctx, 10); err != nil || len(items) != 1 || items[0].CommandName != "/review-architecture" {
 		t.Fatalf("commands=%#v err=%v", items, err)
 	}
-	if items, err := store.ListContextUsages(ctx, 10); err != nil || len(items) != 1 || items[0].EventID != "ctx_1" {
+	if items, err := store.ListContextUsages(ctx, 10); err != nil || len(items) != 1 || items[0].EventID != "ctx_1" || items[0].JobID != "job_1" || items[0].RunID != "run_1" || items[0].WorkstreamID != "ws_1" || items[0].CompactionID != "compact_1" {
 		t.Fatalf("contexts=%#v err=%v", items, err)
 	}
 }
@@ -87,10 +87,13 @@ func TestJSONLStoreCompactsOperationalContextUsage(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < contextUsageMaxRecords+3; i++ {
 		if err := store.SaveContextUsage(ctx, domainai.ContextUsage{
-			EventID:     "ctx_" + strconv.Itoa(i),
-			Agent:       "Coder",
-			InputTokens: i,
-			CreatedAt:   now.Add(time.Duration(i) * time.Second),
+			EventID:      "ctx_" + strconv.Itoa(i),
+			JobID:        "job_compact",
+			WorkstreamID: "ws_compact",
+			CompactionID: "compact_1",
+			Agent:        "Coder",
+			InputTokens:  i,
+			CreatedAt:    now.Add(time.Duration(i) * time.Second),
 		}); err != nil {
 			t.Fatalf("SaveContextUsage(%d) error = %v", i, err)
 		}
@@ -108,5 +111,8 @@ func TestJSONLStoreCompactsOperationalContextUsage(t *testing.T) {
 	}
 	if items[0].EventID != "ctx_"+strconv.Itoa(contextUsageMaxRecords+2) {
 		t.Fatalf("newest context usage=%q", items[0].EventID)
+	}
+	if items[0].JobID != "job_compact" || items[0].WorkstreamID != "ws_compact" || items[0].CompactionID != "compact_1" {
+		t.Fatalf("newest context usage lost continuity keys: %#v", items[0])
 	}
 }

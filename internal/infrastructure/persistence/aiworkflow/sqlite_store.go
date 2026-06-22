@@ -87,6 +87,9 @@ func (s *SQLiteStore) migrate() error {
 		`CREATE TABLE IF NOT EXISTS ai_context_usage (
 			event_id TEXT PRIMARY KEY,
 			session_id TEXT,
+			run_id TEXT,
+			workstream_id TEXT,
+			job_id TEXT,
 			agent TEXT,
 			model TEXT,
 			created_at TEXT,
@@ -102,6 +105,15 @@ func (s *SQLiteStore) migrate() error {
 		return err
 	}
 	if err := addColumnIfMissing(s.db, "ai_workflow_event", "workstream_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(s.db, "ai_context_usage", "run_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(s.db, "ai_context_usage", "workstream_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(s.db, "ai_context_usage", "job_id", "TEXT"); err != nil {
 		return err
 	}
 	return nil
@@ -168,9 +180,9 @@ func (s *SQLiteStore) SaveContextUsage(ctx context.Context, item domainai.Contex
 		return err
 	}
 	return s.save(ctx, `INSERT OR REPLACE INTO ai_context_usage (
-		event_id, session_id, agent, model, created_at, payload
-	) VALUES (?, ?, ?, ?, ?, ?)`,
-		item.EventID, item.SessionID, item.Agent, item.Model, item.CreatedAt.Format(timeFormatRFC3339Nano), item)
+		event_id, session_id, run_id, workstream_id, job_id, agent, model, created_at, payload
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.EventID, item.SessionID, item.RunID, item.WorkstreamID, item.JobID, item.Agent, item.Model, item.CreatedAt.Format(timeFormatRFC3339Nano), item)
 }
 
 func (s *SQLiteStore) ListContextUsages(ctx context.Context, limit int) ([]domainai.ContextUsage, error) {

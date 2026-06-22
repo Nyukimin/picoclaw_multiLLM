@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -418,32 +419,49 @@ func HandleLive2DChat(w http.ResponseWriter, r *http.Request) {
 
 // HandleLive2DChatAPI handles chat API requests with emotion detection
 func HandleLive2DChatAPI(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	HandleLive2DChatAPIWithResponder(nil)(w, r)
+}
+
+type Live2DChatResponder interface {
+	RespondLive2DChat(ctx context.Context, sessionID string, characterID string, message string) (string, error)
+}
+
+func HandleLive2DChatAPIWithResponder(responder Live2DChatResponder) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Message     string `json:"message"`
+			CharacterID string `json:"character_id"`
+			Mode        string `json:"mode"`
+			SessionID   string `json:"session_id"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if req.CharacterID == "" {
+			req.CharacterID = "mio"
+		}
+
+		responseMessage := ""
+		if responder != nil {
+			if message, err := responder.RespondLive2DChat(r.Context(), req.SessionID, req.CharacterID, req.Message); err == nil {
+				responseMessage = strings.TrimSpace(message)
+			}
+		}
+		if responseMessage == "" {
+			responseMessage = fmt.Sprintf("ご質問ありがとうございます。「%s」について考えてみますね。", req.Message)
+		}
+
+		resp := BuildChatResponse(responseMessage, req.CharacterID, req.Mode)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}
-
-	var req struct {
-		Message     string `json:"message"`
-		CharacterID string `json:"character_id"`
-		Mode        string `json:"mode"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	if req.CharacterID == "" {
-		req.CharacterID = "mio"
-	}
-
-	// TODO: Call actual LLM service for response
-	// For now, echo back with emotion detection
-	responseMessage := fmt.Sprintf("ご質問ありがとうございます。「%s」について考えてみますね。", req.Message)
-
-	resp := BuildChatResponse(responseMessage, req.CharacterID, req.Mode)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
 }

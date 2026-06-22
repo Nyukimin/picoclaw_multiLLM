@@ -103,6 +103,18 @@ func TestShiroAgentWithPersona(t *testing.T) {
 	}
 }
 
+func TestShiroAgentWithLightMemory(t *testing.T) {
+	shiro := NewShiroAgent(&mockLLMProvider{}, &mockToolRunner{}, &mockMCPClient{}, "test prompt", nil)
+	memory := NewLightMemory(2)
+
+	if got := shiro.WithLightMemory(memory); got != shiro {
+		t.Fatal("WithLightMemory should return the same agent")
+	}
+	if shiro.lightMemory != memory {
+		t.Fatalf("LightMemory not set: %#v", shiro.lightMemory)
+	}
+}
+
 func TestShiroAgentExecute(t *testing.T) {
 	llmProvider := &mockLLMProvider{
 		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
@@ -136,6 +148,36 @@ func TestShiroAgentExecute(t *testing.T) {
 
 	if result != "Task executed successfully" {
 		t.Errorf("Expected 'Task executed successfully', got '%s'", result)
+	}
+}
+
+func TestShiroAgentExecuteUsesLightMemory(t *testing.T) {
+	var captured []llm.Message
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			captured = append([]llm.Message(nil), req.Messages...)
+			return llm.GenerateResponse{Content: "second worker response"}, nil
+		},
+	}
+	memory := NewLightMemory(3)
+	memory.Record("U123", "first worker task", "first worker response")
+	shiro := NewShiroAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt", nil).WithLightMemory(memory)
+
+	if _, err := shiro.Execute(context.Background(), task.NewTask(task.NewJobID(), "second worker task", "line", "U123")); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if len(captured) != 4 {
+		t.Fatalf("messages=%#v", captured)
+	}
+	if captured[1].Role != "user" || captured[1].Content != "first worker task" ||
+		captured[2].Role != "assistant" || captured[2].Content != "first worker response" ||
+		captured[3].Content != "second worker task" {
+		t.Fatalf("LightMemory messages not injected in order: %#v", captured)
+	}
+	recent := memory.RecentMessages("U123")
+	if len(recent) != 4 || recent[3].Content != "second worker response" {
+		t.Fatalf("LightMemory did not record response: %#v", recent)
 	}
 }
 

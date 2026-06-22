@@ -100,5 +100,9 @@ func buildAgentRuntime(
 			log.Printf("Shiro: persona loaded from %s", cfg.Worker.PersonaFile)
 		}
 	}
+	if cfg.Worker.LightMemory.Enabled {
+		shiroAgent.WithLightMemory(agent.NewLightMemory(cfg.Worker.LightMemory.MaxTurns))
+		log.Printf("Shiro: LightMemory enabled (max_turns=%d)", cfg.Worker.LightMemory.MaxTurns)
+	}
 	return agentRuntime{Mio: mioAgent, Shiro: shiroAgent, Heavy: heavyAgent, Wild: wildAgent}
 }

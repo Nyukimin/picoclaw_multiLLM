@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,21 @@ type AIWorkflowStore interface {
 
 type AIWorkflowSkillBootstrap interface {
 	Record(ctx context.Context, task domainskill.TaskContext, usedSkillIDs []string) ([]domainskill.SkillTriggerLog, error)
+}
+
+type UsageContinuitySnapshot struct {
+	Scope               string    `json:"scope"`
+	ScopeID             string    `json:"scope_id"`
+	UsageCount          int       `json:"usage_count"`
+	LatestEventID       string    `json:"latest_event_id"`
+	LatestCreatedAt     time.Time `json:"latest_created_at"`
+	LatestAgent         string    `json:"latest_agent,omitempty"`
+	LatestModel         string    `json:"latest_model,omitempty"`
+	LatestContextTokens int       `json:"latest_context_tokens,omitempty"`
+	LatestInputTokens   int       `json:"latest_input_tokens,omitempty"`
+	LatestOutputTokens  int       `json:"latest_output_tokens,omitempty"`
+	LatestRunState      string    `json:"latest_run_state,omitempty"`
+	CompactionID        string    `json:"compaction_id,omitempty"`
 }
 
 func HandleAIWorkflowExternalControlCheck(store AIWorkflowStore, policy domainai.ExternalControlPolicy) http.HandlerFunc {
@@ -115,6 +131,7 @@ func HandleAIWorkflowStatusWithPolicy(store AIWorkflowLister, contextBudgetPolic
 			"worktree_registries":    nonNilWorktreeRegistries(worktrees),
 			"command_registries":     nonNilCommandRegistries(commands),
 			"context_usages":         nonNilContextUsages(contexts),
+			"usage_continuity":       buildUsageContinuitySnapshots(events, contexts, limit),
 			"context_budget_policy":  contextBudgetPolicy,
 		})
 	}
@@ -602,6 +619,99 @@ func stringSliceContains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func buildUsageContinuitySnapshots(events []domainai.WorkflowEvent, usages []domainai.ContextUsage, limit int) []UsageContinuitySnapshot {
+	if len(usages) == 0 {
+		return []UsageContinuitySnapshot{}
+	}
+	latestRunState := latestRunStatesByScope(events)
+	snapshots := map[string]UsageContinuitySnapshot{}
+	for _, usage := range usages {
+		for _, scope := range contextUsageScopes(usage) {
+			key := scope.Scope + "\x00" + scope.ScopeID
+			snap := snapshots[key]
+			if snap.Scope == "" {
+				snap.Scope = scope.Scope
+				snap.ScopeID = scope.ScopeID
+			}
+			snap.UsageCount++
+			if usage.CreatedAt.After(snap.LatestCreatedAt) || snap.LatestEventID == "" {
+				snap.LatestEventID = usage.EventID
+				snap.LatestCreatedAt = usage.CreatedAt
+				snap.LatestAgent = usage.Agent
+				snap.LatestModel = usage.Model
+				snap.LatestContextTokens = usage.ContextTokens
+				snap.LatestInputTokens = usage.InputTokens
+				snap.LatestOutputTokens = usage.OutputTokens
+				snap.CompactionID = usage.CompactionID
+				snap.LatestRunState = latestRunState[key]
+			}
+			snapshots[key] = snap
+		}
+	}
+	out := make([]UsageContinuitySnapshot, 0, len(snapshots))
+	for _, snap := range snapshots {
+		out = append(out, snap)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].LatestCreatedAt.Equal(out[j].LatestCreatedAt) {
+			return out[i].LatestCreatedAt.After(out[j].LatestCreatedAt)
+		}
+		if out[i].Scope != out[j].Scope {
+			return out[i].Scope < out[j].Scope
+		}
+		return out[i].ScopeID < out[j].ScopeID
+	})
+	if limit <= 0 {
+		limit = 20
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+type usageScope struct {
+	Scope   string
+	ScopeID string
+}
+
+func contextUsageScopes(usage domainai.ContextUsage) []usageScope {
+	candidates := []usageScope{
+		{Scope: "job", ScopeID: strings.TrimSpace(usage.JobID)},
+		{Scope: "workstream", ScopeID: strings.TrimSpace(usage.WorkstreamID)},
+		{Scope: "run", ScopeID: strings.TrimSpace(usage.RunID)},
+		{Scope: "session", ScopeID: strings.TrimSpace(usage.SessionID)},
+	}
+	out := make([]usageScope, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.ScopeID != "" {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func latestRunStatesByScope(events []domainai.WorkflowEvent) map[string]string {
+	out := map[string]string{}
+	latest := map[string]time.Time{}
+	for _, event := range events {
+		for _, scope := range []usageScope{
+			{Scope: "workstream", ScopeID: strings.TrimSpace(event.WorkstreamID)},
+			{Scope: "run", ScopeID: strings.TrimSpace(event.RunID)},
+		} {
+			if scope.ScopeID == "" {
+				continue
+			}
+			key := scope.Scope + "\x00" + scope.ScopeID
+			if event.CreatedAt.After(latest[key]) || latest[key].IsZero() {
+				latest[key] = event.CreatedAt
+				out[key] = strings.TrimSpace(event.Status)
+			}
+		}
+	}
+	return out
 }
 
 func nestedObject(root map[string]any, path ...string) map[string]any {

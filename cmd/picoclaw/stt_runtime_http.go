@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,14 @@ import (
 
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
+
+var sttSharedHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		MaxIdleConnsPerHost: 4,
+		IdleConnTimeout:     90 * time.Second,
+		DisableKeepAlives:   false,
+	},
+}
 
 func sttInferViaHTTP(providerURL string, wav []byte, timeout time.Duration) (string, error) {
 	var body bytes.Buffer
@@ -33,14 +42,15 @@ func sttInferViaHTTP(providerURL string, wav []byte, timeout time.Duration) (str
 		return "", err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, providerURL, &body)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, providerURL, &body)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
+	resp, err := sttSharedHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

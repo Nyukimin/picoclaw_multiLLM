@@ -156,8 +156,9 @@ type WorkerConfig struct {
 	MaxParallelism    int  `yaml:"max_parallelism"`    // 並列度上限（デフォルト: 4）
 
 	// === v4.2: Agent Persona ===
-	PersonaFile string `yaml:"persona_file"` // workspace_dir からの相対パス
-	Tone        string `yaml:"tone"`         // 口調ヒント（TTS 連携用）
+	PersonaFile string            `yaml:"persona_file"` // workspace_dir からの相対パス
+	Tone        string            `yaml:"tone"`         // 口調ヒント（TTS 連携用）
+	LightMemory LightMemoryConfig `yaml:"light_memory"` // Shiro のインメモリ短期記憶
 
 	// === v4.1: Autonomous ===
 	MaxRepair int `yaml:"max_repair"` // 自律実行のリペア上限（0以下は1とみなす、デフォルト: 1）

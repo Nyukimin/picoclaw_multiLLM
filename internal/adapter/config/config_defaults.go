@@ -182,6 +182,9 @@ func (c *Config) setDefaults() {
 	if c.Worker.MaxParallelism == 0 {
 		c.Worker.MaxParallelism = 4
 	}
+	if c.Worker.LightMemory.MaxTurns == 0 {
+		c.Worker.LightMemory.MaxTurns = 3
+	}
 
 	// v4.0 IdleChat デフォルト
 	if c.IdleChat.Enabled {

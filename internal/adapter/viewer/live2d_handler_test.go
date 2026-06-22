@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +88,34 @@ func TestHandleLive2DChatAPI(t *testing.T) {
 
 	if resp.Live2DURL == "" {
 		t.Error("HandleLive2DChatAPI() live2d_url should not be empty")
+	}
+}
+
+type stubLive2DResponder struct {
+	message string
+}
+
+func (s stubLive2DResponder) RespondLive2DChat(_ context.Context, _ string, _ string, message string) (string, error) {
+	return s.message + ":" + message, nil
+}
+
+func TestHandleLive2DChatAPIUsesResponder(t *testing.T) {
+	reqBody := `{"message":"こんにちは","character_id":"mio","mode":"normal","session_id":"s1"}`
+	req := httptest.NewRequest(http.MethodPost, "/viewer/api/chat", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	HandleLive2DChatAPIWithResponder(stubLive2DResponder{message: "LLM"})(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp ChatResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Message != "LLM:こんにちは" {
+		t.Fatalf("message=%q", resp.Message)
 	}
 }
 

@@ -142,6 +142,12 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			SaveScreenshot:     true,
 			MaskSecrets:        true,
 		},
+		SecretRefs: []SecretRefRuntimeConfig{
+			{Ref: " config:local_llm.api_key ", Label: " Local LLM API key ", Scope: " local_llm ", Configured: true},
+			{Ref: "config:webwright_fetch.api_key", Label: "Webwright Fetch local API key", Scope: "tool", Configured: true},
+			{Ref: "config:local_llm.api_key", Label: "duplicate", Scope: "local_llm", Configured: true},
+			{Ref: "", Label: "ignored", Scope: "provider", Configured: true},
+		},
 	})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/viewer/runtime-config", nil))
@@ -181,6 +187,18 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.BrowserActor.HeadlessDefault || !body.BrowserActor.SaveTrace || !body.BrowserActor.SaveScreenshot || !body.BrowserActor.MaskSecrets {
 		t.Fatalf("expected browser actor safe flags: %+v", body.BrowserActor)
+	}
+	if len(body.SecretRefs) != 2 {
+		t.Fatalf("expected normalized secret refs without duplicates: %+v", body.SecretRefs)
+	}
+	if body.SecretRefs[0].Ref != "config:local_llm.api_key" || body.SecretRefs[0].Label != "Local LLM API key" || body.SecretRefs[0].Scope != "local_llm" || !body.SecretRefs[0].Configured {
+		t.Fatalf("unexpected local llm secret ref: %+v", body.SecretRefs)
+	}
+	if body.SecretRefs[1].Ref != "config:webwright_fetch.api_key" || body.SecretRefs[1].Scope != "tool" || !body.SecretRefs[1].Configured {
+		t.Fatalf("unexpected webwright secret ref: %+v", body.SecretRefs)
+	}
+	if strings.Contains(rec.Body.String(), "test-secret") {
+		t.Fatalf("runtime config leaked a secret value: %s", rec.Body.String())
 	}
 }
 

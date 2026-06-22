@@ -52,6 +52,7 @@ type DebugSystemOptions struct {
 	WebwrightFetch             WebwrightFetchRuntimeConfig
 	WebGather                  WebGatherRuntimeConfig
 	BrowserActor               BrowserActorRuntimeConfig
+	SecretRefs                 []SecretRefRuntimeConfig
 	RuntimeReadiness           RuntimeDependencyReadiness
 	VoiceChatEnabled           bool
 	VoiceChatGatewayConfigured bool
@@ -71,10 +72,18 @@ type RuntimeConfig struct {
 	WebwrightFetch     WebwrightFetchRuntimeConfig `json:"webwright_fetch,omitempty"`
 	WebGather          WebGatherRuntimeConfig      `json:"web_gather,omitempty"`
 	BrowserActor       BrowserActorRuntimeConfig   `json:"browser_actor,omitempty"`
+	SecretRefs         []SecretRefRuntimeConfig    `json:"secret_refs,omitempty"`
 	RuntimeReadiness   RuntimeDependencyReadiness  `json:"runtime_readiness,omitempty"`
 	VoiceChatEnabled   bool                        `json:"voice_chat_enabled"`
 	VoiceChatStreamURL string                      `json:"voice_chat_stream_url,omitempty"`
 	VoiceInputMode     string                      `json:"voice_input_mode,omitempty"`
+}
+
+type SecretRefRuntimeConfig struct {
+	Ref        string `json:"ref"`
+	Label      string `json:"label,omitempty"`
+	Scope      string `json:"scope,omitempty"`
+	Configured bool   `json:"configured"`
 }
 
 type RuntimeDependencyReadiness struct {
@@ -202,6 +211,7 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			WebwrightFetch:     normalizeWebwrightFetchRuntimeConfig(opts.WebwrightFetch),
 			WebGather:          normalizeWebGatherRuntimeConfig(opts.WebGather),
 			BrowserActor:       normalizeBrowserActorRuntimeConfig(opts.BrowserActor),
+			SecretRefs:         normalizeSecretRefs(opts.SecretRefs),
 			RuntimeReadiness:   normalizeRuntimeDependencyReadiness(opts),
 			VoiceChatEnabled:   opts.VoiceChatEnabled,
 			VoiceChatStreamURL: browserFacingVoiceChatStreamURL(r),
@@ -292,6 +302,28 @@ func normalizeRuntimeDependencyReadiness(opts DebugSystemOptions) RuntimeDepende
 	readiness.STTGatewayConfigPresent = strings.TrimSpace(opts.STTBaseURL) != "" || strings.TrimSpace(opts.STTStreamURL) != ""
 	readiness.TTSProviderConfigPresent = strings.TrimSpace(opts.TTSBaseURL) != ""
 	return readiness
+}
+
+func normalizeSecretRefs(in []SecretRefRuntimeConfig) []SecretRefRuntimeConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]SecretRefRuntimeConfig, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, item := range in {
+		item.Ref = strings.TrimSpace(item.Ref)
+		if item.Ref == "" {
+			continue
+		}
+		if _, ok := seen[item.Ref]; ok {
+			continue
+		}
+		seen[item.Ref] = struct{}{}
+		item.Label = strings.TrimSpace(item.Label)
+		item.Scope = strings.TrimSpace(item.Scope)
+		out = append(out, item)
+	}
+	return out
 }
 
 func normalizeLocalLLMRuntimeConfig(in LocalLLMRuntimeConfig) LocalLLMRuntimeConfig {

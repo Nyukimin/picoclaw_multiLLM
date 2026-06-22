@@ -114,6 +114,7 @@ func cmdRun() {
 	debugSystemOpts.LLMOpsEnabled = debugSystemOpts.LLMOpsConfigured && llmOpsToken != ""
 	debugSystemOpts.LLMOpsBaseURL = cfg.LLMOps.BaseURL
 	debugSystemOpts.RuntimeReadiness = buildRuntimeDependencyReadiness(cfg, dependencies)
+	debugSystemOpts.SecretRefs = buildSecretRefsFromConfig(cfg)
 	debugSystemOpts.LocalLLM = viewer.LocalLLMRuntimeConfig{
 		Enabled:           cfg.LocalLLM.Enabled,
 		Provider:          cfg.LocalLLM.Provider,

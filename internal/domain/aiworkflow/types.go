@@ -54,6 +54,10 @@ type CommandRegistry struct {
 type ContextUsage struct {
 	EventID         string    `json:"event_id"`
 	SessionID       string    `json:"session_id,omitempty"`
+	RunID           string    `json:"run_id,omitempty"`
+	WorkstreamID    string    `json:"workstream_id,omitempty"`
+	JobID           string    `json:"job_id,omitempty"`
+	CompactionID    string    `json:"compaction_id,omitempty"`
 	Agent           string    `json:"agent"`
 	Model           string    `json:"model,omitempty"`
 	InputTokens     int       `json:"input_tokens,omitempty"`

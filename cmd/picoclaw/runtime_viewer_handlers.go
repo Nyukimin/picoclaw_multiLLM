@@ -6,6 +6,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	characterruntimeapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/characterruntime"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
 	jobpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/job"
@@ -45,6 +46,7 @@ func buildViewerRuntimeHandlers(
 
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub
+	deps.characterRuntime = viewer.HandleCharacterRuntime(characterruntimeapp.NewService(), hub)
 	setIdleChatViewerClientCount(hub.ClientCount)
 	hub.SetClientCountListener(handleIdleChatViewerClientCountChanged)
 	if cfg.ViewerLog.Enabled {
