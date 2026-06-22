@@ -219,6 +219,15 @@ func (s *HeartbeatService) runScheduledBacklogIntake(ctx context.Context, now ti
 		log.Printf("[Heartbeat] backlog intake: checked=%d promoted=%d skipped=%d failed=%d item=%s workstream=%s",
 			report.Checked, report.Promoted, report.Skipped, report.Failed, report.ItemID, report.WorkstreamID)
 	}
+	runnerReport, err := s.RunBacklogRunner(ctx, now)
+	if err != nil {
+		log.Printf("[Heartbeat] backlog runner error: %v", err)
+		return
+	}
+	if runnerReport.Started > 0 || runnerReport.Failed > 0 {
+		log.Printf("[Heartbeat] backlog runner: checked=%d started=%d skipped=%d failed=%d item=%s",
+			runnerReport.Checked, runnerReport.Started, runnerReport.Skipped, runnerReport.Failed, runnerReport.ItemID)
+	}
 }
 
 func (s *HeartbeatService) runIdleChatSequenceCheck(ctx context.Context, now time.Time) IdleChatSequenceCheck {
@@ -315,10 +324,62 @@ type BacklogIntakeReport struct {
 	Promoted     int
 	Skipped      int
 	Failed       int
+	Active       int
 	ItemID       string
 	WorkstreamID string
 	GoalID       string
 	ArtifactID   string
+}
+
+type BacklogRunnerReport struct {
+	Checked int
+	Started int
+	Skipped int
+	Failed  int
+	ItemID  string
+}
+
+const backlogRunnerStartedMarker = "Backlog Runner Heartbeat started"
+
+func backlogActiveItems(items []domainbacklog.Item) []domainbacklog.Item {
+	active := make([]domainbacklog.Item, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		id := strings.TrimSpace(item.ItemID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if item.CheckOK {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(item.Status)) {
+		case "implementing", "testing", "fixing":
+			active = append(active, item)
+		}
+	}
+	sort.SliceStable(active, func(i, j int) bool {
+		leftStarted := backlogRunnerAlreadyStarted(active[i])
+		rightStarted := backlogRunnerAlreadyStarted(active[j])
+		if leftStarted != rightStarted {
+			return leftStarted
+		}
+		leftRank := backlogPriorityRank(active[i].Priority)
+		rightRank := backlogPriorityRank(active[j].Priority)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		leftTime := backlogItemTime(active[i])
+		rightTime := backlogItemTime(active[j])
+		if !leftTime.Equal(rightTime) {
+			return leftTime.Before(rightTime)
+		}
+		return active[i].ItemID < active[j].ItemID
+	})
+	return active
 }
 
 func backlogIntakeCandidates(items []domainbacklog.Item) []domainbacklog.Item {
@@ -355,6 +416,38 @@ func backlogIntakeCandidates(items []domainbacklog.Item) []domainbacklog.Item {
 		return candidates[i].ItemID < candidates[j].ItemID
 	})
 	return candidates
+}
+
+func backlogRunnerAlreadyStarted(item domainbacklog.Item) bool {
+	return strings.Contains(item.Implementation, backlogRunnerStartedMarker)
+}
+
+func backlogRunnerMessage(item domainbacklog.Item) string {
+	return fmt.Sprintf(`/code2 Backlog item %s を1件だけ実装してください。
+
+目的:
+- %s
+
+本文:
+%s
+
+実装メモ:
+%s
+
+制約:
+- 対象 module / repo を確認し、実在する具体ファイルだけ変更する。
+- placeholder path、sample path、説明だけの未接続ファイルは禁止。
+- service restart / make install / live binary overwrite は patch に含めない。
+- 変更は小さく、対象 Backlog item の完了に必要な範囲へ限定する。
+- 検証コマンドを必ず実行する。
+- 成功したら /viewer/backlog に item_id=%s を status=ok, check_ok=true, checked_by=coder, test_result に検証結果つきで POST する。
+- 失敗または実装不能なら /viewer/backlog に status=blocked, check_ok=false とし、implementation/test_result に理由を残す。`,
+		strings.TrimSpace(item.ItemID),
+		strings.TrimSpace(item.Title),
+		strings.TrimSpace(item.Body),
+		strings.TrimSpace(item.Implementation),
+		strings.TrimSpace(item.ItemID),
+	)
 }
 
 func backlogPriorityRank(priority string) int {
@@ -439,6 +532,14 @@ func (s *HeartbeatService) RunBacklogIntake(ctx context.Context, now time.Time) 
 	}
 	candidates := backlogIntakeCandidates(items)
 	report.Checked = len(items)
+	active := backlogActiveItems(items)
+	report.Active = len(active)
+	if len(active) > 0 {
+		report.Skipped = len(items)
+		report.ItemID = active[0].ItemID
+		s.emitEvent("backlog.runner.waiting_active", fmt.Sprintf("%s status=%s", active[0].ItemID, active[0].Status))
+		return report, nil
+	}
 	report.Skipped = len(items) - len(candidates)
 	if len(candidates) == 0 {
 		return report, nil
@@ -516,6 +617,60 @@ func (s *HeartbeatService) RunBacklogIntake(ctx context.Context, now time.Time) 
 	report.GoalID = goalID
 	report.ArtifactID = artifactID
 	s.emitEvent("backlog.intake.promoted", fmt.Sprintf("%s -> %s", item.ItemID, workstreamID))
+	return report, nil
+}
+
+func (s *HeartbeatService) RunBacklogRunner(ctx context.Context, now time.Time) (BacklogRunnerReport, error) {
+	var report BacklogRunnerReport
+	if s.backlogStore == nil || s.chatAgent == nil {
+		return report, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	items, err := s.backlogStore.List(ctx, 500)
+	if err != nil {
+		report.Failed++
+		s.emitEvent("backlog.runner.error", fmt.Sprintf("failed to list backlog: %v", err))
+		return report, err
+	}
+	active := backlogActiveItems(items)
+	report.Checked = len(items)
+	report.Skipped = len(items)
+	if len(active) == 0 {
+		return report, nil
+	}
+	item := active[0]
+	report.ItemID = item.ItemID
+	if backlogRunnerAlreadyStarted(item) {
+		s.emitEvent("backlog.runner.waiting_active", fmt.Sprintf("%s status=%s runner=started", item.ItemID, item.Status))
+		return report, nil
+	}
+
+	startedNote := fmt.Sprintf("%s item_id=%s at %s.", backlogRunnerStartedMarker, item.ItemID, now.UTC().Format(time.RFC3339))
+	item.Implementation = appendBacklogImplementation(item.Implementation, startedNote)
+	item.Status = "implementing"
+	item.Implementer = "coder"
+	if err := s.backlogStore.Save(ctx, item); err != nil {
+		report.Failed++
+		s.emitEvent("backlog.runner.error", fmt.Sprintf("failed to mark runner start for %s: %v", item.ItemID, err))
+		return report, err
+	}
+
+	jobID := task.NewJobID()
+	t := task.NewTask(jobID, backlogRunnerMessage(item), "backlog-runner", "heartbeat")
+	s.emitEvent("backlog.runner.started", fmt.Sprintf("%s job_id=%s", item.ItemID, jobID.String()))
+	if _, err := s.chatAgent.Chat(ctx, t); err != nil {
+		item.Status = "blocked"
+		item.TestResult = fmt.Sprintf("Backlog Runner failed to start job_id=%s: %v", jobID.String(), err)
+		item.Implementation = appendBacklogImplementation(item.Implementation, item.TestResult)
+		_ = s.backlogStore.Save(ctx, item)
+		report.Failed++
+		s.emitEvent("backlog.runner.error", fmt.Sprintf("%s job_id=%s err=%v", item.ItemID, jobID.String(), err))
+		return report, err
+	}
+	report.Started = 1
+	report.Skipped = len(items) - 1
 	return report, nil
 }
 

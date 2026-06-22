@@ -221,6 +221,79 @@ func TestMonitorStoreClearsRecoveredFailureOnFinalSuccess(t *testing.T) {
 	}
 }
 
+func TestMonitorStoreEntryStageCompletedMarksTerminalOutcome(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+	jobID := "job-stage-complete"
+	now := time.Now().Format(time.RFC3339)
+
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "entry.stage",
+		From:      "viewer",
+		To:        "system",
+		Content:   "received",
+		Route:     "CODE2",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "entry.stage",
+		From:      "viewer",
+		To:        "system",
+		Content:   "completed",
+		Route:     "CODE2",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+
+	jobs := store.Jobs(JobFilter{})
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].Status != "done" || jobs[0].Phase != "done" || jobs[0].TerminalOutcome != "ok" {
+		t.Fatalf("unexpected terminal job: %+v", jobs[0])
+	}
+}
+
+func TestMonitorStoreEntryStageFailedMarksTerminalOutcome(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+	jobID := "job-stage-failed"
+	now := time.Now().Format(time.RFC3339)
+
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "entry.stage",
+		From:      "viewer",
+		To:        "system",
+		Content:   "planning",
+		Route:     "CODE2",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "entry.stage",
+		From:      "viewer",
+		To:        "system",
+		Content:   "failed",
+		Route:     "CODE2",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+
+	jobs := store.Jobs(JobFilter{})
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].Status != "error" || jobs[0].Phase != "error" || jobs[0].TerminalOutcome != "failed" {
+		t.Fatalf("unexpected terminal job: %+v", jobs[0])
+	}
+	if jobs[0].FailureReason == "" {
+		t.Fatalf("expected visible failure reason: %+v", jobs[0])
+	}
+}
+
 func TestHandleMonitorLogsFiltersByJobID(t *testing.T) {
 	store := NewMonitorStore(nil, nil)
 	store.OnEvent(orchestrator.OrchestratorEvent{

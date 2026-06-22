@@ -32,6 +32,23 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 		return "reporting", "shiro"
 	case "worker.classified_failure", "agent.error", "mailbox.error":
 		return "error", valueOr(from, current.Owner)
+	case "entry.stage":
+		switch terminalOutcomeFromEntryStage(content) {
+		case "ok":
+			return "done", "system"
+		case "failed", "blocked", "cancelled":
+			return "error", "system"
+		}
+		switch strings.ToLower(strings.TrimSpace(content)) {
+		case "received":
+			return "received", "mio"
+		case "contract_ready", "planning":
+			return "planning", "mio"
+		case "applying":
+			return "applying", "worker"
+		case "verifying":
+			return "worker_verifying", "worker"
+		}
 	case "mailbox.sent":
 		return "queued", valueOr(to, current.Owner)
 	case "mailbox.received":
@@ -68,6 +85,21 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 		}
 	}
 	return valueOr(current.Phase, "received"), valueOr(current.Owner, "-")
+}
+
+func terminalOutcomeFromEntryStage(content string) string {
+	switch strings.ToLower(strings.TrimSpace(content)) {
+	case "completed", "complete", "done", "ok", "success", "succeeded":
+		return "ok"
+	case "failed", "failure", "error":
+		return "failed"
+	case "blocked":
+		return "blocked"
+	case "cancelled", "canceled":
+		return "cancelled"
+	default:
+		return ""
+	}
 }
 
 func summarizeCoderState(items []AgentSnapshot) string {

@@ -153,6 +153,33 @@ func (s *MonitorStore) reduceJobs(ev orchestrator.OrchestratorEvent) {
 		}
 		job.Status = "error"
 	}
+	if ev.Type == "entry.stage" {
+		switch terminalOutcomeFromEntryStage(ev.Content) {
+		case "ok":
+			job.Status = "done"
+			job.TerminalOutcome = "ok"
+			job.FailureKind = ""
+			job.FailureReason = ""
+		case "failed":
+			job.Status = "error"
+			job.TerminalOutcome = "failed"
+			if strings.TrimSpace(job.FailureReason) == "" {
+				job.FailureReason = "entry stage failed"
+			}
+		case "blocked":
+			job.Status = "error"
+			job.TerminalOutcome = "blocked"
+			if strings.TrimSpace(job.FailureReason) == "" {
+				job.FailureReason = "entry stage blocked"
+			}
+		case "cancelled":
+			job.Status = "error"
+			job.TerminalOutcome = "cancelled"
+			if strings.TrimSpace(job.FailureReason) == "" {
+				job.FailureReason = "entry stage cancelled"
+			}
+		}
+	}
 	if clearsJobFailure(ev) {
 		job.FailureKind = ""
 		job.FailureReason = ""
@@ -166,12 +193,14 @@ func (s *MonitorStore) reduceJobs(ev orchestrator.OrchestratorEvent) {
 			job.MioReported = true
 			if responseLooksLikeFailure(ev.Content) {
 				job.Status = "error"
+				job.TerminalOutcome = "failed"
 			} else {
 				job.FailureKind = ""
 				job.FailureReason = ""
 				job.Status = "done"
+				job.TerminalOutcome = "ok"
 			}
-		} else if job.Status != "error" {
+		} else if job.Status != "error" && job.TerminalOutcome == "" {
 			job.Status = "running"
 		}
 	}

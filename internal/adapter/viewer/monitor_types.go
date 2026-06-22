@@ -49,6 +49,7 @@ type JobSnapshot struct {
 	Phase           string                           `json:"phase"`
 	Owner           string                           `json:"owner,omitempty"`
 	Status          string                           `json:"status"`
+	TerminalOutcome string                           `json:"terminal_outcome,omitempty"`
 	SessionID       string                           `json:"session_id,omitempty"`
 	Channel         string                           `json:"channel,omitempty"`
 	ChatID          string                           `json:"chat_id,omitempty"`

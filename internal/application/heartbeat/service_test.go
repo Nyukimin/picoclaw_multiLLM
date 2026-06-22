@@ -423,11 +423,148 @@ func TestRunBacklogIntakeSkipsWithoutRunnableItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunBacklogIntake: %v", err)
 	}
-	if report.Promoted != 0 || report.Skipped != 2 {
+	if report.Promoted != 0 || report.Skipped != 2 || report.Active != 1 || report.ItemID != "active" {
 		t.Fatalf("unexpected report: %+v", report)
 	}
 	if len(workstreamStore.workstreams) != 0 || len(backlogStore.saved) != 0 {
 		t.Fatalf("unexpected writes: workstreams=%+v backlog=%+v", workstreamStore.workstreams, backlogStore.saved)
+	}
+}
+
+func TestRunBacklogIntakeDoesNotPromoteNextItemWhileActiveItemExists(t *testing.T) {
+	backlogStore := &memoryBacklogStore{items: []domainbacklog.Item{
+		{
+			ItemID:    "active",
+			Title:     "実装中",
+			Status:    "implementing",
+			Priority:  "normal",
+			UpdatedAt: "2026-06-21T00:00:00Z",
+		},
+		{
+			ItemID:    "next-high",
+			Title:     "次の高優先",
+			Status:    "open",
+			Priority:  "high",
+			UpdatedAt: "2026-06-20T00:00:00Z",
+		},
+	}}
+	workstreamStore := &memoryWorkstreamHeartbeatStore{}
+	listener := &recordingEventListener{}
+	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, t.TempDir(), 30).
+		WithBacklogStore(backlogStore).
+		WithWorkstreamStore(workstreamStore).
+		WithEventListener(listener)
+
+	report, err := svc.RunBacklogIntake(context.Background(), time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunBacklogIntake: %v", err)
+	}
+	if report.Promoted != 0 || report.Active != 1 || report.ItemID != "active" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(workstreamStore.workstreams) != 0 || len(backlogStore.saved) != 0 {
+		t.Fatalf("active item should block new promotion: workstreams=%+v backlog=%+v", workstreamStore.workstreams, backlogStore.saved)
+	}
+	if len(listener.events) != 1 || listener.events[0].Type != "backlog.runner.waiting_active" {
+		t.Fatalf("waiting event not emitted: %+v", listener.events)
+	}
+}
+
+func TestRunBacklogRunnerStartsActiveItemOnce(t *testing.T) {
+	backlogStore := &memoryBacklogStore{items: []domainbacklog.Item{
+		{
+			ItemID:   "active",
+			Title:    "P01 terminal outcome",
+			Body:     "visible terminal outcome を実装する",
+			Status:   "implementing",
+			Priority: "high",
+		},
+		{
+			ItemID:   "next",
+			Title:    "次の項目",
+			Status:   "open",
+			Priority: "high",
+		},
+	}}
+	agent := &mockChatAgent{response: "accepted"}
+	listener := &recordingEventListener{}
+	svc := NewHeartbeatService(agent, &mockSender{}, t.TempDir(), 30).
+		WithBacklogStore(backlogStore).
+		WithEventListener(listener)
+
+	report, err := svc.RunBacklogRunner(context.Background(), time.Date(2026, 6, 22, 5, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunBacklogRunner: %v", err)
+	}
+	if report.Started != 1 || report.ItemID != "active" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if !agent.called || !strings.Contains(agent.lastMsg, "/code2 Backlog item active") || !strings.Contains(agent.lastMsg, "status=ok") {
+		t.Fatalf("runner did not send code2 backlog prompt: %q", agent.lastMsg)
+	}
+	if len(backlogStore.saved) != 1 || !strings.Contains(backlogStore.saved[0].Implementation, backlogRunnerStartedMarker) {
+		t.Fatalf("runner start not persisted: %+v", backlogStore.saved)
+	}
+	if len(listener.events) != 1 || listener.events[0].Type != "backlog.runner.started" {
+		t.Fatalf("runner event not emitted: %+v", listener.events)
+	}
+
+	agent.called = false
+	second, err := svc.RunBacklogRunner(context.Background(), time.Date(2026, 6, 22, 5, 1, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("RunBacklogRunner second: %v", err)
+	}
+	if second.Started != 0 || agent.called {
+		t.Fatalf("runner should not start same active item twice: report=%+v called=%t", second, agent.called)
+	}
+}
+
+func TestBacklogActiveItemsKeepsStartedRunnerFirst(t *testing.T) {
+	items := []domainbacklog.Item{
+		{
+			ItemID:         "older-active",
+			Title:          "older",
+			Status:         "implementing",
+			Priority:       "high",
+			Implementation: "promoted earlier",
+			UpdatedAt:      "2026-06-20T00:00:00Z",
+		},
+		{
+			ItemID:         "started-active",
+			Title:          "started",
+			Status:         "implementing",
+			Priority:       "high",
+			Implementation: backlogRunnerStartedMarker + " item_id=started-active at 2026-06-22T06:03:03Z.",
+			UpdatedAt:      "2026-06-22T06:03:03Z",
+		},
+	}
+
+	active := backlogActiveItems(items)
+	if len(active) != 2 || active[0].ItemID != "started-active" {
+		t.Fatalf("started runner item should stay first while active: %+v", active)
+	}
+}
+
+func TestRunBacklogRunnerBlocksItemWhenChatStartFails(t *testing.T) {
+	backlogStore := &memoryBacklogStore{items: []domainbacklog.Item{
+		{ItemID: "active", Title: "実装中", Status: "implementing", Priority: "high"},
+	}}
+	agent := &mockChatAgent{err: context.Canceled}
+	svc := NewHeartbeatService(agent, &mockSender{}, t.TempDir(), 30).WithBacklogStore(backlogStore)
+
+	report, err := svc.RunBacklogRunner(context.Background(), time.Date(2026, 6, 22, 5, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("expected chat start error")
+	}
+	if report.Failed != 1 || report.ItemID != "active" {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if len(backlogStore.saved) < 2 {
+		t.Fatalf("expected start and blocked saves, got %+v", backlogStore.saved)
+	}
+	last := backlogStore.saved[len(backlogStore.saved)-1]
+	if last.Status != "blocked" || !strings.Contains(last.TestResult, "Backlog Runner failed to start") {
+		t.Fatalf("expected blocked item with reason, got %+v", last)
 	}
 }
 
