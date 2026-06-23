@@ -26,6 +26,8 @@
   AGENTS.md / rules / skills / subagents / hooks の指示配置ルール
 - `rules/rules_path_scoped_constraints.md`
   module / directory 固有制約の入口
+- `rules/rules_search_browse_evidence.md`
+  外部情報調査で検索を discovery のみに限定し、根拠は source_read / browser_evidence に分離するルール
 - `rules/PROJECT_AGENT.md`  
   このプロジェクトで AI が実装する際の固有ルール本体
 - `docs/01_正本仕様/実装仕様.md`  

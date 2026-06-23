@@ -35,6 +35,7 @@
    - `rules/rules_viewer_ui.md`
    - `rules/rules_instruction_placement.md`
    - `rules/rules_path_scoped_constraints.md`
+   - `rules/rules_search_browse_evidence.md`
    - `rules/rules_domain.md`
    - `docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md`（Memory lifecycle / Recall Context / prompt 注入方針を扱う場合の正本実装仕様）
    - `docs/10_新仕様/09_Memory_SourceRegistry仕様.md`（Memory / Source Registry / 保存境界を扱う場合の補助仕様）
