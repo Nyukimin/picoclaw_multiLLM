@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
@@ -61,6 +62,21 @@ func buildViewerRuntimeHandlers(
 				deps.eventLogGC.Start()
 				log.Printf("Viewer event log GC enabled: %s", gcPath)
 			}
+		}
+	}
+	if cfg.TTS.Enabled && cfg.TTS.IsCleanupEnabled() {
+		ttsGC, err := viewer.NewGeneratedFileGCService(
+			cfg.TTS.OutputDir,
+			"viewer-tts-*.wav",
+			time.Duration(cfg.TTS.RetentionMinutes)*time.Minute,
+			time.Duration(cfg.TTS.GCIntervalMinutes)*time.Minute,
+		)
+		if err != nil {
+			log.Printf("WARN: TTS audio GC disabled: %v", err)
+		} else {
+			deps.ttsAudioGC = ttsGC
+			deps.ttsAudioGC.Start()
+			log.Printf("TTS audio GC enabled: dir=%s retention=%dm interval=%dm", cfg.TTS.OutputDir, cfg.TTS.RetentionMinutes, cfg.TTS.GCIntervalMinutes)
 		}
 	}
 	if reportStore, err := executionpersistence.NewJSONLReportStore(reportPath); err != nil {

@@ -62,6 +62,7 @@ type Dependencies struct {
 	monitorStore                   *viewer.MonitorStore                        // viewer monitor snapshots
 	eventLogStore                  *viewer.EventLogStore                       // persisted orchestrator event log
 	eventLogGC                     *viewer.EventLogGCService                   // persisted event log GC
+	ttsAudioGC                     *viewer.GeneratedFileGCService              // generated TTS audio GC
 	reportStore                    *executionpersistence.JSONLReportStore      // execution evidence store
 	eventRelay                     *idleAwareEventListener                     // viewer + idlechat stop relay
 	viewerStatus                   http.HandlerFunc                            // viewer status API
@@ -226,6 +227,9 @@ type idleChatStartGate interface {
 func (d *Dependencies) Shutdown() {
 	if d.eventLogGC != nil {
 		d.eventLogGC.Stop()
+	}
+	if d.ttsAudioGC != nil {
+		d.ttsAudioGC.Stop()
 	}
 	if d.heartbeatSvc != nil {
 		d.heartbeatSvc.Stop()

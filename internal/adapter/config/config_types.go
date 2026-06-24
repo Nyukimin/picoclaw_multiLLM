@@ -741,21 +741,28 @@ type VerificationConfig struct {
 
 // TTSConfig configures provider fallback and playback verification.
 type TTSConfig struct {
-	Enabled          bool                `yaml:"enabled"`
-	OutputDir        string              `yaml:"output_dir"`
-	AudioPathRoot    string              `yaml:"audio_path_root"`
-	HTTPBaseURL      string              `yaml:"http_base_url"`
-	TLSSkipVerify    bool                `yaml:"tls_skip_verify"`
-	TimeoutMS        int                 `yaml:"timeout_ms"`
-	VoiceID          string              `yaml:"voice_id"`
-	Speed            float64             `yaml:"speed"`
-	ProviderParams   map[string]any      `yaml:"provider_params"`
-	ProviderPriority []string            `yaml:"provider_priority"` // e.g. irodori
-	PlaybackCommands []TTSCommandConfig  `yaml:"playback_commands"`
-	SBV2             TTSSBV2Config       `yaml:"sbv2"`
-	Irodori          TTSIrodoriConfig    `yaml:"irodori"`
-	Azure            TTSAzureConfig      `yaml:"azure"`
-	Eleven           TTSElevenLabsConfig `yaml:"eleven"`
+	Enabled           bool                `yaml:"enabled"`
+	OutputDir         string              `yaml:"output_dir"`
+	CleanupEnabled    *bool               `yaml:"cleanup_enabled"`
+	RetentionMinutes  int                 `yaml:"retention_minutes"`
+	GCIntervalMinutes int                 `yaml:"gc_interval_minutes"`
+	AudioPathRoot     string              `yaml:"audio_path_root"`
+	HTTPBaseURL       string              `yaml:"http_base_url"`
+	TLSSkipVerify     bool                `yaml:"tls_skip_verify"`
+	TimeoutMS         int                 `yaml:"timeout_ms"`
+	VoiceID           string              `yaml:"voice_id"`
+	Speed             float64             `yaml:"speed"`
+	ProviderParams    map[string]any      `yaml:"provider_params"`
+	ProviderPriority  []string            `yaml:"provider_priority"` // e.g. irodori
+	PlaybackCommands  []TTSCommandConfig  `yaml:"playback_commands"`
+	SBV2              TTSSBV2Config       `yaml:"sbv2"`
+	Irodori           TTSIrodoriConfig    `yaml:"irodori"`
+	Azure             TTSAzureConfig      `yaml:"azure"`
+	Eleven            TTSElevenLabsConfig `yaml:"eleven"`
+}
+
+func (c TTSConfig) IsCleanupEnabled() bool {
+	return c.CleanupEnabled == nil || *c.CleanupEnabled
 }
 
 type STTConfig struct {

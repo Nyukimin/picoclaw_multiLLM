@@ -189,6 +189,9 @@ heartbeat:
 tts:
   enabled: true
   output_dir: "./workspace/tts"
+  cleanup_enabled: true
+  retention_minutes: 30
+  gc_interval_minutes: 10
   audio_path_root: "./scripts"
   http_base_url: "http://192.168.1.207:7870"
   ws_url: ""

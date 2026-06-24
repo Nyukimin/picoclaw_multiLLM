@@ -558,6 +558,17 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("viewer_log.path is required when viewer_log.enabled=true")
 		}
 	}
+	if c.TTS.Enabled && c.TTS.IsCleanupEnabled() {
+		if strings.TrimSpace(c.TTS.OutputDir) == "" {
+			return fmt.Errorf("tts.output_dir is required when tts.cleanup_enabled=true")
+		}
+		if c.TTS.RetentionMinutes < 1 {
+			return fmt.Errorf("tts.retention_minutes must be >= 1")
+		}
+		if c.TTS.GCIntervalMinutes < 1 {
+			return fmt.Errorf("tts.gc_interval_minutes must be >= 1")
+		}
+	}
 
 	// v4.1 Coder スロット検証
 	coders := []struct {

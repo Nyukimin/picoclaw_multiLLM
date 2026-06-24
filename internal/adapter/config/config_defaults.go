@@ -625,6 +625,12 @@ func (c *Config) setDefaults() {
 	if c.TTS.OutputDir == "" {
 		c.TTS.OutputDir = "./workspace/tts"
 	}
+	if c.TTS.RetentionMinutes <= 0 {
+		c.TTS.RetentionMinutes = 30
+	}
+	if c.TTS.GCIntervalMinutes <= 0 {
+		c.TTS.GCIntervalMinutes = 10
+	}
 	if c.TTS.HTTPBaseURL == "" {
 		c.TTS.HTTPBaseURL = "https://127.0.0.1:8770"
 		c.TTS.TLSSkipVerify = true

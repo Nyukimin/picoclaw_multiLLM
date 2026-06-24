@@ -2015,6 +2015,9 @@ tts:
 	if cfg.TTS.HTTPBaseURL == "" {
 		t.Fatalf("expected tts http_base_url to be set")
 	}
+	if !cfg.TTS.IsCleanupEnabled() || cfg.TTS.RetentionMinutes != 30 || cfg.TTS.GCIntervalMinutes != 10 {
+		t.Fatalf("unexpected tts cleanup defaults: enabled=%v retention=%d interval=%d", cfg.TTS.IsCleanupEnabled(), cfg.TTS.RetentionMinutes, cfg.TTS.GCIntervalMinutes)
+	}
 	if cfg.TTS.TimeoutMS != 15000 {
 		t.Fatalf("unexpected tts timeout: %d", cfg.TTS.TimeoutMS)
 	}
