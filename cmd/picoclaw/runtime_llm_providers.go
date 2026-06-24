@@ -55,3 +55,7 @@ func buildLLMRuntimeProviders(cfg *config.Config, contextBudgetRecorder llmmiddl
 		ModuleProviders:    wrapModuleLLMProvidersWithHealthChecks(cfg, moduleProviders),
 	}
 }
+
+func selectChatConversationProvider(chatWorkerProvider, chatProvider llm.LLMProvider) llm.LLMProvider {
+	return firstNonNilLLMProvider(chatWorkerProvider, chatProvider)
+}

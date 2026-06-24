@@ -58,6 +58,8 @@ test_output.txt
 ralph/
 .ralph/
 tasks/
+.understand-anything
+.understand-anything/
 
 # Editors
 .vscode/

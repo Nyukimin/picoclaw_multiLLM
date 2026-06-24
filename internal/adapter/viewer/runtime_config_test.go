@@ -101,6 +101,7 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 			WildBaseURL:       "http://192.168.1.31:8084/",
 			ChatModel:         "Chat",
 			WorkerModel:       "Worker",
+			ChatWorkerModel:   "ChatWorker",
 			HeavyModel:        "Heavy",
 			WildModel:         "Wild",
 			TimeoutSec:        120,
@@ -167,7 +168,7 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	if body.LLMOpsBaseURL != "http://192.168.1.31:8079" {
 		t.Fatalf("unexpected llm ops base url: %+v", body)
 	}
-	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" || body.LocalLLM.ModelContext != 131072 {
+	if !body.LocalLLM.Enabled || body.LocalLLM.ChatBaseURL != "http://192.168.1.31:8081" || body.LocalLLM.WorkerModel != "Worker" || body.LocalLLM.ChatWorkerModel != "ChatWorker" || body.LocalLLM.HeavyBaseURL != "http://192.168.1.31:8083" || body.LocalLLM.HeavyModel != "Heavy" || body.LocalLLM.ModelContext != 131072 {
 		t.Fatalf("unexpected local llm runtime config: %+v", body.LocalLLM)
 	}
 	if !body.WebwrightFetch.Enabled || body.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.31:8082/v1/responses" || body.WebwrightFetch.Model != "Coder1" {

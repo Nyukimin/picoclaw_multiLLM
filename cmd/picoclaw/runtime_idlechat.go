@@ -47,10 +47,14 @@ func buildIdleChatRuntime(
 	if deps.llmBusyTracker != nil {
 		idleChatOrch.SetExternalLLMBusyFunc(deps.llmBusyTracker.ExternalBusy)
 	}
+	chatWorkerAliasProvider := chatWorkerProvider
+	if chatWorkerAliasProvider == nil && workerProvider != nil {
+		chatWorkerAliasProvider = namedLLMProvider{name: "ChatWorker", inner: workerProvider}
+	}
 	idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":        chatProvider,
-		"shiro":      firstNonNilLLMProvider(chatWorkerProvider, workerProvider),
-		"chatworker": namedLLMProvider{name: "ChatWorker", inner: workerProvider},
+		"shiro":      firstNonNilLLMProvider(chatWorkerAliasProvider, workerProvider),
+		"chatworker": chatWorkerAliasProvider,
 		"kuro":       heavyProvider,
 		"wild":       wildProvider,
 	})

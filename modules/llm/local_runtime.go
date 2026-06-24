@@ -39,6 +39,7 @@ type LocalRuntimeConfig struct {
 	WildBaseURL      string
 	ChatModel        string
 	WorkerModel      string
+	ChatWorkerModel  string
 	HeavyModel       string
 	WildModel        string
 	TimeoutSec       int
@@ -167,7 +168,7 @@ func LocalModelForAlias(cfg LocalRuntimeConfig, alias string) string {
 	case RoleWorker:
 		return cfg.WorkerModel
 	case "chatworker":
-		return cfg.WorkerModel
+		return FirstNonEmpty(cfg.ChatWorkerModel, cfg.WorkerModel)
 	case RoleHeavy:
 		if strings.TrimSpace(cfg.HeavyBaseURL) == "" && strings.TrimSpace(cfg.WorkerBaseURL) != "" {
 			return cfg.WorkerModel
