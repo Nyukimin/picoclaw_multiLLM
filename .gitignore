@@ -60,6 +60,7 @@ ralph/
 tasks/
 .understand-anything
 .understand-anything/
+docs/understand-anything/
 
 # Editors
 .vscode/
