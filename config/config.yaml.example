@@ -1,33 +1,61 @@
-# RenCrow 設定サンプル
-# このファイルをコピーして config.yaml として使用
-# ${ENV_VAR} は環境変数から自動展開される
+# RenCrow / picoclaw configuration example.
+# Copy this file to config.yaml, then adjust hosts, paths, and environment
+# variables for the machine that starts the Viewer.
+#
+# This example is derived from the active operations config under
+# C:\Users\nyuki\.picoclaw\config.yaml, with secrets kept as environment
+# variable references and host-local paths made safe for reuse.
 
 server:
   host: "0.0.0.0"
   port: 18790
 
-# Ollama 設定（mio/shiro/IdleChat共通モデル）
 ollama:
-  base_url: "http://localhost:11434"
-  model: "picoclaw-v1"  # 全Agent共通モデル
-  max_context: 8192     # 常駐モデルの最大コンテキスト長（超過するモデルはNG）
+  base_url: "http://100.83.207.6:11434"
+  model: "Chat"
+  worker_model: "Worker"
+  max_context: 131072
 
-# DeepSeek API (Code1)
+local_llm:
+  enabled: true
+  provider: "local_openai"
+  base_url: "http://192.168.1.207:8081"
+  chat_base_url: "http://192.168.1.207:8081"
+  worker_base_url: "http://192.168.1.207:8082"
+  wild_base_url: "http://192.168.1.207:8081"
+  api_key: ""
+  chat_model: "Chat"
+  worker_model: "Worker"
+  wild_model: "Chat"
+  timeout_sec: 120
+  warmup: false
+  global_concurrency: 2
+  model_concurrency: 1
+  model_context: 131072
+
+webwright_fetch:
+  enabled: true
+  runner_path: "tools/webwright_fetch/run_webwright_fetch.py"
+  config_path: "tools/webwright_fetch/config_local_worker.yaml"
+  output_dir: "tmp/webwright_runs"
+  staging_output_dir: "tmp/webwright_staging"
+  uvx_from: "git+https://github.com/microsoft/Webwright.git"
+  responses_endpoint: "http://192.168.1.207:8082/v1/responses"
+  model: "Coder1"
+  api_key: "dummy"
+
 deepseek:
   api_key: "${DEEPSEEK_API_KEY}"
   model: "deepseek-chat"
 
-# OpenAI API (Code2)
 openai:
   api_key: "${OPENAI_API_KEY}"
   model: "gpt-4o-mini"
 
-# Claude API (Code3)
 claude:
   api_key: "${ANTHROPIC_API_KEY}"
   model: "claude-sonnet-4-20250514"
 
-# LINE Messaging API
 line:
   channel_secret: "${LINE_CHANNEL_SECRET}"
   access_token: "${LINE_CHANNEL_TOKEN}"
@@ -45,44 +73,39 @@ slack:
   bot_token: "${SLACK_BOT_TOKEN}"
   signing_secret: "${SLACK_SIGNING_SECRET}"
 
-# Google Search API (Chat用 - mio)
 google_search_chat:
   api_key: "${GOOGLE_API_KEY_CHAT}"
   search_engine_id: "${GOOGLE_SEARCH_ENGINE_ID_CHAT}"
 
-# Google Search API (Worker用 - shiro)
 google_search_worker:
   api_key: "${GOOGLE_API_KEY_WORKER}"
   search_engine_id: "${GOOGLE_SEARCH_ENGINE_ID_WORKER}"
 
-# セッション設定
 session:
   storage_dir: "./sessions"
 
-# Worker 実行設定（Coderが生成したPatchの自動実行）
 worker:
   auto_commit: false
   commit_message_prefix: "[Worker Auto-Commit]"
-  command_timeout: 300       # シェルコマンド実行タイムアウト（秒）
-  git_timeout: 30            # Git操作タイムアウト（秒）
-  stop_on_error: true        # true=中断モード、false=継続モード
-  workspace: "."             # Patch実行のルートディレクトリ
-  protected_patterns:        # 保護ファイルパターン（機密情報保護）
+  command_timeout: 300
+  git_timeout: 30
+  stop_on_error: true
+  workspace: "."
+  protected_patterns:
     - ".env*"
     - "*credentials*"
     - "*.key"
     - "*.pem"
-  action_on_protected: "error"    # "error"=エラー停止、"skip"=スキップ、"log"=警告ログのみ
-  show_execution_summary: true    # 実行前にコマンド数・種別を表示
-  parallel_execution: false       # v4: true で Type-Based Phased Execution
-  max_parallelism: 4              # v4: 並列度上限
+  action_on_protected: "error"
+  show_execution_summary: true
+  parallel_execution: false
+  max_parallelism: 4
 
-# 実行ポリシー/監査（OpenClaw parity: Phase 01）
 security:
-  enabled: false                  # true で policy runner を有効化
-  policy_mode: "balanced"         # "strict" | "balanced" | "dev"
-  network_scope: ""               # ""(profile default) | "blocked" | "allowlist" | "full"
-  network_allowlist:              # used when network_scope=allowlist
+  enabled: false
+  policy_mode: "balanced"
+  network_scope: ""
+  network_allowlist:
     - "localhost"
     - "127.0.0.1"
   deny_commands:
@@ -91,104 +114,117 @@ security:
   workspace_enforced: true
   audit:
     enabled: true
-    backend: "jsonl"              # "jsonl" | "sqlite"（sqliteは将来拡張）
+    backend: "jsonl"
     path: "logs/execution_audit.jsonl"
 
-# プロンプトファイルディレクトリ（未設定時はビルトインフォールバック）
-prompts_dir: "./prompts"       # デフォルトプロンプト（リポジトリ固定）
-workspace_dir: "./workspace"   # ユーザーカスタマイズ領域（オーバーライド）
+prompts_dir: "./prompts"
+workspace_dir: "./workspace"
 
-# ログ設定
 log:
   level: "info"
   format: "json"
 
-# 分散実行設定（v4.0）
 distributed:
   enabled: false
   transports:
-    mio:
-      type: "local"
-    shiro:
-      type: "local"
     coder1:
       type: "local"
     coder2:
       type: "local"
     coder3:
       type: "ssh"
-      remote_host: "192.168.1.100:22"
-      remote_user: "picoclaw"
-      ssh_key_path: "~/.ssh/id_ed25519_picoclaw"
-      strict_host_key: true
-      remote_agent_path: "/usr/local/bin/picoclaw-agent"
-      remote_config_path: "/etc/picoclaw/config.yaml"
+      remote_host: "192.168.1.25:22"
+      remote_user: "nyuki"
+      ssh_key_path: "~/.ssh/picoclaw_agent"
+      strict_host_key: false
+      remote_agent_path: "C:/Users/nyuki/.picoclaw/picoclaw-agent.exe"
+      remote_config_path: "C:/Users/nyuki/.picoclaw/config.yaml"
 
-# Agent間雑談モード（v4.0）
 idle_chat:
-  enabled: false
+  enabled: true
   participants:
     - "mio"
     - "shiro"
-  interval_min: 5        # 雑談開始までのアイドル時間（分）
-  max_turns: 10           # 1回の雑談最大ターン数
-  temperature: 0.8        # 雑談時の温度
+  interval_min: 5
+  interval_sec: 30
+  max_turns: 100
+  temperature: 0.8
+  story_data_dir: "data/story"
 
-# 会話LLM v5.0: 3層記憶（短期Redis・中期DuckDB・長期Qdrant）
 conversation:
-  enabled: false
+  enabled: true
   redis_url: "redis://localhost:6379"
-  duckdb_path: "./data/memory.duckdb"
+  l1_sqlite_path: "./workspace/l1_memory.db"
+  duckdb_path: "./workspace/memory.duckdb"
   vectordb_url: "localhost:6334"
-  embed_model: "nomic-embed-text"
-  summary_model: ""      # 空の場合はOllama chatモデルを使用
+  vector_collection: "picoclaw_memory_3584"
+  vector_dimension: 3584
+  embed_provider: "ollama"
+  embed_base_url: "http://100.83.207.6:11434"
+  embed_model: "nomic-embed-code:latest"
+  summary_model: "Chat"
 
-# サブエージェント設定（ReActループ）
+glossary:
+  enabled: false
+  db_path: "./workspace/glossary.db"
+  refresh_interval_hr: 6
+  max_entries: 8
+  feed_urls:
+    - "https://www3.nhk.or.jp/rss/news/cat0.xml"
+    - "https://feeds.bbci.co.uk/news/world/rss.xml"
+    - "https://feeds.bbci.co.uk/news/technology/rss.xml"
+
 subagent:
   enabled: false
-  max_iterations: 10     # ReActループ最大反復回数
-  provider: ""           # "ollama"(default), "claude", "openai", "deepseek"
-  model: ""              # 空の場合は各プロバイダーのデフォルトモデルを使用
+  max_iterations: 10
+  provider: ""
+  model: ""
 
-# ハートビート（定期タスク）
 heartbeat:
-  enabled: false
-  interval: 30            # チェック間隔（分）、最小5分
+  enabled: true
+  interval: 5
+  channel: "line"
   chat_id: "${PICOCLAW_HEARTBEAT_CHAT_ID}"
 
-# TTS実行能力（OpenClaw parity）
-# 音声サーバメモ:
-# - RenCrow_TTS と RenCrow_STT は同一ホストを使用する
-# - 共通IP: 192.168.1.36
-# - STT Health: https://192.168.1.36:8090/health
-# - STT Ready:  https://192.168.1.36:8090/ready
-# - STT WebSocket（Chat側接続先）: wss://192.168.1.36:8090/stt
-# - 自己署名証明書のため curl は -k を付ける
 tts:
-  enabled: false
+  enabled: true
   output_dir: "./workspace/tts"
-  # Optional: map relative audio_path (e.g. cache\\xxx.wav) to local playable path.
-  # Example on Linux with mounted Windows drive: /mnt/e/GenerativeAI/Style-Bert-VITS2
-  audio_path_root: ""
-  http_base_url: "http://127.0.0.1:8765"
-  ws_url: "ws://127.0.0.1:8765/sessions"
+  audio_path_root: "./scripts"
+  http_base_url: "http://192.168.1.207:7870"
+  ws_url: ""
   connect_timeout_ms: 3000
-  receive_timeout_ms: 15000
+  receive_timeout_ms: 60000
   chunk_gap_timeout_ms: 3000
-  voice_id: "female_01"
+  voice_id: "mio"
+  speed: 1.0
   speech_mode: "conversational"
+  voice_servers: {}
   provider_priority:
-    - "sbv2"
-    - "azure"
-    - "eleven"
-  playback_commands:
-    - name: "ffplay"
-      args: ["-autoexit", "-nodisp", "{audio}"]
-  sbv2:
+    - "irodori"
+  playback_commands: []
+  irodori:
     enabled: true
-    base_url: "http://127.0.0.1:5000/synthesis"
+    base_url: "http://192.168.1.207:7870"
+    endpoint_path: "/api/tts"
     voice_id: "mio"
+    voice_name: "Mio"
+    reference_audio: "/Users/yukimi/GenerativeAI/TTS/irodori/voices/Female_01_Mio/reference.wav"
+    reference_audio_url: "http://192.168.1.207:8090/voice_profile_tests/Female_01_Mio_test.wav"
     timeout_sec: 20
+    checkpoint: "Aratako/Irodori-TTS-500M-v2"
+    model_device: "mps"
+    model_precision: "fp32"
+    codec_device: "mps"
+    codec_precision: "fp32"
+    enable_watermark: false
+    num_steps: 40
+    num_candidates: 1
+    cfg_guidance_mode: "independent"
+    cfg_scale_text: 3.0
+    cfg_scale_speaker: 5.0
+    cfg_min_t: 0.5
+    cfg_max_t: 1.0
+    context_kv_cache: true
   azure:
     enabled: false
     endpoint: "${AZURE_TTS_ENDPOINT}"
@@ -202,6 +238,15 @@ tts:
     model_id: "eleven_multilingual_v2"
     timeout_sec: 20
 
+stt:
+  enabled: true
+  provider: "external_http"
+  language: "ja"
+  model: "small"
+  timeout_ms: 8000
+  provider_url: "http://192.168.1.207:8766/v1/audio/transcriptions"
+  stream_url: "ws://192.168.1.207:8766/stt"
+
 vtuber:
   enabled: false
   tick_interval_ms: 100
@@ -212,6 +257,18 @@ vtuber:
       audio_output: "Audio-Out-Mio"
       vts_host: "127.0.0.1"
       vts_port: 8001
+      expression_map:
+        neutral: "ExpNeutral"
+        happy: "ExpHappy"
+        calm: "ExpCalm"
+        thinking: "ExpThinking"
+        surprised: "ExpSurprised"
+        annoyed: "ExpAnnoyed"
+        sad: "ExpSad"
+    shiro:
+      audio_output: "Audio-Out-Shiro"
+      vts_host: "127.0.0.1"
+      vts_port: 8002
       expression_map:
         neutral: "ExpNeutral"
         happy: "ExpHappy"
@@ -235,15 +292,51 @@ audio_router:
     shiro:
       device_id: "{0.0.0.00000000}.{SHIRO-DEVICE-ID}"
       display_name: "Audio-Out-Shiro"
-    shiro:
-      audio_output: "Audio-Out-Shiro"
-      vts_host: "127.0.0.1"
-      vts_port: 8002
-      expression_map:
-        neutral: "ExpNeutral"
-        happy: "ExpHappy"
-        calm: "ExpCalm"
-        thinking: "ExpThinking"
-        surprised: "ExpSurprised"
-        annoyed: "ExpAnnoyed"
-        sad: "ExpSad"
+
+coder1:
+  enabled: true
+  name: "aka"
+  display_name: "赤"
+  provider: "deepseek"
+  model: "deepseek-coder"
+  api_key: "example-deepseek-api-key"
+  light_memory:
+    enabled: true
+    max_turns: 3
+
+coder2:
+  enabled: true
+  name: "ao"
+  display_name: "青"
+  provider: "openai"
+  model: "gpt-4o-mini"
+  api_key: "example-openai-api-key"
+  light_memory:
+    enabled: true
+    max_turns: 3
+
+coder3:
+  enabled: true
+  name: "gin"
+  display_name: "銀"
+  provider: "claude"
+  model: "claude-sonnet-4-20250514"
+  api_key: "example-anthropic-api-key"
+  light_memory:
+    enabled: true
+    max_turns: 3
+
+coder4:
+  enabled: true
+  name: "kin"
+  display_name: "金"
+  provider: "gemini"
+  model: "gemini-2.5-flash"
+  api_key: "example-gemini-api-key"
+  light_memory:
+    enabled: true
+    max_turns: 3
+
+llm_ops:
+  enabled: true
+  base_url: "http://192.168.1.207:8079"
