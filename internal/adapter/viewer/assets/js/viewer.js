@@ -3004,11 +3004,11 @@ function createChatAudioSync() {
   const state = ttsPlayback;
   // Lifecycle ownership:
   // - completedSessions is only an IdleChat session-level start gate for buffered audio.
-  // - completedResponses / responsePlaybackCounts / responsePlaybackResults / seenAudioResponses form one response-level ACK lifecycle.
+  // - responseLifecycle is the response-level source of truth for the three independent TTS checkpoints:
+  //   synthesis completed, browser WAV fetch completed, and playback ACK completed.
   // - seenUtterances and blockedAckKeys are chunk-level local dedupe guards for this tab only.
   const completedSessions = new Set();
-  const completedResponses = new Set();
-  const acknowledgedResponses = new Set();
+  const responseLifecycle = new Map();
   const responsePlaybackCounts = new Map();
   const responsePlaybackResults = new Map();
   const seenAudioResponses = new Set();
@@ -3050,6 +3050,7 @@ function createChatAudioSync() {
     unlockAudio: unlockAudioInternal,
     ensureAudio: ensureAudioInternal,
     showFallbackChunk: showFallbackChunkInternal,
+    responseLifecycleSnapshot,
   };
   return module;
 
@@ -3130,7 +3131,6 @@ function createChatAudioSync() {
     const chunk = normalizeEvent(ev);
     if (!chunk) return;
 		if (chunk.mode === 'idlechat' && !isIdleChatActiveForTTS(chunk.sessionId)) return;
-    if (chunk.mode === 'idlechat' && !ttsPlayback.audioEnabled) return;
     if (chunk.mode === 'idlechat') {
       const activeIdleSession = String(typeof idleLiveActiveSessionId !== 'undefined' ? idleLiveActiveSessionId || '' : '').trim();
       if (activeIdleSession && chunk.sessionId && chunk.sessionId !== activeIdleSession) return;
@@ -3143,12 +3143,18 @@ function createChatAudioSync() {
       return;
     }
     if (!isThisViewerActiveAudio()) return;
+    if (chunk.mode === 'idlechat' && !String(viewerControl.activeAudioViewerId || '').trim()) {
+      claimViewerControl('audio', ttsPlayback.audioEnabled ? 'idlechat_tts_chunk' : 'idlechat_tts_audio_disabled');
+    }
+    if (chunk.errorCode) {
+      if (chunk.mode === 'idlechat' && typeof renderIdleTTSChunkError === 'function') {
+        renderIdleTTSChunkError(chunk, chunk.errorCode, chunk.error || 'TTS generation failed before audio was available.');
+      }
+      return;
+    }
     if (!chunk.url) {
       if (chunk.displayText) enqueueDisplayFallbackInternal(chunk);
       return;
-    }
-    if (chunk.mode === 'idlechat' && !String(viewerControl.activeAudioViewerId || '').trim() && ttsPlayback.audioEnabled) {
-      claimViewerControl('audio', 'idlechat_tts_chunk');
     }
     enqueueAudioChunkInternal(chunk);
   }
@@ -3194,6 +3200,7 @@ function createChatAudioSync() {
     if (chunkKey && seenUtterances.has(chunkKey)) return;
     if (chunkKey) seenUtterances.add(chunkKey);
     chunk.seq = ++state.seq;
+    ensureResponseLifecycle(chunk.responseId).lastItem = chunk;
     incrementResponsePlaybackCount(chunk.responseId);
     state.queue.push(chunk);
     sortQueue();
@@ -3219,7 +3226,9 @@ function createChatAudioSync() {
     if (sid) completedSessions.add(sid);
     const rid = String(chunk.responseId || '').trim();
     if (rid) {
-      completedResponses.add(rid);
+      const lifecycle = ensureResponseLifecycle(rid);
+      lifecycle.synthesisCompleted = true;
+      lifecycle.lastItem = mergeTTSPlaybackItem(lifecycle.lastItem, chunk);
       if (seenAudioResponses.has(rid)) {
         maybeAcknowledgeResponsePlayback(chunk, 'completed_after_playback');
       }
@@ -3231,6 +3240,7 @@ function createChatAudioSync() {
     const rid = String(responseId || '').trim();
     if (!rid) return;
     seenAudioResponses.add(rid);
+    ensureResponseLifecycle(rid);
     responsePlaybackCounts.set(rid, (responsePlaybackCounts.get(rid) || 0) + 1);
   }
 
@@ -3250,39 +3260,112 @@ function createChatAudioSync() {
     if (!responseId) return;
     const normalizedStatus = String(status || '').trim();
     if (!normalizedStatus || normalizedStatus === 'ended' || normalizedStatus === 'completed_after_playback') return;
+    ensureResponseLifecycle(responseId).lastItem = item;
     if (responsePlaybackResults.has(responseId)) return;
     responsePlaybackResults.set(responseId, {item, status: normalizedStatus, err: err || null});
+    if (normalizedStatus === 'error') {
+      responsePlaybackCounts.delete(responseId);
+    }
   }
 
   function maybeAcknowledgeResponsePlayback(item, status, err) {
     const responseId = String((item && item.responseId) || '').trim();
     if (!responseId) return;
-    if (!completedResponses.has(responseId)) return;
+    const lifecycle = ensureResponseLifecycle(responseId);
+    lifecycle.lastItem = mergeTTSPlaybackItem(lifecycle.lastItem, item);
+    if (!lifecycle.synthesisCompleted) return;
     if ((responsePlaybackCounts.get(responseId) || 0) > 0) return;
-    if (acknowledgedResponses.has(responseId)) return;
-    acknowledgedResponses.add(responseId);
     const recorded = responsePlaybackResults.get(responseId);
+    const ackStatus = recorded ? String(recorded.status || status || '').trim() : String(status || '').trim();
+    if (!lifecycle.wavFetchCompleted && ackStatus !== 'error') return;
+    if (lifecycle.playbackAckCompleted) return;
+    lifecycle.playbackAckCompleted = true;
     if (recorded) {
-      postTTSPlaybackAck(recorded.item || item, recorded.status || status, recorded.err || err);
+      postTTSPlaybackAck(recorded.item || item, recorded.status || status, recorded.err || err, lifecycle);
       clearResponsePlaybackLifecycle(responseId);
       return;
     }
-    postTTSPlaybackAck(item, status, err);
+    postTTSPlaybackAck(item, status, err, lifecycle);
     clearResponsePlaybackLifecycle(responseId);
   }
 
   function clearResponsePlaybackLifecycle(responseId) {
     const rid = String(responseId || '').trim();
     if (!rid) return;
-    completedResponses.delete(rid);
+    responseLifecycle.delete(rid);
     responsePlaybackCounts.delete(rid);
     responsePlaybackResults.delete(rid);
     seenAudioResponses.delete(rid);
   }
 
-  function postTTSPlaybackAck(item, status, err) {
+  function ensureResponseLifecycle(responseId) {
+    const rid = String(responseId || '').trim();
+    if (!rid) {
+      return {
+        synthesisCompleted: false,
+        wavFetchCompleted: false,
+        playbackAckCompleted: false,
+        lastItem: null,
+      };
+    }
+    if (!responseLifecycle.has(rid)) {
+      responseLifecycle.set(rid, {
+        synthesisCompleted: false,
+        wavFetchCompleted: false,
+        playbackAckCompleted: false,
+        lastItem: null,
+      });
+    }
+    return responseLifecycle.get(rid);
+  }
+
+  function markResponseWAVFetchCompleted(item) {
+    const responseId = String((item && item.responseId) || '').trim();
+    if (!responseId) return;
+    const lifecycle = ensureResponseLifecycle(responseId);
+    lifecycle.wavFetchCompleted = true;
+    lifecycle.lastItem = mergeTTSPlaybackItem(lifecycle.lastItem, item);
+  }
+
+  function markCurrentAudioWAVFetchedInternal() {
+    if (!state.playing) return;
+    markResponseWAVFetchCompleted(currentAudioItemInternal());
+  }
+
+  function mergeTTSPlaybackItem(base, next) {
+    if (!base) return next || null;
+    if (!next) return base;
+    return {
+      characterId: base.characterId || next.characterId || '',
+      displayText: base.displayText || next.displayText || '',
+      text: base.text || next.text || '',
+      sessionId: base.sessionId || next.sessionId || '',
+      chunkIndex: Number.isFinite(base.chunkIndex) && base.chunkIndex >= 0 ? base.chunkIndex : (Number.isFinite(next.chunkIndex) ? next.chunkIndex : -1),
+      utteranceId: base.utteranceId || next.utteranceId || '',
+      responseId: base.responseId || next.responseId || '',
+      messageId: base.messageId || next.messageId || '',
+      turnIndex: Number.isFinite(base.turnIndex) && base.turnIndex >= 0 ? base.turnIndex : (Number.isFinite(next.turnIndex) ? next.turnIndex : -1),
+      errorCode: base.errorCode || next.errorCode || '',
+      error: base.error || next.error || '',
+    };
+  }
+
+  function responseLifecycleSnapshot(responseId) {
+    const lifecycle = responseLifecycle.get(String(responseId || '').trim());
+    if (!lifecycle) {
+      return {synthesisCompleted: false, wavFetchCompleted: false, playbackAckCompleted: false};
+    }
+    return {
+      synthesisCompleted: Boolean(lifecycle.synthesisCompleted),
+      wavFetchCompleted: Boolean(lifecycle.wavFetchCompleted),
+      playbackAckCompleted: Boolean(lifecycle.playbackAckCompleted),
+    };
+  }
+
+  function postTTSPlaybackAck(item, status, err, lifecycle) {
     const normalizedStatus = normalizeTTSPlaybackAckStatus(status);
     const errorCode = ttsPlaybackAckErrorCode(item, normalizedStatus, err);
+    const stateSnapshot = lifecycle || ensureResponseLifecycle(item && item.responseId);
     const payload = {
       response_id: String((item && item.responseId) || '').trim(),
       session_id: String((item && item.sessionId) || '').trim(),
@@ -3293,6 +3376,9 @@ function createChatAudioSync() {
       status: normalizedStatus,
       error_code: errorCode,
       error: err ? describeTTSAudioError(err) : '',
+      tts_synthesis_completed: Boolean(stateSnapshot.synthesisCompleted),
+      wav_fetch_completed: Boolean(stateSnapshot.wavFetchCompleted),
+      playback_ack_completed: true,
     };
     if (!payload.response_id) return;
     if (!isThisViewerActiveAudio()) return;
@@ -3401,7 +3487,8 @@ function createChatAudioSync() {
     if (rid) {
       interruptedChatResponses.add(rid);
       clearResponsePlaybackLifecycle(rid);
-      acknowledgedResponses.add(rid);
+      const lifecycle = ensureResponseLifecycle(rid);
+      lifecycle.playbackAckCompleted = true;
     }
   }
 
@@ -3543,6 +3630,8 @@ function createChatAudioSync() {
       state.audio.preload = 'auto';
       if (typeof prepareMobileInlineAudio === 'function') prepareMobileInlineAudio(state.audio);
       if (typeof attachPlaybackAudioElement === 'function') attachPlaybackAudioElement(state.audio);
+      state.audio.addEventListener('loadeddata', markCurrentAudioWAVFetchedInternal);
+      state.audio.addEventListener('canplaythrough', markCurrentAudioWAVFetchedInternal);
       state.audio.addEventListener('playing', markAudioStarted);
       state.audio.addEventListener('timeupdate', markAudioStarted);
       state.audio.addEventListener('ended', function() {
@@ -3560,6 +3649,7 @@ function createChatAudioSync() {
     if (state.currentShown) return;
     const audio = state.audio;
     if (audio && audio.currentTime <= 0 && audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    markCurrentAudioWAVFetchedInternal();
     state.currentShown = true;
     startLipSyncInternal(state.currentCharacterId);
     setNowPlayingText(state.currentCharacterId, state.currentText);
@@ -3724,6 +3814,7 @@ function createChatAudioSync() {
 
   function completeCurrentAudioPlaybackInternal() {
     const finished = currentAudioItemInternal();
+    markResponseWAVFetchCompleted(finished);
     stopLipSyncInternal(finished.characterId);
     state.playing = false;
     state.currentCharacterId = '';

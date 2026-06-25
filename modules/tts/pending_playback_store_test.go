@@ -38,6 +38,32 @@ func TestPendingPlaybackStoreClearByWait(t *testing.T) {
 	}
 }
 
+func TestPendingPlaybackStoreCompleteByResponseClosesWaitWhenSessionIDWasReused(t *testing.T) {
+	store := NewPendingPlaybackStore()
+	first := store.Register("tts-reused", "resp-1")
+	second := store.Register("tts-reused", "resp-2")
+
+	firstAction := store.CompleteByResponse("resp-1")
+	if !firstAction.Matched || !firstAction.ClosePendingWait || firstAction.ClearPublicBy != "resp-1" {
+		t.Fatalf("unexpected first action: %+v", firstAction)
+	}
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("first wait should close even after the tts session id was reused")
+	}
+
+	secondAction := store.CompleteByResponse("resp-2")
+	if !secondAction.Matched || secondAction.TTSSessionID != "tts-reused" {
+		t.Fatalf("unexpected second action: %+v", secondAction)
+	}
+	select {
+	case <-second:
+	case <-time.After(time.Second):
+		t.Fatal("second wait should close")
+	}
+}
+
 func TestPendingPlaybackStoreClearAll(t *testing.T) {
 	store := NewPendingPlaybackStore()
 	first := store.Register("tts-1", "resp-1")

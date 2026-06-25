@@ -24,6 +24,7 @@ type RenCrowTTSBridgeConfig struct {
 	ProviderParams     map[string]any
 	Sink               AudioSink
 	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string)
+	OnChunkError       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, errorCode, errorText string)
 	OnSessionCompleted func(sessionID, characterID string)
 }
 
@@ -185,4 +186,30 @@ func (b *RenCrowTTSBridge) EndSession(ctx context.Context, sessionID string) err
 		b.cfg.OnSessionCompleted(sessionID, characterID)
 	}
 	return nil
+}
+
+func (b *RenCrowTTSBridge) AbortSession(_ context.Context, sessionID string) error {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	delete(b.sessions, sessionID)
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *RenCrowTTSBridge) EmitIdleChatTTSError(_ context.Context, sessionID, characterID, speechText, displayText, errorCode string, cause error) {
+	if b == nil || b.cfg.OnChunkError == nil {
+		return
+	}
+	session := b.getOrCreateSession(sessionID)
+	resolvedCharacterID := strings.TrimSpace(characterID)
+	if resolvedCharacterID == "" {
+		resolvedCharacterID = session.characterID
+	}
+	errorText := ""
+	if cause != nil {
+		errorText = cause.Error()
+	}
+	b.cfg.OnChunkError(sessionID, session.responseID, session.nextChunk, resolvedCharacterID, speechText, displayText, errorCode, errorText)
 }

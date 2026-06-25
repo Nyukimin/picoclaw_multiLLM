@@ -68,8 +68,10 @@ func (s *PendingPlaybackStore) CompleteByResponse(responseID string) PendingPlay
 	action := BuildPendingPlaybackCompletionAction(responseID, "", "", false)
 	if ok {
 		delete(s.byResponse, responseID)
+		foundSession := false
 		for sessionID, sessionCh := range s.pending {
 			if sessionCh == ch {
+				foundSession = true
 				delete(s.pending, sessionID)
 				topicIdleSessionID := ""
 				if idleSessionID, topicOK := s.topicByTTS[sessionID]; topicOK {
@@ -81,6 +83,9 @@ func (s *PendingPlaybackStore) CompleteByResponse(responseID string) PendingPlay
 				action = BuildPendingPlaybackCompletionAction(responseID, sessionID, topicIdleSessionID, true)
 				break
 			}
+		}
+		if !foundSession {
+			action = BuildPendingPlaybackCompletionAction(responseID, "", "", true)
 		}
 	}
 	s.mu.Unlock()

@@ -166,6 +166,57 @@ func TestIrodoriProvider_UsesConfiguredEndpointPathAndStyle(t *testing.T) {
 	}
 }
 
+func TestIrodoriProvider_SynthesizeGradioCallGeneration(t *testing.T) {
+	tmpDir := t.TempDir()
+	p := NewIrodoriProvider(IrodoriConfig{
+		BaseURL:      "http://irodori.local",
+		EndpointPath: "/gradio_api/call/_run_generation",
+		Checkpoint:   "Aratako/Irodori-TTS-500M-v3",
+		ModelDevice:  "cuda",
+		CodecDevice:  "cuda",
+		Speed:        0.95,
+	})
+	p.client = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/gradio_api/call/_run_generation":
+			var payload struct {
+				Data []any `json:"data"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.Data) != 31 {
+				t.Fatalf("unexpected gradio data length: %d %#v", len(payload.Data), payload.Data)
+			}
+			if payload.Data[0] != "Aratako/Irodori-TTS-500M-v3" || payload.Data[5] != "hello" || payload.Data[13] != 1.0 || payload.Data[14] != 0.95 || payload.Data[15] != "linear" || payload.Data[16] != -1.0 {
+				t.Fatalf("unexpected gradio payload: %#v", payload.Data)
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"event_id":"evt-1"}`)), Header: make(http.Header)}, nil
+		case r.Method == http.MethodGet && r.URL.Path == "/gradio_api/call/_run_generation/evt-1":
+			body := "event: complete\n" +
+				`data: [{"visible":true,"value":{"path":"/tmp/sample.wav","url":"http://irodori.local/gradio_api/file=/tmp/sample.wav","meta":{"_type":"gradio.FileData"}},"__type__":"update"}]` + "\n\n"
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(body)), Header: make(http.Header)}, nil
+		case r.Method == http.MethodGet && r.URL.Path == "/gradio_api/file=/tmp/sample.wav":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString("RIFFgradio")), Header: make(http.Header)}, nil
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		return nil, nil
+	})}
+
+	out, err := p.Synthesize(context.Background(), SynthesisInput{Text: "hello", OutputDir: tmpDir, FilePrefix: "irodori"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if out.Provider != "irodori" || out.VoiceID != "mio" {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+	got, err := os.ReadFile(out.AudioFilePath)
+	if err != nil || string(got) != "RIFFgradio" {
+		t.Fatalf("unexpected wav output: err=%v got=%q", err, string(got))
+	}
+}
+
 func TestParseIrodoriAudioURL_GradioUpdateValue(t *testing.T) {
 	body := `{"data":[{"visible":true,"value":{"path":"/tmp/sample.wav","url":"http://irodori.local/gradio_api/file=/tmp/sample.wav","orig_name":"sample.wav","mime_type":null},"__type__":"update"}]}`
 	got, err := parseIrodoriAudioURL(bytes.NewBufferString(body))

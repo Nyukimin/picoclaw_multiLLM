@@ -67,6 +67,40 @@ func buildTTSClientBridge(
 		route := moduletts.PlaybackEventRouteForSession(payload.SessionID)
 		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payloadJSON), "TTS", "", payload.SessionID, route.Channel, route.ChatID))
 	}
+	onChunkErrorFn := func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, errorCode, errorText string) {
+		if isStaleTTSPublicSession(sessionID) {
+			log.Printf("[TTS] dropping stale idlechat error session=%s response=%s chunk=%d", sessionID, responseID, chunkIndex)
+			return
+		}
+		publicSessionID, publicChunkIndex := resolveTTSPublicChunk(sessionID, chunkIndex)
+		messageID, turnIndex, utteranceID := resolveTTSPublicMessage(sessionID)
+		if utteranceID == "" {
+			utteranceID = fmt.Sprintf("%s:%04d", publicSessionID, publicChunkIndex)
+		}
+		payload := moduletts.BuildAudioChunkEventPayload(moduletts.AudioChunkEventPayloadInput{
+			SessionID:   publicSessionID,
+			ResponseID:  responseID,
+			MessageID:   messageID,
+			TurnIndex:   turnIndex,
+			UtteranceID: utteranceID,
+			ChunkIndex:  publicChunkIndex,
+			CharacterID: characterID,
+			SpeechText:  text,
+			DisplayText: displayText,
+			ErrorCode:   errorCode,
+			Error:       errorText,
+		})
+		if onChunk == nil {
+			return
+		}
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			log.Printf("WARN: tts error payload marshal failed: %v", err)
+			return
+		}
+		route := moduletts.PlaybackEventRouteForSession(payload.SessionID)
+		onChunk(orchestrator.NewEvent("tts.audio_chunk", "tts", "user", string(payloadJSON), "TTS", "", payload.SessionID, route.Channel, route.ChatID))
+	}
 	onSessionDoneFn := func(sessionID, characterID string) {
 		if isStaleTTSPublicSession(sessionID) {
 			log.Printf("[TTS] dropping stale idlechat completion session=%s", sessionID)
@@ -105,6 +139,7 @@ func buildTTSClientBridge(
 			OutputDir:          cfg.TTS.OutputDir,
 			HTTPBaseURL:        cfg.TTS.HTTPBaseURL,
 			OnChunkReady:       onChunkFn,
+			OnChunkError:       onChunkErrorFn,
 			OnSessionCompleted: onSessionDoneFn,
 		})
 	}
@@ -118,6 +153,7 @@ func buildTTSClientBridge(
 		ProviderParams:     cfg.TTS.ProviderParams,
 		Sink:               sink,
 		OnChunkReady:       onChunkFn,
+		OnChunkError:       onChunkErrorFn,
 		OnSessionCompleted: onSessionDoneFn,
 	})
 	log.Printf("TTS RenCrow bridge enabled (/synthesis base=%s)", cfg.TTS.HTTPBaseURL)

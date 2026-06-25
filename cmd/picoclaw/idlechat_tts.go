@@ -13,6 +13,14 @@ import (
 
 const idleChatRoute = "IDLECHAT"
 
+type idleChatTTSErrorEmitter interface {
+	EmitIdleChatTTSError(ctx context.Context, sessionID, characterID, speechText, displayText, errorCode string, cause error)
+}
+
+type idleChatTTSAborter interface {
+	AbortSession(ctx context.Context, sessionID string) error
+}
+
 func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idlechat.TimelineEvent) (<-chan struct{}, bool) {
 	if bridge == nil || strings.TrimSpace(ev.Content) == "" || !isIdleChatTTSEventType(ev.Type) {
 		return nil, false
@@ -89,9 +97,8 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		err := displayBridge.PushTextWithDisplay(ctx, plan.SessionID, plan.SpeechText, plan.DisplayText, &emotion)
 		if err != nil {
 			log.Printf("[IdleChat] TTS push failed: %v", err)
-			if endErr := bridge.EndSession(ctx, plan.SessionID); endErr != nil {
-				log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
-			}
+			emitIdleChatTTSError(ctx, bridge, plan, err)
+			abortIdleChatTTSSession(ctx, bridge, plan.SessionID)
 			if expectPlaybackAck {
 				clearIdleChatTTSPending(plan.SessionID)
 			} else {
@@ -101,9 +108,8 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 		}
 	} else if err := bridge.PushText(ctx, plan.SessionID, plan.SpeechText, &emotion); err != nil {
 		log.Printf("[IdleChat] TTS push failed: %v", err)
-		if endErr := bridge.EndSession(ctx, plan.SessionID); endErr != nil {
-			log.Printf("[IdleChat] TTS end after push failure failed: %v", endErr)
-		}
+		emitIdleChatTTSError(ctx, bridge, plan, err)
+		abortIdleChatTTSSession(ctx, bridge, plan.SessionID)
 		if expectPlaybackAck {
 			clearIdleChatTTSPending(plan.SessionID)
 		} else {
@@ -128,4 +134,22 @@ func emitIdleChatTTS(ctx context.Context, bridge orchestrator.TTSBridge, ev idle
 
 func isIdleChatTTSEventType(eventType string) bool {
 	return moduletts.IsIdleChatTTSEventType(eventType)
+}
+
+func emitIdleChatTTSError(ctx context.Context, bridge orchestrator.TTSBridge, plan moduletts.IdleChatTTSPlan, err error) {
+	emitter, ok := bridge.(idleChatTTSErrorEmitter)
+	if !ok || emitter == nil {
+		return
+	}
+	emitter.EmitIdleChatTTSError(ctx, plan.SessionID, plan.CharacterID, plan.SpeechText, plan.DisplayText, "TTS_GENERATION_FAILED", err)
+}
+
+func abortIdleChatTTSSession(ctx context.Context, bridge orchestrator.TTSBridge, sessionID string) {
+	aborter, ok := bridge.(idleChatTTSAborter)
+	if !ok || aborter == nil {
+		return
+	}
+	if err := aborter.AbortSession(ctx, sessionID); err != nil {
+		log.Printf("[IdleChat] TTS abort after push failure failed: %v", err)
+	}
 }

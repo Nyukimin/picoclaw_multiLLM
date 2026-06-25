@@ -506,8 +506,14 @@ function renderIdleTTSChunkError(chunk, errorCode, reason) {
   const sid = String((chunk && chunk.sessionId) || '').trim();
   const messageId = String((chunk && chunk.messageId) || '').trim();
   const turnIndex = Number.isFinite(chunk && chunk.turnIndex) ? Math.floor(chunk.turnIndex) : -1;
+  const kind = messageId.endsWith(':topic') ? 'topic' : 'speech';
+  const existing = consumeIdlePendingMessage(sid, String((chunk && chunk.characterId) || '').trim().toLowerCase(), kind, messageId, turnIndex);
+  if (existing) {
+    renderIdlePendingTTSError(existing, errorCode || 'TTS_IDENTITY_MISSING', reason || 'TTS chunk did not include a stable message identity.');
+    return;
+  }
   const ev = {
-    type: 'idlechat.message',
+    type: kind === 'topic' ? 'idlechat.topic' : 'idlechat.message',
     from: String((chunk && chunk.characterId) || '').trim().toLowerCase(),
     to: '',
     content: '',

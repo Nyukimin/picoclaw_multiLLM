@@ -22,6 +22,8 @@ type AudioChunkEventPayloadInput struct {
 	AudioPath   string
 	AudioURL    string
 	Track       string
+	ErrorCode   string
+	Error       string
 }
 
 type AudioChunkEventPayload struct {
@@ -38,6 +40,8 @@ type AudioChunkEventPayload struct {
 	AudioPath   string `json:"audio_path,omitempty"`
 	AudioURL    string `json:"audio_url,omitempty"`
 	Track       string `json:"track"`
+	ErrorCode   string `json:"error_code,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type SessionCompletedEventPayloadInput struct {
@@ -86,6 +90,8 @@ func BuildAudioChunkEventPayload(input AudioChunkEventPayloadInput) AudioChunkEv
 		AudioPath:   strings.TrimSpace(input.AudioPath),
 		AudioURL:    strings.TrimSpace(input.AudioURL),
 		Track:       track,
+		ErrorCode:   strings.TrimSpace(input.ErrorCode),
+		Error:       strings.TrimSpace(input.Error),
 	}
 }
 

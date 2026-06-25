@@ -10,13 +10,16 @@ const (
 )
 
 type PlaybackAckInput struct {
-	ResponseID     string
-	SessionID      string
-	UtteranceID    string
-	ViewerClientID string
-	Status         string
-	ErrorCode      string
-	Error          string
+	ResponseID            string
+	SessionID             string
+	UtteranceID           string
+	ViewerClientID        string
+	Status                string
+	ErrorCode             string
+	Error                 string
+	TTSSynthesisCompleted bool
+	WAVFetchCompleted     bool
+	PlaybackAckCompleted  bool
 }
 
 type PlaybackAckDecision struct {
@@ -26,16 +29,19 @@ type PlaybackAckDecision struct {
 }
 
 type PlaybackAckReceipt struct {
-	OK             bool   `json:"ok"`
-	Matched        bool   `json:"matched"`
-	ResponseID     string `json:"response_id,omitempty"`
-	SessionID      string `json:"session_id,omitempty"`
-	UtteranceID    string `json:"utterance_id,omitempty"`
-	ViewerClientID string `json:"viewer_client_id,omitempty"`
-	ActiveAudio    bool   `json:"active_audio"`
-	Status         string `json:"status"`
-	ErrorCode      string `json:"error_code,omitempty"`
-	Error          string `json:"error,omitempty"`
+	OK                    bool   `json:"ok"`
+	Matched               bool   `json:"matched"`
+	ResponseID            string `json:"response_id,omitempty"`
+	SessionID             string `json:"session_id,omitempty"`
+	UtteranceID           string `json:"utterance_id,omitempty"`
+	ViewerClientID        string `json:"viewer_client_id,omitempty"`
+	ActiveAudio           bool   `json:"active_audio"`
+	Status                string `json:"status"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	Error                 string `json:"error,omitempty"`
+	TTSSynthesisCompleted bool   `json:"tts_synthesis_completed"`
+	WAVFetchCompleted     bool   `json:"wav_fetch_completed"`
+	PlaybackAckCompleted  bool   `json:"playback_ack_completed"`
 }
 
 func NormalizePlaybackAck(input PlaybackAckInput) PlaybackAckDecision {
@@ -61,16 +67,19 @@ func NormalizePlaybackAck(input PlaybackAckInput) PlaybackAckDecision {
 func BuildPlaybackAckReceipt(input PlaybackAckInput, activeAudio bool, matched bool) PlaybackAckReceipt {
 	ack := NormalizePlaybackAck(input)
 	return PlaybackAckReceipt{
-		OK:             true,
-		Matched:        matched,
-		ResponseID:     strings.TrimSpace(input.ResponseID),
-		SessionID:      strings.TrimSpace(input.SessionID),
-		UtteranceID:    strings.TrimSpace(input.UtteranceID),
-		ViewerClientID: strings.TrimSpace(input.ViewerClientID),
-		ActiveAudio:    activeAudio,
-		Status:         ack.Status,
-		ErrorCode:      ack.ErrorCode,
-		Error:          ack.Error,
+		OK:                    true,
+		Matched:               matched,
+		ResponseID:            strings.TrimSpace(input.ResponseID),
+		SessionID:             strings.TrimSpace(input.SessionID),
+		UtteranceID:           strings.TrimSpace(input.UtteranceID),
+		ViewerClientID:        strings.TrimSpace(input.ViewerClientID),
+		ActiveAudio:           activeAudio,
+		Status:                ack.Status,
+		ErrorCode:             ack.ErrorCode,
+		Error:                 ack.Error,
+		TTSSynthesisCompleted: input.TTSSynthesisCompleted,
+		WAVFetchCompleted:     input.WAVFetchCompleted,
+		PlaybackAckCompleted:  input.PlaybackAckCompleted,
 	}
 }
 

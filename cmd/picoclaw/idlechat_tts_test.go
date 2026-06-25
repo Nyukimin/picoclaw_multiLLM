@@ -18,6 +18,7 @@ type idleChatMockTTSBridge struct {
 	displayTexts []string
 	pushEmo      []*moduletts.EmotionState
 	endIDs       []string
+	abortIDs     []string
 	notifyOnEnd  bool
 	pushErr      error
 	errorEvents  []string
@@ -48,6 +49,11 @@ func (m *idleChatMockTTSBridge) EndSession(_ context.Context, sessionID string) 
 	if m.notifyOnEnd {
 		clearIdleChatTTSPending(sessionID)
 	}
+	return nil
+}
+
+func (m *idleChatMockTTSBridge) AbortSession(_ context.Context, sessionID string) error {
+	m.abortIDs = append(m.abortIDs, sessionID)
 	return nil
 }
 
@@ -153,7 +159,7 @@ func TestIdleChatViewerDisconnectClearsPlaybackWaits(t *testing.T) {
 	}
 }
 
-func TestEmitIdleChatTTSCompletesNormallyOnPushFailure(t *testing.T) {
+func TestEmitIdleChatTTSReportsGenerationFailureWithoutCompletion(t *testing.T) {
 	clearAllIdleChatTTSPending()
 	t.Cleanup(clearAllIdleChatTTSPending)
 	bridge := &idleChatMockTTSBridge{pushErr: errors.New("irodori unavailable")}
@@ -171,11 +177,17 @@ func TestEmitIdleChatTTSCompletesNormallyOnPushFailure(t *testing.T) {
 	if !ok || waitCh == nil {
 		t.Fatal("expected failed push to still expose a completed wait channel")
 	}
-	if len(bridge.errorEvents) != 0 {
-		t.Fatalf("TTS provider failures should remain log-only for IdleChat processing, got error events %#v", bridge.errorEvents)
+	if len(bridge.errorEvents) != 1 {
+		t.Fatalf("expected one TTS error event, got %#v", bridge.errorEvents)
 	}
-	if len(bridge.endIDs) != 1 {
-		t.Fatalf("expected end session after push failure, got %d", len(bridge.endIDs))
+	if !strings.Contains(bridge.errorEvents[0], "TTS_GENERATION_FAILED") {
+		t.Fatalf("error event should expose generation failure code, got %#v", bridge.errorEvents)
+	}
+	if len(bridge.endIDs) != 0 {
+		t.Fatalf("push failure must not emit session completion via EndSession, got %d", len(bridge.endIDs))
+	}
+	if len(bridge.abortIDs) != 1 {
+		t.Fatalf("expected abort session after push failure, got %d", len(bridge.abortIDs))
 	}
 	if got := snapshotIdleChatTTSPending(); got.PendingResponseCount != 0 {
 		t.Fatalf("pending response count = %d, want 0 after log-only TTS failure", got.PendingResponseCount)
@@ -525,6 +537,8 @@ func TestEmitIdleChatTTSAsyncSerializesIdleSpeech(t *testing.T) {
 }
 
 func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
+	resetIdleChatTTSQueue()
+	t.Cleanup(resetIdleChatTTSQueue)
 	bridge := &idleChatMockTTSBridge{notifyOnEnd: false}
 
 	first := emitIdleChatTTSAsync(bridge, idlechat.TimelineEvent{
@@ -570,7 +584,9 @@ func TestEmitIdleChatTTSAsyncPrefetchesWithoutPlaybackCompletion(t *testing.T) {
 		t.Fatalf("expected 2 pending playback responses, got %d", len(responseIDs))
 	}
 	for _, responseID := range responseIDs {
-		notifyIdleChatTTSPlaybackCompleted(responseID)
+		if !notifyIdleChatTTSPlaybackCompleted(responseID) {
+			t.Fatalf("playback ack did not match pending response %q", responseID)
+		}
 	}
 	for name, done := range map[string]<-chan struct{}{"first": first, "second": second} {
 		select {

@@ -36,6 +36,10 @@ func TestApplyIrodoriRunGenerationDefaults(t *testing.T) {
 		got.CodecPrecision != DefaultIrodoriCodecPrecision ||
 		got.NumSteps != DefaultIrodoriNumSteps ||
 		got.NumCandidates != DefaultIrodoriNumCandidates ||
+		got.DurationScale != DefaultIrodoriDurationScale ||
+		got.PlaybackSpeed != DefaultIrodoriPlaybackSpeed ||
+		got.TScheduleMode != DefaultIrodoriTScheduleMode ||
+		got.SwayCoeff != DefaultIrodoriSwayCoeff ||
 		got.CFGGuidanceMode != DefaultIrodoriCFGGuidanceMode ||
 		got.CFGScaleText != DefaultIrodoriCFGScaleText ||
 		got.CFGScaleSpeaker != DefaultIrodoriCFGScaleSpeaker ||
@@ -131,6 +135,11 @@ func TestIrodoriRunGenerationData(t *testing.T) {
 		NumSteps:              12,
 		NumCandidates:         2,
 		SeedRaw:               "123",
+		SecondsRaw:            "4.5",
+		DurationScale:         1.1,
+		PlaybackSpeed:         0.9,
+		TScheduleMode:         "sway",
+		SwayCoeff:             0.7,
 		CFGGuidanceMode:       "speaker",
 		CFGScaleText:          1.2,
 		CFGScaleSpeaker:       2.3,
@@ -144,11 +153,13 @@ func TestIrodoriRunGenerationData(t *testing.T) {
 		SpeakerKVScaleRaw:     "0.3",
 		SpeakerKVMinTRaw:      "0.4",
 		SpeakerKVMaxLayersRaw: "16",
+		LoraAdapterRaw:        "adapter",
 	}, "hello", audio)
 	want := []any{
-		"ckpt", "cuda", "bf16", "cpu", "fp32", true,
-		"hello", audio, 12, 2, "123", "speaker", 1.2, 2.3, "3.4",
+		"ckpt", "cuda", "bf16", "cpu", "fp32",
+		"hello", audio, nil, "", 12, 2, "123", "4.5", 1.1, 0.9, "sway", 0.7, "speaker", 1.2, 2.3, "3.4",
 		0.1, 0.9, true, "0.8", "0.1", "0.2", "0.3", "0.4", "16",
+		"adapter",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("IrodoriRunGenerationData() = %#v, want %#v", got, want)

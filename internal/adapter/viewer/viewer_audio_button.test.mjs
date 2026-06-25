@@ -226,6 +226,7 @@ function loadAudioHarness(options = {}) {
     importSourceRegistryYAML() {},
     refreshSourceRegistryStaging() {},
     refreshNewsPack() {},
+    refreshDomainGraphAssertions() {},
     renderRoleSelector() {},
     renderSystem() {},
     ftime: () => '12:00:00',
@@ -358,6 +359,38 @@ test('autoplay blocked idlechat audio sends failed playback ack without dropping
   assert.equal(payload.status, 'error');
   assert.match(payload.error, /blocked autoplay|did not interact/i);
   assert.equal(harness.ttsPlayback.queue.length, 1);
+});
+
+test('autoplay blocked multi-chunk idlechat response releases playback wait as one error ack', async () => {
+  const err = new Error('play() failed because the user did not interact with the document first');
+  err.name = 'NotAllowedError';
+  const fetchCalls = [];
+  const {harness, timers} = loadAudioHarness({
+    mobile: true,
+    playOutcomes: [err],
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true, json: () => Promise.resolve({})});
+    },
+  });
+
+  harness.enqueueTTSAudio('/audio/a.wav', 'mio', 'idle-autoplay-multi', 'default', 0, 'first', '一つ目です。', 'idle-autoplay-multi:0000', 'idle-autoplay-multi:utt:0000');
+  harness.enqueueTTSAudio('/audio/b.wav', 'mio', 'idle-autoplay-multi', 'default', 1, 'second', '二つ目です。', 'idle-autoplay-multi:0000', 'idle-autoplay-multi:utt:0001');
+  harness.chatAudioSync.markSessionCompleted('idle-autoplay-multi', 'idle-autoplay-multi:0000');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  timers.shift()();
+  await Promise.resolve();
+
+  const ack = fetchCalls.find((call) => call.url === '/viewer/tts/playback-ack');
+  assert.ok(ack, 'blocked multi-chunk response should still ack once');
+  const payload = JSON.parse(ack.init.body);
+  assert.equal(payload.response_id, 'idle-autoplay-multi:0000');
+  assert.equal(payload.status, 'error');
+  assert.equal(payload.error_code, 'TTS_AUDIO_BLOCKED');
+  assert.equal(payload.tts_synthesis_completed, true);
+  assert.equal(payload.playback_ack_completed, true);
 });
 
 test('idlechat first audio chunk starts before second chunk or session completion', async () => {
@@ -1404,7 +1437,70 @@ test('idlechat playback ack waits for natural audio end after session completed'
 
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, '/viewer/tts/playback-ack');
-  assert.equal(JSON.parse(fetchCalls[0].init.body).status, 'ended');
+  const payload = JSON.parse(fetchCalls[0].init.body);
+  assert.equal(payload.status, 'ended');
+  assert.equal(payload.tts_synthesis_completed, true);
+  assert.equal(payload.wav_fetch_completed, true);
+  assert.equal(payload.playback_ack_completed, true);
+});
+
+test('idlechat audio off still sends explicit ack with separated tts state values', async () => {
+  const fetchCalls = [];
+  const {harness, timers} = loadAudioHarness({
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      if (url === '/viewer/active-control') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({active_audio_viewer_id: harness.viewerControl.clientId}),
+        });
+      }
+      return Promise.resolve({ok: true});
+    },
+  });
+
+  harness.ttsPlayback.audioEnabled = false;
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'idle-audio-disabled',
+      response_id: 'idle-audio-disabled:0000',
+      utterance_id: 'idle-audio-disabled:msg:0001:utt:0000',
+      message_id: 'idle-audio-disabled:msg:0001',
+      turn_index: 1,
+      chunk_index: 0,
+      character_id: 'mio',
+      text: '音声OFFです。',
+      display_text: '音声OFFです。',
+      audio_url: '/audio/idle-audio-disabled.wav',
+    }),
+  });
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.session_completed',
+    content: JSON.stringify({
+      session_id: 'idle-audio-disabled',
+      response_id: 'idle-audio-disabled:0000',
+      utterance_id: 'idle-audio-disabled:msg:0001:utt:0000',
+      message_id: 'idle-audio-disabled:msg:0001',
+      turn_index: 1,
+      character_id: 'mio',
+    }),
+  });
+
+  assert.equal(harness.ttsPlayback.playing, false);
+  assert.equal(harness.ttsPlayback.fallbackActive, true);
+  timers.shift()();
+  await Promise.resolve();
+
+  const ack = fetchCalls.find((call) => call.url === '/viewer/tts/playback-ack');
+  assert.ok(ack, 'audio-disabled idlechat TTS should ack as explicit playback error');
+  const payload = JSON.parse(ack.init.body);
+  assert.equal(payload.response_id, 'idle-audio-disabled:0000');
+  assert.equal(payload.status, 'error');
+  assert.equal(payload.error_code, 'TTS_AUDIO_DISABLED');
+  assert.equal(payload.tts_synthesis_completed, true);
+  assert.equal(payload.wav_fetch_completed, false);
+  assert.equal(payload.playback_ack_completed, true);
 });
 
 test('idlechat display-only tts sends error ack with error_code instead of fallback status', async () => {

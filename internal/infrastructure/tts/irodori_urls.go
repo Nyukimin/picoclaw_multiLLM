@@ -19,13 +19,14 @@ func (p *IrodoriProvider) runGenerationData(text string, uploadedAudio any) []an
 }
 
 func irodoriRunGenerationConfigFromConfig(cfg IrodoriConfig) moduletts.IrodoriRunGenerationConfig {
-	return moduletts.IrodoriRunGenerationConfig{
+	return moduletts.ApplyIrodoriRunGenerationDefaults(moduletts.IrodoriRunGenerationConfig{
 		Checkpoint:            cfg.Checkpoint,
 		ModelDevice:           cfg.ModelDevice,
 		ModelPrecision:        cfg.ModelPrecision,
 		CodecDevice:           cfg.CodecDevice,
 		CodecPrecision:        cfg.CodecPrecision,
 		EnableWatermark:       cfg.EnableWatermark,
+		PlaybackSpeed:         cfg.Speed,
 		NumSteps:              cfg.NumSteps,
 		NumCandidates:         cfg.NumCandidates,
 		SeedRaw:               cfg.SeedRaw,
@@ -42,7 +43,7 @@ func irodoriRunGenerationConfigFromConfig(cfg IrodoriConfig) moduletts.IrodoriRu
 		SpeakerKVScaleRaw:     cfg.SpeakerKVScaleRaw,
 		SpeakerKVMinTRaw:      cfg.SpeakerKVMinTRaw,
 		SpeakerKVMaxLayersRaw: cfg.SpeakerKVMaxLayersRaw,
-	}
+	})
 }
 
 func rewriteLoopbackIrodoriFileURL(baseURL, rawURL string) string {

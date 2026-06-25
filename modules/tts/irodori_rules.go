@@ -17,6 +17,11 @@ type IrodoriRunGenerationConfig struct {
 	NumSteps              int
 	NumCandidates         int
 	SeedRaw               string
+	SecondsRaw            string
+	DurationScale         float64
+	PlaybackSpeed         float64
+	TScheduleMode         string
+	SwayCoeff             float64
 	CFGGuidanceMode       string
 	CFGScaleText          float64
 	CFGScaleSpeaker       float64
@@ -30,6 +35,7 @@ type IrodoriRunGenerationConfig struct {
 	SpeakerKVScaleRaw     string
 	SpeakerKVMinTRaw      string
 	SpeakerKVMaxLayersRaw string
+	LoraAdapterRaw        string
 }
 
 type IrodoriStyleEmotion struct {
@@ -73,6 +79,10 @@ const (
 	DefaultIrodoriCodecPrecision  = "fp32"
 	DefaultIrodoriNumSteps        = 16
 	DefaultIrodoriNumCandidates   = 1
+	DefaultIrodoriDurationScale   = 1.0
+	DefaultIrodoriPlaybackSpeed   = 1.0
+	DefaultIrodoriTScheduleMode   = "linear"
+	DefaultIrodoriSwayCoeff       = -1.0
 	DefaultIrodoriCFGGuidanceMode = "independent"
 	DefaultIrodoriCFGScaleText    = 3.0
 	DefaultIrodoriCFGScaleSpeaker = 5.0
@@ -109,6 +119,18 @@ func ApplyIrodoriRunGenerationDefaults(cfg IrodoriRunGenerationConfig) IrodoriRu
 	}
 	if cfg.NumCandidates <= 0 {
 		cfg.NumCandidates = DefaultIrodoriNumCandidates
+	}
+	if cfg.DurationScale <= 0 {
+		cfg.DurationScale = DefaultIrodoriDurationScale
+	}
+	if cfg.PlaybackSpeed <= 0 {
+		cfg.PlaybackSpeed = DefaultIrodoriPlaybackSpeed
+	}
+	if cfg.TScheduleMode == "" {
+		cfg.TScheduleMode = DefaultIrodoriTScheduleMode
+	}
+	if cfg.SwayCoeff == 0 {
+		cfg.SwayCoeff = DefaultIrodoriSwayCoeff
 	}
 	if cfg.CFGGuidanceMode == "" {
 		cfg.CFGGuidanceMode = DefaultIrodoriCFGGuidanceMode
@@ -236,12 +258,18 @@ func IrodoriRunGenerationData(cfg IrodoriRunGenerationConfig, text string, uploa
 		cfg.ModelPrecision,
 		cfg.CodecDevice,
 		cfg.CodecPrecision,
-		cfg.EnableWatermark,
 		text,
 		uploadedAudio,
+		nil,
+		"",
 		cfg.NumSteps,
 		cfg.NumCandidates,
 		cfg.SeedRaw,
+		cfg.SecondsRaw,
+		cfg.DurationScale,
+		cfg.PlaybackSpeed,
+		cfg.TScheduleMode,
+		cfg.SwayCoeff,
 		cfg.CFGGuidanceMode,
 		cfg.CFGScaleText,
 		cfg.CFGScaleSpeaker,
@@ -255,6 +283,7 @@ func IrodoriRunGenerationData(cfg IrodoriRunGenerationConfig, text string, uploa
 		cfg.SpeakerKVScaleRaw,
 		cfg.SpeakerKVMinTRaw,
 		cfg.SpeakerKVMaxLayersRaw,
+		cfg.LoraAdapterRaw,
 	}
 }
 

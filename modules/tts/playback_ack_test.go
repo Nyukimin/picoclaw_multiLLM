@@ -39,11 +39,14 @@ func TestNormalizePlaybackAckKeepsFallbackErrorDetails(t *testing.T) {
 
 func TestBuildPlaybackAckReceiptTrimsFieldsAndPreservesMatchState(t *testing.T) {
 	got := BuildPlaybackAckReceipt(PlaybackAckInput{
-		ResponseID:     " response-1 ",
-		SessionID:      " session-1 ",
-		UtteranceID:    " utterance-1 ",
-		ViewerClientID: " viewer-1 ",
-		Status:         " ended ",
+		ResponseID:            " response-1 ",
+		SessionID:             " session-1 ",
+		UtteranceID:           " utterance-1 ",
+		ViewerClientID:        " viewer-1 ",
+		Status:                " ended ",
+		TTSSynthesisCompleted: true,
+		WAVFetchCompleted:     true,
+		PlaybackAckCompleted:  true,
 	}, true, true)
 
 	if !got.OK || !got.Matched || !got.ActiveAudio {
@@ -53,7 +56,10 @@ func TestBuildPlaybackAckReceiptTrimsFieldsAndPreservesMatchState(t *testing.T) 
 		got.SessionID != "session-1" ||
 		got.UtteranceID != "utterance-1" ||
 		got.ViewerClientID != "viewer-1" ||
-		got.Status != "ended" {
+		got.Status != "ended" ||
+		!got.TTSSynthesisCompleted ||
+		!got.WAVFetchCompleted ||
+		!got.PlaybackAckCompleted {
 		t.Fatalf("unexpected receipt fields: %+v", got)
 	}
 }

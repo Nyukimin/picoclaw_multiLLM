@@ -10,13 +10,16 @@ import (
 )
 
 type ttsPlaybackAckRequest struct {
-	ResponseID     string `json:"response_id"`
-	SessionID      string `json:"session_id"`
-	UtteranceID    string `json:"utterance_id"`
-	ViewerClientID string `json:"viewer_client_id,omitempty"`
-	Status         string `json:"status"`
-	ErrorCode      string `json:"error_code,omitempty"`
-	Error          string `json:"error,omitempty"`
+	ResponseID            string `json:"response_id"`
+	SessionID             string `json:"session_id"`
+	UtteranceID           string `json:"utterance_id"`
+	ViewerClientID        string `json:"viewer_client_id,omitempty"`
+	Status                string `json:"status"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	Error                 string `json:"error,omitempty"`
+	TTSSynthesisCompleted bool   `json:"tts_synthesis_completed"`
+	WAVFetchCompleted     bool   `json:"wav_fetch_completed"`
+	PlaybackAckCompleted  bool   `json:"playback_ack_completed"`
 }
 
 func handleTTSPlaybackAck() http.HandlerFunc {
@@ -43,15 +46,18 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 			ok = notifyIdleChatTTSPlaybackCompleted(responseID)
 		}
 		receipt := moduletts.BuildPlaybackAckReceipt(moduletts.PlaybackAckInput{
-			ResponseID:     req.ResponseID,
-			SessionID:      req.SessionID,
-			UtteranceID:    req.UtteranceID,
-			ViewerClientID: req.ViewerClientID,
-			Status:         req.Status,
-			ErrorCode:      req.ErrorCode,
-			Error:          req.Error,
+			ResponseID:            req.ResponseID,
+			SessionID:             req.SessionID,
+			UtteranceID:           req.UtteranceID,
+			ViewerClientID:        req.ViewerClientID,
+			Status:                req.Status,
+			ErrorCode:             req.ErrorCode,
+			Error:                 req.Error,
+			TTSSynthesisCompleted: req.TTSSynthesisCompleted,
+			WAVFetchCompleted:     req.WAVFetchCompleted,
+			PlaybackAckCompleted:  req.PlaybackAckCompleted,
 		}, activeAudio, ok)
-		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t error_code=%s error=%s",
+		log.Printf("[TTSPlayback] ack response_id=%s session=%s utterance=%s viewer_client_id=%s active_audio=%t status=%s matched=%t tts_synthesis_completed=%t wav_fetch_completed=%t playback_ack_completed=%t error_code=%s error=%s",
 			receipt.ResponseID,
 			receipt.SessionID,
 			receipt.UtteranceID,
@@ -59,6 +65,9 @@ func handleTTSPlaybackAck() http.HandlerFunc {
 			receipt.ActiveAudio,
 			receipt.Status,
 			receipt.Matched,
+			receipt.TTSSynthesisCompleted,
+			receipt.WAVFetchCompleted,
+			receipt.PlaybackAckCompleted,
 			receipt.ErrorCode,
 			receipt.Error,
 		)

@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	moduletts "github.com/Nyukimin/picoclaw_multiLLM/modules/tts"
@@ -17,6 +18,7 @@ type ProviderTTSBridgeConfig struct {
 	OutputDir          string
 	HTTPBaseURL        string
 	OnChunkReady       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, audioPath, audioURL string)
+	OnChunkError       func(sessionID, responseID string, chunkIndex int, characterID, text, displayText, errorCode, errorText string)
 	OnSessionCompleted func(sessionID, characterID string)
 }
 
@@ -117,8 +119,9 @@ func (b *ProviderTTSBridge) synthesizeChunk(ctx context.Context, s *providerBrid
 		})
 		if err != nil {
 			lastErr = err
-			if attempt == 1 && strings.Contains(err.Error(), "silent") {
-				log.Printf("[TTS] retrying near-silent chunk voice=%s text=%q err=%v", s.voiceID, chunkText, err)
+			if attempt == 1 {
+				log.Printf("[TTS] retrying failed chunk voice=%s text=%q err=%v", s.voiceID, chunkText, err)
+				time.Sleep(250 * time.Millisecond)
 				continue
 			}
 			return SynthesisOutput{}, wavStats{}, err
@@ -165,6 +168,29 @@ func (b *ProviderTTSBridge) EndSession(ctx context.Context, sessionID string) er
 		b.cfg.OnSessionCompleted(sessionID, characterID)
 	}
 	return nil
+}
+
+func (b *ProviderTTSBridge) AbortSession(_ context.Context, sessionID string) error {
+	b.mu.Lock()
+	delete(b.sessions, sessionID)
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *ProviderTTSBridge) EmitIdleChatTTSError(_ context.Context, sessionID, characterID, speechText, displayText, errorCode string, cause error) {
+	if b == nil || b.cfg.OnChunkError == nil {
+		return
+	}
+	s := b.getOrCreateSession(sessionID)
+	resolvedCharacterID := strings.TrimSpace(characterID)
+	if resolvedCharacterID == "" {
+		resolvedCharacterID = s.characterID
+	}
+	errorText := ""
+	if cause != nil {
+		errorText = cause.Error()
+	}
+	b.cfg.OnChunkError(sessionID, s.responseID, s.nextChunk, resolvedCharacterID, speechText, displayText, errorCode, errorText)
 }
 
 func (b *ProviderTTSBridge) getOrCreateSession(sessionID string) *providerBridgeSession {
