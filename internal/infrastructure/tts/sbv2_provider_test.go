@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -207,6 +208,21 @@ func TestSaveEditorWAVRejectsSilentPCM16WAV(t *testing.T) {
 	}
 }
 
+func TestSaveEditorWAVRemovesPartialFileOnCopyError(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, err := saveEditorWAV(&errorAfterDataReader{data: []byte("RIFFpartial")}, tmpDir, "partial")
+	if err == nil {
+		t.Fatal("expected copy error")
+	}
+	matches, globErr := filepath.Glob(filepath.Join(tmpDir, "partial-*.wav"))
+	if globErr != nil {
+		t.Fatalf("glob failed: %v", globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("partial wav should be removed, got %#v", matches)
+	}
+}
+
 func TestSaveEditorWAVAllowsAudiblePCM16WAV(t *testing.T) {
 	tmpDir := t.TempDir()
 	out, err := saveEditorWAV(bytes.NewReader(testPCM16WAV([]int16{0, 1200, -800, 0})), tmpDir, "audible")
@@ -222,6 +238,20 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+type errorAfterDataReader struct {
+	data []byte
+	done bool
+}
+
+func (r *errorAfterDataReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, errors.New("forced read error")
+	}
+	n := copy(p, r.data)
+	r.done = true
+	return n, nil
 }
 
 func testPCM16WAV(samples []int16) []byte {

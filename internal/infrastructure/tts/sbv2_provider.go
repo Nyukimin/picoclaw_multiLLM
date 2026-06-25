@@ -289,15 +289,25 @@ func saveEditorWAV(body io.Reader, outputDir, prefix string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create temp wav: %w", err)
 	}
-	defer f.Close()
+	audioPath := f.Name()
+	keepFile := false
+	defer func() {
+		if !keepFile {
+			_ = os.Remove(audioPath)
+		}
+	}()
 	if _, err := io.Copy(f, body); err != nil {
+		_ = f.Close()
 		return "", fmt.Errorf("write wav response: %w", err)
 	}
-	if err := rejectSilentWAV(f.Name()); err != nil {
-		_ = os.Remove(f.Name())
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("close wav response: %w", err)
+	}
+	if err := rejectSilentWAV(audioPath); err != nil {
 		return "", err
 	}
-	return filepath.Clean(f.Name()), nil
+	keepFile = true
+	return filepath.Clean(audioPath), nil
 }
 
 func rejectSilentWAV(path string) error {
