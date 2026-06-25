@@ -57,6 +57,12 @@ func TestResolveIrodoriVoiceIDAndName(t *testing.T) {
 	if got := ResolveIrodoriVoiceID("female_01"); got != "mio" {
 		t.Fatalf("ResolveIrodoriVoiceID() = %q, want mio", got)
 	}
+	if got := ResolveIrodoriGradioVoiceID("mio"); got != "female_01" {
+		t.Fatalf("ResolveIrodoriGradioVoiceID() = %q, want female_01", got)
+	}
+	if got := ResolveIrodoriGradioVoiceID("shiro"); got != "male_01" {
+		t.Fatalf("ResolveIrodoriGradioVoiceID() = %q, want male_01", got)
+	}
 	if got := ResolveIrodoriVoiceName("shi-gozaki"); got != "Shiro" {
 		t.Fatalf("ResolveIrodoriVoiceName() = %q, want Shiro", got)
 	}
@@ -131,6 +137,7 @@ func TestIrodoriRunGenerationData(t *testing.T) {
 		ModelPrecision:        "bf16",
 		CodecDevice:           "cpu",
 		CodecPrecision:        "fp32",
+		VoiceID:               "shiro",
 		EnableWatermark:       true,
 		NumSteps:              12,
 		NumCandidates:         2,
@@ -157,7 +164,7 @@ func TestIrodoriRunGenerationData(t *testing.T) {
 	}, "hello", audio)
 	want := []any{
 		"ckpt", "cuda", "bf16", "cpu", "fp32",
-		"hello", audio, nil, "", 12, 2, "123", "4.5", 1.1, 0.9, "sway", 0.7, "speaker", 1.2, 2.3, "3.4",
+		"hello", "male_01", audio, nil, "", 12, 2, "123", "4.5", 1.1, 0.9, "sway", 0.7, "speaker", 1.2, 2.3, "3.4",
 		0.1, 0.9, true, "0.8", "0.1", "0.2", "0.3", "0.4", "16",
 		"adapter",
 	}

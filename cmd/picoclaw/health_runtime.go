@@ -101,6 +101,7 @@ func buildLocalLLMHealthChecks(cfg *config.Config) []domainhealth.Check {
 	checks := make([]domainhealth.Check, 0, 4)
 	checks = add(checks, "Chat", cfg.LocalLLM.ChatBaseURL, cfg.LocalLLM.ChatModel)
 	checks = add(checks, "Worker", cfg.LocalLLM.WorkerBaseURL, cfg.LocalLLM.WorkerModel)
+	checks = add(checks, "ChatWorker", cfg.LocalLLM.WorkerBaseURL, modulellm.LocalModelForAlias(localRuntimeConfigFromAppConfig(cfg), "chatworker"))
 	if strings.TrimSpace(cfg.LocalLLM.HeavyBaseURL) != "" {
 		checks = add(checks, "Heavy", cfg.LocalLLM.HeavyBaseURL, modulellm.LocalModelForAlias(localRuntimeConfigFromAppConfig(cfg), "heavy"))
 	}

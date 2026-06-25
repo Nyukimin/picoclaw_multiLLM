@@ -42,6 +42,26 @@ function clearIdleLiveTimelineForTopic(ev) {
   }
 }
 
+function syncIdleLiveActiveSessionForEvent(ev) {
+	const sid = String((ev && (ev.session_id || ev.chat_id)) || '').trim();
+	if (!sid || isIdleLiveHistoricalEvent(ev)) return;
+	if (!idleLiveActiveSessionId) {
+		idleLiveActiveSessionId = sid;
+		return;
+	}
+	if (sid === idleLiveActiveSessionId) return;
+	idleLiveActiveSessionId = sid;
+	idlePendingMessages.clear();
+	resetTTSSpeechBubble(idleTTSSpeech);
+	const target = idleLiveRenderTarget();
+	if (!target) return;
+	if (typeof target.replaceChildren === 'function') target.replaceChildren();
+	else {
+		target.innerHTML = '';
+		if (Array.isArray(target.children)) target.children.length = 0;
+	}
+}
+
 function idleTopicKey(ev) {
   const sid = String((ev && (ev.session_id || ev.chat_id)) || '').trim();
   const content = normalizeViewerDisplayText((ev && ev.content) || '').trim();
@@ -237,6 +257,7 @@ function pruneIdlePendingQueue(sessionId) {
 
 function addIdleMsgToTimeline(ev) {
 		if (!idleLiveRenderTarget() || !ev || (ev.type !== 'idlechat.message' && ev.type !== 'idlechat.topic')) return;
+		syncIdleLiveActiveSessionForEvent(ev);
 		clearIdleLiveTimelineForTopic(ev);
 		if (isIdleTopicEvent(ev) && document.body && document.body.classList.contains('live-mode')) return;
 	const sid = String(ev.session_id || ev.chat_id || '').trim();

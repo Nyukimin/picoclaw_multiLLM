@@ -30,10 +30,11 @@ func TestLocalBaseURLForAliasUsesRoleOverride(t *testing.T) {
 
 func TestLocalHeavyFallsBackToWorkerBaseAndModel(t *testing.T) {
 	cfg := LocalRuntimeConfig{
-		BaseURL:       "http://192.168.1.31:8081",
-		WorkerBaseURL: "http://192.168.1.31:8082",
-		WorkerModel:   "Worker",
-		HeavyModel:    "Heavy",
+		BaseURL:         "http://192.168.1.31:8081",
+		WorkerBaseURL:   "http://192.168.1.31:8082",
+		WorkerModel:     "Worker",
+		ChatWorkerModel: "ChatWorker",
+		HeavyModel:      "Heavy",
 	}
 
 	if got := LocalBaseURLForAlias(cfg, "Heavy"); got != "http://192.168.1.31:8082" {
@@ -42,8 +43,16 @@ func TestLocalHeavyFallsBackToWorkerBaseAndModel(t *testing.T) {
 	if got := LocalModelForAlias(cfg, "Heavy"); got != "Worker" {
 		t.Fatalf("heavy model = %s", got)
 	}
-	if got := LocalModelForAlias(cfg, "ChatWorker"); got != "Worker" {
+	if got := LocalModelForAlias(cfg, "ChatWorker"); got != "ChatWorker" {
 		t.Fatalf("chatworker model = %s", got)
+	}
+}
+
+func TestLocalChatWorkerModelFallsBackToWorkerModel(t *testing.T) {
+	cfg := LocalRuntimeConfig{WorkerModel: "Worker"}
+
+	if got := LocalModelForAlias(cfg, "ChatWorker"); got != "Worker" {
+		t.Fatalf("chatworker fallback model = %s", got)
 	}
 }
 

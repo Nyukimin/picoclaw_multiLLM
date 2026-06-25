@@ -493,6 +493,11 @@ body:not([data-viewer-tab="idlechat"]) .idle-tools{display:none}
 .tts-now-playing.mio{border-color:rgba(244,114,182,.45)}
 .tts-now-playing.shiro{border-color:rgba(96,165,250,.45)}
 
+body[data-viewer-tab="idlechat"] .tts-now-playing{display:none}
+body[data-viewer-tab="idlechat"] .idle-live{
+  max-height:clamp(150px,calc(100dvh - var(--header-h) - var(--input-h) - 204px),520px);
+}
+
 body.theme-modern{
   --bg:#070918;--bg2:#101833;--surface:rgba(18,27,50,.62);--surface2:rgba(28,40,70,.68);--card:rgba(16,24,44,.58);
   --border:rgba(132,164,215,.22);--border-strong:rgba(172,198,255,.36);--t1:#eef5ff;--t2:#b8c8df;--t3:#7f91ad;
@@ -654,6 +659,9 @@ body.theme-compact .input-wrap textarea{min-height:38px;max-height:86px}
     margin-top:6px;
   }
   .input-wrap textarea{max-height:76px}
+  body[data-viewer-tab="idlechat"] .idle-live{
+    max-height:clamp(120px,calc(100dvh - var(--header-h) - var(--input-h) - 164px),320px);
+  }
 }
 
 /* === Live Mode (配信用 1920x1080) === */

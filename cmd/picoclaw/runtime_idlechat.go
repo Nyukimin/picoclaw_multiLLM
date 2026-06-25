@@ -42,10 +42,14 @@ func buildIdleChatRuntime(
 		cfg.IdleChat.StoryDataDir,
 	)
 	idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
+	chatWorkerAliasProvider := chatWorkerProvider
+	if chatWorkerAliasProvider == nil && workerProvider != nil {
+		chatWorkerAliasProvider = namedLLMProvider{name: "ChatWorker", inner: workerProvider}
+	}
 	idleChatOrch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":        chatProvider,
-		"shiro":      firstNonNilLLMProvider(chatWorkerProvider, workerProvider),
-		"chatworker": namedLLMProvider{name: "ChatWorker", inner: workerProvider},
+		"shiro":      firstNonNilLLMProvider(chatWorkerAliasProvider, workerProvider),
+		"chatworker": chatWorkerAliasProvider,
 		"kuro":       heavyProvider,
 		"wild":       wildProvider,
 	})
@@ -75,10 +79,7 @@ func buildIdleChatRuntime(
 	if deps.eventHub != nil {
 		idleChatOrch.SetEventEmitter(func(ev idlechat.TimelineEvent) <-chan struct{} {
 			if ev.Type != "idlechat.tts" {
-				viewerType := ev.Type
-				if viewerType == "idlechat.viewer" {
-					viewerType = "idlechat.message"
-				}
+				viewerType := idleChatViewerEventType(ev.Type)
 				chatID := strings.TrimSpace(ev.SessionID)
 				if chatID == "" {
 					chatID = "idlechat"
@@ -116,6 +117,14 @@ func buildIdleChatRuntime(
 	idleChatOrch.Start()
 	deps.idleChatOrch = idleChatOrch
 	log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
+}
+
+func idleChatViewerEventType(eventType string) string {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return ""
+	}
+	return eventType
 }
 
 func selectForecastProvider(cfg *config.Config, chatProvider, workerProvider, wildProvider llm.LLMProvider) (llm.LLMProvider, string) {

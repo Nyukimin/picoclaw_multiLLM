@@ -122,6 +122,7 @@ func cmdRun() {
 		WildBaseURL:       modulellm.LocalBaseURLForAlias(localRuntimeConfigFromAppConfig(cfg), "wild"),
 		ChatModel:         cfg.LocalLLM.ChatModel,
 		WorkerModel:       cfg.LocalLLM.WorkerModel,
+		ChatWorkerModel:   modulellm.LocalModelForAlias(localRuntimeConfigFromAppConfig(cfg), "chatworker"),
 		HeavyModel:        modulellm.LocalModelForAlias(localRuntimeConfigFromAppConfig(cfg), "heavy"),
 		WildModel:         cfg.LocalLLM.WildModel,
 		TimeoutSec:        cfg.LocalLLM.TimeoutSec,

@@ -71,16 +71,17 @@ func TestBuildHealthService_LocalLLMUsesOpenAICompatibleChecks(t *testing.T) {
 
 	cfg := &config.Config{
 		LocalLLM: config.LocalLLMConfig{
-			Enabled:       true,
-			Provider:      "local_openai",
-			BaseURL:       "http://127.0.0.1:1",
-			ChatBaseURL:   srv.URL + "/chat",
-			WorkerBaseURL: srv.URL + "/worker",
-			WildBaseURL:   "http://127.0.0.1:1",
-			ChatModel:     "Chat",
-			WorkerModel:   "Worker",
-			WildModel:     "Wild",
-			TimeoutSec:    1,
+			Enabled:         true,
+			Provider:        "local_openai",
+			BaseURL:         "http://127.0.0.1:1",
+			ChatBaseURL:     srv.URL + "/chat",
+			WorkerBaseURL:   srv.URL + "/worker",
+			WildBaseURL:     "http://127.0.0.1:1",
+			ChatModel:       "Chat",
+			WorkerModel:     "Worker",
+			ChatWorkerModel: "ChatWorker",
+			WildModel:       "Wild",
+			TimeoutSec:      1,
 		},
 		Ollama: config.OllamaConfig{BaseURL: "http://127.0.0.1:1", Model: "Chat"},
 	}
@@ -91,7 +92,7 @@ func TestBuildHealthService_LocalLLMUsesOpenAICompatibleChecks(t *testing.T) {
 	if report.Status != domainhealth.StatusOK {
 		t.Fatalf("status = %s, want ok; checks=%+v", report.Status, report.Checks)
 	}
-	if chatHits != 1 || workerHits != 1 {
+	if chatHits != 1 || workerHits != 2 {
 		t.Fatalf("expected chat/worker hits, got chat=%d worker=%d", chatHits, workerHits)
 	}
 	for _, check := range report.Checks {

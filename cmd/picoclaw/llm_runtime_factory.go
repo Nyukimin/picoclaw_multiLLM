@@ -94,6 +94,7 @@ func localRuntimeConfigFromAppConfig(cfg *config.Config) modulellm.LocalRuntimeC
 		WildBaseURL:      cfg.LocalLLM.WildBaseURL,
 		ChatModel:        cfg.LocalLLM.ChatModel,
 		WorkerModel:      cfg.LocalLLM.WorkerModel,
+		ChatWorkerModel:  cfg.LocalLLM.ChatWorkerModel,
 		HeavyModel:       cfg.LocalLLM.HeavyModel,
 		WildModel:        cfg.LocalLLM.WildModel,
 		TimeoutSec:       cfg.LocalLLM.TimeoutSec,

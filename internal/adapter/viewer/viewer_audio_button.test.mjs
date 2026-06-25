@@ -326,7 +326,7 @@ test('mobile speaker tap replays queued tts after autoplay block instead of losi
   assert.equal(harness.ttsPlayback.playing, true);
 });
 
-test('autoplay blocked idlechat audio sends failed playback ack without dropping retry queue', async () => {
+test('autoplay blocked idlechat audio sends failed playback ack and releases retry queue', async () => {
   const err = new Error('play() failed because the user did not interact with the document first');
   err.name = 'NotAllowedError';
   const fetchCalls = [];
@@ -358,7 +358,7 @@ test('autoplay blocked idlechat audio sends failed playback ack without dropping
   assert.equal(payload.response_id, 'idle-autoplay:0000');
   assert.equal(payload.status, 'error');
   assert.match(payload.error, /blocked autoplay|did not interact/i);
-  assert.equal(harness.ttsPlayback.queue.length, 1);
+  assert.equal(harness.ttsPlayback.queue.length, 0);
 });
 
 test('autoplay blocked multi-chunk idlechat response releases playback wait as one error ack', async () => {
@@ -391,6 +391,99 @@ test('autoplay blocked multi-chunk idlechat response releases playback wait as o
   assert.equal(payload.error_code, 'TTS_AUDIO_BLOCKED');
   assert.equal(payload.tts_synthesis_completed, true);
   assert.equal(payload.playback_ack_completed, true);
+});
+
+test('preblocked idlechat response releases playback wait as one error ack', async () => {
+  const err = new Error('play() failed because the user did not interact with the document first');
+  err.name = 'NotAllowedError';
+  const fetchCalls = [];
+  const {harness, timers} = loadAudioHarness({
+    mobile: true,
+    playOutcomes: [err],
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true, json: () => Promise.resolve({})});
+    },
+  });
+
+  await harness.chatAudioSync.unlockAudio();
+  await Promise.resolve();
+  assert.equal(harness.ttsPlayback.blocked, true);
+
+  harness.enqueueTTSAudio('/audio/a.wav', 'mio', 'idle-preblocked', 'default', 0, 'first', '一つ目です。', 'idle-preblocked:0000', 'idle-preblocked:utt:0000');
+  harness.enqueueTTSAudio('/audio/b.wav', 'mio', 'idle-preblocked', 'default', 1, 'second', '二つ目です。', 'idle-preblocked:0000', 'idle-preblocked:utt:0001');
+  harness.chatAudioSync.markSessionCompleted('idle-preblocked', 'idle-preblocked:0000');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  while (timers.length > 0) {
+    timers.shift()();
+    await Promise.resolve();
+  }
+
+  const acks = fetchCalls.filter((call) => call.url === '/viewer/tts/playback-ack');
+  assert.equal(acks.length, 1, 'preblocked response should ack exactly once');
+  const payload = JSON.parse(acks[0].init.body);
+  assert.equal(payload.response_id, 'idle-preblocked:0000');
+  assert.equal(payload.status, 'error');
+  assert.equal(payload.error_code, 'TTS_AUDIO_BLOCKED');
+  assert.equal(payload.tts_synthesis_completed, true);
+  assert.equal(payload.playback_ack_completed, true);
+});
+
+test('idlechat tts ack derives response id from message id when response id is missing', async () => {
+  const err = new Error('play() failed because the user did not interact with the document first');
+  err.name = 'NotAllowedError';
+  const fetchCalls = [];
+  const {harness, timers} = loadAudioHarness({
+    mobile: true,
+    playOutcomes: [err],
+    fetch: (url, init) => {
+      fetchCalls.push({url, init});
+      return Promise.resolve({ok: true, json: () => Promise.resolve({})});
+    },
+  });
+
+  await harness.chatAudioSync.unlockAudio();
+  await Promise.resolve();
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'idle-derived',
+      message_id: 'idle-derived:msg:0004',
+      utterance_id: 'idle-derived:utt:0000',
+      turn_index: 4,
+      chunk_index: 0,
+      character_id: 'mio',
+      text: '一つ目です。',
+      display_text: '一つ目です。',
+      audio_url: '/audio/a.wav',
+    }),
+  });
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.session_completed',
+    content: JSON.stringify({
+      session_id: 'idle-derived',
+      message_id: 'idle-derived:msg:0004',
+      turn_index: 4,
+    }),
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  while (timers.length > 0) {
+    timers.shift()();
+    await Promise.resolve();
+  }
+
+  const ack = fetchCalls.find((call) => call.url === '/viewer/tts/playback-ack');
+  assert.ok(ack, 'missing response id should still ack via derived id');
+  const payload = JSON.parse(ack.init.body);
+  assert.equal(payload.response_id, 'idle-derived:0004');
+  assert.equal(payload.message_id, 'idle-derived:msg:0004');
+  assert.equal(payload.status, 'error');
+  assert.equal(payload.error_code, 'TTS_AUDIO_BLOCKED');
 });
 
 test('idlechat first audio chunk starts before second chunk or session completion', async () => {
@@ -1358,6 +1451,55 @@ test('idlechat audio chunk claims active audio viewer before playback ack', asyn
 
   assert.equal(fetchCalls.at(-1).url, '/viewer/tts/playback-ack');
   assert.equal(JSON.parse(fetchCalls.at(-1).init.body).viewer_client_id, harness.viewerControl.clientId);
+});
+
+test('forecast domain message updates active session before tts audio chunk', async () => {
+  const {harness} = loadAudioHarness({
+    fetch: () => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({active_audio_viewer_id: harness.viewerControl.clientId}),
+    }),
+  });
+
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.topic',
+    from: 'user',
+    to: 'mio',
+    content: 'old topic',
+    session_id: 'idle-old-session',
+    message_id: 'idle-old-session:topic',
+    timestamp: liveTimestamp(),
+  });
+  harness.addIdleMsgToTimeline({
+    type: 'idlechat.message',
+    from: 'user',
+    to: 'mio',
+    content: 'AI技術のテーマの時間です。',
+    session_id: 'forecast-new-session',
+    message_id: 'forecast-new-session:domain:0000',
+    turn_index: 0,
+    timestamp: liveTimestamp(1000),
+  });
+
+  harness.chatAudioSync.handleEvent({
+    type: 'tts.audio_chunk',
+    content: JSON.stringify({
+      session_id: 'forecast-new-session',
+      response_id: 'forecast-new-session:domain:0000',
+      utterance_id: 'forecast-new-session:domain:0000:utt:0000',
+      message_id: 'forecast-new-session:domain:0000',
+      turn_index: 0,
+      chunk_index: 0,
+      character_id: 'mio',
+      text: 'AI技術のテーマの時間です。',
+      display_text: 'AI技術のテーマの時間です。',
+      audio_url: '/audio/forecast-domain.wav',
+    }),
+  });
+  await Promise.resolve();
+
+  assert.equal(harness.ttsPlayback.playing, true);
+  assert.equal(harness.ttsPlayback.currentSessionId, 'forecast-new-session');
 });
 
 test('idlechat tts from a new session is accepted after an interrupt state', async () => {

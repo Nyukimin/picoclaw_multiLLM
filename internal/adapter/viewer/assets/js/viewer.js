@@ -3014,6 +3014,7 @@ function createChatAudioSync() {
   const seenAudioResponses = new Set();
   const seenUtterances = new Set();
   const blockedAckKeys = new Set();
+  const blockedResponseIds = new Set();
   const interruptedChatSessions = new Set();
   const interruptedChatResponses = new Set();
 
@@ -3058,12 +3059,13 @@ function createChatAudioSync() {
     if (ev && ev.type === 'tts.session_completed') {
       try {
         const payload = JSON.parse(ev.content || '{}');
+        const messageId = String(payload.message_id || '').trim();
         return {
           eventType: 'session_completed',
           sessionId: String(payload.session_id || ev.session_id || '').trim(),
-          responseId: String(payload.response_id || '').trim(),
+          responseId: normalizeTTSResponseId(payload.response_id, messageId),
           utteranceId: String(payload.utterance_id || '').trim(),
-          messageId: String(payload.message_id || '').trim(),
+          messageId,
           turnIndex: Number.isFinite(Number(payload.turn_index)) ? Math.floor(Number(payload.turn_index)) : -1,
           characterId: String(payload.character_id || payload.speaker || '').trim().toLowerCase(),
         };
@@ -3093,8 +3095,8 @@ function createChatAudioSync() {
     const characterId = String(payload.character_id || payload.speaker || '').trim().toLowerCase();
     const text = String(payload.speech_text || payload.text || '').trim();
     const displayText = String(payload.display_text || payload.viewer_text || payload.text || '').trim();
-    const responseId = String(payload.response_id || '').trim();
     const messageId = String(payload.message_id || '').trim();
+    const responseId = normalizeTTSResponseId(payload.response_id, messageId);
     const utteranceId = String(payload.utterance_id || '').trim() || (sessionId + ':' + String(chunkIndex));
     const errorCode = String(payload.error_code || '').trim();
     const error = String(payload.error || '').trim();
@@ -3168,7 +3170,7 @@ function createChatAudioSync() {
       chunkIndex: Number.isFinite(chunk && chunk.chunkIndex) ? chunk.chunkIndex : -1,
       text: String((chunk && chunk.text) || ''),
       displayText: String((chunk && (chunk.displayText || chunk.text)) || ''),
-      responseId: String((chunk && chunk.responseId) || ''),
+      responseId: normalizeTTSResponseId(chunk && chunk.responseId, chunk && chunk.messageId),
       utteranceId: String((chunk && chunk.utteranceId) || ''),
       messageId: String((chunk && chunk.messageId) || ''),
       turnIndex: Number.isFinite(chunk && chunk.turnIndex) ? chunk.turnIndex : -1,
@@ -3196,6 +3198,7 @@ function createChatAudioSync() {
 
   function enqueueChunkInternal(chunk) {
     if (isInterruptedChatOutput(chunk)) return;
+    if (chunk.responseId && blockedResponseIds.has(chunk.responseId)) return;
     const chunkKey = ttsChunkIdentityKey(chunk.sessionId, chunk.utteranceId, chunk.chunkIndex, state.seq + 1);
     if (chunkKey && seenUtterances.has(chunkKey)) return;
     if (chunkKey) seenUtterances.add(chunkKey);
@@ -3242,6 +3245,16 @@ function createChatAudioSync() {
     seenAudioResponses.add(rid);
     ensureResponseLifecycle(rid);
     responsePlaybackCounts.set(rid, (responsePlaybackCounts.get(rid) || 0) + 1);
+  }
+
+  function normalizeTTSResponseId(responseId, messageId) {
+    const rid = String(responseId || '').trim();
+    if (rid) return rid;
+    const mid = String(messageId || '').trim();
+    if (!mid) return '';
+    const msgMatch = mid.match(/^(.*):msg:(\d+)$/);
+    if (msgMatch) return msgMatch[1] + ':' + msgMatch[2];
+    return mid;
   }
 
   function decrementResponsePlaybackCount(responseId) {
@@ -3753,14 +3766,24 @@ function createChatAudioSync() {
 
   function scheduleBlockedAudioAckInternal(item, err) {
     if (!item || !item.responseId) return;
+    blockedResponseIds.add(item.responseId);
     const key = ttsChunkIdentityKey(item.sessionId, item.utteranceId, item.chunkIndex, item.seq);
     if (key && blockedAckKeys.has(key)) return;
     if (key) blockedAckKeys.add(key);
     recordResponsePlaybackResult(item, 'error', err);
     setTimeout(function() {
+      pruneBlockedResponseFromQueue(item.responseId);
       decrementResponsePlaybackCount(item.responseId);
       maybeAcknowledgeResponsePlayback(item, 'error', err);
+      playNextInternal();
     }, ttsDisplayDelay(item));
+  }
+
+  function pruneBlockedResponseFromQueue(responseId) {
+    const rid = String(responseId || '').trim();
+    if (!rid || !Array.isArray(state.queue) || state.queue.length === 0) return;
+    state.queue = state.queue.filter((queued) => String((queued && queued.responseId) || '').trim() !== rid);
+    clearPreloadedAudioInternal();
   }
 
   function currentAudioItemInternal(fallback) {

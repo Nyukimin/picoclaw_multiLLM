@@ -13,6 +13,7 @@ type IrodoriRunGenerationConfig struct {
 	ModelPrecision        string
 	CodecDevice           string
 	CodecPrecision        string
+	VoiceID               string
 	EnableWatermark       bool
 	NumSteps              int
 	NumCandidates         int
@@ -162,6 +163,15 @@ func ResolveIrodoriVoiceID(raw string) string {
 	}
 }
 
+func ResolveIrodoriGradioVoiceID(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "shiro", "male", "male_01", "shi-gozaki", "shigozaki":
+		return "male_01"
+	default:
+		return "female_01"
+	}
+}
+
 func ResolveIrodoriVoiceName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "shiro", "male", "male_01", "shi-gozaki", "shigozaki":
@@ -252,6 +262,7 @@ func IrodoriRunGenerationURL(baseURL string) string {
 }
 
 func IrodoriRunGenerationData(cfg IrodoriRunGenerationConfig, text string, uploadedAudio any) []any {
+	voiceID := ResolveIrodoriGradioVoiceID(cfg.VoiceID)
 	return []any{
 		cfg.Checkpoint,
 		cfg.ModelDevice,
@@ -259,6 +270,7 @@ func IrodoriRunGenerationData(cfg IrodoriRunGenerationConfig, text string, uploa
 		cfg.CodecDevice,
 		cfg.CodecPrecision,
 		text,
+		voiceID,
 		uploadedAudio,
 		nil,
 		"",

@@ -25,6 +25,7 @@ func irodoriRunGenerationConfigFromConfig(cfg IrodoriConfig) moduletts.IrodoriRu
 		ModelPrecision:        cfg.ModelPrecision,
 		CodecDevice:           cfg.CodecDevice,
 		CodecPrecision:        cfg.CodecPrecision,
+		VoiceID:               cfg.VoiceID,
 		EnableWatermark:       cfg.EnableWatermark,
 		PlaybackSpeed:         cfg.Speed,
 		NumSteps:              cfg.NumSteps,

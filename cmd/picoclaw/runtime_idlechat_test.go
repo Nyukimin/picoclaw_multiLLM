@@ -163,3 +163,12 @@ func TestCoderProviderIsExternal(t *testing.T) {
 		}
 	}
 }
+
+func TestIdleChatViewerEventTypeKeepsViewerEventsOutOfTTSMessageQueue(t *testing.T) {
+	if got := idleChatViewerEventType("idlechat.viewer"); got != "idlechat.viewer" {
+		t.Fatalf("idlechat.viewer must not be rewritten to idlechat.message, got %q", got)
+	}
+	if got := idleChatViewerEventType(" idlechat.message "); got != "idlechat.message" {
+		t.Fatalf("unexpected message type normalization: %q", got)
+	}
+}

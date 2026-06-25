@@ -185,10 +185,10 @@ func TestIrodoriProvider_SynthesizeGradioCallGeneration(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatal(err)
 			}
-			if len(payload.Data) != 31 {
+			if len(payload.Data) != 32 {
 				t.Fatalf("unexpected gradio data length: %d %#v", len(payload.Data), payload.Data)
 			}
-			if payload.Data[0] != "Aratako/Irodori-TTS-500M-v3" || payload.Data[5] != "hello" || payload.Data[13] != 1.0 || payload.Data[14] != 0.95 || payload.Data[15] != "linear" || payload.Data[16] != -1.0 {
+			if payload.Data[0] != "Aratako/Irodori-TTS-500M-v3" || payload.Data[5] != "hello" || payload.Data[6] != "female_01" || payload.Data[14] != 1.0 || payload.Data[15] != 0.95 || payload.Data[16] != "linear" || payload.Data[17] != -1.0 {
 				t.Fatalf("unexpected gradio payload: %#v", payload.Data)
 			}
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"event_id":"evt-1"}`)), Header: make(http.Header)}, nil
