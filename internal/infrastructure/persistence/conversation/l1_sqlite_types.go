@@ -145,6 +145,22 @@ type L1SourceFetchPayload struct {
 	Meta         map[string]interface{}
 }
 
+type WikiPageIndexItem struct {
+	PageID          string
+	Path            string
+	Title           string
+	Type            string
+	Status          string
+	Owner           string
+	CanonicalSource string
+	SourcePaths     []string
+	Related         []string
+	Summary         string
+	ContentHash     string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type L1DomainGraphAssertion struct {
 	ID               string
 	StagingID        string

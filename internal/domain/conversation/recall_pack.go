@@ -43,6 +43,9 @@ type RecallPack struct {
 	// KBSnippets: ドメイン知識ベースからの関連情報（最大2件）
 	KBSnippets []string
 
+	// WikiSnippets: Markdown Knowledge Wiki からの仕様索引（最大3件）
+	WikiSnippets []WikiSnippet
+
 	// SearchCacheSnippets: 外部検索のfresh cache hitから得た参照情報
 	SearchCacheSnippets []SearchCacheSnippet
 
@@ -68,6 +71,17 @@ type SearchCacheSnippet struct {
 	Roles       []string
 }
 
+type WikiSnippet struct {
+	PageID      string
+	Title       string
+	Path        string
+	Summary     string
+	SourcePaths []string
+	Related     []string
+	UpdatedAt   time.Time
+	Roles       []string
+}
+
 type TokenEstimator interface {
 	EstimateTokens(text string) int
 }
@@ -88,6 +102,7 @@ func (rp *RecallPack) HasContext() bool {
 		len(rp.MidSummaries) > 0 ||
 		len(rp.LongFacts) > 0 ||
 		len(rp.KBSnippets) > 0 ||
+		len(rp.WikiSnippets) > 0 ||
 		len(rp.SearchCacheSnippets) > 0
 }
 
@@ -130,6 +145,12 @@ func (rp *RecallPack) ToPromptMessages() []llm.Message {
 		contextText += "【Knowledge DB / 参考知識】\n"
 		for _, kb := range rp.KBSnippets {
 			contextText += kb + "\n"
+		}
+	}
+	if len(rp.WikiSnippets) > 0 {
+		contextText += "【RenCrow Knowledge Wiki / 仕様地図】\n"
+		for _, wiki := range rp.WikiSnippets {
+			contextText += "- " + wiki.ToPromptText() + "\n"
 		}
 	}
 	if len(rp.SearchCacheSnippets) > 0 {
@@ -184,6 +205,7 @@ func (rp *RecallPack) ApplyRecallBudgetWithEstimator(maxContextTokens int, ratio
 	trimmed.MidSummaries = nil
 	trimmed.LongFacts = nil
 	trimmed.KBSnippets = nil
+	trimmed.WikiSnippets = nil
 	trimmed.SearchCacheSnippets = nil
 	used := 0
 	canAdd := func(text string) (bool, int) {
@@ -228,6 +250,17 @@ func (rp *RecallPack) ApplyRecallBudgetWithEstimator(maxContextTokens int, ratio
 			trimmed.RejectedTraceItems = append(trimmed.RejectedTraceItems, trace)
 		}
 	}
+	for _, snippet := range rp.WikiSnippets {
+		promptText := snippet.ToPromptText()
+		if ok, _ := canAdd(promptText); ok {
+			trimmed.WikiSnippets = append(trimmed.WikiSnippets, snippet)
+		} else {
+			trace := rejectedWikiTrace(snippet, "token budget dropped Knowledge Wiki snippet")
+			trace.Status = TraceStatusBudgetDropped
+			trace.TokenCount = estimateWithFallback(estimator, promptText)
+			trimmed.RejectedTraceItems = append(trimmed.RejectedTraceItems, trace)
+		}
+	}
 	for _, cache := range rp.SearchCacheSnippets {
 		if ok, _ := canAdd(cache.ToPromptText()); ok {
 			trimmed.SearchCacheSnippets = append(trimmed.SearchCacheSnippets, cache)
@@ -264,6 +297,7 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 	filtered := *rp
 	filtered.MidSummaries = nil
 	filtered.KBSnippets = nil
+	filtered.WikiSnippets = nil
 	filtered.SearchCacheSnippets = nil
 	filtered.RejectedTraceItems = append([]RecallTraceItem(nil), rp.RejectedTraceItems...)
 	for _, summary := range rp.MidSummaries {
@@ -279,6 +313,17 @@ func (rp *RecallPack) FilterForRole(role string) RecallPack {
 		} else {
 			filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedKnowledgeTrace(snippet, "role "+role+" does not use Knowledge DB snippets by default"))
 		}
+	}
+	for _, snippet := range rp.WikiSnippets {
+		if policyAllowsWikiSnippet(policy, role, snippet) {
+			filtered.WikiSnippets = append(filtered.WikiSnippets, snippet)
+			continue
+		}
+		reason := "role " + role + " does not use Knowledge Wiki snippets by default"
+		if policy.AllowKnowledge && !recallRolesMatch(snippet.Roles, role) {
+			reason = "role " + role + " does not match wiki snippet roles"
+		}
+		filtered.RejectedTraceItems = append(filtered.RejectedTraceItems, rejectedWikiTrace(snippet, reason))
 	}
 	for _, snippet := range rp.SearchCacheSnippets {
 		if policyAllowsSearchCacheSnippet(policy, role, snippet) {
@@ -318,6 +363,24 @@ func rejectedKnowledgeTrace(snippet string, reason string) RecallTraceItem {
 		Status:        TraceStatusFilteredScope,
 		PromptSection: PromptSectionKnowledge,
 		TokenCount:    estimateRecallTokens(snippet),
+		Reason:        reason,
+		PromptIndex:   -1,
+	}
+}
+
+func rejectedWikiTrace(snippet WikiSnippet, reason string) RecallTraceItem {
+	return RecallTraceItem{
+		Layer:         "L4",
+		Kind:          "wiki_page",
+		SourceID:      snippet.PageID,
+		SourceType:    "knowledge_wiki",
+		Summary:       snippet.ToPromptText(),
+		SourceURLs:    append([]string(nil), snippet.SourcePaths...),
+		RetrievedAt:   snippet.UpdatedAt,
+		Decision:      "rejected",
+		Status:        TraceStatusFilteredScope,
+		PromptSection: PromptSectionKnowledge,
+		TokenCount:    estimateRecallTokens(snippet.ToPromptText()),
 		Reason:        reason,
 		PromptIndex:   -1,
 	}
@@ -386,6 +449,16 @@ func policyAllowsSearchCacheSnippet(policy RecallRolePolicy, role string, snippe
 	return recallRolesMatch(snippet.Roles, role)
 }
 
+func policyAllowsWikiSnippet(policy RecallRolePolicy, role string, snippet WikiSnippet) bool {
+	if !policy.AllowKnowledge {
+		return false
+	}
+	if policy.RequireExplicit && len(snippet.Roles) == 0 {
+		return false
+	}
+	return recallRolesMatch(snippet.Roles, role)
+}
+
 func recallRolesMatch(roles []string, role string) bool {
 	if len(roles) == 0 {
 		return true
@@ -442,6 +515,32 @@ func (s SearchCacheSnippet) ToPromptText() string {
 	}
 	if s.ResultsJSON != "" {
 		parts = append(parts, "results_json="+s.ResultsJSON)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (s WikiSnippet) ToPromptText() string {
+	var parts []string
+	if s.Title != "" {
+		parts = append(parts, fmt.Sprintf("title=%s", s.Title))
+	}
+	if s.Path != "" {
+		parts = append(parts, fmt.Sprintf("path=%s", s.Path))
+	}
+	if s.PageID != "" {
+		parts = append(parts, fmt.Sprintf("page_id=%s", s.PageID))
+	}
+	if !s.UpdatedAt.IsZero() {
+		parts = append(parts, fmt.Sprintf("updated_at=%s", s.UpdatedAt.UTC().Format(time.RFC3339)))
+	}
+	if len(s.SourcePaths) > 0 {
+		parts = append(parts, "sources="+strings.Join(s.SourcePaths, ", "))
+	}
+	if len(s.Related) > 0 {
+		parts = append(parts, "related="+strings.Join(s.Related, ", "))
+	}
+	if s.Summary != "" {
+		parts = append(parts, "summary="+s.Summary)
 	}
 	return strings.Join(parts, "; ")
 }

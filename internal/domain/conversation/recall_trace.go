@@ -99,7 +99,7 @@ func (rp *RecallPack) ToTraceItems() []RecallTraceItem {
 	if rp == nil {
 		return nil
 	}
-	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.SearchCacheSnippets)+len(rp.RejectedTraceItems)+1)
+	items := make([]RecallTraceItem, 0, len(rp.ShortContext)+len(rp.MidSummaries)+len(rp.LongFacts)+len(rp.KBSnippets)+len(rp.WikiSnippets)+len(rp.SearchCacheSnippets)+len(rp.RejectedTraceItems)+1)
 	if rp.RollingSummary != "" {
 		items = append(items, RecallTraceItem{
 			Layer:         "L0",
@@ -163,6 +163,24 @@ func (rp *RecallPack) ToTraceItems() []RecallTraceItem {
 			PromptSection: PromptSectionKnowledge,
 			TokenCount:    estimateRecallTokens(snippet),
 			Reason:        "Knowledge DB snippet selected for prompt",
+			PromptIndex:   len(items),
+		})
+	}
+	for _, snippet := range rp.WikiSnippets {
+		promptText := snippet.ToPromptText()
+		items = append(items, RecallTraceItem{
+			Layer:         "L4",
+			Kind:          "wiki_page",
+			SourceID:      snippet.PageID,
+			SourceType:    "knowledge_wiki",
+			Summary:       promptText,
+			SourceURLs:    append([]string(nil), snippet.SourcePaths...),
+			RetrievedAt:   snippet.UpdatedAt,
+			Decision:      "included",
+			Status:        TraceStatusInjected,
+			PromptSection: PromptSectionKnowledge,
+			TokenCount:    estimateRecallTokens(promptText),
+			Reason:        "Knowledge Wiki page selected for prompt",
 			PromptIndex:   len(items),
 		})
 	}

@@ -29,30 +29,31 @@
 7. `07_STT_TTS仕様.md`
 8. `08_LLM_provider仕様.md`
 9. `09_Memory_SourceRegistry仕様.md`
-10. `10_検証仕様.md`
-11. `11_分割再設計候補.md`
-12. `12_新規リポジトリ移行方針.md`
-13. `13_実装項目インベントリ.md`
-14. `18_知識記憶システム構想.md`
-15. `19_DCI_直接コーパス探索仕様.md`
-16. `20_Tool_Harness_Contract_Mediation仕様.md`
-17. `21_AI_Native_Engineering_Workflow仕様.md`
-18. `22_Revenue_Operating_Principles仕様.md`
-19. `23_Workstream_Operating_Loop仕様.md`
-20. `24_Agent_Skill_Governance仕様.md`
-21. `25_Codebase_Complexity_Hotspot_Skill仕様.md`
-22. `26_Persona_Lore_and_Mutual_Observation仕様.md`
-23. `27_Browser_Trace_to_API_Discovery仕様.md`
-24. `28_SuperAgent_Harness_Reference_DeerFlow仕様.md`
-25. `29_Sandbox_Promotion_Gate仕様.md`
-26. `30_未実装項目実装仕様作成プロンプト.md`
-27. `31_未実装項目実装仕様.md`
-28. `32_E2E_runtime確認チェックリスト.md`
-29. `33_現状残課題整理作業手順書.md`
-30. `34_現状残課題クリア実装手順書.md`
-31. `49_Movie_Graph_Mio_Topic仕様.md`
-32. `50_Hobby_Graph_Mio_Topic仕様.md`
-33. `51_Movie_Watch_Event実装仕様.md`
+10. `89_RenCrow_Knowledge_Wiki運用仕様.md`
+11. `10_検証仕様.md`
+12. `11_分割再設計候補.md`
+13. `12_新規リポジトリ移行方針.md`
+14. `13_実装項目インベントリ.md`
+15. `18_知識記憶システム構想.md`
+16. `19_DCI_直接コーパス探索仕様.md`
+17. `20_Tool_Harness_Contract_Mediation仕様.md`
+18. `21_AI_Native_Engineering_Workflow仕様.md`
+19. `22_Revenue_Operating_Principles仕様.md`
+20. `23_Workstream_Operating_Loop仕様.md`
+21. `24_Agent_Skill_Governance仕様.md`
+22. `25_Codebase_Complexity_Hotspot_Skill仕様.md`
+23. `26_Persona_Lore_and_Mutual_Observation仕様.md`
+24. `27_Browser_Trace_to_API_Discovery仕様.md`
+25. `28_SuperAgent_Harness_Reference_DeerFlow仕様.md`
+26. `29_Sandbox_Promotion_Gate仕様.md`
+27. `30_未実装項目実装仕様作成プロンプト.md`
+28. `31_未実装項目実装仕様.md`
+29. `32_E2E_runtime確認チェックリスト.md`
+30. `33_現状残課題整理作業手順書.md`
+31. `34_現状残課題クリア実装手順書.md`
+32. `49_Movie_Graph_Mio_Topic仕様.md`
+33. `50_Hobby_Graph_Mio_Topic仕様.md`
+34. `51_Movie_Watch_Event実装仕様.md`
 
 ## 文書一覧
 
@@ -68,6 +69,7 @@
 | `07_STT_TTS仕様.md` | STT 入力経路、TTS provider / bridge / audio router、口パク trigger |
 | `08_LLM_provider仕様.md` | Chat / Worker / Heavy / Wild / Coder provider と factory / middleware |
 | `09_Memory_SourceRegistry仕様.md` | conversation memory、L1SQLite、VectorDB、DuckDB、Source Registry |
+| `89_RenCrow_Knowledge_Wiki運用仕様.md` | 既存 docs / rules / memory / SQL / RecallPack を AI が参照しやすい Markdown Wiki として索引化する運用仕様 |
 | `10_検証仕様.md` | unit / integration / e2e / live / browser 検証の標準 |
 | `11_分割再設計候補.md` | 1 対 1 で説明しにくい箇所や将来の分割候補 |
 | `12_新規リポジトリ移行方針.md` | 新規リポジトリへ持っていく docs と持っていかない旧 docs |

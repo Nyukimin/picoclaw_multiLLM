@@ -3,6 +3,7 @@ package conversation
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRecallPack_HasContext_Empty(t *testing.T) {
@@ -54,6 +55,15 @@ func TestRecallPack_HasContext_WithSearchCacheSnippets(t *testing.T) {
 	}
 	if !rp.HasContext() {
 		t.Error("RecallPack with SearchCacheSnippets should have context")
+	}
+}
+
+func TestRecallPack_HasContext_WithWikiSnippets(t *testing.T) {
+	rp := &RecallPack{
+		WikiSnippets: []WikiSnippet{{PageID: "concept:recall-pack", Title: "RecallPack"}},
+	}
+	if !rp.HasContext() {
+		t.Error("RecallPack with WikiSnippets should have context")
 	}
 }
 
@@ -156,6 +166,33 @@ func TestRecallPack_ToPromptMessages_WithKBSnippets(t *testing.T) {
 	}
 	if !contains(msgs[0].Content, "Go is a statically typed language") {
 		t.Error("context should contain KB snippet")
+	}
+}
+
+func TestRecallPack_ToPromptMessages_WithWikiSnippets(t *testing.T) {
+	rp := &RecallPack{
+		WikiSnippets: []WikiSnippet{{
+			PageID:      "concept:recall-pack",
+			Title:       "RecallPack",
+			Path:        "docs/wiki/concepts/recall-pack.md",
+			Summary:     "RecallPack は選別済み文脈。",
+			SourcePaths: []string{"internal/domain/conversation/recall_pack.go"},
+			Related:     []string{"docs/wiki/concepts/memory-lifecycle.md"},
+			UpdatedAt:   time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC),
+		}},
+	}
+	msgs := rp.ToPromptMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 context message, got %d", len(msgs))
+	}
+	if !contains(msgs[0].Content, "Knowledge Wiki") {
+		t.Error("context should contain wiki header")
+	}
+	if !contains(msgs[0].Content, "docs/wiki/concepts/recall-pack.md") {
+		t.Error("context should contain wiki path")
+	}
+	if !contains(msgs[0].Content, "internal/domain/conversation/recall_pack.go") {
+		t.Error("context should contain wiki source")
 	}
 }
 
@@ -321,6 +358,10 @@ func TestRecallPack_ApplyRecallBudgetTrimsRecallSections(t *testing.T) {
 		},
 		LongFacts:  []string{"small long", strings.Repeat("large long ", 80)},
 		KBSnippets: []string{"small kb", strings.Repeat("large kb ", 80)},
+		WikiSnippets: []WikiSnippet{
+			{Title: "small wiki", Path: "docs/wiki/concepts/recall-pack.md", Summary: "small wiki"},
+			{Title: "large wiki", Path: "docs/wiki/concepts/large.md", Summary: strings.Repeat("large wiki ", 80)},
+		},
 		SearchCacheSnippets: []SearchCacheSnippet{
 			{Query: "small search", ResultsJSON: `[]`},
 			{Query: "large search", ResultsJSON: strings.Repeat("x", 500)},
@@ -339,6 +380,9 @@ func TestRecallPack_ApplyRecallBudgetTrimsRecallSections(t *testing.T) {
 	}
 	if len(trimmed.KBSnippets) > 1 {
 		t.Fatalf("budget should trim large KB snippets: %+v", trimmed.KBSnippets)
+	}
+	if len(trimmed.WikiSnippets) > 1 {
+		t.Fatalf("budget should trim large wiki snippets: %+v", trimmed.WikiSnippets)
 	}
 	if len(trimmed.SearchCacheSnippets) > 1 {
 		t.Fatalf("budget should trim large search snippets: %+v", trimmed.SearchCacheSnippets)
@@ -359,9 +403,10 @@ func TestRecallPack_ApplyRecallBudgetNoopsWithoutBudget(t *testing.T) {
 		MidSummaries: []ThreadSummary{{Summary: "mid"}},
 		LongFacts:    []string{"long"},
 		KBSnippets:   []string{"kb"},
+		WikiSnippets: []WikiSnippet{{Title: "wiki", Summary: "wiki"}},
 	}
 	trimmed := rp.ApplyRecallBudget(0, 0.10)
-	if len(trimmed.MidSummaries) != 1 || len(trimmed.LongFacts) != 1 || len(trimmed.KBSnippets) != 1 {
+	if len(trimmed.MidSummaries) != 1 || len(trimmed.LongFacts) != 1 || len(trimmed.KBSnippets) != 1 || len(trimmed.WikiSnippets) != 1 {
 		t.Fatalf("budget should no-op without max context: %+v", trimmed)
 	}
 }
@@ -407,6 +452,10 @@ func TestRecallPack_FilterForRole(t *testing.T) {
 			{Query: "wild search", Roles: []string{"wild"}},
 			{Query: "worker search", Roles: []string{"worker"}},
 		},
+		WikiSnippets: []WikiSnippet{
+			{Title: "worker wiki", Roles: []string{"worker"}},
+			{Title: "chat wiki", Roles: []string{"chat"}},
+		},
 	}
 
 	filtered := rp.FilterForRole("Worker")
@@ -419,6 +468,9 @@ func TestRecallPack_FilterForRole(t *testing.T) {
 	if len(filtered.SearchCacheSnippets) != 1 || filtered.SearchCacheSnippets[0].Query != "worker search" {
 		t.Fatalf("unexpected filtered search snippets: %+v", filtered.SearchCacheSnippets)
 	}
+	if len(filtered.WikiSnippets) != 1 || filtered.WikiSnippets[0].Title != "worker wiki" {
+		t.Fatalf("unexpected filtered wiki snippets: %+v", filtered.WikiSnippets)
+	}
 }
 
 func TestRecallPack_FilterForRoleAppliesDefaultUseCasePolicy(t *testing.T) {
@@ -426,39 +478,46 @@ func TestRecallPack_FilterForRoleAppliesDefaultUseCasePolicy(t *testing.T) {
 		MidSummaries: []ThreadSummary{{Summary: "mid shared"}},
 		LongFacts:    []string{"long memory"},
 		KBSnippets:   []string{"kb knowledge"},
+		WikiSnippets: []WikiSnippet{
+			{Title: "generic wiki"},
+			{Title: "chat wiki", Roles: []string{"chat"}},
+		},
 		SearchCacheSnippets: []SearchCacheSnippet{
 			{Query: "worker search"},
 		},
 	}
 
 	chat := rp.FilterForRole("chat")
-	if len(chat.LongFacts) != 1 || len(chat.KBSnippets) != 0 || len(chat.SearchCacheSnippets) != 0 {
+	if len(chat.LongFacts) != 1 || len(chat.KBSnippets) != 0 || len(chat.WikiSnippets) != 1 || len(chat.SearchCacheSnippets) != 0 {
 		t.Fatalf("chat should keep memory and drop generic KB/search by default: %+v", chat)
 	}
 	worker := rp.FilterForRole("worker")
-	if len(worker.LongFacts) != 1 || len(worker.KBSnippets) != 1 || len(worker.SearchCacheSnippets) != 1 {
+	if len(worker.LongFacts) != 1 || len(worker.KBSnippets) != 1 || len(worker.WikiSnippets) != 1 || len(worker.SearchCacheSnippets) != 1 {
 		t.Fatalf("worker should keep practical recall sources: %+v", worker)
 	}
 	wild := rp.FilterForRole("wild")
-	if len(wild.LongFacts) != 1 || len(wild.KBSnippets) != 1 || len(wild.SearchCacheSnippets) != 0 {
+	if len(wild.LongFacts) != 1 || len(wild.KBSnippets) != 1 || len(wild.WikiSnippets) != 1 || len(wild.SearchCacheSnippets) != 0 {
 		t.Fatalf("wild should keep memory and KB but drop search cache by default: %+v", wild)
 	}
 	shiro := rp.FilterForRole("Shiro")
-	if len(shiro.KBSnippets) != 1 || len(shiro.SearchCacheSnippets) != 1 {
+	if len(shiro.KBSnippets) != 1 || len(shiro.WikiSnippets) != 1 || len(shiro.SearchCacheSnippets) != 1 {
 		t.Fatalf("Shiro should use worker recall policy: %+v", shiro)
 	}
 	ao := rp.FilterForRole("Ao")
-	if len(ao.KBSnippets) != 1 || len(ao.SearchCacheSnippets) != 1 {
+	if len(ao.KBSnippets) != 1 || len(ao.WikiSnippets) != 1 || len(ao.SearchCacheSnippets) != 1 {
 		t.Fatalf("Ao should use coder recall policy: %+v", ao)
 	}
 
 	localFirst := (&RecallPack{
 		KBSnippets: []string{"[L1KB] local knowledge"},
+		WikiSnippets: []WikiSnippet{
+			{Title: "local wiki", Roles: []string{"chat"}},
+		},
 		SearchCacheSnippets: []SearchCacheSnippet{
 			{Query: "fresh local cache", Roles: []string{"chat"}},
 		},
 	}).FilterForRole("Mio")
-	if len(localFirst.KBSnippets) != 1 || len(localFirst.SearchCacheSnippets) != 1 {
+	if len(localFirst.KBSnippets) != 1 || len(localFirst.WikiSnippets) != 1 || len(localFirst.SearchCacheSnippets) != 1 {
 		t.Fatalf("Mio should keep explicit local-first freshness recall: %+v", localFirst)
 	}
 }

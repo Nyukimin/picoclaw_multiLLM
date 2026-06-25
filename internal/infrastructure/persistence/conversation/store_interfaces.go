@@ -56,6 +56,7 @@ type l1StoreIface interface {
 	GetSimilarFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time, threshold float64) (*L1SearchCacheEntry, error)
 	InvalidateSearchCache(ctx context.Context, provider string, rawQuery string) (int64, error)
 	SearchKnowledgeItemsFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error)
+	SearchWikiPageIndex(ctx context.Context, query string, limit int) ([]WikiPageIndexItem, error)
 	AppendEvent(ctx context.Context, eventType string, namespace string, sessionID string, threadID int64, payload map[string]interface{}, source string) (*L1EventLogEntry, error)
 	RecentEvents(ctx context.Context, namespace string, limit int) ([]L1EventLogEntry, error)
 	UpdateMemoryState(ctx context.Context, id string, memoryState string) error

@@ -383,6 +383,41 @@ func TestBeginTurn_UsesL1KnowledgeFTSBeforeVectorKB(t *testing.T) {
 	}
 }
 
+func TestBeginTurn_UsesWikiPageIndexForSpecRecall(t *testing.T) {
+	ctx := context.Background()
+	mgr := newTestManager(nil, nil)
+	l1 := &mockL1Store{wiki: []WikiPageIndexItem{{
+		PageID:          "concept:recall-pack",
+		Path:            "docs/wiki/concepts/recall-pack.md",
+		Title:           "RecallPack",
+		Type:            "concept",
+		Status:          WikiPageStatusActive,
+		Owner:           "core",
+		CanonicalSource: "docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md",
+		SourcePaths:     []string{"internal/domain/conversation/recall_pack.go"},
+		Related:         []string{"docs/wiki/concepts/memory-lifecycle.md"},
+		Summary:         "RecallPack は Mio に渡す文脈を選別済みにする。",
+		UpdatedAt:       time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC),
+	}}}
+	mgr.WithL1Store(l1)
+	engine := NewRealConversationEngine(mgr, domconv.PersonaState{})
+
+	pack, err := engine.BeginTurn(ctx, "s1", "RecallPack の仕様")
+	if err != nil {
+		t.Fatalf("BeginTurn failed: %v", err)
+	}
+	if len(pack.WikiSnippets) != 1 || pack.WikiSnippets[0].PageID != "concept:recall-pack" {
+		t.Fatalf("expected wiki snippet, got %+v", pack.WikiSnippets)
+	}
+	chat := pack.FilterForRole("mio")
+	if len(chat.WikiSnippets) != 1 {
+		t.Fatalf("Mio/chat policy should keep explicit wiki snippet: %+v", chat)
+	}
+	if got := chat.WikiSnippets[0].SourcePaths; len(got) != 1 || got[0] != "internal/domain/conversation/recall_pack.go" {
+		t.Fatalf("wiki source paths should be preserved: %+v", got)
+	}
+}
+
 func TestEndTurn_BasicStore(t *testing.T) {
 	stored := []string{}
 	mgr := &mockManager{

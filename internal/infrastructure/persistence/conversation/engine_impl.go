@@ -136,6 +136,32 @@ func (e *RealConversationEngine) BeginTurn(ctx context.Context, sessionID string
 			}
 		}
 
+		if realMgr.l1Store != nil {
+			items, err := realMgr.l1Store.SearchWikiPageIndex(ctx, userMessage, 3)
+			if err != nil {
+				log.Printf("[ConversationEngine] WARN: WikiPageIndex search failed: %v", err)
+			} else {
+				for _, item := range items {
+					summary := strings.TrimSpace(item.Summary)
+					if summary == "" {
+						summary = strings.TrimSpace(item.Title)
+					}
+					if summary != "" {
+						pack.WikiSnippets = append(pack.WikiSnippets, domconv.WikiSnippet{
+							PageID:      item.PageID,
+							Title:       item.Title,
+							Path:        item.Path,
+							Summary:     summary,
+							SourcePaths: append([]string(nil), item.SourcePaths...),
+							Related:     append([]string(nil), item.Related...),
+							UpdatedAt:   item.UpdatedAt,
+							Roles:       []string{"chat", "worker", "coder"},
+						})
+					}
+				}
+			}
+		}
+
 		// KB検索を実行
 		kbDocs, err := realMgr.SearchKB(ctx, domain, userMessage, 3)
 		if err != nil {
@@ -219,7 +245,7 @@ func shouldUseExternalRecallForUserMessage(message string) bool {
 			return true
 		}
 	}
-	topic := []string{"について教えて", "について調べて", "について検索", "とは"}
+	topic := []string{"について教えて", "について調べて", "について検索", "とは", "仕様", "API", "Wiki", "RecallPack", "Source Registry", "RenCrow_CMD", "picoclaw"}
 	for _, marker := range topic {
 		if strings.Contains(message, marker) {
 			return true

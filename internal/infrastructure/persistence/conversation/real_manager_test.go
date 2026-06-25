@@ -146,6 +146,7 @@ type mockL1Store struct {
 	saved     []L1MemoryEvent
 	cache     *L1SearchCacheEntry
 	knowledge []L1KnowledgeItem
+	wiki      []WikiPageIndexItem
 	events    []L1EventLogEntry
 	traces    []domconv.RecallTrace
 }
@@ -201,6 +202,23 @@ func (m *mockL1Store) SearchKnowledgeItemsFTS(_ context.Context, domain string, 
 			continue
 		}
 		haystack := strings.ToLower(item.Title + " " + item.RawText + " " + item.SummaryDraft + " " + strings.Join(item.Keywords, " "))
+		if query == "" || strings.Contains(haystack, query) || anyQueryTermMatches(haystack, query) {
+			out = append(out, item)
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+func (m *mockL1Store) SearchWikiPageIndex(_ context.Context, query string, limit int) ([]WikiPageIndexItem, error) {
+	var out []WikiPageIndexItem
+	query = strings.ToLower(strings.TrimSpace(query))
+	for _, item := range m.wiki {
+		if item.Status == WikiPageStatusArchived || item.Status == WikiPageStatusDeprecated {
+			continue
+		}
+		haystack := strings.ToLower(item.Title + " " + item.Path + " " + item.Summary + " " + strings.Join(item.SourcePaths, " ") + " " + strings.Join(item.Related, " "))
 		if query == "" || strings.Contains(haystack, query) || anyQueryTermMatches(haystack, query) {
 			out = append(out, item)
 		}

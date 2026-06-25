@@ -12,6 +12,14 @@ func TestRecallPackToTraceItems(t *testing.T) {
 		MidSummaries: []ThreadSummary{{Summary: "mid memory", Domain: "movie", Score: 0.75}},
 		LongFacts:    []string{"long fact"},
 		KBSnippets:   []string{"kb snippet"},
+		WikiSnippets: []WikiSnippet{{
+			PageID:      "concept:recall-pack",
+			Title:       "RecallPack",
+			Path:        "docs/wiki/concepts/recall-pack.md",
+			Summary:     "wiki summary",
+			SourcePaths: []string{"internal/domain/conversation/recall_pack.go"},
+			UpdatedAt:   now,
+		}},
 		SearchCacheSnippets: []SearchCacheSnippet{{
 			Query:       "latest ai",
 			Provider:    "web",
@@ -22,8 +30,8 @@ func TestRecallPackToTraceItems(t *testing.T) {
 	}
 
 	items := rp.ToTraceItems()
-	if len(items) != 5 {
-		t.Fatalf("expected 5 trace items, got %d: %+v", len(items), items)
+	if len(items) != 6 {
+		t.Fatalf("expected 6 trace items, got %d: %+v", len(items), items)
 	}
 	if items[0].Layer != "L0" || items[0].Kind != "short_context" || items[0].Summary != "今の話題" {
 		t.Fatalf("unexpected L0 trace: %+v", items[0])
@@ -34,8 +42,11 @@ func TestRecallPackToTraceItems(t *testing.T) {
 	if items[1].Score != 0.75 || items[1].Decision != "included" || items[1].Reason == "" || items[1].PromptIndex != 1 {
 		t.Fatalf("mid trace should include score/decision/reason/prompt index: %+v", items[1])
 	}
-	if items[4].Layer != "L1" || items[4].Kind != "search_cache" || items[4].SourceURLs[0] != "https://example.com/a" {
-		t.Fatalf("unexpected search trace: %+v", items[4])
+	if items[4].Layer != "L4" || items[4].Kind != "wiki_page" || items[4].SourceID != "concept:recall-pack" {
+		t.Fatalf("unexpected wiki trace: %+v", items[4])
+	}
+	if items[5].Layer != "L1" || items[5].Kind != "search_cache" || items[5].SourceURLs[0] != "https://example.com/a" {
+		t.Fatalf("unexpected search trace: %+v", items[5])
 	}
 }
 
@@ -46,6 +57,9 @@ func TestRecallPackFilterForRoleKeepsRejectedTraceItems(t *testing.T) {
 			{Summary: "worker memory", Roles: []string{"worker"}, Score: 0.7},
 		},
 		KBSnippets: []string{"kb blocked for chat"},
+		WikiSnippets: []WikiSnippet{
+			{Title: "wiki blocked for chat"},
+		},
 		SearchCacheSnippets: []SearchCacheSnippet{
 			{Query: "fresh search", Provider: "web", ResultsJSON: `{"hit":true}`},
 		},
@@ -60,13 +74,13 @@ func TestRecallPackFilterForRoleKeepsRejectedTraceItems(t *testing.T) {
 			rejected = append(rejected, item)
 		}
 	}
-	if len(rejected) != 3 {
+	if len(rejected) != 4 {
 		t.Fatalf("expected rejected worker/KB/search trace items, got %+v", items)
 	}
 	if rejected[0].Kind != "thread_summary" || rejected[0].Summary != "worker memory" || rejected[0].PromptIndex != -1 {
 		t.Fatalf("unexpected rejected summary trace: %+v", rejected[0])
 	}
-	if rejected[1].Kind != "knowledge" || rejected[2].Kind != "search_cache" {
+	if rejected[1].Kind != "knowledge" || rejected[2].Kind != "wiki_page" || rejected[3].Kind != "search_cache" {
 		t.Fatalf("unexpected rejected trace kinds: %+v", rejected)
 	}
 	for _, item := range rejected {

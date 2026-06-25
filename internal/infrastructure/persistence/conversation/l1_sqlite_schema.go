@@ -182,6 +182,37 @@ CREATE TABLE IF NOT EXISTS l1_knowledge_item_fts (
 	keywords_text TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_l1_knowledge_fts_domain ON l1_knowledge_item_fts(domain);
+CREATE TABLE IF NOT EXISTS wiki_page_index (
+	page_id TEXT PRIMARY KEY,
+	path TEXT NOT NULL UNIQUE,
+	title TEXT NOT NULL,
+	type TEXT NOT NULL,
+	status TEXT NOT NULL,
+	owner TEXT NOT NULL DEFAULT '',
+	canonical_source TEXT NOT NULL DEFAULT '',
+	source_paths_json TEXT NOT NULL DEFAULT '[]',
+	related_json TEXT NOT NULL DEFAULT '[]',
+	summary TEXT NOT NULL DEFAULT '',
+	content_hash TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMP NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_page_index_status_type ON wiki_page_index(status, type, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wiki_page_index_path ON wiki_page_index(path);
+CREATE TABLE IF NOT EXISTS wiki_page_index_fts (
+	page_id TEXT PRIMARY KEY,
+	title TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL DEFAULT '',
+	type TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT '',
+	owner TEXT NOT NULL DEFAULT '',
+	canonical_source TEXT NOT NULL DEFAULT '',
+	summary TEXT NOT NULL DEFAULT '',
+	source_text TEXT NOT NULL DEFAULT '',
+	related_text TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_page_index_fts_status ON wiki_page_index_fts(status);
+CREATE INDEX IF NOT EXISTS idx_wiki_page_index_fts_type ON wiki_page_index_fts(type);
 CREATE TABLE IF NOT EXISTS domain_graph_assertion (
 	assertion_id TEXT PRIMARY KEY,
 	staging_id TEXT NOT NULL UNIQUE,

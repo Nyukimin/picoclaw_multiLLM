@@ -2035,6 +2035,95 @@ func TestL1SQLiteStore_SearchKnowledgeItemsFTS(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SearchWikiPageIndex(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	updated := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
+	if _, err := store.SaveWikiPageIndex(ctx, WikiPageIndexItem{
+		PageID:          "concept:recall-pack",
+		Path:            "docs/wiki/concepts/recall-pack.md",
+		Title:           "RecallPack",
+		Type:            "concept",
+		Status:          WikiPageStatusActive,
+		Owner:           "core",
+		CanonicalSource: "docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md",
+		SourcePaths: []string{
+			"docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md",
+			"internal/domain/conversation/recall_pack.go",
+		},
+		Related:     []string{"docs/wiki/concepts/memory-lifecycle.md"},
+		Summary:     "RecallPack は Mio に渡す文脈を選別済みにする prompt 注入用フォーマット。",
+		ContentHash: "hash-recall-pack",
+		UpdatedAt:   updated,
+	}); err != nil {
+		t.Fatalf("SaveWikiPageIndex active failed: %v", err)
+	}
+	if _, err := store.SaveWikiPageIndex(ctx, WikiPageIndexItem{
+		PageID:          "concept:old-wiki",
+		Path:            "docs/wiki/concepts/old-wiki.md",
+		Title:           "Old Wiki",
+		Type:            "concept",
+		Status:          WikiPageStatusArchived,
+		Owner:           "core",
+		CanonicalSource: "docs/wiki/log.md",
+		SourcePaths:     []string{"docs/wiki/log.md"},
+		Summary:         "archived page should not be returned",
+		UpdatedAt:       updated.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("SaveWikiPageIndex archived failed: %v", err)
+	}
+
+	results, err := store.SearchWikiPageIndex(ctx, "Mio prompt RecallPack", 10)
+	if err != nil {
+		t.Fatalf("SearchWikiPageIndex failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 active wiki page, got %+v", results)
+	}
+	if results[0].PageID != "concept:recall-pack" || results[0].Path != "docs/wiki/concepts/recall-pack.md" {
+		t.Fatalf("unexpected wiki page result: %+v", results[0])
+	}
+	if len(results[0].SourcePaths) != 2 || results[0].SourcePaths[1] != "internal/domain/conversation/recall_pack.go" {
+		t.Fatalf("source paths were not preserved: %+v", results[0].SourcePaths)
+	}
+}
+
+func TestL1SQLiteStore_SaveWikiPageIndexValidatesPathAndSource(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.SaveWikiPageIndex(ctx, WikiPageIndexItem{
+		PageID:          "bad:path",
+		Path:            "../secret.md",
+		Title:           "Bad",
+		Type:            "concept",
+		Status:          WikiPageStatusActive,
+		CanonicalSource: "docs/wiki/index.md",
+		SourcePaths:     []string{"docs/wiki/index.md"},
+	}); err == nil {
+		t.Fatal("expected invalid wiki path to be rejected")
+	}
+	if _, err := store.SaveWikiPageIndex(ctx, WikiPageIndexItem{
+		PageID:          "missing:source",
+		Path:            "docs/wiki/concepts/missing-source.md",
+		Title:           "Missing Source",
+		Type:            "concept",
+		Status:          WikiPageStatusActive,
+		CanonicalSource: "docs/wiki/index.md",
+	}); err == nil {
+		t.Fatal("expected missing source paths to be rejected")
+	}
+}
+
 func TestL1SQLiteStore_PromoteKnowledgeRequiresValidatedItem(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
