@@ -4389,6 +4389,8 @@ const labInp = document.getElementById('labInp');
 const sendBtn = document.getElementById('sendBtn');
 const attachBtn = document.getElementById('attachBtn');
 const cameraBtn = document.getElementById('cameraBtn');
+const labAttachBtn = document.getElementById('labAttachBtn');
+const labCameraBtn = document.getElementById('labCameraBtn');
 const attachInput = document.getElementById('attachInput');
 const cameraInput = document.getElementById('cameraInput');
 const attachmentTray = document.getElementById('attachmentTray');
@@ -4495,6 +4497,8 @@ if (typeof labInp !== 'undefined' && labInp) {
 }
 if (attachBtn && attachInput) attachBtn.addEventListener('click', () => attachInput.click());
 if (cameraBtn && cameraInput) cameraBtn.addEventListener('click', () => cameraInput.click());
+if (labAttachBtn && attachInput) labAttachBtn.addEventListener('click', () => attachInput.click());
+if (labCameraBtn && cameraInput) labCameraBtn.addEventListener('click', () => cameraInput.click());
 if (attachInput) attachInput.addEventListener('change', () => addViewerAttachments(attachInput.files, attachInput));
 if (cameraInput) cameraInput.addEventListener('change', () => addViewerAttachments(cameraInput.files, cameraInput));
 
@@ -4573,6 +4577,8 @@ function send() {
   if (typeof labInp !== 'undefined' && labInp) labInp.disabled = true;
   if (attachBtn) attachBtn.disabled = true;
   if (cameraBtn) cameraBtn.disabled = true;
+  if (labAttachBtn) labAttachBtn.disabled = true;
+  if (labCameraBtn) labCameraBtn.disabled = true;
 
   const sendPromise = attachments.length > 0 ? sendViewerMessage(message, attachments) : sendViewerMessage(message);
   sendPromise
@@ -4601,6 +4607,8 @@ function send() {
     if (typeof labInp !== 'undefined' && labInp) labInp.disabled = false;
     if (attachBtn) attachBtn.disabled = false;
     if (cameraBtn) cameraBtn.disabled = false;
+    if (labAttachBtn) labAttachBtn.disabled = false;
+    if (labCameraBtn) labCameraBtn.disabled = false;
     const isLabMode = typeof document !== 'undefined' && document.body && document.body.classList.contains('lab-mode');
     const focusTarget = typeof labInp !== 'undefined' && isLabMode && labInp ? labInp : inp;
     focusTarget.focus();
