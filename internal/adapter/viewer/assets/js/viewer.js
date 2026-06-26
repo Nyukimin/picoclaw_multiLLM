@@ -377,7 +377,7 @@ const ttsPlayback = {
   queue: [],
   audio: null,
   playing: false,
-  audioEnabled: true,
+  audioEnabled: false,
   unlocked: false,
   blocked: false,
   audioError: '',
@@ -4688,22 +4688,24 @@ const chatAudioSync = createChatAudioSync();
 
 function updateLabAudioButton(status) {
   if (!labAudioBtn) return;
+  const controlState = ttsPlayback.audioEnabled ? 'TTS_ON' : 'TTS_OFF';
   labAudioBtn.classList.remove('ready', 'blocked', 'off');
   if (status) labAudioBtn.classList.add(status);
-  labAudioBtn.dataset.state = status || 'pending';
-  labAudioBtn.setAttribute('aria-pressed', ttsPlayback.audioEnabled && !ttsPlayback.blocked ? 'true' : 'false');
+  labAudioBtn.dataset.state = controlState;
+  labAudioBtn.dataset.controlState = controlState;
+  labAudioBtn.setAttribute('aria-pressed', ttsPlayback.audioEnabled ? 'true' : 'false');
   if (!ttsPlayback.audioEnabled) {
-    labAudioBtn.title = 'Audio output is OFF';
-    labAudioBtn.setAttribute('aria-label', 'Audio output is OFF');
+    labAudioBtn.title = 'TTS_OFF';
+    labAudioBtn.setAttribute('aria-label', 'TTS_OFF');
   } else if (ttsPlayback.blocked) {
-    labAudioBtn.title = 'Audio output is blocked';
-    labAudioBtn.setAttribute('aria-label', 'Audio output is blocked');
+    labAudioBtn.title = 'TTS_ON / ブラウザ再許可待ち';
+    labAudioBtn.setAttribute('aria-label', 'TTS_ON');
   } else if (ttsPlayback.unlocked) {
-    labAudioBtn.title = 'Audio output is ON';
-    labAudioBtn.setAttribute('aria-label', 'Audio output is ON');
+    labAudioBtn.title = 'TTS_ON';
+    labAudioBtn.setAttribute('aria-label', 'TTS_ON');
   } else {
-    labAudioBtn.title = 'Enable audio output';
-    labAudioBtn.setAttribute('aria-label', 'Enable audio output');
+    labAudioBtn.title = 'TTS_ON / クリックで音声を有効化';
+    labAudioBtn.setAttribute('aria-label', 'TTS_ON');
   }
 }
 
@@ -4921,6 +4923,15 @@ const labCameraBtn = document.getElementById('labCameraBtn');
 const attachInput = document.getElementById('attachInput');
 const cameraInput = document.getElementById('cameraInput');
 const attachmentTray = document.getElementById('attachmentTray');
+const cameraCaptureModal = document.getElementById('cameraCaptureModal');
+const cameraCaptureVideo = document.getElementById('cameraCaptureVideo');
+const cameraCaptureStatus = document.getElementById('cameraCaptureStatus');
+const cameraCaptureCloseBtn = document.getElementById('cameraCaptureCloseBtn');
+const cameraPhotoBtn = document.getElementById('cameraPhotoBtn');
+const cameraFrameStartBtn = document.getElementById('cameraFrameStartBtn');
+const cameraFrameStopBtn = document.getElementById('cameraFrameStopBtn');
+const labCameraLivePreview = document.getElementById('labCameraLivePreview');
+const labCameraLiveVideo = document.getElementById('labCameraLiveVideo');
 bindTTSAudioButton(audioBtn);
 bindTTSAudioButton(liveAudioBtn);
 bindTTSAudioButton(labAudioBtn);
@@ -4931,6 +4942,21 @@ let sending = false;
 let viewerAttachments = [];
 let suppressInputInterrupt = false;
 let lastIdleStopAt = 0;
+const cameraCapture = {
+  stream: null,
+  frameTimer: null,
+  frameCapturing: false,
+  frameCaptureBusy: false,
+  frameIndex: 0,
+  opening: false,
+};
+// Current camera input emits browser-side JPEG still frames for Gemma4.
+// Future transport can switch this session to one-second video chunks when
+// RenCrow_LLM and the backend accept input_video/video_url without schema errors.
+const CAMERA_FRAME_INTERVAL_MS = 1000;
+const CAMERA_FRAME_MAX_COUNT = 60;
+const CAMERA_FRAME_MAX_DIMENSION = 1280;
+const CAMERA_FRAME_JPEG_QUALITY = 0.86;
 function autoResize() {
   inp.style.height = 'auto';
   inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
@@ -5034,11 +5060,259 @@ if (typeof labInp !== 'undefined' && labInp) {
   });
 }
 if (attachBtn && attachInput) attachBtn.addEventListener('click', () => attachInput.click());
-if (cameraBtn && cameraInput) cameraBtn.addEventListener('click', () => cameraInput.click());
+if (cameraBtn) cameraBtn.addEventListener('click', toggleCameraCapture);
 if (labAttachBtn && attachInput) labAttachBtn.addEventListener('click', () => attachInput.click());
-if (labCameraBtn && cameraInput) labCameraBtn.addEventListener('click', () => cameraInput.click());
+if (labCameraBtn) labCameraBtn.addEventListener('click', toggleCameraCapture);
 if (attachInput) attachInput.addEventListener('change', () => addViewerAttachments(attachInput.files, attachInput));
 if (cameraInput) cameraInput.addEventListener('change', () => addViewerAttachments(cameraInput.files, cameraInput));
+if (cameraCaptureCloseBtn) cameraCaptureCloseBtn.addEventListener('click', () => closeCameraCapture());
+if (cameraPhotoBtn) cameraPhotoBtn.addEventListener('click', captureCameraPhoto);
+if (cameraFrameStartBtn) cameraFrameStartBtn.addEventListener('click', startCameraFrameCapture);
+if (cameraFrameStopBtn) cameraFrameStopBtn.addEventListener('click', stopCameraFrameCapture);
+
+function setCameraCaptureStatus(text, kind) {
+  if (!cameraCaptureStatus) return;
+  cameraCaptureStatus.textContent = String(text || '').trim() || 'CAMERA_OFF';
+  cameraCaptureStatus.classList.remove('recording', 'streaming', 'error');
+  if (kind) cameraCaptureStatus.classList.add(kind);
+}
+
+function setCameraCaptureButtons() {
+  const active = !!cameraCapture.stream;
+  const frameCapturing = !!cameraCapture.frameCapturing;
+  [cameraBtn, labCameraBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.classList.toggle('ready', active);
+    btn.classList.toggle('blocked', false);
+    btn.classList.toggle('camera-on', active);
+    btn.dataset.state = active ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.dataset.controlState = active ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    btn.title = active ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.setAttribute('aria-label', btn.title);
+  });
+  if (cameraPhotoBtn) cameraPhotoBtn.disabled = !active || frameCapturing;
+  if (cameraFrameStartBtn) cameraFrameStartBtn.disabled = !active || frameCapturing;
+  if (cameraFrameStopBtn) cameraFrameStopBtn.disabled = !frameCapturing;
+  setLabCameraLivePreviewStream(cameraCapture.stream);
+}
+
+function setLabCameraLivePreviewStream(stream) {
+  if (!labCameraLivePreview || !labCameraLiveVideo) return;
+  const active = !!stream;
+  labCameraLivePreview.classList.toggle('is-visible', active);
+  if (!active) {
+    try { labCameraLiveVideo.pause(); } catch (_) {}
+    labCameraLiveVideo.srcObject = null;
+    return;
+  }
+  if (labCameraLiveVideo.srcObject !== stream) labCameraLiveVideo.srcObject = stream;
+  labCameraLiveVideo.muted = true;
+  labCameraLiveVideo.playsInline = true;
+  labCameraLiveVideo.setAttribute('playsinline', '');
+  labCameraLiveVideo.play().catch(() => {});
+}
+
+function useLabCameraCompactPreview() {
+  return !!(document.body && document.body.classList.contains('lab-mode') && document.body.classList.contains('live-mode'));
+}
+
+function activeCameraFrameVideo() {
+  if (cameraCaptureVideo && cameraCaptureVideo.videoWidth > 0 && cameraCaptureVideo.videoHeight > 0) return cameraCaptureVideo;
+  if (labCameraLiveVideo && labCameraLiveVideo.videoWidth > 0 && labCameraLiveVideo.videoHeight > 0) return labCameraLiveVideo;
+  return cameraCaptureVideo || labCameraLiveVideo;
+}
+
+function getCameraCaptureConstraints() {
+  return {
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  };
+}
+
+function toggleCameraCapture() {
+  if (cameraCapture.stream) {
+    stopCameraCaptureStream();
+    if (cameraCaptureModal) cameraCaptureModal.classList.add('hidden');
+    return;
+  }
+  openCameraCapture();
+}
+
+async function openCameraCapture() {
+  if (cameraCapture.opening) return;
+  cameraCapture.opening = true;
+  try {
+    if (!cameraCaptureModal || !cameraCaptureVideo) {
+      if (cameraInput) cameraInput.click();
+      return;
+    }
+    if (cameraCapture.stream) {
+      cameraCaptureModal.classList.toggle('hidden', useLabCameraCompactPreview());
+      if (!cameraCaptureVideo.srcObject) cameraCaptureVideo.srcObject = cameraCapture.stream;
+      await cameraCaptureVideo.play().catch(() => {});
+      setCameraCaptureButtons();
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      setCameraCaptureStatus('CAMERA_UNAVAILABLE', 'error');
+      showToast('カメラAPIが利用できません', 'error');
+      if (cameraInput) cameraInput.click();
+      return;
+    }
+    stopCameraCaptureStream();
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(getCameraCaptureConstraints());
+    } catch (err) {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    }
+    cameraCapture.stream = stream;
+    cameraCaptureVideo.srcObject = stream;
+    cameraCaptureVideo.muted = true;
+    cameraCaptureVideo.playsInline = true;
+    cameraCaptureVideo.setAttribute('playsinline', '');
+    cameraCaptureModal.classList.toggle('hidden', useLabCameraCompactPreview());
+    await cameraCaptureVideo.play().catch(() => {});
+    const videoTracks = stream.getVideoTracks().length;
+    const audioTracks = stream.getAudioTracks().length;
+    setCameraCaptureStatus(`CAMERA_ON / MIC_${audioTracks > 0 ? 'ON' : 'OFF'} / still_frame=ready / video=${videoTracks} audio=${audioTracks}`);
+    setCameraCaptureButtons();
+  } catch (err) {
+    const message = String(err && err.message ? err.message : err);
+    setCameraCaptureStatus('CAMERA_ERROR / ' + message, 'error');
+    showToast('カメラ/マイク入力を開始できません', 'error');
+  } finally {
+    cameraCapture.opening = false;
+    setCameraCaptureButtons();
+  }
+}
+
+function stopCameraCaptureStream() {
+  stopCameraFrameCapture();
+  if (cameraCapture.stream) {
+    cameraCapture.stream.getTracks().forEach((track) => {
+      try { track.stop(); } catch (_) {}
+    });
+  }
+  cameraCapture.stream = null;
+  if (cameraCaptureVideo) cameraCaptureVideo.srcObject = null;
+  setCameraCaptureStatus('CAMERA_OFF');
+  setCameraCaptureButtons();
+}
+
+function closeCameraCapture() {
+  stopCameraCaptureStream();
+  if (cameraCaptureModal) cameraCaptureModal.classList.add('hidden');
+}
+
+function startCameraFrameCapture() {
+  if (!activeCameraFrameVideo() || !cameraCapture.stream) {
+    showToast('カメラ入力が開始されていません', 'error');
+    return;
+  }
+  if (cameraCapture.frameCapturing) return;
+  cameraCapture.frameCapturing = true;
+  cameraCapture.frameCaptureBusy = false;
+  cameraCapture.frameIndex = 0;
+  setCameraCaptureStatus(`FRAME_CAPTURE / 1FPS / 0/${CAMERA_FRAME_MAX_COUNT}`, 'streaming');
+  setCameraCaptureButtons();
+  captureCameraFrameTick();
+  cameraCapture.frameTimer = window.setInterval(captureCameraFrameTick, CAMERA_FRAME_INTERVAL_MS);
+}
+
+function stopCameraFrameCapture() {
+  if (cameraCapture.frameTimer) {
+    window.clearInterval(cameraCapture.frameTimer);
+    cameraCapture.frameTimer = null;
+  }
+  if (cameraCapture.frameCapturing) {
+    const count = cameraCapture.frameIndex;
+    cameraCapture.frameCapturing = false;
+    cameraCapture.frameCaptureBusy = false;
+    setCameraCaptureStatus(`FRAMES_ATTACHED / ${count} still image(s) / CAMERA_ON`);
+    setCameraCaptureButtons();
+  }
+}
+
+async function captureCameraFrameTick() {
+  if (!cameraCapture.frameCapturing || cameraCapture.frameCaptureBusy) return;
+  if (cameraCapture.frameIndex >= CAMERA_FRAME_MAX_COUNT) {
+    stopCameraFrameCapture();
+    return;
+  }
+  cameraCapture.frameCaptureBusy = true;
+  try {
+    const nextIndex = cameraCapture.frameIndex + 1;
+    const file = await createCameraFrameFile(`camera_frame_${String(nextIndex).padStart(3, '0')}_${Date.now()}.jpg`);
+    addViewerAttachments([file]);
+    cameraCapture.frameIndex = nextIndex;
+    setCameraCaptureStatus(`FRAME_CAPTURE / 1FPS / ${cameraCapture.frameIndex}/${CAMERA_FRAME_MAX_COUNT}`, 'streaming');
+    if (cameraCapture.frameIndex >= CAMERA_FRAME_MAX_COUNT) stopCameraFrameCapture();
+  } catch (err) {
+    setCameraCaptureStatus('FRAME_CAPTURE_ERROR / ' + String(err && err.message ? err.message : err), 'error');
+    showToast('静止画フレームを作成できません', 'error');
+    stopCameraFrameCapture();
+  } finally {
+    cameraCapture.frameCaptureBusy = false;
+  }
+}
+
+function createCameraFrameFile(filename) {
+  return new Promise((resolve, reject) => {
+    const blob = captureCameraFrameBlobSync();
+    if (!blob) {
+      reject(new Error('capture failed'));
+      return;
+    }
+    resolve(new File([blob], filename, { type: 'image/jpeg' }));
+  });
+}
+
+function captureCameraFrameBlobSync() {
+  const video = activeCameraFrameVideo();
+  if (!video || !cameraCapture.stream) return null;
+  const width = video.videoWidth || 1280;
+  const height = video.videoHeight || 720;
+  if (width <= 0 || height <= 0) return null;
+  const scale = Math.min(1, CAMERA_FRAME_MAX_DIMENSION / Math.max(width, height));
+  const outWidth = Math.max(1, Math.round(width * scale));
+  const outHeight = Math.max(1, Math.round(height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = outWidth;
+  canvas.height = outHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, outWidth, outHeight);
+  const dataURL = canvas.toDataURL('image/jpeg', CAMERA_FRAME_JPEG_QUALITY);
+  const parts = String(dataURL || '').split(',');
+  if (parts.length < 2) return null;
+  const binary = atob(parts[1]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: 'image/jpeg' });
+}
+
+async function captureCameraPhoto() {
+  if (!activeCameraFrameVideo() || !cameraCapture.stream) return;
+  try {
+    const file = await createCameraFrameFile(`camera_${Date.now()}.jpg`);
+    addViewerAttachments([file]);
+    setCameraCaptureStatus('PHOTO_ATTACHED / CAMERA_ON');
+    showToast('カメラ画像を添付しました', 'success');
+  } catch (err) {
+    setCameraCaptureStatus('PHOTO_CAPTURE_ERROR / ' + String(err && err.message ? err.message : err), 'error');
+    showToast('カメラ画像を作成できません', 'error');
+  }
+}
 
 function addViewerAttachments(files, input) {
   state.viewerAttachmentError = '';
@@ -5059,8 +5333,8 @@ function addViewerAttachments(files, input) {
 function viewerAttachmentAccepted(file) {
   const type = String(file && file.type || '').toLowerCase();
   const name = String(file && file.name || '').toLowerCase();
-  return type.startsWith('image/') || type.startsWith('video/') || type === 'application/pdf' || type.startsWith('text/') ||
-    /\.(txt|md|json|csv|yaml|yml|mp4|mov|webm|m4v)$/.test(name);
+  return type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/') || type === 'application/pdf' || type.startsWith('text/') ||
+    /\.(txt|md|json|csv|yaml|yml|mp4|mov|webm|m4v|mp3|wav|m4a|ogg)$/.test(name);
 }
 
 function renderAttachmentTray() {
@@ -5423,6 +5697,7 @@ const sttState = {
   audioStream: null,
   scriptNode: null,
   isRecording: false,
+  isStarting: false,
   isStopping: false,
   keepSessionChannel: false,
   vadSpeechActive: false,
@@ -5761,9 +6036,13 @@ sttControlsReady = true;
 updateSTTInputIndicators();
 loadViewerRuntimeConfig();
 
+function isLabInputSurfaceActive() {
+  return document.body.classList.contains('lab-mode') && document.body.classList.contains('live-mode');
+}
+
 function isVoiceChatAllowed() {
-  const labInputSurface = document.body.classList.contains('lab-mode') && document.body.classList.contains('live-mode');
-  return activeViewerTab === 'timeline' && (labInputSurface || !document.body.classList.contains('live-mode'));
+  if (isLabInputSurfaceActive()) return true;
+  return activeViewerTab === 'timeline' && !document.body.classList.contains('live-mode');
 }
 
 function normalizeVoiceInputMode(raw) {
@@ -6063,18 +6342,31 @@ async function persistSTTArtifacts() {
 
 function applyMicButtonState(btn, microphoneUnavailable, voiceAllowed, mobileControlAllowed) {
   if (!btn) return;
-  btn.classList.toggle('ready', !!sttState.isRecording);
+  const sttOn = !!(sttState.isRecording || sttState.isStarting);
+  const actionError = String(sttState.captureActionError || '').trim();
+  const controlState = sttOn ? 'STT_ON' : 'STT_OFF';
+  const isLabMic = btn === labMicBtn || btn.classList.contains('lab-mic-toggle');
+  btn.classList.toggle('ready', sttOn);
   btn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
-  btn.classList.toggle('mic-unavailable', !!microphoneUnavailable && !sttState.isRecording);
+  btn.classList.toggle('off', !sttOn);
+  btn.classList.toggle('mic-unavailable', !!(microphoneUnavailable || actionError) && !sttOn);
   btn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
-  btn.disabled = (!mobileControlAllowed || !!microphoneUnavailable) && !sttState.isRecording;
-  btn.setAttribute('aria-pressed', sttState.isRecording ? 'true' : 'false');
-  btn.dataset.state = sttState.isRecording ? 'on' : (microphoneUnavailable ? 'unavailable' : 'off');
-  btn.title = microphoneUnavailable
+  btn.disabled = (!mobileControlAllowed || !!microphoneUnavailable) && !sttOn;
+  btn.setAttribute('aria-pressed', sttOn ? 'true' : 'false');
+  btn.dataset.state = controlState;
+  btn.dataset.controlState = controlState;
+  const defaultTitle = microphoneUnavailable
     ? '音声入力不可: ' + microphoneUnavailable
     : voiceAllowed
-    ? (sttState.isRecording ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
+    ? (sttOn ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
     : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
+  if (isLabMic) {
+    btn.title = sttOn ? `STT_ON（LLM直結・入力レベル ${Math.round(sttState.inputLevel)}%）` : (microphoneUnavailable || actionError ? 'STT_OFF / ' + (microphoneUnavailable || actionError) : 'STT_OFF');
+    btn.setAttribute('aria-label', sttOn ? 'STT_ON' : 'STT_OFF');
+  } else {
+    btn.title = defaultTitle;
+    btn.setAttribute('aria-label', sttOn ? 'STT_ON' : 'STT_OFF');
+  }
 }
 
 function updateSTTInputIndicators() {
@@ -6806,7 +7098,7 @@ async function toggleSTT() {
     showToast('テスト録音中は通常マイクを使えません', 'error');
     return;
   }
-  if (sttState.isRecording) {
+  if (sttState.isRecording || sttState.isStarting) {
     stopSTT();
   } else {
     if (typeof ensureVoiceChatForMobileControl === 'function' && !ensureVoiceChatForMobileControl()) {
@@ -6831,6 +7123,7 @@ async function startSTT() {
   }
   const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
   if (microphoneUnavailable) {
+    sttState.isStarting = false;
     sttState.captureActionError = describeSTTActionError('STT microphone start unavailable', microphoneUnavailable);
     if (typeof setSTTCaptionError === 'function') setSTTCaptionError(sttState.captureActionError);
     updateSTTInputIndicators();
@@ -6838,6 +7131,9 @@ async function startSTT() {
     return;
   }
   try {
+    sttState.isStarting = true;
+    sttState.captureActionError = '';
+    updateSTTInputIndicators();
     if (typeof claimViewerControl === 'function') {
       await claimViewerControl('input', 'stt_start');
     }
@@ -6847,7 +7143,6 @@ async function startSTT() {
     sttState.captureStartedAt = '';
     sttState.captureEndedAt = '';
     sttState.captureEventID = '';
-    sttState.captureActionError = '';
     sttState.sentAudioSamples = 0;
     sttState.sentAudioBytes = 0;
     sttState.sentAudioFrames = 0;
@@ -6909,8 +7204,11 @@ async function startSTT() {
     };
 
     sttState.isRecording = true;
+    sttState.isStarting = false;
     updateSTTInputIndicators();
   } catch (err) {
+    sttState.isStarting = false;
+    sttState.isRecording = false;
     sttState.captureActionError = describeSTTActionError('STT microphone start unavailable', err);
     updateSTTInputIndicators();
     console.error('[STT] Failed:', err);
@@ -7481,6 +7779,7 @@ function stopSTT() {
   sttState.vadSilenceStartedAt = 0;
   sttState.pendingSpeechRestart = false;
   sttState.pendingSpeechRestartInterrupted = false;
+  sttState.isStarting = false;
   if (typeof updateSTTInputLevel === 'function') updateSTTInputLevel(0);
 
   if (sttState.draftTimer) sttState.draftTimer();
@@ -7547,6 +7846,7 @@ function stopSTTUtteranceBySilence() {
 function abortSTTImmediately(reason) {
   const abortReason = String(reason || 'immediate_abort').trim() || 'immediate_abort';
   sttState.isRecording = false;
+  sttState.isStarting = false;
   sttState.isStopping = false;
   sttState.vadSpeechActive = false;
   sttState.vadSilenceStartedAt = 0;
@@ -7594,6 +7894,7 @@ function completeSTTStop() {
   sttState.chunkBuffer = [];
   sttState.draftBuffer = [];
   sttState.stopControlSent = false;
+  sttState.isStarting = false;
   sttState.isStopping = false;
   sttState.vadSpeechActive = false;
   sttState.vadSilenceStartedAt = 0;

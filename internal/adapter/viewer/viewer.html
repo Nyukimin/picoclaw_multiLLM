@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260618-job-interrupt">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260626-camera-toggle">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/ops.css?v=20260511-memory-desk">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/desk.css?v=20260517-desk-regenerated">
 </head>
@@ -64,25 +64,40 @@
     <button class="lab-mode-chip lab-mode-chip-mio" id="labModeMioChip" type="button" data-lab-switch="mio" aria-current="true" aria-pressed="true">Mio</button>
     <button class="lab-mode-chip lab-mode-chip-shiro" id="labModeShiroChip" type="button" data-lab-switch="shiro" aria-current="false" aria-pressed="false">Shiro</button>
   </section>
+  <section class="lab-camera-live-preview" id="labCameraLivePreview" aria-label="Camera live preview">
+    <div class="lab-camera-live-badge">LIVE</div>
+    <video id="labCameraLiveVideo" autoplay playsinline muted></video>
+  </section>
   <footer class="lab-footer lab-input-footer">
     <label class="lab-input-label" for="labInp">メッセージを入力</label>
     <div class="lab-input-shell">
       <textarea id="labInp" rows="1" placeholder="メッセージを入力..." autocomplete="off" aria-label="メッセージを入力"></textarea>
     </div>
     <div class="lab-footer-controls" aria-label="Audio controls">
-      <button class="lab-icon-btn lab-audio-toggle" id="labAudioBtn" type="button" title="Audio output ON/OFF" aria-label="Audio output ON/OFF" aria-pressed="true">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+      <button class="lab-icon-btn lab-audio-toggle off" id="labAudioBtn" type="button" title="TTS_OFF" aria-label="TTS_OFF" aria-pressed="false" data-control-state="TTS_OFF">
+        <svg class="lab-control-icon lab-control-icon-on" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
           <path d="M16 8.5a5 5 0 0 1 0 7"></path>
           <path d="M18.5 6a8 8 0 0 1 0 12"></path>
         </svg>
+        <svg class="lab-control-icon lab-control-icon-off" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
+          <path d="M19 5 5 19"></path>
+        </svg>
       </button>
-      <button class="lab-icon-btn lab-mic-toggle" id="labMicBtn" type="button" title="Microphone ON/OFF" aria-label="Microphone ON/OFF" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+      <button class="lab-icon-btn lab-mic-toggle off" id="labMicBtn" type="button" title="STT_OFF" aria-label="STT_OFF" aria-pressed="false" data-control-state="STT_OFF">
+        <svg class="lab-control-icon lab-control-icon-on" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
           <path d="M5 11a7 7 0 0 0 14 0"></path>
           <path d="M12 18v3"></path>
           <path d="M8 21h8"></path>
+        </svg>
+        <svg class="lab-control-icon lab-control-icon-off" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
+          <path d="M5 11a7 7 0 0 0 14 0"></path>
+          <path d="M12 18v3"></path>
+          <path d="M8 21h8"></path>
+          <path d="M19 5 5 19"></path>
         </svg>
       </button>
       <button class="lab-icon-btn lab-attach-toggle" id="labAttachBtn" type="button" title="Attach files" aria-label="Attach files">
@@ -90,7 +105,7 @@
           <path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5l9.8-9.8a4 4 0 0 1 5.7 5.7l-9.8 9.8a2 2 0 0 1-2.8-2.8l9.3-9.3"></path>
         </svg>
       </button>
-      <button class="lab-icon-btn lab-camera-toggle" id="labCameraBtn" type="button" title="Attach camera image" aria-label="Attach camera image">
+      <button class="lab-icon-btn lab-camera-toggle" id="labCameraBtn" type="button" title="カメラ/マイク入力" aria-label="カメラ/マイク入力">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3h5z"></path>
           <circle cx="12" cy="13" r="3.5"></circle>
@@ -1350,9 +1365,9 @@
           <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
           <button class="audio-btn repair-btn" id="repairBtn" type="button" title="ログを見て修復">🔧</button>
           <button class="audio-btn" id="attachBtn" type="button" title="画像・動画・PDF・テキストを添付">📎</button>
-          <button class="audio-btn" id="cameraBtn" type="button" title="カメラ画像を添付">📷</button>
-          <input id="attachInput" type="file" multiple accept="image/*,video/*,application/pdf,text/*,.txt,.md,.json,.csv,.yaml,.yml,.mp4,.mov,.webm,.m4v" hidden>
-          <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+          <button class="audio-btn" id="cameraBtn" type="button" title="カメラ/マイク入力">📷</button>
+          <input id="attachInput" type="file" multiple accept="image/*,video/*,audio/*,application/pdf,text/*,.txt,.md,.json,.csv,.yaml,.yml,.mp4,.mov,.webm,.m4v,.mp3,.wav,.m4a,.ogg" hidden>
+          <input id="cameraInput" type="file" accept="image/*,video/*,audio/*" capture="environment" hidden>
         </div>
         <div class="input-status-row">
           <span id="micState" class="stt-state">Mic: off</span>
@@ -1382,6 +1397,21 @@
     </div>
   </div>
 </div>
+<div class="camera-capture-modal hidden" id="cameraCaptureModal" role="dialog" aria-modal="true" aria-labelledby="cameraCaptureTitle">
+  <div class="camera-capture-panel">
+    <div class="camera-capture-head">
+      <h2 id="cameraCaptureTitle">Camera / Mic</h2>
+      <button class="camera-capture-close" id="cameraCaptureCloseBtn" type="button" aria-label="閉じる">×</button>
+    </div>
+    <video id="cameraCaptureVideo" class="camera-capture-video" autoplay playsinline muted></video>
+    <div class="camera-capture-status" id="cameraCaptureStatus">CAMERA_OFF</div>
+    <div class="camera-capture-controls">
+      <button class="camera-capture-btn" id="cameraPhotoBtn" type="button">単発静止画</button>
+      <button class="camera-capture-btn primary" id="cameraFrameStartBtn" type="button">1FPS開始</button>
+      <button class="camera-capture-btn" id="cameraFrameStopBtn" type="button" disabled>停止</button>
+    </div>
+  </div>
+</div>
 <div class="ctr" id="ctr" style="display:none">Messages: <span id="cnt">0</span></div>
 <button class="latest-btn" id="latestBtn" type="button" aria-label="最新を表示">
   <span class="latest-ico">↓</span>
@@ -1408,7 +1438,7 @@
 <script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
 <script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
 <script src="/viewer/assets/js/stt_test_record_utils.js?v=20260609-stt-test-record" defer></script>
-<script src="/viewer/assets/js/viewer.js?v=20260618-repair-control" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260626-camera-toggle" defer></script>
 <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </body>
 </html>
