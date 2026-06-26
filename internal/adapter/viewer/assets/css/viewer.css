@@ -2517,7 +2517,9 @@ body.lab-mode.live-mode .lab-icon-btn.blocked{
 }
 
 body.lab-mode.live-mode .lab-camera-toggle.camera-on,
-body.lab-mode.live-mode .lab-camera-toggle[data-control-state="CAMERA_ON"]{
+body.lab-mode.live-mode .lab-camera-toggle[data-control-state="CAMERA_ON"],
+body.lab-mode.live-mode .lab-screen-toggle.screen-on,
+body.lab-mode.live-mode .lab-screen-toggle[data-control-state="DISPLAY_ON"]{
   color:#fff;
   border-color:rgba(74,110,220,.46);
   background:linear-gradient(180deg,#7eb2ff,#4d72e8);
@@ -2525,7 +2527,9 @@ body.lab-mode.live-mode .lab-camera-toggle[data-control-state="CAMERA_ON"]{
 }
 
 body.lab-mode.live-mode .lab-camera-toggle.camera-on svg,
-body.lab-mode.live-mode .lab-camera-toggle[data-control-state="CAMERA_ON"] svg{
+body.lab-mode.live-mode .lab-camera-toggle[data-control-state="CAMERA_ON"] svg,
+body.lab-mode.live-mode .lab-screen-toggle.screen-on svg,
+body.lab-mode.live-mode .lab-screen-toggle[data-control-state="DISPLAY_ON"] svg{
   stroke:#fff;
 }
 

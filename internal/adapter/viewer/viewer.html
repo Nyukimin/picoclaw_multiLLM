@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260626-camera-toggle">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260626-media-source">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/ops.css?v=20260511-memory-desk">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/desk.css?v=20260517-desk-regenerated">
 </head>
@@ -64,7 +64,7 @@
     <button class="lab-mode-chip lab-mode-chip-mio" id="labModeMioChip" type="button" data-lab-switch="mio" aria-current="true" aria-pressed="true">Mio</button>
     <button class="lab-mode-chip lab-mode-chip-shiro" id="labModeShiroChip" type="button" data-lab-switch="shiro" aria-current="false" aria-pressed="false">Shiro</button>
   </section>
-  <section class="lab-camera-live-preview" id="labCameraLivePreview" aria-label="Camera live preview">
+  <section class="lab-camera-live-preview" id="labCameraLivePreview" aria-label="Media live preview">
     <div class="lab-camera-live-badge">LIVE</div>
     <video id="labCameraLiveVideo" autoplay playsinline muted></video>
   </section>
@@ -103,6 +103,13 @@
       <button class="lab-icon-btn lab-attach-toggle" id="labAttachBtn" type="button" title="Attach files" aria-label="Attach files">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5l9.8-9.8a4 4 0 0 1 5.7 5.7l-9.8 9.8a2 2 0 0 1-2.8-2.8l9.3-9.3"></path>
+        </svg>
+      </button>
+      <button class="lab-icon-btn lab-screen-toggle" id="labScreenBtn" type="button" title="画面/タブ入力" aria-label="画面/タブ入力">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="12" rx="2"></rect>
+          <path d="M8 20h8"></path>
+          <path d="M12 16v4"></path>
         </svg>
       </button>
       <button class="lab-icon-btn lab-camera-toggle" id="labCameraBtn" type="button" title="カメラ/マイク入力" aria-label="カメラ/マイク入力">
@@ -1365,6 +1372,7 @@
           <button class="audio-btn" id="micBtn" type="button" title="音声入力">🎤</button>
           <button class="audio-btn repair-btn" id="repairBtn" type="button" title="ログを見て修復">🔧</button>
           <button class="audio-btn" id="attachBtn" type="button" title="画像・動画・PDF・テキストを添付">📎</button>
+          <button class="audio-btn" id="screenBtn" type="button" title="画面/タブ入力">🖥</button>
           <button class="audio-btn" id="cameraBtn" type="button" title="カメラ/マイク入力">📷</button>
           <input id="attachInput" type="file" multiple accept="image/*,video/*,audio/*,application/pdf,text/*,.txt,.md,.json,.csv,.yaml,.yml,.mp4,.mov,.webm,.m4v,.mp3,.wav,.m4a,.ogg" hidden>
           <input id="cameraInput" type="file" accept="image/*,video/*,audio/*" capture="environment" hidden>
@@ -1438,7 +1446,7 @@
 <script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
 <script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
 <script src="/viewer/assets/js/stt_test_record_utils.js?v=20260609-stt-test-record" defer></script>
-<script src="/viewer/assets/js/viewer.js?v=20260626-camera-toggle" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260626-media-source" defer></script>
 <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </body>
 </html>
