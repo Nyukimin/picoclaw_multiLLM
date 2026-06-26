@@ -19,10 +19,10 @@ ollama:
 local_llm:
   enabled: true
   provider: "local_openai"
-  base_url: "http://192.168.1.207:8081"
-  chat_base_url: "http://192.168.1.207:8081"
-  worker_base_url: "http://192.168.1.207:8082"
-  wild_base_url: "http://192.168.1.207:8081"
+  base_url: "http://127.0.0.1:8081"
+  chat_base_url: "http://127.0.0.1:8081"
+  worker_base_url: "http://127.0.0.1:8082"
+  wild_base_url: "http://127.0.0.1:8081"
   api_key: ""
   chat_model: "Chat"
   worker_model: "Worker"
@@ -40,9 +40,9 @@ webwright_fetch:
   output_dir: "tmp/webwright_runs"
   staging_output_dir: "tmp/webwright_staging"
   uvx_from: "git+https://github.com/microsoft/Webwright.git"
-  responses_endpoint: "http://192.168.1.207:8082/v1/responses"
+  responses_endpoint: "http://127.0.0.1:8082/v1/responses"
   model: "Coder1"
-  api_key: "dummy"
+  api_key: ""
 
 deepseek:
   api_key: "${DEEPSEEK_API_KEY}"
@@ -300,9 +300,10 @@ coder1:
   enabled: true
   name: "aka"
   display_name: "赤"
-  provider: "deepseek"
-  model: "deepseek-coder"
-  api_key: "example-deepseek-api-key"
+  provider: "local_openai"
+  model: "Coder1"
+  base_url: "http://127.0.0.1:8082"
+  api_key: ""
   light_memory:
     enabled: true
     max_turns: 3
@@ -311,9 +312,10 @@ coder2:
   enabled: true
   name: "ao"
   display_name: "青"
-  provider: "openai"
-  model: "gpt-4o-mini"
-  api_key: "example-openai-api-key"
+  provider: "local_openai"
+  model: "Coder2"
+  base_url: "http://127.0.0.1:8082"
+  api_key: ""
   light_memory:
     enabled: true
     max_turns: 3
@@ -322,9 +324,10 @@ coder3:
   enabled: true
   name: "gin"
   display_name: "銀"
-  provider: "claude"
-  model: "claude-sonnet-4-20250514"
-  api_key: "example-anthropic-api-key"
+  provider: "local_openai"
+  model: "Coder3"
+  base_url: "http://127.0.0.1:8082"
+  api_key: ""
   light_memory:
     enabled: true
     max_turns: 3
@@ -333,9 +336,10 @@ coder4:
   enabled: true
   name: "kin"
   display_name: "金"
-  provider: "gemini"
-  model: "gemini-2.5-flash"
-  api_key: "example-gemini-api-key"
+  provider: "local_openai"
+  model: "Coder4"
+  base_url: "http://127.0.0.1:8082"
+  api_key: ""
   light_memory:
     enabled: true
     max_turns: 3

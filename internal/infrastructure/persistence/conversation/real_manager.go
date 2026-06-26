@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"fmt"
+	"log"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -23,25 +24,34 @@ func NewRealConversationManager(redisURL, duckdbPath, vectordbURL string) (*Real
 }
 
 func NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbURL string, vectorCollection string, vectorDimension uint64) (*RealConversationManager, error) {
-	redisStore, err := NewRedisStore(redisURL)
+	var redisStore redisStoreIface
+	redisClient, err := NewRedisStore(redisURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create redis store: %w", err)
+		log.Printf("Conversation Redis unavailable, using in-process volatile store: %v", err)
+		redisStore = newVolatileRedisStore()
+	} else {
+		redisStore = redisClient
 	}
 
-	duckdbStore, err := NewDuckDBStore(duckdbPath)
+	var duckdbStore duckdbStoreIface
+	duckdbClient, err := NewDuckDBStore(duckdbPath)
 	if err != nil {
-		redisStore.Close()
-		return nil, fmt.Errorf("failed to create duckdb store: %w", err)
+		log.Printf("Conversation DuckDB archive unavailable, using no-op archive store: %v", err)
+		duckdbStore = newNoopDuckDBStore()
+	} else {
+		duckdbStore = duckdbClient
 	}
 
 	if vectorCollection == "" {
 		vectorCollection = "picoclaw_memory"
 	}
-	vectordbStore, err := NewVectorDBStoreWithDimension(vectordbURL, vectorCollection, vectorDimension)
+	var vectordbStore vectordbStoreIface
+	vectordbClient, err := NewVectorDBStoreWithDimension(vectordbURL, vectorCollection, vectorDimension)
 	if err != nil {
-		redisStore.Close()
-		duckdbStore.Close()
-		return nil, fmt.Errorf("failed to create vectordb store: %w", err)
+		log.Printf("Conversation VectorDB unavailable, using no-op vector store: %v", err)
+		vectordbStore = newNoopVectorDBStore()
+	} else {
+		vectordbStore = vectordbClient
 	}
 
 	return &RealConversationManager{

@@ -31,6 +31,8 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
 	mux.HandleFunc("/viewer/mio-lipsync-closed.svg", viewer.HandleMioLipSyncClosed)
 	mux.HandleFunc("/viewer/mio-lipsync-open.svg", viewer.HandleMioLipSyncOpen)
+	mux.HandleFunc("/viewer/mio-portrait.png", viewer.HandleMioPortrait)
+	mux.HandleFunc("/viewer/shiro-portrait.png", viewer.HandleShiroPortrait)
 	mux.HandleFunc("/viewer/shiro-lipsync-closed.svg", viewer.HandleShiroLipSyncClosed)
 	mux.HandleFunc("/viewer/shiro-lipsync-open.svg", viewer.HandleShiroLipSyncOpen)
 	mux.HandleFunc("/viewer/tts/audio", handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL))

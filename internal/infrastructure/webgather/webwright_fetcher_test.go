@@ -38,6 +38,9 @@ func TestWebwrightFetcherRunsConvertsAndReturnsArtifact(t *testing.T) {
 		}
 		switch args[0] {
 		case "tools/webwright_fetch/run_webwright_fetch.py":
+			if containsArg(args, "--local-api-key") {
+				t.Fatalf("local API key arg must be omitted when APIKey is empty: %v", args)
+			}
 			runnerCalled = true
 			reportDir := filepath.Join(outputDir, "task")
 			if err := os.MkdirAll(reportDir, 0o755); err != nil {
@@ -213,4 +216,13 @@ func argAfter(args []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func containsArg(args []string, key string) bool {
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == key {
+			return true
+		}
+	}
+	return false
 }

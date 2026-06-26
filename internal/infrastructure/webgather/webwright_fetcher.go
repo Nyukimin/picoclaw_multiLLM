@@ -170,9 +170,6 @@ func (cfg WebwrightFetcherConfig) withDefaults() WebwrightFetcherConfig {
 	if strings.TrimSpace(cfg.Model) == "" {
 		cfg.Model = "Coder1"
 	}
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		cfg.APIKey = "dummy"
-	}
 	return cfg
 }
 
@@ -184,9 +181,11 @@ func buildWebwrightRunnerCommand(cfg WebwrightFetcherConfig, task string, startU
 		"-c", cfg.ConfigPath,
 		"--local-responses-endpoint", cfg.ResponsesEndpoint,
 		"--local-model", cfg.Model,
-		"--local-api-key", cfg.APIKey,
 		"--start-url", startURL,
 		"--task-id", taskID,
+	}
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		args = append(args, "--local-api-key", cfg.APIKey)
 	}
 	if strings.TrimSpace(cfg.Python) != "" {
 		args = append(args, "--python", cfg.Python)

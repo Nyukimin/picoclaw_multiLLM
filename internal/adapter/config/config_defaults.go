@@ -124,9 +124,6 @@ func (c *Config) setDefaults() {
 	if c.WebwrightFetch.Model == "" {
 		c.WebwrightFetch.Model = "Coder1"
 	}
-	if c.WebwrightFetch.APIKey == "" {
-		c.WebwrightFetch.APIKey = "dummy"
-	}
 
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
@@ -756,10 +753,13 @@ func (c *Config) setDefaults() {
 
 	// Coder スロットのデフォルト値（v4.1）
 	if c.Coder1.Provider == "" {
-		c.Coder1.Provider = "deepseek"
+		c.Coder1.Provider = "local_openai"
 	}
 	if c.Coder1.Model == "" {
-		c.Coder1.Model = "deepseek-coder"
+		c.Coder1.Model = "Coder1"
+	}
+	if c.Coder1.BaseURL == "" {
+		c.Coder1.BaseURL = c.LocalLLM.WorkerBaseURL
 	}
 	if c.Coder1.Name == "" {
 		c.Coder1.Name = "aka"
@@ -772,10 +772,13 @@ func (c *Config) setDefaults() {
 	}
 
 	if c.Coder2.Provider == "" {
-		c.Coder2.Provider = "openai"
+		c.Coder2.Provider = "local_openai"
 	}
 	if c.Coder2.Model == "" {
-		c.Coder2.Model = "gpt-4-turbo"
+		c.Coder2.Model = "Coder2"
+	}
+	if c.Coder2.BaseURL == "" {
+		c.Coder2.BaseURL = c.LocalLLM.WorkerBaseURL
 	}
 	if c.Coder2.Name == "" {
 		c.Coder2.Name = "ao"
@@ -788,10 +791,13 @@ func (c *Config) setDefaults() {
 	}
 
 	if c.Coder3.Provider == "" {
-		c.Coder3.Provider = "claude"
+		c.Coder3.Provider = "local_openai"
 	}
 	if c.Coder3.Model == "" {
-		c.Coder3.Model = "claude-sonnet-4"
+		c.Coder3.Model = "Coder3"
+	}
+	if c.Coder3.BaseURL == "" {
+		c.Coder3.BaseURL = c.LocalLLM.WorkerBaseURL
 	}
 	if c.Coder3.Name == "" {
 		c.Coder3.Name = "gin"
@@ -804,10 +810,13 @@ func (c *Config) setDefaults() {
 	}
 
 	if c.Coder4.Provider == "" {
-		c.Coder4.Provider = "gemini"
+		c.Coder4.Provider = "local_openai"
 	}
 	if c.Coder4.Model == "" {
-		c.Coder4.Model = "gemini-2.0-flash-exp"
+		c.Coder4.Model = "Coder4"
+	}
+	if c.Coder4.BaseURL == "" {
+		c.Coder4.BaseURL = c.LocalLLM.WorkerBaseURL
 	}
 	if c.Coder4.Name == "" {
 		c.Coder4.Name = "kin"

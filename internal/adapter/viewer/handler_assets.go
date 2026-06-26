@@ -27,6 +27,18 @@ func HandleMioLipSyncOpen(w http.ResponseWriter, r *http.Request) {
 	serveEmbeddedAsset(w, r, "assets/images/mio-lipsync-open.svg")
 }
 
+// HandleMioPortrait serves the full-body Mio portrait used by Lab mode.
+
+func HandleMioPortrait(w http.ResponseWriter, r *http.Request) {
+	serveEmbeddedAsset(w, r, "assets/images/mio/mio_basic.png")
+}
+
+// HandleShiroPortrait serves the transparent Shiro portrait used by Lab mode.
+
+func HandleShiroPortrait(w http.ResponseWriter, r *http.Request) {
+	serveEmbeddedAsset(w, r, "assets/images/shiro/parts/expressions/shiro_normal.png")
+}
+
 // HandleShiroLipSyncClosed serves Shiro closed-mouth SVG.
 
 func HandleShiroLipSyncClosed(w http.ResponseWriter, r *http.Request) {

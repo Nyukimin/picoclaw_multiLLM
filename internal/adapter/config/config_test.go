@@ -944,7 +944,7 @@ webwright_fetch:
 	if cfg.WebwrightFetch.UvxFrom != "" {
 		t.Fatalf("uvx_from must be opt-in, got %s", cfg.WebwrightFetch.UvxFrom)
 	}
-	if cfg.WebwrightFetch.Model != "Coder1" || cfg.WebwrightFetch.APIKey != "dummy" {
+	if cfg.WebwrightFetch.Model != "Coder1" || cfg.WebwrightFetch.APIKey != "" {
 		t.Fatalf("unexpected local webwright model/key defaults: %+v", cfg.WebwrightFetch)
 	}
 }
@@ -2853,11 +2853,11 @@ session:
 	}
 
 	// Coder1 デフォルト値検証
-	if cfg.Coder1.Provider != "deepseek" {
-		t.Errorf("Coder1.Provider: expected 'deepseek', got '%s'", cfg.Coder1.Provider)
+	if cfg.Coder1.Provider != "local_openai" {
+		t.Errorf("Coder1.Provider: expected 'local_openai', got '%s'", cfg.Coder1.Provider)
 	}
-	if cfg.Coder1.Model != "deepseek-coder" {
-		t.Errorf("Coder1.Model: expected 'deepseek-coder', got '%s'", cfg.Coder1.Model)
+	if cfg.Coder1.Model != "Coder1" {
+		t.Errorf("Coder1.Model: expected 'Coder1', got '%s'", cfg.Coder1.Model)
 	}
 	if cfg.Coder1.Name != "aka" {
 		t.Errorf("Coder1.Name: expected 'aka', got '%s'", cfg.Coder1.Name)
@@ -2870,11 +2870,11 @@ session:
 	}
 
 	// Coder2 デフォルト値検証
-	if cfg.Coder2.Provider != "openai" {
-		t.Errorf("Coder2.Provider: expected 'openai', got '%s'", cfg.Coder2.Provider)
+	if cfg.Coder2.Provider != "local_openai" {
+		t.Errorf("Coder2.Provider: expected 'local_openai', got '%s'", cfg.Coder2.Provider)
 	}
-	if cfg.Coder2.Model != "gpt-4-turbo" {
-		t.Errorf("Coder2.Model: expected 'gpt-4-turbo', got '%s'", cfg.Coder2.Model)
+	if cfg.Coder2.Model != "Coder2" {
+		t.Errorf("Coder2.Model: expected 'Coder2', got '%s'", cfg.Coder2.Model)
 	}
 	if cfg.Coder2.Name != "ao" {
 		t.Errorf("Coder2.Name: expected 'ao', got '%s'", cfg.Coder2.Name)
@@ -2884,11 +2884,11 @@ session:
 	}
 
 	// Coder3 デフォルト値検証
-	if cfg.Coder3.Provider != "claude" {
-		t.Errorf("Coder3.Provider: expected 'claude', got '%s'", cfg.Coder3.Provider)
+	if cfg.Coder3.Provider != "local_openai" {
+		t.Errorf("Coder3.Provider: expected 'local_openai', got '%s'", cfg.Coder3.Provider)
 	}
-	if cfg.Coder3.Model != "claude-sonnet-4" {
-		t.Errorf("Coder3.Model: expected 'claude-sonnet-4', got '%s'", cfg.Coder3.Model)
+	if cfg.Coder3.Model != "Coder3" {
+		t.Errorf("Coder3.Model: expected 'Coder3', got '%s'", cfg.Coder3.Model)
 	}
 	if cfg.Coder3.Name != "gin" {
 		t.Errorf("Coder3.Name: expected 'gin', got '%s'", cfg.Coder3.Name)
@@ -2898,11 +2898,11 @@ session:
 	}
 
 	// Coder4 デフォルト値検証
-	if cfg.Coder4.Provider != "gemini" {
-		t.Errorf("Coder4.Provider: expected 'gemini', got '%s'", cfg.Coder4.Provider)
+	if cfg.Coder4.Provider != "local_openai" {
+		t.Errorf("Coder4.Provider: expected 'local_openai', got '%s'", cfg.Coder4.Provider)
 	}
-	if cfg.Coder4.Model != "gemini-2.0-flash-exp" {
-		t.Errorf("Coder4.Model: expected 'gemini-2.0-flash-exp', got '%s'", cfg.Coder4.Model)
+	if cfg.Coder4.Model != "Coder4" {
+		t.Errorf("Coder4.Model: expected 'Coder4', got '%s'", cfg.Coder4.Model)
 	}
 	if cfg.Coder4.Name != "kin" {
 		t.Errorf("Coder4.Name: expected 'kin', got '%s'", cfg.Coder4.Name)
