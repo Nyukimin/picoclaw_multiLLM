@@ -4621,9 +4621,7 @@ function getCameraCaptureConstraints() {
 
 function getDisplayCaptureConstraints() {
   return {
-    video: {
-      frameRate: { ideal: 1, max: 5 },
-    },
+    video: true,
     audio: {
       echoCancellation: false,
       noiseSuppression: false,
