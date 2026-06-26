@@ -12,7 +12,10 @@ Supported source types:
   browser and selected source provide an audio track.
 - Local image/video/audio files through the normal attachment control.
 
-The Viewer captures the selected video preview and converts it to JPEG still
+The Viewer displays the selected source as a live MediaStream preview. The
+preview should not be frame-rate capped by the still-frame pipeline.
+
+For LLM input, the Viewer converts the selected video preview to JPEG still
 frames in the browser. The current continuous capture mode is 1 FPS and stores
 the frames as normal Viewer image attachments.
 
