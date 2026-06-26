@@ -38,6 +38,136 @@
   <span class="live-topic-label">TOPIC</span>
   <span class="live-topic-text" id="liveTopicText">-</span>
 </div>
+<div class="lab-stream-shell" aria-label="RenCrow Chat and IdleChat lab view">
+  <div class="lab-world" aria-hidden="true">
+    <div class="lab-window lab-window-left"></div>
+    <div class="lab-window lab-window-right"></div>
+    <div class="lab-ceiling-ring"></div>
+    <div class="lab-holo-circle"></div>
+    <div class="lab-crystal lab-crystal-left"></div>
+    <div class="lab-crystal lab-crystal-center"></div>
+    <div class="lab-console lab-console-left"></div>
+    <div class="lab-console lab-console-right"></div>
+  </div>
+  <section class="lab-brand-panel">
+    <div class="lab-logo-row">
+      <img src="/viewer/assets/images/rencrow-logo.png" alt="">
+      <div>
+        <strong>RenCrow</strong>
+        <span>IdleChat</span>
+      </div>
+    </div>
+  </section>
+  <section class="lab-mode-indicator" id="labModeIndicator" aria-label="Conversation mode and partner switcher">
+    <button class="lab-mode-chip lab-mode-chip-chat" id="labModeChatChip" type="button" data-lab-switch="chat" aria-current="true" aria-pressed="true">Chat</button>
+    <button class="lab-mode-chip lab-mode-chip-idle" id="labModeIdleChip" type="button" data-lab-switch="idle" aria-current="false" aria-pressed="false">IdleChat</button>
+    <button class="lab-mode-chip lab-mode-chip-mio" id="labModeMioChip" type="button" data-lab-switch="mio" aria-current="true" aria-pressed="true">Mio</button>
+    <button class="lab-mode-chip lab-mode-chip-shiro" id="labModeShiroChip" type="button" data-lab-switch="shiro" aria-current="false" aria-pressed="false">Shiro</button>
+  </section>
+  <section class="lab-viewer-count">
+    <span>視聴者数</span>
+    <strong>12,458</strong>
+  </section>
+  <section class="lab-mini-card lab-tag-card">
+    <div class="lab-mini-title">配信タグ</div>
+    <strong>#RenCrow研究室</strong>
+  </section>
+  <section class="lab-mini-card lab-env-card">
+    <div class="lab-mini-title">現在の環境</div>
+    <ul>
+      <li><span>光量</span><strong>最適</strong></li>
+      <li><span>気温</span><strong>22℃</strong></li>
+      <li><span>解析精度</span><strong>98.7%</strong></li>
+    </ul>
+  </section>
+  <section class="lab-notice-card">
+    <button type="button" aria-label="通知を閉じる">×</button>
+    <div class="lab-mini-title">通知</div>
+    <strong>新しいメッセージが届きました</strong>
+    <span>タップして確認</span>
+  </section>
+  <nav class="lab-side-nav" aria-label="Lab broadcast navigation">
+    <span class="active">会話中</span>
+    <span>検索</span>
+    <span>Worker</span>
+    <span>通知</span>
+    <span>設定</span>
+  </nav>
+  <section class="lab-state-panel" aria-label="現在の状態">
+    <h3>現在の状態</h3>
+    <div class="lab-state-grid">
+      <div><span>会話中</span><strong>良好</strong></div>
+      <div><span>集中度</span><strong>92%</strong></div>
+      <div><span>信頼度</span><strong>Lv. 8</strong></div>
+      <div><span>快適度</span><strong>良好</strong></div>
+    </div>
+  </section>
+  <footer class="lab-footer lab-input-footer">
+    <label class="lab-input-label" for="labInp">メッセージを入力</label>
+    <div class="lab-input-shell">
+      <textarea id="labInp" rows="1" placeholder="メッセージを入力..." autocomplete="off" aria-label="メッセージを入力"></textarea>
+    </div>
+    <div class="lab-footer-controls" aria-label="Audio controls">
+      <button class="lab-icon-btn lab-audio-toggle" id="labAudioBtn" type="button" title="Audio output ON/OFF" aria-label="Audio output ON/OFF" aria-pressed="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
+          <path d="M16 8.5a5 5 0 0 1 0 7"></path>
+          <path d="M18.5 6a8 8 0 0 1 0 12"></path>
+        </svg>
+      </button>
+      <button class="lab-icon-btn lab-mic-toggle" id="labMicBtn" type="button" title="Microphone ON/OFF" aria-label="Microphone ON/OFF" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"></path>
+          <path d="M5 11a7 7 0 0 0 14 0"></path>
+          <path d="M12 18v3"></path>
+          <path d="M8 21h8"></path>
+        </svg>
+      </button>
+    </div>
+  </footer>
+</div>
+<div class="lab-mio-portrait" aria-hidden="true">
+  <img src="/viewer/mio-portrait.png" alt="">
+</div>
+<div class="lab-shiro-portrait" aria-hidden="true">
+  <img src="/viewer/shiro-portrait.png" alt="">
+</div>
+<div class="lab-side" aria-label="RenCrow status cards">
+  <section class="lab-card">
+    <h3>Worker 実行状況</h3>
+    <div class="lab-progress">
+      <div class="lab-progress-row">
+        <div class="lab-progress-meta">
+          <span>共鳴データ解析</span>
+          <span>78%</span>
+        </div>
+        <div class="lab-progress-bar"><span style="width:78%"></span></div>
+      </div>
+      <div class="lab-progress-row">
+        <div class="lab-progress-meta">
+          <span>安定化アルゴリズム検証</span>
+          <span>45%</span>
+        </div>
+        <div class="lab-progress-bar"><span style="width:45%"></span></div>
+      </div>
+      <div class="lab-progress-row">
+        <div class="lab-progress-meta">
+          <span>記録バックアップ</span>
+          <span>完了</span>
+        </div>
+        <div class="lab-progress-bar"><span style="width:100%"></span></div>
+      </div>
+    </div>
+  </section>
+  <section class="lab-card lab-quote">
+    <div>
+      小さな仮説が、<br>
+      大きな未来を<br>
+      ひらくよ。<br>
+      <small>- Mio</small>
+    </div>
+  </section>
+</div>
 <div class="app-shell">
   <div class="mobile-panel-switch" aria-label="Mobile panel navigation">
     <button id="mobilePanelPrev" class="mobile-panel-step" type="button" aria-label="前のパネル">&lt;</button>

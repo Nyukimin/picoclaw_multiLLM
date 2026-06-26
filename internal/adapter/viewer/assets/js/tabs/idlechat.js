@@ -911,6 +911,10 @@ async function refreshIdleStatus() {
     }
     state.idleChat.currentTopic = d.current_topic || '';
     hydrateIdleLiveTranscript(d.active_session_id || '', d.active_transcript || []);
+    const applyLabStatus = typeof window !== 'undefined' && typeof window.applyLabConversationStatus === 'function'
+      ? window.applyLabConversationStatus
+      : (typeof applyLabConversationStatus === 'function' ? applyLabConversationStatus : null);
+    if (applyLabStatus) applyLabStatus(d);
     renderIdleChat();
   } catch (_) {
     idleStartBtn.disabled = true;
@@ -951,6 +955,10 @@ async function refreshIdleLogs() {
     state.idleChat.currentTopic = d.current_topic || '';
     state.idleChat.history = Array.isArray(d.history) ? d.history : [];
     hydrateIdleLiveTranscript(d.active_session_id || '', d.active_transcript || []);
+    const applyLabStatus = typeof window !== 'undefined' && typeof window.applyLabConversationStatus === 'function'
+      ? window.applyLabConversationStatus
+      : (typeof applyLabConversationStatus === 'function' ? applyLabConversationStatus : null);
+    if (applyLabStatus) applyLabStatus(d);
     renderIdleChat();
   } catch (err) {
     state.idleChat.history = [];

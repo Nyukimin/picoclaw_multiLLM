@@ -1250,6 +1250,7 @@ const idleSubtabs = Array.from(document.querySelectorAll('.idle-subtab'));
 const idleSubviews = Array.from(document.querySelectorAll('.idle-subview'));
 const audioBtn = document.getElementById('audioBtn');
 const liveAudioBtn = document.getElementById('liveAudioBtn');
+const labAudioBtn = document.getElementById('labAudioBtn');
 const eviStatus = document.getElementById('eviStatus');
 const eviErrorKind = document.getElementById('eviErrorKind');
 const eviPrev = document.getElementById('eviPrev');
@@ -3199,11 +3200,18 @@ function initTabFromQuery() {
 function initLiveMode() {
   try {
     const u = new URL(window.location.href);
-    if (u.searchParams.get('mode') !== 'live') return false;
+    const mode = String(u.searchParams.get('mode') || '').trim().toLowerCase();
+    if (mode !== 'live' && mode !== 'lab') return false;
+    const isLabMode = mode === 'lab';
     document.body.classList.add('live-mode');
+    if (isLabMode) {
+      document.body.classList.add('lab-mode');
+      bindLabModeSwitcher();
+      applyLabConversationStatus({mode: 'chat'});
+    }
     switchTab('timeline');
     // ライブモードではIdleChat状態をポーリングしてトピックバーを更新
-    setInterval(async () => {
+    const refreshLiveStatus = async () => {
       const topicEl = document.getElementById('liveTopicText');
       try {
         const r = await fetch('/viewer/idlechat/status');
@@ -3215,14 +3223,230 @@ function initLiveMode() {
         if (topicEl) {
           topicEl.textContent = d.current_topic || '-';
         }
+        if (isLabMode) applyLabConversationStatus(d);
       } catch (err) {
         if (topicEl) {
           topicEl.textContent = 'IdleChat status unavailable: ' + String(err && err.message ? err.message : err);
         }
       }
-    }, 5000);
+    };
+    if (isLabMode) refreshLiveStatus();
+    setInterval(refreshLiveStatus, 5000);
     return true;
   } catch (_) { return false; }
+}
+
+const LAB_PARTNER_STORAGE_KEY = 'labConversation.selectedPartner';
+
+function normalizeLabActor(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    for (let i = value.length - 1; i >= 0; i -= 1) {
+      const actor = normalizeLabActor(value[i]);
+      if (actor) return actor;
+    }
+    return '';
+  }
+  if (typeof value === 'object') {
+    const keys = ['to', 'recipient', 'target', 'persona', 'speaker', 'from', 'name', 'role'];
+    for (const key of keys) {
+      const actor = normalizeLabActor(value[key]);
+      if (actor) return actor;
+    }
+    return '';
+  }
+  const text = String(value).trim().toLowerCase();
+  if (text.includes('shiro')) return 'shiro';
+  if (text.includes('mio')) return 'mio';
+  return '';
+}
+
+function deriveLabConversationMode(status) {
+  const raw = String(
+    status && (status.mode || (status.watchdog && status.watchdog.mode)) || ''
+  ).trim().toLowerCase();
+  if (status && (status.manual_mode === true || status.chat_active === true)) return 'idle';
+  if (raw === 'idle' || raw === 'idlechat') return 'idle';
+  if (raw === 'manual' || raw === 'forecast' || raw === 'story' || raw === 'story-simple') return 'idle';
+  if (raw === 'chat') return 'chat';
+  const sessionID = String(status && (status.active_session_id || (status.watchdog && status.watchdog.session_id)) || '');
+  if (sessionID.toLowerCase().startsWith('idle-')) return 'idle';
+  if (status && typeof status.current_topic === 'string' && status.current_topic.trim()) return 'idle';
+  return 'chat';
+}
+
+function getLabSelectedPartner() {
+  try {
+    const stored = normalizeLabActor(localStorage.getItem(LAB_PARTNER_STORAGE_KEY));
+    if (stored) return stored;
+    if (typeof selectedRoleTargetID === 'function') {
+      const selected = normalizeLabActor(selectedRoleTargetID());
+      if (selected) return selected;
+    }
+  } catch (_) {}
+  return 'mio';
+}
+
+function syncLabRoleTarget(partner) {
+  const actor = normalizeLabActor(partner) || 'mio';
+  try {
+    const current = typeof selectedRoleTargetID === 'function'
+      ? normalizeLabActor(selectedRoleTargetID())
+      : normalizeLabActor(localStorage.getItem('roleSelector.selectedTarget'));
+    if (current === actor) return actor;
+    if (typeof selectRoleTarget === 'function') {
+      selectRoleTarget(actor);
+    } else {
+      localStorage.setItem('roleSelector.selectedTarget', actor);
+    }
+  } catch (_) {}
+  return actor;
+}
+
+function setLabSelectedPartner(partner, syncRoleTarget) {
+  const actor = normalizeLabActor(partner) || 'mio';
+  try { localStorage.setItem(LAB_PARTNER_STORAGE_KEY, actor); } catch (_) {}
+  if (syncRoleTarget !== false) syncLabRoleTarget(actor);
+  return actor;
+}
+
+function deriveLabConversationPartner(status) {
+  const candidates = [
+    status && status.to,
+    status && status.recipient,
+    status && status.target,
+    status && status.persona,
+    status && status.watchdog && status.watchdog.to,
+    status && status.watchdog && status.watchdog.recipient,
+    status && status.watchdog && status.watchdog.target,
+    status && status.from,
+    status && status.speaker,
+    status && status.watchdog && status.watchdog.from,
+    status && status.watchdog && status.watchdog.speaker,
+    status && status.active_transcript,
+    status && status.watchdog && status.watchdog.detail,
+  ];
+  for (const candidate of candidates) {
+    const actor = normalizeLabActor(candidate);
+    if (actor) return actor;
+  }
+  return getLabSelectedPartner();
+}
+
+function setLabBodyClass(name, enabled) {
+  const classList = document && document.body && document.body.classList;
+  if (!classList) return;
+  if (enabled) {
+    if (typeof classList.add === 'function') classList.add(name);
+    return;
+  }
+  if (typeof classList.remove === 'function') {
+    classList.remove(name);
+  } else if (typeof classList.toggle === 'function') {
+    classList.toggle(name, false);
+  }
+}
+
+function setLabChipState(id, enabled) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (typeof el.setAttribute === 'function') el.setAttribute('aria-current', enabled ? 'true' : 'false');
+  if (typeof el.setAttribute === 'function') el.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  if (el.classList && typeof el.classList.toggle === 'function') el.classList.toggle('is-active', !!enabled);
+}
+
+function applyLabConversationStatus(status) {
+  const body = document && document.body;
+  if (!body) return;
+  const conversationMode = deriveLabConversationMode(status || {});
+  const isIdle = conversationMode === 'idle';
+  const partner = isIdle
+    ? getLabSelectedPartner()
+    : setLabSelectedPartner(deriveLabConversationPartner(status || {}), true);
+  const isShiro = partner === 'shiro';
+  setLabBodyClass('lab-idle-mode', isIdle);
+  setLabBodyClass('lab-chat-mode', !isIdle);
+  setLabBodyClass('lab-partner-mio', isIdle || !isShiro);
+  setLabBodyClass('lab-partner-shiro', isIdle || isShiro);
+  if (body.dataset) {
+    body.dataset.labConversationMode = conversationMode;
+    body.dataset.labPartner = isIdle ? 'both' : partner;
+    body.dataset.labSelectedPartner = partner;
+  }
+  setLabChipState('labModeChatChip', !isIdle);
+  setLabChipState('labModeIdleChip', isIdle);
+  setLabChipState('labModeMioChip', isIdle || partner === 'mio');
+  setLabChipState('labModeShiroChip', isIdle || partner === 'shiro');
+}
+
+function setLabModeSwitcherBusy(enabled) {
+  document.querySelectorAll('[data-lab-switch]').forEach((btn) => {
+    btn.disabled = !!enabled;
+  });
+}
+
+async function runLabIdleControl(path) {
+  setLabModeSwitcherBusy(true);
+  try {
+    const res = await fetch(path, {method: 'POST'});
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'idlechat control failed'));
+    }
+    if (state && state.idleChat) state.idleChat.controlError = '';
+    if (typeof refreshIdleStatus === 'function') await refreshIdleStatus();
+    return true;
+  } catch (err) {
+    if (state && state.idleChat) {
+      state.idleChat.controlError = 'IdleChat control unavailable: ' + String(err && err.message ? err.message : err);
+    }
+    if (typeof refreshIdleStatus === 'function') await refreshIdleStatus();
+    if (typeof renderIdleChat === 'function') renderIdleChat();
+    console.error(err);
+    return false;
+  } finally {
+    setLabModeSwitcherBusy(false);
+  }
+}
+
+function focusLabChatInput() {
+  const target = document.getElementById('labInp') || document.getElementById('inp');
+  if (target && typeof target.focus === 'function') target.focus();
+}
+
+function switchLabConversation(nextMode, partner) {
+  const selectedPartner = partner ? setLabSelectedPartner(partner, true) : getLabSelectedPartner();
+  if (nextMode === 'idle') {
+    runLabIdleControl('/viewer/idlechat/start');
+    return;
+  }
+  applyLabConversationStatus({mode: 'chat', persona: selectedPartner});
+  focusLabChatInput();
+  runLabIdleControl('/viewer/idlechat/stop');
+}
+
+let labModeSwitcherBound = false;
+function bindLabModeSwitcher() {
+  if (labModeSwitcherBound) return;
+  labModeSwitcherBound = true;
+  document.querySelectorAll('[data-lab-switch]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const action = String(btn.dataset.labSwitch || '').trim().toLowerCase();
+      if (action === 'idle') {
+        switchLabConversation('idle');
+        return;
+      }
+      if (action === 'mio' || action === 'shiro') {
+        switchLabConversation('chat', action);
+        return;
+      }
+      switchLabConversation('chat');
+    });
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.applyLabConversationStatus = applyLabConversationStatus;
 }
 
 function shouldRefreshOptionalPanels() {
@@ -3613,6 +3837,8 @@ function createChatAudioSync() {
   const state = ttsPlayback;
   // Lifecycle ownership:
   // - completedSessions is only an IdleChat session-level start gate for buffered audio.
+  // - responseLifecycle is the response-level source of truth for the three independent TTS checkpoints:
+  //   synthesis completed, browser WAV fetch completed, and playback ACK completed.
   // - completedResponses / responsePlaybackCounts / responsePlaybackResults / seenAudioResponses form one response-level ACK lifecycle.
   // - seenUtterances and blockedAckKeys are chunk-level local dedupe guards for this tab only.
   const completedSessions = new Set();
@@ -4460,6 +4686,27 @@ function createChatAudioSync() {
 
 const chatAudioSync = createChatAudioSync();
 
+function updateLabAudioButton(status) {
+  if (!labAudioBtn) return;
+  labAudioBtn.classList.remove('ready', 'blocked', 'off');
+  if (status) labAudioBtn.classList.add(status);
+  labAudioBtn.dataset.state = status || 'pending';
+  labAudioBtn.setAttribute('aria-pressed', ttsPlayback.audioEnabled && !ttsPlayback.blocked ? 'true' : 'false');
+  if (!ttsPlayback.audioEnabled) {
+    labAudioBtn.title = 'Audio output is OFF';
+    labAudioBtn.setAttribute('aria-label', 'Audio output is OFF');
+  } else if (ttsPlayback.blocked) {
+    labAudioBtn.title = 'Audio output is blocked';
+    labAudioBtn.setAttribute('aria-label', 'Audio output is blocked');
+  } else if (ttsPlayback.unlocked) {
+    labAudioBtn.title = 'Audio output is ON';
+    labAudioBtn.setAttribute('aria-label', 'Audio output is ON');
+  } else {
+    labAudioBtn.title = 'Enable audio output';
+    labAudioBtn.setAttribute('aria-label', 'Enable audio output');
+  }
+}
+
 function updateAudioButton() {
   const status = !ttsPlayback.audioEnabled ? 'off' : (ttsPlayback.blocked ? 'blocked' : (ttsPlayback.unlocked ? 'ready' : ''));
   [audioBtn, liveAudioBtn].forEach(function(btn) {
@@ -4482,6 +4729,7 @@ function updateAudioButton() {
       btn.setAttribute('aria-label', '音声を有効化');
     }
   });
+  updateLabAudioButton(status);
 }
 
 function bindTTSAudioButton(btn) {
@@ -4663,6 +4911,7 @@ function playNextTTSAudio() {
 }
 
 const inp = document.getElementById('inp');
+const labInp = document.getElementById('labInp');
 const sendBtn = document.getElementById('sendBtn');
 const attachBtn = document.getElementById('attachBtn');
 const cameraBtn = document.getElementById('cameraBtn');
@@ -4672,6 +4921,7 @@ const cameraInput = document.getElementById('cameraInput');
 const attachmentTray = document.getElementById('attachmentTray');
 bindTTSAudioButton(audioBtn);
 bindTTSAudioButton(liveAudioBtn);
+bindTTSAudioButton(labAudioBtn);
 bindMobileTTSAudioAutounlock();
 bindViewerActiveControlLifecycle();
 updateAudioButton();
@@ -4682,6 +4932,22 @@ let lastIdleStopAt = 0;
 function autoResize() {
   inp.style.height = 'auto';
   inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+}
+function autoResizeLabInput() {
+  if (!labInp) return;
+  labInp.style.height = 'auto';
+  labInp.style.height = Math.min(labInp.scrollHeight, 56) + 'px';
+}
+function syncLabInputToMain() {
+  if (!labInp || !inp) return;
+  if (inp.value !== labInp.value) inp.value = labInp.value;
+  autoResize();
+  autoResizeLabInput();
+}
+function syncMainInputToLab() {
+  if (!labInp || !inp) return;
+  if (labInp.value !== inp.value) labInp.value = inp.value;
+  autoResizeLabInput();
 }
 function interruptIdleChatForUserInput(reason) {
   const normalizedReason = String(reason || 'user_input').trim() || 'user_input';
@@ -4737,6 +5003,7 @@ inp.addEventListener('beforeinput', () => handleChatInputIntent('user_input'));
 inp.addEventListener('input', () => {
   handleChatInputIntent('user_input');
   autoResize();
+  syncMainInputToLab();
 });
 inp.addEventListener('paste', () => handleChatInputIntent('paste'));
 inp.addEventListener('compositionstart', () => handleChatInputIntent('composition_start'));
@@ -4748,6 +5015,22 @@ inp.addEventListener('keydown', (e) => {
 });
 sendBtn.addEventListener('click', send);
 if (repairBtn) repairBtn.addEventListener('click', requestRepairFromChat);
+if (typeof labInp !== 'undefined' && labInp) {
+  labInp.addEventListener('beforeinput', () => handleChatInputIntent('user_input'));
+  labInp.addEventListener('input', () => {
+    syncLabInputToMain();
+    handleChatInputIntent('user_input');
+  });
+  labInp.addEventListener('paste', () => handleChatInputIntent('paste'));
+  labInp.addEventListener('compositionstart', () => handleChatInputIntent('composition_start'));
+  labInp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      syncLabInputToMain();
+      send();
+    }
+  });
+}
 if (attachBtn && attachInput) attachBtn.addEventListener('click', () => attachInput.click());
 if (cameraBtn && cameraInput) cameraBtn.addEventListener('click', () => cameraInput.click());
 if (attachInput) attachInput.addEventListener('change', () => addViewerAttachments(attachInput.files, attachInput));
@@ -4825,6 +5108,7 @@ function send() {
   sending = true;
   sendBtn.disabled = true;
   inp.disabled = true;
+  if (typeof labInp !== 'undefined' && labInp) labInp.disabled = true;
   if (attachBtn) attachBtn.disabled = true;
   if (cameraBtn) cameraBtn.disabled = true;
 
@@ -4835,6 +5119,7 @@ function send() {
     viewerAttachments = [];
     renderAttachmentTray();
     autoResize();
+    if (typeof syncMainInputToLab === 'function') syncMainInputToLab();
   })
   .catch((err) => {
     const message = 'Viewer send unavailable: ' + String(err && err.message ? err.message : err);
@@ -4851,9 +5136,12 @@ function send() {
     sending = false;
     sendBtn.disabled = false;
     inp.disabled = false;
+    if (typeof labInp !== 'undefined' && labInp) labInp.disabled = false;
     if (attachBtn) attachBtn.disabled = false;
     if (cameraBtn) cameraBtn.disabled = false;
-    inp.focus();
+    const isLabMode = typeof document !== 'undefined' && document.body && document.body.classList.contains('lab-mode');
+    const focusTarget = typeof labInp !== 'undefined' && isLabMode && labInp ? labInp : inp;
+    focusTarget.focus();
   });
 }
 
@@ -5212,6 +5500,7 @@ const vdsState = {
 };
 
 const micBtn = document.getElementById('micBtn');
+const labMicBtn = document.getElementById('labMicBtn');
 const micStateEl = document.getElementById('micState');
 const sttConnStateEl = document.getElementById('sttConnState');
 const sttSessionStateEl = document.getElementById('sttSessionState');
@@ -5442,12 +5731,12 @@ if (sttTestRecordStopBtn) {
   });
 }
 updateSTTTestRecordUI();
-if (micBtn) {
-  micBtn.addEventListener('click', () => {
-    interruptIdleChatForUserInput('stt_button');
-    toggleVoiceInput();
-  });
+function handleMicButtonClick() {
+  interruptIdleChatForUserInput('stt_button');
+  toggleVoiceInput();
 }
+if (micBtn) micBtn.addEventListener('click', handleMicButtonClick);
+if (labMicBtn) labMicBtn.addEventListener('click', handleMicButtonClick);
 if (sttCaptureCopyBtn) {
   sttCaptureCopyBtn.addEventListener('click', copySTTCaptureLog);
 }
@@ -5465,7 +5754,8 @@ updateSTTInputIndicators();
 loadViewerRuntimeConfig();
 
 function isVoiceChatAllowed() {
-  return activeViewerTab === 'timeline' && !document.body.classList.contains('live-mode');
+  const labInputSurface = document.body.classList.contains('lab-mode') && document.body.classList.contains('live-mode');
+  return activeViewerTab === 'timeline' && (labInputSurface || !document.body.classList.contains('live-mode'));
 }
 
 function normalizeVoiceInputMode(raw) {
@@ -5763,26 +6053,46 @@ async function persistSTTArtifacts() {
   }
 }
 
+function applyMicButtonState(btn, microphoneUnavailable, voiceAllowed, mobileControlAllowed) {
+  if (!btn) return;
+  btn.classList.toggle('ready', !!sttState.isRecording);
+  btn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
+  btn.classList.toggle('mic-unavailable', !!microphoneUnavailable && !sttState.isRecording);
+  btn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, sttState.inputLevel)))}%`);
+  btn.disabled = (!mobileControlAllowed || !!microphoneUnavailable) && !sttState.isRecording;
+  btn.setAttribute('aria-pressed', sttState.isRecording ? 'true' : 'false');
+  btn.dataset.state = sttState.isRecording ? 'on' : (microphoneUnavailable ? 'unavailable' : 'off');
+  btn.title = microphoneUnavailable
+    ? '音声入力不可: ' + microphoneUnavailable
+    : voiceAllowed
+    ? (sttState.isRecording ? `音声入力中（入力レベル ${Math.round(sttState.inputLevel)}%・クリックで停止）` : '音声入力')
+    : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
+}
+
 function updateSTTInputIndicators() {
   const voiceAllowed = isVoiceChatAllowed();
   const mobileControlAllowed = voiceAllowed || isMobileControlViewport();
   const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
   const voiceRecording = !!sttState.isRecording || !!vdsState.isRecording;
   const voiceInputLevel = vdsState.isRecording ? vdsState.inputLevel : sttState.inputLevel;
-  if (micBtn) {
-    micBtn.classList.toggle('ready', voiceRecording);
-    micBtn.classList.toggle('has-level', voiceRecording && voiceInputLevel > 0);
-    micBtn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, voiceInputLevel)))}%`);
-    micBtn.disabled = (!!microphoneUnavailable && !sttState.isRecording) || isSTTTestRecording();
-    if (vdsState.isRecording) micBtn.disabled = false;
-    micBtn.title = isSTTTestRecording()
+  [micBtn, (typeof labMicBtn !== 'undefined' ? labMicBtn : null)].forEach((btn) => {
+    if (!btn) return;
+    btn.classList.toggle('ready', voiceRecording);
+    btn.classList.toggle('has-level', voiceRecording && voiceInputLevel > 0);
+    btn.classList.toggle('mic-unavailable', !!microphoneUnavailable && !sttState.isRecording);
+    btn.style.setProperty('--mic-level-pct', `${Math.round(Math.max(0, Math.min(100, voiceInputLevel)))}%`);
+    btn.disabled = (!!microphoneUnavailable && !sttState.isRecording) || isSTTTestRecording();
+    if (vdsState.isRecording) btn.disabled = false;
+    btn.setAttribute('aria-pressed', voiceRecording ? 'true' : 'false');
+    btn.dataset.state = voiceRecording ? 'on' : (microphoneUnavailable ? 'unavailable' : 'off');
+    btn.title = isSTTTestRecording()
       ? 'テスト録音中は通常マイクを使えません'
       : microphoneUnavailable
       ? '音声入力不可: ' + microphoneUnavailable
       : voiceAllowed
       ? (voiceRecording ? `音声入力監視中（入力レベル ${Math.round(voiceInputLevel)}%・無音で自動確定）` : '音声入力')
       : (mobileControlAllowed ? 'Chatに切り替えて音声入力' : '音声入力は通常チャットでのみ有効です');
-  }
+  });
   if (micStateEl) {
     micStateEl.textContent = voiceRecording ? 'Mic: on' : (microphoneUnavailable ? 'Mic: unavailable' : 'Mic: off');
     micStateEl.className = 'stt-state' + (voiceRecording ? ' mic-on' : (microphoneUnavailable ? ' mic-unavailable' : ''));
@@ -6830,9 +7140,11 @@ function calculateSTTInputLevel(pcm16) {
 
 function updateSTTInputLevel(level) {
   sttState.inputLevel = Math.max(0, Math.min(100, Number(level) || 0));
-  if (!micBtn) return;
-  micBtn.style.setProperty('--mic-level-pct', `${Math.round(sttState.inputLevel)}%`);
-  micBtn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
+  [micBtn, (typeof labMicBtn !== 'undefined' ? labMicBtn : null)].forEach((btn) => {
+    if (!btn) return;
+    btn.style.setProperty('--mic-level-pct', `${Math.round(sttState.inputLevel)}%`);
+    btn.classList.toggle('has-level', sttState.isRecording && sttState.inputLevel > 0);
+  });
 }
 
 function resetSTTUtteranceState() {
@@ -7083,7 +7395,10 @@ function handleSTTFinalText(text) {
     suppressInputInterrupt = true;
     inp.value = finalText;
     autoResize();
-    inp.focus();
+    if (typeof syncMainInputToLab === 'function') syncMainInputToLab();
+    const isLabMode = typeof document !== 'undefined' && document.body && document.body.classList.contains('lab-mode');
+    const focusTarget = typeof labInp !== 'undefined' && isLabMode && labInp ? labInp : inp;
+    focusTarget.focus();
     if (typeof setTimeout === 'function') {
       setTimeout(() => { suppressInputInterrupt = false; }, 0);
     } else {
