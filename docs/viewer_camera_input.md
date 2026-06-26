@@ -2,20 +2,34 @@
 
 ## Current Contract
 
-Viewer camera input is browser-side still-frame capture.
+Viewer camera input is browser-side still-frame capture. The same capture path
+also supports browser display/tab capture for external media sources.
 
-The Viewer captures the device camera preview and converts it to JPEG still
+Supported source types:
+
+- Device camera/microphone.
+- Browser screen/window/tab capture, including shared tab audio when the
+  browser and selected source provide an audio track.
+- Local image/video/audio files through the normal attachment control.
+
+The Viewer captures the selected video preview and converts it to JPEG still
 frames in the browser. The current continuous capture mode is 1 FPS and stores
 the frames as normal Viewer image attachments.
+
+When display/tab capture includes audio, STT can use a cloned copy of that
+audio track instead of opening a new microphone stream. The audio still flows
+through the existing Viewer STT path and must stay behind the RenCrow module
+boundary.
 
 Runtime routing must remain:
 
 ```text
 picoclaw -> RenCrow_LLM -> LLM backend
+picoclaw -> RenCrow_STT -> STT backend
 ```
 
-The Viewer must not call Gemma4, MLX-VLM, Ollama, or other model backends
-directly.
+The Viewer must not call Gemma4, MLX-VLM, Ollama, STT providers, or other
+model/tool backends directly.
 
 ## Reason
 
@@ -29,7 +43,7 @@ sequence.
 The transport may be changed later to one-second video chunks:
 
 ```text
-camera stream -> 1s video chunk -> picoclaw -> RenCrow_LLM -> frame extraction or input_video
+camera/display stream -> 1s video chunk -> picoclaw -> RenCrow_LLM -> frame extraction or input_video
 ```
 
 That change should stay behind the same RenCrow routing boundary. The upper

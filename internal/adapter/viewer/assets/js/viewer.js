@@ -4390,8 +4390,10 @@ const inp = document.getElementById('inp');
 const labInp = document.getElementById('labInp');
 const sendBtn = document.getElementById('sendBtn');
 const attachBtn = document.getElementById('attachBtn');
+const screenBtn = document.getElementById('screenBtn');
 const cameraBtn = document.getElementById('cameraBtn');
 const labAttachBtn = document.getElementById('labAttachBtn');
+const labScreenBtn = document.getElementById('labScreenBtn');
 const labCameraBtn = document.getElementById('labCameraBtn');
 const attachInput = document.getElementById('attachInput');
 const cameraInput = document.getElementById('cameraInput');
@@ -4417,6 +4419,7 @@ let suppressInputInterrupt = false;
 let lastIdleInterruptAt = 0;
 const cameraCapture = {
   stream: null,
+  sourceType: '',
   frameTimer: null,
   frameCapturing: false,
   frameCaptureBusy: false,
@@ -4524,6 +4527,8 @@ if (typeof labInp !== 'undefined' && labInp) {
 if (attachBtn && attachInput) attachBtn.addEventListener('click', () => attachInput.click());
 if (cameraBtn) cameraBtn.addEventListener('click', toggleCameraCapture);
 if (labAttachBtn && attachInput) labAttachBtn.addEventListener('click', () => attachInput.click());
+if (screenBtn) screenBtn.addEventListener('click', toggleDisplayCapture);
+if (labScreenBtn) labScreenBtn.addEventListener('click', toggleDisplayCapture);
 if (labCameraBtn) labCameraBtn.addEventListener('click', toggleCameraCapture);
 if (attachInput) attachInput.addEventListener('change', () => addViewerAttachments(attachInput.files, attachInput));
 if (cameraInput) cameraInput.addEventListener('change', () => addViewerAttachments(cameraInput.files, cameraInput));
@@ -4542,15 +4547,29 @@ function setCameraCaptureStatus(text, kind) {
 function setCameraCaptureButtons() {
   const active = !!cameraCapture.stream;
   const frameCapturing = !!cameraCapture.frameCapturing;
+  const sourceType = String(cameraCapture.sourceType || '').trim();
   [cameraBtn, labCameraBtn].forEach((btn) => {
     if (!btn) return;
-    btn.classList.toggle('ready', active);
+    const cameraActive = active && sourceType === 'camera';
+    btn.classList.toggle('ready', cameraActive);
     btn.classList.toggle('blocked', false);
-    btn.classList.toggle('camera-on', active);
-    btn.dataset.state = active ? 'CAMERA_ON' : 'CAMERA_OFF';
-    btn.dataset.controlState = active ? 'CAMERA_ON' : 'CAMERA_OFF';
-    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    btn.title = active ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.classList.toggle('camera-on', cameraActive);
+    btn.dataset.state = cameraActive ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.dataset.controlState = cameraActive ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.setAttribute('aria-pressed', cameraActive ? 'true' : 'false');
+    btn.title = cameraActive ? 'CAMERA_ON' : 'CAMERA_OFF';
+    btn.setAttribute('aria-label', btn.title);
+  });
+  [screenBtn, labScreenBtn].forEach((btn) => {
+    if (!btn) return;
+    const displayActive = active && sourceType === 'display';
+    btn.classList.toggle('ready', displayActive);
+    btn.classList.toggle('blocked', false);
+    btn.classList.toggle('screen-on', displayActive);
+    btn.dataset.state = displayActive ? 'DISPLAY_ON' : 'DISPLAY_OFF';
+    btn.dataset.controlState = displayActive ? 'DISPLAY_ON' : 'DISPLAY_OFF';
+    btn.setAttribute('aria-pressed', displayActive ? 'true' : 'false');
+    btn.title = displayActive ? 'DISPLAY_ON' : 'DISPLAY_OFF';
     btn.setAttribute('aria-label', btn.title);
   });
   if (cameraPhotoBtn) cameraPhotoBtn.disabled = !active || frameCapturing;
@@ -4600,13 +4619,56 @@ function getCameraCaptureConstraints() {
   };
 }
 
+function getDisplayCaptureConstraints() {
+  return {
+    video: {
+      frameRate: { ideal: 1, max: 5 },
+    },
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  };
+}
+
 function toggleCameraCapture() {
-  if (cameraCapture.stream) {
+  if (cameraCapture.stream && cameraCapture.sourceType === 'camera') {
     stopCameraCaptureStream();
     if (cameraCaptureModal) cameraCaptureModal.classList.add('hidden');
     return;
   }
   openCameraCapture();
+}
+
+function toggleDisplayCapture() {
+  if (cameraCapture.stream && cameraCapture.sourceType === 'display') {
+    stopCameraCaptureStream();
+    if (cameraCaptureModal) cameraCaptureModal.classList.add('hidden');
+    return;
+  }
+  openDisplayCapture();
+}
+
+function bindCaptureTrackLifecycle(stream) {
+  if (!stream) return;
+  stream.getTracks().forEach((track) => {
+    track.addEventListener('ended', () => {
+      if (!cameraCapture.stream) return;
+      if (track.kind === 'video') {
+        stopCameraCaptureStream();
+        if (cameraCaptureModal) cameraCaptureModal.classList.add('hidden');
+        return;
+      }
+      const liveTracks = cameraCapture.stream.getTracks().filter((candidate) => candidate.readyState === 'live');
+      if (liveTracks.length === 0) {
+        stopCameraCaptureStream();
+        if (cameraCaptureModal) cameraCaptureModal.classList.add('hidden');
+      } else {
+        setCameraCaptureButtons();
+      }
+    });
+  });
 }
 
 async function openCameraCapture() {
@@ -4638,6 +4700,8 @@ async function openCameraCapture() {
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     }
     cameraCapture.stream = stream;
+    cameraCapture.sourceType = 'camera';
+    bindCaptureTrackLifecycle(stream);
     cameraCaptureVideo.srcObject = stream;
     cameraCaptureVideo.muted = true;
     cameraCaptureVideo.playsInline = true;
@@ -4658,6 +4722,48 @@ async function openCameraCapture() {
   }
 }
 
+async function openDisplayCapture() {
+  if (cameraCapture.opening) return;
+  cameraCapture.opening = true;
+  try {
+    if (!cameraCaptureModal || !cameraCaptureVideo) {
+      showToast('画面/タブ入力UIが見つかりません', 'error');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+      setCameraCaptureStatus('DISPLAY_UNAVAILABLE', 'error');
+      showToast('画面/タブ入力APIが利用できません', 'error');
+      return;
+    }
+    stopCameraCaptureStream();
+    const stream = await navigator.mediaDevices.getDisplayMedia(getDisplayCaptureConstraints());
+    cameraCapture.stream = stream;
+    cameraCapture.sourceType = 'display';
+    bindCaptureTrackLifecycle(stream);
+    cameraCaptureVideo.srcObject = stream;
+    cameraCaptureVideo.muted = true;
+    cameraCaptureVideo.playsInline = true;
+    cameraCaptureVideo.setAttribute('playsinline', '');
+    cameraCaptureModal.classList.toggle('hidden', useLabCameraCompactPreview());
+    await cameraCaptureVideo.play().catch(() => {});
+    const videoTracks = stream.getVideoTracks().length;
+    const audioTracks = stream.getAudioTracks().length;
+    setCameraCaptureStatus(`DISPLAY_ON / AUDIO_${audioTracks > 0 ? 'ON' : 'OFF'} / still_frame=ready / video=${videoTracks} audio=${audioTracks}`);
+    setCameraCaptureButtons();
+  } catch (err) {
+    const name = String(err && err.name ? err.name : '').trim();
+    if (name === 'NotAllowedError' || name === 'AbortError') {
+      setCameraCaptureStatus('DISPLAY_OFF');
+    } else {
+      setCameraCaptureStatus('DISPLAY_ERROR / ' + String(err && err.message ? err.message : err), 'error');
+      showToast('画面/タブ入力を開始できません', 'error');
+    }
+  } finally {
+    cameraCapture.opening = false;
+    setCameraCaptureButtons();
+  }
+}
+
 function stopCameraCaptureStream() {
   stopCameraFrameCapture();
   if (cameraCapture.stream) {
@@ -4666,6 +4772,7 @@ function stopCameraCaptureStream() {
     });
   }
   cameraCapture.stream = null;
+  cameraCapture.sourceType = '';
   if (cameraCaptureVideo) cameraCaptureVideo.srcObject = null;
   setCameraCaptureStatus('CAMERA_OFF');
   setCameraCaptureButtons();
@@ -4850,8 +4957,10 @@ function send() {
   inp.disabled = true;
   if (typeof labInp !== 'undefined' && labInp) labInp.disabled = true;
   if (attachBtn) attachBtn.disabled = true;
+  if (screenBtn) screenBtn.disabled = true;
   if (cameraBtn) cameraBtn.disabled = true;
   if (labAttachBtn) labAttachBtn.disabled = true;
+  if (labScreenBtn) labScreenBtn.disabled = true;
   if (labCameraBtn) labCameraBtn.disabled = true;
 
   const sendPromise = attachments.length > 0 ? sendViewerMessage(message, attachments) : sendViewerMessage(message);
@@ -4880,8 +4989,10 @@ function send() {
     inp.disabled = false;
     if (typeof labInp !== 'undefined' && labInp) labInp.disabled = false;
     if (attachBtn) attachBtn.disabled = false;
+    if (screenBtn) screenBtn.disabled = false;
     if (cameraBtn) cameraBtn.disabled = false;
     if (labAttachBtn) labAttachBtn.disabled = false;
+    if (labScreenBtn) labScreenBtn.disabled = false;
     if (labCameraBtn) labCameraBtn.disabled = false;
     const isLabMode = typeof document !== 'undefined' && document.body && document.body.classList.contains('lab-mode');
     const focusTarget = typeof labInp !== 'undefined' && isLabMode && labInp ? labInp : inp;
@@ -5556,6 +5667,13 @@ function setSTTCaptionError(text) {
   updateSTTCaption();
 }
 
+function getSTTExternalAudioStream() {
+  if (!cameraCapture.stream || cameraCapture.sourceType !== 'display') return null;
+  const audioTracks = cameraCapture.stream.getAudioTracks().filter((track) => track.readyState === 'live');
+  if (audioTracks.length === 0 || typeof MediaStream !== 'function') return null;
+  return new MediaStream(audioTracks.map((track) => track.clone()));
+}
+
 if (typeof ensureVoiceChatForMobileControl !== 'function') {
   var ensureVoiceChatForMobileControl = function() { return true; };
 }
@@ -5580,7 +5698,8 @@ async function startSTT() {
     showToast('音声入力は通常チャットでのみ有効です', 'error');
     return;
   }
-  const microphoneUnavailable = getSTTMicrophoneUnavailableReason();
+  const externalAudioStream = getSTTExternalAudioStream();
+  const microphoneUnavailable = externalAudioStream ? '' : getSTTMicrophoneUnavailableReason();
   if (microphoneUnavailable) {
     sttState.isStarting = false;
     sttState.captureActionError = describeSTTActionError('STT microphone start unavailable', microphoneUnavailable);
@@ -5620,13 +5739,14 @@ async function startSTT() {
     if (!sttState.runtimeConfigLoaded) {
       await loadViewerRuntimeConfig();
     }
-    sttState.audioStream = await navigator.mediaDevices.getUserMedia({
+    sttState.audioStream = externalAudioStream || await navigator.mediaDevices.getUserMedia({
       audio: {
         noiseSuppression: true,
         echoCancellation: true,
         autoGainControl: true
       }
     });
+    recordSTTCaptureEvent('start', externalAudioStream ? 'source=display_audio' : 'source=microphone');
     sttState.audioContext = new (window.AudioContext || window.webkitAudioContext)();
     sttState.inputSampleRate = Math.round(sttState.audioContext.sampleRate || 48000);
     sttState.sampleRate = 16000;
