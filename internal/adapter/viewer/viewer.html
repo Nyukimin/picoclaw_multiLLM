@@ -64,44 +64,6 @@
     <button class="lab-mode-chip lab-mode-chip-mio" id="labModeMioChip" type="button" data-lab-switch="mio" aria-current="true" aria-pressed="true">Mio</button>
     <button class="lab-mode-chip lab-mode-chip-shiro" id="labModeShiroChip" type="button" data-lab-switch="shiro" aria-current="false" aria-pressed="false">Shiro</button>
   </section>
-  <section class="lab-viewer-count">
-    <span>視聴者数</span>
-    <strong>12,458</strong>
-  </section>
-  <section class="lab-mini-card lab-tag-card">
-    <div class="lab-mini-title">配信タグ</div>
-    <strong>#RenCrow研究室</strong>
-  </section>
-  <section class="lab-mini-card lab-env-card">
-    <div class="lab-mini-title">現在の環境</div>
-    <ul>
-      <li><span>光量</span><strong>最適</strong></li>
-      <li><span>気温</span><strong>22℃</strong></li>
-      <li><span>解析精度</span><strong>98.7%</strong></li>
-    </ul>
-  </section>
-  <section class="lab-notice-card">
-    <button type="button" aria-label="通知を閉じる">×</button>
-    <div class="lab-mini-title">通知</div>
-    <strong>新しいメッセージが届きました</strong>
-    <span>タップして確認</span>
-  </section>
-  <nav class="lab-side-nav" aria-label="Lab broadcast navigation">
-    <span class="active">会話中</span>
-    <span>検索</span>
-    <span>Worker</span>
-    <span>通知</span>
-    <span>設定</span>
-  </nav>
-  <section class="lab-state-panel" aria-label="現在の状態">
-    <h3>現在の状態</h3>
-    <div class="lab-state-grid">
-      <div><span>会話中</span><strong>良好</strong></div>
-      <div><span>集中度</span><strong>92%</strong></div>
-      <div><span>信頼度</span><strong>Lv. 8</strong></div>
-      <div><span>快適度</span><strong>良好</strong></div>
-    </div>
-  </section>
   <footer class="lab-footer lab-input-footer">
     <label class="lab-input-label" for="labInp">メッセージを入力</label>
     <div class="lab-input-shell">
@@ -123,6 +85,17 @@
           <path d="M8 21h8"></path>
         </svg>
       </button>
+      <button class="lab-icon-btn lab-attach-toggle" id="labAttachBtn" type="button" title="Attach files" aria-label="Attach files">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5l9.8-9.8a4 4 0 0 1 5.7 5.7l-9.8 9.8a2 2 0 0 1-2.8-2.8l9.3-9.3"></path>
+        </svg>
+      </button>
+      <button class="lab-icon-btn lab-camera-toggle" id="labCameraBtn" type="button" title="Attach camera image" aria-label="Attach camera image">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3h5z"></path>
+          <circle cx="12" cy="13" r="3.5"></circle>
+        </svg>
+      </button>
     </div>
   </footer>
 </div>
@@ -131,42 +104,6 @@
 </div>
 <div class="lab-shiro-portrait" aria-hidden="true">
   <img src="/viewer/shiro-portrait.png" alt="">
-</div>
-<div class="lab-side" aria-label="RenCrow status cards">
-  <section class="lab-card">
-    <h3>Worker 実行状況</h3>
-    <div class="lab-progress">
-      <div class="lab-progress-row">
-        <div class="lab-progress-meta">
-          <span>共鳴データ解析</span>
-          <span>78%</span>
-        </div>
-        <div class="lab-progress-bar"><span style="width:78%"></span></div>
-      </div>
-      <div class="lab-progress-row">
-        <div class="lab-progress-meta">
-          <span>安定化アルゴリズム検証</span>
-          <span>45%</span>
-        </div>
-        <div class="lab-progress-bar"><span style="width:45%"></span></div>
-      </div>
-      <div class="lab-progress-row">
-        <div class="lab-progress-meta">
-          <span>記録バックアップ</span>
-          <span>完了</span>
-        </div>
-        <div class="lab-progress-bar"><span style="width:100%"></span></div>
-      </div>
-    </div>
-  </section>
-  <section class="lab-card lab-quote">
-    <div>
-      小さな仮説が、<br>
-      大きな未来を<br>
-      ひらくよ。<br>
-      <small>- Mio</small>
-    </div>
-  </section>
 </div>
 <div class="app-shell">
   <div class="mobile-panel-switch" aria-label="Mobile panel navigation">
