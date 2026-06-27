@@ -53,6 +53,29 @@ function fdt(ts) {
   try { return new Date(ts).toLocaleString('ja-JP', {hour12:false, timeZone:'Asia/Tokyo'}); }
   catch (_) { return ''; }
 }
+function labDateTimeParts(date) {
+  const parts = new Intl.DateTimeFormat('ja-JP-u-ca-gregory', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date || new Date()).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return parts;
+}
+function formatLabDateTime(date) {
+  const parts = labDateTimeParts(date);
+  const year = Number(parts.year || 0);
+  const reiwaYear = Math.max(1, year - 2018);
+  return `${parts.year || '0000'}（令和${String(reiwaYear).padStart(2, '0')}）${parts.month || '00'}月${parts.day || '00'}日（${parts.weekday || '-'}）${parts.hour || '00'}:${parts.minute || '00'}:${parts.second || '00'}`;
+}
 function esc(s) {
   const d = document.createElement('div');
   d.textContent = String(s || '');
@@ -4922,6 +4945,7 @@ const repairBtn = document.getElementById('repairBtn');
 const labAttachBtn = document.getElementById('labAttachBtn');
 const labScreenBtn = document.getElementById('labScreenBtn');
 const labCameraBtn = document.getElementById('labCameraBtn');
+const labDateTimePanel = document.getElementById('labDateTimePanel');
 const attachInput = document.getElementById('attachInput');
 const cameraInput = document.getElementById('cameraInput');
 const attachmentTray = document.getElementById('attachmentTray');
@@ -4934,6 +4958,40 @@ const cameraFrameStartBtn = document.getElementById('cameraFrameStartBtn');
 const cameraFrameStopBtn = document.getElementById('cameraFrameStopBtn');
 const labCameraLivePreview = document.getElementById('labCameraLivePreview');
 const labCameraLiveVideo = document.getElementById('labCameraLiveVideo');
+
+function syncLabDateTimePanelLayout() {
+  if (!labDateTimePanel) return;
+  const indicator = document.getElementById('labModeIndicator');
+  const topic = document.getElementById('liveTopicBar');
+  if (!indicator || !topic) return;
+  const indicatorRect = indicator.getBoundingClientRect();
+  const topicRect = topic.getBoundingClientRect();
+  if (indicatorRect.width <= 0 || topicRect.width <= 0) return;
+  const gap = 8;
+  const height = Math.max(24, Math.round(indicatorRect.top - topicRect.top - gap));
+  labDateTimePanel.style.left = `${Math.round(indicatorRect.left)}px`;
+  labDateTimePanel.style.width = `${Math.round(indicatorRect.width)}px`;
+  labDateTimePanel.style.top = `${Math.round(topicRect.top)}px`;
+  labDateTimePanel.style.height = `${height}px`;
+}
+
+function refreshLabDateTimePanel() {
+  if (!labDateTimePanel) return;
+  const now = new Date();
+  labDateTimePanel.textContent = formatLabDateTime(now);
+  labDateTimePanel.setAttribute('datetime', now.toISOString());
+  syncLabDateTimePanelLayout();
+}
+
+refreshLabDateTimePanel();
+if (labDateTimePanel && typeof window !== 'undefined') {
+  window.setInterval(refreshLabDateTimePanel, 1000);
+  window.addEventListener('resize', syncLabDateTimePanelLayout);
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(syncLabDateTimePanelLayout);
+  }
+}
+
 bindTTSAudioButton(audioBtn);
 bindTTSAudioButton(liveAudioBtn);
 bindTTSAudioButton(labAudioBtn);
