@@ -74,8 +74,10 @@ cache が空の場合のみ、既存の inline topic 生成に fallback して�
 - `candidates`
 - `judge`
 - `provider`
+- `context_terms`（`single` / `double` / `external` / `news` のみ任意）
 
-`news` は `News_Forecast_Topic_Context仕様.md` に従い、必要に応じて `context_terms` も保持する。
+`single` / `double` / `external` / `news` は `IdleChat_Topic_Context_Memo仕様.md` に従い、必要に応じて `context_terms` も保持する。
+`movie` は架空映画設定の性質が強いため、本仕様では `context_terms` の対象外とする。
 
 ### 5.2 forecast
 
@@ -87,8 +89,9 @@ forecast は `ForecastDomain` ごとに `PreparedTopic` をキャッシュする
 - `topic`
 - `seeds`
 - `created`
+- `context_terms`
 
-将来的には `News_Forecast_Topic_Context仕様.md` に従い、関連語句・語句の意味を `TopicGenerationResult` 相当の文脈情報として保持する。
+`IdleChat_Topic_Context_Memo仕様.md` に従い、関連語句・語句の意味を `TopicGenerationResult` 相当の文脈情報として保持する。
 
 ### 5.3 story-simple
 

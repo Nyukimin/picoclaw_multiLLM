@@ -1,32 +1,38 @@
-﻿# News / Forecast Topic Context 仕様
+﻿# IdleChat Topic Context Memo 仕様
 
 **作成日**: 2026-06-28
-**対象**: IdleChat の `news` / `forecast` お題キャッシュ、会話前コンテキスト、関連語句・語句説明
+**対象**: IdleChat の `single` / `double` / `external` / `news` / `forecast` お題キャッシュ、会話前コンテキスト、関連語句・語句説明
 **親仕様**: `IdleChat仕様.md`, `IdleChat前準備仕様.md`, `IdleChat_Topic_Generator_Judge詳細仕様.md`, `未来展望セッション仕様.md`
 
 ## 1. 目的
 
-`news` と `forecast` は、単なるお題文字列だけでは会話が薄くなりやすい。
-そのため、両カテゴリでは topic cache に「お題」に加えて、関連語句、語句の意味、話題との関係を保持する。
+IdleChat の topic は、単なるお題文字列だけでは会話が薄くなりやすい。
+そのため、対象カテゴリでは topic cache に「お題」に加えて、関連語句、語句の意味、話題との関係を保持する。
+
+この補助情報を、本仕様では topic context memo と呼ぶ。
+実装上は `TopicGenerationResult.ContextTerms` として保持する。
 
 目的は次の通り。
 
-- Mio / Shiro がニュースや未来展望を、表面的な感想ではなく背景・論点・影響まで自然に話せるようにする。
-- ただし、Viewer / TTS には説明カードをそのまま出さず、会話生成の内部補助としてだけ使う。
-- `news` と `forecast` のカテゴリ境界を保ち、`external` や一般雑談へすり替えない。
+- Mio / Shiro が、題材の用語・背景・見方を自然に使って会話できるようにする。
+- Viewer / TTS には説明カードをそのまま出さず、会話生成の内部補助としてだけ使う。
+- `single` / `double` / `external` / `news` / `forecast` のカテゴリ境界を保ち、別カテゴリへすり替えない。
 - お題キャッシュ10件の中に、会話開始時に必要な最低限の補助文脈を同梱する。
 
 ## 2. 対象カテゴリ
 
-本仕様の対象は次の2カテゴリに限定する。
+本仕様の対象は次の5カテゴリとする。
 
 | category | 対象 |
 |---|---|
+| `single` | 1ジャンル・1題材を深掘りする話題 |
+| `double` | 2ジャンルの掛け合わせから共通構造を探す話題 |
+| `external` | Wikipedia Random 等の外部刺激とジャンルを接続する話題 |
 | `news` | ニュース見出し1件を起点にした話題 |
 | `forecast` | トレンド・ニュース・ドメインから作る未来展望話題 |
 
-`single / double / external / movie / story-simple` には原則として `ContextTerms` を付けない。
-将来追加する場合も、本仕様とは別にカテゴリ別の必要性を確認する。
+`movie / story-simple` は生成物の性質が異なるため、本仕様では原則として `ContextTerms` の対象外とする。
+将来追加する場合は、映画設定メモ、物語設定メモとして別途必要性を確認する。
 
 ## 3. データモデル
 
@@ -61,10 +67,10 @@ type TopicGenerationResult struct {
 
 | field | 必須 | 内容 |
 |---|---:|---|
-| `term` | yes | 関連語句。固有名詞、制度名、技術語、社会的論点など |
+| `term` | yes | 関連語句。固有名詞、制度名、技術語、ジャンル固有語、背景理解に必要な語句など |
 | `meaning` | yes | 語句の短い意味。1〜2文。専門用語を避ける |
 | `relevance` | yes | その語句がお題にどう関係するか |
-| `source` | no | `news`, `trend`, `google_news`, `nhk`, `generated` など |
+| `source` | no | `genre`, `wikipedia`, `news`, `trend`, `google_news`, `nhk`, `generated` など |
 
 ### 3.2 件数
 
@@ -74,7 +80,7 @@ type TopicGenerationResult struct {
 
 ## 4. 生成タイミング
 
-関連語句の生成は、ユーザーが待つ session 開始時ではなく、原則として topic cache 補充時に行う。
+関連語句・情報メモの生成は、ユーザーが待つ session 開始時ではなく、原則として topic cache 補充時に行う。
 
 ```text
 topic cache refill
@@ -86,9 +92,93 @@ topic cache refill
 
 session 開始時は、キャッシュ済みの `TopicGenerationResult` を取り出し、`ContextTerms` を `sessionContext` に変換して会話生成へ渡す。
 
-## 5. news の ContextTerms
+## 5. single の ContextTerms
 
 ### 5.1 入力
+
+single の enrichment は、次の情報を入力にする。
+
+- `TopicGenerationResult.Topic`
+- 選択された genre
+- genre pool 上の分類や seed
+- `TopicGenerationResult.InterestingnessAxis`
+- `TopicGenerationResult.OpeningHook`
+
+### 5.2 語句候補
+
+single では次の種類を優先して抽出・生成する。
+
+- 題材を理解するための基本語句
+- 題材の細部観察に使える部位名・場面名・道具名
+- 題材の歴史、用途、慣習、文化背景に関係する語句
+- 会話を具体化するための見どころや比較軸
+
+### 5.3 禁止事項
+
+- 単なる百科事典的な説明だけにしない。
+- topic と関係の薄い周辺知識を増やしすぎない。
+- `single` を `external` や `news` として扱わない。
+- 語句説明をそのまま発話させる前提の長文解説にしない。
+
+## 6. double の ContextTerms
+
+### 6.1 入力
+
+double の enrichment は、次の情報を入力にする。
+
+- `TopicGenerationResult.Topic`
+- 選択された2つの genre
+- 2ジャンルの接続理由
+- `TopicGenerationResult.InterestingnessAxis`
+- `TopicGenerationResult.OpeningHook`
+
+### 6.2 語句候補
+
+double では次の種類を優先して抽出・生成する。
+
+- 1つ目のジャンルを理解するための基本語句
+- 2つ目のジャンルを理解するための基本語句
+- 2ジャンルをつなぐ共通構造、比喩、役割、動き
+- 違いが際立つ対比軸
+
+### 6.3 禁止事項
+
+- 片方のジャンルだけに寄せない。
+- 2ジャンルをただ並べるだけにしない。
+- 無理なこじつけを事実のように扱わない。
+- `double` を `single` 2件分として扱わない。
+
+## 7. external の ContextTerms
+
+### 7.1 入力
+
+external の enrichment は、次の情報を入力にする。
+
+- `TopicGenerationResult.Topic`
+- 外部素材の title / summary / provider / url
+- 組み合わせる genre
+- `TopicGenerationResult.InterestingnessAxis`
+- `TopicGenerationResult.OpeningHook`
+
+### 7.2 語句候補
+
+external では次の種類を優先して抽出・生成する。
+
+- 外部素材を理解するための基本語句
+- 外部素材と genre を自然につなぐ語句
+- provider 由来の固有名詞の短い説明
+- 偶然の素材を会話内で意味化するための視点
+
+### 7.3 禁止事項
+
+- provider 名、取得経路、URL を発話本文へ漏らさない。
+- 外部素材を読んでいない範囲まで断定しない。
+- ニュース見出しそのものを深掘りする場合は `news` を使う。
+- `external` を `news` の代替カテゴリとして扱わない。
+
+## 8. news の ContextTerms
+
+### 8.1 入力
 
 news の enrichment は、次の情報を入力にする。
 
@@ -100,7 +190,7 @@ news の enrichment は、次の情報を入力にする。
 - `TopicGenerationResult.InterestingnessAxis`
 - `TopicGenerationResult.OpeningHook`
 
-### 5.2 語句候補
+### 8.2 語句候補
 
 news では次の種類を優先して抽出・生成する。
 
@@ -109,16 +199,16 @@ news では次の種類を優先して抽出・生成する。
 - 判断が割れやすい論点を表す語句
 - 影響を受ける主体を理解するための語句
 
-### 5.3 禁止事項
+### 8.3 禁止事項
 
 - ニュース本文を取得していないのに、本文を読んだように説明しない。
 - 見出しから確定できない因果関係を断定しない。
 - `news` を `external` として扱わない。
 - 説明をそのまま発話させる前提の長文解説にしない。
 
-## 6. forecast の ContextTerms
+## 9. forecast の ContextTerms
 
-### 6.1 入力
+### 9.1 入力
 
 forecast の enrichment は、次の情報を入力にする。
 
@@ -130,7 +220,7 @@ forecast の enrichment は、次の情報を入力にする。
 - `TopicGenerationResult.InterestingnessAxis`
 - `TopicGenerationResult.OpeningHook`
 
-### 6.2 語句候補
+### 9.2 語句候補
 
 forecast では次の種類を優先して抽出・生成する。
 
@@ -139,14 +229,14 @@ forecast では次の種類を優先して抽出・生成する。
 - 3〜10年後の変化を考えるうえで必要な前提語句
 - 現在の兆しと将来影響をつなぐ語句
 
-### 6.3 禁止事項
+### 9.3 禁止事項
 
 - 未来予測を事実として断定しない。
 - 語句説明を専門解説だけで終わらせない。
 - トレンド seed やニュース seed を Viewer / TTS にそのまま列挙しない。
 - 外部 provider 名、検索経路、内部診断を発話本文へ漏らさない。
 
-## 7. sessionContext への注入
+## 10. sessionContext への注入
 
 `ContextTerms` は `formatTopicGenerationContext()` で内部補助として整形する。
 Viewer / TTS / topic display には出さない。
@@ -164,9 +254,9 @@ Viewer / TTS / topic display には出さない。
 - 出典名、内部seed、provider名を発話本文に出さない。
 ```
 
-## 8. キャッシュとの関係
+## 11. キャッシュとの関係
 
-`news` / `forecast` の topic cache は、topic 文字列だけではなく、`TopicGenerationResult` 全体を保持する。
+対象カテゴリの topic cache は、topic 文字列だけではなく、`TopicGenerationResult` 全体を保持する。
 
 保持対象:
 
@@ -182,35 +272,39 @@ Viewer / TTS / topic display には出さない。
 
 キャッシュ上限は既存の topic cache 仕様に従い、各カテゴリまたは各 forecast domain ごとに10件を目標とする。
 
-## 9. 失敗時動作
+## 12. 失敗時動作
 
-### 9.1 enrichment 失敗
+### 12.1 enrichment 失敗
 
 関連語句生成に失敗しても、topic が有効なら topic cache へ入れてよい。
 その場合、次をログに残す。
 
 ```text
 context_terms_generation_failed
-category=news|forecast
+category=single|double|external|news|forecast
 topic=<topic>
 error_code=<code>
 ```
 
 session 開始時に `ContextTerms` が空の場合は、従来通り `InterestingnessAxis / OpeningHook / Avoid / Seed` だけで会話する。
 
-### 9.2 topic 生成失敗
+### 12.2 topic 生成失敗
 
 topic 生成自体が失敗した場合は、従来通り該当カテゴリの topic cache に入れない。
 別カテゴリへのすり替えは禁止する。
 
-## 10. 実装チェックリスト
+## 13. 実装チェックリスト
 
 - [ ] `TopicContextTerm` を共通型として追加する。
 - [ ] `TopicGenerationResult.ContextTerms` を追加する。
+- [ ] `single` topic cache 補充時に `ContextTerms` を生成する。
+- [ ] `double` topic cache 補充時に `ContextTerms` を生成する。
+- [ ] `external` topic cache 補充時に `ContextTerms` を生成する。
 - [ ] `news` topic cache 補充時に `ContextTerms` を生成する。
 - [ ] `forecast` topic cache 補充時に `ContextTerms` を生成する。
 - [ ] `formatTopicGenerationContext()` が `ContextTerms` を内部補助として注入する。
 - [ ] Viewer / TTS の topic 表示に `ContextTerms` が混入しない。
 - [ ] `ContextTerms` 生成失敗時も topic 自体は利用可能にする。
-- [ ] `news` は `news`、`forecast` は `forecast` の category / strategy を維持する。
+- [ ] `single` / `double` / `external` / `news` / `forecast` の category / strategy を維持する。
+- [ ] `movie` / `story-simple` に本仕様の `ContextTerms` を混ぜない。
 - [ ] テストで `ContextTerms` が sessionContext に入ること、Viewer/TTS に出ないことを確認する。

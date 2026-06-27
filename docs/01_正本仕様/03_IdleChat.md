@@ -386,24 +386,25 @@ Viewer → IdleChat: message.received → NotifyActivity() → 中断
 - [09_IdleChat仕様/IdleChat仕様.md](../09_IdleChat仕様/IdleChat仕様.md) — 通常モードの完全仕様
 - [09_IdleChat仕様/未来展望セッション仕様.md](../09_IdleChat仕様/未来展望セッション仕様.md) — 未来展望モードの完全仕様
 
-## 15. News / Forecast Topic Context
+## 15. Topic Context Memo
 
-詳細仕様: `docs/09_IdleChat仕様/News_Forecast_Topic_Context仕様.md`
+詳細仕様: `docs/09_IdleChat仕様/IdleChat_Topic_Context_Memo仕様.md`
 
-`news` と `forecast` は、お題文字列だけでなく、関連語句・語句の意味・お題との関係を topic cache に保持してよい。
+`single` / `double` / `external` / `news` / `forecast` は、お題文字列だけでなく、関連語句・語句の意味・お題との関係を topic cache に保持してよい。
 この補助情報は `ContextTerms` として `TopicGenerationResult` に紐づける。
 
 基本方針:
 
-- 対象は `news` / `forecast` に限定する。
+- 対象は `single` / `double` / `external` / `news` / `forecast` とする。
 - 1 topic あたり関連語句は 3〜8 件を目安とする。
 - `term / meaning / relevance / source` を持つ。
 - topic cache 補充時に生成し、session 開始時に `sessionContext` へ内部補助として注入する。
 - Viewer / TTS / topic display には `ContextTerms` を直接出さない。
 - 関連語句生成に失敗しても、topic が有効ならキャッシュしてよい。
-- `news` は `news`、`forecast` は `forecast` の category / strategy を維持し、別カテゴリへすり替えない。
+- `movie` / `story-simple` は本仕様の対象外とし、必要なら別途、映画設定メモ・物語設定メモとして扱う。
+- 対象カテゴリの category / strategy を維持し、別カテゴリへすり替えない。
 
-目的は、News / Forecast の会話が見出しや未来予測の表面だけで終わらず、背景・論点・影響を自然に扱えるようにすることである。
+目的は、IdleChat の会話がお題名の表面だけで終わらず、題材の用語・背景・見方を自然に扱えるようにすることである。
 
 ## 16. IdleChat Topic Cache
 
