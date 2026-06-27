@@ -28,7 +28,7 @@
 - `08_AIからの提案/`
   - AI からの提案資料。
 - `09_IdleChat仕様/`
-  - IdleChat の詳細仕様、旧仕様から復活したカテゴリ・お題生成・会話品質・停止・ID・Forecast・Story 関連仕様。
+  - IdleChat の詳細仕様、前準備、お題生成、会話品質、停止、ID、Forecast、story-simple 関連仕様。
 - `STT_TTS/`
   - STT/TTS 関連仕様。
 - `codebase-map/`

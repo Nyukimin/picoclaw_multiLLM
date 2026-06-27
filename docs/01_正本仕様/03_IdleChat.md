@@ -21,7 +21,7 @@ IdleChat は、ユーザーが一定時間操作しないアイドル時間に**
 - **本番タスク最優先**: ユーザーアクティビティで即中断
 - **イベントドリブン TTS**: TTS 完了イベントで次アクションへ進む（推定ベースではない）
 - **品質制御**: 4段階のリトライ + 5種類のループ検出で会話品質を維持
-- **多様性確保**: Single / Double / External / Movie / Forecast / Story / News の 7 カテゴリでトピック枯渇を防止
+- **多様性確保**: Single / Double / External / Movie / News / Forecast / Story-Simple の 7 カテゴリでトピック枯渇を防止
 - **話者ごとの LLM 分離**: `speakerLLMs` で Mio と Shiro に異なる LLM を割当可能
 
 ---
@@ -101,6 +101,9 @@ Start()
 IdleChat のお題は、ユーザー観測・ログ・E2E 評価では次の 7 カテゴリで扱う。
 内部実装名や生成関数が異なっても、Viewer 表示、履歴、ログ、テストではこのカテゴリ単位で追跡できること。
 
+Story は、構築中に非現実的であることが分かったため仕様対象から削除する。
+story-simple は Story の代替として実装済みの独立モードであり、Story とは別物として扱う。
+
 | カテゴリ | 内部 Strategy | 内容 | 選択単位 |
 |----------|---------------|------|----------|
 | Single | `single` | 260 個のジャンルプールから 1 個を選び、そのジャンルを深掘りする | 通常 IdleChat |
@@ -109,10 +112,10 @@ IdleChat のお題は、ユーザー観測・ログ・E2E 評価では次の 7 �
 | Movie | `movie` | 「〜ってどんな映画？」形式で架空映画の内容を深掘りする | 通常 IdleChat |
 | News | `news` | ニュース見出し 1 件を選び、そのニュース自体を深掘りする | 通常 IdleChat |
 | Forecast | `forecast` | 6 ドメイン固定順の未来展望セッション | 未来展望モード |
-| Story | `story` / `story-simple` | 昔話・童話を改変して朗読する物語セッション | Story モード |
+| Story-Simple | `story-simple` | 昔話の骨格を使い、主人公を別の存在に置き換えた軽量リメイク短編 | story-simple モード |
 
 通常 IdleChat の自動ローテーションおよび通常評価では、`single → double → external → movie → news → forecast → story-simple` の順で最低 1 巡できること。
-`forecast` と `story` はモード別カテゴリとして扱うが、自動ローテーションにも含め、手動起動または専用 E2E でも個別に検証できること。
+`forecast` と `story-simple` はモード別カテゴリとして扱うが、自動ローテーションにも含め、手動起動または専用 E2E でも個別に検証できること。
 
 #### お題サンプル正本
 
@@ -127,7 +130,7 @@ IdleChat のお題は、ユーザー観測・ログ・E2E 評価では次の 7 �
 | 4 | Movie | 「雨上がりの映写室」ってどんな映画？ |
 | 5 | News | 新しい医療制度の検討が、現場の判断に与える影響 |
 | 6 | Forecast | AI 技術が、個人の記憶整理をどう変えるか |
-| 7 | Story | 桃太郎を、鬼側の記録係から語り直す物語 |
+| 7 | Story-Simple | 桃太郎の主人公を宅配業者に置き換えたら、鬼ヶ島への配送はどう変わるか |
 
 基準:
 
@@ -137,7 +140,7 @@ IdleChat のお題は、ユーザー観測・ログ・E2E 評価では次の 7 �
 - Movie は必ず `「〜」ってどんな映画？` の形にする。
 - News はニュースの論点・背景・影響を扱い、ランダムジャンルや外部素材と混ぜない。
 - Forecast は将来変化の問いとして、対象領域と変化先が分かる題名にする。
-- Story は元話、視点変更、語り直しの軸が分かる題名にする。
+- Story-Simple は元話、置換後の主人公、リメイクの方向が分かる題名にする。
 
 #### お題読み上げ文字列の契約
 
@@ -147,14 +150,8 @@ IdleChat のお題読み上げでは、表示用 topic と speech topic の関�
 
 - Single / Double / External / Movie / News / Forecast は、取得済み topic へ `今日のお題。` を前置するだけの置換処理とする。カテゴリ名、内部 strategy、seed、provider 名は読み上げ本文へ入れない。
 - Single / Double / External / Movie / News / Forecast の topic 本文を LLM で再生成、要約、言い換えしてはいけない。許可するのは句点、括弧、読み仮名など、同一内容を保つ正規化だけである。
-- Story だけは例外として、内部 topic（例: `物語: 金太郎 × 探偵`）を読み上げに適したキャッチーな短いタイトルへ生成変換してよい。
-- Story タイトル生成は、元話と改変軸を失わない。`金太郎 × 探偵` なら、読み上げタイトルにも金太郎と探偵性が残ること。
-- Story タイトル生成は、本文生成ではない。あらすじ、解説、メタ説明、カテゴリ名、`物語:` 接頭辞を出してはいけない。
+- Story-Simple は独立モードの導入発話として、元話と置換後の主人公を含む短い読み上げタイトルを生成してよい。ただし Story の多段階生成仕様、story category、`story` sessionMode へ戻してはいけない。
 - 読み上げ用文字列は `今日のお題。<topic>` の 1 発話単位とし、TTS `speech_text` としてのみ扱う。Viewer の描画正本は変換前の topic / display event であり、読み上げ用文字列から描画本文を作ってはいけない。
-
-Story タイトル生成プロンプトの正本は `prompts/idle_chat/story_topic_title.md` とする。
-この prompt は Story タイトル候補の生成だけを担当し、カテゴリ判定、最終読み上げ文字列の組み立て、Viewer / TTS ルーティングを担当しない。
-実装内に同等文面を埋め込む場合も、この契約と矛盾してはいけない。
 
 #### News カテゴリの契約
 
@@ -180,11 +177,13 @@ Story タイトル生成プロンプトの正本は `prompts/idle_chat/story_top
 
 このカテゴリ仕様は、次をすべて満たす場合のみ正当とする。
 
-- 正本、参照元仕様、実装、Viewer、E2E のカテゴリ一覧が `single / double / external / movie / news / forecast / story` で一致している。
+- 正本、参照元仕様、実装、Viewer、E2E のカテゴリ一覧が `single / double / external / movie / news / forecast / story-simple` で一致している。
 - 通常 IdleChat の自動または強制評価で、`single → double → external → movie → news → forecast → story-simple` を 1 巡できる。
 - 各 session の topic/category/strategy が、Viewer 表示、履歴、ログ、TTS イベントで追跡できる。
 - News は news seed 1 件から生成され、display topic と内部 category が `news` のまま保持される。
 - Movie は category/strategy として `movie` を持ち、`movie=true` の隠し属性だけで表現されない。
+- Story は仕様対象から削除され、`story` category / sessionMode / 起動 API に戻らない。
+- Story-Simple は `story-simple` として追跡され、Story のフォールバックとして扱われない。
 - seed 取得失敗、生成失敗、カテゴリ未対応は明示的なエラーまたは診断として出し、別カテゴリで成功したように扱わない。
 - 上記を確認するテストまたは E2E ログがない状態で、実装完了扱いにしない。
 
@@ -356,32 +355,7 @@ Viewer → IdleChat: message.received → NotifyActivity() → 中断
 
 ---
 
-## 8. ストーリーモード
-
-### 8.1 概要
-
-IdleChat の第3のモード。エージェントが登場人物を演じて昔話や民話を読み上げる。
-
-**ステータス**: 実装中（`feature/RenCrow_Start` ブランチ、品質チューニング段階）
-
-### 8.2 パイプライン
-
-8ステップのパイプライン。Steps 2〜6 は決定論的、Steps 7〜8 のみ LLM。
-
-| ステップ | 処理 | 担当 |
-|--------|------|------|
-| Step 1 | ストーリー選択 | 決定論的 |
-| Step 2 | キャラクター割当 | 決定論的 |
-| Step 3 | セリフ抽出 | 決定論的 |
-| Step 4 | ナレーター分割 | 決定論的 |
-| Step 5 | テンポ設定 | 決定論的 |
-| Step 6 | 感情ラベル付け | 決定論的 |
-| Step 7 | ドラフト生成 | LLM（Mio） |
-| Step 8 | リビジョン | LLM（Mio） |
-
----
-
-## 9. 並行安全性
+## 8. 並行安全性
 
 | 機構 | 用途 |
 |------|------|
@@ -393,7 +367,7 @@ IdleChat の第3のモード。エージェントが登場人物を演じて昔�
 
 ---
 
-## 10. 定数一覧
+## 9. 定数一覧
 
 | 定数 | 値 | 用途 |
 |------|-----|------|
