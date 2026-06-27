@@ -1,23 +1,13 @@
 package idlechat
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
-
-type blockingStoryProvider struct {
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
-}
 
 func TestValidateSimpleStoryDraftRejectsWeakStory(t *testing.T) {
 	result := validateSimpleStoryDraft("桃太郎", "AIロボット", "もし桃太郎がAIロボットだったら面白いです。", "仮説だけの短文です。")
@@ -30,7 +20,7 @@ func TestValidateSimpleStoryDraftRejectsWeakStory(t *testing.T) {
 }
 
 func TestValidateSimpleStoryDraftAcceptsChangedProtagonistStory(t *testing.T) {
-	body := strings.Repeat("AIロボットは村の回覧板を解析し、犬と猿と雉に役割を配った。鬼ヶ島では交渉ログを突きつけ、盗まれた米俵を取り戻した。", 3)
+	body := strings.Repeat("AIロボットは村の回覧板を解析し、犬と猿と雉に役割を配った。鬼ヶ島では交渉ログを突きつけ、盗まれた米俵を取り戻した。", 4) + "こうして村の倉庫は守られ、AIロボットは毎朝、桃の糖度と鬼の反省文を同じ棚に保存するようになったのでした。"
 	result := validateSimpleStoryDraft("桃太郎", "AIロボット", "桃と回覧板のロボ太郎", body)
 	if !result.Valid {
 		t.Fatalf("expected valid story, got %s", result.Reason)
@@ -53,12 +43,22 @@ func TestSimpleStoryTopicKeepsBaseAndTransform(t *testing.T) {
 	}
 }
 
-func TestRunSimpleStorySessionDoesNotDropGeneratedBodyWithLegacyValidationText(t *testing.T) {
+func TestRunSimpleStorySessionRevisesWeakDraftBeforeSaving(t *testing.T) {
+	var taleTitles []string
+	for _, tale := range simpleStoryTales {
+		taleTitles = append(taleTitles, tale.title)
+	}
+	actors := strings.Join(protagonistOptions, "と")
+	sources := strings.Join(taleTitles, "と")
+	revisedBody := strings.Repeat(actors+"は"+sources+"の事件を村の困りごととしてログにまとめた。仲間には役割が割り振られ、盗まれた米俵の配送履歴が証拠になった。", 4) + "こうして事件は解決し、主人公たちは鬼たちに反省文の自動保存を教えて村へ帰ったのでした。"
 	provider := &queuedQualityProvider{responses: []string{
 		"【もしもの桃太郎】\nもし桃太郎がAIロボットだったら面白いです。",
+		"QUALITY: fail\nSCORE: 45\nISSUES:\n- 企画文のままで物語になっていない\nREVISION_PROMPT: 事件と解決とオチまで本文にする。",
+		"【桃ログ太郎】\n" + revisedBody,
 		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
 	}}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	defer o.Stop()
 	closed := make(chan struct{})
 	close(closed)
 	o.SetEventEmitter(func(TimelineEvent) <-chan struct{} {
@@ -72,40 +72,28 @@ func TestRunSimpleStorySessionDoesNotDropGeneratedBodyWithLegacyValidationText(t
 		t.Fatalf("history count=%d, want 1", len(history))
 	}
 	if history[0].LoopRestarted || history[0].LoopReason != "" {
-		t.Fatalf("legacy validation should not reject generated story body: %#v", history[0])
+		t.Fatalf("revised story should be saved as successful: %#v", history[0])
 	}
-	if history[0].StoryText == "" {
-		t.Fatal("generated story body should be stored")
+	if !strings.Contains(history[0].StoryText, "反省文の自動保存") {
+		t.Fatalf("revised story body should be stored: %q", history[0].StoryText)
 	}
 }
 
-func (p *blockingStoryProvider) Generate(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
-	started := false
-	p.once.Do(func() {
-		close(p.started)
-		started = true
-	})
-	if !started {
-		return llm.GenerateResponse{Content: "QUALITY: pass\nISSUES:\n- 大きな損耗は検出されませんでした。\nPROMPT_FIX: ", FinishReason: "stop"}, nil
-	}
-	select {
-	case <-p.release:
-	case <-ctx.Done():
-		return llm.GenerateResponse{}, ctx.Err()
-	}
-	return llm.GenerateResponse{Content: "【テスト物語】\n最初の段落です。次の段落です。", FinishReason: "stop"}, nil
-}
-
-func (p *blockingStoryProvider) Name() string {
-	return "blocking-story"
-}
-
-func TestRunSimpleStorySessionEmitsIntroBeforeGenerationCompletes(t *testing.T) {
-	provider := &blockingStoryProvider{
-		started: make(chan struct{}),
-		release: make(chan struct{}),
-	}
+func TestRunSimpleStorySessionUsesCompletedStockWithoutGeneratingDraft(t *testing.T) {
+	body := strings.Repeat("AIロボットは村の困りごとを解析し、犬と猿と雉に役割を配った。鬼ヶ島では証拠ログを開き、盗まれた米俵を取り戻した。", 3) + "こうして事件は解決し、AIロボットは村の見守り台として朝まで光っていたのでした。"
+	provider := &queuedQualityProvider{responses: []string{
+		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
+	}}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	defer o.Stop()
+	o.simpleStoryTopicStock = newSimpleStoryTopicStock()
+	o.simpleStoryTopicStock.push(simpleStoryPreparedTopic{
+		Tale:        simpleStoryTales[0],
+		Protagonist: "AIロボット",
+		Result:      buildSimpleStoryTopicResult("桃太郎", "AIロボット"),
+		StoryTitle:  "桃ログ太郎",
+		StoryText:   body,
+	})
 
 	events := make(chan TimelineEvent, 32)
 	o.SetEventEmitter(func(ev TimelineEvent) <-chan struct{} {
@@ -113,39 +101,19 @@ func TestRunSimpleStorySessionEmitsIntroBeforeGenerationCompletes(t *testing.T) 
 		return nil
 	})
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		o.RunSimpleStorySession()
-	}()
+	o.RunSimpleStorySession()
 
 	select {
 	case ev := <-events:
-		if ev.Type != "idlechat.viewer" {
-			t.Fatalf("first event type = %q, want idlechat.viewer", ev.Type)
+		if ev.Type != "idlechat.viewer" || ev.Content == "" {
+			t.Fatalf("first event = %#v, want viewer intro", ev)
 		}
-		if ev.Content == "" {
-			t.Fatal("intro event content is empty")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no viewer intro emitted before generation completed")
+	default:
+		t.Fatal("expected viewer event from completed stock")
 	}
-
-	if got := o.CurrentTopic(); got == "" {
-		t.Fatal("current topic is empty while story generation is active")
-	}
-
-	select {
-	case <-provider.started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("story generation did not start after intro")
-	}
-
-	close(provider.release)
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("story session did not finish")
+	history := o.GetHistory(1)
+	if len(history) != 1 || history[0].StoryText != body {
+		t.Fatalf("story session should use completed stock body: %#v", history)
 	}
 }
 
@@ -156,6 +124,7 @@ func TestRunSimpleStorySessionEmitsUniqueStoryTTSMessageIDs(t *testing.T) {
 		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
 	}}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
+	defer o.Stop()
 
 	seen := map[string]bool{}
 	var ttsIDs []string

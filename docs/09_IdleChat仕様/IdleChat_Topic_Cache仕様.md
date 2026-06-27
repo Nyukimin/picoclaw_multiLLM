@@ -2,7 +2,7 @@
 
 **作成日**: 2026-06-28
 **対象**: IdleChat の `single / double / external / movie / news / forecast / story-simple` お題キャッシュ
-**親仕様**: `IdleChat仕様.md`, `IdleChat前準備仕様.md`, `IdleChat_Topic_Generator_Judge詳細仕様.md`
+**親仕様**: `IdleChat仕様.md`, `IdleChat前準備仕様.md`, `IdleChat_Topic_Generator_Judge詳細仕様.md`, `IdleChat_Story_Simple_Completed_Stock仕様.md`
 
 ## 1. 目的
 
@@ -95,7 +95,8 @@ forecast は `ForecastDomain` ごとに `PreparedTopic` をキャッシュする
 
 ### 5.3 story-simple
 
-story-simple は、LLM生成前の「元話 + 置換主人公 + topic result」をキャッシュする。
+story-simple は、お題メモではなく「完成済み短編本文」をキャッシュする。
+元話 + 置換主人公 + topic result だけの item は seed であり、完成本文 stock には入れない。
 
 保持対象:
 
@@ -105,9 +106,14 @@ story-simple は、LLM生成前の「元話 + 置換主人公 + topic result」�
 - `topic`
 - `category = story-simple`
 - `strategy = story-simple`
+- `story_title`
+- `story_text`
+- `quality_review`
+- `revision_note`
 
 story-simple は `story` の fallback ではない。
 `story` category / sessionMode / pipeline に戻してはいけない。
+詳細は `IdleChat_Story_Simple_Completed_Stock仕様.md` に従う。
 
 ## 6. pop / refill の契約
 
@@ -148,14 +154,14 @@ cache の内部情報は Viewer / TTS にそのまま出さない。
 Viewer / TTS に出る topic は、従来通り表示用 topic と読み上げ用 speech topic の契約に従う。
 
 - 通常カテゴリ / forecast: `今日のお題。<topic>` を TTS 専用に生成する。
-- story-simple: 専用の導入発話・本文発話として扱う。
+- story-simple: stock 内の完成本文を、専用の導入発話・本文発話として扱う。
 - seed / provider / candidates / judge / context terms は Viewer topic や TTS topic に混入させない。
 
 ## 10. 実装チェックリスト
 
 - [ ] `single / double / external / movie / news` が各10件 target の cache を持つ。
 - [ ] `forecast` が各 domain 10件 target の cache を持つ。
-- [ ] `story-simple` が10件 target の cache を持つ。
+- [ ] `story-simple` が完成本文10件 target の cache を持つ。
 - [ ] pop 後に補充が予約される。
 - [ ] `chatActive / chatBusy / workerBusy` 中は補充生成を開始しない。
 - [ ] LLM を使う補充が同時多発しない。

@@ -1,7 +1,7 @@
 # story-simple 実装仕様 v1.0
 
 **対象**: IdleChat story-simple モード
-**主な実装箇所**: `internal/application/idlechat/story_mode_simple.go`
+**主な実装箇所**: `internal/application/idlechat/story_mode_simple.go`, `internal/application/idlechat/story_simple_topic_stock.go`
 **位置づけ**: Story の代替として実装済みの軽量物語リメイク機能。Story とは別物。
 
 ## 1. 概要
@@ -56,9 +56,39 @@ story-simple はコード内で直接定義された `simpleStoryTales` を使�
 
 | パラメータ | 値 |
 |---|---|
-| モデル | `forecastLLM()` |
-| MaxTokens | 2500 |
-| Temperature | 0.9 |
+| 生成担当 | Worker provider（`providerForSpeaker("shiro")`） |
+| 生成 MaxTokens | 3000 |
+| 判定 MaxTokens | 900 |
+| 修正 MaxTokens | 3200 |
+| 生成 Temperature | 0.9 |
+| 判定 Temperature | 0.25 |
+| 修正 Temperature | 0.75 |
+
+`story-simple` は Forecast 用 provider に依存しない。
+完成本文の生成、面白さ判定、必要時の修正は Worker で行う。
+
+## 4.1 完成本文 stock
+
+`story-simple` は、お題メモではなく完成した本文を10件 stock する。
+
+stock item は次を保持する。
+
+- 元話
+- 置換主人公
+- `TopicGenerationResult`
+- 生成タイトル
+- 完成本文
+- Worker 判定結果
+- 修正有無
+
+`story_text` が空の item は stock しない。
+本文が未完、短すぎる、元話や置換主人公が残っていない、または企画メモのままの場合は、Worker に修正させる。
+修正後も完成条件を満たさない item は破棄する。
+
+stock target は10件。
+1件使ったらバックグラウンドで補充を予約する。
+`chatActive / chatBusy / workerBusy` 中は補充生成を開始しない。
+stock が空の場合のみ、同じ `story-simple` の完成本文を同期生成してよい。
 
 ## 5. プロンプト構造
 
@@ -76,6 +106,7 @@ user:
 - テンポよく、会話と描写を交えて
 - 大げさなくらい面白く仕上げる
 - 2000文字前後
+- 必ず最後まで完結させる。事件が解決し、オチまたは余韻で終わる
 - タイトルは1行目に「【タイトル】」形式で書く
 - 本文のみ出力し、解説・メタ発言を出さない
 ```
@@ -99,6 +130,8 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession()
 ```
 
 `StartSimpleStoryMode()` は参加者が1名以上いれば起動できる。
+`RunSimpleStorySession()` は完成本文 stock から1件取り出し、導入、タイトル、本文、締めを Viewer / TTS に配信する。
+セッション中の本文生成は原則行わず、stock が空の時だけ同期生成する。
 
 ## 8. category / strategy
 
@@ -117,3 +150,6 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession()
 - `story` sessionMode / API / validator が残っていない。
 - Viewer / History / Summary / TTS event で `story-simple` として追跡できる。
 - `single -> double -> external -> movie -> news -> forecast -> story-simple` の E2E ローテーションに含められる。
+- 完成本文 stock が10件まで補充される。
+- 完成していない本文、topic だけの item、seed だけの item が stock されない。
+- Worker 判定 fail または機械チェック fail の場合、修正稿を作ってから stock する。

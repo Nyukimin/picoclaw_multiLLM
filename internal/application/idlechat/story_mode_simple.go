@@ -1,8 +1,10 @@
 package idlechat
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +13,8 @@ import (
 	domaintransport "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/transport"
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
+
+const simpleStoryWorkerTimeout = 180 * time.Second
 
 type simpleStoryTale struct {
 	title    string
@@ -45,6 +49,7 @@ func simpleStoryUserPrompt(tale simpleStoryTale, protagonist string) string {
 - テンポよく、会話と描写を交えて
 - 大げさなくらい面白く仕上げる（笑えるくらいでよい）
 - 2000文字前後
+- 必ず最後まで完結させる。事件が解決し、オチまたは余韻で終わる
 - タイトルは1行目に「【タイトル】」形式で書く
 - 本文のみ出力（解説・メタ発言不要）`, tale.title, protagonist, tale.synopsis, protagonist)
 }
@@ -87,8 +92,7 @@ func (o *IdleChatOrchestrator) StartSimpleStoryMode() error {
 	return nil
 }
 
-// RunSimpleStorySession はCoder2（forecastProvider）を使った簡易版物語生成セッション。
-// ワンプロンプトで昔話の主人公改変物語を生成し、Viewer に段落単位で配信する。
+// RunSimpleStorySession は story-simple 完成本文ストックを Viewer に段落単位で配信する。
 func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	sessionID := fmt.Sprintf("story-simple-%d", time.Now().Unix())
 	startedAt := time.Now().In(jst)
@@ -115,13 +119,24 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 
 	prepared := o.popSimpleStoryTopicStock()
 	if prepared == nil {
-		prepared = buildSimpleStoryPreparedTopic()
-		o.refillSimpleStoryTopicStock()
+		var err error
+		prepared, err = o.buildSimpleStoryPreparedTopic(o.idleRunContext())
+		if err != nil {
+			log.Printf("[SimpleStory] completed story unavailable: %v", err)
+			o.saveSimpleStoryReview(sessionID, idleChatPendingTopic("story-simple"), "", "", "", "", nil, startedAt, "generation_error")
+			return
+		}
+		o.refillSimpleStoryTopicStockAsync()
+	}
+	if err := requireCompleteSimpleStory(prepared); err != nil {
+		log.Printf("[SimpleStory] invalid prepared story: %v", err)
+		o.saveSimpleStoryReview(sessionID, prepared.Result.Topic, prepared.Tale.title, prepared.Protagonist, prepared.StoryTitle, prepared.StoryText, nil, startedAt, "invalid_prepared_story")
+		return
 	}
 	tale := prepared.Tale
 	protagonist := prepared.Protagonist
 
-	log.Printf("[SimpleStory] Generating: %s × %s", tale.title, protagonist)
+	log.Printf("[SimpleStory] Using completed stock: %s × %s", tale.title, protagonist)
 
 	storyTopicResult := prepared.Result
 	storyTopic := storyTopicResult.Topic
@@ -138,51 +153,12 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	storyUtteranceSeq := 0
 	o.emitStoryParagraph(sessionID, intro, &storyUtteranceSeq)
 
-	messages := []llm.Message{
-		{Role: "system", Content: simpleStorySystemPrompt},
-		{Role: "user", Content: simpleStoryUserPrompt(tale, protagonist)},
-	}
-
-	provider := o.forecastLLM()
-	resp, err := provider.Generate(o.idleRunContext(), llm.GenerateRequest{
-		Messages:    messages,
-		MaxTokens:   2500,
-		Temperature: 0.9,
-	})
-	if err != nil {
-		log.Printf("[SimpleStory] generation failed: %v", err)
-		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, "", "", transcript, startedAt, "generation_error")
-		return
-	}
 	if !o.isIdleSessionActive(sessionID, generation) {
 		log.Printf("[SimpleStory] response discarded after interrupt: session=%s", sessionID)
 		return
 	}
-	logIdleRaw("story_simple.generate", resp.Content)
-
-	raw := strings.TrimSpace(resp.Content)
-	if raw == "" {
-		log.Printf("[SimpleStory] empty response")
-		o.saveSimpleStoryReview(sessionID, storyTopic, tale.title, protagonist, "", "", transcript, startedAt, "invalid_response")
-		return
-	}
-
-	// タイトル行と本文を分離
-	titleLine := ""
-	bodyLines := make([]string, 0)
-	for i, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if i == 0 && (strings.HasPrefix(line, "【") || strings.HasPrefix(line, "#")) {
-			titleLine = strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ")
-			titleLine = strings.Trim(titleLine, "【】")
-		} else {
-			bodyLines = append(bodyLines, line)
-		}
-	}
-	body := strings.Join(bodyLines, "\n")
+	titleLine := strings.TrimSpace(prepared.StoryTitle)
+	body := strings.TrimSpace(prepared.StoryText)
 
 	if titleLine != "" {
 		titleSpeech := fmt.Sprintf("改題は『%s』。", titleLine)
@@ -205,6 +181,244 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 	log.Printf("[SimpleStory] Session complete: %s × %s", tale.title, protagonist)
 }
 
+func (o *IdleChatOrchestrator) generateSimpleStoryPreparedTopic(ctx context.Context, tale simpleStoryTale, protagonist string) (*simpleStoryPreparedTopic, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	provider := o.providerForSpeaker("shiro")
+	if provider == nil {
+		return nil, fmt.Errorf("story-simple worker provider unavailable")
+	}
+	result := buildSimpleStoryTopicResult(tale.title, protagonist)
+	raw, err := generateSimpleStoryWorker(ctx, provider, []llm.Message{
+		{Role: "system", Content: simpleStorySystemPrompt},
+		{Role: "user", Content: simpleStoryUserPrompt(tale, protagonist)},
+	}, 3000, 0.9)
+	if err != nil {
+		return nil, err
+	}
+	logIdleRaw("story_simple.stock.generate", raw)
+	title, body := parseSimpleStoryOutput(raw)
+	validation := validateSimpleStoryDraft(tale.title, protagonist, title, body)
+	quality, err := o.reviewSimpleStoryDraft(ctx, provider, tale, protagonist, title, body, validation.Reason)
+	if err != nil {
+		return nil, err
+	}
+	revisionNote := ""
+	if !validation.Valid || !quality.Pass {
+		revisedRaw, err := generateSimpleStoryWorker(ctx, provider, []llm.Message{
+			{Role: "system", Content: simpleStorySystemPrompt},
+			{Role: "user", Content: simpleStoryRevisionPrompt(tale, protagonist, title, body, quality, validation.Reason)},
+		}, 3200, 0.75)
+		if err != nil {
+			return nil, err
+		}
+		logIdleRaw("story_simple.stock.revise", revisedRaw)
+		revisedTitle, revisedBody := parseSimpleStoryOutput(revisedRaw)
+		if strings.TrimSpace(revisedTitle) != "" {
+			title = revisedTitle
+		}
+		if strings.TrimSpace(revisedBody) != "" {
+			body = revisedBody
+		}
+		revisionNote = "revised_by_worker"
+		validation = validateSimpleStoryDraft(tale.title, protagonist, title, body)
+		if !validation.Valid {
+			return nil, fmt.Errorf("story-simple revised draft invalid: %s", validation.Reason)
+		}
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, fmt.Errorf("story-simple generated empty body")
+	}
+	return &simpleStoryPreparedTopic{
+		Tale:          tale,
+		Protagonist:   protagonist,
+		Result:        result,
+		StoryTitle:    title,
+		StoryText:     body,
+		QualityReview: quality.Raw,
+		RevisionNote:  revisionNote,
+	}, nil
+}
+
+func generateSimpleStoryWorker(ctx context.Context, provider llm.LLMProvider, messages []llm.Message, maxTokens int, temperature float64) (string, error) {
+	runCtx, cancel := context.WithTimeout(ctx, simpleStoryWorkerTimeout)
+	defer cancel()
+	resp, err := provider.Generate(runCtx, llm.GenerateRequest{
+		Messages:    messages,
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
+	})
+	if err != nil {
+		return "", err
+	}
+	raw := strings.TrimSpace(resp.Content)
+	if raw == "" {
+		return "", fmt.Errorf("story-simple worker returned empty response")
+	}
+	return raw, nil
+}
+
+type simpleStoryQualityResult struct {
+	Pass           bool
+	Score          int
+	Issues         []string
+	RevisionPrompt string
+	Raw            string
+}
+
+func (o *IdleChatOrchestrator) reviewSimpleStoryDraft(ctx context.Context, provider llm.LLMProvider, tale simpleStoryTale, protagonist, storyTitle, storyText, validationReason string) (simpleStoryQualityResult, error) {
+	raw, err := generateSimpleStoryWorker(ctx, provider, []llm.Message{
+		{Role: "system", Content: "あなたは物語編集者です。完成短編が面白く、最後まで終わっているかを厳しめに判定してください。"},
+		{Role: "user", Content: simpleStoryQualityPrompt(tale, protagonist, storyTitle, storyText, validationReason)},
+	}, 900, 0.25)
+	if err != nil {
+		return simpleStoryQualityResult{}, err
+	}
+	logIdleRaw("story_simple.stock.quality", raw)
+	return parseSimpleStoryQuality(raw), nil
+}
+
+func parseSimpleStoryOutput(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	titleLine := ""
+	bodyLines := make([]string, 0)
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if titleLine == "" && (strings.HasPrefix(line, "【") || strings.HasPrefix(line, "#")) {
+			titleLine = strings.TrimPrefix(strings.TrimPrefix(line, "#"), " ")
+			titleLine = strings.Trim(titleLine, "【】")
+			continue
+		}
+		bodyLines = append(bodyLines, line)
+	}
+	if titleLine == "" && len(bodyLines) > 0 && utf8.RuneCountInString(bodyLines[0]) <= 40 && !strings.Contains(bodyLines[0], "。") {
+		titleLine = strings.Trim(bodyLines[0], "「」『』")
+		bodyLines = bodyLines[1:]
+	}
+	return strings.TrimSpace(titleLine), strings.TrimSpace(strings.Join(bodyLines, "\n"))
+}
+
+func simpleStoryQualityPrompt(tale simpleStoryTale, protagonist, storyTitle, storyText, validationReason string) string {
+	return fmt.Sprintf(`次の story-simple 完成稿を判定してください。
+
+元話: %s
+主人公: %s
+タイトル: %s
+機械チェック: %s
+
+本文:
+%s
+
+判定基準:
+- 最後まで完結している。事件が未解決のまま終わらない
+- 元話の骨格が残っている
+- 主人公が置き換わったことで、展開やオチが変わっている
+- 読んで面白い。会話、場面、意外性、オチのどれかがある
+- メタ説明や「もし〜だったら」の企画文で終わっていない
+
+出力形式:
+QUALITY: pass または fail
+SCORE: 0-100
+ISSUES:
+- 問題点。なければ「なし」
+REVISION_PROMPT: fail の場合だけ、修正指示を1段落で書く。passなら空欄`, tale.title, protagonist, storyTitle, emptyLabel(validationReason, "none"), storyText)
+}
+
+func simpleStoryRevisionPrompt(tale simpleStoryTale, protagonist, storyTitle, storyText string, quality simpleStoryQualityResult, validationReason string) string {
+	issues := strings.Join(quality.Issues, "\n- ")
+	if issues != "" {
+		issues = "- " + issues
+	}
+	return fmt.Sprintf(`次の story-simple を完成稿として修正してください。
+
+元話: %s
+主人公: %s
+元タイトル: %s
+機械チェックの問題: %s
+Worker判定 score: %d
+問題点:
+%s
+
+修正指示:
+%s
+
+元本文:
+%s
+
+条件:
+- 必ず最後まで完結させる。事件が解決し、オチまたは余韻で終わる
+- 元話の骨格は残す
+- 主人公が「%s」だから起きるズレ、笑い、反転を増やす
+- 企画説明や評価文ではなく、完成した本文だけを書く
+- 1行目は「【タイトル】」形式
+- 本文のみ出力`, tale.title, protagonist, storyTitle, emptyLabel(validationReason, "none"), quality.Score, emptyLabel(issues, "- なし"), emptyLabel(quality.RevisionPrompt, "上の問題点を直し、面白さと完結感を強める。"), storyText, protagonist)
+}
+
+func parseSimpleStoryQuality(raw string) simpleStoryQualityResult {
+	result := simpleStoryQualityResult{Raw: strings.TrimSpace(raw)}
+	inIssues := false
+	var revision []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		switch {
+		case strings.HasPrefix(upper, "QUALITY:"):
+			value := strings.ToLower(strings.TrimSpace(line[len("QUALITY:"):]))
+			result.Pass = strings.HasPrefix(value, "pass")
+			inIssues = false
+		case strings.HasPrefix(upper, "SCORE:"):
+			value := strings.TrimSpace(line[len("SCORE:"):])
+			if n, err := strconv.Atoi(strings.Trim(value, " 点/100")); err == nil {
+				result.Score = n
+			}
+			inIssues = false
+		case strings.HasPrefix(upper, "ISSUES:"):
+			inIssues = true
+		case strings.HasPrefix(upper, "REVISION_PROMPT:"), strings.HasPrefix(upper, "PROMPT_FIX:"):
+			inIssues = false
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+				revision = append(revision, strings.TrimSpace(parts[1]))
+			}
+		case inIssues:
+			issue := strings.TrimSpace(strings.TrimPrefix(line, "-"))
+			if issue != "" && issue != "なし" {
+				result.Issues = append(result.Issues, issue)
+			}
+		default:
+			if len(revision) > 0 {
+				revision = append(revision, line)
+			}
+		}
+	}
+	if result.Score == 0 && result.Pass {
+		result.Score = 80
+	}
+	if result.Score < 80 {
+		result.Pass = false
+	}
+	result.RevisionPrompt = strings.TrimSpace(strings.Join(revision, "\n"))
+	return result
+}
+
+func emptyLabel(s, fallback string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
 type simpleStoryValidationResult struct {
 	Valid  bool
 	Reason string
@@ -212,7 +426,7 @@ type simpleStoryValidationResult struct {
 
 func validateSimpleStoryDraft(sourceTitle, protagonist, storyTitle, storyText string) simpleStoryValidationResult {
 	body := strings.TrimSpace(storyText)
-	if utf8.RuneCountInString(body) < 120 {
+	if utf8.RuneCountInString(body) < 260 {
 		return simpleStoryValidationResult{Reason: "too_short"}
 	}
 	if !strings.Contains(body, protagonist) && !strings.Contains(storyTitle, protagonist) {
@@ -226,6 +440,9 @@ func validateSimpleStoryDraft(sourceTitle, protagonist, storyTitle, storyText st
 	}
 	if strings.TrimSpace(sourceTitle) == "" {
 		return simpleStoryValidationResult{Reason: "missing_source"}
+	}
+	if !hasSimpleStoryEnding(body) {
+		return simpleStoryValidationResult{Reason: "incomplete_ending"}
 	}
 	return simpleStoryValidationResult{Valid: true}
 }
@@ -241,6 +458,25 @@ func containsAnyStoryMetaText(text string) bool {
 		strings.Contains(text, "解説") ||
 		strings.Contains(text, "メタ発言") ||
 		strings.Contains(text, "条件:")
+}
+
+func hasSimpleStoryEnding(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	if !strings.ContainsAny(string([]rune(text)[len([]rune(text))-1]), "。！？") {
+		return false
+	}
+	runes := []rune(text)
+	start := 0
+	if len(runes) > 160 {
+		start = len(runes) - 160
+	}
+	tail := string(runes[start:])
+	return containsAny(tail,
+		"こうして", "それ以来", "最後", "終わ", "めでたし", "解決", "取り戻", "帰った", "戻った", "なったのでした", "残った", "去っていった",
+	)
 }
 
 func buildSimpleStoryTopicResult(sourceTitle, protagonist string) TopicGenerationResult {

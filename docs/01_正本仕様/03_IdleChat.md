@@ -427,7 +427,7 @@ single / double / external / movie / news / forecast / story-simple
 - `movie`: 10件
 - `news`: 10件
 - `forecast`: forecast domain ごとに10件
-- `story-simple`: 10件
+- `story-simple`: 完成本文10件
 
 基本方針:
 
@@ -438,3 +438,4 @@ single / double / external / movie / news / forecast / story-simple
 - cache が空の場合は同カテゴリの inline topic 生成へ fallback してよい。
 - 別カテゴリへすり替えて成功扱いにしてはいけない。
 - Viewer / TTS には cache 内部情報を直接出さない。
+- `story-simple` は topic だけではなく、Worker で生成・判定・必要時修正した完成本文を cache する。

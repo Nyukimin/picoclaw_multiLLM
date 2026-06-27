@@ -230,7 +230,8 @@ story-simple は Story のフォールバックではなく、Story の代わり
 story-simple:
 
 - `data/story/*.json` に依存せず、コード内インラインの物語ソースを使う。
-- `forecastLLM()` を使う想定がある。
+- Worker provider で完成本文を生成、判定、必要時修正する。
+- topic だけではなく、完成本文を10件 stock する。
 - `sessionMode == "story-simple"` として扱う。
 
 整理方針:
@@ -238,6 +239,7 @@ story-simple:
 - カテゴリ正本は `story-simple`。
 - `story` category / sessionMode / 起動 API は使わない。
 - story-simple は Story とは別物として、Viewer / History / Summary / TTS event で `story-simple` として追跡する。
+- stock された完成本文を session で配信し、空の場合だけ同じ `story-simple` の完成本文を同期生成する。
 
 ## 12. 実装照合チェックリスト
 

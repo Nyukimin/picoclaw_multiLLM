@@ -211,7 +211,10 @@ story-simple は、昔話の骨格を使い、主人公を別存在に置き換�
 2. `protagonistOptions` から置換主人公を1件選ぶ。
 3. 元話の事件、解決、オチの骨格を保持する。
 4. 主人公が変わることで、世界設定、社会常識、登場人物の反応が変わるようにする。
-5. category / strategy / sessionMode を `story-simple` に固定する。
+5. Worker で完成本文を生成する。
+6. 機械チェックと Worker 判定で、完結性と面白さを確認する。
+7. 不合格の場合は Worker で修正し、完成条件を満たした本文だけを stock する。
+8. category / strategy / sessionMode を `story-simple` に固定する。
 
 生成前に必要な seed:
 
@@ -221,6 +224,9 @@ story-simple は、昔話の骨格を使い、主人公を別存在に置き換�
 | `synopsis` | 元話の短いあらすじ |
 | `protagonist` | 置換後の主人公 |
 | `rewrite_hint` | 任意。変化の方向 |
+| `story_title` | Worker が生成した完成稿タイトル |
+| `story_text` | 最後まで完結した本文 |
+| `quality_review` | Worker の面白さ・完結性判定 |
 
 禁止:
 
@@ -228,10 +234,12 @@ story-simple は、昔話の骨格を使い、主人公を別存在に置き換�
 - `story` sessionMode を使わない。
 - Story の多段階 pipeline / validator / 起動 API を使わない。
 - Story の fallback として扱わない。
+- topic だけ、seed だけの item を完成本文 stock として扱わない。
 
 失敗時:
 
 - 元話または主人公が選べない場合は `story_simple_seed_unavailable` とする。
+- 完成本文を作れない場合は stock に入れず、次の seed を試す。
 - Story へ fallback しない。
 
 ## 10. 前準備の完了条件
