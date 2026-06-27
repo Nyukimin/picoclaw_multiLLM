@@ -141,6 +141,8 @@ type IdleChatOrchestrator struct {
 	reportTTSTimeout          func(TTSTimeoutEvent)
 	topicStore                *TopicStore
 	topicStockBuf             *forecastTopicStock // 未来展望お題ストック
+	topicStrategyStock        *topicStrategyStock
+	simpleStoryTopicStock     *simpleStoryTopicStock
 	recentTopics              func(context.Context, int) ([]string, error)
 	personaRuntime            PersonaRuntimeRecorder
 	personaTriggers           []domainpersona.TriggerDefinition
@@ -161,6 +163,7 @@ type IdleChatOrchestrator struct {
 	watchdogTurnIndex   int
 	watchdogUpdatedAt   time.Time
 	mu                  sync.Mutex
+	topicStockFillMu    sync.Mutex
 	wg                  sync.WaitGroup
 }
 

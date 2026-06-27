@@ -161,7 +161,8 @@ func (o *IdleChatOrchestrator) InitForecastTopicStock(path string) {
 	}
 	o.topicStockBuf = newForecastTopicStock(path)
 	o.mu.Unlock()
-	log.Printf("[Forecast] Topic stock initialized (startup fill disabled; refill is on-demand)")
+	log.Printf("[Forecast] Topic stock initialized (target=%d per domain)", forecastTopicStockSize)
+	o.refillAllForecastTopicStocksAsync()
 }
 
 // popForecastTopic はストックからお題を取得し、バックグラウンドで補充をトリガーする。
@@ -199,12 +200,12 @@ func (o *IdleChatOrchestrator) popForecastTopic(domain ForecastDomain) (string, 
 		}
 		return formatForecastTopicError(domain, failure), seeds
 	}
+	o.refillTopicStockAsync(domain)
 	return normalizeForecastDisplayTopic(domain, topic), seeds
 }
 
-// refillTopicStockAsync はバックグラウンドでストックを1件だけ補充する。
-// 1トリガーで再帰的に forecastTopicStockSize まで埋めると Worker queue を詰めるため、
-// 必要になったタイミングの on-demand 補充に限定する。
+// refillTopicStockAsync はバックグラウンドでストックを目標数まで順番に補充する。
+// 起動時の一斉補充は避け、利用されたドメインだけを on-demand で厚くする。
 func (o *IdleChatOrchestrator) refillTopicStockAsync(domain ForecastDomain) {
 	o.mu.Lock()
 	stock := o.topicStockBuf
@@ -221,19 +222,50 @@ func (o *IdleChatOrchestrator) refillTopicStockAsync(domain ForecastDomain) {
 	}
 	go func(d ForecastDomain) {
 		defer stock.doneFilling(d.Name)
-		topic, seeds, failure := o.generateForecastTopicInline(d)
-		if failure != nil {
-			log.Printf("[Forecast] Stock refill skipped: %s error_code=%s phase=%s provider=%s", d.Name, failure.ErrorCode, failure.Phase, failure.Provider)
-			return
-		}
-		if topic != "" {
+		for attempts := 0; stock.count(d.Name) < forecastTopicStockSize && attempts < forecastTopicStockSize*2; attempts++ {
+			if !o.waitForTopicStrategyStockIdle(o.ctx) {
+				return
+			}
+			o.topicStockFillMu.Lock()
+			if !o.canGenerateTopicStrategyStock() {
+				o.topicStockFillMu.Unlock()
+				continue
+			}
+			before := stock.count(d.Name)
+			topic, seeds, failure := o.generateForecastTopicInline(d)
+			o.topicStockFillMu.Unlock()
+			if failure != nil {
+				log.Printf("[Forecast] Stock refill skipped: %s error_code=%s phase=%s provider=%s", d.Name, failure.ErrorCode, failure.Phase, failure.Provider)
+				return
+			}
+			if strings.TrimSpace(topic) == "" {
+				log.Printf("[Forecast] Stock refill skipped empty topic: %s", d.Name)
+				return
+			}
 			stock.push(d.Name, PreparedTopic{
 				Domain:  d,
 				Topic:   topic,
 				Seeds:   seeds,
 				Created: time.Now(),
 			})
-			log.Printf("[Forecast] Stock refilled: %s (count=%d)", d.Name, stock.count(d.Name))
+			after := stock.count(d.Name)
+			if after <= before {
+				log.Printf("[Forecast] Stock refill produced duplicate topic: %s (count=%d)", d.Name, after)
+				continue
+			}
+			log.Printf("[Forecast] Stock refilled: %s (count=%d/%d)", d.Name, after, forecastTopicStockSize)
 		}
 	}(domain)
+}
+
+func (o *IdleChatOrchestrator) refillAllForecastTopicStocksAsync() {
+	o.mu.Lock()
+	stock := o.topicStockBuf
+	o.mu.Unlock()
+	if stock == nil {
+		return
+	}
+	for _, domain := range forecastDomains {
+		o.refillTopicStockAsync(domain)
+	}
 }

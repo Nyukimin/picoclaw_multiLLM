@@ -14,6 +14,21 @@ import (
 
 func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy TopicStrategy) (string, TopicStrategy) {
 	movieMode := strategy == StrategyMovie
+	if isStockableTopicStrategy(strategy) {
+		if stocked := o.popTopicStrategyStock(strategy); stocked != nil {
+			topic := normalizeIdleTopic(stocked.Topic, movieMode)
+			if topic != "" {
+				stocked.Topic = topic
+				o.mu.Lock()
+				o.sessionContext = formatTopicGenerationContext(*stocked)
+				copied := *stocked
+				o.currentTopicResult = &copied
+				o.mu.Unlock()
+				log.Printf("[IdleChat] Topic: %s (%s, stock=true)", topic, strategy)
+				return topic, strategy
+			}
+		}
+	}
 	recentTopics := o.getRecentTopics(12)
 	recent := recentTopicRecords(recentTopics)
 
@@ -86,6 +101,9 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 		o.currentTopicResult = &copied
 		o.mu.Unlock()
 		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
+		if isStockableTopicStrategy(strategy) {
+			o.refillTopicStrategyStockAsync(strategy)
+		}
 		return topic, strategy
 	}
 	log.Printf("[IdleChat] topic generation failed: strategy=%s error=%v", strategy, err)

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
@@ -71,7 +72,7 @@ func TestBuildForecastLLMTopicNeverStartsWithEmptyTopic(t *testing.T) {
 	}
 }
 
-func TestInitForecastTopicStockDoesNotFillWorkerQueueOnStartup(t *testing.T) {
+func TestInitForecastTopicStockWaitsWhileWorkerBusy(t *testing.T) {
 	provider := &queuedForecastProvider{
 		responses: []string{"起動時に生成してはいけない"},
 	}
@@ -85,11 +86,28 @@ func TestInitForecastTopicStockDoesNotFillWorkerQueueOnStartup(t *testing.T) {
 		nil,
 	)
 	o.SetForecastProviderWithLabel(provider, "Worker local")
+	o.SetWorkerBusy(true)
+	defer o.Stop()
 
 	o.InitForecastTopicStock("")
+	time.Sleep(50 * time.Millisecond)
 
 	if provider.requests != 0 {
-		t.Fatalf("InitForecastTopicStock must not call forecast provider on startup, got %d requests", provider.requests)
+		t.Fatalf("InitForecastTopicStock must wait while worker is busy, got %d requests", provider.requests)
+	}
+}
+
+func TestForecastTopicStockKeepsTenTopicsPerDomain(t *testing.T) {
+	stock := newForecastTopicStock("")
+	domain := "技術"
+	for i := 0; i < forecastTopicStockSize+2; i++ {
+		stock.push(domain, PreparedTopic{
+			Domain: ForecastDomain{Name: domain},
+			Topic:  "技術のお題" + string(rune('A'+i)),
+		})
+	}
+	if got := stock.count(domain); got != 10 {
+		t.Fatalf("stock count = %d, want 10", got)
 	}
 }
 

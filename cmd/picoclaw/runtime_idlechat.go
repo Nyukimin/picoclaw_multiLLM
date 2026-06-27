@@ -114,6 +114,10 @@ func buildIdleChatRuntime(
 		deps.eventRelay.SetIdleChat(idleChatOrch)
 	}
 	idleChatOrch.Start()
+	idleChatOrch.InitTopicStrategyStocks()
+	log.Printf("IdleChat: topic stock refill enabled for single/double/external/movie/news (target=%d)", idlechat.TopicStrategyStockTarget())
+	idleChatOrch.InitSimpleStoryTopicStock()
+	log.Printf("IdleChat: story-simple topic stock enabled (target=%d)", idlechat.SimpleStoryTopicStockTarget())
 	deps.idleChatOrch = idleChatOrch
 	log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
 }

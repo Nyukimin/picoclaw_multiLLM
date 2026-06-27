@@ -8,7 +8,7 @@ import (
 const (
 	forecastTurnsPerDomain     = 100 // 1ドメインあたりの最大ターン数
 	forecastCheckpointInterval = 15  // 進行チェックポイントの間隔（ターン数）
-	forecastTopicStockSize     = 2   // ドメインあたりのお題ストック数
+	forecastTopicStockSize     = 10  // ドメインあたりのお題ストック数
 	forecastSeedLimit          = 10
 	forecastGoogleTrendLimit   = 2
 )

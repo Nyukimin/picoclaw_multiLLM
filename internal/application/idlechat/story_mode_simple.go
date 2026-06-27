@@ -3,7 +3,6 @@ package idlechat
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,11 +12,13 @@ import (
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
-// simpleStoryTales は簡易版物語生成で使う昔話リスト。
-var simpleStoryTales = []struct {
+type simpleStoryTale struct {
 	title    string
 	synopsis string
-}{
+}
+
+// simpleStoryTales は簡易版物語生成で使う昔話リスト。
+var simpleStoryTales = []simpleStoryTale{
 	{"桃太郎", "川から桃が流れてきて生まれた子が、犬・猿・雉を仲間に鬼ヶ島へ鬼退治に行く"},
 	{"一寸法師", "親指ほどの小さな武士が針を刀に都へ上り、鬼を倒して打ち出の小槌で大きくなる"},
 	{"浦島太郎", "亀を助けた漁師が竜宮城へ招かれ、帰ると何百年も経っていて老人になる"},
@@ -33,10 +34,7 @@ var simpleStoryTales = []struct {
 const simpleStorySystemPrompt = `あなたは昔話リメイク作家です。ユーザーの指示に従って、笑えるくらい大袈裟で面白い短編を書いてください。`
 
 // simpleStoryUserPrompt は1回のLLM呼び出しで物語全文を生成するプロンプト。
-func simpleStoryUserPrompt(tale struct {
-	title    string
-	synopsis string
-}, protagonist string) string {
+func simpleStoryUserPrompt(tale simpleStoryTale, protagonist string) string {
 	return fmt.Sprintf(`昔話「%s」を、主人公を「%s」に置き換えてリメイクしてください。
 
 元の話のあらすじ: %s
@@ -115,13 +113,17 @@ func (o *IdleChatOrchestrator) RunSimpleStorySession() {
 		o.cancelIdleRunIfGeneration(generation)
 	}()
 
-	// 昔話と主人公をランダム選択
-	tale := simpleStoryTales[rand.Intn(len(simpleStoryTales))]
-	protagonist := protagonistOptions[rand.Intn(len(protagonistOptions))]
+	prepared := o.popSimpleStoryTopicStock()
+	if prepared == nil {
+		prepared = buildSimpleStoryPreparedTopic()
+		o.refillSimpleStoryTopicStock()
+	}
+	tale := prepared.Tale
+	protagonist := prepared.Protagonist
 
 	log.Printf("[SimpleStory] Generating: %s × %s", tale.title, protagonist)
 
-	storyTopicResult := buildSimpleStoryTopicResult(tale.title, protagonist)
+	storyTopicResult := prepared.Result
 	storyTopic := storyTopicResult.Topic
 	o.mu.Lock()
 	o.currentTopic = storyTopic
