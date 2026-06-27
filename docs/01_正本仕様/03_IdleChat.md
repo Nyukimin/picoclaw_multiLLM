@@ -1,4 +1,4 @@
-# IdleChat（§8）
+﻿# IdleChat（§8）
 
 **対応仕様**: 仕様.md §8
 **ソース**: 09_IdleChat仕様/IdleChat仕様.md, 09_IdleChat仕様/未来展望セッション仕様.md, 09_IdleChat仕様/会話ID仕様.md, 15_TTS_Viewer同期.md
@@ -385,3 +385,54 @@ Viewer → IdleChat: message.received → NotifyActivity() → 中断
 - [仕様.md §8](仕様.md#8-idlechat) — 概要
 - [09_IdleChat仕様/IdleChat仕様.md](../09_IdleChat仕様/IdleChat仕様.md) — 通常モードの完全仕様
 - [09_IdleChat仕様/未来展望セッション仕様.md](../09_IdleChat仕様/未来展望セッション仕様.md) — 未来展望モードの完全仕様
+
+## 15. News / Forecast Topic Context
+
+詳細仕様: `docs/09_IdleChat仕様/News_Forecast_Topic_Context仕様.md`
+
+`news` と `forecast` は、お題文字列だけでなく、関連語句・語句の意味・お題との関係を topic cache に保持してよい。
+この補助情報は `ContextTerms` として `TopicGenerationResult` に紐づける。
+
+基本方針:
+
+- 対象は `news` / `forecast` に限定する。
+- 1 topic あたり関連語句は 3〜8 件を目安とする。
+- `term / meaning / relevance / source` を持つ。
+- topic cache 補充時に生成し、session 開始時に `sessionContext` へ内部補助として注入する。
+- Viewer / TTS / topic display には `ContextTerms` を直接出さない。
+- 関連語句生成に失敗しても、topic が有効ならキャッシュしてよい。
+- `news` は `news`、`forecast` は `forecast` の category / strategy を維持し、別カテゴリへすり替えない。
+
+目的は、News / Forecast の会話が見出しや未来予測の表面だけで終わらず、背景・論点・影響を自然に扱えるようにすることである。
+
+## 16. IdleChat Topic Cache
+
+詳細仕様: `docs/09_IdleChat仕様/IdleChat_Topic_Cache仕様.md`
+
+IdleChat は、session 開始時のお題生成待ちを減らすため、全7カテゴリにお題キャッシュを持つ。
+
+対象カテゴリ:
+
+```text
+single / double / external / movie / news / forecast / story-simple
+```
+
+キャッシュ目標:
+
+- `single`: 10件
+- `double`: 10件
+- `external`: 10件
+- `movie`: 10件
+- `news`: 10件
+- `forecast`: forecast domain ごとに10件
+- `story-simple`: 10件
+
+基本方針:
+
+- 起動後にバックグラウンドで補充する。
+- 1件使ったら、目標数へ戻すよう補充する。
+- `chatActive / chatBusy / workerBusy` 中は補充生成を開始しない。
+- LLM を使う補充は同時多発させない。
+- cache が空の場合は同カテゴリの inline topic 生成へ fallback してよい。
+- 別カテゴリへすり替えて成功扱いにしてはいけない。
+- Viewer / TTS には cache 内部情報を直接出さない。
