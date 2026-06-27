@@ -120,6 +120,7 @@ type IdleChatOrchestrator struct {
 	speakerOptions        map[string]map[string]any
 	topicGenerationConfig TopicGenerationConfig
 	dialogueConfig        DialogueInterestingnessConfig
+	movieCatalogDBPath    string
 	currentTopicResult    *TopicGenerationResult
 	currentDialoguePlan   *DialogueArcPlan
 	currentDialogueState  *DialogueArcState

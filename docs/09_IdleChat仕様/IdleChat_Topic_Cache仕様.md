@@ -74,10 +74,10 @@ cache が空の場合のみ、既存の inline topic 生成に fallback して�
 - `candidates`
 - `judge`
 - `provider`
-- `context_terms`（`single` / `double` / `external` / `news` のみ任意）
+- `context_terms`（`single` / `double` / `external` / `movie` / `news` のみ任意）
 
-`single` / `double` / `external` / `news` は `IdleChat_Topic_Context_Memo仕様.md` に従い、必要に応じて `context_terms` も保持する。
-`movie` は架空映画設定の性質が強いため、本仕様では `context_terms` の対象外とする。
+`single` / `double` / `external` / `movie` / `news` は `IdleChat_Topic_Context_Memo仕様.md` に従い、必要に応じて `context_terms` も保持する。
+`movie` の `context_terms` は `IdleChat_Movie_DB_Context_Memo仕様.md` に従い、自前 Movie DB 由来の映画・俳優・監督等の関連メモとして扱う。
 
 ### 5.2 forecast
 

@@ -68,6 +68,12 @@ func (o *IdleChatOrchestrator) SetDialogueInterestingnessConfig(config DialogueI
 	o.dialogueConfig = normalizeDialogueInterestingnessConfig(config)
 }
 
+func (o *IdleChatOrchestrator) SetMovieCatalogDBPath(path string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.movieCatalogDBPath = strings.TrimSpace(path)
+}
+
 func (o *IdleChatOrchestrator) SetEventEmitter(emit func(TimelineEvent) <-chan struct{}) {
 	o.mu.Lock()
 	defer o.mu.Unlock()

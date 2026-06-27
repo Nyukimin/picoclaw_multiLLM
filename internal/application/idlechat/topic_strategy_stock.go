@@ -268,6 +268,7 @@ func (o *IdleChatOrchestrator) generateTopicStrategyStockItem(ctx context.Contex
 	copied.Topic = topic
 	copied.Category = seed.Category
 	copied.Strategy = string(strategy)
+	copied = o.enrichTopicContext(ctx, copied)
 	return &copied, nil
 }
 

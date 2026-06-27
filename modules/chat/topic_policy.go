@@ -103,6 +103,13 @@ type TopicJudgeScore struct {
 	Reason                string `json:"reason"`
 }
 
+type TopicContextTerm struct {
+	Term      string `json:"term"`
+	Meaning   string `json:"meaning"`
+	Relevance string `json:"relevance"`
+	Source    string `json:"source,omitempty"`
+}
+
 type TopicGenerationResult struct {
 	Topic    string        `json:"topic"`
 	Category TopicCategory `json:"category"`
@@ -112,10 +119,11 @@ type TopicGenerationResult struct {
 	OpeningHook         string `json:"opening_hook"`
 	Avoid               string `json:"avoid"`
 
-	Seed       TopicSeed         `json:"seed"`
-	Candidates []TopicCandidate  `json:"candidates,omitempty"`
-	Judge      *TopicJudgeResult `json:"judge,omitempty"`
-	Provider   string            `json:"provider"`
+	Seed         TopicSeed          `json:"seed"`
+	ContextTerms []TopicContextTerm `json:"context_terms,omitempty"`
+	Candidates   []TopicCandidate   `json:"candidates,omitempty"`
+	Judge        *TopicJudgeResult  `json:"judge,omitempty"`
+	Provider     string             `json:"provider"`
 }
 
 type TopicGenerationDiagnostic struct {

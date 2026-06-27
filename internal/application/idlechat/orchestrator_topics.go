@@ -19,9 +19,10 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 			topic := normalizeIdleTopic(stocked.Topic, movieMode)
 			if topic != "" {
 				stocked.Topic = topic
+				enriched := o.enrichTopicContext(o.idleRunContext(), *stocked)
 				o.mu.Lock()
-				o.sessionContext = formatTopicGenerationContext(*stocked)
-				copied := *stocked
+				o.sessionContext = formatTopicGenerationContext(enriched)
+				copied := enriched
 				o.currentTopicResult = &copied
 				o.mu.Unlock()
 				log.Printf("[IdleChat] Topic: %s (%s, stock=true)", topic, strategy)
@@ -95,9 +96,12 @@ func (o *IdleChatOrchestrator) generateTopicFromChat(sessionID string, strategy 
 	if err == nil && result != nil {
 		topic := normalizeIdleTopic(result.Topic, movieMode)
 		result.Topic = topic
+		result.Category = seed.Category
+		result.Strategy = string(strategy)
+		enriched := o.enrichTopicContext(o.idleRunContext(), *result)
 		o.mu.Lock()
-		o.sessionContext = formatTopicGenerationContext(*result)
-		copied := *result
+		o.sessionContext = formatTopicGenerationContext(enriched)
+		copied := enriched
 		o.currentTopicResult = &copied
 		o.mu.Unlock()
 		log.Printf("[IdleChat] Topic: %s (%s)", topic, strategy)
@@ -165,10 +169,40 @@ func formatTopicGenerationContext(result TopicGenerationResult) string {
 	if avoid := strings.TrimSpace(result.Avoid); avoid != "" {
 		parts = append(parts, "【避ける退屈な展開】\n"+avoid)
 	}
+	if terms := formatTopicContextTerms(result.ContextTerms); terms != "" {
+		parts = append(parts, "【関連メモ】\n"+terms)
+	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return "IdleChat topic internal guidance:\n" + strings.Join(parts, "\n\n") + "\n\nこの内部メタは発話にそのまま出さない。"
+}
+
+func formatTopicContextTerms(terms []TopicContextTerm) string {
+	lines := make([]string, 0, len(terms))
+	for _, term := range terms {
+		name := strings.TrimSpace(term.Term)
+		if name == "" {
+			continue
+		}
+		meaning := strings.TrimSpace(term.Meaning)
+		relevance := strings.TrimSpace(term.Relevance)
+		line := "- " + name
+		if meaning != "" {
+			line += ": " + meaning
+		}
+		if relevance != "" {
+			line += " / お題との関係: " + relevance
+		}
+		lines = append(lines, line)
+		if len(lines) >= 8 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n注意: このメモは会話の参考にだけ使い、出典名・DB名・内部メタを発話本文へ出さない。"
 }
 
 func diagnosticTopicForStrategy(strategy TopicStrategy, genres []string, source string, seed string, anchor topicAnchor) string {

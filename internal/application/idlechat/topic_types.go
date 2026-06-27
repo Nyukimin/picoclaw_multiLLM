@@ -34,6 +34,7 @@ type TopicSeed = modulechat.TopicSeed
 type ExternalMaterialSeed = modulechat.ExternalMaterialSeed
 type RecentTopic = modulechat.RecentTopic
 type TopicCandidate = modulechat.TopicCandidate
+type TopicContextTerm = modulechat.TopicContextTerm
 type TopicJudgeResult = modulechat.TopicJudgeResult
 type TopicJudgeScore = modulechat.TopicJudgeScore
 type TopicGenerationResult = modulechat.TopicGenerationResult
