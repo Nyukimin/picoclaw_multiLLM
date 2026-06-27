@@ -1259,19 +1259,8 @@ body.lab-mode.live-mode::before{
 }
 
 body.lab-mode.live-mode::after{
-  content:"";
-  position:fixed;
-  left:var(--lab-edge);
-  right:var(--lab-edge);
-  bottom:calc(var(--lab-edge) + 38px);
-  height:calc(var(--lab-bottom) + 22px);
-  z-index:9;
-  pointer-events:none;
-  border:1px solid rgba(255,255,255,.70);
-  border-radius:20px;
-  background:linear-gradient(180deg,rgba(255,255,255,.70),rgba(230,242,255,.58));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.96),0 18px 58px rgba(54,93,166,.20);
-  backdrop-filter:blur(22px) saturate(1.18);
+  content:none;
+  display:none;
 }
 
 body.lab-mode.live-mode .lab-stream-shell{
@@ -1478,8 +1467,9 @@ body.lab-mode.live-mode #chat{
   overflow-x:hidden;
   pointer-events:auto;
   border-radius:18px;
-  background:rgba(255,255,255,.72);
-  border:1px solid rgba(92,126,205,.20);
+  color:#10245b;
+  background:rgba(255,255,255,.25);
+  border:1px solid rgba(62,96,178,.24);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.96),0 16px 44px rgba(70,109,183,.16);
   backdrop-filter:blur(20px) saturate(1.18);
 }
@@ -1552,9 +1542,9 @@ body.lab-mode.live-mode .live-topic-bar{
   margin:0;
   padding:18px 22px;
   border-radius:18px;
-  color:#172a67;
-  background:rgba(255,255,255,.72);
-  border:1px solid rgba(92,126,205,.20);
+  color:#10245b;
+  background:rgba(255,255,255,.86);
+  border:1px solid rgba(62,96,178,.24);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.96),0 16px 42px rgba(70,109,183,.14);
   backdrop-filter:blur(20px) saturate(1.18);
 }
@@ -1590,9 +1580,9 @@ body.lab-mode.live-mode .live-topic-bar .live-topic-text{
   gap:16px;
   padding:0 24px;
   border-radius:999px;
-  color:#253b7e;
-  background:rgba(255,255,255,.66);
-  border:1px solid rgba(92,126,205,.20);
+  color:#10245b;
+  background:rgba(255,255,255,.86);
+  border:1px solid rgba(62,96,178,.24);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.96),0 12px 28px rgba(70,109,183,.12);
   backdrop-filter:blur(18px) saturate(1.14);
 }
@@ -1732,14 +1722,6 @@ body.lab-mode.live-mode .live-audio-btn{
 body.lab-mode.live-mode{
   font-size:16px;
   letter-spacing:0;
-}
-
-body.lab-mode.live-mode #chat,
-body.lab-mode.live-mode .live-topic-bar,
-body.lab-mode.live-mode .lab-footer{
-  background:rgba(255,255,255,.86);
-  color:#10245b;
-  border-color:rgba(62,96,178,.24);
 }
 
 body.lab-mode.live-mode #chat,
@@ -1983,7 +1965,7 @@ body.lab-mode.live-mode .lab-footer em{
 body.lab-mode.live-mode .lab-mode-indicator{
   position:fixed;
   right:calc(var(--lab-edge) + 8px);
-  top:calc(var(--lab-edge) + 8px);
+  top:44px;
   z-index:38;
   display:flex;
   align-items:center;
