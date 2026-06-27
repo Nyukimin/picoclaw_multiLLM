@@ -41,7 +41,7 @@ func (p *idlechatTopicProvider) Name() string {
 }
 
 func TestProviderForSpeakerPrefersChatWorkerAlias(t *testing.T) {
-	orch := NewIdleChatOrchestrator(idlechatAliasTestProvider{name: "mio"}, &session.CentralMemory{}, nil, 1, 1, 0.5, nil, "")
+	orch := NewIdleChatOrchestrator(idlechatAliasTestProvider{name: "mio"}, &session.CentralMemory{}, nil, 1, 1, 0.5, nil)
 	orch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"shiro":      idlechatAliasTestProvider{name: "Worker"},
 		"chatworker": idlechatAliasTestProvider{name: "ChatWorker"},
@@ -57,7 +57,7 @@ func TestProviderForSpeakerPrefersChatWorkerAlias(t *testing.T) {
 }
 
 func TestChatWorkerDefaultsToNonThinking(t *testing.T) {
-	orch := NewIdleChatOrchestrator(idlechatAliasTestProvider{name: "mio"}, &session.CentralMemory{}, nil, 1, 1, 0.5, nil, "")
+	orch := NewIdleChatOrchestrator(idlechatAliasTestProvider{name: "mio"}, &session.CentralMemory{}, nil, 1, 1, 0.5, nil)
 	if got := orch.speakerThinkEnabled("chatworker"); got {
 		t.Fatalf("speakerThinkEnabled(chatworker) = %t, want false", got)
 	}
@@ -72,7 +72,7 @@ func TestGenerateTopicFromChatUsesChatWorkerProvider(t *testing.T) {
 		topicCandidatesJSON("郵便と古書店に残る、宛先不明の手紙の扱い方", "観察"),
 		topicJudgeJSON("郵便と古書店に残る、宛先不明の手紙の扱い方"),
 	}}
-	orch := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	orch := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	orch.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":        chatProvider,
 		"chatworker": workerProvider,

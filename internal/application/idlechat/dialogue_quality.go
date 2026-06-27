@@ -124,7 +124,7 @@ func CheckCategoryAxis(category TopicCategory, utterance string, state DialogueA
 		if containsAny(text, "兆し", "変化", "変える", "影響", "主体", "分岐", "変数", "メカニズム", "今後") {
 			return nil
 		}
-	case TopicCategoryStory:
+	case TopicCategoryStorySimple:
 		if containsAny(text, "語り", "視点", "元話", "場面", "反転", "善悪", "記録", "鬼", "桃太郎") || mentionsTopicToken(text, state.Topic) {
 			return nil
 		}

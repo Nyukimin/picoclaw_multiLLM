@@ -9,7 +9,7 @@ import (
 )
 
 func TestNextIdleSessionPlanCoversCanonicalSevenCategories(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	var got []idleSessionPlan
 	var gotStrategies []TopicStrategy

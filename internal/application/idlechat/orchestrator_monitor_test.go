@@ -26,7 +26,7 @@ func TestRunChatSessionDoesNotSwitchTopicWithinSingleIdleSession(t *testing.T) {
 		response:  "追加の話題へ切り替えないための既定応答です。",
 		responses: responses,
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, maxTurnsPerTopic+1, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, maxTurnsPerTopic+1, 0.7, nil)
 	o.mu.Lock()
 	o.chatActive = true
 	o.beginIdleRunLocked()
@@ -65,7 +65,7 @@ func TestRunChatSessionContinuesToTurnLimitAfterLoopWarning(t *testing.T) {
 		response:  "もし鍵が古い映写機を開ける合図だったら、二人は暗い客席で同じ場面をもう一度見ることになります。",
 		responses: responses,
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, maxTurnsPerTopic, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, maxTurnsPerTopic, 0.7, nil)
 	o.SetDialogueInterestingnessConfig(DialogueInterestingnessConfig{Enabled: false})
 	o.mu.Lock()
 	o.chatActive = true
@@ -96,7 +96,7 @@ func TestRunChatSessionRecordsGenerationErrorInConversationHistory(t *testing.T)
 			"",
 		},
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 2, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 2, 0.7, nil)
 	o.mu.Lock()
 	o.chatActive = true
 	o.beginIdleRunLocked()
@@ -122,7 +122,7 @@ func TestRunChatSessionRecordsGenerationErrorInConversationHistory(t *testing.T)
 
 func TestActiveSessionTranscriptReturnsCurrentIdleSessionInOrder(t *testing.T) {
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(nil, memory, []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(nil, memory, []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	o.mu.Lock()
 	o.activeSessionID = "idle-current"
 	o.mu.Unlock()
@@ -160,7 +160,7 @@ func TestActiveSessionTranscriptReturnsCurrentIdleSessionInOrder(t *testing.T) {
 
 func TestEmitTopicUsesTopicEventOutsideConversationTurns(t *testing.T) {
 	memory := session.NewCentralMemory()
-	o := NewIdleChatOrchestrator(nil, memory, []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(nil, memory, []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	var emitted []TimelineEvent
 	o.SetEventEmitter(func(ev TimelineEvent) <-chan struct{} {
 		emitted = append(emitted, ev)

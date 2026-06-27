@@ -344,7 +344,6 @@ type IdleChatConfig struct {
 	IntervalSec             int                                   `yaml:"interval_sec"`              // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
 	MaxTurns                int                                   `yaml:"max_turns"`                 // 1回の雑談の最大ターン数（デフォルト: 10）
 	Temperature             float64                               `yaml:"temperature"`               // 雑談時の温度（デフォルト: 0.8）
-	StoryDataDir            string                                `yaml:"story_data_dir"`            // 物語データJSONディレクトリ（デフォルト: "data/story"）
 	ForecastExternalEnabled bool                                  `yaml:"forecast_external_enabled"` // true の場合のみ Forecast で外部 Coder API を明示利用する
 	TopicGeneration         IdleChatTopicGenerationConfig         `yaml:"topic_generation"`          // お題候補生成・Judge設定
 	DialogueInterestingness IdleChatDialogueInterestingnessConfig `yaml:"dialogue_interestingness"`  // 対話演出・品質判定設定
@@ -367,15 +366,15 @@ type IdleChatTopicGenerationConfig struct {
 }
 
 type IdleChatTopicGenerationPromptPaths struct {
-	Common   string `yaml:"common"`
-	Single   string `yaml:"single"`
-	Double   string `yaml:"double"`
-	External string `yaml:"external"`
-	Movie    string `yaml:"movie"`
-	News     string `yaml:"news"`
-	Forecast string `yaml:"forecast"`
-	Story    string `yaml:"story"`
-	Judge    string `yaml:"judge"`
+	Common      string `yaml:"common"`
+	Single      string `yaml:"single"`
+	Double      string `yaml:"double"`
+	External    string `yaml:"external"`
+	Movie       string `yaml:"movie"`
+	News        string `yaml:"news"`
+	Forecast    string `yaml:"forecast"`
+	StorySimple string `yaml:"story_simple"`
+	Judge       string `yaml:"judge"`
 }
 
 type IdleChatDialogueInterestingnessConfig struct {
@@ -399,14 +398,14 @@ type IdleChatDialogueUtteranceConfig struct {
 }
 
 type IdleChatDialogueInterestingnessPromptPaths struct {
-	Common   string `yaml:"common"`
-	Single   string `yaml:"single"`
-	Double   string `yaml:"double"`
-	External string `yaml:"external"`
-	Movie    string `yaml:"movie"`
-	News     string `yaml:"news"`
-	Forecast string `yaml:"forecast"`
-	Story    string `yaml:"story"`
+	Common      string `yaml:"common"`
+	Single      string `yaml:"single"`
+	Double      string `yaml:"double"`
+	External    string `yaml:"external"`
+	Movie       string `yaml:"movie"`
+	News        string `yaml:"news"`
+	Forecast    string `yaml:"forecast"`
+	StorySimple string `yaml:"story_simple"`
 }
 
 type IdleChatLLMOptions struct {

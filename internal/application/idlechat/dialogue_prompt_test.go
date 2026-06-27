@@ -42,7 +42,7 @@ func (p *capturingIdleProvider) Name() string { return "capturing-idle" }
 
 func TestGenerateResponseFirstTurnUsesActualSpeaker(t *testing.T) {
 	provider := &capturingIdleProvider{response: "郵便配達員が古書店の棚で宛先不明の手紙を見つける入口がよさそう。しろなら、誰が隠したと思う？"}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	_, err := o.generateResponse("mio", "shiro", "idle-dialogue-first", 0, 0, "郵便と古書店")
 	if err != nil {
@@ -63,7 +63,7 @@ func TestGenerateResponseFirstTurnUsesActualSpeaker(t *testing.T) {
 func TestGenerateResponseSendsExplicitThinkOptionPerIdleSpeaker(t *testing.T) {
 	chatProvider := &capturingIdleProvider{response: "郵便配達員が古書店で手紙を見つける入口、すごく気になる。しろなら、その手紙を開ける？"}
 	workerProvider := &capturingIdleProvider{response: "開ける前に、宛名の消え方を見るべきです。封筒の端だけ濡れているなら、隠した人の癖が残ります。"}
-	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"mio":   chatProvider,
 		"shiro": workerProvider,
@@ -98,7 +98,7 @@ func TestGenerateResponseSendsExplicitThinkOptionPerIdleSpeaker(t *testing.T) {
 
 func TestGenerateResponseShiroSkipsFunCandidateAndUsesCompactMaxTokens(t *testing.T) {
 	workerProvider := &capturingIdleProvider{response: "その役割は、外から来た人が古いルールの穴を見つけることです。最初に困る場所を一つ決めると見えます。"}
-	o := NewIdleChatOrchestrator(workerProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(workerProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("shiro", "mio", "idle-shiro-single-candidate", 1, 1, "異世界転移者の役割")
 	if err != nil {
@@ -120,7 +120,7 @@ func TestGenerateResponseSelectsMoreFunCandidate(t *testing.T) {
 		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
 		"雨の古書店で宛先不明の手紙が棚から落ちたら、隠した人の嘘まで濡れて見えそう。しろなら、その封筒を開ける？",
 	}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("mio", "shiro", "idle-fun-candidate", 0, 0, "郵便と古書店")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestGenerateResponseWithRawReturnsUneditedSelectedOutput(t *testing.T) {
 		"Mio: 雨の古書店で宛先不明の手紙が棚から落ちたら、隠した人の嘘まで濡れて見えそう。",
 		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
 	}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, raw, err := o.generateResponseWithRaw("mio", "shiro", "idle-raw-response", 0, 0, "郵便と古書店")
 	if err != nil {
@@ -168,7 +168,7 @@ func TestGenerateResponseSelectsCurrentSpeakerLineFromScriptOutput(t *testing.T)
 		"Mio: その封筒を開けた瞬間、棚の奥の雨音まで変わりそう。\nShiro: 開ける前に、宛名の消え方を見たほうがいい。",
 		"その話題は構造を考えると面白いですね。もう少し整理できそうです。",
 	}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, raw, err := o.generateResponseWithRaw("mio", "shiro", "idle-script-response", 0, 0, "郵便と古書店")
 	if err != nil {
@@ -215,7 +215,7 @@ func TestGenerateResponseUsesDialogueMaxTokensForShiro(t *testing.T) {
 		"その点は、封筒を開ける前に誰が見ていたかで意味が変わる。",
 		"その点は、封筒を戻す選択にも小さな嘘が残る。",
 	}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	_, err := o.generateResponse("shiro", "mio", "idle-shiro-token-limit", 1, 1, "郵便と古書店")
 	if err != nil {
@@ -232,7 +232,7 @@ func TestGenerateResponseUsesDialogueMaxTokensForShiro(t *testing.T) {
 func TestGenerateResponseErrorsShiroDialogueWithoutDefaultProviderFallback(t *testing.T) {
 	chatProvider := &capturingIdleProvider{response: "開ける前に、宛名の消え方を見たほうがいい。封筒の端だけ濡れているなら、隠した人の癖が残ります。"}
 	workerProvider := &capturingIdleProvider{responses: []string{"", ""}}
-	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"shiro": workerProvider,
 	})
@@ -251,7 +251,7 @@ func TestGenerateResponseErrorsShiroDialogueWithoutDefaultProviderFallback(t *te
 
 func TestGenerateResponseErrorsEmptyContentForAnySpeaker(t *testing.T) {
 	provider := &capturingIdleProvider{responses: []string{"", "この応答は使われないはずです。"}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("mio", "shiro", "idle-empty-content-error", 0, 0, "郵便と古書店")
 	if err == nil {
@@ -268,7 +268,7 @@ func TestGenerateResponseErrorsShiroReasoningLeakWithoutDefaultProviderFallback(
 		"Okay, the user is asking me to respond as Shiro in Japanese. The task is to give one or two sentences, but first I need to analyze the context and decide what kind of concrete hook to add.",
 		"この応答は使われないはずです。",
 	}}
-	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"shiro": workerProvider,
 	})
@@ -295,7 +295,7 @@ Let's look at the previous response. Shiro said: "その通りかもしれない
 Need a concise Japanese final answer, but first I need to choose one hook.`,
 		"この応答は使われないはずです。",
 	}}
-	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(chatProvider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	o.SetSpeakerProviders(map[string]llm.LLMProvider{
 		"shiro": workerProvider,
 	})
@@ -333,7 +333,7 @@ func TestGenerateResponseTenThemesDoNotUseFallback(t *testing.T) {
 		)
 	}
 	provider := &capturingIdleProvider{responses: responses}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	for i, topic := range topics {
 		got, err := o.generateResponse("mio", "shiro", "idle-ten-themes", i, i, topic)
@@ -381,7 +381,7 @@ func TestGenerateResponseRecoversEmptyTopicFromSessionMemory(t *testing.T) {
 	provider := &capturingIdleProvider{response: "郵便と古書店なら、宛先不明の手紙を最初の手がかりにすると入れそう。しろなら、その手紙を誰が隠したと思う？"}
 	memory := session.NewCentralMemory()
 	memory.RecordMessage(domaintransport.NewMessage("user", "mio", "idle-empty-topic", "", "今日のお題（external）: 郵便と古書店"))
-	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, memory, []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	_, err := o.generateResponse("mio", "shiro", "idle-empty-topic", 0, 0, "")
 	if err != nil {
@@ -401,7 +401,7 @@ func TestGenerateResponseRecoversEmptyTopicFromSessionMemory(t *testing.T) {
 
 func TestGenerateResponseNeverPassesEmptyTopicToProvider(t *testing.T) {
 	provider := &capturingIdleProvider{response: "この会話の現在のお題なら、まず具体的な入口を一つ決めると話しやすいです。みおなら、どの場面から始めますか？"}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	_, err := o.generateResponse("shiro", "mio", "idle-empty-topic-fallback", 0, 0, "")
 	if err != nil {
@@ -426,7 +426,7 @@ func TestGenerateResponseRejectsInternalReasoningLeak(t *testing.T) {
 			"えー、その映写室で音が少し遅れて聞こえる瞬間、秘密の入口っぽくて気になるよ。shiroなら、そのズレを誰が仕込んだと思う？",
 		},
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("mio", "shiro", "idle-leak", 0, 0, "小さな映画館の音響空間")
 	if err != nil {
@@ -447,7 +447,7 @@ func TestGenerateResponseErrorsOnShiroEnglishReasoningLeak(t *testing.T) {
 			"その見方なら、道具の傷は使い手の失敗も直した回数も一緒に残している感じがあります。例えば修理屋の定規なら、削れた端だけで前の持ち主の癖まで見えてきそうです。",
 		},
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("shiro", "mio", "idle-english-leak", 3, 3, "使い古された道具の魂")
 	if err == nil {
@@ -550,7 +550,7 @@ func TestGenerateResponseDoesNotAcceptUnfinishedShiroStyleRetry(t *testing.T) {
 			"商標登録の鍵がノートに隠されているなら、その鍵の所有者は発明者の死後にノートを引き継いだ人物かもしれない。それは、誰が書いたかという秘密が、実は誰かの利益になるという事実が、現",
 		},
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("shiro", "mio", "idle-shiro-unfinished-style", 1, 1, "発明者の観測ノート")
 	if err != nil {
@@ -568,7 +568,7 @@ func TestGenerateResponseErrorsWhenInternalReasoningPersists(t *testing.T) {
 	provider := &capturingIdleProvider{
 		response: "channel>thought\nユーザーは私（Mio）に対して、会話の制約を課している。\n1. **キャラクター**: Mio\n2. **目標**: 自然な返答。",
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("mio", "shiro", "idle-leak-error", 0, 0, "小さな映画館の音響空間")
 	if err == nil {
@@ -580,7 +580,7 @@ func TestGenerateResponseDoesNotFallbackAfterRetryCycle(t *testing.T) {
 	provider := &capturingIdleProvider{
 		response: "channel>thought\nユーザーは私（Mio）に対して、会話の制約を課している。",
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("mio", "shiro", "idle-leak-stop", 8, 8, "映画館の映写担当")
 	if err == nil {
@@ -596,7 +596,7 @@ func TestGenerateResponseRetriesTruncatedFinishReason(t *testing.T) {
 		},
 		finishReasons: []string{"length", "stop"},
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	got, err := o.generateResponse("mio", "shiro", "idle-truncated", 0, 0, "小さな映画館の音響空間")
 	if err != nil {
@@ -761,7 +761,7 @@ func TestBuildIdleResponseGuardPromptBansEnglishOutput(t *testing.T) {
 }
 
 func TestSystemPromptKeepsOutputContractWithoutToneContract(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	got := o.getSystemPrompt("shiro")
 
 	for _, want := range []string{
@@ -792,7 +792,7 @@ func TestSystemPromptKeepsOutputContractWithoutToneContract(t *testing.T) {
 }
 
 func TestMioSystemPromptForcesIdleChatGalStyle(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	got := o.getSystemPrompt("mio")
 
 	for _, want := range []string{
@@ -829,7 +829,7 @@ func TestMioSystemPromptForcesIdleChatGalStyle(t *testing.T) {
 func TestGetSystemPromptPutsRuntimePolicyBeforeCommonPrompt(t *testing.T) {
 	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, map[string]string{
 		"shiro": "COMMON SHIRO SYSTEM PROMPT\n\n---\n\n# IdleChat補正\n\nIDLECHAT SHIRO CORRECTION",
-	}, "")
+	})
 
 	got := o.getSystemPrompt("shiro")
 	commonIdx := strings.Index(got, "COMMON SHIRO SYSTEM PROMPT")
@@ -850,7 +850,7 @@ func TestGenerateResponseKeepsOnlyFirstMessageAsSystem(t *testing.T) {
 	}}
 	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, map[string]string{
 		"shiro": "COMMON SHIRO SYSTEM PROMPT\n\n# IdleChat補正\n\nIDLECHAT SHIRO CORRECTION",
-	}, "")
+	})
 	o.sessionContext = "SESSION CONTEXT SHOULD STAY IN FIRST SYSTEM"
 	o.SetRecentTopicProvider(func(context.Context, int) ([]string, error) {
 		return []string{"RECENT TOPIC SHOULD STAY IN FIRST SYSTEM"}, nil
@@ -897,7 +897,7 @@ func TestLatestOtherUtteranceUsesPreviousSpeakerLine(t *testing.T) {
 
 func TestGenerateResponseErrorsWhenIdleLLMTimesOut(t *testing.T) {
 	provider := &capturingIdleProvider{block: true}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	old := idleChatLLMGenerateTimeout
 	idleChatLLMGenerateTimeout = 10 * time.Millisecond
 	defer func() { idleChatLLMGenerateTimeout = old }()

@@ -8,7 +8,7 @@ import (
 )
 
 func TestEmitTopicToTimelineDoesNotWaitForTTSCompletion(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	ttsDone := make(chan struct{})
 	eventSeen := make(chan struct{}, 1)
 	o.SetEventEmitter(func(ev TimelineEvent) <-chan struct{} {
@@ -42,7 +42,7 @@ func TestEmitTopicToTimelineDoesNotWaitForTTSCompletion(t *testing.T) {
 }
 
 func TestWaitForTTSDoneTimesOut(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	old := idleChatTTSWaitTimeout
 	idleChatTTSWaitTimeout = 10 * time.Millisecond
 	defer func() { idleChatTTSWaitTimeout = old }()
@@ -80,7 +80,7 @@ func TestIdleChatTTSSessionDrainTimeoutDefaultIsSixtySeconds(t *testing.T) {
 }
 
 func TestWaitForTTSSessionDrainWaitsForOutstandingPlaybackBeforeNextSession(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	old := idleChatTTSSessionDrainTimeout
 	idleChatTTSSessionDrainTimeout = 200 * time.Millisecond
 	defer func() { idleChatTTSSessionDrainTimeout = old }()
@@ -99,7 +99,7 @@ func TestWaitForTTSSessionDrainWaitsForOutstandingPlaybackBeforeNextSession(t *t
 }
 
 func TestWaitForTTSSessionDrainTimesOutInsteadOfStoppingSystem(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	old := idleChatTTSSessionDrainTimeout
 	idleChatTTSSessionDrainTimeout = 10 * time.Millisecond
 	defer func() { idleChatTTSSessionDrainTimeout = old }()

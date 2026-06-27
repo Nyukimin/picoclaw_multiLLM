@@ -247,22 +247,22 @@ func buildSimpleStoryTopicResult(sourceTitle, protagonist string) TopicGeneratio
 	topic := fmt.Sprintf("%sを、主人公%sの視点で語り直す物語", sourceTitle, protagonist)
 	candidate := TopicCandidate{
 		Topic:               topic,
-		InterestingnessAxis: modulechat.ExpectedAxisByCategory[TopicCategoryStory],
+		InterestingnessAxis: modulechat.ExpectedAxisByCategory[TopicCategoryStorySimple],
 		OpeningHook:         fmt.Sprintf("%sの骨格を残しつつ、%sなら何を見落とさないかを拾う", sourceTitle, protagonist),
 		Avoid:               "元話のあらすじ紹介だけで終わらせない",
 	}
 	seed := TopicSeed{
-		Category:       TopicCategoryStory,
-		StoryBase:      sourceTitle,
-		StoryTransform: protagonist,
+		Category:    TopicCategoryStorySimple,
+		TaleTitle:   sourceTitle,
+		Protagonist: protagonist,
 	}
-	if err := modulechat.ValidateTopicCandidate(TopicCategoryStory, seed, candidate); err != nil {
-		log.Printf("[SimpleStory] story topic contract violation: %v", err)
+	if err := modulechat.ValidateTopicCandidate(TopicCategoryStorySimple, seed, candidate); err != nil {
+		log.Printf("[SimpleStory] story-simple topic contract violation: %v", err)
 	}
 	return TopicGenerationResult{
 		Topic:               candidate.Topic,
-		Category:            TopicCategoryStory,
-		Strategy:            modulechat.StrategyFromTopicCategory(TopicCategoryStory),
+		Category:            TopicCategoryStorySimple,
+		Strategy:            modulechat.StrategyFromTopicCategory(TopicCategoryStorySimple),
 		InterestingnessAxis: candidate.InterestingnessAxis,
 		OpeningHook:         candidate.OpeningHook,
 		Avoid:               candidate.Avoid,
@@ -280,7 +280,7 @@ func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTit
 		SessionID:       sessionID,
 		Title:           fmt.Sprintf("%d月%d日の%s", endedAt.Month(), endedAt.Day(), topic),
 		Topic:           topic,
-		Category:        TopicCategoryStory,
+		Category:        TopicCategoryStorySimple,
 		Strategy:        TopicStrategy("story-simple"),
 		Summary:         summary,
 		QualityReview:   qualityReview,
@@ -312,7 +312,7 @@ func (o *IdleChatOrchestrator) saveSimpleStoryReview(sessionID, topic, sourceTit
 	}
 }
 
-// emitStoryParagraph は段落をViewer + TTSに配信する（story_mode.goから移植）
+// emitStoryParagraph は段落をViewer + TTSに配信する。
 func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string, utteranceSeq *int) {
 	paragraph = strings.TrimSpace(paragraph)
 	if paragraph == "" {
@@ -343,7 +343,7 @@ func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string, u
 		if utteranceSeq != nil && *utteranceSeq > 0 {
 			turnIndex = *utteranceSeq
 		}
-		messageID := fmt.Sprintf("%s:story:%04d", sessionID, turnIndex)
+		messageID := fmt.Sprintf("%s:story-simple:%04d", sessionID, turnIndex)
 		ttsEvent := TimelineEvent{
 			Type:      "idlechat.tts",
 			From:      "mio",
@@ -359,7 +359,7 @@ func (o *IdleChatOrchestrator) emitStoryParagraph(sessionID, paragraph string, u
 	}
 }
 
-// groupStoryIntoViewerParagraphs はストーリーテキストを指定文字数で段落に分割（story_mode.goから移植）
+// groupStoryIntoViewerParagraphs はストーリーテキストを指定文字数で段落に分割する。
 func groupStoryIntoViewerParagraphs(text string, targetRunes int) []string {
 	sentences := splitStorySentences(strings.TrimSpace(text))
 	var out []string
@@ -379,7 +379,7 @@ func groupStoryIntoViewerParagraphs(text string, targetRunes int) []string {
 	return out
 }
 
-// splitStorySentences は文節区切りで分割（story_mode.goから移植）
+// splitStorySentences は文節区切りで分割する。
 func splitStorySentences(story string) []string {
 	runes := []rune(story)
 	n := len(runes)
@@ -407,7 +407,7 @@ func splitStorySentences(story string) []string {
 	return sentences
 }
 
-// isStoryLineHeadForbidden は行頭禁則文字かどうかを返す（story_mode.goから移植）
+// isStoryLineHeadForbidden は行頭禁則文字かどうかを返す。
 func isStoryLineHeadForbidden(r rune) bool {
 	switch r {
 	case '、', '。', '！', '？', '」', '』', '）', ')', '…', '‥', '・', '：', '；', 'ー', '～', '〜':

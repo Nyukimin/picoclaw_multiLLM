@@ -39,7 +39,6 @@ func buildIdleChatRuntime(
 		cfg.IdleChat.MaxTurns,
 		cfg.IdleChat.Temperature,
 		config.BuildIdleChatAgentPrompts(cfg.Prompts),
-		cfg.IdleChat.StoryDataDir,
 	)
 	idleChatOrch.SetIntervalSeconds(cfg.IdleChat.IntervalSec)
 	chatWorkerAliasProvider := chatWorkerProvider
@@ -254,15 +253,15 @@ func idleChatTopicGenerationConfigFromRuntime(cfg config.IdleChatTopicGeneration
 		LogJudgeScores:       cfg.LogJudgeScores,
 		ProviderName:         "chatworker",
 		PromptPaths: idlechat.TopicGenerationPromptPaths{
-			Common:   cfg.Prompts.Common,
-			Single:   cfg.Prompts.Single,
-			Double:   cfg.Prompts.Double,
-			External: cfg.Prompts.External,
-			Movie:    cfg.Prompts.Movie,
-			News:     cfg.Prompts.News,
-			Forecast: cfg.Prompts.Forecast,
-			Story:    cfg.Prompts.Story,
-			Judge:    cfg.Prompts.Judge,
+			Common:      cfg.Prompts.Common,
+			Single:      cfg.Prompts.Single,
+			Double:      cfg.Prompts.Double,
+			External:    cfg.Prompts.External,
+			Movie:       cfg.Prompts.Movie,
+			News:        cfg.Prompts.News,
+			Forecast:    cfg.Prompts.Forecast,
+			StorySimple: cfg.Prompts.StorySimple,
+			Judge:       cfg.Prompts.Judge,
 		},
 	}
 }
@@ -284,14 +283,14 @@ func idleChatDialogueInterestingnessConfigFromRuntime(cfg config.IdleChatDialogu
 			PreferredMaxSentences: cfg.Utterance.PreferredMaxSentences,
 		},
 		PromptPaths: idlechat.DialoguePromptPaths{
-			Common:   cfg.Prompts.Common,
-			Single:   cfg.Prompts.Single,
-			Double:   cfg.Prompts.Double,
-			External: cfg.Prompts.External,
-			Movie:    cfg.Prompts.Movie,
-			News:     cfg.Prompts.News,
-			Forecast: cfg.Prompts.Forecast,
-			Story:    cfg.Prompts.Story,
+			Common:      cfg.Prompts.Common,
+			Single:      cfg.Prompts.Single,
+			Double:      cfg.Prompts.Double,
+			External:    cfg.Prompts.External,
+			Movie:       cfg.Prompts.Movie,
+			News:        cfg.Prompts.News,
+			Forecast:    cfg.Prompts.Forecast,
+			StorySimple: cfg.Prompts.StorySimple,
 		},
 	}
 }

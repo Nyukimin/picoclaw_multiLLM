@@ -5,13 +5,20 @@ import (
 	"testing"
 )
 
-func TestNormalizeTopicCategoryMapsStorySimpleToStory(t *testing.T) {
+func TestNormalizeTopicCategoryKeepsStorySimple(t *testing.T) {
 	got, err := NormalizeTopicCategory("story-simple")
 	if err != nil {
 		t.Fatalf("NormalizeTopicCategory returned error: %v", err)
 	}
-	if got != TopicCategoryStory {
-		t.Fatalf("category = %q, want %q", got, TopicCategoryStory)
+	if got != TopicCategoryStorySimple {
+		t.Fatalf("category = %q, want %q", got, TopicCategoryStorySimple)
+	}
+}
+
+func TestNormalizeTopicCategoryRejectsStory(t *testing.T) {
+	_, err := NormalizeTopicCategory("story")
+	if !errors.Is(err, ErrUnsupportedTopicCategory) {
+		t.Fatalf("NormalizeTopicCategory(story) error = %v, want unsupported", err)
 	}
 }
 

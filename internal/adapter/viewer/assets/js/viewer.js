@@ -618,7 +618,7 @@ function clearTTSAudioError() {
 
 function isIdleChatSessionId(sessionId) {
   const sid = String(sessionId || '').trim();
-  return sid.indexOf('idle-') === 0 || sid.indexOf('forecast-') === 0 || sid.indexOf('story-') === 0 || sid.indexOf('story-simple-') === 0;
+  return sid.indexOf('idle-') === 0 || sid.indexOf('forecast-') === 0 || sid.indexOf('story-simple-') === 0;
 }
 
 function setCentralTTSSpeechText(characterId, text, sessionId, chunkIndex, utteranceId, responseId, messageId, turnIndex) {
@@ -2793,7 +2793,7 @@ function deriveLabConversationMode(status) {
   ).trim().toLowerCase();
   if (status && (status.manual_mode === true || status.chat_active === true)) return 'idle';
   if (raw === 'idle' || raw === 'idlechat') return 'idle';
-  if (raw === 'manual' || raw === 'forecast' || raw === 'story' || raw === 'story-simple') return 'idle';
+  if (raw === 'manual' || raw === 'forecast' || raw === 'story-simple') return 'idle';
   if (raw === 'chat') return 'chat';
   const sessionID = String(status && (status.active_session_id || (status.watchdog && status.watchdog.session_id)) || '');
   if (sessionID.toLowerCase().startsWith('idle-')) return 'idle';

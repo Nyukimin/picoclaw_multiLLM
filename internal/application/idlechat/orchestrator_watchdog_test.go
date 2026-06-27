@@ -9,7 +9,7 @@ import (
 
 func TestWatchdogSnapshotReportsCurrentSequenceStage(t *testing.T) {
 	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "ren"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "ren"}, 5, 10, 0.8, nil)
 	o.mu.Lock()
 	o.chatActive = true
 	o.manualMode = true
@@ -41,7 +41,7 @@ func TestWatchdogSnapshotReportsCurrentSequenceStage(t *testing.T) {
 
 func TestRecoverIfStalledInterruptsActiveIdleChat(t *testing.T) {
 	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "ren"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "ren"}, 5, 10, 0.8, nil)
 	o.mu.Lock()
 	o.chatActive = true
 	o.manualMode = true
@@ -68,7 +68,7 @@ func TestRecoverIfStalledInterruptsActiveIdleChat(t *testing.T) {
 
 func TestRecoverIfStalledKeepsFreshIdleChatActive(t *testing.T) {
 	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "ren"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "ren"}, 5, 10, 0.8, nil)
 	o.mu.Lock()
 	o.chatActive = true
 	o.manualMode = true

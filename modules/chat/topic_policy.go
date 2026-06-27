@@ -12,13 +12,13 @@ import (
 type TopicCategory string
 
 const (
-	TopicCategorySingle   TopicCategory = "single"
-	TopicCategoryDouble   TopicCategory = "double"
-	TopicCategoryExternal TopicCategory = "external"
-	TopicCategoryMovie    TopicCategory = "movie"
-	TopicCategoryNews     TopicCategory = "news"
-	TopicCategoryForecast TopicCategory = "forecast"
-	TopicCategoryStory    TopicCategory = "story"
+	TopicCategorySingle      TopicCategory = "single"
+	TopicCategoryDouble      TopicCategory = "double"
+	TopicCategoryExternal    TopicCategory = "external"
+	TopicCategoryMovie       TopicCategory = "movie"
+	TopicCategoryNews        TopicCategory = "news"
+	TopicCategoryForecast    TopicCategory = "forecast"
+	TopicCategoryStorySimple TopicCategory = "story-simple"
 )
 
 var (
@@ -48,8 +48,8 @@ type TopicSeed struct {
 	ForecastDomain string   `json:"forecast_domain,omitempty"`
 	TrendKeywords  []string `json:"trend_keywords,omitempty"`
 
-	StoryBase      string `json:"story_base,omitempty"`
-	StoryTransform string `json:"story_transform,omitempty"`
+	TaleTitle   string `json:"tale_title,omitempty"`
+	Protagonist string `json:"protagonist,omitempty"`
 
 	RecentTopics []RecentTopic `json:"recent_topics,omitempty"`
 }
@@ -145,13 +145,13 @@ const (
 )
 
 var ExpectedAxisByCategory = map[TopicCategory]string{
-	TopicCategorySingle:   "観察",
-	TopicCategoryDouble:   "接続",
-	TopicCategoryExternal: "偶然の意味化",
-	TopicCategoryMovie:    "共同妄想",
-	TopicCategoryNews:     "現実の影響",
-	TopicCategoryForecast: "変化の分岐",
-	TopicCategoryStory:    "視点反転",
+	TopicCategorySingle:      "観察",
+	TopicCategoryDouble:      "接続",
+	TopicCategoryExternal:    "偶然の意味化",
+	TopicCategoryMovie:       "共同妄想",
+	TopicCategoryNews:        "現実の影響",
+	TopicCategoryForecast:    "変化の分岐",
+	TopicCategoryStorySimple: "視点反転",
 }
 
 var CommonForbiddenMetaTerms = []string{
@@ -182,20 +182,15 @@ func NormalizeTopicCategory(s string) (TopicCategory, error) {
 		return TopicCategoryNews, nil
 	case "forecast":
 		return TopicCategoryForecast, nil
-	case "story", "story-simple":
-		return TopicCategoryStory, nil
+	case "story-simple":
+		return TopicCategoryStorySimple, nil
 	default:
 		return "", ErrUnsupportedTopicCategory
 	}
 }
 
 func StrategyFromTopicCategory(category TopicCategory) string {
-	switch category {
-	case TopicCategoryStory:
-		return "story-simple"
-	default:
-		return string(category)
-	}
+	return string(category)
 }
 
 func ValidateSeedForCategory(category TopicCategory, seed TopicSeed) error {
@@ -222,9 +217,9 @@ func ValidateSeedForCategory(category TopicCategory, seed TopicSeed) error {
 		if strings.TrimSpace(seed.ForecastDomain) == "" {
 			return fmt.Errorf("%w: forecast_domain is required", ErrTopicSeedUnavailable)
 		}
-	case TopicCategoryStory:
-		if strings.TrimSpace(seed.StoryBase) == "" {
-			return fmt.Errorf("%w: story_base is required", ErrTopicSeedUnavailable)
+	case TopicCategoryStorySimple:
+		if strings.TrimSpace(seed.TaleTitle) == "" || strings.TrimSpace(seed.Protagonist) == "" {
+			return fmt.Errorf("%w: tale_title and protagonist are required", ErrTopicSeedUnavailable)
 		}
 	default:
 		return ErrUnsupportedTopicCategory
@@ -285,15 +280,15 @@ func ValidateTopicCandidate(category TopicCategory, seed TopicSeed, candidate To
 		if !containsAny(topic, "変える", "変わる", "どう", "行方", "分岐", "影響", "再編", "変化") {
 			return fmt.Errorf("%w: forecast topic must include change structure", ErrTopicContractViolation)
 		}
-	case TopicCategoryStory:
-		if strings.TrimSpace(seed.StoryBase) == "" {
-			return fmt.Errorf("%w: story_base is required", ErrTopicSeedUnavailable)
+	case TopicCategoryStorySimple:
+		if strings.TrimSpace(seed.TaleTitle) == "" || strings.TrimSpace(seed.Protagonist) == "" {
+			return fmt.Errorf("%w: tale_title and protagonist are required", ErrTopicSeedUnavailable)
 		}
-		if !containsAny(topic, strings.TrimSpace(seed.StoryBase)) {
-			return fmt.Errorf("%w: story topic must preserve story_base", ErrTopicContractViolation)
+		if !containsAny(topic, strings.TrimSpace(seed.TaleTitle)) {
+			return fmt.Errorf("%w: story-simple topic must preserve tale_title", ErrTopicContractViolation)
 		}
 		if !containsAny(topic, "視点", "役割", "語り", "語り直", "側", "記録係", "時代", "反転") {
-			return fmt.Errorf("%w: story topic must include transform cue", ErrTopicContractViolation)
+			return fmt.Errorf("%w: story-simple topic must include transform cue", ErrTopicContractViolation)
 		}
 	}
 	return nil

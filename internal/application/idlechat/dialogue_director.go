@@ -152,7 +152,7 @@ func dialogueCategorySpec(category TopicCategory) dialogueCategoryDefinition {
 		base.OpeningMove = "現在の兆しを生活・仕事・創作・制度のどれかに置く"
 		base.RequiredMoves = []string{"何が何を変えるかを出す", "変化のメカニズムを整理する", "影響を受ける主体を出す", "楽観分岐と慎重分岐を並べる", "今後見るべき変数で終える"}
 		base.ForbiddenMoves = append(base.ForbiddenMoves, "未来を断定する", "便利になるだけで終わる")
-	case TopicCategoryStory:
+	case TopicCategoryStorySimple:
 		base.CoreQuestion = "既知の物語がどの視点から語り直されるか"
 		base.OpeningMove = "語り直しの視点をはっきり置く"
 		base.RequiredMoves = []string{"語り手または視点を示す", "元話の既知場面との対応を出す", "善悪や意味の反転を出す", "元話に戻れる余韻を残す"}

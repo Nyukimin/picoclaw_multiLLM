@@ -73,8 +73,8 @@ func promptPathForCategory(paths TopicGenerationPromptPaths, category TopicCateg
 		return paths.News
 	case TopicCategoryForecast:
 		return paths.Forecast
-	case TopicCategoryStory:
-		return paths.Story
+	case TopicCategoryStorySimple:
+		return paths.StorySimple
 	default:
 		return ""
 	}

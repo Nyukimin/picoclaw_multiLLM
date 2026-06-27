@@ -903,8 +903,8 @@ func (c *Config) applyIdleChatTopicGenerationDefaults() {
 	if tg.Prompts.Forecast == "" {
 		tg.Prompts.Forecast = "prompts/idle_chat/topic_generator_forecast.md"
 	}
-	if tg.Prompts.Story == "" {
-		tg.Prompts.Story = "prompts/idle_chat/topic_generator_story.md"
+	if tg.Prompts.StorySimple == "" {
+		tg.Prompts.StorySimple = "prompts/idle_chat/topic_generator_story_simple.md"
 	}
 	if tg.Prompts.Judge == "" {
 		tg.Prompts.Judge = "prompts/idle_chat/topic_judge.md"
@@ -970,8 +970,8 @@ func (c *Config) applyIdleChatDialogueInterestingnessDefaults() {
 	if d.Prompts.Forecast == "" {
 		d.Prompts.Forecast = "prompts/idle_chat/dialogue_forecast.md"
 	}
-	if d.Prompts.Story == "" {
-		d.Prompts.Story = "prompts/idle_chat/dialogue_story.md"
+	if d.Prompts.StorySimple == "" {
+		d.Prompts.StorySimple = "prompts/idle_chat/dialogue_story_simple.md"
 	}
 }
 

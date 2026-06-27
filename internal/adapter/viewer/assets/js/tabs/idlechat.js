@@ -639,11 +639,6 @@ function setIdleState(mode, manual, active) {
     idleStateEl.className = active ? 'idle-on' : 'idle-off';
     return;
   }
-  if (currentMode === 'story') {
-    idleStateEl.textContent = 'Story: ' + (active ? 'talking' : 'ready');
-    idleStateEl.className = active ? 'idle-on' : 'idle-off';
-    return;
-  }
   if (currentMode === 'story-simple') {
     idleStateEl.textContent = 'Story(簡易): ' + (active ? 'talking' : 'ready');
     idleStateEl.className = active ? 'idle-on' : 'idle-off';

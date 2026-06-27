@@ -39,8 +39,8 @@ func TestValidateSimpleStoryDraftAcceptsChangedProtagonistStory(t *testing.T) {
 
 func TestSimpleStoryTopicKeepsBaseAndTransform(t *testing.T) {
 	result := buildSimpleStoryTopicResult("桃太郎", "AIロボット")
-	if result.Category != TopicCategoryStory {
-		t.Fatalf("category = %q, want story", result.Category)
+	if result.Category != TopicCategoryStorySimple {
+		t.Fatalf("category = %q, want story-simple", result.Category)
 	}
 	if result.Strategy != "story-simple" {
 		t.Fatalf("strategy = %q, want story-simple", result.Strategy)
@@ -48,7 +48,7 @@ func TestSimpleStoryTopicKeepsBaseAndTransform(t *testing.T) {
 	if !strings.Contains(result.Topic, "桃太郎") || !strings.Contains(result.Topic, "AIロボット") || !strings.Contains(result.Topic, "語り直") {
 		t.Fatalf("story topic lost base or transform axis: %q", result.Topic)
 	}
-	if err := modulechat.ValidateTopicCandidate(TopicCategoryStory, result.Seed, result.Candidates[0]); err != nil {
+	if err := modulechat.ValidateTopicCandidate(TopicCategoryStorySimple, result.Seed, result.Candidates[0]); err != nil {
 		t.Fatalf("story topic candidate should satisfy contract: %v", err)
 	}
 }
@@ -58,7 +58,7 @@ func TestRunSimpleStorySessionDoesNotDropGeneratedBodyWithLegacyValidationText(t
 		"【もしもの桃太郎】\nもし桃太郎がAIロボットだったら面白いです。",
 		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
 	}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	closed := make(chan struct{})
 	close(closed)
 	o.SetEventEmitter(func(TimelineEvent) <-chan struct{} {
@@ -105,7 +105,7 @@ func TestRunSimpleStorySessionEmitsIntroBeforeGenerationCompletes(t *testing.T) 
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
 	events := make(chan TimelineEvent, 32)
 	o.SetEventEmitter(func(ev TimelineEvent) <-chan struct{} {
@@ -155,7 +155,7 @@ func TestRunSimpleStorySessionEmitsUniqueStoryTTSMessageIDs(t *testing.T) {
 		"【主人公たちの改変昔話】\n" + body,
 		"QUALITY: pass\nISSUES:\n- なし\nPROMPT_FIX: ",
 	}}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 
 	seen := map[string]bool{}
 	var ttsIDs []string
@@ -182,7 +182,7 @@ func TestRunSimpleStorySessionEmitsUniqueStoryTTSMessageIDs(t *testing.T) {
 		t.Fatalf("story TTS id count=%d, want at least 4: %#v", len(ttsIDs), ttsIDs)
 	}
 	for i, id := range ttsIDs {
-		want := fmt.Sprintf(":story:%04d", i+1)
+		want := fmt.Sprintf(":story-simple:%04d", i+1)
 		if !strings.Contains(id, want) {
 			t.Fatalf("story TTS id[%d]=%q, want sequential suffix containing %q", i, id, want)
 		}
@@ -199,10 +199,6 @@ func TestStartModesExposeNonEmptyCurrentTopicImmediately(t *testing.T) {
 			start: func(o *IdleChatOrchestrator) error { return o.StartForecastMode() },
 		},
 		{
-			name:  "story",
-			start: func(o *IdleChatOrchestrator) error { return o.StartStoryMode() },
-		},
-		{
 			name:  "story-simple",
 			start: func(o *IdleChatOrchestrator) error { return o.StartSimpleStoryMode() },
 		},
@@ -210,7 +206,7 @@ func TestStartModesExposeNonEmptyCurrentTopicImmediately(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+			o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 			if err := tt.start(o); err != nil {
 				t.Fatalf("start failed: %v", err)
 			}

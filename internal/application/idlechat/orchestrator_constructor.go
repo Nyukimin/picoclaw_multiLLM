@@ -19,14 +19,10 @@ func NewIdleChatOrchestrator(
 	maxTurns int,
 	temperature float64,
 	personalities map[string]string,
-	storyDataDir string,
 ) *IdleChatOrchestrator {
 	randSeedOnce.Do(func() {
 		rand.Seed(time.Now().UnixNano())
 	})
-	// LoadStoryData: Complex Story Mode用、現在はアーカイブ済み
-	// Simple Story Mode はハードコードされた昔話リストを使用
-	_ = storyDataDir // unused
 	ctx, cancel := context.WithCancel(context.Background())
 	return &IdleChatOrchestrator{
 		llmProvider:    llmProvider,

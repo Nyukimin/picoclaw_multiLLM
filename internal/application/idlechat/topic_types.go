@@ -7,13 +7,13 @@ import (
 type TopicCategory = modulechat.TopicCategory
 
 const (
-	TopicCategorySingle   = modulechat.TopicCategorySingle
-	TopicCategoryDouble   = modulechat.TopicCategoryDouble
-	TopicCategoryExternal = modulechat.TopicCategoryExternal
-	TopicCategoryMovie    = modulechat.TopicCategoryMovie
-	TopicCategoryNews     = modulechat.TopicCategoryNews
-	TopicCategoryForecast = modulechat.TopicCategoryForecast
-	TopicCategoryStory    = modulechat.TopicCategoryStory
+	TopicCategorySingle      = modulechat.TopicCategorySingle
+	TopicCategoryDouble      = modulechat.TopicCategoryDouble
+	TopicCategoryExternal    = modulechat.TopicCategoryExternal
+	TopicCategoryMovie       = modulechat.TopicCategoryMovie
+	TopicCategoryNews        = modulechat.TopicCategoryNews
+	TopicCategoryForecast    = modulechat.TopicCategoryForecast
+	TopicCategoryStorySimple = modulechat.TopicCategoryStorySimple
 )
 
 var (

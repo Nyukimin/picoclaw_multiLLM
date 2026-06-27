@@ -37,12 +37,15 @@ func TestParseTrailingResponseNumber(t *testing.T) {
 }
 
 func TestIsIdleChatPublicSession(t *testing.T) {
-	for _, sessionID := range []string{"idle-1", "forecast-1", "story-1", "story-simple-1"} {
+	for _, sessionID := range []string{"idle-1", "forecast-1", "story-simple-1"} {
 		if !IsIdleChatPublicSession(sessionID) {
 			t.Fatalf("%q should be idlechat public session", sessionID)
 		}
 	}
 	if IsIdleChatPublicSession("normal-session") {
 		t.Fatal("normal-session should not be idlechat public session")
+	}
+	if IsIdleChatPublicSession("story-1") {
+		t.Fatal("story-1 should not be idlechat public session")
 	}
 }

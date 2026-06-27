@@ -7,13 +7,13 @@ import (
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
-func TestNormalizeTopicCategoryMapsStorySimpleToStory(t *testing.T) {
+func TestNormalizeTopicCategoryKeepsStorySimple(t *testing.T) {
 	got, err := modulechat.NormalizeTopicCategory("story-simple")
 	if err != nil {
 		t.Fatalf("NormalizeTopicCategory returned error: %v", err)
 	}
-	if got != TopicCategoryStory {
-		t.Fatalf("category = %q, want %q", got, TopicCategoryStory)
+	if got != TopicCategoryStorySimple {
+		t.Fatalf("category = %q, want %q", got, TopicCategoryStorySimple)
 	}
 }
 

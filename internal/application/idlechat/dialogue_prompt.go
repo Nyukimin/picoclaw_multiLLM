@@ -74,8 +74,8 @@ func dialoguePromptPathForCategory(paths DialoguePromptPaths, category TopicCate
 		return paths.News
 	case TopicCategoryForecast:
 		return paths.Forecast
-	case TopicCategoryStory:
-		return paths.Story
+	case TopicCategoryStorySimple:
+		return paths.StorySimple
 	default:
 		return ""
 	}
@@ -129,8 +129,8 @@ func dialogueCategoryPromptText(category TopicCategory) string {
 		return "News: 現実の出来事の影響を発見する。誰に影響するか、背景、論点、判断の難しさを扱い、煽らない。"
 	case TopicCategoryForecast:
 		return "Forecast: 未来の分岐を発見する。予言ではなく、兆し、メカニズム、主体、分岐、変数として扱う。"
-	case TopicCategoryStory:
-		return "Story: 既知の物語の別視点を発見する。元話の骨格を残し、視点変更と意味反転を扱う。"
+	case TopicCategoryStorySimple:
+		return "Story-Simple: 既知の物語の別視点を発見する。元話の骨格を残し、置換主人公による意味反転を扱う。"
 	default:
 		return ""
 	}

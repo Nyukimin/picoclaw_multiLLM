@@ -54,6 +54,5 @@ func IsIdleChatPublicSession(sessionID string) bool {
 	sessionID = strings.TrimSpace(sessionID)
 	return strings.HasPrefix(sessionID, "idle-") ||
 		strings.HasPrefix(sessionID, "forecast-") ||
-		strings.HasPrefix(sessionID, "story-") ||
 		strings.HasPrefix(sessionID, "story-simple-")
 }

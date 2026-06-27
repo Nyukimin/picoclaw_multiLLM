@@ -104,7 +104,7 @@ func TestUpdateDialogueArcStateRecordsMovesAndSignals(t *testing.T) {
 }
 
 func TestIdleChatTurnLimitUsesDialogueConfig(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, nil, []string{"mio", "shiro"}, 5, 12, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(nil, nil, []string{"mio", "shiro"}, 5, 12, 0.7, nil)
 	o.SetDialogueInterestingnessConfig(DialogueInterestingnessConfig{
 		Enabled:          true,
 		MaxTurnsPerTopic: 8,

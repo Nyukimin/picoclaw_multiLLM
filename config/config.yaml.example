@@ -149,7 +149,6 @@ idle_chat:
   interval_sec: 30
   max_turns: 100
   temperature: 0.8
-  story_data_dir: "data/story"
 
 conversation:
   enabled: true

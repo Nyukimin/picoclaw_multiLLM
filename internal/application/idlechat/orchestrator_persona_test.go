@@ -47,7 +47,7 @@ func (r *idlePersonaRecorder) ListCanonicalResponseLogs(_ context.Context, _ int
 }
 
 func TestIdleChatRecordsPersonaTimelineObservation(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	recorder := &idlePersonaRecorder{}
 	o.SetPersonaRuntimeRecorder(recorder, []domainpersona.TriggerDefinition{{
 		TriggerID:   "mio_tired",
@@ -89,7 +89,7 @@ func TestIdleChatRecordsPersonaTimelineObservation(t *testing.T) {
 }
 
 func TestIdleChatPersonaRecorderIgnoresTTSAudioChunks(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	recorder := &idlePersonaRecorder{}
 	o.SetPersonaRuntimeRecorder(recorder, []domainpersona.TriggerDefinition{{
 		TriggerID:   "mio_tired",
@@ -112,7 +112,7 @@ func TestIdleChatPersonaRecorderIgnoresTTSAudioChunks(t *testing.T) {
 }
 
 func TestIdleChatCreatesPendingMetaUpdateCandidateFromTimelineEvent(t *testing.T) {
-	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(nil, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.8, nil)
 	recorder := &idlePersonaRecorder{}
 	o.SetPersonaRuntimeRecorder(recorder, nil)
 
@@ -138,7 +138,7 @@ func TestIdleChatCreatesPendingMetaUpdateCandidateFromTimelineEvent(t *testing.T
 
 func TestIdleChatAppliesPersonaCanonicalResponse(t *testing.T) {
 	provider := &capturingIdleProvider{response: "削除は危険だから一回止めよう。理由を確認しよう。"}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"kuro", "mio"}, 5, 10, 0.8, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"kuro", "mio"}, 5, 10, 0.8, nil)
 	recorder := &idlePersonaRecorder{}
 	o.SetPersonaRuntimeRecorder(recorder, []domainpersona.TriggerDefinition{{
 		TriggerID:   "kuro_danger",

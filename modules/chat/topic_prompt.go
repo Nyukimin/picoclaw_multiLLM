@@ -183,11 +183,11 @@ func TopicCategoryGenerationRules(category TopicCategory) string {
 - 「何が、何を、どう変えるか」が分かる問いにする。
 - 便利になる／危険になるだけの単純な題にしない。
 - 予言ではなく、考察の入口にする。`
-	case TopicCategoryStory:
-		return `category = story
+	case TopicCategoryStorySimple:
+		return `category = story-simple
 面白さ: 視点反転。よく知っている昔話・童話を、別の視点や役割から語り直す。
 必須:
-- seed.story_base の元話が分かるようにする。
+- seed.tale_title の元話が分かるようにする。
 - 視点変更、役割変更、語り手変更、時代変更のうち1つを入れる。
 - 元話の骨格を消さない。
 - 読み上げ向けタイトルはここでは生成しない。`

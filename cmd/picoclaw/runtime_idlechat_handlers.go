@@ -161,38 +161,6 @@ func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
 	}
 }
 
-func (d *Dependencies) handleIdleChatStory() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if d.idleChatOrch == nil {
-			http.Error(w, "idlechat not enabled", http.StatusNotFound)
-			return
-		}
-		if !d.idleChatOrch.IsChatActive() && !d.prepareIdleChatStart(w, r) {
-			return
-		}
-		if err := d.idleChatOrch.StartStoryMode(); err != nil {
-			status := http.StatusBadRequest
-			if strings.Contains(err.Error(), "already active") {
-				status = http.StatusConflict
-			}
-			http.Error(w, err.Error(), status)
-			return
-		}
-		go d.idleChatOrch.RunSimpleStorySession()
-		writeJSON(w, map[string]any{
-			"ok":            true,
-			"mode":          d.idleChatOrch.CurrentMode(),
-			"manual_mode":   d.idleChatOrch.IsManualMode(),
-			"chat_active":   d.idleChatOrch.IsChatActive(),
-			"current_topic": d.idleChatOrch.CurrentTopic(),
-		})
-	}
-}
-
 func (d *Dependencies) handleIdleChatStorySimple() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

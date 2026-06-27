@@ -208,7 +208,7 @@ func idleChatPendingTopic(mode string) string {
 	switch strings.TrimSpace(mode) {
 	case "forecast":
 		return "未来展望のお題を準備中"
-	case "story", "story-simple":
+	case "story-simple":
 		return "物語のお題を準備中"
 	default:
 		return "今日のお題を準備中"
@@ -377,28 +377,6 @@ func (o *IdleChatOrchestrator) StartForecastMode() error {
 	o.beginIdleRunLocked()
 	o.lastActivity = time.Now()
 	log.Println("[Forecast] Forecast mode started")
-	return nil
-}
-
-// StartStoryMode switches from manual idlechat into story mode immediately.
-
-func (o *IdleChatOrchestrator) StartStoryMode() error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if len(o.participants) < 2 {
-		return fmt.Errorf("idlechat requires at least 2 participants")
-	}
-	if o.chatActive {
-		return fmt.Errorf("chat session already active")
-	}
-	o.manualMode = false
-	o.chatActive = true
-	o.sessionMode = "story"
-	o.currentTopic = idleChatPendingTopic("story")
-	o.sessionContext = ""
-	o.beginIdleRunLocked()
-	o.lastActivity = time.Now()
-	log.Println("[Story] Story mode started")
 	return nil
 }
 

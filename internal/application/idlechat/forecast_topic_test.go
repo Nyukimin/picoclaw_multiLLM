@@ -83,7 +83,6 @@ func TestInitForecastTopicStockDoesNotFillWorkerQueueOnStartup(t *testing.T) {
 		10,
 		0.7,
 		nil,
-		"",
 	)
 	o.SetForecastProviderWithLabel(provider, "Worker local")
 
@@ -166,7 +165,6 @@ func TestGenerateForecastTopicReturnsFailureInsteadOfFallbackTopic(t *testing.T)
 		10,
 		0.7,
 		nil,
-		"",
 	)
 	o.SetForecastProviderWithLabel(failingForecastProvider{err: errors.New("openai error: insufficient_quota")}, "Coder2 openai (gpt-4o-mini)")
 
@@ -204,7 +202,6 @@ func TestGenerateForecastTopicUsesInterestingJudge(t *testing.T) {
 		10,
 		0.7,
 		nil,
-		"",
 	)
 	o.SetForecastProviderWithLabel(provider, "Coder1 local_openai (Worker)")
 
@@ -229,7 +226,6 @@ func TestExtractForecastKeywordReturnsFailureWithoutDomainFallback(t *testing.T)
 		10,
 		0.7,
 		nil,
-		"",
 	)
 
 	keyword, failure := o.extractForecastKeyword(ForecastDomain{Name: "医療"}, nil)
@@ -258,7 +254,6 @@ func TestForecastLLMReturnsPrimaryErrorWithoutExternalRetry(t *testing.T) {
 		10,
 		0.7,
 		nil,
-		"",
 	)
 	o.SetForecastProviderWithLabel(primary, "Coder1 local_openai (Worker)")
 
@@ -295,7 +290,6 @@ func TestForecastLLMExplicitExternalProviderIsPrimary(t *testing.T) {
 		10,
 		0.7,
 		nil,
-		"",
 	)
 	o.SetForecastProviderWithLabel(external, "Coder2 openai (gpt-4o-mini)")
 

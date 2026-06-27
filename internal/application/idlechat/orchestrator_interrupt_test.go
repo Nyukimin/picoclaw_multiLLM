@@ -29,7 +29,7 @@ func TestIdleChatInterruptResetsStateAndCancelsRunContext(t *testing.T) {
 		started: make(chan struct{}),
 		done:    make(chan error, 1),
 	}
-	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(provider, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 
 	o.mu.Lock()
 	o.manualMode = true
@@ -77,7 +77,7 @@ func TestIdleChatInterruptResetsStateAndCancelsRunContext(t *testing.T) {
 }
 
 func TestIdleChatInterruptDiscardsStaleTimelineEvent(t *testing.T) {
-	o := NewIdleChatOrchestrator(&capturingIdleProvider{response: "ok"}, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil, "")
+	o := NewIdleChatOrchestrator(&capturingIdleProvider{response: "ok"}, session.NewCentralMemory(), []string{"mio", "shiro"}, 5, 10, 0.7, nil)
 	emitted := 0
 	o.SetEventEmitter(func(ev TimelineEvent) <-chan struct{} {
 		emitted++

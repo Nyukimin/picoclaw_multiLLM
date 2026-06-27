@@ -21,14 +21,14 @@ type DialogueUtteranceConfig struct {
 }
 
 type DialoguePromptPaths struct {
-	Common   string
-	Single   string
-	Double   string
-	External string
-	Movie    string
-	News     string
-	Forecast string
-	Story    string
+	Common      string
+	Single      string
+	Double      string
+	External    string
+	Movie       string
+	News        string
+	Forecast    string
+	StorySimple string
 }
 
 const MinDialogueQualityScore = 70
@@ -50,14 +50,14 @@ func DefaultDialogueInterestingnessConfig() DialogueInterestingnessConfig {
 			PreferredMaxSentences: 2,
 		},
 		PromptPaths: DialoguePromptPaths{
-			Common:   "prompts/idle_chat/dialogue_common.md",
-			Single:   "prompts/idle_chat/dialogue_single.md",
-			Double:   "prompts/idle_chat/dialogue_double.md",
-			External: "prompts/idle_chat/dialogue_external.md",
-			Movie:    "prompts/idle_chat/dialogue_movie.md",
-			News:     "prompts/idle_chat/dialogue_news.md",
-			Forecast: "prompts/idle_chat/dialogue_forecast.md",
-			Story:    "prompts/idle_chat/dialogue_story.md",
+			Common:      "prompts/idle_chat/dialogue_common.md",
+			Single:      "prompts/idle_chat/dialogue_single.md",
+			Double:      "prompts/idle_chat/dialogue_double.md",
+			External:    "prompts/idle_chat/dialogue_external.md",
+			Movie:       "prompts/idle_chat/dialogue_movie.md",
+			News:        "prompts/idle_chat/dialogue_news.md",
+			Forecast:    "prompts/idle_chat/dialogue_forecast.md",
+			StorySimple: "prompts/idle_chat/dialogue_story_simple.md",
 		},
 	}
 }
@@ -118,8 +118,8 @@ func normalizeDialogueInterestingnessConfig(config DialogueInterestingnessConfig
 	if config.PromptPaths.Forecast == "" {
 		config.PromptPaths.Forecast = defaults.PromptPaths.Forecast
 	}
-	if config.PromptPaths.Story == "" {
-		config.PromptPaths.Story = defaults.PromptPaths.Story
+	if config.PromptPaths.StorySimple == "" {
+		config.PromptPaths.StorySimple = defaults.PromptPaths.StorySimple
 	}
 	return config
 }

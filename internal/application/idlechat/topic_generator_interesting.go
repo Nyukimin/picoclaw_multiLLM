@@ -28,15 +28,15 @@ type TopicGenerationConfig struct {
 }
 
 type TopicGenerationPromptPaths struct {
-	Common   string
-	Single   string
-	Double   string
-	External string
-	Movie    string
-	News     string
-	Forecast string
-	Story    string
-	Judge    string
+	Common      string
+	Single      string
+	Double      string
+	External    string
+	Movie       string
+	News        string
+	Forecast    string
+	StorySimple string
+	Judge       string
 }
 
 type TopicGenerator struct {
@@ -353,8 +353,8 @@ func summarizeTopicSeed(seed TopicSeed) string {
 	if seed.ForecastDomain != "" {
 		parts = append(parts, "forecast_domain="+seed.ForecastDomain)
 	}
-	if seed.StoryBase != "" {
-		parts = append(parts, "story_base="+seed.StoryBase)
+	if seed.TaleTitle != "" {
+		parts = append(parts, "tale_title="+seed.TaleTitle)
 	}
 	return strings.Join(parts, " ")
 }

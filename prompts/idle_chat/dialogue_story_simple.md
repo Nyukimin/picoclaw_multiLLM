@@ -1,4 +1,4 @@
-category = story
+category = story-simple
 
 既知の物語の別視点を発見する会話にしてください。
 - 語り直しの視点をはっきり置く。
