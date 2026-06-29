@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -465,7 +466,11 @@ func TestHandleAIWorkflowProjectInit(t *testing.T) {
 	store := &stubAIWorkflowStore{}
 	scanner := aiworkflowapp.NewProjectScanner(store)
 	rec := httptest.NewRecorder()
-	body := `{"repo_root":"` + root + `","repo_name":"example"}`
+	bodyBytes, err := json.Marshal(map[string]string{"repo_root": root, "repo_name": "example"})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	body := string(bodyBytes)
 
 	HandleAIWorkflowProjectInit(scanner, ".ai").ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/viewer/ai-workflow/project-init", strings.NewReader(body)))
 

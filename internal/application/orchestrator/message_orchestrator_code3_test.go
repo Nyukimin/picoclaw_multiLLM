@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
@@ -42,14 +43,12 @@ func TestMessageOrchestrator_ProcessMessage_CODE3_WithProposal_JSONPatch(t *test
 	workerService := service.NewWorkerExecutionService(workerConfig)
 
 	// Proposal生成（JSON形式のPatch）
-	jsonPatch := `[
-		{
-			"type": "file_edit",
-			"action": "create",
-			"target": "` + tmpDir + `/test.txt",
-			"content": "Hello, CODE3!"
-		}
-	]`
+	jsonPatch := mustMarshalJSONPatch(t, []map[string]string{{
+		"type":    "file_edit",
+		"action":  "create",
+		"target":  tmpDir + "/test.txt",
+		"content": "Hello, CODE3!",
+	}})
 
 	testProposal := proposal.NewProposal(
 		"Test plan: Create test.txt file",
@@ -243,7 +242,12 @@ func TestFormatExecutionResult_SuccessWithGitCommit(t *testing.T) {
 	}
 	shiro := &mockShiroAgent{}
 
-	jsonPatch := `[{"type": "file_edit", "action": "create", "target": "` + tmpDir + `/test.txt", "content": "Test"}]`
+	jsonPatch := mustMarshalJSONPatch(t, []map[string]string{{
+		"type":    "file_edit",
+		"action":  "create",
+		"target":  tmpDir + "/test.txt",
+		"content": "Test",
+	}})
 	testProposal := proposal.NewProposal("Test plan", jsonPatch, "Low", "Low")
 
 	coder3 := &mockCoderAgentWithProposal{proposal: testProposal}
@@ -285,10 +289,10 @@ func TestFormatExecutionResult_PartialFailure(t *testing.T) {
 	workerService := service.NewWorkerExecutionService(workerConfig)
 
 	// 最初は成功、2番目は失敗するPatch
-	jsonPatch := `[
-		{"type": "file_edit", "action": "create", "target": "` + tmpDir + `/ok.txt", "content": "OK"},
-		{"type": "file_edit", "action": "delete", "target": "/nonexistent/file.txt"}
-	]`
+	jsonPatch := mustMarshalJSONPatch(t, []map[string]string{
+		{"type": "file_edit", "action": "create", "target": tmpDir + "/ok.txt", "content": "OK"},
+		{"type": "file_edit", "action": "delete", "target": "/nonexistent/file.txt"},
+	})
 
 	testProposal := proposal.NewProposal("Test plan", jsonPatch, "Medium", "Low")
 
@@ -327,6 +331,15 @@ func TestFormatExecutionResult_PartialFailure(t *testing.T) {
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
 		(findInString(s, substr) >= 0))
+}
+
+func mustMarshalJSONPatch(t *testing.T, patch []map[string]string) string {
+	t.Helper()
+	data, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("marshal json patch: %v", err)
+	}
+	return string(data)
 }
 
 func findInString(s, substr string) int {

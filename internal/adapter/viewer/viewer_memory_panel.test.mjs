@@ -4156,6 +4156,7 @@ var debugSttSessionEl = globalThis.__debugSession;
 var navigator = {mediaDevices: {getUserMedia() { return Promise.reject(new Error('permission denied')); }}};
 function isVoiceChatAllowed() { return true; }
 function loadViewerRuntimeConfig() { return Promise.resolve(); }
+function getSTTExternalAudioStream() { return null; }
 function updateSTTInputIndicators() {
   const sid = String(sttState.captureSessionID || '(unknown)').trim() || '(unknown)';
   const actionError = String(sttState.captureActionError || '').trim();
@@ -4487,6 +4488,10 @@ const inp = {value: 'hello', disabled: false, focus() {}};
 const sendBtn = {disabled: false};
 const attachBtn = null;
 const cameraBtn = null;
+const screenBtn = null;
+const labAttachBtn = null;
+const labCameraBtn = null;
+const labScreenBtn = null;
 function renderAttachmentTray() {}
 function autoResize() {}
 function buildViewerSendRequest(message) { return {message}; }
