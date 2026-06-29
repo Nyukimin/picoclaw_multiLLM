@@ -11,13 +11,22 @@ import (
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
 
-func TestDuckDBStore_ExportThreadSummariesParquet(t *testing.T) {
-	ctx := context.Background()
+func newTestDuckDBStore(t *testing.T) *DuckDBStore {
+	t.Helper()
 	store, err := NewDuckDBStore(":memory:")
 	if err != nil {
+		if strings.Contains(err.Error(), "not supported on this platform") {
+			t.Skipf("DuckDB archive is unavailable on this platform: %v", err)
+		}
 		t.Fatalf("NewDuckDBStore failed: %v", err)
 	}
-	defer store.Close()
+	t.Cleanup(func() { store.Close() })
+	return store
+}
+
+func TestDuckDBStore_ExportThreadSummariesParquet(t *testing.T) {
+	ctx := context.Background()
+	store := newTestDuckDBStore(t)
 
 	if err := store.SaveThreadSummary(ctx, &domconv.ThreadSummary{
 		ThreadID:  101,
@@ -55,11 +64,7 @@ func TestDuckDBStore_ExportThreadSummariesParquet(t *testing.T) {
 
 func TestDuckDBStore_SaveThreadSummaryArchivesSessionID(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewDuckDBStore(":memory:")
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer store.Close()
+	store := newTestDuckDBStore(t)
 
 	if err := store.SaveThreadSummary(ctx, &domconv.ThreadSummary{
 		ThreadID:  201,
@@ -84,11 +89,7 @@ func TestDuckDBStore_SaveThreadSummaryArchivesSessionID(t *testing.T) {
 
 func TestDuckDBStore_SaveThreadSummaryRejectsMalformedSummary(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewDuckDBStore(":memory:")
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer store.Close()
+	store := newTestDuckDBStore(t)
 
 	tests := []struct {
 		name    string
@@ -111,13 +112,9 @@ func TestDuckDBStore_SaveThreadSummaryRejectsMalformedSummary(t *testing.T) {
 
 func TestDuckDBStore_ReadThreadSummaryRejectsMalformedRows(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewDuckDBStore(":memory:")
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer store.Close()
+	store := newTestDuckDBStore(t)
 
-	_, err = store.db.ExecContext(ctx, `
+	_, err := store.db.ExecContext(ctx, `
 INSERT INTO session_thread (
 	thread_id, session_id, ts_start, ts_end, domain, summary, keywords, embedding, is_novel
 ) VALUES (?, ?, ?, ?, ?, ?, ?::VARCHAR[], ?::FLOAT[], ?)
@@ -138,11 +135,7 @@ INSERT INTO session_thread (
 
 func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewDuckDBStore(":memory:")
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer store.Close()
+	store := newTestDuckDBStore(t)
 
 	now := time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC)
 	if err := store.ArchiveL1MemoryEvents(ctx, []L1MemoryEvent{{
@@ -249,11 +242,7 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 
 func TestDuckDBStore_SearchKnowledgeArchiveFTS(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewDuckDBStore(":memory:")
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer store.Close()
+	store := newTestDuckDBStore(t)
 
 	now := time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC)
 	items := []L1KnowledgeItem{

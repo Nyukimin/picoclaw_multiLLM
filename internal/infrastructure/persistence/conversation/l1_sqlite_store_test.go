@@ -12,6 +12,19 @@ import (
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
 
+func newTestDuckDBArchiveStore(t *testing.T) *DuckDBStore {
+	t.Helper()
+	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
+	if err != nil {
+		if strings.Contains(err.Error(), "not supported on this platform") {
+			t.Skipf("DuckDB archive is unavailable on this platform: %v", err)
+		}
+		t.Fatalf("NewDuckDBStore failed: %v", err)
+	}
+	t.Cleanup(func() { archive.Close() })
+	return archive
+}
+
 func TestL1SQLiteStore_SaveMessageAndRecentByNamespace(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
@@ -705,11 +718,7 @@ func TestL1SQLiteStore_SaveStagingItemArchivesToDuckDB(t *testing.T) {
 		t.Fatalf("NewL1SQLiteStore failed: %v", err)
 	}
 	defer store.Close()
-	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer archive.Close()
+	archive := newTestDuckDBArchiveStore(t)
 	store.WithArchiveStore(archive)
 
 	item, err := store.SaveStagingItem(ctx, L1StagingItem{
@@ -1133,11 +1142,7 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 		t.Fatalf("NewL1SQLiteStore failed: %v", err)
 	}
 	defer l1.Close()
-	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer archive.Close()
+	archive := newTestDuckDBArchiveStore(t)
 	l1.WithArchiveStore(archive)
 
 	memoryItem, err := l1.SaveStagingItem(ctx, L1StagingItem{

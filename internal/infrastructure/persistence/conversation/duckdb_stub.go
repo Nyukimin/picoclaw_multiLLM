@@ -4,13 +4,22 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
 
 // DuckDBStore is unavailable on platforms where the bundled DuckDB driver does not build.
-type DuckDBStore struct{}
+type DuckDBStore struct {
+	db duckDBSQL
+}
+
+type duckDBSQL interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
 
 const (
 	L1ArchiveMemory    = "memory"

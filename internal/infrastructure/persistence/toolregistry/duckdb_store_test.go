@@ -2,6 +2,7 @@ package toolregistry
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,9 @@ func newTestStore(t *testing.T) *DuckDBToolRegistryStore {
 	t.Helper()
 	store, err := NewDuckDBToolRegistryStore(":memory:")
 	if err != nil {
+		if strings.Contains(err.Error(), "not supported on this platform") {
+			t.Skipf("DuckDB tool registry is unavailable on this platform: %v", err)
+		}
 		t.Fatalf("NewDuckDBToolRegistryStore: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
