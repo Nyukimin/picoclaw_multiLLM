@@ -5,8 +5,8 @@ Owns language model integration boundaries.
 Responsibilities:
 
 - Local and external LLM provider contracts.
-- Local LLM role/alias runtime resolution for provider kind, base URL, model, timeout, concurrency, and Ollama `num_ctx`.
-- Primary Chat/Worker/Heavy/Wild provider plan construction, including local-vs-legacy mode, legacy Ollama worker fallback, role `num_ctx`, and warmup timeout selection.
+- Local LLM role/alias runtime resolution for provider kind, base URL, model, timeout, and concurrency.
+- Primary Chat/Worker/ChatWorker/Heavy/Wild provider plan construction, including local OpenAI-compatible RenCrow_LLM mode, legacy Ollama worker fallback, legacy/direct Ollama `num_ctx`, and warmup timeout selection.
 - Conversation summary and embedding provider plan construction.
 - Coder provider validation/planning for provider kind, required credentials, required base URLs, and local OpenAI timeout.
 - OpenAI-compatible ThinkingBridge request flags, provider-option filtering, and leaked-reasoning cleanup policy.
@@ -30,7 +30,7 @@ Current high-impact areas:
 
 Boundary note:
 
-`modules/llm` owns role/alias selection rules, primary provider planning, role `num_ctx`, conversation summary/embedder provider planning, Coder provider validation/planning, local health-check policy, ThinkingBridge request/response cleanup policy, request copy semantics, and provider-facing request/response contracts. Runtime code still owns concrete provider construction, API keys, middleware wrapping, warmup execution, and process wiring.
+`modules/llm` owns role/alias selection rules, primary provider planning, legacy/direct Ollama `num_ctx`, conversation summary/embedder provider planning, Coder provider validation/planning, local health-check policy, ThinkingBridge request/response cleanup policy, request copy semantics, and provider-facing request/response contracts. Runtime code still owns concrete provider construction, API keys, middleware wrapping, warmup execution, and process wiring. RenCrow_LLM backend physical values such as Modelfiles and model load parameters are owned by RenCrow_LLM, not by this module.
 
 Design references:
 

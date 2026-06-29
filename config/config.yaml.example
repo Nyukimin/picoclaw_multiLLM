@@ -22,16 +22,18 @@ local_llm:
   base_url: "http://127.0.0.1:8081"
   chat_base_url: "http://127.0.0.1:8081"
   worker_base_url: "http://127.0.0.1:8082"
-  wild_base_url: "http://127.0.0.1:8081"
+  heavy_base_url: "http://127.0.0.1:8083"
+  wild_base_url: "http://127.0.0.1:8084"
   api_key: ""
   chat_model: "Chat"
   worker_model: "Worker"
-  wild_model: "Chat"
+  chat_worker_model: "ChatWorker"
+  heavy_model: "Heavy"
+  wild_model: "Wild"
   timeout_sec: 120
   warmup: false
   global_concurrency: 2
   model_concurrency: 1
-  model_context: 131072
 
 webwright_fetch:
   enabled: true
