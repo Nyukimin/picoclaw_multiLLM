@@ -3,12 +3,14 @@ package middleware
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	domainllm "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 )
 
 type limitedTestProvider struct {
@@ -82,6 +84,112 @@ func TestLimitedProviderGenerationTimeoutIsSeparateFromQueue(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("inner provider calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestLimitedProviderWorkerGenerationTimeoutIsClassified(t *testing.T) {
+	var events atomic.Int32
+	provider := NewLimitedProviderWithOptions(limitedTestProvider{
+		fn: func(ctx context.Context, _ domainllm.GenerateRequest) (domainllm.GenerateResponse, error) {
+			<-ctx.Done()
+			return domainllm.GenerateResponse{}, ctx.Err()
+		},
+	}, "local-Worker-Worker", nil, make(chan struct{}, 1), LimitedProviderOptions{
+		Alias:             "Worker",
+		QueueTimeout:      time.Second,
+		GenerationTimeout: 10 * time.Millisecond,
+		QueuePolicy:       LLMQueuePolicyWait,
+		OnBackendTimeout: func(ev BackendTimeoutEvent) {
+			if ev.Alias != "Worker" {
+				t.Fatalf("event alias=%q", ev.Alias)
+			}
+			events.Add(1)
+		},
+	})
+
+	_, err := provider.Generate(context.Background(), domainllm.GenerateRequest{MaxTokens: 16})
+	if err == nil {
+		t.Fatal("Generate() error = nil, want worker backend timeout")
+	}
+	var phaseErr LLMPhaseError
+	if !errors.As(err, &phaseErr) || phaseErr.Phase != LLMTimeoutPhaseGenerate {
+		t.Fatalf("Generate() error = %v, want phase=generate", err)
+	}
+	var backendErr WorkerBackendTimeoutError
+	if !errors.As(err, &backendErr) {
+		t.Fatalf("Generate() error = %v, want WorkerBackendTimeoutError", err)
+	}
+	if !strings.Contains(backendErr.Error(), "Worker backend timeout") {
+		t.Fatalf("backend error=%q", backendErr.Error())
+	}
+	if events.Load() != 1 {
+		t.Fatalf("backend timeout events=%d, want 1", events.Load())
+	}
+}
+
+func TestLimitedProviderWorkerBackendBusy429IsClassifiedWithoutRecovery(t *testing.T) {
+	var events atomic.Int32
+	provider := NewLimitedProviderWithOptions(limitedTestProvider{
+		fn: func(context.Context, domainllm.GenerateRequest) (domainllm.GenerateResponse, error) {
+			return domainllm.GenerateResponse{}, openai.CompatibleAPIStatusError{
+				Operation:  "openai API",
+				StatusCode: 429,
+				Body:       `{"error":{"code":"backend_busy"}}`,
+			}
+		},
+	}, "local-ChatWorker-ChatWorker", nil, make(chan struct{}, 1), LimitedProviderOptions{
+		Alias:             "ChatWorker",
+		QueueTimeout:      time.Second,
+		GenerationTimeout: time.Second,
+		QueuePolicy:       LLMQueuePolicyWait,
+		OnBackendTimeout: func(BackendTimeoutEvent) {
+			events.Add(1)
+		},
+	})
+
+	_, err := provider.Generate(context.Background(), domainllm.GenerateRequest{MaxTokens: 16})
+	if err == nil {
+		t.Fatal("Generate() error = nil, want backend busy")
+	}
+	var busyErr WorkerBackendBusyError
+	if !errors.As(err, &busyErr) {
+		t.Fatalf("Generate() error = %v, want WorkerBackendBusyError", err)
+	}
+	if events.Load() != 0 {
+		t.Fatalf("backend timeout events=%d, want 0", events.Load())
+	}
+}
+
+func TestLimitedProviderWorkerBackendTimeout504IsClassified(t *testing.T) {
+	var events atomic.Int32
+	provider := NewLimitedProviderWithOptions(limitedTestProvider{
+		fn: func(context.Context, domainllm.GenerateRequest) (domainllm.GenerateResponse, error) {
+			return domainllm.GenerateResponse{}, openai.CompatibleAPIStatusError{
+				Operation:  "openai API",
+				StatusCode: 504,
+				Body:       `{"error":{"code":"backend_timeout"}}`,
+			}
+		},
+	}, "local-Worker-Worker", nil, make(chan struct{}, 1), LimitedProviderOptions{
+		Alias:             "Worker",
+		QueueTimeout:      time.Second,
+		GenerationTimeout: time.Second,
+		QueuePolicy:       LLMQueuePolicyWait,
+		OnBackendTimeout: func(BackendTimeoutEvent) {
+			events.Add(1)
+		},
+	})
+
+	_, err := provider.Generate(context.Background(), domainllm.GenerateRequest{MaxTokens: 16})
+	if err == nil {
+		t.Fatal("Generate() error = nil, want backend timeout")
+	}
+	var backendErr WorkerBackendTimeoutError
+	if !errors.As(err, &backendErr) {
+		t.Fatalf("Generate() error = %v, want WorkerBackendTimeoutError", err)
+	}
+	if events.Load() != 1 {
+		t.Fatalf("backend timeout events=%d, want 1", events.Load())
 	}
 }
 

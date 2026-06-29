@@ -13,10 +13,12 @@ IdleChat では speaker ごとに LLM provider を分ける。
 | speaker | alias | 用途 |
 |---|---|---|
 | Mio | Chat | 軽量な話題生成、読み上げ、相槌 |
-| Shiro | ChatWorker | IdleChat 内の会話発話、要約補助 |
+| Shiro | ChatWorker / Worker | IdleChat 内の短文会話発話は ChatWorker、要約補助は Worker |
 | Forecast | local Forecast provider | 未来展望のキーワード抽出・topic生成 |
 
-`ChatWorker` は Worker サーバ上の alias であり、backing model と prompt は通常の `Worker` と同じである。違いは出力長 cap だけで、IdleChat の Shiro 発話は `ChatWorker=1024` を使う。通常の Shiro / Worker Core / Coder 検証は `Worker=4096` を使う。
+`ChatWorker` は RenCrow_LLM Worker endpoint (`:8082`) 上の短文用 alias であり、IdleChat の Shiro 発話に使う。RenCrow_LLM 側の正本では `ChatWorker` は `nothink` / GPT-OSS `low` / `max_tokens` cap 8192、有効入力 context budget 16384 とする。要約補助、通常の Shiro / Worker Core / Coder 検証は同じ endpoint 上の `Worker` alias を使い、`reasoning` / GPT-OSS `high` / `max_tokens` cap 65536、有効入力 context budget 65536 とする。
+
+`ChatWorker` と `Worker` は同じ Ollama model runner (`rencrow-gpt-oss-120b:64k`) を共有する。再ロードを避けるため、Ollama へ送る `num_ctx` は 65536 のまま維持し、`ChatWorker` の 1/4 context は RenCrow_LLM proxy 側の有効入力 budget として扱う。
 
 IdleChat は request payload の `metadata` で用途判定しない。用途の切り分けは alias で行う。system prompt 内の `/no_think` や `この会話はidleChatです` は thinking / 表示本文制御のための指示であり、max_tokens cap の routing 根拠にしない。
 

@@ -24,6 +24,12 @@ var (
 )
 
 func main() {
+	if loaded, path, err := loadLLMOpsTokenEnvFile(); err != nil {
+		log.Printf("WARN: failed to load llm_ops env file %s: %v", path, err)
+	} else if loaded {
+		log.Printf("Loaded LLM_OPS_TOKEN from %s", path)
+	}
+
 	cmd := "run"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]

@@ -15,6 +15,20 @@ import (
 
 const defaultBaseURL = "https://api.openai.com"
 
+type CompatibleAPIStatusError struct {
+	Operation  string
+	StatusCode int
+	Body       string
+}
+
+func (e CompatibleAPIStatusError) Error() string {
+	op := strings.TrimSpace(e.Operation)
+	if op == "" {
+		op = "openai API"
+	}
+	return fmt.Sprintf("%s error: status=%d, body=%s", op, e.StatusCode, e.Body)
+}
+
 // OpenAIProvider はOpenAI APIプロバイダーの実装
 type OpenAIProvider struct {
 	apiKey         string
@@ -100,7 +114,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req llm.GenerateRequest) 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return llm.GenerateResponse{}, fmt.Errorf("openai API error: status=%d, body=%s", resp.StatusCode, string(body))
+		return llm.GenerateResponse{}, CompatibleAPIStatusError{Operation: "openai API", StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	if streaming {
@@ -202,7 +216,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req llm.ChatRequest) (llm.Cha
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return llm.ChatResponse{}, fmt.Errorf("openai chat API error: status=%d, body=%s", resp.StatusCode, string(body))
+		return llm.ChatResponse{}, CompatibleAPIStatusError{Operation: "openai chat API", StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	return p.parseChatResponse(resp.Body)

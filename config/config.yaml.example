@@ -19,11 +19,11 @@ ollama:
 local_llm:
   enabled: true
   provider: "local_openai"
-  base_url: "http://127.0.0.1:8081"
-  chat_base_url: "http://127.0.0.1:8081"
-  worker_base_url: "http://127.0.0.1:8082"
-  heavy_base_url: "http://127.0.0.1:8083"
-  wild_base_url: "http://127.0.0.1:8084"
+  base_url: "http://192.168.1.207:8081"
+  chat_base_url: "http://192.168.1.207:8081"
+  worker_base_url: "http://192.168.1.207:8082"
+  heavy_base_url: "http://192.168.1.207:8083"
+  wild_base_url: "http://192.168.1.207:8084"
   api_key: ""
   chat_model: "Chat"
   worker_model: "Worker"
@@ -347,4 +347,6 @@ coder4:
 
 llm_ops:
   enabled: true
+  # Management API proxy only. Set LLM_OPS_TOKEN in client env/secret.
+  # Do not store the token in this YAML and do not use it for 8081-8084 LLM APIs.
   base_url: "http://192.168.1.207:8079"

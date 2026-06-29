@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -79,12 +81,24 @@ func (c *OpenAICompatibleChatCheck) Run(ctx context.Context) domainhealth.CheckR
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		if isOpenAICompatibleWorkerTimeout(c.role, err) {
+			return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDown, Message: "worker_backend_timeout: LLM server Worker backend is not responding", Duration: time.Since(start)}
+		}
+		if isOpenAICompatibleStandbyConnectionRefused(c.role, err) {
+			return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDegraded, Message: "standby: Worker/Heavy/Wild are exclusive roles; start the selected role via llm_ops when needed", Duration: time.Since(start)}
+		}
 		return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDown, Message: fmt.Sprintf("connection failed: %v", err), Duration: time.Since(start)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		if isOpenAICompatibleWorkerBusyStatus(c.role, resp.StatusCode, string(respBody)) {
+			return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDegraded, Message: "worker_backend_busy: Worker/Ollama is busy", Duration: time.Since(start)}
+		}
+		if isOpenAICompatibleWorkerTimeoutStatus(c.role, resp.StatusCode, string(respBody)) {
+			return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDown, Message: "worker_backend_timeout: LLM server Worker backend is not responding", Duration: time.Since(start)}
+		}
 		return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusDown, Message: fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(respBody)), Duration: time.Since(start)}
 	}
 
@@ -103,4 +117,63 @@ func (c *OpenAICompatibleChatCheck) Run(ctx context.Context) domainhealth.CheckR
 	}
 
 	return domainhealth.CheckResult{Name: c.Name(), Status: domainhealth.StatusOK, Message: fmt.Sprintf("%s reachable via %s", c.model, c.baseURL), Duration: time.Since(start)}
+}
+
+func isOpenAICompatibleWorkerTimeout(role string, err error) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	if r != "worker" && r != "chatworker" && !strings.HasPrefix(r, "coder") {
+		return false
+	}
+	return isOpenAICompatibleTimeout(err)
+}
+
+func isOpenAICompatibleStandbyConnectionRefused(role string, err error) bool {
+	if !isOpenAICompatibleExclusiveRole(role) {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "actively refused")
+}
+
+func isOpenAICompatibleTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "timed out") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "operation has timed out")
+}
+
+func isOpenAICompatibleWorkerBusyStatus(role string, status int, body string) bool {
+	if !isOpenAICompatibleWorkerRole(role) {
+		return false
+	}
+	return status == http.StatusTooManyRequests
+}
+
+func isOpenAICompatibleWorkerTimeoutStatus(role string, status int, body string) bool {
+	if !isOpenAICompatibleWorkerRole(role) {
+		return false
+	}
+	return status == http.StatusGatewayTimeout
+}
+
+func isOpenAICompatibleWorkerRole(role string) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	return r == "worker" || r == "chatworker" || strings.HasPrefix(r, "coder")
+}
+
+func isOpenAICompatibleExclusiveRole(role string) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	return isOpenAICompatibleWorkerRole(r) || r == "heavy" || r == "wild"
 }

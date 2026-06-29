@@ -67,12 +67,15 @@ func TestHandleLLMOpsHealth_ProxiesWithoutBearerRequirement(t *testing.T) {
 		if r.URL.Path != "/health" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
+		if r.Header.Get("Authorization") != "" {
+			t.Fatalf("health should not send auth, got: %q", r.Header.Get("Authorization"))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","daemon":"llm-mgmt"}`))
 	}))
 	t.Cleanup(upstream.Close)
 
-	h := HandleLLMOpsHealth(LLMOpsProxyOptions{BaseURL: upstream.URL})
+	h := HandleLLMOpsHealth(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "testtok"})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/viewer/llm-ops/health", nil)
 	h(rec, req)
@@ -85,6 +88,71 @@ func TestHandleLLMOpsHealth_ProxiesWithoutBearerRequirement(t *testing.T) {
 	}
 	if m["daemon"] != "llm-mgmt" {
 		t.Fatalf("body: %+v", m)
+	}
+}
+
+func TestHandleLLMOpsStatus_MissingTokenReportsExplicitly(t *testing.T) {
+	var called bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	h := HandleLLMOpsStatus(LLMOpsProxyOptions{BaseURL: upstream.URL})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/viewer/llm-ops/status", nil)
+	h(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("upstream should not be called without LLM_OPS_TOKEN")
+	}
+	if !strings.Contains(rec.Body.String(), "LLM_OPS_TOKEN missing") {
+		t.Fatalf("body=%q", rec.Body.String())
+	}
+}
+
+func TestHandleLLMOpsStart_MissingTokenReportsExplicitly(t *testing.T) {
+	var called bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	h := HandleLLMOpsStart(LLMOpsProxyOptions{BaseURL: upstream.URL})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/llm-ops/start", strings.NewReader(`{"selection":"Worker"}`))
+	h(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("upstream should not be called without LLM_OPS_TOKEN")
+	}
+	if !strings.Contains(rec.Body.String(), "LLM_OPS_TOKEN missing") {
+		t.Fatalf("body=%q", rec.Body.String())
+	}
+}
+
+func TestHandleLLMOpsStatus_UnauthorizedClassifiedAsAuthFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	h := HandleLLMOpsStatus(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "bad"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/viewer/llm-ops/status", nil)
+	h(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "management API authentication failed") {
+		t.Fatalf("body=%q", rec.Body.String())
 	}
 }
 
@@ -246,6 +314,38 @@ func TestLLMOpsIdleChatGate_StatusTimesOutQuickly(t *testing.T) {
 		t.Fatalf("PrepareIdleChatStart took too long: %s", time.Since(start))
 	}
 	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestLLMOpsIdleChatGate_MissingTokenFailsExplicitly(t *testing.T) {
+	var called bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	gate := NewLLMOpsIdleChatGate(LLMOpsProxyOptions{BaseURL: upstream.URL})
+	err := gate.PrepareIdleChatStart(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "LLM_OPS_TOKEN missing") {
+		t.Fatalf("error=%v", err)
+	}
+	if called {
+		t.Fatal("upstream should not be called without LLM_OPS_TOKEN")
+	}
+}
+
+func TestLLMOpsIdleChatGate_UnauthorizedClassifiedAsAuthFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	gate := NewLLMOpsIdleChatGate(LLMOpsProxyOptions{BaseURL: upstream.URL, Token: "bad"})
+	err := gate.PrepareIdleChatStart(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "management API authentication failed") {
 		t.Fatalf("error=%v", err)
 	}
 }

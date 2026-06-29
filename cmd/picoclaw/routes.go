@@ -70,7 +70,7 @@ func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *
 			LLMOps:           llmOpsOpts,
 		})
 	}
-	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsEnabled {
+	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsConfigured {
 		return
 	}
 	dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)

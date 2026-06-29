@@ -60,14 +60,16 @@ internal/application/idlechat/
 | 未来展望キーワード抽出 | ローカル Forecast provider（local Coder / Worker） | 外部 API クレジット消費を避ける |
 | 未来展望トピック生成 | ローカル Forecast provider（local Coder / Worker） | 外部 API クレジット消費を避ける |
 | ディスカッション発話 | 各話者の LLM | ペルソナ維持 |
-| 既出テーマ抽出 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
-| まとめ生成 | Worker (Shiro/qwen3.5:9b) | 要約タスク、ローカル無料 |
+| 既出テーマ抽出 | RenCrow_LLM Worker alias (`Worker`) | 要約タスク、ローカル無料 |
+| まとめ生成 | RenCrow_LLM Worker alias (`Worker`) | 要約タスク、ローカル無料 |
 
 Forecast で外部 Coder API を使う場合は `idle_chat.forecast_external_enabled: true` の明示設定が必要。明示設定がない場合、外部 Coder provider は選択しない。生成失敗時に別の外部 provider へ自動切替しない。
 
 通常 IdleChat では、話者ごとの LLM リクエストに `think` を常に明示する。
 既定は Mio が常時 `think: false`、Shiro は IdleChat のみ `think: false`、その他の話者/モデルは `think: true` とし、`idle_chat.speaker_llm_options` で話者ごとに切り替え可能にする。
 Shiro の NoThink は通常 Worker には適用せず、IdleChat の Shiro 呼び出しに限定する。IdleChat 以外の Shiro/Worker は `think: true` で運用する。
+
+RenCrow_LLM 側の現在の正本では、IdleChat 内の短文 Shiro 発話は Worker endpoint (`:8082`) 上の `ChatWorker` alias を使う。`ChatWorker` は `nothink` / GPT-OSS `low` / `max_tokens` cap 8192 の短文用 alias である。要約、既出テーマ抽出、通常 Worker 処理は同じ endpoint 上の `Worker` alias を使い、`reasoning` / GPT-OSS `high` / `max_tokens` cap 65536 とする。`ChatWorker` と `Worker` は同一 Ollama runner を共有し、Ollama の `num_ctx` は 65536 のまま、`ChatWorker` の有効入力 budget だけ proxy 側で 16384 に丸める。
 
 ---
 

@@ -22,13 +22,39 @@ type LLMOpsProxyOptions struct {
 
 const llmOpsProxyTimeout = 650 * time.Second
 const llmOpsReadProxyTimeout = 3 * time.Second
+const llmOpsTokenMissingMessage = "LLM_OPS_TOKEN missing"
+const llmOpsAuthFailedMessage = "management API authentication failed (管理API認証失敗)"
 
 func (o LLMOpsProxyOptions) ready() bool {
 	return strings.TrimSpace(o.BaseURL) != "" && strings.TrimSpace(o.Token) != ""
 }
 
+func (o LLMOpsProxyOptions) configured() bool {
+	return strings.TrimSpace(o.BaseURL) != ""
+}
+
+func (o LLMOpsProxyOptions) tokenConfigured() bool {
+	return strings.TrimSpace(o.Token) != ""
+}
+
 func normalizeLLMOpsBase(u string) string {
 	return strings.TrimRight(strings.TrimSpace(u), "/")
+}
+
+func llmOpsPathRequiresBearer(path string) bool {
+	return path == "/v1/status" || strings.HasPrefix(path, "/v1/control/")
+}
+
+func ensureLLMOpsTargetReady(w http.ResponseWriter, opts LLMOpsProxyOptions, path string) bool {
+	if !opts.configured() {
+		http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+		return false
+	}
+	if llmOpsPathRequiresBearer(path) && !opts.tokenConfigured() {
+		http.Error(w, llmOpsTokenMissingMessage, http.StatusServiceUnavailable)
+		return false
+	}
+	return true
 }
 
 // LLMOpsIdleChatGate prepares model runtime for IdleChat.
@@ -58,8 +84,11 @@ func NewLLMOpsIdleChatGate(opts LLMOpsProxyOptions) *LLMOpsIdleChatGate {
 
 // PrepareIdleChatStart blocks when Heavy/Wild are active; otherwise it halts them and starts Worker.
 func (g *LLMOpsIdleChatGate) PrepareIdleChatStart(ctx context.Context) error {
-	if g == nil || !g.opts.ready() {
+	if g == nil || !g.opts.configured() {
 		return nil
+	}
+	if !g.opts.tokenConfigured() {
+		return fmt.Errorf(llmOpsTokenMissingMessage)
 	}
 	status, err := g.fetchStatus(ctx)
 	if err != nil {
@@ -121,7 +150,12 @@ func (g *LLMOpsIdleChatGate) do(ctx context.Context, method, path string, body [
 	if err != nil {
 		return nil, fmt.Errorf("llm-ops request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.opts.Token))
+	if llmOpsPathRequiresBearer(path) {
+		if !g.opts.tokenConfigured() {
+			return nil, fmt.Errorf(llmOpsTokenMissingMessage)
+		}
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.opts.Token))
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -135,6 +169,9 @@ func (g *LLMOpsIdleChatGate) do(ctx context.Context, method, path string, body [
 	}
 	defer resp.Body.Close()
 	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("llm-ops %s %s failed: %s", method, path, llmOpsAuthFailedMessage)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("llm-ops %s %s failed: status=%d body=%s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
@@ -164,8 +201,7 @@ func HandleLLMOpsHealth(opts LLMOpsProxyOptions) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if strings.TrimSpace(opts.BaseURL) == "" {
-			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+		if !ensureLLMOpsTargetReady(w, opts, "/health") {
 			return
 		}
 		proxyLLMOps(w, r, opts, http.MethodGet, "/health", nil)
@@ -179,8 +215,7 @@ func HandleLLMOpsStatus(opts LLMOpsProxyOptions) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !opts.ready() {
-			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+		if !ensureLLMOpsTargetReady(w, opts, "/v1/status") {
 			return
 		}
 		proxyLLMOps(w, r, opts, http.MethodGet, "/v1/status", nil)
@@ -194,8 +229,7 @@ func HandleLLMOpsStart(opts LLMOpsProxyOptions) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !opts.ready() {
-			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+		if !ensureLLMOpsTargetReady(w, opts, "/v1/control/start") {
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -217,8 +251,7 @@ func HandleLLMOpsStop(opts LLMOpsProxyOptions) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !opts.ready() {
-			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+		if !ensureLLMOpsTargetReady(w, opts, "/v1/control/stop") {
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -240,8 +273,7 @@ func HandleLLMOpsRestart(opts LLMOpsProxyOptions) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !opts.ready() {
-			http.Error(w, "llm ops proxy not configured", http.StatusServiceUnavailable)
+		if !ensureLLMOpsTargetReady(w, opts, "/v1/control/restart") {
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -268,7 +300,13 @@ func proxyLLMOps(w http.ResponseWriter, r *http.Request, opts LLMOpsProxyOptions
 		http.Error(w, "bad upstream request", http.StatusInternalServerError)
 		return
 	}
-	upReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(opts.Token))
+	if llmOpsPathRequiresBearer(path) {
+		if !opts.tokenConfigured() {
+			http.Error(w, llmOpsTokenMissingMessage, http.StatusServiceUnavailable)
+			return
+		}
+		upReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(opts.Token))
+	}
 	if body != nil {
 		upReq.Header.Set("Content-Type", "application/json")
 	}
@@ -281,6 +319,10 @@ func proxyLLMOps(w http.ResponseWriter, r *http.Request, opts LLMOpsProxyOptions
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		http.Error(w, llmOpsAuthFailedMessage, http.StatusUnauthorized)
+		return
+	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	} else if resp.StatusCode != http.StatusNoContent {

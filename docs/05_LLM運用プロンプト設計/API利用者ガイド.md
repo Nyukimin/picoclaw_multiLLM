@@ -72,7 +72,7 @@ curl -sS http://127.0.0.1:8082/v1/chat/completions \
     "messages": [
       {"role": "user", "content": "眠い。短く返事して。"}
     ],
-    "max_tokens": 64,
+    "max_tokens": 8192,
     "stream": false
   }'
 ```
@@ -133,8 +133,8 @@ Worker endpoint は Ollama `rencrow-gpt-oss-120b:64k` を使う。
 
 | model | reasoning | GPT-OSS level | max_tokens cap | logical context budget |
 | --- | --- | --- | ---: | ---: |
-| `ChatWorker` | 返さない | 短文応答 | 1024 | 16384 |
-| `Worker` | 返す | `high` | 4096 | 65536 |
+| `ChatWorker` | 返さない | `low` | 8192 | 16384 |
+| `Worker` | 返す | `high` | 65536 | 65536 |
 | `Coder1` - `Coder4` | request に従う | request に従う | なし | 65536 |
 
 使い分け:

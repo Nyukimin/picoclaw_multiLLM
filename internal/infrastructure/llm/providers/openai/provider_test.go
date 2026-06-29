@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -756,6 +757,10 @@ func TestChat_ErrorResponse(t *testing.T) {
 
 	if err == nil {
 		t.Error("expected error for 429 response")
+	}
+	var statusErr CompatibleAPIStatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("error = %v, want CompatibleAPIStatusError 429", err)
 	}
 }
 

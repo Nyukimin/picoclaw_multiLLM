@@ -2,12 +2,16 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 
 	domainllm "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/providers/openai"
 )
 
 const (
@@ -38,11 +42,54 @@ func (e LLMPhaseError) Unwrap() error {
 	return e.Err
 }
 
+// WorkerBackendTimeoutError means the client reached the Worker-compatible
+// endpoint but generation timed out behind the proxy, typically in Ollama.
+type WorkerBackendTimeoutError struct {
+	Alias string
+	Err   error
+}
+
+func (e WorkerBackendTimeoutError) Error() string {
+	alias := strings.TrimSpace(e.Alias)
+	if alias == "" {
+		alias = "Worker"
+	}
+	return fmt.Sprintf("Worker backend timeout: LLMサーバ側のWorkerが詰まっています; alias=%s; do not retry immediately", alias)
+}
+
+func (e WorkerBackendTimeoutError) Unwrap() error {
+	return e.Err
+}
+
+type WorkerBackendBusyError struct {
+	Alias string
+	Err   error
+}
+
+func (e WorkerBackendBusyError) Error() string {
+	alias := strings.TrimSpace(e.Alias)
+	if alias == "" {
+		alias = "Worker"
+	}
+	return fmt.Sprintf("Worker backend busy: Worker/Ollama が処理中です; alias=%s; wait before retry", alias)
+}
+
+func (e WorkerBackendBusyError) Unwrap() error {
+	return e.Err
+}
+
+type BackendTimeoutEvent struct {
+	Alias    string
+	Provider string
+	Err      error
+}
+
 type LimitedProviderOptions struct {
 	Alias             string
 	QueueTimeout      time.Duration
 	GenerationTimeout time.Duration
 	QueuePolicy       string
+	OnBackendTimeout  func(BackendTimeoutEvent)
 }
 
 // LimitedProvider bounds concurrent requests for an LLMProvider.
@@ -57,6 +104,7 @@ type LimitedProvider struct {
 	queueTimeout      time.Duration
 	generationTimeout time.Duration
 	queuePolicy       string
+	onBackendTimeout  func(BackendTimeoutEvent)
 }
 
 func NewLimitedProvider(inner domainllm.LLMProvider, name string, global, model chan struct{}) *LimitedProvider {
@@ -77,6 +125,7 @@ func NewLimitedProviderWithOptions(inner domainllm.LLMProvider, name string, glo
 		queueTimeout:      opts.QueueTimeout,
 		generationTimeout: opts.GenerationTimeout,
 		queuePolicy:       queuePolicy,
+		onBackendTimeout:  opts.OnBackendTimeout,
 	}
 }
 
@@ -99,6 +148,7 @@ func (p *LimitedProvider) Generate(ctx context.Context, req domainllm.GenerateRe
 	total := time.Since(totalStart)
 	if err != nil {
 		phase := LLMTimeoutPhaseGenerate
+		err = p.classifyGenerationError(err, generationCtx)
 		if generationCtx.Err() != nil {
 			log.Printf("[LLM][client_queue] llm.generate.timeout provider=%s alias=%s elapsed_ms=%d timeout_ms=%d total_ms=%d error=%q",
 				p.Name(), p.Alias(), elapsed.Milliseconds(), p.generationTimeout.Milliseconds(), total.Milliseconds(), err.Error())
@@ -149,6 +199,7 @@ func (p *LimitedProvider) Chat(ctx context.Context, req domainllm.ChatRequest) (
 	total := time.Since(totalStart)
 	if err != nil {
 		phase := LLMTimeoutPhaseGenerate
+		err = p.classifyGenerationError(err, generationCtx)
 		if generationCtx.Err() != nil {
 			log.Printf("[LLM][client_queue] llm.generate.timeout provider=%s alias=%s elapsed_ms=%d timeout_ms=%d total_ms=%d error=%q",
 				p.Name(), p.Alias(), elapsed.Milliseconds(), p.generationTimeout.Milliseconds(), total.Milliseconds(), err.Error())
@@ -245,4 +296,75 @@ func (p *LimitedProvider) generationContext(parent context.Context) (context.Con
 		return context.WithCancel(parent)
 	}
 	return context.WithTimeout(parent, p.generationTimeout)
+}
+
+func (p *LimitedProvider) classifyGenerationError(err error, generationCtx context.Context) error {
+	if err == nil {
+		return nil
+	}
+	if !isWorkerBackendAlias(p.Alias()) {
+		return err
+	}
+	if isBackendBusyStatus(err) {
+		return WorkerBackendBusyError{Alias: p.Alias(), Err: err}
+	}
+	if isBackendTimeoutStatus(err) || isTimeoutLikeError(err, generationCtx) {
+		classified := WorkerBackendTimeoutError{Alias: p.Alias(), Err: err}
+		p.notifyBackendTimeout(classified)
+		return classified
+	}
+	return err
+}
+
+func isBackendBusyStatus(err error) bool {
+	var statusErr openai.CompatibleAPIStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.StatusCode == http.StatusTooManyRequests
+}
+
+func isBackendTimeoutStatus(err error) bool {
+	var statusErr openai.CompatibleAPIStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.StatusCode == http.StatusGatewayTimeout
+}
+
+func (p *LimitedProvider) notifyBackendTimeout(err WorkerBackendTimeoutError) {
+	if p.onBackendTimeout == nil {
+		return
+	}
+	p.onBackendTimeout(BackendTimeoutEvent{
+		Alias:    p.Alias(),
+		Provider: p.Name(),
+		Err:      err,
+	})
+}
+
+func isWorkerBackendAlias(alias string) bool {
+	a := strings.ToLower(strings.TrimSpace(alias))
+	return a == "worker" || a == "chatworker" || strings.HasPrefix(a, "coder")
+}
+
+func isTimeoutLikeError(err error, ctx context.Context) bool {
+	if err == nil {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "timed out") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "operation has timed out")
 }

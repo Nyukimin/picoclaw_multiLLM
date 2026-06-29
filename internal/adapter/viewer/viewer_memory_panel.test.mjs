@@ -199,9 +199,9 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(timelineJs, /function applyChatRouteAliasToMessage/);
   assert.match(timelineJs, /function buildViewerSendRequest/);
   assert.match(timelineJs, /function ensureViewerLLMReadyForRequest/);
-  assert.match(timelineJs, /function viewerLLMStopRolesBeforeStart/);
+  assert.doesNotMatch(timelineJs, /function viewerLLMStopRolesBeforeStart/);
   assert.match(timelineJs, /\/viewer\/llm-ops\/health/);
-  assert.match(timelineJs, /\/viewer\/llm-ops\/stop/);
+  assert.doesNotMatch(timelineJs, /\/viewer\/llm-ops\/stop/);
   assert.match(timelineJs, /\/viewer\/llm-ops\/start/);
   assert.match(timelineJs, /worker: \{label: 'Worker', baseURL: 'http:\/\/127\.0\.0\.1:8082', model: 'Worker', routePrefix: '\/ops'\}/);
   assert.match(timelineJs, /heavy: \{label: 'Heavy', baseURL: 'http:\/\/127\.0\.0\.1:8083', model: 'Heavy', routePrefix: '\/analyze'\}/);
@@ -4601,10 +4601,6 @@ globalThis.__ensure = ensureViewerLLMReadyForRequest;
     {ok: false, status: 502, body: 'llm ops status unavailable'},
     {ok: true, status: 200, body: '{}'},
     {ok: true, status: 200, body: '{"roles":{"Chat":{"health_ok":true},"Worker":{"health_ok":false}}}'},
-    {ok: false, status: 409, body: 'llm ops stop refused'},
-    {ok: true, status: 200, body: '{}'},
-    {ok: true, status: 200, body: '{"roles":{"Chat":{"health_ok":true},"Worker":{"health_ok":false}}}'},
-    {ok: true, status: 200, body: 'stopped'},
     {ok: false, status: 503, body: 'llm ops start unavailable'},
   ];
   const context = vm.createContext({
@@ -4631,10 +4627,6 @@ globalThis.__ensure = ensureViewerLLMReadyForRequest;
   );
   await assert.rejects(
     () => context.__ensure({model_alias: 'Worker'}),
-    /llm ops stop failed: HTTP 409: llm ops stop refused/,
-  );
-  await assert.rejects(
-    () => context.__ensure({model_alias: 'Worker'}),
     /llm ops start failed: HTTP 503: llm ops start unavailable/,
   );
   assert.deepEqual(requested, [
@@ -4643,10 +4635,6 @@ globalThis.__ensure = ensureViewerLLMReadyForRequest;
     '/viewer/llm-ops/status',
     '/viewer/llm-ops/health',
     '/viewer/llm-ops/status',
-    '/viewer/llm-ops/stop',
-    '/viewer/llm-ops/health',
-    '/viewer/llm-ops/status',
-    '/viewer/llm-ops/stop',
     '/viewer/llm-ops/start',
   ]);
 });
@@ -5153,9 +5141,6 @@ test('viewer starts selected llm before sending alias request', async () => {
           json: async () => ({roles: {Chat: {health_ok: true}, Heavy: {health_ok: false}}}),
         };
       }
-      if (url === '/viewer/llm-ops/stop') {
-        return {ok: true, text: async () => '{"stopped":["Worker","Wild"],"halted":true}'};
-      }
       if (url === '/viewer/llm-ops/start') {
         return {ok: true, text: async () => '{"ok_all":true}'};
       }
@@ -5173,18 +5158,15 @@ test('viewer starts selected llm before sending alias request', async () => {
     route_prefix: '/analyze'
   })`, context);
 
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 3);
   assert.equal(calls[0].url, '/viewer/llm-ops/health');
   assert.equal(calls[1].url, '/viewer/llm-ops/status');
-  assert.equal(calls[2].url, '/viewer/llm-ops/stop');
+  assert.equal(calls[2].url, '/viewer/llm-ops/start');
   assert.equal(calls[2].opts.method, 'POST');
-  assert.deepEqual(JSON.parse(calls[2].opts.body), {roles: ['Worker', 'Wild']});
-  assert.equal(calls[3].url, '/viewer/llm-ops/start');
-  assert.equal(calls[3].opts.method, 'POST');
-  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'Heavy'});
+  assert.deepEqual(JSON.parse(calls[2].opts.body), {selection: 'Heavy'});
 });
 
-test('viewer stops Worker and Heavy before starting Wild', async () => {
+test('viewer starts Wild by selection without client-side stop', async () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const calls = [];
   const context = vm.createContext({
@@ -5197,9 +5179,6 @@ test('viewer stops Worker and Heavy before starting Wild', async () => {
       }
       if (url === '/viewer/llm-ops/status') {
         return {ok: true, json: async () => ({roles: {Chat: {health_ok: true}, Worker: {health_ok: true}, Heavy: {health_ok: false}, Wild: {health_ok: false}}})};
-      }
-      if (url === '/viewer/llm-ops/stop') {
-        return {ok: true, text: async () => '{"stopped":["Worker","Heavy"],"halted":true}'};
       }
       if (url === '/viewer/llm-ops/start') {
         return {ok: true, text: async () => '{"ok_all":true}'};
@@ -5220,8 +5199,6 @@ test('viewer stops Worker and Heavy before starting Wild', async () => {
 
   assert.equal(calls[0].url, '/viewer/llm-ops/health');
   assert.equal(calls[1].url, '/viewer/llm-ops/status');
-  assert.equal(calls[2].url, '/viewer/llm-ops/stop');
-  assert.deepEqual(JSON.parse(calls[2].opts.body), {roles: ['Worker', 'Heavy']});
-  assert.equal(calls[3].url, '/viewer/llm-ops/start');
-  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'Wild'});
+  assert.equal(calls[2].url, '/viewer/llm-ops/start');
+  assert.deepEqual(JSON.parse(calls[2].opts.body), {selection: 'Wild'});
 });

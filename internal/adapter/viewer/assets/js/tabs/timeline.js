@@ -100,27 +100,6 @@ function viewerLLMSelectionReady(status, selection) {
   return viewerLLMRoleHealthy(status, 'Chat') && viewerLLMRoleHealthy(status, selection);
 }
 
-function viewerLLMStopRolesBeforeStart(selection) {
-  if (selection === 'Wild') return ['Worker', 'Heavy'];
-  if (selection === 'Heavy') return ['Worker', 'Wild'];
-  if (selection === 'Worker') return ['Heavy', 'Wild'];
-  return [];
-}
-
-async function stopViewerLLMRolesBeforeStart(selection) {
-  const roles = viewerLLMStopRolesBeforeStart(selection);
-  if (!roles.length) return;
-  const stopRes = await fetch('/viewer/llm-ops/stop', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({roles}),
-  });
-  const body = await stopRes.text();
-  if (!stopRes.ok) {
-    throw new Error(formatViewerLLMOpsHTTPError('llm ops stop failed', stopRes.status, body));
-  }
-}
-
 function formatViewerLLMOpsHTTPError(prefix, status, body) {
   const text = String(body || '').trim();
   return prefix + ': HTTP ' + String(status) + (text ? ': ' + text : '');
@@ -143,8 +122,6 @@ async function ensureViewerLLMReadyForRequest(req) {
   }
   const status = await statusRes.json();
   if (viewerLLMSelectionReady(status, selection)) return;
-
-  await stopViewerLLMRolesBeforeStart(selection);
 
   const startRes = await fetch('/viewer/llm-ops/start', {
     method: 'POST',

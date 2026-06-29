@@ -52,6 +52,7 @@ func buildLocalAliasProviderFromConfig(cfg *config.Config, aliasConfig modulellm
 		QueueTimeout:      aliasConfig.QueueTimeout,
 		GenerationTimeout: aliasConfig.Timeout,
 		QueuePolicy:       aliasConfig.QueuePolicy,
+		OnBackendTimeout:  llmWorkerBackendTimeoutRecovery(cfg),
 	})
 }
 
