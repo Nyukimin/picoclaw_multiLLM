@@ -128,6 +128,35 @@ func TestShiroAgentExecute(t *testing.T) {
 	}
 }
 
+func TestShiroAgentChatUsesConversationOnlyPath(t *testing.T) {
+	var captured llm.GenerateRequest
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			captured = req
+			return llm.GenerateResponse{Content: "chatworker response"}, nil
+		},
+	}
+	shiro := NewShiroAgent(llmProvider, &mockToolRunner{}, &mockMCPClient{}, "test prompt", &panicSubagentManager{})
+
+	result, err := shiro.Chat(context.Background(), task.NewTask(task.NewJobID(), "/chatworker 相談したい", "viewer", "viewer-user"))
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if result != "chatworker response" {
+		t.Fatalf("unexpected response: %q", result)
+	}
+	if len(captured.Messages) < 2 {
+		t.Fatalf("expected system and user messages, got %#v", captured.Messages)
+	}
+	if !strings.Contains(captured.Messages[0].Content, "ChatWorker route rule:") {
+		t.Fatalf("chatworker guard missing from system prompt: %s", captured.Messages[0].Content)
+	}
+	last := captured.Messages[len(captured.Messages)-1].Content
+	if strings.Contains(last, "/chatworker") || !strings.Contains(last, "相談したい") {
+		t.Fatalf("route prefix should be stripped from user message, got %q", last)
+	}
+}
+
 func TestShiroAgentExecuteAppliesWorkerRecallRoleFilter(t *testing.T) {
 	engine := &mockConversationEngine{
 		beginTurnFunc: func(ctx context.Context, sessionID, msg string) (*conversation.RecallPack, error) {

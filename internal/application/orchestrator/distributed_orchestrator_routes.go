@@ -19,6 +19,7 @@ type distributedNoteEmitter func(from, to, content, route, jobID, sessionID, cha
 
 type distributedRouteDispatcher struct {
 	mio                 MioAgent
+	chatWorker          ChatWorkerAgent
 	wild                WildAgent
 	heavy               HeavyAgent
 	memory              *session.CentralMemory
@@ -64,6 +65,10 @@ func (d *distributedRouteDispatcher) SetWildAgent(wild WildAgent) {
 	d.wild = wild
 }
 
+func (d *distributedRouteDispatcher) SetChatWorkerAgent(chatWorker ChatWorkerAgent) {
+	d.chatWorker = chatWorker
+}
+
 func (d *distributedRouteDispatcher) SetHeavyAgent(heavy HeavyAgent) {
 	d.heavy = heavy
 }
@@ -91,6 +96,25 @@ func (d *distributedRouteDispatcher) ExecuteDirect(ctx context.Context, t task.T
 			d.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
 			d.emitNote("mio", "user", "コード作業の報告をまとめて返したよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
 			d.pushTTS(ctx, ttsSessionID, route, "agent.response", resp)
+		}
+		return resp, err
+	}
+	if route == routing.RouteWORKERCHAT {
+		if d.chatWorker == nil {
+			return "", fmt.Errorf("no chatworker agent available")
+		}
+		d.emit("agent.start", "mio", "chatworker", "ChatWorker thinking...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+		requestMsg := domaintransport.NewMessage("mio", "chatworker", sessionID, jid, t.UserMessage())
+		requestMsg.Type = domaintransport.MessageTypeTask
+		d.memory.RecordMessage(requestMsg)
+		streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+		resp, err := d.chatWorker.Chat(streamCtx, t)
+		if err == nil {
+			resultMsg := domaintransport.NewMessage("chatworker", "user", sessionID, jid, resp)
+			resultMsg.Type = domaintransport.MessageTypeResult
+			d.memory.RecordMessage(resultMsg)
+			d.emit("agent.response", "chatworker", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+			ttsStream.Finalize(ctx, resp)
 		}
 		return resp, err
 	}

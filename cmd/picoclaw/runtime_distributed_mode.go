@@ -26,6 +26,7 @@ func (d *Dependencies) buildDistributedMode(
 	sessionRepo orchestrator.SessionRepository,
 	mioAgent *agent.MioAgent,
 	shiroAgent *agent.ShiroAgent,
+	chatWorkerAgent *agent.ShiroAgent,
 	heavyAgent *agent.HeavyAgent,
 	wildAgent *agent.WildAgent,
 	coder1Adapter *coderAdapter,
@@ -112,6 +113,7 @@ func (d *Dependencies) buildDistributedMode(
 		sshTransports,
 	)
 	d.distOrch = distOrch
+	distOrch.SetChatWorkerAgent(chatWorkerAgent)
 	distOrch.SetHeavyAgent(heavyAgent)
 	distOrch.SetWildAgent(wildAgent)
 	distOrch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{

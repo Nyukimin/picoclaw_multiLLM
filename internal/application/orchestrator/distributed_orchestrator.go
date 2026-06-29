@@ -23,6 +23,7 @@ const (
 type DistributedOrchestrator struct {
 	sessionRepo             SessionRepository
 	mio                     MioAgent
+	chatWorker              ChatWorkerAgent
 	wild                    WildAgent
 	heavy                   HeavyAgent
 	router                  *transport.MessageRouter

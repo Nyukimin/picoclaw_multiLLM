@@ -68,6 +68,13 @@ func (o *DistributedOrchestrator) SetWildAgent(wild WildAgent) {
 	}
 }
 
+func (o *DistributedOrchestrator) SetChatWorkerAgent(chatWorker ChatWorkerAgent) {
+	o.chatWorker = chatWorker
+	if o.routes != nil {
+		o.routes.SetChatWorkerAgent(chatWorker)
+	}
+}
+
 func (o *DistributedOrchestrator) SetHeavyAgent(heavy HeavyAgent) {
 	o.heavy = heavy
 	if o.routes != nil {

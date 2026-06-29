@@ -203,6 +203,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(timelineJs, /\/viewer\/llm-ops\/health/);
   assert.doesNotMatch(timelineJs, /\/viewer\/llm-ops\/stop/);
   assert.match(timelineJs, /\/viewer\/llm-ops\/start/);
+  assert.match(timelineJs, /chatworker: \{label: 'ChatWorker', baseURL: 'http:\/\/127\.0\.0\.1:8082', model: 'ChatWorker', routePrefix: '\/chatworker'\}/);
   assert.match(timelineJs, /worker: \{label: 'Worker', baseURL: 'http:\/\/127\.0\.0\.1:8082', model: 'Worker', routePrefix: '\/ops'\}/);
   assert.match(timelineJs, /heavy: \{label: 'Heavy', baseURL: 'http:\/\/127\.0\.0\.1:8083', model: 'Heavy', routePrefix: '\/analyze'\}/);
   assert.match(timelineJs, /wild: \{label: 'Wild', baseURL: 'http:\/\/127\.0\.0\.1:8084', model: 'Wild', routePrefix: '\/wild'\}/);
@@ -5072,7 +5073,7 @@ test('viewer chat send ignores stale route alias and leaves routing to orchestra
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();
   const context = vm.createContext({
-    document: {querySelectorAll: () => []},
+    document: {querySelectorAll: () => [], getElementById: () => null},
     localStorage: {
       getItem: (key) => store.get(key) || null,
       setItem: (key, value) => store.set(key, String(value)),
@@ -5095,7 +5096,7 @@ test('viewer chat send ignores runtime route aliases and leaves routing to orche
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const store = new Map();
   const context = vm.createContext({
-    document: {querySelectorAll: () => []},
+    document: {querySelectorAll: () => [], getElementById: () => null},
     localStorage: {
       getItem: (key) => store.get(key) || null,
       setItem: (key, value) => store.set(key, String(value)),
@@ -5118,6 +5119,32 @@ test('viewer chat send ignores runtime route aliases and leaves routing to orche
   const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
   assert.deepEqual(heavyReq, {message: '原因を調べて'});
   assert.equal(store.has('chatRouteAlias.selected'), false);
+});
+
+test('viewer chat send applies selected target alias', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const context = vm.createContext({
+    document: {
+      querySelectorAll: () => [],
+      getElementById: (id) => id === 'chatTargetAgent' ? {value: 'chatworker'} : null,
+    },
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
+    applyRoleTargetToMessage: (message) => message,
+  });
+  vm.runInContext(timelineJs, context);
+
+  const req = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('相談したい'))", context));
+  assert.deepEqual(req, {
+    message: '相談したい',
+    model_alias: 'ChatWorker',
+    base_url: 'http://127.0.0.1:8082',
+    model: 'ChatWorker',
+    route_prefix: '/chatworker',
+  });
 });
 
 test('viewer starts selected llm before sending alias request', async () => {

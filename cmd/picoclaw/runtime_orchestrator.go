@@ -37,6 +37,7 @@ func buildOrchestratorRuntime(
 			sessionRepo,
 			agents.Mio,
 			agents.Shiro,
+			agents.ChatWorker,
 			agents.Heavy,
 			agents.Wild,
 			llmRuntime.Coder1,
@@ -93,6 +94,7 @@ func buildOrchestratorRuntime(
 		orch.SetReportStore(deps.reportStore)
 	}
 	orch.SetMaxRepair(cfg.Worker.MaxRepair)
+	orch.SetChatWorkerAgent(agents.ChatWorker)
 	orch.SetWildAgent(agents.Wild)
 	orch.SetHeavyAgent(agents.Heavy)
 	orch.SetHeavyWorkerPolicy(domainai.HeavyWorkerPolicy{

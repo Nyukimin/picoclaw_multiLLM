@@ -73,6 +73,9 @@ func TestMioAgentDecideAction_ExplicitCommand(t *testing.T) {
 		{"/plan create project", routing.RoutePLAN},
 		{"/analyze logs", routing.RouteANALYZE},
 		{"/heavy logs", routing.RouteANALYZE},
+		{"/chatworker logs", routing.RouteWORKERCHAT},
+		{"/chat-worker logs", routing.RouteWORKERCHAT},
+		{"/worker-chat logs", routing.RouteWORKERCHAT},
 		{"/ops deploy", routing.RouteOPS},
 		{"/research topic", routing.RouteRESEARCH},
 		{"/wild image prompt", routing.RouteWILD},
@@ -724,6 +727,9 @@ func TestParseExplicitCommand_AllRoutes(t *testing.T) {
 		{"/plan create project", routing.RoutePLAN},
 		{"/analyze logs", routing.RouteANALYZE},
 		{"/heavy logs", routing.RouteANALYZE},
+		{"/chatworker logs", routing.RouteWORKERCHAT},
+		{"/chat-worker logs", routing.RouteWORKERCHAT},
+		{"/worker-chat logs", routing.RouteWORKERCHAT},
 		{"/ops deploy", routing.RouteOPS},
 		{"/research topic", routing.RouteRESEARCH},
 		{"/wild image prompt", routing.RouteWILD},
@@ -774,6 +780,8 @@ func TestParseExplicitCommand_RequiresCommandBoundary(t *testing.T) {
 		"/code3extra task",
 		"/opslog 見せて",
 		"/wildcard pattern",
+		"/chatwork task",
+		"/chatworker2 task",
 		"/researcher profile",
 	}
 	for _, message := range tests {

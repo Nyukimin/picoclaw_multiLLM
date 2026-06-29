@@ -68,6 +68,10 @@ type ShiroAgent interface {
 	Execute(ctx context.Context, t task.Task) (string, error)
 }
 
+type ChatWorkerAgent interface {
+	Chat(ctx context.Context, t task.Task) (string, error)
+}
+
 // CoderAgent はコード生成を担当
 type CoderAgent interface {
 	Generate(ctx context.Context, t task.Task, systemPrompt string) (string, error)
@@ -150,6 +154,7 @@ type MessageOrchestrator struct {
 	sessionRepo               SessionRepository
 	mio                       MioAgent
 	shiro                     ShiroAgent
+	chatWorker                ChatWorkerAgent
 	coder1                    CoderAgent // Slot 1
 	coder2                    CoderAgent // Slot 2
 	coder3                    CoderAgent // Slot 3
@@ -313,6 +318,13 @@ func (o *MessageOrchestrator) SetWildAgent(wild WildAgent) {
 	o.wild = wild
 	if o.routeDispatcher != nil {
 		o.routeDispatcher.SetWildAgent(wild)
+	}
+}
+
+func (o *MessageOrchestrator) SetChatWorkerAgent(chatWorker ChatWorkerAgent) {
+	o.chatWorker = chatWorker
+	if o.routeDispatcher != nil {
+		o.routeDispatcher.SetChatWorkerAgent(chatWorker)
 	}
 }
 

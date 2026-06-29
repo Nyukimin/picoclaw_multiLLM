@@ -7,7 +7,7 @@ import (
 )
 
 func TestIsAutonomousRoute(t *testing.T) {
-	for _, route := range []string{"OPS", "CODE", "CODE1", "CODE2", "CODE3", "CODE4", "PLAN", "ANALYZE", "RESEARCH", "WILD"} {
+	for _, route := range []string{"OPS", "WORKER_CHAT", "CODE", "CODE1", "CODE2", "CODE3", "CODE4", "PLAN", "ANALYZE", "RESEARCH", "WILD"} {
 		if !IsAutonomousRoute(route) {
 			t.Fatalf("%s should be autonomous", route)
 		}
@@ -36,6 +36,10 @@ func TestRouteExecutionSteps(t *testing.T) {
 	ops := RouteExecutionSteps("OPS", false)
 	if !containsWorkerString(ops, "shiro.execute") || !containsWorkerString(ops, "error") {
 		t.Fatalf("OPS failure steps unexpected: %+v", ops)
+	}
+	chatWorker := RouteExecutionSteps("WORKER_CHAT", true)
+	if !containsWorkerString(chatWorker, "chatworker.chat") || !containsWorkerString(chatWorker, "done") {
+		t.Fatalf("WORKER_CHAT steps unexpected: %+v", chatWorker)
 	}
 }
 

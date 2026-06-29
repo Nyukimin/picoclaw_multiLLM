@@ -180,6 +180,16 @@ func (m *mockShiroAgent) Execute(ctx context.Context, t task.Task) (string, erro
 	return m.response, nil
 }
 
+type mockChatWorkerAgent struct {
+	response string
+	called   bool
+}
+
+func (m *mockChatWorkerAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	m.called = true
+	return m.response, nil
+}
+
 // mockCoderAgent はテスト用のCoderAgent
 type mockCoderAgent struct {
 	response string
@@ -1462,6 +1472,28 @@ func TestProcessMessage_RouteWildUsesWildAgent(t *testing.T) {
 	}
 	if resp.Response != "wild response" {
 		t.Fatalf("response: want wild response, got %q", resp.Response)
+	}
+}
+
+func TestProcessMessage_RouteWorkerChatUsesChatWorkerAgent(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{decision: routing.NewDecision(routing.RouteWORKERCHAT, 1.0, "explicit chatworker")}
+	chatWorker := &mockChatWorkerAgent{response: "chatworker response"}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetChatWorkerAgent(chatWorker)
+
+	resp, err := orch.ProcessMessage(context.Background(), defaultReq())
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !chatWorker.called {
+		t.Fatal("chatworker agent should be called")
+	}
+	if resp.Route != routing.RouteWORKERCHAT {
+		t.Fatalf("route: want WORKER_CHAT, got %s", resp.Route)
+	}
+	if resp.Response != "chatworker response" {
+		t.Fatalf("response: want chatworker response, got %q", resp.Response)
 	}
 }
 

@@ -117,6 +117,8 @@ func routeFromString(s string) routing.Route {
 		return routing.RouteCHAT
 	case "OPS":
 		return routing.RouteOPS
+	case "WORKER_CHAT":
+		return routing.RouteWORKERCHAT
 	case "CODE":
 		return routing.RouteCODE
 	case "CODE1":
@@ -142,6 +144,16 @@ type distMockWildAgent struct {
 	response  string
 	called    bool
 	lastInput string
+}
+
+type distMockChatWorkerAgent struct {
+	response string
+	called   bool
+}
+
+func (m *distMockChatWorkerAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	m.called = true
+	return m.response, nil
 }
 
 func (m *distMockWildAgent) Generate(ctx context.Context, t task.Task) (string, error) {
@@ -434,6 +446,42 @@ func TestDistributedOrchestrator_ProcessMessage_WildRouteUsesWildAgentWithoutFal
 	responseEvent := rec.events[eventIndex]
 	if responseEvent.SessionID != "wild-session" || responseEvent.JobID != resp.JobID {
 		t.Fatalf("wild response evidence is not tied to the same flow: event=%+v response=%+v", responseEvent, resp)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_WorkerChatRouteUsesChatWorkerAgent(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "chat fallback", routeResponse: "WORKER_CHAT"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	chatWorker := &distMockChatWorkerAgent{response: "chatworker response"}
+	rec := &distRecordingEventListener{}
+
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	orch.SetChatWorkerAgent(chatWorker)
+	orch.SetEventListener(rec)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "worker-chat-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "/chatworker talk through this",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if !chatWorker.called {
+		t.Fatal("chatworker agent should be called")
+	}
+	if mockMio.lastChatInput != "" {
+		t.Fatalf("worker chat route fell back to Mio chat: %q", mockMio.lastChatInput)
+	}
+	if resp.Route != routing.RouteWORKERCHAT || resp.Response != "chatworker response" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if distIndexOfEvent(rec.events, "agent.response", "chatworker", "user", "WORKER_CHAT") < 0 {
+		t.Fatalf("expected chatworker response event, got %+v", rec.events)
 	}
 }
 

@@ -535,6 +535,10 @@ body:not([data-viewer-tab="idlechat"]) .idle-tools{display:none}
 .stt-state.conn-off{color:var(--err);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.10)}
 .stt-state.session-id{max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .input-text-stack{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.chat-target-row{display:flex;align-items:center;gap:6px;min-height:28px}
+.chat-target-label{font-size:11px;font-weight:800;color:var(--t3);letter-spacing:0;text-transform:uppercase}
+.chat-target-select{width:148px;max-width:50%;height:28px;border:1px solid var(--border);border-radius:8px;background:rgba(9,15,32,.74);color:var(--t1);font-size:12px;font-family:inherit;padding:3px 8px;outline:none}
+.chat-target-select:focus{border-color:rgba(244,114,182,.4);box-shadow:0 0 0 3px rgba(244,114,182,.08)}
 .stt-caption{
   min-height:24px;border:1px solid var(--border);border-radius:8px;padding:5px 8px;
   display:flex;align-items:center;gap:8px;min-width:0;

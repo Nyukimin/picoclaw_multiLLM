@@ -6,15 +6,16 @@ import "time"
 type Speaker string
 
 const (
-	SpeakerUser   Speaker = "user"
-	SpeakerMio    Speaker = "mio"
-	SpeakerShiro  Speaker = "shiro"
-	SpeakerAka    Speaker = "aka"
-	SpeakerAo     Speaker = "ao"
-	SpeakerGin    Speaker = "gin"
-	SpeakerSystem Speaker = "system"
-	SpeakerTool   Speaker = "tool"
-	SpeakerMemory Speaker = "memory"
+	SpeakerUser       Speaker = "user"
+	SpeakerMio        Speaker = "mio"
+	SpeakerShiro      Speaker = "shiro"
+	SpeakerChatWorker Speaker = "chatworker"
+	SpeakerAka        Speaker = "aka"
+	SpeakerAo         Speaker = "ao"
+	SpeakerGin        Speaker = "gin"
+	SpeakerSystem     Speaker = "system"
+	SpeakerTool       Speaker = "tool"
+	SpeakerMemory     Speaker = "memory"
 )
 
 // Message は発話の最小単位

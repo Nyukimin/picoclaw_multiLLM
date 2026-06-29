@@ -26,16 +26,18 @@ func durationSeconds(sec int) time.Duration {
 }
 
 type agentRuntime struct {
-	Mio   *agent.MioAgent
-	Shiro *agent.ShiroAgent
-	Heavy *agent.HeavyAgent
-	Wild  *agent.WildAgent
+	Mio        *agent.MioAgent
+	Shiro      *agent.ShiroAgent
+	ChatWorker *agent.ShiroAgent
+	Heavy      *agent.HeavyAgent
+	Wild       *agent.WildAgent
 }
 
 func buildAgentRuntime(
 	cfg *config.Config,
 	chatProvider llm.LLMProvider,
 	workerProvider llm.LLMProvider,
+	chatWorkerProvider llm.LLMProvider,
 	heavyProvider llm.LLMProvider,
 	wildProvider llm.LLMProvider,
 	classifier *routing.LLMClassifier,
@@ -76,6 +78,7 @@ func buildAgentRuntime(
 		shiroSubagentManager = subagentMgr
 	}
 	shiroAgent := agent.NewShiroAgent(workerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, shiroSubagentManager)
+	chatWorkerAgent := agent.NewShiroAgent(chatWorkerProvider, workerToolRunner, mcpClient, cfg.Prompts.Worker, nil)
 	heavyAgent := agent.NewHeavyAgent(heavyProvider, cfg.Prompts.Heavy)
 	wildAgent := agent.NewWildAgent(wildProvider, cfg.Prompts.Wild)
 	wildAgent.WithImageGenerator(comfyuiinfra.NewClient(comfyuiinfra.Config{
@@ -86,6 +89,7 @@ func buildAgentRuntime(
 	}))
 	if convEngine != nil {
 		shiroAgent.WithConversationEngine(convEngine)
+		chatWorkerAgent.WithConversationEngine(convEngine)
 		heavyAgent.WithConversationEngine(convEngine)
 		wildAgent.WithConversationEngine(convEngine)
 	}
@@ -97,8 +101,9 @@ func buildAgentRuntime(
 				Tone:        cfg.Worker.Tone,
 			}
 			shiroAgent.WithPersona(shiroPersona)
+			chatWorkerAgent.WithPersona(shiroPersona)
 			log.Printf("Shiro: persona loaded from %s", cfg.Worker.PersonaFile)
 		}
 	}
-	return agentRuntime{Mio: mioAgent, Shiro: shiroAgent, Heavy: heavyAgent, Wild: wildAgent}
+	return agentRuntime{Mio: mioAgent, Shiro: shiroAgent, ChatWorker: chatWorkerAgent, Heavy: heavyAgent, Wild: wildAgent}
 }

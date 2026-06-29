@@ -12,6 +12,7 @@ import (
 )
 
 const shiroMaxTokens = 4096
+const shiroChatMaxTokens = 4096
 
 // ShiroAgent は Worker（実行・道具係）を担当するエンティティ
 type ShiroAgent struct {
@@ -108,6 +109,48 @@ func (s *ShiroAgent) Execute(ctx context.Context, t task.Task) (string, error) {
 	return resp.Content, nil
 }
 
+func (s *ShiroAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	systemPrompt := s.systemPrompt
+	if s.persona != nil {
+		systemPrompt = s.persona.BuildSystemPrompt(s.systemPrompt)
+	}
+	systemPrompt = ensureShiroJapaneseResponsePrompt(systemPrompt)
+	systemPrompt = ensureChatWorkerConversationPrompt(systemPrompt)
+
+	userMessage := stripChatWorkerRoutePrefix(t.UserMessage())
+	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	if s.conversation != nil {
+		recallPack, err := s.conversation.BeginTurn(ctx, t.ChatID(), userMessage)
+		if err != nil {
+			log.Printf("[ChatWorker] BeginTurn failed: %v", err)
+		} else if recallPack != nil {
+			filtered := recallPack.FilterForRole("chatworker")
+			if err := recordRecallTrace(ctx, s.conversation, t.ChatID(), t.JobID().String(), "chatworker", filtered); err != nil {
+				log.Printf("[ChatWorker] RecordRecallTrace failed: %v", err)
+			}
+			messages = append(messages, filtered.ToPromptMessages()...)
+		}
+	}
+	messages = append(messages, userMessageWithAttachments(userMessage, t.Attachments()))
+	req := llm.GenerateRequest{
+		Messages:    messages,
+		MaxTokens:   shiroChatMaxTokens,
+		Temperature: 0.3,
+	}
+
+	resp, err := s.llmProvider.Generate(ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	if s.conversation != nil {
+		if err := endConversationTurnAs(ctx, s.conversation, t.ChatID(), userMessage, resp.Content, conversation.SpeakerChatWorker); err != nil {
+			log.Printf("[ChatWorker] EndTurn failed: %v", err)
+		}
+	}
+	return resp.Content, nil
+}
+
 func (s *ShiroAgent) runSubagentSafely(ctx context.Context, t SubagentTask) (res SubagentResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -116,6 +159,28 @@ func (s *ShiroAgent) runSubagentSafely(ctx context.Context, t SubagentTask) (res
 	}()
 	res, err = s.subagentManager.RunSync(ctx, t)
 	return res, err
+}
+
+func ensureChatWorkerConversationPrompt(systemPrompt string) string {
+	const guard = "ChatWorker route rule: answer as a conversation partner only. Do not execute tools, edit files, run commands, or claim that work was performed. If execution is needed, propose the appropriate route such as /ops or /code."
+	if strings.Contains(systemPrompt, "ChatWorker route rule:") {
+		return systemPrompt
+	}
+	if systemPrompt == "" {
+		return guard
+	}
+	return systemPrompt + "\n\n" + guard
+}
+
+func stripChatWorkerRoutePrefix(message string) string {
+	trimmed := strings.TrimSpace(message)
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{"/chatworker", "/chat-worker", "/worker-chat"} {
+		if explicitCommandMatches(lower, prefix) {
+			return strings.TrimSpace(trimmed[len(prefix):])
+		}
+	}
+	return trimmed
 }
 
 func ensureShiroJapaneseResponsePrompt(systemPrompt string) string {

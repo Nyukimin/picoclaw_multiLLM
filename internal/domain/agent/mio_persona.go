@@ -21,6 +21,9 @@ func (m *MioAgent) parseExplicitCommand(message string) routing.Route {
 	}{
 		{"/analyze", routing.RouteANALYZE},
 		{"/heavy", routing.RouteANALYZE},
+		{"/chatworker", routing.RouteWORKERCHAT},
+		{"/chat-worker", routing.RouteWORKERCHAT},
+		{"/worker-chat", routing.RouteWORKERCHAT},
 		{"/research", routing.RouteRESEARCH},
 		{"/wild", routing.RouteWILD},
 		{"/code4", routing.RouteCODE4},

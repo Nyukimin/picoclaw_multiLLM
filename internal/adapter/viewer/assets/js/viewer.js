@@ -4,7 +4,10 @@ const A = {
   user:   {c:'#94a3b8', l:'れん',  en:'Ren',   e:'\u{1f464}'},
   mio:    {c:'#f472b6', l:'みお',  en:'Mio',   e:'\u{1f338}'},
   shiro:  {c:'#22d3ee', l:'しろ',  en:'Shiro', e:'\u26a1'},
+  chatworker: {c:'#38bdf8', l:'ChatWorker', en:'ChatWorker', e:'CW'},
   worker: {c:'#38bdf8', l:'Worker', en:'Worker', e:'W'},
+  heavy:  {c:'#fbbf24', l:'Heavy', en:'Heavy', e:'H'},
+  wild:   {c:'#34d399', l:'Wild', en:'Wild', e:'W'},
   coder1: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
   coder2: {c:'#818cf8', l:'あお',  en:'Ao',    e:'\u{1f535}'},
   coder3: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
@@ -16,10 +19,10 @@ const A = {
 const RC = {
   CHAT:'#f472b6', OPS:'#22d3ee', CODE:'#fb923c',
   CODE1:'#fb923c', CODE2:'#818cf8', CODE3:'#a78bfa', CODE4:'#facc15',
-  PLAN:'#4ade80', ANALYZE:'#fbbf24', RESEARCH:'#34d399',
+  PLAN:'#4ade80', WORKER_CHAT:'#38bdf8', ANALYZE:'#fbbf24', RESEARCH:'#34d399',
   IDLECHAT:'#a78bfa',
 };
-const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3', 'coder4'];
+const AGENTS = ['mio', 'chatworker', 'shiro', 'heavy', 'wild', 'coder1', 'coder2', 'coder3', 'coder4'];
 const ROLE_TARGETS = [
   {id:'mio', role:'Chat', alias:'Chat', use:'会話テンポ / ルミナ人格 / 音声UI'},
   {id:'shiro', role:'Worker', alias:'Worker', use:'実務処理 / 要約 / RAG'},

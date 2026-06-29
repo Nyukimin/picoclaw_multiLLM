@@ -1,5 +1,6 @@
 // Chat Timeline tab module: normal chat message rendering.
 const DEFAULT_CHAT_ROUTE_ALIASES = {
+  chatworker: {label: 'ChatWorker', baseURL: 'http://127.0.0.1:8082', model: 'ChatWorker', routePrefix: '/chatworker'},
   worker: {label: 'Worker', baseURL: 'http://127.0.0.1:8082', model: 'Worker', routePrefix: '/ops'},
   heavy: {label: 'Heavy', baseURL: 'http://127.0.0.1:8083', model: 'Heavy', routePrefix: '/analyze'},
   wild: {label: 'Wild', baseURL: 'http://127.0.0.1:8084', model: 'Wild', routePrefix: '/wild'},
@@ -13,6 +14,11 @@ function syncChatRouteAliasesFromRuntimeConfig(localLLM) {
     return;
   }
   CHAT_ROUTE_ALIASES = {
+    chatworker: {
+      ...DEFAULT_CHAT_ROUTE_ALIASES.chatworker,
+      baseURL: localLLM.worker_base_url || DEFAULT_CHAT_ROUTE_ALIASES.chatworker.baseURL,
+      model: localLLM.chat_worker_model || DEFAULT_CHAT_ROUTE_ALIASES.chatworker.model,
+    },
     worker: {
       ...DEFAULT_CHAT_ROUTE_ALIASES.worker,
       baseURL: localLLM.worker_base_url || DEFAULT_CHAT_ROUTE_ALIASES.worker.baseURL,
@@ -37,7 +43,7 @@ function selectedChatRouteAlias() {
 }
 
 function isExplicitRouteMessage(message) {
-  return /^\/(ops|wild|heavy|code|code1|code2|code3|code4|plan|analyze|research|chat)(\s|$)/.test(String(message || '').trim());
+  return /^\/(ops|wild|heavy|chatworker|chat-worker|worker-chat|code|code1|code2|code3|code4|plan|analyze|research|chat)(\s|$)/.test(String(message || '').trim());
 }
 
 function selectChatRouteAlias(alias) {
@@ -75,12 +81,31 @@ function buildViewerSendRequest(message) {
   if (!trimmed) return {message: ''};
   if (isExplicitRouteMessage(trimmed)) return {message: trimmed};
 
+  const target = selectedChatTargetAgent();
+  if (target && target !== 'mio') {
+    const alias = CHAT_ROUTE_ALIASES[target];
+    if (alias) {
+      return {
+        message: trimmed,
+        model_alias: alias.label,
+        base_url: alias.baseURL,
+        model: alias.model,
+        route_prefix: alias.routePrefix
+      };
+    }
+  }
   return {message: applyRoleTargetToMessage(trimmed)};
 }
 
 function viewerLLMStartSelectionForRequest(req) {
   const alias = String(req && req.model_alias ? req.model_alias : '').trim();
+  if (alias === 'ChatWorker') return 'Worker';
   return alias === 'Worker' || alias === 'Heavy' || alias === 'Wild' ? alias : '';
+}
+
+function selectedChatTargetAgent() {
+  const el = document.getElementById('chatTargetAgent');
+  return el ? String(el.value || 'mio').trim().toLowerCase() : '';
 }
 
 function viewerLLMRoleInfo(status, role) {
@@ -144,7 +169,8 @@ function addMsgToTimeline(ev) {
   if (!matchesFilters(ev)) return;
   if (ev.type === 'idlechat.summary') return;
   if (ev.type === 'idlechat.message') return;
-  if (ev.type !== 'message.received' && ev.type !== 'idlechat.message' && (ev.from || '').toLowerCase() !== 'mio') return;
+  const timelineSpeaker = (ev.from || '').toLowerCase();
+  if (ev.type !== 'message.received' && ev.type !== 'idlechat.message' && !['mio', 'chatworker', 'heavy', 'wild'].includes(timelineSpeaker)) return;
 
   const em = document.getElementById('empty');
   if (em) em.remove();

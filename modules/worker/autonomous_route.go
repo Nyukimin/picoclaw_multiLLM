@@ -17,7 +17,7 @@ const (
 
 func IsAutonomousRoute(route string) bool {
 	switch normalizeRuntimeRoute(route) {
-	case "OPS", "CODE", "CODE1", "CODE2", "CODE3", "CODE4", "PLAN", "ANALYZE", "RESEARCH", "WILD":
+	case "OPS", "WORKER_CHAT", "CODE", "CODE1", "CODE2", "CODE3", "CODE4", "PLAN", "ANALYZE", "RESEARCH", "WILD":
 		return true
 	default:
 		return false
@@ -36,6 +36,8 @@ func RouteExecutionSteps(route string, ok bool) []string {
 	switch normalizeRuntimeRoute(route) {
 	case "OPS":
 		items = append(items, "shiro.execute")
+	case "WORKER_CHAT":
+		items = append(items, "chatworker.chat")
 	case "CODE", "CODE1", "CODE2", "CODE3", "CODE4":
 		items = append(items, "shiro.delegate", "coder.execute", "shiro.verify")
 	case "PLAN":

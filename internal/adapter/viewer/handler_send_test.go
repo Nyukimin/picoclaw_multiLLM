@@ -60,6 +60,51 @@ func TestHandleSendAppliesViewerLLMAlias(t *testing.T) {
 	}
 }
 
+func TestHandleSendAppliesChatWorkerAlias(t *testing.T) {
+	received := make(chan string, 1)
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req.Message
+		return "ok", nil
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/send", strings.NewReader(`{
+		"message":"talk through this",
+		"model_alias":"ChatWorker",
+		"base_url":"http://127.0.0.1:8082",
+		"model":"ChatWorker",
+		"route_prefix":"/chatworker"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var body struct {
+		OK          bool   `json:"ok"`
+		ModelAlias  string `json:"model_alias"`
+		BaseURL     string `json:"base_url"`
+		Model       string `json:"model"`
+		RoutePrefix string `json:"route_prefix"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if !body.OK || body.ModelAlias != "ChatWorker" || body.BaseURL != "http://127.0.0.1:8082" || body.Model != "ChatWorker" || body.RoutePrefix != "/chatworker" {
+		t.Fatalf("unexpected response: %+v", body)
+	}
+
+	select {
+	case got := <-received:
+		if got != "/chatworker talk through this" {
+			t.Fatalf("unexpected handler message: %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler was not called")
+	}
+}
+
 func TestHandleSendExplicitRouteWinsOverAlias(t *testing.T) {
 	received := make(chan string, 1)
 	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {

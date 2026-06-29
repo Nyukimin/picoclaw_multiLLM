@@ -78,3 +78,21 @@ func TestPhase9RouteDispatcher_SetHeavyAgentUpdatesAnalyzeRoute(t *testing.T) {
 		t.Fatal("expected heavy agent to be called")
 	}
 }
+
+func TestPhase9RouteDispatcher_SetChatWorkerAgentUpdatesWorkerChatRoute(t *testing.T) {
+	chatWorker := &mockChatWorkerAgent{response: "chatworker response"}
+	dispatcher := newPhase9RouteDispatcher(&mockMioAgent{}, &mockShiroAgent{})
+	dispatcher.SetChatWorkerAgent(chatWorker)
+
+	tk := task.NewTask(task.NewJobID(), "/chatworker 相談", "viewer", "viewer-user")
+	resp, err := dispatcher.ExecuteDirect(context.Background(), tk, routing.RouteWORKERCHAT, "sess-1", "viewer", "viewer-user", "")
+	if err != nil {
+		t.Fatalf("ExecuteDirect failed: %v", err)
+	}
+	if resp != "chatworker response" {
+		t.Fatalf("expected chatworker response, got %q", resp)
+	}
+	if !chatWorker.called {
+		t.Fatal("expected chatworker agent to be called")
+	}
+}

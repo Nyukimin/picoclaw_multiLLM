@@ -275,6 +275,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		cfg,
 		llmRuntime.Chat,
 		llmRuntime.Worker,
+		llmRuntime.ChatWorker,
 		llmRuntime.Heavy,
 		llmRuntime.Wild,
 		classifier,

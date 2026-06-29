@@ -5,17 +5,18 @@ type Route string
 
 // ルーティングカテゴリの定数定義
 const (
-	RouteCHAT     Route = "CHAT"     // 会話・意思決定
-	RoutePLAN     Route = "PLAN"     // 計画策定
-	RouteANALYZE  Route = "ANALYZE"  // 分析
-	RouteOPS      Route = "OPS"      // 運用操作
-	RouteRESEARCH Route = "RESEARCH" // 調査
-	RouteWILD     Route = "WILD"     // 創作・画像検索・画像生成・画像プロンプト・雰囲気抽出
-	RouteCODE     Route = "CODE"     // コーディング（汎用）
-	RouteCODE1    Route = "CODE1"    // 仕様設計向け（スロット1）
-	RouteCODE2    Route = "CODE2"    // 実装向け（スロット2）
-	RouteCODE3    Route = "CODE3"    // 高品質コーディング/推論（スロット3）
-	RouteCODE4    Route = "CODE4"    // 高速コーディング/実験（スロット4）
+	RouteCHAT       Route = "CHAT"        // 会話・意思決定
+	RoutePLAN       Route = "PLAN"        // 計画策定
+	RouteANALYZE    Route = "ANALYZE"     // 分析
+	RouteWORKERCHAT Route = "WORKER_CHAT" // Worker会話
+	RouteOPS        Route = "OPS"         // 運用操作
+	RouteRESEARCH   Route = "RESEARCH"    // 調査
+	RouteWILD       Route = "WILD"        // 創作・画像検索・画像生成・画像プロンプト・雰囲気抽出
+	RouteCODE       Route = "CODE"        // コーディング（汎用）
+	RouteCODE1      Route = "CODE1"       // 仕様設計向け（スロット1）
+	RouteCODE2      Route = "CODE2"       // 実装向け（スロット2）
+	RouteCODE3      Route = "CODE3"       // 高品質コーディング/推論（スロット3）
+	RouteCODE4      Route = "CODE4"       // 高速コーディング/実験（スロット4）
 )
 
 // String はRouteの文字列表現を返す

@@ -46,6 +46,12 @@ type viewerLLMAliasSpec struct {
 }
 
 var viewerLLMAliasSpecs = map[string]viewerLLMAliasSpec{
+	"chatworker": {
+		ModelAlias:  "ChatWorker",
+		BaseURL:     "http://127.0.0.1:8082",
+		Model:       "ChatWorker",
+		RoutePrefix: "/chatworker",
+	},
 	"worker": {
 		ModelAlias:  "Worker",
 		BaseURL:     "http://127.0.0.1:8082",
@@ -95,7 +101,7 @@ func viewerSendAliasSpec(req viewerSendRequest) (viewerLLMAliasSpec, bool) {
 
 func validViewerRoutePrefix(prefix string) bool {
 	switch strings.TrimSpace(prefix) {
-	case "/ops", "/wild", "/heavy", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
+	case "/ops", "/wild", "/heavy", "/chatworker", "/chat-worker", "/worker-chat", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
 		return true
 	default:
 		return false
@@ -112,7 +118,7 @@ func viewerSendHasExplicitRoute(message string) bool {
 		return false
 	}
 	switch head[0] {
-	case "/ops", "/wild", "/heavy", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
+	case "/ops", "/wild", "/heavy", "/chatworker", "/chat-worker", "/worker-chat", "/code", "/code1", "/code2", "/code3", "/code4", "/plan", "/analyze", "/research", "/chat":
 		return true
 	default:
 		return false

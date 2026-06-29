@@ -15,6 +15,7 @@ type messageTTSPusher func(ctx context.Context, sessionID string, route routing.
 type messageRouteDispatcher struct {
 	mio               MioAgent
 	shiro             ShiroAgent
+	chatWorker        ChatWorkerAgent
 	wild              WildAgent
 	heavy             HeavyAgent
 	codeExecutor      CodeExecutor
@@ -47,6 +48,10 @@ func (d *messageRouteDispatcher) SetWildAgent(wild WildAgent) {
 	d.wild = wild
 }
 
+func (d *messageRouteDispatcher) SetChatWorkerAgent(chatWorker ChatWorkerAgent) {
+	d.chatWorker = chatWorker
+}
+
 func (d *messageRouteDispatcher) SetHeavyAgent(heavy HeavyAgent) {
 	d.heavy = heavy
 }
@@ -74,6 +79,8 @@ func (d *messageRouteDispatcher) ExecuteDirect(ctx context.Context, t task.Task,
 	switch route {
 	case routing.RouteOPS:
 		return d.executeOPSRoute(ctx, t, sessionID, channel, chatID, ttsSessionID)
+	case routing.RouteWORKERCHAT:
+		return d.executeWorkerChatRoute(ctx, t, sessionID, channel, chatID, ttsSessionID)
 	case routing.RouteCODE, routing.RouteCODE1, routing.RouteCODE2, routing.RouteCODE3, routing.RouteCODE4:
 		return d.executeCodeRoute(ctx, t, route, sessionID, channel, chatID, ttsSessionID)
 	case routing.RouteWILD:
@@ -96,6 +103,21 @@ func (d *messageRouteDispatcher) executeChatRoute(ctx context.Context, t task.Ta
 	resp, err := d.mio.Chat(streamCtx, t)
 	if err == nil {
 		d.emit("agent.response", "mio", "user", resp, "CHAT", jid, sessionID, channel, chatID)
+		ttsStream.Finalize(ctx, resp)
+	}
+	return resp, err
+}
+
+func (d *messageRouteDispatcher) executeWorkerChatRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	if d.chatWorker == nil {
+		return "", fmt.Errorf("no chatworker agent available")
+	}
+	jid := t.JobID().String()
+	d.emit("agent.start", "mio", "chatworker", "ChatWorker thinking...", "WORKER_CHAT", jid, sessionID, channel, chatID)
+	streamCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteWORKERCHAT, jid, sessionID, channel, chatID, ttsSessionID)
+	resp, err := d.chatWorker.Chat(streamCtx, t)
+	if err == nil {
+		d.emit("agent.response", "chatworker", "user", resp, "WORKER_CHAT", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 	}
 	return resp, err
@@ -130,7 +152,7 @@ func (d *messageRouteDispatcher) executeWildRoute(ctx context.Context, t task.Ta
 	streamCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteWILD, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.wild.Generate(streamCtx, t)
 	if err == nil {
-		d.emit("agent.response", "wild", "mio", resp, "WILD", jid, sessionID, channel, chatID)
+		d.emit("agent.response", "wild", "user", resp, "WILD", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 	}
 	return resp, err
@@ -158,7 +180,7 @@ func (d *messageRouteDispatcher) executeAnalyzeRoute(ctx context.Context, t task
 	analyzeCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteANALYZE, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.heavy.Generate(analyzeCtx, t)
 	if err == nil {
-		d.emit("agent.response", "heavy", "mio", resp, "ANALYZE", jid, sessionID, channel, chatID)
+		d.emit("agent.response", "heavy", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "completed", "Heavy Worker completed", jid)
 	} else {

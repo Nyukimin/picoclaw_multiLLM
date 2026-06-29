@@ -1240,6 +1240,15 @@
             <span id="sttCaptionLabel" class="stt-caption-label">暫定文字列</span>
             <span id="sttCaptionText" class="stt-caption-text">-</span>
           </div>
+          <div class="chat-target-row">
+            <label class="chat-target-label" for="chatTargetAgent">To</label>
+            <select id="chatTargetAgent" class="chat-target-select" aria-label="Chat target agent">
+              <option value="mio" selected>Mio</option>
+              <option value="chatworker">ChatWorker</option>
+              <option value="heavy">Heavy</option>
+              <option value="wild">Wild</option>
+            </select>
+          </div>
           <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
         </div>
         <button class="send-btn" id="sendBtn" title="Send">&#x27A4;</button>
