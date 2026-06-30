@@ -13,6 +13,9 @@ build/
 cmd/picoclaw/workspace
 
 # Picoclaw specific
+run/
+workspace/logs/
+workspace/execution_report.jsonl
 workspace/tts/
 workspace/orchestrator_event_*.jsonl
 
