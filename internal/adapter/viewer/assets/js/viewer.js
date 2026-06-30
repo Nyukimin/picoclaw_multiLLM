@@ -436,14 +436,6 @@ const lipSyncActors = {
   shiro: lipSyncShiroEl,
 };
 
-// Initialize character expressions on page load
-if (chatCharacterMioLayeredEl || idleCharacterMioLayeredEl) {
-  // Mio uses layered display
-  loadCharacterState('mio', 'idle');
-}
-if (lipSyncShiroEl) {
-  loadCharacterState('shiro', 'idle');
-}
 const ttsNowPlayingEl = document.getElementById('ttsNowPlaying');
 const ttsNowPlayingTextEl = document.getElementById('ttsNowPlayingText');
 const centralTTSSpeech = {
@@ -854,6 +846,14 @@ function updateCharacterImages(characterId, expressionURL, talkOpenURL) {
 
 function setCharacterExpression(characterId, stateName) {
   loadCharacterState(characterId, stateName);
+}
+
+// Initialize character expressions after characterStates and loaders exist.
+if (chatCharacterMioLayeredEl || idleCharacterMioLayeredEl) {
+  loadCharacterState('mio', 'idle');
+}
+if (lipSyncShiroEl) {
+  loadCharacterState('shiro', 'idle');
 }
 
 function setLipSyncSpeaking(characterId, speaking) {
