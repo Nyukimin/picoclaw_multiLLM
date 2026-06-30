@@ -171,6 +171,93 @@ func (d *distributedRouteDispatcher) ExecuteDirect(ctx context.Context, t task.T
 	return d.executeRemoteRoute(ctx, t, route, sessionID, ttsSessionID, jid, targetAgent)
 }
 
+func (d *distributedRouteDispatcher) ExecuteChatRecipient(ctx context.Context, t task.Task, recipient string, sessionID, ttsSessionID string) (string, error) {
+	switch normalizeChatRecipient(recipient) {
+	case "mio":
+		return d.executeLocalRoute(ctx, t, routing.RouteCHAT, sessionID, ttsSessionID, t.JobID().String())
+	case "shiro":
+		return d.executeWorkerChatRouteAs(ctx, t, "shiro", sessionID, ttsSessionID)
+	case "kuro":
+		return d.executeAnalyzeRouteAs(ctx, t, "kuro", sessionID, ttsSessionID)
+	case "midori":
+		return d.executeWildRouteAs(ctx, t, "midori", sessionID, ttsSessionID)
+	default:
+		return d.executeLocalRoute(ctx, t, routing.RouteCHAT, sessionID, ttsSessionID, t.JobID().String())
+	}
+}
+
+func (d *distributedRouteDispatcher) executeWorkerChatRouteAs(ctx context.Context, t task.Task, actor string, sessionID, ttsSessionID string) (string, error) {
+	route := routing.RouteWORKERCHAT
+	jid := t.JobID().String()
+	if d.chatWorker == nil {
+		return "", fmt.Errorf("no chatworker agent available")
+	}
+	d.emit("agent.start", actor, "user", "ChatWorker thinking...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+	requestMsg := domaintransport.NewMessage("user", actor, sessionID, jid, t.UserMessage())
+	requestMsg.Type = domaintransport.MessageTypeTask
+	d.memory.RecordMessage(requestMsg)
+	streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+	resp, err := d.chatWorker.Chat(streamCtx, t)
+	if err == nil {
+		resultMsg := domaintransport.NewMessage(actor, "user", sessionID, jid, resp)
+		resultMsg.Type = domaintransport.MessageTypeResult
+		d.memory.RecordMessage(resultMsg)
+		d.emit("agent.response", actor, "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+		ttsStream.Finalize(ctx, resp)
+	}
+	return resp, err
+}
+
+func (d *distributedRouteDispatcher) executeWildRouteAs(ctx context.Context, t task.Task, actor string, sessionID, ttsSessionID string) (string, error) {
+	route := routing.RouteWILD
+	jid := t.JobID().String()
+	if d.wild == nil {
+		return "", fmt.Errorf("no wild agent available")
+	}
+	d.emit("agent.start", actor, "user", "創作中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+	wildTask := withSharedRoleContext(t, d.memory)
+	requestMsg := domaintransport.NewMessage("user", actor, sessionID, jid, wildTask.UserMessage())
+	requestMsg.Type = domaintransport.MessageTypeTask
+	d.memory.RecordMessage(requestMsg)
+	streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+	resp, err := d.wild.Generate(streamCtx, wildTask)
+	if err == nil {
+		resultMsg := domaintransport.NewMessage(actor, "user", sessionID, jid, resp)
+		resultMsg.Type = domaintransport.MessageTypeResult
+		d.memory.RecordMessage(resultMsg)
+		d.emit("agent.response", actor, "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+		ttsStream.Finalize(ctx, resp)
+	}
+	return resp, err
+}
+
+func (d *distributedRouteDispatcher) executeAnalyzeRouteAs(ctx context.Context, t task.Task, actor string, sessionID, ttsSessionID string) (string, error) {
+	route := routing.RouteANALYZE
+	jid := t.JobID().String()
+	if d.heavy == nil {
+		return "", fmt.Errorf("no heavy agent available")
+	}
+	d.emit("agent.start", actor, "user", "分析中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+	recordHeavyWorkflowEvent(ctx, d.workflowEvents, "started", "Heavy Worker started", jid)
+	heavyTask := withSharedRoleContext(t, d.memory)
+	requestMsg := domaintransport.NewMessage("user", actor, sessionID, jid, heavyTask.UserMessage())
+	requestMsg.Type = domaintransport.MessageTypeTask
+	d.memory.RecordMessage(requestMsg)
+	streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
+	resp, err := d.heavy.Generate(streamCtx, heavyTask)
+	if err == nil {
+		resultMsg := domaintransport.NewMessage(actor, "user", sessionID, jid, resp)
+		resultMsg.Type = domaintransport.MessageTypeResult
+		d.memory.RecordMessage(resultMsg)
+		d.emit("agent.response", actor, "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+		ttsStream.Finalize(ctx, resp)
+		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "completed", "Heavy Worker completed", jid)
+	} else {
+		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "failed", err.Error(), jid)
+	}
+	return resp, err
+}
+
 func (d *distributedRouteDispatcher) executeLocalRoute(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID, jid string) (string, error) {
 	guardedTask := d.withAttribution(t, "mio", sessionID)
 	userMsg := domaintransport.NewMessage("user", "mio", sessionID, jid, t.UserMessage())

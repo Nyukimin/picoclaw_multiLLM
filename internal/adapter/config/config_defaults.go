@@ -7,6 +7,21 @@ import (
 	"strings"
 )
 
+func applyRenCrowModuleDefaults(c *RenCrowModuleServerConfig) {
+	if c.TimeoutMS <= 0 {
+		c.TimeoutMS = 120000
+	}
+	if c.Health.LivePath == "" {
+		c.Health.LivePath = "/health/live"
+	}
+	if c.Health.ReadyPath == "" {
+		c.Health.ReadyPath = "/health/ready"
+	}
+	if c.Health.PollIntervalMS <= 0 {
+		c.Health.PollIntervalMS = 500
+	}
+}
+
 // setDefaults はデフォルト値を設定
 func (c *Config) setDefaults() {
 	if c.Server.Host == "" {
@@ -65,6 +80,63 @@ func (c *Config) setDefaults() {
 	}
 	if c.LocalLLM.ModelConcurrency <= 0 {
 		c.LocalLLM.ModelConcurrency = 1
+	}
+	if c.LLMOps.AutoStart && strings.TrimSpace(c.LLMOps.LogPath) == "" {
+		c.LLMOps.LogPath = "run/mlx-mgmt-rio.log"
+	}
+	applyRenCrowModuleDefaults(&c.RenCrow.LLM.RenCrowModuleServerConfig)
+	applyRenCrowModuleDefaults(&c.RenCrow.TTS.RenCrowModuleServerConfig)
+	applyRenCrowModuleDefaults(&c.RenCrow.STT.RenCrowModuleServerConfig)
+	if c.RenCrow.LLM.Endpoints.ChatPath == "" {
+		c.RenCrow.LLM.Endpoints.ChatPath = "/v1/chat/completions"
+	}
+	if c.RenCrow.LLM.Endpoints.ResponsesPath == "" {
+		c.RenCrow.LLM.Endpoints.ResponsesPath = "/v1/responses"
+	}
+	if c.RenCrow.LLM.Endpoints.StatusPath == "" {
+		c.RenCrow.LLM.Endpoints.StatusPath = "/v1/status"
+	}
+	if c.RenCrow.LLM.Endpoints.StartPath == "" {
+		c.RenCrow.LLM.Endpoints.StartPath = "/v1/control/start"
+	}
+	if c.RenCrow.LLM.Endpoints.StopPath == "" {
+		c.RenCrow.LLM.Endpoints.StopPath = "/v1/control/stop"
+	}
+	if c.RenCrow.LLM.Endpoints.RestartPath == "" {
+		c.RenCrow.LLM.Endpoints.RestartPath = "/v1/control/restart"
+	}
+	if c.RenCrow.LLM.DefaultRecipient == "" {
+		c.RenCrow.LLM.DefaultRecipient = "mio"
+	}
+	if c.RenCrow.TTS.Endpoints.SynthesizePath == "" {
+		c.RenCrow.TTS.Endpoints.SynthesizePath = "/api/tts"
+	}
+	if c.RenCrow.TTS.Endpoints.VoicesPath == "" {
+		c.RenCrow.TTS.Endpoints.VoicesPath = "/api/voices"
+	}
+	if c.RenCrow.TTS.Endpoints.AudioPathPrefix == "" {
+		c.RenCrow.TTS.Endpoints.AudioPathPrefix = "/audio/"
+	}
+	if c.RenCrow.STT.Endpoints.TranscribePath == "" {
+		c.RenCrow.STT.Endpoints.TranscribePath = "/api/stt"
+	}
+	if c.RenCrow.STT.Endpoints.StreamPath == "" {
+		c.RenCrow.STT.Endpoints.StreamPath = "/stt/stream"
+	}
+	if c.RenCrow.STT.Engine == "" {
+		c.RenCrow.STT.Engine = "external_http"
+	}
+	if c.RenCrow.STT.LLMAudio.LLMRef == "" {
+		c.RenCrow.STT.LLMAudio.LLMRef = "rencrow.llm"
+	}
+	if c.RenCrow.STT.LLMAudio.EndpointPath == "" {
+		c.RenCrow.STT.LLMAudio.EndpointPath = "/v1/audio/transcriptions"
+	}
+	if c.RenCrow.STT.LLMAudio.ResponseFormat == "" {
+		c.RenCrow.STT.LLMAudio.ResponseFormat = "text"
+	}
+	if c.RenCrow.STT.Engine == "llm_audio" && c.RenCrow.STT.LLMAudio.Model == "" {
+		c.RenCrow.STT.LLMAudio.Model = c.RenCrow.STT.Model
 	}
 	if c.WebwrightFetch.RunnerPath == "" {
 		c.WebwrightFetch.RunnerPath = "tools/webwright_fetch/run_webwright_fetch.py"
@@ -173,6 +245,9 @@ func (c *Config) setDefaults() {
 		}
 		if c.IdleChat.IntervalSec == 0 {
 			c.IdleChat.IntervalSec = c.IdleChat.IntervalMin * 60
+		}
+		if c.IdleChat.StartupDelaySec == 0 {
+			c.IdleChat.StartupDelaySec = 30 * 60
 		}
 		if c.IdleChat.MaxTurns == 0 {
 			c.IdleChat.MaxTurns = 10

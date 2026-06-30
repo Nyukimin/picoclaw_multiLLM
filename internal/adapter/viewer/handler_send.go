@@ -27,15 +27,18 @@ type AttachmentSaver interface {
 
 type SendRequest struct {
 	Message     string
+	Recipient   string
 	Attachments []domainattachment.Attachment
 }
 
 type viewerSendRequest struct {
-	Message     string `json:"message"`
-	ModelAlias  string `json:"model_alias,omitempty"`
-	BaseURL     string `json:"base_url,omitempty"`
-	Model       string `json:"model,omitempty"`
-	RoutePrefix string `json:"route_prefix,omitempty"`
+	Message      string `json:"message"`
+	Recipient    string `json:"to,omitempty"`
+	RecipientAlt string `json:"recipient,omitempty"`
+	ModelAlias   string `json:"model_alias,omitempty"`
+	BaseURL      string `json:"base_url,omitempty"`
+	Model        string `json:"model,omitempty"`
+	RoutePrefix  string `json:"route_prefix,omitempty"`
 }
 
 type viewerLLMAliasSpec struct {
@@ -134,6 +137,13 @@ func viewerEffectiveMessage(req viewerSendRequest) (string, viewerLLMAliasSpec, 
 	return spec.RoutePrefix + " " + message, spec, true
 }
 
+func viewerSendRecipient(req viewerSendRequest) string {
+	if v := strings.TrimSpace(req.Recipient); v != "" {
+		return v
+	}
+	return strings.TrimSpace(req.RecipientAlt)
+}
+
 // HandleSend creates an HTTP handler that receives messages from the viewer input.
 // onError is called with the processing error if the async handler fails (may be nil).
 
@@ -181,7 +191,7 @@ func HandleSendWithAttachments(handler MessageHandler, onError func(error), save
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			log.Printf("[Viewer] HandleSend: starting async handler for message: %q", effectiveMessage)
-			response, err := handler(ctx, SendRequest{Message: effectiveMessage, Attachments: attachments})
+			response, err := handler(ctx, SendRequest{Message: effectiveMessage, Recipient: viewerSendRecipient(req), Attachments: attachments})
 			if err != nil {
 				log.Printf("[Viewer] HandleSend: handler error: %v", err)
 				if onError != nil {
@@ -259,11 +269,13 @@ func parseViewerMultipartSendRequest(r *http.Request, saver AttachmentSaver) (vi
 		return viewerSendRequest{}, nil, fmt.Errorf("parse multipart: %w", err)
 	}
 	req := viewerSendRequest{
-		Message:     r.FormValue("message"),
-		ModelAlias:  r.FormValue("model_alias"),
-		BaseURL:     r.FormValue("base_url"),
-		Model:       r.FormValue("model"),
-		RoutePrefix: r.FormValue("route_prefix"),
+		Message:      r.FormValue("message"),
+		Recipient:    r.FormValue("to"),
+		RecipientAlt: r.FormValue("recipient"),
+		ModelAlias:   r.FormValue("model_alias"),
+		BaseURL:      r.FormValue("base_url"),
+		Model:        r.FormValue("model"),
+		RoutePrefix:  r.FormValue("route_prefix"),
 	}
 
 	files, err := incomingViewerFiles(r.MultipartForm)

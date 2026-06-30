@@ -4,6 +4,8 @@ const A = {
   user:   {c:'#94a3b8', l:'れん',  en:'Ren',   e:'\u{1f464}'},
   mio:    {c:'#f472b6', l:'みお',  en:'Mio',   e:'\u{1f338}'},
   shiro:  {c:'#22d3ee', l:'しろ',  en:'Shiro', e:'\u26a1'},
+  kuro:   {c:'#64748b', l:'くろ',  en:'Kuro',  e:'K'},
+  midori: {c:'#34d399', l:'みどり', en:'Midori', e:'M'},
   chatworker: {c:'#38bdf8', l:'ChatWorker', en:'ChatWorker', e:'CW'},
   worker: {c:'#38bdf8', l:'Worker', en:'Worker', e:'W'},
   heavy:  {c:'#fbbf24', l:'Heavy', en:'Heavy', e:'H'},
@@ -997,7 +999,10 @@ function switchTab(tab) {
   if (sttControlsReady) {
     updateSTTInputIndicators();
   }
-  if (tab === 'timeline' && timelineAutoFollow) scrollToBottom(true);
+  if (tab === 'timeline') {
+    if (typeof refreshIdleChatActivityTimer === 'function') refreshIdleChatActivityTimer('viewer_chat_tab');
+    if (timelineAutoFollow) scrollToBottom(true);
+  }
   if (tab === 'ops') {
     refreshSandboxData();
     refreshRuntimeBlockedRouteData();
@@ -2766,6 +2771,16 @@ function initLiveMode() {
 }
 
 const LAB_PARTNER_STORAGE_KEY = 'labConversation.selectedPartner';
+const LAB_CHAT_PARTNERS = ['shiro', 'kuro', 'midori'];
+const LAB_CHAT_PARTNER_LABELS = {shiro: 'Shiro', kuro: 'Kuro', midori: 'Midori'};
+
+function isLabChatPartner(actor) {
+  return LAB_CHAT_PARTNERS.indexOf(String(actor || '').toLowerCase()) >= 0;
+}
+
+function labPartnerLabel(actor) {
+  return LAB_CHAT_PARTNER_LABELS[String(actor || '').toLowerCase()] || 'Shiro';
+}
 
 function normalizeLabActor(value) {
   if (value === null || value === undefined) return '';
@@ -2785,6 +2800,8 @@ function normalizeLabActor(value) {
     return '';
   }
   const text = String(value).trim().toLowerCase();
+  if (text.includes('midori')) return 'midori';
+  if (text.includes('kuro')) return 'kuro';
   if (text.includes('shiro')) return 'shiro';
   if (text.includes('mio')) return 'mio';
   return '';
@@ -2813,29 +2830,12 @@ function getLabSelectedPartner() {
       if (selected) return selected;
     }
   } catch (_) {}
-  return 'mio';
+  return 'shiro';
 }
 
-function syncLabRoleTarget(partner) {
-  const actor = normalizeLabActor(partner) || 'mio';
-  try {
-    const current = typeof selectedRoleTargetID === 'function'
-      ? normalizeLabActor(selectedRoleTargetID())
-      : normalizeLabActor(localStorage.getItem('roleSelector.selectedTarget'));
-    if (current === actor) return actor;
-    if (typeof selectRoleTarget === 'function') {
-      selectRoleTarget(actor);
-    } else {
-      localStorage.setItem('roleSelector.selectedTarget', actor);
-    }
-  } catch (_) {}
-  return actor;
-}
-
-function setLabSelectedPartner(partner, syncRoleTarget) {
-  const actor = normalizeLabActor(partner) || 'mio';
+function setLabSelectedPartner(partner) {
+  const actor = normalizeLabActor(partner) || 'shiro';
   try { localStorage.setItem(LAB_PARTNER_STORAGE_KEY, actor); } catch (_) {}
-  if (syncRoleTarget !== false) syncLabRoleTarget(actor);
   return actor;
 }
 
@@ -2884,6 +2884,49 @@ function setLabChipState(id, enabled) {
   if (el.classList && typeof el.classList.toggle === 'function') el.classList.toggle('is-active', !!enabled);
 }
 
+function setLabPartnerMenuOpen(open) {
+  const chip = document.getElementById('labModePartnerChip');
+  const menu = document.getElementById('labPartnerOptions');
+  const body = document && document.body;
+  const isChat = !!(body && body.classList && body.classList.contains('lab-chat-mode'));
+  const shouldOpen = !!open && isChat && !!menu && !!chip && !chip.disabled;
+  if (menu) menu.hidden = !shouldOpen;
+  if (chip && typeof chip.setAttribute === 'function') chip.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+}
+
+let labPartnerRuntimeState = 'pending';
+let labRuntimeConfigRefreshTimer = null;
+let labRuntimeConfigRefreshAttempts = 0;
+
+function labPartnerRuntimeControlsEnabled() {
+  return labPartnerRuntimeState === 'ready';
+}
+
+function syncLabPartnerPicker(partner, isIdle) {
+  const actor = normalizeLabActor(partner) || 'shiro';
+  const selectedPartner = isLabChatPartner(actor) ? actor : 'shiro';
+  const chip = document.getElementById('labModePartnerChip');
+  const controlsEnabled = labPartnerRuntimeControlsEnabled();
+  if (chip) {
+    chip.textContent = labPartnerLabel(selectedPartner);
+    chip.disabled = !!isIdle || !controlsEnabled;
+    chip.title = controlsEnabled ? '' : 'RenCrow_LLM runtime selection is not ready';
+    if (typeof chip.setAttribute === 'function') chip.setAttribute('aria-current', !isIdle && isLabChatPartner(actor) ? 'true' : 'false');
+    if (typeof chip.setAttribute === 'function') chip.setAttribute('aria-pressed', !isIdle && isLabChatPartner(actor) ? 'true' : 'false');
+    if (typeof chip.setAttribute === 'function') chip.setAttribute('aria-disabled', chip.disabled ? 'true' : 'false');
+    if (chip.classList && typeof chip.classList.toggle === 'function') chip.classList.toggle('is-active', !isIdle && isLabChatPartner(actor));
+  }
+  document.querySelectorAll('[data-lab-partner-option]').forEach((btn) => {
+    const option = normalizeLabActor(btn.dataset.labPartnerOption);
+    btn.hidden = option === selectedPartner;
+    btn.textContent = labPartnerLabel(option);
+    btn.disabled = !controlsEnabled;
+    btn.title = controlsEnabled ? '' : 'RenCrow_LLM runtime selection is not ready';
+    if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-disabled', btn.disabled ? 'true' : 'false');
+  });
+  if (isIdle) setLabPartnerMenuOpen(false);
+}
+
 function applyLabConversationStatus(status) {
   const body = document && document.body;
   if (!body) return;
@@ -2891,12 +2934,14 @@ function applyLabConversationStatus(status) {
   const isIdle = conversationMode === 'idle';
   const partner = isIdle
     ? getLabSelectedPartner()
-    : setLabSelectedPartner(deriveLabConversationPartner(status || {}), true);
-  const isShiro = partner === 'shiro';
+    : setLabSelectedPartner(deriveLabConversationPartner(status || {}));
+  const isMio = partner === 'mio';
   setLabBodyClass('lab-idle-mode', isIdle);
   setLabBodyClass('lab-chat-mode', !isIdle);
-  setLabBodyClass('lab-partner-mio', isIdle || !isShiro);
-  setLabBodyClass('lab-partner-shiro', isIdle || isShiro);
+  setLabBodyClass('lab-partner-mio', isIdle || isMio);
+  setLabBodyClass('lab-partner-shiro', isIdle || !isMio);
+  setLabBodyClass('lab-partner-kuro', !isIdle && partner === 'kuro');
+  setLabBodyClass('lab-partner-midori', !isIdle && partner === 'midori');
   if (body.dataset) {
     body.dataset.labConversationMode = conversationMode;
     body.dataset.labPartner = isIdle ? 'both' : partner;
@@ -2905,13 +2950,83 @@ function applyLabConversationStatus(status) {
   setLabChipState('labModeChatChip', !isIdle);
   setLabChipState('labModeIdleChip', isIdle);
   setLabChipState('labModeMioChip', isIdle || partner === 'mio');
-  setLabChipState('labModeShiroChip', isIdle || partner === 'shiro');
+  syncLabPartnerPicker(partner, isIdle);
+}
+
+let labModeControlBusy = false;
+let labModelSwitchBusy = false;
+
+function refreshLabModeSwitcherBusy() {
+  const enabled = labModeControlBusy || labModelSwitchBusy;
+  document.querySelectorAll('[data-lab-switch], [data-lab-partner-toggle], [data-lab-partner-option]').forEach((btn) => {
+    btn.disabled = !!enabled;
+  });
+  if (enabled) setLabPartnerMenuOpen(false);
 }
 
 function setLabModeSwitcherBusy(enabled) {
-  document.querySelectorAll('[data-lab-switch]').forEach((btn) => {
-    btn.disabled = !!enabled;
+  labModeControlBusy = !!enabled;
+  refreshLabModeSwitcherBusy();
+}
+
+function setLabModelSwitchBusy(enabled) {
+  labModelSwitchBusy = !!enabled;
+  refreshLabModeSwitcherBusy();
+}
+
+function announceLabPartnerSwitch(previousPartner, nextPartner) {
+  const previous = normalizeLabActor(previousPartner);
+  const next = normalizeLabActor(nextPartner);
+  if (!isLabChatPartner(previous) || !isLabChatPartner(next) || previous === next) return;
+  if (typeof addMsgToTimeline !== 'function') return;
+  addMsgToTimeline({
+    type: 'agent.response',
+    from: previous,
+    to: 'user',
+    timestamp: new Date().toISOString(),
+    content: labPartnerLabel(next) + 'に代わるね。ちょっとまってて。',
   });
+}
+
+function announceLabPartnerReady(partner) {
+  const actor = normalizeLabActor(partner);
+  if (!isLabChatPartner(actor) || typeof addMsgToTimeline !== 'function') return;
+  addMsgToTimeline({
+    type: 'agent.response',
+    from: actor,
+    to: 'user',
+    timestamp: new Date().toISOString(),
+    content: 'おまたせ。準備できたよ。',
+  });
+}
+
+async function prepareLabChatPartnerModel(partner) {
+  const actor = normalizeLabActor(partner);
+  if (!isLabChatPartner(actor) || typeof ensureViewerLLMReadyForRecipient !== 'function') return true;
+  setLabModelSwitchBusy(true);
+  if (typeof setChatModelSwitching === 'function') setChatModelSwitching(true);
+  try {
+    await ensureViewerLLMReadyForRecipient(actor);
+    return true;
+  } catch (err) {
+    if (state && state.idleChat) {
+      state.idleChat.controlError = 'LLM model switch unavailable: ' + String(err && err.message ? err.message : err);
+    }
+    if (typeof addMsgToTimeline === 'function') {
+      addMsgToTimeline({
+        type: 'agent.response',
+        from: 'mio',
+        to: 'user',
+        timestamp: new Date().toISOString(),
+        content: 'モデル切り替えに失敗しました: ' + String(err && err.message ? err.message : err),
+      });
+    }
+    console.error(err);
+    return false;
+  } finally {
+    if (typeof setChatModelSwitching === 'function') setChatModelSwitching(false);
+    setLabModelSwitchBusy(false);
+  }
 }
 
 async function runLabIdleControl(path) {
@@ -2938,19 +3053,93 @@ async function runLabIdleControl(path) {
   }
 }
 
+async function refreshIdleChatActivityTimer(reason) {
+  try {
+    const res = await fetch('/viewer/idlechat/activity', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reason: reason || 'chat_switch', source: 'viewer'}),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error('HTTP ' + String(res.status) + ': ' + (text || res.statusText || 'idlechat activity failed'));
+    }
+    if (state && state.idleChat) state.idleChat.controlError = '';
+  } catch (err) {
+    console.warn('[IdleChat] activity refresh failed:', err);
+  }
+}
+
 function focusLabChatInput() {
   const target = document.getElementById('labInp') || document.getElementById('inp');
   if (target && typeof target.focus === 'function') target.focus();
 }
 
+function labPartnerLiveModelKey(partner) {
+  switch (normalizeLabActor(partner)) {
+    case 'shiro': return 'chatworker';
+    case 'kuro': return 'heavy';
+    case 'midori': return 'wild';
+    default: return '';
+  }
+}
+
+function isLocalLLMLiveModelAvailable(model) {
+  if (!model) return false;
+  if (model.loaded === true) return true;
+  if (model.loaded_model || model.backend_model || model.default_model) return true;
+  if (model.error) return false;
+  const status = String(model.status || '').trim().toLowerCase();
+  if (status === 'ok' || status === 'ready' || status === 'live') return true;
+  return false;
+}
+
+function labRuntimeStateFromConfig(cfg) {
+  if (!cfg) return 'pending';
+  if (!cfg.llm_ops_configured || cfg.llm_ops_enabled === false) return 'failed';
+  const liveModels = cfg.local_llm && cfg.local_llm.live_models ? cfg.local_llm.live_models : {};
+  const hasModelInfo = LAB_CHAT_PARTNERS.some((partner) => {
+    const model = liveModels[labPartnerLiveModelKey(partner)];
+    return model && (model.loaded_model || model.backend_model || model.default_model || model.model || model.id || model.loaded === true);
+  });
+  return hasModelInfo ? 'ready' : 'pending';
+}
+
+function reconcileLabPartnerWithRuntimeConfig(cfg) {
+  const body = document && document.body;
+  if (!body || !body.classList || !body.classList.contains('lab-mode')) return;
+  labPartnerRuntimeState = labRuntimeStateFromConfig(cfg);
+  if (body.dataset) body.dataset.labRuntimeState = labPartnerRuntimeState;
+  syncLabPartnerPicker(getLabSelectedPartner(), body.classList.contains('lab-idle-mode'));
+}
+
 function switchLabConversation(nextMode, partner) {
-  const selectedPartner = partner ? setLabSelectedPartner(partner, true) : getLabSelectedPartner();
+  const previousPartner = getLabSelectedPartner();
+  const selectedPartner = normalizeLabActor(partner) || previousPartner;
   if (nextMode === 'idle') {
     runLabIdleControl('/viewer/idlechat/start');
     return;
   }
-  applyLabConversationStatus({mode: 'chat', persona: selectedPartner});
-  focusLabChatInput();
+  const partnerChanged = normalizeLabActor(previousPartner) !== normalizeLabActor(selectedPartner);
+  if (!partnerChanged) {
+    applyLabConversationStatus({mode: 'chat', persona: selectedPartner});
+  } else {
+    announceLabPartnerSwitch(previousPartner, selectedPartner);
+    setLabSelectedPartner(selectedPartner);
+    applyLabConversationStatus({mode: 'chat', persona: selectedPartner});
+  }
+  refreshIdleChatActivityTimer('lab_chat_switch');
+  prepareLabChatPartnerModel(selectedPartner).then((ready) => {
+    if (ready) {
+      setLabSelectedPartner(selectedPartner);
+      applyLabConversationStatus({mode: 'chat', persona: selectedPartner});
+      if (partnerChanged) announceLabPartnerReady(selectedPartner);
+    } else {
+      setLabSelectedPartner(previousPartner);
+      applyLabConversationStatus({mode: 'chat', persona: previousPartner});
+    }
+    focusLabChatInput();
+  });
   runLabIdleControl('/viewer/idlechat/stop');
 }
 
@@ -2972,10 +3161,35 @@ function bindLabModeSwitcher() {
       switchLabConversation('chat');
     });
   });
+  const partnerChip = document.querySelector('[data-lab-partner-toggle]');
+  if (partnerChip) {
+    partnerChip.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const body = document && document.body;
+      if (!body || !body.classList || !body.classList.contains('lab-chat-mode')) return;
+      const menu = document.getElementById('labPartnerOptions');
+      setLabPartnerMenuOpen(menu ? menu.hidden : true);
+    });
+  }
+  document.querySelectorAll('[data-lab-partner-option]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const actor = normalizeLabActor(btn.dataset.labPartnerOption);
+      if (!isLabChatPartner(actor)) return;
+      setLabPartnerMenuOpen(false);
+      switchLabConversation('chat', actor);
+    });
+  });
+  document.addEventListener('click', (ev) => {
+    const picker = document.getElementById('labPartnerPicker');
+    if (picker && typeof picker.contains === 'function' && picker.contains(ev.target)) return;
+    setLabPartnerMenuOpen(false);
+  });
 }
 
 if (typeof window !== 'undefined') {
   window.applyLabConversationStatus = applyLabConversationStatus;
+  window.getLabSelectedPartner = getLabSelectedPartner;
+  window.normalizeLabActor = normalizeLabActor;
 }
 
 function shouldRefreshOptionalPanels() {
@@ -4475,6 +4689,7 @@ bindMobileTTSAudioAutounlock();
 bindViewerActiveControlLifecycle();
 updateAudioButton();
 let sending = false;
+let chatModelSwitching = false;
 let viewerAttachments = [];
 let suppressInputInterrupt = false;
 let lastIdleInterruptAt = 0;
@@ -5008,19 +5223,12 @@ function send() {
   const text = inp.value.trim();
   const message = text;
   const attachments = viewerAttachments.slice();
-  if ((!text && attachments.length === 0) || sending) return;
+  const modelBusy = typeof chatModelSwitching !== 'undefined' && chatModelSwitching;
+  if ((!text && attachments.length === 0) || sending || modelBusy) return;
   if (typeof interruptChatOutputForUserInput === 'function') interruptChatOutputForUserInput('chat_send');
   if (typeof interruptIdleChatForUserInput === 'function') interruptIdleChatForUserInput('chat_send');
   sending = true;
-  sendBtn.disabled = true;
-  inp.disabled = true;
-  if (typeof labInp !== 'undefined' && labInp) labInp.disabled = true;
-  if (attachBtn) attachBtn.disabled = true;
-  if (screenBtn) screenBtn.disabled = true;
-  if (cameraBtn) cameraBtn.disabled = true;
-  if (labAttachBtn) labAttachBtn.disabled = true;
-  if (labScreenBtn) labScreenBtn.disabled = true;
-  if (labCameraBtn) labCameraBtn.disabled = true;
+  refreshChatComposerBusy();
 
   const sendPromise = attachments.length > 0 ? sendViewerMessage(message, attachments) : sendViewerMessage(message);
   sendPromise
@@ -5044,19 +5252,29 @@ function send() {
   })
   .finally(() => {
     sending = false;
-    sendBtn.disabled = false;
-    inp.disabled = false;
-    if (typeof labInp !== 'undefined' && labInp) labInp.disabled = false;
-    if (attachBtn) attachBtn.disabled = false;
-    if (screenBtn) screenBtn.disabled = false;
-    if (cameraBtn) cameraBtn.disabled = false;
-    if (labAttachBtn) labAttachBtn.disabled = false;
-    if (labScreenBtn) labScreenBtn.disabled = false;
-    if (labCameraBtn) labCameraBtn.disabled = false;
+    refreshChatComposerBusy();
     const isLabMode = typeof document !== 'undefined' && document.body && document.body.classList.contains('lab-mode');
     const focusTarget = typeof labInp !== 'undefined' && isLabMode && labInp ? labInp : inp;
-    focusTarget.focus();
+    if (!(typeof chatModelSwitching !== 'undefined' && chatModelSwitching)) focusTarget.focus();
   });
+}
+
+function refreshChatComposerBusy() {
+  const busy = sending || (typeof chatModelSwitching !== 'undefined' && chatModelSwitching);
+  if (sendBtn) sendBtn.disabled = busy;
+  if (inp) inp.disabled = busy;
+  if (typeof labInp !== 'undefined' && labInp) labInp.disabled = busy;
+  if (attachBtn) attachBtn.disabled = busy;
+  if (screenBtn) screenBtn.disabled = busy;
+  if (cameraBtn) cameraBtn.disabled = busy;
+  if (labAttachBtn) labAttachBtn.disabled = busy;
+  if (labScreenBtn) labScreenBtn.disabled = busy;
+  if (labCameraBtn) labCameraBtn.disabled = busy;
+}
+
+function setChatModelSwitching(enabled) {
+  if (typeof chatModelSwitching !== 'undefined') chatModelSwitching = !!enabled;
+  refreshChatComposerBusy();
 }
 
 async function sendViewerMessage(message, attachments = []) {
@@ -5348,6 +5566,17 @@ function isVoiceChatAllowed() {
   return activeViewerTab === 'timeline' && !document.body.classList.contains('live-mode');
 }
 
+function scheduleViewerRuntimeConfigRetry() {
+  if (labPartnerRuntimeState !== 'pending') return;
+  if (labRuntimeConfigRefreshTimer || typeof setTimeout !== 'function') return;
+  if (labRuntimeConfigRefreshAttempts >= 12) return;
+  labRuntimeConfigRefreshAttempts += 1;
+  labRuntimeConfigRefreshTimer = setTimeout(() => {
+    labRuntimeConfigRefreshTimer = null;
+    loadViewerRuntimeConfig();
+  }, 1000);
+}
+
 async function loadViewerRuntimeConfig() {
   try {
     const res = await fetch('/viewer/runtime-config', { cache: 'no-store' });
@@ -5366,11 +5595,15 @@ async function loadViewerRuntimeConfig() {
     sttState.runtimeConfigLoaded = true;
     updateSTTInputIndicators();
     syncLLMOpsPanel(cfg, '');
+    reconcileLabPartnerWithRuntimeConfig(cfg);
+    scheduleViewerRuntimeConfigRetry();
     loadViewerDebugSystemSnapshot();
   } catch (err) {
     const message = String(err && err.message ? err.message : err);
     console.warn('[STT] runtime config unavailable:', err);
     syncLLMOpsPanel(null, message);
+    labPartnerRuntimeState = 'pending';
+    scheduleViewerRuntimeConfigRetry();
   }
 }
 

@@ -2114,6 +2114,259 @@ session:
 	}
 }
 
+func TestLoadConfig_RenCrowModuleServers(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "rencrow_servers.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+rencrow:
+  llm:
+    enabled: true
+    base_url: "http://192.168.1.205:8079"
+    token_env: "RENCROW_LLM_TOKEN"
+    timeout_ms: 30000
+    health:
+      live_path: "/health/live"
+      ready_path: "/health/ready"
+      poll_interval_ms: 500
+    endpoints:
+      chat_path: "/v1/chat/completions"
+      responses_path: "/v1/responses"
+      status_path: "/v1/status"
+      start_path: "/v1/control/start"
+      stop_path: "/v1/control/stop"
+      restart_path: "/v1/control/restart"
+    default_recipient: "mio"
+    recipients:
+      mio:
+        role: "chat"
+        model: "Chat"
+        selection: "Chat"
+      shiro:
+        role: "chatworker"
+        model: "ChatWorker"
+        selection: "ChatWorker"
+      kuro:
+        role: "heavy"
+        model: "Heavy"
+        selection: "Heavy"
+      midori:
+        role: "wild"
+        model: "Wild"
+        selection: "Wild"
+  tts:
+    enabled: true
+    base_url: "http://192.168.1.205:7870"
+    public_base_url: "http://192.168.1.205:7870"
+    audio_base_url: "http://192.168.1.205:7870"
+    default_voice: "mio"
+    endpoints:
+      synthesize_path: "/api/tts"
+      voices_path: "/api/voices"
+      audio_path_prefix: "/audio/"
+    voices:
+      mio:
+        voice_id: "female_01"
+        voice_name: "Mio"
+  stt:
+    enabled: true
+    base_url: "http://192.168.1.205:8780"
+    stream_url: "ws://192.168.1.205:8780/stt/stream"
+    engine: "llm_audio"
+    language: "ja"
+    model: "default"
+    busy_policy: "queue_latest"
+    vad: true
+    llm_audio:
+      llm_ref: "rencrow.llm"
+      model: "audio-transcriber"
+      endpoint_path: "/v1/audio/transcriptions"
+      prompt: "Transcribe the audio into Japanese text."
+      response_format: "text"
+    endpoints:
+      transcribe_path: "/api/stt"
+      stream_path: "/stt/stream"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if !cfg.RenCrow.LLM.Enabled || cfg.RenCrow.LLM.BaseURL != "http://192.168.1.205:8079" {
+		t.Fatalf("unexpected rencrow llm config: %+v", cfg.RenCrow.LLM)
+	}
+	if cfg.RenCrow.LLM.Recipients["shiro"].Model != "ChatWorker" {
+		t.Fatalf("unexpected shiro recipient: %+v", cfg.RenCrow.LLM.Recipients["shiro"])
+	}
+	if cfg.RenCrow.TTS.AudioBaseURL != "http://192.168.1.205:7870" || cfg.RenCrow.TTS.Voices["mio"].VoiceID != "female_01" {
+		t.Fatalf("unexpected rencrow tts config: %+v", cfg.RenCrow.TTS)
+	}
+	if cfg.RenCrow.STT.StreamURL != "ws://192.168.1.205:8780/stt/stream" || !cfg.RenCrow.STT.VAD {
+		t.Fatalf("unexpected rencrow stt config: %+v", cfg.RenCrow.STT)
+	}
+	if cfg.RenCrow.STT.Engine != "llm_audio" || cfg.RenCrow.STT.LLMAudio.LLMRef != "rencrow.llm" {
+		t.Fatalf("unexpected rencrow stt llm_audio config: %+v", cfg.RenCrow.STT)
+	}
+}
+
+func TestLoadConfig_RenCrowModuleServerDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "rencrow_defaults.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+rencrow:
+  llm:
+    enabled: true
+    base_url: "http://127.0.0.1:8079"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.RenCrow.LLM.Health.LivePath != "/health/live" || cfg.RenCrow.LLM.Health.PollIntervalMS != 500 {
+		t.Fatalf("unexpected rencrow health defaults: %+v", cfg.RenCrow.LLM.Health)
+	}
+	if cfg.RenCrow.LLM.Endpoints.StartPath != "/v1/control/start" {
+		t.Fatalf("unexpected rencrow llm endpoint defaults: %+v", cfg.RenCrow.LLM.Endpoints)
+	}
+	if cfg.RenCrow.TTS.Endpoints.SynthesizePath != "/api/tts" || cfg.RenCrow.STT.Endpoints.StreamPath != "/stt/stream" {
+		t.Fatalf("unexpected rencrow tts/stt endpoint defaults: tts=%+v stt=%+v", cfg.RenCrow.TTS.Endpoints, cfg.RenCrow.STT.Endpoints)
+	}
+	if cfg.RenCrow.STT.Engine != "external_http" || cfg.RenCrow.STT.LLMAudio.EndpointPath != "/v1/audio/transcriptions" {
+		t.Fatalf("unexpected rencrow stt engine defaults: %+v", cfg.RenCrow.STT)
+	}
+}
+
+func TestLoadConfig_RenCrowModuleServerValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "rencrow_invalid.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+rencrow:
+  llm:
+    enabled: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("expected missing rencrow.llm.base_url to fail")
+	}
+}
+
+func TestLoadConfig_RenCrowSTTLLMAudioValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "rencrow_stt_llm_audio_invalid.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+rencrow:
+  stt:
+    enabled: true
+    base_url: "http://127.0.0.1:8780"
+    engine: "llm_audio"
+    llm_audio:
+      endpoint_path: "v1/audio/transcriptions"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("expected invalid rencrow.stt.llm_audio.endpoint_path to fail")
+	}
+}
+
+func TestLoadConfig_RenCrowSTTLLMAudioAllowsNoBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "rencrow_stt_llm_audio_no_base.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+rencrow:
+  stt:
+    enabled: true
+    engine: "llm_audio"
+    language: "ja"
+    model: "small"
+    llm_audio:
+      llm_ref: "rencrow.llm"
+      endpoint_path: "/v1/audio/transcriptions"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.RenCrow.STT.BaseURL != "" || cfg.RenCrow.STT.LLMAudio.Model != "small" {
+		t.Fatalf("unexpected rencrow stt llm_audio config: %+v", cfg.RenCrow.STT)
+	}
+}
+
+func TestLoadConfig_RenCrowSTTExternalHTTPRequiresBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "rencrow_stt_external_no_base.yaml")
+	content := `
+server:
+  port: 8080
+ollama:
+  base_url: "http://localhost:11434"
+  model: "picoclaw-v1"
+session:
+  storage_dir: "./data/sessions"
+rencrow:
+  stt:
+    enabled: true
+    engine: "external_http"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("expected rencrow.stt external_http without base_url to fail")
+	}
+}
+
 func TestLoadConfig_TTSLocalHTTPSDefaultsToTLSSkipVerify(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "tts_local_https.yaml")
@@ -2546,6 +2799,9 @@ idle_chat:
 	}
 	if cfg.IdleChat.IntervalSec != 300 {
 		t.Errorf("Expected IntervalSec 300, got %d", cfg.IdleChat.IntervalSec)
+	}
+	if cfg.IdleChat.StartupDelaySec != 1800 {
+		t.Errorf("Expected StartupDelaySec 1800, got %d", cfg.IdleChat.StartupDelaySec)
 	}
 
 	if cfg.IdleChat.MaxTurns != 10 {

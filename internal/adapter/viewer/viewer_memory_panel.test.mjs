@@ -4602,9 +4602,12 @@ function refreshLlmOpsStatus() {}
 globalThis.__ensure = ensureViewerLLMReadyForRequest;
 `;
   const responses = [
+    {ok: true, status: 200, body: '{"llm_ops_configured":true}'},
     {ok: false, status: 503, body: 'llm ops health unavailable'},
+    {ok: true, status: 200, body: '{"llm_ops_configured":true}'},
     {ok: true, status: 200, body: '{}'},
     {ok: false, status: 502, body: 'llm ops status unavailable'},
+    {ok: true, status: 200, body: '{"llm_ops_configured":true}'},
     {ok: true, status: 200, body: '{}'},
     {ok: true, status: 200, body: '{"roles":{"Chat":{"health_ok":true},"Worker":{"health_ok":false}}}'},
     {ok: false, status: 503, body: 'llm ops start unavailable'},
@@ -4636,13 +4639,132 @@ globalThis.__ensure = ensureViewerLLMReadyForRequest;
     /llm ops start failed: HTTP 503: llm ops start unavailable/,
   );
   assert.deepEqual(requested, [
+    '/viewer/runtime-config',
     '/viewer/llm-ops/health',
+    '/viewer/runtime-config',
     '/viewer/llm-ops/health',
     '/viewer/llm-ops/status',
+    '/viewer/runtime-config',
     '/viewer/llm-ops/health',
     '/viewer/llm-ops/status',
     '/viewer/llm-ops/start',
   ]);
+});
+
+test('viewer blocks chat partner switch when llm ops is not configured', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const requested = [];
+  const source = `
+const CHAT_RECIPIENT_LLM_SELECTIONS = {mio: 'Chat', shiro: 'ChatWorker', kuro: 'Heavy', midori: 'Wild'};
+function refreshLlmOpsStatus() {}
+` + sourceBetween(timelineJs, 'function viewerLLMStartSelectionForRequest', 'function addMsgToTimeline') + `
+globalThis.__ensure = ensureViewerLLMReadyForRequest;
+`;
+  const context = vm.createContext({
+    fetch(url) {
+      requested.push(url);
+      assert.equal(url, '/viewer/runtime-config');
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(''),
+        json: () => Promise.resolve({
+          llm_ops_configured: false,
+          local_llm: {
+            enabled: true,
+            live_models: {
+              wild: {role: 'Wild', backend_model: '/models/wild', error: 'health timeout'},
+            },
+          },
+        }),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+
+  await assert.rejects(
+    () => context.__ensure({to: 'midori'}),
+    /llm ops proxy not configured: Wild is only degraded\/pending: health timeout/,
+  );
+  assert.deepEqual(requested, ['/viewer/runtime-config']);
+});
+
+test('viewer reports missing llm ops before local llm endpoint errors', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const requested = [];
+  const source = `
+const CHAT_RECIPIENT_LLM_SELECTIONS = {mio: 'Chat', shiro: 'ChatWorker', kuro: 'Heavy', midori: 'Wild'};
+function refreshLlmOpsStatus() {}
+` + sourceBetween(timelineJs, 'function viewerLLMStartSelectionForRequest', 'function addMsgToTimeline') + `
+globalThis.__ensure = ensureViewerLLMReadyForRequest;
+`;
+  const context = vm.createContext({
+    fetch(url) {
+      requested.push(url);
+      assert.equal(url, '/viewer/runtime-config');
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(''),
+        json: () => Promise.resolve({
+          llm_ops_configured: false,
+          local_llm: {
+            enabled: true,
+            live_models: {
+              chatworker: {
+                role: 'ChatWorker',
+                error: 'dial tcp 127.0.0.1:8082: connectex: No connection could be made because the target machine actively refused it.',
+              },
+            },
+          },
+        }),
+      });
+    },
+  });
+  vm.runInContext(source, context);
+
+  await assert.rejects(
+    () => context.__ensure({to: 'shiro'}),
+    /llm ops proxy not configured: ChatWorker: .*actively refused/,
+  );
+  assert.deepEqual(requested, ['/viewer/runtime-config']);
+});
+
+test('viewer allows Mio chat without llm ops model switching', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const requested = [];
+  const source = `
+const CHAT_RECIPIENT_LLM_SELECTIONS = {mio: 'Chat', shiro: 'ChatWorker', kuro: 'Heavy', midori: 'Wild'};
+function refreshLlmOpsStatus() {}
+` + sourceBetween(timelineJs, 'function viewerLLMStartSelectionForRequest', 'function addMsgToTimeline') + `
+globalThis.__ensure = ensureViewerLLMReadyForRequest;
+`;
+  const context = vm.createContext({
+    fetch(url) {
+      requested.push(url);
+      throw new Error('unexpected fetch: ' + url);
+    },
+  });
+  vm.runInContext(source, context);
+
+  await context.__ensure({to: 'mio'});
+  assert.deepEqual(requested, []);
+});
+
+test('viewer treats local llm connection refused errors cross platform', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const source = sourceBetween(timelineJs, 'function viewerLLMConnectionRefused', 'function formatViewerLLMOpsHTTPError') + `
+globalThis.__refused = viewerLLMConnectionRefused;
+globalThis.__ready = viewerLocalLLMModelReadyOrDegraded;
+`;
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+
+  assert.equal(context.__refused('dial tcp 127.0.0.1:8082: connect: connection refused'), true);
+  assert.equal(context.__refused('connect ECONNREFUSED 127.0.0.1:8082'), true);
+  assert.equal(context.__refused('connectex: No connection could be made because the target machine actively refused it.'), true);
+  assert.equal(context.__ready({error: 'dial tcp 127.0.0.1:8082: connect: connection refused'}), false);
+  assert.equal(context.__ready({backend_model: '/models/wild', error: 'health timeout'}), true);
 });
 
 test('viewer stt artifact persistence errors keep response bodies', async () => {
@@ -5126,12 +5248,12 @@ test('viewer chat send ignores runtime route aliases and leaves routing to orche
   assert.equal(store.has('chatRouteAlias.selected'), false);
 });
 
-test('viewer chat send applies selected target alias', () => {
+test('viewer chat send passes selected target as to', () => {
   const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
   const context = vm.createContext({
     document: {
       querySelectorAll: () => [],
-      getElementById: (id) => id === 'chatTargetAgent' ? {value: 'chatworker'} : null,
+      getElementById: (id) => id === 'chatTargetAgent' ? {value: 'shiro'} : null,
     },
     localStorage: {
       getItem: () => null,
@@ -5143,13 +5265,58 @@ test('viewer chat send applies selected target alias', () => {
   vm.runInContext(timelineJs, context);
 
   const req = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('相談したい'))", context));
-  assert.deepEqual(req, {
-    message: '相談したい',
-    model_alias: 'ChatWorker',
-    base_url: 'http://127.0.0.1:8082',
-    model: 'ChatWorker',
-    route_prefix: '/chatworker',
+  assert.deepEqual(req, {message: '相談したい', to: 'shiro'});
+});
+
+test('lab chat send passes selected partner as to without model alias', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const classSet = new Set(['lab-mode', 'lab-chat-mode']);
+  const context = vm.createContext({
+    document: {
+      body: {
+        dataset: {labSelectedPartner: 'kuro'},
+        classList: {contains: (name) => classSet.has(name)},
+      },
+      querySelectorAll: () => [],
+      getElementById: (id) => id === 'chatTargetAgent' ? {value: 'chatworker'} : null,
+    },
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
+    normalizeLabActor: (value) => String(value || '').trim().toLowerCase(),
+    applyRoleTargetToMessage: (message) => message,
   });
+  vm.runInContext(timelineJs, context);
+
+  const req = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('相談したい'))", context));
+  assert.deepEqual(req, {message: '相談したい', to: 'kuro'});
+});
+
+test('lab partner switch shows requested display while model readiness is pending', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const body = sourceBetween(viewerJs, 'function switchLabConversation(nextMode, partner)', 'let labModeSwitcherBound = false;');
+  const changedBranch = sourceBetween(body, '} else {', "  refreshIdleChatActivityTimer('lab_chat_switch');");
+
+  assert.match(changedBranch, /setLabSelectedPartner\(selectedPartner\)/);
+  assert.match(changedBranch, /applyLabConversationStatus\(\{mode: 'chat', persona: selectedPartner\}\)/);
+  assert.match(body, /if \(ready\) \{[\s\S]*setLabSelectedPartner\(selectedPartner\);[\s\S]*applyLabConversationStatus\(\{mode: 'chat', persona: selectedPartner\}\);[\s\S]*announceLabPartnerReady\(selectedPartner\);/);
+  assert.match(body, /else \{[\s\S]*setLabSelectedPartner\(previousPartner\);[\s\S]*applyLabConversationStatus\(\{mode: 'chat', persona: previousPartner\}\);/);
+});
+
+test('lab partner runtime config updates readiness without changing selected partner', () => {
+  const viewerJs = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
+  const body = sourceBetween(viewerJs, 'function reconcileLabPartnerWithRuntimeConfig(cfg)', 'function switchLabConversation(nextMode, partner)');
+  const stateCheck = sourceBetween(viewerJs, 'function labRuntimeStateFromConfig(cfg)', 'function reconcileLabPartnerWithRuntimeConfig(cfg)');
+
+  assert.match(body, /labPartnerRuntimeState = labRuntimeStateFromConfig\(cfg\);/);
+  assert.match(body, /body\.dataset\.labRuntimeState = labPartnerRuntimeState/);
+  assert.match(body, /syncLabPartnerPicker\(getLabSelectedPartner\(\), body\.classList\.contains\('lab-idle-mode'\)\);/);
+  assert.doesNotMatch(body, /setLabSelectedPartner\(livePartners\[0\]\)/);
+  assert.doesNotMatch(body, /applyLabConversationStatus\(\{mode: 'chat', persona: livePartners\[0\]\}\)/);
+  assert.match(stateCheck, /if \(!cfg\.llm_ops_configured \|\| cfg\.llm_ops_enabled === false\) return 'failed';/);
+  assert.match(stateCheck, /return hasModelInfo \? 'ready' : 'pending';/);
 });
 
 test('viewer starts selected llm before sending alias request', async () => {
@@ -5160,6 +5327,9 @@ test('viewer starts selected llm before sending alias request', async () => {
     localStorage: {getItem: () => null, setItem: () => {}, removeItem: () => {}},
     fetch: async (url, opts = {}) => {
       calls.push({url, opts});
+      if (url === '/viewer/runtime-config') {
+        return {ok: true, json: async () => ({llm_ops_configured: true})};
+      }
       if (url === '/viewer/llm-ops/health') {
         return {
           ok: true,
@@ -5190,12 +5360,86 @@ test('viewer starts selected llm before sending alias request', async () => {
     route_prefix: '/analyze'
   })`, context);
 
-  assert.equal(calls.length, 3);
-  assert.equal(calls[0].url, '/viewer/llm-ops/health');
-  assert.equal(calls[1].url, '/viewer/llm-ops/status');
-  assert.equal(calls[2].url, '/viewer/llm-ops/start');
-  assert.equal(calls[2].opts.method, 'POST');
-  assert.deepEqual(JSON.parse(calls[2].opts.body), {selection: 'Heavy'});
+  assert.equal(calls.length, 4);
+  assert.equal(calls[0].url, '/viewer/runtime-config');
+  assert.equal(calls[1].url, '/viewer/llm-ops/health');
+  assert.equal(calls[2].url, '/viewer/llm-ops/status');
+  assert.equal(calls[3].url, '/viewer/llm-ops/start');
+  assert.equal(calls[3].opts.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'Heavy'});
+});
+
+test('viewer starts ChatWorker before sending shiro recipient request', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const calls = [];
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {getItem: () => null, setItem: () => {}, removeItem: () => {}},
+    fetch: async (url, opts = {}) => {
+      calls.push({url, opts});
+      if (url === '/viewer/runtime-config') {
+        return {ok: true, json: async () => ({llm_ops_configured: true})};
+      }
+      if (url === '/viewer/llm-ops/health') {
+        return {ok: true, json: async () => ({status: 'ok'}), text: async () => '{"status":"ok"}'};
+      }
+      if (url === '/viewer/llm-ops/status') {
+        return {ok: true, json: async () => ({roles: {Chat: {health_ok: true}, Worker: {health_ok: false}}})};
+      }
+      if (url === '/viewer/llm-ops/start') {
+        return {ok: true, text: async () => '{"ok_all":true}'};
+      }
+      throw new Error('unexpected fetch: ' + url);
+    },
+    refreshLlmOpsStatus: () => {},
+  });
+  vm.runInContext(timelineJs, context);
+
+  await vm.runInContext(`ensureViewerLLMReadyForRequest({
+    message: 'しろ。いますか？',
+    to: 'shiro'
+  })`, context);
+
+  assert.equal(calls[0].url, '/viewer/runtime-config');
+  assert.equal(calls[1].url, '/viewer/llm-ops/health');
+  assert.equal(calls[2].url, '/viewer/llm-ops/status');
+  assert.equal(calls[3].url, '/viewer/llm-ops/start');
+  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'ChatWorker'});
+});
+
+test('viewer treats Worker role readiness as ChatWorker selection readiness', async () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const calls = [];
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {getItem: () => null, setItem: () => {}, removeItem: () => {}},
+    fetch: async (url, opts = {}) => {
+      calls.push({url, opts});
+      if (url === '/viewer/runtime-config') {
+        return {ok: true, json: async () => ({llm_ops_configured: true})};
+      }
+      if (url === '/viewer/llm-ops/health') {
+        return {ok: true, json: async () => ({status: 'ok'}), text: async () => '{"status":"ok"}'};
+      }
+      if (url === '/viewer/llm-ops/status') {
+        return {ok: true, json: async () => ({roles: {Chat: {health_ok: false}, Worker: {health_ok: true}}})};
+      }
+      throw new Error('unexpected fetch: ' + url);
+    },
+    refreshLlmOpsStatus: () => {},
+  });
+  vm.runInContext(timelineJs, context);
+
+  await vm.runInContext(`ensureViewerLLMReadyForRequest({
+    message: 'しろ。確認して',
+    to: 'shiro'
+  })`, context);
+
+  assert.deepEqual(calls.map((call) => call.url), [
+    '/viewer/runtime-config',
+    '/viewer/llm-ops/health',
+    '/viewer/llm-ops/status',
+  ]);
 });
 
 test('viewer starts Wild by selection without client-side stop', async () => {
@@ -5206,6 +5450,9 @@ test('viewer starts Wild by selection without client-side stop', async () => {
     localStorage: {getItem: () => null, setItem: () => {}, removeItem: () => {}},
     fetch: async (url, opts = {}) => {
       calls.push({url, opts});
+      if (url === '/viewer/runtime-config') {
+        return {ok: true, json: async () => ({llm_ops_configured: true})};
+      }
       if (url === '/viewer/llm-ops/health') {
         return {ok: true, json: async () => ({status: 'ok'}), text: async () => '{"status":"ok"}'};
       }
@@ -5229,8 +5476,14 @@ test('viewer starts Wild by selection without client-side stop', async () => {
     route_prefix: '/wild'
   })`, context);
 
-  assert.equal(calls[0].url, '/viewer/llm-ops/health');
-  assert.equal(calls[1].url, '/viewer/llm-ops/status');
-  assert.equal(calls[2].url, '/viewer/llm-ops/start');
-  assert.deepEqual(JSON.parse(calls[2].opts.body), {selection: 'Wild'});
+  assert.equal(calls[0].url, '/viewer/runtime-config');
+  assert.equal(calls[1].url, '/viewer/llm-ops/health');
+  assert.equal(calls[2].url, '/viewer/llm-ops/status');
+  assert.equal(calls[3].url, '/viewer/llm-ops/start');
+  assert.deepEqual(JSON.parse(calls[3].opts.body), {selection: 'Wild'});
+});
+
+test('timeline accepts named chat characters as assistant speakers', () => {
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  assert.match(timelineJs, /\['mio', 'chatworker', 'heavy', 'wild', 'shiro', 'kuro', 'midori'\]/);
 });

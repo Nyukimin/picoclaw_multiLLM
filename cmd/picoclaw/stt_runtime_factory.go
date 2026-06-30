@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
@@ -29,6 +30,18 @@ func buildSTTRuntime(cfg *config.Config) sttRuntime {
 	provider := buildSTTProvider(cfg)
 	providerURL := inferSTTProviderURLFromConfig(cfg)
 	gatewayURL := inferSTTGatewayURL(os.Getenv("STT_GATEWAY_URL"), os.Getenv("RENCROW_STT_URL"))
+	debugSTTBaseURL := inferSTTBaseURLFromConfig(cfg)
+	debugSTTStreamURL := sttStreamURLFromConfig(cfg)
+	if cfg != nil && cfg.RenCrow.STT.Enabled {
+		if strings.TrimSpace(cfg.RenCrow.STT.Engine) == "llm_audio" {
+			debugSTTBaseURL = ""
+		} else if strings.TrimSpace(cfg.RenCrow.STT.BaseURL) != "" {
+			debugSTTBaseURL = strings.TrimRight(strings.TrimSpace(cfg.RenCrow.STT.BaseURL), "/")
+		}
+		if strings.TrimSpace(cfg.RenCrow.STT.StreamURL) != "" {
+			debugSTTStreamURL = strings.TrimSpace(cfg.RenCrow.STT.StreamURL)
+		}
+	}
 	return sttRuntime{
 		Provider:    provider,
 		Handler:     sttinfra.NewHandler(provider),
@@ -39,8 +52,16 @@ func buildSTTRuntime(cfg *config.Config) sttRuntime {
 		DebugOptions: viewer.DebugSystemOptions{
 			TTSBaseURL:    inferTTSDebugBaseURLFromConfig(cfg),
 			TTSHealthPath: inferTTSDebugHealthPathFromConfig(cfg),
-			STTBaseURL:    inferSTTBaseURLFromConfig(cfg),
-			STTStreamURL:  sttStreamURLFromConfig(cfg),
+			STTBaseURL:    debugSTTBaseURL,
+			STTStreamURL:  debugSTTStreamURL,
+			STTEngine:     cfg.RenCrow.STT.Engine,
+			STTLLMAudio: viewer.STTLLMAudioRuntimeConfig{
+				LLMRef:         cfg.RenCrow.STT.LLMAudio.LLMRef,
+				Model:          cfg.RenCrow.STT.LLMAudio.Model,
+				EndpointPath:   cfg.RenCrow.STT.LLMAudio.EndpointPath,
+				Prompt:         cfg.RenCrow.STT.LLMAudio.Prompt,
+				ResponseFormat: cfg.RenCrow.STT.LLMAudio.ResponseFormat,
+			},
 		},
 	}
 }

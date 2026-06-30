@@ -96,6 +96,21 @@ func (d *messageRouteDispatcher) ExecuteDirect(ctx context.Context, t task.Task,
 	}
 }
 
+func (d *messageRouteDispatcher) ExecuteChatRecipient(ctx context.Context, t task.Task, recipient string, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	switch normalizeChatRecipient(recipient) {
+	case "mio":
+		return d.executeChatRoute(ctx, t, sessionID, channel, chatID, ttsSessionID)
+	case "shiro":
+		return d.executeWorkerChatRouteAs(ctx, t, "shiro", sessionID, channel, chatID, ttsSessionID)
+	case "kuro":
+		return d.executeAnalyzeRouteAs(ctx, t, "kuro", sessionID, channel, chatID, ttsSessionID)
+	case "midori":
+		return d.executeWildRouteAs(ctx, t, "midori", sessionID, channel, chatID, ttsSessionID)
+	default:
+		return d.executeChatRoute(ctx, t, sessionID, channel, chatID, ttsSessionID)
+	}
+}
+
 func (d *messageRouteDispatcher) executeChatRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
 	d.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid, sessionID, channel, chatID)
@@ -109,15 +124,19 @@ func (d *messageRouteDispatcher) executeChatRoute(ctx context.Context, t task.Ta
 }
 
 func (d *messageRouteDispatcher) executeWorkerChatRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	return d.executeWorkerChatRouteAs(ctx, t, "chatworker", sessionID, channel, chatID, ttsSessionID)
+}
+
+func (d *messageRouteDispatcher) executeWorkerChatRouteAs(ctx context.Context, t task.Task, actor string, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	if d.chatWorker == nil {
 		return "", fmt.Errorf("no chatworker agent available")
 	}
 	jid := t.JobID().String()
-	d.emit("agent.start", "mio", "chatworker", "ChatWorker thinking...", "WORKER_CHAT", jid, sessionID, channel, chatID)
+	d.emit("agent.start", actor, "user", "ChatWorker thinking...", "WORKER_CHAT", jid, sessionID, channel, chatID)
 	streamCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteWORKERCHAT, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.chatWorker.Chat(streamCtx, t)
 	if err == nil {
-		d.emit("agent.response", "chatworker", "user", resp, "WORKER_CHAT", jid, sessionID, channel, chatID)
+		d.emit("agent.response", actor, "user", resp, "WORKER_CHAT", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 	}
 	return resp, err
@@ -144,15 +163,19 @@ func (d *messageRouteDispatcher) executeCodeRoute(ctx context.Context, t task.Ta
 }
 
 func (d *messageRouteDispatcher) executeWildRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	return d.executeWildRouteAs(ctx, t, "wild", sessionID, channel, chatID, ttsSessionID)
+}
+
+func (d *messageRouteDispatcher) executeWildRouteAs(ctx context.Context, t task.Task, actor string, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	if d.wild == nil {
 		return "", fmt.Errorf("no wild agent available")
 	}
 	jid := t.JobID().String()
-	d.emit("agent.start", "mio", "wild", "創作中...", "WILD", jid, sessionID, channel, chatID)
+	d.emit("agent.start", actor, "user", "創作中...", "WILD", jid, sessionID, channel, chatID)
 	streamCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteWILD, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.wild.Generate(streamCtx, t)
 	if err == nil {
-		d.emit("agent.response", "wild", "user", resp, "WILD", jid, sessionID, channel, chatID)
+		d.emit("agent.response", actor, "user", resp, "WILD", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 	}
 	return resp, err
@@ -171,16 +194,20 @@ func (d *messageRouteDispatcher) executePlanRoute(ctx context.Context, t task.Ta
 }
 
 func (d *messageRouteDispatcher) executeAnalyzeRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
+	return d.executeAnalyzeRouteAs(ctx, t, "heavy", sessionID, channel, chatID, ttsSessionID)
+}
+
+func (d *messageRouteDispatcher) executeAnalyzeRouteAs(ctx context.Context, t task.Task, actor string, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
 	if d.heavy == nil {
 		return "", fmt.Errorf("no heavy agent available")
 	}
-	d.emit("agent.start", "mio", "heavy", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
+	d.emit("agent.start", actor, "user", "分析中...", "ANALYZE", jid, sessionID, channel, chatID)
 	recordHeavyWorkflowEvent(ctx, d.workflowEvents, "started", "Heavy Worker started", jid)
 	analyzeCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteANALYZE, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.heavy.Generate(analyzeCtx, t)
 	if err == nil {
-		d.emit("agent.response", "heavy", "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
+		d.emit("agent.response", actor, "user", resp, "ANALYZE", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 		recordHeavyWorkflowEvent(ctx, d.workflowEvents, "completed", "Heavy Worker completed", jid)
 	} else {

@@ -24,6 +24,10 @@ func (o *IdleChatOrchestrator) Start() {
 		o.participants, o.interval, o.maxTurns)
 }
 
+func (o *IdleChatOrchestrator) Context() context.Context {
+	return o.ctx
+}
+
 func (o *IdleChatOrchestrator) SetIntervalSeconds(seconds int) {
 	if seconds < 1 {
 		return
@@ -47,6 +51,13 @@ func (o *IdleChatOrchestrator) Stop() {
 
 func (o *IdleChatOrchestrator) NotifyActivity() {
 	o.Interrupt("activity")
+}
+
+func (o *IdleChatOrchestrator) MarkActivity(reason string) {
+	o.mu.Lock()
+	o.lastActivity = time.Now()
+	o.mu.Unlock()
+	log.Printf("[IdleChat] Activity marked: reason=%s", strings.TrimSpace(reason))
 }
 
 // SetChatBusy はChat(mio)の活性状態を更新する。

@@ -37,6 +37,14 @@ type mockSkillBootstrapRecorder struct {
 	err   error
 }
 
+type chatRecipientEventListener struct {
+	events []OrchestratorEvent
+}
+
+func (l *chatRecipientEventListener) OnEvent(ev OrchestratorEvent) {
+	l.events = append(l.events, ev)
+}
+
 type mockPersonaRuntimeRecorder struct {
 	triggers     []domainpersona.TriggerLog
 	canonical    []domainpersona.CanonicalResponseLog
@@ -1495,6 +1503,128 @@ func TestProcessMessage_RouteWorkerChatUsesChatWorkerAgent(t *testing.T) {
 	if resp.Response != "chatworker response" {
 		t.Fatalf("response: want chatworker response, got %q", resp.Response)
 	}
+}
+
+func TestProcessMessage_ViewerChatRecipientShiroUsesChatWorkerWithoutMioRouting(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decideFunc: func(ctx context.Context, tk task.Task) (routing.Decision, error) {
+			t.Fatal("viewer chat recipient should bypass Mio route decision")
+			return routing.Decision{}, nil
+		},
+	}
+	chatWorker := &mockChatWorkerAgent{response: "shiro response"}
+	listener := &chatRecipientEventListener{}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	orch.SetChatWorkerAgent(chatWorker)
+	orch.SetEventListener(listener)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "viewer",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "相談したい",
+		Recipient:   "shiro",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Route != routing.RouteWORKERCHAT || resp.Response != "shiro response" {
+		t.Fatalf("unexpected response: route=%s response=%q", resp.Route, resp.Response)
+	}
+	if !chatWorker.called {
+		t.Fatal("chatworker agent should be called")
+	}
+	if !chatRecipientEventExists(listener.events, "message.received", "user", "shiro", "") {
+		t.Fatalf("message.received to shiro not found: %+v", listener.events)
+	}
+	if !chatRecipientEventExists(listener.events, "agent.start", "shiro", "user", "WORKER_CHAT") {
+		t.Fatalf("agent.start from shiro not found: %+v", listener.events)
+	}
+	if !chatRecipientEventExists(listener.events, "agent.response", "shiro", "user", "WORKER_CHAT") {
+		t.Fatalf("agent.response from shiro not found: %+v", listener.events)
+	}
+}
+
+func TestProcessMessage_ViewerChatRecipientsMapToKuroAndMidoriModels(t *testing.T) {
+	tests := []struct {
+		name      string
+		recipient string
+		wantRoute routing.Route
+		wantFrom  string
+		setup     func(*MessageOrchestrator) func() bool
+	}{
+		{
+			name:      "kuro uses heavy",
+			recipient: "kuro",
+			wantRoute: routing.RouteANALYZE,
+			wantFrom:  "kuro",
+			setup: func(orch *MessageOrchestrator) func() bool {
+				heavy := &mockHeavyAgent{response: "kuro response"}
+				orch.SetHeavyAgent(heavy)
+				return func() bool { return heavy.called }
+			},
+		},
+		{
+			name:      "midori uses wild",
+			recipient: "midori",
+			wantRoute: routing.RouteWILD,
+			wantFrom:  "midori",
+			setup: func(orch *MessageOrchestrator) func() bool {
+				wild := &mockWildAgent{response: "midori response"}
+				orch.SetWildAgent(wild)
+				return func() bool { return wild.called }
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMockSessionRepository()
+			mio := &mockMioAgent{
+				decideFunc: func(ctx context.Context, tk task.Task) (routing.Decision, error) {
+					t.Fatal("viewer chat recipient should bypass Mio route decision")
+					return routing.Decision{}, nil
+				},
+			}
+			listener := &chatRecipientEventListener{}
+			orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+			called := tt.setup(orch)
+			orch.SetEventListener(listener)
+
+			resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+				SessionID:   "viewer",
+				Channel:     "viewer",
+				ChatID:      "viewer-user",
+				UserMessage: "相談したい",
+				Recipient:   tt.recipient,
+			})
+			if err != nil {
+				t.Fatalf("ProcessMessage failed: %v", err)
+			}
+			if resp.Route != tt.wantRoute {
+				t.Fatalf("route: want %s, got %s", tt.wantRoute, resp.Route)
+			}
+			if !called() {
+				t.Fatal("target model agent should be called")
+			}
+			if !chatRecipientEventExists(listener.events, "agent.start", tt.wantFrom, "user", string(tt.wantRoute)) {
+				t.Fatalf("agent.start from %s not found: %+v", tt.wantFrom, listener.events)
+			}
+			if !chatRecipientEventExists(listener.events, "agent.response", tt.wantFrom, "user", string(tt.wantRoute)) {
+				t.Fatalf("agent.response from %s not found: %+v", tt.wantFrom, listener.events)
+			}
+		})
+	}
+}
+
+func chatRecipientEventExists(events []OrchestratorEvent, typ, from, to, route string) bool {
+	for _, ev := range events {
+		if ev.Type == typ && ev.From == from && ev.To == to && (route == "" || ev.Route == route) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProcessMessage_RouteAnalyzeUsesHeavyAgent(t *testing.T) {

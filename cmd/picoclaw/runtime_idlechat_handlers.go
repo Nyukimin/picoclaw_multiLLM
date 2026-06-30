@@ -23,6 +23,7 @@ func (d *Dependencies) handleIdleChatStart() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		d.startIdleChatRuntimeOnce("manual_start")
 		if !d.idleChatOrch.IsChatActive() {
 			resetIdleChatTTSQueue()
 		}
@@ -139,6 +140,7 @@ func (d *Dependencies) handleIdleChatForecast() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		d.startIdleChatRuntimeOnce("manual_forecast")
 		if !d.idleChatOrch.IsChatActive() && !d.prepareIdleChatStart(w, r) {
 			return
 		}
@@ -171,6 +173,7 @@ func (d *Dependencies) handleIdleChatStorySimple() http.HandlerFunc {
 			http.Error(w, "idlechat not enabled", http.StatusNotFound)
 			return
 		}
+		d.startIdleChatRuntimeOnce("manual_story_simple")
 		if !d.idleChatOrch.IsChatActive() && !d.prepareIdleChatStart(w, r) {
 			return
 		}
@@ -208,6 +211,42 @@ func (d *Dependencies) prepareIdleChatStart(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	return true
+}
+
+func (d *Dependencies) handleIdleChatActivity() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if d.idleChatOrch == nil {
+			http.Error(w, "idlechat not enabled", http.StatusNotFound)
+			return
+		}
+		reason := "viewer_activity"
+		var req struct {
+			Reason string `json:"reason"`
+			Source string `json:"source"`
+		}
+		if strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+		if strings.TrimSpace(req.Reason) != "" {
+			reason = strings.TrimSpace(req.Reason)
+		}
+		d.idleChatOrch.MarkActivity(reason)
+		refreshed, delay := d.refreshIdleChatStartupTimer(reason)
+		writeJSON(w, map[string]any{
+			"ok":                      true,
+			"activity_marked":         true,
+			"startup_timer_refreshed": refreshed,
+			"startup_delay_sec":       int(delay.Seconds()),
+			"mode":                    d.idleChatOrch.CurrentMode(),
+			"manual_mode":             d.idleChatOrch.IsManualMode(),
+			"chat_active":             d.idleChatOrch.IsChatActive(),
+			"current_topic":           d.idleChatOrch.CurrentTopic(),
+		})
+	}
 }
 
 func (d *Dependencies) handleIdleChatLogs() http.HandlerFunc {

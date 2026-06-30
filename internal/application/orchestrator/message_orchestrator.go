@@ -30,6 +30,7 @@ type ProcessMessageRequest struct {
 	Channel     string
 	ChatID      string
 	UserMessage string
+	Recipient   string
 	Attachments []attachment.Attachment
 }
 
@@ -472,9 +473,16 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return resp, nil
 	}
 
-	decision, err := o.routeDecisions.Decide(ctx, t, req, jobID)
-	if err != nil {
-		return ProcessMessageResponse{}, err
+	decision, chatRecipient, recipientSelected := chatRecipientDecision(req)
+	if !recipientSelected {
+		decision, err = o.routeDecisions.Decide(ctx, t, req, jobID)
+		if err != nil {
+			return ProcessMessageResponse{}, err
+		}
+	} else {
+		o.events.Emit("routing.decision", "viewer", "",
+			fmt.Sprintf("chat recipient %s", chatRecipient),
+			string(decision.Route), jobID.String(), req.SessionID, req.Channel, req.ChatID)
 	}
 
 	t = t.WithRoute(decision.Route)
@@ -499,7 +507,12 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 	ctx = appsubagent.WithSuperAgentRuntime(ctx, leadRunID, []string{"session:" + req.SessionID, "route:" + string(decision.Route)}, nil, "return summary-only subagent result to Lead Agent")
 
 	// 4. ルートに応じて実行
-	response, err := o.routeDispatcher.ExecuteTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
+	var response string
+	if recipientSelected {
+		response, err = o.routeDispatcher.ExecuteChatRecipient(ctx, t, chatRecipient, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
+	} else {
+		response, err = o.routeDispatcher.ExecuteTask(ctx, t, decision.Route, req.SessionID, req.Channel, req.ChatID, ttsSessionID)
+	}
 	if err != nil {
 		if o.superAgentRunController != nil && o.superAgentRunController.IsPauseRequested(leadRunID) {
 			_ = recordLeadAgentRunFinished(context.Background(), o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "paused", "pause requested; task execution canceled")

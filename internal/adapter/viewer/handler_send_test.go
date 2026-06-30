@@ -133,6 +133,38 @@ func TestHandleSendExplicitRouteWinsOverAlias(t *testing.T) {
 	}
 }
 
+func TestHandleSendPassesChatRecipientWithoutRouteRewrite(t *testing.T) {
+	received := make(chan SendRequest, 1)
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req
+		return "ok", nil
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/send", strings.NewReader(`{
+		"message":"相談したい",
+		"to":"shiro"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	select {
+	case got := <-received:
+		if got.Message != "相談したい" {
+			t.Fatalf("message was rewritten: %q", got.Message)
+		}
+		if got.Recipient != "shiro" {
+			t.Fatalf("recipient = %q, want shiro", got.Recipient)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler was not called")
+	}
+}
+
 func TestHandleSendUsesRuntimeAliasFields(t *testing.T) {
 	received := make(chan string, 1)
 	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {

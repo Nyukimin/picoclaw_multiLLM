@@ -47,6 +47,23 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(c.LLMOps.BaseURL) == "" {
 			return fmt.Errorf("llm_ops.base_url is required when llm_ops.enabled=true")
 		}
+		if c.LLMOps.AutoStart {
+			if strings.TrimSpace(c.LLMOps.Root) == "" {
+				return fmt.Errorf("llm_ops.root is required when llm_ops.auto_start=true")
+			}
+			if len(c.LLMOps.Command) == 0 || strings.TrimSpace(c.LLMOps.Command[0]) == "" {
+				return fmt.Errorf("llm_ops.command is required when llm_ops.auto_start=true")
+			}
+		}
+	}
+	if err := validateRenCrowModuleServer("rencrow.llm", c.RenCrow.LLM.RenCrowModuleServerConfig); err != nil {
+		return err
+	}
+	if err := validateRenCrowModuleServer("rencrow.tts", c.RenCrow.TTS.RenCrowModuleServerConfig); err != nil {
+		return err
+	}
+	if err := validateRenCrowSTT(c.RenCrow.STT); err != nil {
+		return err
 	}
 	if c.WebwrightFetch.Enabled {
 		if strings.TrimSpace(c.WebwrightFetch.RunnerPath) == "" {
@@ -647,6 +664,93 @@ func validateNonEmptyList(name string, values []string) error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s[%d] must not be empty", name, i)
 		}
+	}
+	return nil
+}
+
+func validateRenCrowModuleServer(name string, cfg RenCrowModuleServerConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	base := strings.TrimSpace(cfg.BaseURL)
+	if base == "" {
+		return fmt.Errorf("%s.base_url is required when %s.enabled=true", name, name)
+	}
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		return fmt.Errorf("%s.base_url must start with http:// or https://", name)
+	}
+	if cfg.TimeoutMS < 1000 {
+		return fmt.Errorf("%s.timeout_ms must be >= 1000", name)
+	}
+	if err := validateHTTPPath(name+".health.live_path", cfg.Health.LivePath); err != nil {
+		return err
+	}
+	if err := validateHTTPPath(name+".health.ready_path", cfg.Health.ReadyPath); err != nil {
+		return err
+	}
+	if cfg.Health.PollIntervalMS < 100 {
+		return fmt.Errorf("%s.health.poll_interval_ms must be >= 100", name)
+	}
+	return nil
+}
+
+func validateRenCrowSTT(cfg RenCrowSTTServerConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	engine := strings.TrimSpace(cfg.Engine)
+	switch engine {
+	case "", "external_http", "llm_audio":
+	default:
+		return fmt.Errorf("rencrow.stt.engine must be one of [external_http, llm_audio], got '%s'", cfg.Engine)
+	}
+	base := strings.TrimSpace(cfg.BaseURL)
+	if engine != "llm_audio" {
+		if base == "" {
+			return fmt.Errorf("rencrow.stt.base_url is required when rencrow.stt.enabled=true and rencrow.stt.engine=%s", engine)
+		}
+		if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+			return fmt.Errorf("rencrow.stt.base_url must start with http:// or https://")
+		}
+	} else if base != "" && !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		return fmt.Errorf("rencrow.stt.base_url must start with http:// or https://")
+	}
+	if cfg.TimeoutMS < 1000 {
+		return fmt.Errorf("rencrow.stt.timeout_ms must be >= 1000")
+	}
+	if err := validateHTTPPath("rencrow.stt.health.live_path", cfg.Health.LivePath); err != nil {
+		return err
+	}
+	if err := validateHTTPPath("rencrow.stt.health.ready_path", cfg.Health.ReadyPath); err != nil {
+		return err
+	}
+	if cfg.Health.PollIntervalMS < 100 {
+		return fmt.Errorf("rencrow.stt.health.poll_interval_ms must be >= 100")
+	}
+	if err := validateHTTPPath("rencrow.stt.endpoints.transcribe_path", cfg.Endpoints.TranscribePath); err != nil {
+		return err
+	}
+	if err := validateHTTPPath("rencrow.stt.endpoints.stream_path", cfg.Endpoints.StreamPath); err != nil {
+		return err
+	}
+	if engine == "llm_audio" {
+		if strings.TrimSpace(cfg.LLMAudio.LLMRef) == "" {
+			return fmt.Errorf("rencrow.stt.llm_audio.llm_ref is required when rencrow.stt.engine=llm_audio")
+		}
+		if err := validateHTTPPath("rencrow.stt.llm_audio.endpoint_path", cfg.LLMAudio.EndpointPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateHTTPPath(name, path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("%s is required", name)
+	}
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%s must start with /", name)
 	}
 	return nil
 }

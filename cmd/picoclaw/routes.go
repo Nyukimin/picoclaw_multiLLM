@@ -70,15 +70,15 @@ func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *
 			LLMOps:           llmOpsOpts,
 		})
 	}
-	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsConfigured {
-		return
-	}
-	dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)
 	mux.HandleFunc("/viewer/llm-ops/health", viewer.HandleLLMOpsHealth(llmOpsOpts))
 	mux.HandleFunc("/viewer/llm-ops/status", viewer.HandleLLMOpsStatus(llmOpsOpts))
 	mux.HandleFunc("/viewer/llm-ops/start", viewer.HandleLLMOpsStart(llmOpsOpts))
 	mux.HandleFunc("/viewer/llm-ops/stop", viewer.HandleLLMOpsStop(llmOpsOpts))
 	mux.HandleFunc("/viewer/llm-ops/restart", viewer.HandleLLMOpsRestart(llmOpsOpts))
+	if debugSystemOpts == nil || !debugSystemOpts.LLMOpsConfigured {
+		return
+	}
+	dependencies.idleChatStartGate = viewer.NewLLMOpsIdleChatGate(llmOpsOpts)
 	log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
 }
 
@@ -478,6 +478,7 @@ func registerIdleChatRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
 	mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
 	mux.HandleFunc("/viewer/idlechat/interrupt", dependencies.handleIdleChatInterrupt())
+	mux.HandleFunc("/viewer/idlechat/activity", dependencies.handleIdleChatActivity())
 	mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
 	mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
 	mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())

@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ func TestHandleRuntimeConfig_ReturnsSameOriginSTTStreamURL(t *testing.T) {
 	handler := HandleRuntimeConfig(DebugSystemOptions{
 		STTBaseURL:    "https://192.168.1.31:8443/",
 		STTStreamURL:  "wss://192.168.1.31:8443/stt/stream",
+		STTEngine:     "llm_audio",
+		STTLLMAudio:   STTLLMAudioRuntimeConfig{LLMRef: " rencrow.llm ", Model: " small ", EndpointPath: " /v1/audio/transcriptions ", Prompt: " Transcribe. ", ResponseFormat: " text "},
 		TTSBaseURL:    "http://127.0.0.1:7870/",
 		TTSHealthPath: "/gradio_api/info",
 	})
@@ -32,6 +35,9 @@ func TestHandleRuntimeConfig_ReturnsSameOriginSTTStreamURL(t *testing.T) {
 	}
 	if body.STTBaseURL != "https://192.168.1.31:8443" {
 		t.Fatalf("unexpected stt base url: %+v", body)
+	}
+	if body.STTEngine != "llm_audio" || body.STTLLMAudio.LLMRef != "rencrow.llm" || body.STTLLMAudio.EndpointPath != "/v1/audio/transcriptions" {
+		t.Fatalf("unexpected stt llm audio runtime config: %+v", body)
 	}
 	if body.TTSBaseURL != "http://127.0.0.1:7870" || body.TTSHealthPath != "/gradio_api/info" {
 		t.Fatalf("unexpected tts runtime config: %+v", body)
@@ -159,6 +165,21 @@ func TestHandleRuntimeConfig_ReturnsLLMOpsEnabled(t *testing.T) {
 	}
 	if !body.WebGather.FetchCache || !body.WebGather.FailureCache || !body.WebGather.RateState {
 		t.Fatalf("expected web gather cache flags: %+v", body.WebGather)
+	}
+}
+
+func TestFetchLocalLLMLiveModelsIncludesChatPartnerRoles(t *testing.T) {
+	models := fetchLocalLLMLiveModels(context.Background(), LocalLLMRuntimeConfig{
+		ChatModel:       "Chat",
+		WorkerModel:     "Worker",
+		ChatWorkerModel: "ChatWorker",
+		HeavyModel:      "Heavy",
+		WildModel:       "Wild",
+	})
+	for _, key := range []string{"chat", "worker", "chatworker", "heavy", "wild"} {
+		if _, ok := models[key]; !ok {
+			t.Fatalf("expected live model key %q in %#v", key, models)
+		}
 	}
 }
 

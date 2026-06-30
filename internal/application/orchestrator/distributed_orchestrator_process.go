@@ -32,7 +32,11 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
 
-	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+	receivedTo := requestChatRecipient(req)
+	if receivedTo == "" {
+		receivedTo = "mio"
+	}
+	o.emit("message.received", "user", receivedTo, req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 	if expandedReq, handled, err := o.expandRegisteredSlashCommand(ctx, req); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {
@@ -48,11 +52,14 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		return resp, nil
 	}
 
-	// 3. mio がルーティング決定
-	decision, err := o.mio.DecideAction(ctx, t)
-	if err != nil {
-		o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, "", startedAt, time.Now().UTC(), err)
-		return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
+	// 3. ルーティング決定。Viewer の Chat 相手選択は明示 route command がない時だけ優先する。
+	decision, chatRecipient, recipientSelected := chatRecipientDecision(req)
+	if !recipientSelected {
+		decision, err = o.mio.DecideAction(ctx, t)
+		if err != nil {
+			o.saveExecutionReport(ctx, jobID.String(), req.UserMessage, "", startedAt, time.Now().UTC(), err)
+			return ProcessMessageResponse{}, fmt.Errorf("routing decision failed: %w", err)
+		}
 	}
 	log.Printf("[DistributedOrch] routing decision: route=%s confidence=%.2f reason=%q",
 		decision.Route, decision.Confidence, decision.Reason)
@@ -112,7 +119,12 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	}
 
 	// 4. ルートに応じてTransport経由で実行
-	response, err := o.executeDistributed(ctx, t, decision.Route, sess.ID(), ttsSessionID)
+	var response string
+	if recipientSelected {
+		response, err = o.routes.ExecuteChatRecipient(ctx, t, chatRecipient, sess.ID(), ttsSessionID)
+	} else {
+		response, err = o.executeDistributed(ctx, t, decision.Route, sess.ID(), ttsSessionID)
+	}
 	if err != nil {
 		if o.superAgentRunController != nil && o.superAgentRunController.IsPauseRequested(leadRunID) {
 			_ = recordLeadAgentRunFinished(context.Background(), o.superAgentRuns, req, jobID, decision.Route, runStartedAt, "paused", "pause requested; distributed execution canceled")

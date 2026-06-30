@@ -44,6 +44,7 @@ func buildViewerBridgeHandlers(
 				Channel:     "viewer",
 				ChatID:      "viewer-user",
 				UserMessage: message,
+				Recipient:   req.Recipient,
 				Attachments: req.Attachments,
 			})
 			if err != nil {

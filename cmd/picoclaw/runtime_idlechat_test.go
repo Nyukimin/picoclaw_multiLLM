@@ -3,10 +3,44 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
+
+func TestIdleChatStartupTimerCanBeRefreshedBeforeStart(t *testing.T) {
+	var starts int
+	deps := &Dependencies{}
+	deps.scheduleIdleChatStartup(time.Hour, func() {
+		starts++
+	})
+	t.Cleanup(deps.stopIdleChatStartupTimer)
+
+	refreshed, delay := deps.refreshIdleChatStartupTimer("test_chat_switch")
+	if !refreshed {
+		t.Fatal("expected startup timer refresh before idlechat runtime starts")
+	}
+	if delay != time.Hour {
+		t.Fatalf("unexpected delay: %s", delay)
+	}
+	if started := deps.startIdleChatRuntimeOnce("manual_start"); !started {
+		t.Fatal("expected manual start to consume delayed startup timer")
+	}
+	if starts != 1 {
+		t.Fatalf("expected one startup, got %d", starts)
+	}
+	refreshed, _ = deps.refreshIdleChatStartupTimer("after_start")
+	if refreshed {
+		t.Fatal("startup timer should not refresh after runtime has started")
+	}
+	if started := deps.startIdleChatRuntimeOnce("duplicate"); started {
+		t.Fatal("duplicate startup should be ignored")
+	}
+	if starts != 1 {
+		t.Fatalf("expected startup to remain once, got %d", starts)
+	}
+}
 
 func TestSelectForecastProviderPrefersCoderPriorityOverWorker(t *testing.T) {
 	worker := fakeConversationProvider{name: "worker-provider"}

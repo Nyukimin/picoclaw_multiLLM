@@ -27,6 +27,9 @@ type Config struct {
 	// === MLX / local OpenAI-compatible LLM runtime ===
 	LocalLLM LocalLLMConfig `yaml:"local_llm"`
 
+	// === RenCrow module server endpoints ===
+	RenCrow RenCrowConfig `yaml:"rencrow"`
+
 	// === Optional Webwright browser-backed fetch bridge ===
 	WebwrightFetch WebwrightFetchConfig `yaml:"webwright_fetch"`
 
@@ -202,8 +205,105 @@ type LocalLLMConfig struct {
 // LLMOpsConfig は MLX 運用デーモン（8079 番管理 API）への Viewer 経由プロキシ用。
 // Bearer は LLM_OPS_TOKEN 環境変数から読む。
 type LLMOpsConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	BaseURL string `yaml:"base_url"` // 例: http://192.168.1.31:8079
+	Enabled   bool              `yaml:"enabled"`
+	BaseURL   string            `yaml:"base_url"` // 例: http://192.168.1.31:8079
+	AutoStart bool              `yaml:"auto_start"`
+	Root      string            `yaml:"root"`
+	Command   []string          `yaml:"command"`
+	Env       map[string]string `yaml:"env"`
+	LogPath   string            `yaml:"log_path"`
+}
+
+// RenCrowConfig defines the RenCrow module servers that picoclaw may call.
+// Backend model/provider details stay inside each RenCrow_XXX module.
+type RenCrowConfig struct {
+	LLM RenCrowLLMServerConfig `yaml:"llm"`
+	TTS RenCrowTTSServerConfig `yaml:"tts"`
+	STT RenCrowSTTServerConfig `yaml:"stt"`
+}
+
+// RenCrowModuleServerConfig holds common HTTP server connection settings.
+type RenCrowModuleServerConfig struct {
+	Enabled       bool                      `yaml:"enabled"`
+	BaseURL       string                    `yaml:"base_url"`
+	PublicBaseURL string                    `yaml:"public_base_url"`
+	TokenEnv      string                    `yaml:"token_env"`
+	TimeoutMS     int                       `yaml:"timeout_ms"`
+	TLSSkipVerify bool                      `yaml:"tls_skip_verify"`
+	Health        RenCrowModuleHealthConfig `yaml:"health"`
+}
+
+type RenCrowModuleHealthConfig struct {
+	LivePath       string `yaml:"live_path"`
+	ReadyPath      string `yaml:"ready_path"`
+	PollIntervalMS int    `yaml:"poll_interval_ms"`
+}
+
+type RenCrowLLMServerConfig struct {
+	RenCrowModuleServerConfig `yaml:",inline"`
+	Endpoints                 RenCrowLLMEndpointsConfig            `yaml:"endpoints"`
+	DefaultRecipient          string                               `yaml:"default_recipient"`
+	Recipients                map[string]RenCrowLLMRecipientConfig `yaml:"recipients"`
+}
+
+type RenCrowLLMEndpointsConfig struct {
+	ChatPath      string `yaml:"chat_path"`
+	ResponsesPath string `yaml:"responses_path"`
+	StatusPath    string `yaml:"status_path"`
+	StartPath     string `yaml:"start_path"`
+	StopPath      string `yaml:"stop_path"`
+	RestartPath   string `yaml:"restart_path"`
+}
+
+type RenCrowLLMRecipientConfig struct {
+	Role      string `yaml:"role"`
+	Model     string `yaml:"model"`
+	Selection string `yaml:"selection"`
+}
+
+type RenCrowTTSServerConfig struct {
+	RenCrowModuleServerConfig `yaml:",inline"`
+	Endpoints                 RenCrowTTSEndpointsConfig        `yaml:"endpoints"`
+	AudioBaseURL              string                           `yaml:"audio_base_url"`
+	DefaultVoice              string                           `yaml:"default_voice"`
+	Voices                    map[string]RenCrowTTSVoiceConfig `yaml:"voices"`
+}
+
+type RenCrowTTSEndpointsConfig struct {
+	SynthesizePath  string `yaml:"synthesize_path"`
+	VoicesPath      string `yaml:"voices_path"`
+	AudioPathPrefix string `yaml:"audio_path_prefix"`
+}
+
+type RenCrowTTSVoiceConfig struct {
+	VoiceID   string         `yaml:"voice_id"`
+	VoiceName string         `yaml:"voice_name"`
+	Params    map[string]any `yaml:"params"`
+}
+
+type RenCrowSTTServerConfig struct {
+	RenCrowModuleServerConfig `yaml:",inline"`
+	Endpoints                 RenCrowSTTEndpointsConfig `yaml:"endpoints"`
+	StreamURL                 string                    `yaml:"stream_url"`
+	Engine                    string                    `yaml:"engine"`
+	Language                  string                    `yaml:"language"`
+	Model                     string                    `yaml:"model"`
+	BusyPolicy                string                    `yaml:"busy_policy"`
+	VAD                       bool                      `yaml:"vad"`
+	LLMAudio                  RenCrowSTTLLMAudioConfig  `yaml:"llm_audio"`
+}
+
+type RenCrowSTTEndpointsConfig struct {
+	TranscribePath string `yaml:"transcribe_path"`
+	StreamPath     string `yaml:"stream_path"`
+}
+
+type RenCrowSTTLLMAudioConfig struct {
+	LLMRef         string `yaml:"llm_ref"`
+	Model          string `yaml:"model"`
+	EndpointPath   string `yaml:"endpoint_path"`
+	Prompt         string `yaml:"prompt"`
+	ResponseFormat string `yaml:"response_format"`
 }
 
 // WebwrightFetchConfig は RenCrow 本体から分離された Webwright 取得 bridge 設定。
@@ -342,6 +442,7 @@ type IdleChatConfig struct {
 	Participants            []string                              `yaml:"participants"`              // 参加Agent名（デフォルト: ["mio", "shiro"]）
 	IntervalMin             int                                   `yaml:"interval_min"`              // 雑談開始までのアイドル時間・分（デフォルト: 5）
 	IntervalSec             int                                   `yaml:"interval_sec"`              // 雑談開始までのアイドル時間・秒（指定時は interval_min より優先）
+	StartupDelaySec         int                                   `yaml:"startup_delay_sec"`         // 起動後、自動監視と在庫生成を開始するまでの遅延秒数（デフォルト: 0）
 	MaxTurns                int                                   `yaml:"max_turns"`                 // 1回の雑談の最大ターン数（デフォルト: 10）
 	Temperature             float64                               `yaml:"temperature"`               // 雑談時の温度（デフォルト: 0.8）
 	ForecastExternalEnabled bool                                  `yaml:"forecast_external_enabled"` // true の場合のみ Forecast で外部 Coder API を明示利用する

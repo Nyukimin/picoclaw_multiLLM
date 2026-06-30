@@ -197,7 +197,7 @@ func TestHandleLLMOpsStop_DefaultBody(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status: %d", rec.Code)
 	}
-	if gotBody != `{"roles":["Chat","Worker"]}` {
+	if gotBody != `{"roles":["Chat","ChatWorker"]}` {
 		t.Fatalf("upstream body: %q", gotBody)
 	}
 }
@@ -221,7 +221,7 @@ func TestHandleLLMOpsStart_DefaultBody(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status: %d", rec.Code)
 	}
-	if gotBody != `{"selection":"Worker"}` {
+	if gotBody != `{"selection":"ChatWorker"}` {
 		t.Fatalf("upstream body: %q", gotBody)
 	}
 }
@@ -350,7 +350,7 @@ func TestLLMOpsIdleChatGate_UnauthorizedClassifiedAsAuthFailure(t *testing.T) {
 	}
 }
 
-func TestLLMOpsIdleChatGate_StopsHeavyWildThenStartsWorkerWhenStopped(t *testing.T) {
+func TestLLMOpsIdleChatGate_StopsHeavyWildThenStartsChatWorkerWhenStopped(t *testing.T) {
 	var requests []string
 	var bodies []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +384,7 @@ func TestLLMOpsIdleChatGate_StopsHeavyWildThenStartsWorkerWhenStopped(t *testing
 	if strings.Join(requests, ",") != "GET /v1/status,POST /v1/control/stop,POST /v1/control/start" {
 		t.Fatalf("requests: %+v", requests)
 	}
-	if strings.Join(bodies, ",") != `{"roles":["Heavy","Wild"]},{"selection":"Worker"}` {
+	if strings.Join(bodies, ",") != `{"roles":["Heavy","Wild"]},{"selection":"ChatWorker"}` {
 		t.Fatalf("bodies: %+v", bodies)
 	}
 }

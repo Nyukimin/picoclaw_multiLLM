@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RenCrow Live</title>
-<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260627-lab-datetime-serif">
+<link rel="stylesheet" href="/viewer/assets/css/viewer.css?v=20260630-lab-pending-active">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/ops.css?v=20260622-orientation-mode">
 <link rel="stylesheet" href="/viewer/assets/css/tabs/desk.css?v=20260622-orientation-mode">
 </head>
@@ -62,7 +62,14 @@
     <button class="lab-mode-chip lab-mode-chip-chat" id="labModeChatChip" type="button" data-lab-switch="chat" aria-current="true" aria-pressed="true">Chat</button>
     <button class="lab-mode-chip lab-mode-chip-idle" id="labModeIdleChip" type="button" data-lab-switch="idle" aria-current="false" aria-pressed="false">IdleChat</button>
     <button class="lab-mode-chip lab-mode-chip-mio" id="labModeMioChip" type="button" data-lab-switch="mio" aria-current="true" aria-pressed="true">Mio</button>
-    <button class="lab-mode-chip lab-mode-chip-shiro" id="labModeShiroChip" type="button" data-lab-switch="shiro" aria-current="false" aria-pressed="false">Shiro</button>
+    <div class="lab-partner-picker" id="labPartnerPicker">
+      <button class="lab-mode-chip lab-mode-chip-partner" id="labModePartnerChip" type="button" data-lab-partner-toggle aria-current="false" aria-pressed="false" aria-expanded="false">Shiro</button>
+      <div class="lab-partner-options" id="labPartnerOptions" hidden>
+        <button class="lab-mode-chip lab-partner-option" type="button" data-lab-partner-option="shiro">Shiro</button>
+        <button class="lab-mode-chip lab-partner-option" type="button" data-lab-partner-option="kuro">Kuro</button>
+        <button class="lab-mode-chip lab-partner-option" type="button" data-lab-partner-option="midori">Midori</button>
+      </div>
+    </div>
   </section>
   <time class="lab-datetime-panel" id="labDateTimePanel" datetime="" aria-label="現在日時">0000（令和00）00月00日（-）00:00:00</time>
   <section class="lab-camera-live-preview" id="labCameraLivePreview" aria-label="Media live preview">
@@ -479,7 +486,7 @@
         <div class="small" style="margin-bottom:8px">RenCrow が管理 API をプロキシします。トークンはサーバの LLM_OPS_TOKEN を使用してください。</div>
         <div class="debug-actions">
           <button id="llmOpsRefreshBtn" class="ctl-btn" type="button">状態取得</button>
-          <button id="llmOpsStopBtn" class="ctl-btn" type="button">停止 Chat+Worker</button>
+          <button id="llmOpsStopBtn" class="ctl-btn" type="button">停止 Chat+ChatWorker</button>
           <button id="llmOpsRestartBtn" class="ctl-btn" type="button">再起動（全ロール）</button>
         </div>
         <div id="llmOpsConfigState" class="small" style="margin-bottom:8px">checking...</div>
@@ -1244,9 +1251,9 @@
             <label class="chat-target-label" for="chatTargetAgent">To</label>
             <select id="chatTargetAgent" class="chat-target-select" aria-label="Chat target agent">
               <option value="mio" selected>Mio</option>
-              <option value="chatworker">ChatWorker</option>
-              <option value="heavy">Heavy</option>
-              <option value="wild">Wild</option>
+              <option value="shiro">Shiro</option>
+              <option value="kuro">Kuro</option>
+              <option value="midori">Midori</option>
             </select>
           </div>
           <textarea id="inp" rows="1" placeholder="Mio にメッセージを送る..." autocomplete="off"></textarea>
@@ -1299,11 +1306,11 @@
 <script src="/viewer/assets/js/tabs/news-pack.js?v=20260510-tabs-memory" defer></script>
 <script src="/viewer/assets/js/tabs/roles.js?v=20260510-tabs-roles" defer></script>
 <script src="/viewer/assets/js/tabs/progress.js?v=20260510-tabs-progress" defer></script>
-<script src="/viewer/assets/js/tabs/timeline.js?v=20260510-tabs-timeline" defer></script>
+<script src="/viewer/assets/js/tabs/timeline.js?v=20260630-selection-role-ready" defer></script>
 <script src="/viewer/assets/js/tabs/idlechat.js?v=20260527-tts-history-guard" defer></script>
 <script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
 <script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
-<script src="/viewer/assets/js/viewer.js?v=20260627-lab-datetime" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260630-lab-pending-active" defer></script>
 <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </body>
 </html>

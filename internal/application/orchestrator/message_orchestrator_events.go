@@ -31,7 +31,11 @@ func (p *messageEventPort) Emit(eventType, from, to, content, route, jobID, sess
 }
 
 func (p *messageEventPort) EmitMessageReceived(req ProcessMessageRequest) {
-	p.Emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+	to := requestChatRecipient(req)
+	if to == "" {
+		to = "mio"
+	}
+	p.Emit("message.received", "user", to, req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 }
 
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {

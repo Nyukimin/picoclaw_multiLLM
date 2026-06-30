@@ -82,7 +82,7 @@ func NewLLMOpsIdleChatGate(opts LLMOpsProxyOptions) *LLMOpsIdleChatGate {
 	}
 }
 
-// PrepareIdleChatStart blocks when Heavy/Wild are active; otherwise it halts them and starts Worker.
+// PrepareIdleChatStart blocks when Heavy/Wild are active; otherwise it halts them and starts ChatWorker.
 func (g *LLMOpsIdleChatGate) PrepareIdleChatStart(ctx context.Context) error {
 	if g == nil || !g.opts.configured() {
 		return nil
@@ -101,7 +101,7 @@ func (g *LLMOpsIdleChatGate) PrepareIdleChatStart(ctx context.Context) error {
 	if err := g.postJSON(ctx, "/v1/control/stop", []byte(`{"roles":["Heavy","Wild"]}`)); err != nil {
 		return err
 	}
-	if err := g.postJSON(ctx, "/v1/control/start", []byte(`{"selection":"Worker"}`)); err != nil {
+	if err := g.postJSON(ctx, "/v1/control/start", []byte(`{"selection":"ChatWorker"}`)); err != nil {
 		return err
 	}
 	return nil
@@ -222,7 +222,7 @@ func HandleLLMOpsStatus(opts LLMOpsProxyOptions) http.HandlerFunc {
 	}
 }
 
-// HandleLLMOpsStart proxies POST /v1/control/start. Empty body defaults to Worker selection.
+// HandleLLMOpsStart proxies POST /v1/control/start. Empty body defaults to ChatWorker selection.
 func HandleLLMOpsStart(opts LLMOpsProxyOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -238,13 +238,13 @@ func HandleLLMOpsStart(opts LLMOpsProxyOptions) http.HandlerFunc {
 			return
 		}
 		if len(bytes.TrimSpace(body)) == 0 {
-			body = []byte(`{"selection":"Worker"}`)
+			body = []byte(`{"selection":"ChatWorker"}`)
 		}
 		proxyLLMOps(w, r, opts, http.MethodPost, "/v1/control/start", body)
 	}
 }
 
-// HandleLLMOpsStop proxies POST /v1/control/stop. Empty body defaults to Chat+Worker.
+// HandleLLMOpsStop proxies POST /v1/control/stop. Empty body defaults to Chat+ChatWorker.
 func HandleLLMOpsStop(opts LLMOpsProxyOptions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -260,7 +260,7 @@ func HandleLLMOpsStop(opts LLMOpsProxyOptions) http.HandlerFunc {
 			return
 		}
 		if len(bytes.TrimSpace(body)) == 0 {
-			body = []byte(`{"roles":["Chat","Worker"]}`)
+			body = []byte(`{"roles":["Chat","ChatWorker"]}`)
 		}
 		proxyLLMOps(w, r, opts, http.MethodPost, "/v1/control/stop", body)
 	}

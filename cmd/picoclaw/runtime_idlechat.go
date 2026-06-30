@@ -5,6 +5,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/idlechat"
@@ -55,9 +56,10 @@ func buildIdleChatRuntime(
 	idleChatOrch.SetSpeakerProviderOptions(idleChatProviderOptionsFromConfig(cfg.IdleChat.SpeakerLLMOptions))
 	idleChatOrch.SetTopicGenerationConfig(idleChatTopicGenerationConfigFromRuntime(cfg.IdleChat.TopicGeneration))
 	idleChatOrch.SetDialogueInterestingnessConfig(idleChatDialogueInterestingnessConfigFromRuntime(cfg.IdleChat.DialogueInterestingness))
+	forecastTopicStockPath := ""
 	if forecastProvider, label := selectForecastProviderForRuntime(cfg, workerProvider); forecastProvider != nil {
 		idleChatOrch.SetForecastProviderWithLabel(forecastProvider, label)
-		idleChatOrch.InitForecastTopicStock(filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json"))
+		forecastTopicStockPath = filepath.Join(cfg.Session.StorageDir, "forecast_topic_stock.json")
 		log.Printf("IdleChat: Forecast provider set to %s, topic stock refill on-demand", forecastProviderLogLabel(label))
 	}
 	if recentGlossaryTopics != nil {
@@ -113,13 +115,104 @@ func buildIdleChatRuntime(
 	if deps.eventRelay != nil {
 		deps.eventRelay.SetIdleChat(idleChatOrch)
 	}
-	idleChatOrch.Start()
-	idleChatOrch.InitTopicStrategyStocks()
-	log.Printf("IdleChat: topic stock refill enabled for single/double/external/movie/news (target=%d)", idlechat.TopicStrategyStockTarget())
-	idleChatOrch.InitSimpleStoryTopicStock()
-	log.Printf("IdleChat: story-simple topic stock enabled (target=%d)", idlechat.SimpleStoryTopicStockTarget())
 	deps.idleChatOrch = idleChatOrch
+	startIdleChatRuntime := func() {
+		idleChatOrch.Start()
+		if forecastTopicStockPath != "" {
+			idleChatOrch.InitForecastTopicStock(forecastTopicStockPath)
+		}
+		idleChatOrch.InitTopicStrategyStocks()
+		log.Printf("IdleChat: topic stock refill enabled for single/double/external/movie/news (target=%d)", idlechat.TopicStrategyStockTarget())
+		idleChatOrch.InitSimpleStoryTopicStock()
+		log.Printf("IdleChat: story-simple topic stock enabled (target=%d)", idlechat.SimpleStoryTopicStockTarget())
+	}
+	if cfg.IdleChat.StartupDelaySec > 0 {
+		delay := time.Duration(cfg.IdleChat.StartupDelaySec) * time.Second
+		log.Printf("IdleChat enabled (participants=%v, startup_delay=%s)", cfg.IdleChat.Participants, delay)
+		deps.scheduleIdleChatStartup(delay, startIdleChatRuntime)
+		return
+	}
+	startIdleChatRuntime()
+	deps.markIdleChatStartupStarted()
 	log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
+}
+
+func (d *Dependencies) scheduleIdleChatStartup(delay time.Duration, start func()) {
+	if d == nil || delay <= 0 || start == nil {
+		return
+	}
+	d.idleChatStartupMu.Lock()
+	if d.idleChatStartupTimer != nil {
+		d.idleChatStartupTimer.Stop()
+	}
+	d.idleChatStartupDelay = delay
+	d.idleChatStartupStart = start
+	d.idleChatStartupStarted = false
+	d.idleChatStartupTimer = time.AfterFunc(delay, func() {
+		d.startIdleChatRuntimeOnce("startup_timer")
+	})
+	d.idleChatStartupMu.Unlock()
+}
+
+func (d *Dependencies) startIdleChatRuntimeOnce(reason string) bool {
+	if d == nil {
+		return false
+	}
+	d.idleChatStartupMu.Lock()
+	if d.idleChatStartupStarted {
+		d.idleChatStartupMu.Unlock()
+		return false
+	}
+	start := d.idleChatStartupStart
+	d.idleChatStartupStarted = true
+	if d.idleChatStartupTimer != nil {
+		d.idleChatStartupTimer.Stop()
+		d.idleChatStartupTimer = nil
+	}
+	d.idleChatStartupMu.Unlock()
+
+	if start == nil {
+		return false
+	}
+	log.Printf("IdleChat startup timer fired: reason=%s", strings.TrimSpace(reason))
+	start()
+	return true
+}
+
+func (d *Dependencies) refreshIdleChatStartupTimer(reason string) (bool, time.Duration) {
+	if d == nil {
+		return false, 0
+	}
+	d.idleChatStartupMu.Lock()
+	defer d.idleChatStartupMu.Unlock()
+	if d.idleChatStartupStarted || d.idleChatStartupDelay <= 0 || d.idleChatStartupTimer == nil {
+		return false, d.idleChatStartupDelay
+	}
+	d.idleChatStartupTimer.Reset(d.idleChatStartupDelay)
+	log.Printf("IdleChat startup timer refreshed: reason=%s delay=%s", strings.TrimSpace(reason), d.idleChatStartupDelay)
+	return true, d.idleChatStartupDelay
+}
+
+func (d *Dependencies) markIdleChatStartupStarted() {
+	if d == nil {
+		return
+	}
+	d.idleChatStartupMu.Lock()
+	d.idleChatStartupStarted = true
+	d.idleChatStartupMu.Unlock()
+}
+
+func (d *Dependencies) stopIdleChatStartupTimer() {
+	if d == nil {
+		return
+	}
+	d.idleChatStartupMu.Lock()
+	if d.idleChatStartupTimer != nil {
+		d.idleChatStartupTimer.Stop()
+		d.idleChatStartupTimer = nil
+	}
+	d.idleChatStartupStart = nil
+	d.idleChatStartupMu.Unlock()
 }
 
 func idleChatViewerEventType(eventType string) string {

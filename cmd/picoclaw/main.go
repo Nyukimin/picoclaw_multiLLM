@@ -157,6 +157,7 @@ func cmdRun() {
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}
+	startRenCrowLLMStartupCheck(cfg, llmOpsToken)
 	registerViewerBaseRoutes(mux, cfg, dependencies, debugSystemOpts)
 	registerLLMOpsRoutes(mux, cfg, dependencies, &debugSystemOpts)
 	registerSTTAndAudioRoutes(mux, sttRuntime, dependencies)

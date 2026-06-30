@@ -43,6 +43,8 @@ type DebugGPUProcess struct {
 type DebugSystemOptions struct {
 	STTBaseURL       string
 	STTStreamURL     string
+	STTEngine        string
+	STTLLMAudio      STTLLMAudioRuntimeConfig
 	TTSBaseURL       string
 	TTSHealthPath    string
 	LLMOpsConfigured bool
@@ -57,6 +59,8 @@ type DebugSystemOptions struct {
 type RuntimeConfig struct {
 	STTStreamURL     string                      `json:"stt_stream_url,omitempty"`
 	STTBaseURL       string                      `json:"stt_base_url,omitempty"`
+	STTEngine        string                      `json:"stt_engine,omitempty"`
+	STTLLMAudio      STTLLMAudioRuntimeConfig    `json:"stt_llm_audio,omitempty"`
 	TTSBaseURL       string                      `json:"tts_base_url,omitempty"`
 	TTSHealthPath    string                      `json:"tts_health_path,omitempty"`
 	LLMOpsConfigured bool                        `json:"llm_ops_configured"`
@@ -102,6 +106,14 @@ type RuntimeDependencyReadiness struct {
 	BrowserTraceAPIFetcher       bool `json:"browser_trace_api_fetcher_available"`
 	SandboxEnabled               bool `json:"sandbox_enabled"`
 	SandboxStatusAvailable       bool `json:"sandbox_status_available"`
+}
+
+type STTLLMAudioRuntimeConfig struct {
+	LLMRef         string `json:"llm_ref,omitempty"`
+	Model          string `json:"model,omitempty"`
+	EndpointPath   string `json:"endpoint_path,omitempty"`
+	Prompt         string `json:"prompt,omitempty"`
+	ResponseFormat string `json:"response_format,omitempty"`
 }
 
 type LocalLLMRuntimeConfig struct {
@@ -167,6 +179,8 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(RuntimeConfig{
 			STTStreamURL:     browserFacingSTTStreamURL(r, opts.STTStreamURL),
 			STTBaseURL:       strings.TrimRight(strings.TrimSpace(opts.STTBaseURL), "/"),
+			STTEngine:        strings.TrimSpace(opts.STTEngine),
+			STTLLMAudio:      normalizeSTTLLMAudioRuntimeConfig(opts.STTLLMAudio),
 			TTSBaseURL:       strings.TrimRight(strings.TrimSpace(opts.TTSBaseURL), "/"),
 			TTSHealthPath:    strings.TrimSpace(opts.TTSHealthPath),
 			LLMOpsConfigured: opts.LLMOpsConfigured,
@@ -177,6 +191,16 @@ func HandleRuntimeConfig(opts DebugSystemOptions) http.HandlerFunc {
 			WebGather:        normalizeWebGatherRuntimeConfig(opts.WebGather),
 			RuntimeReadiness: normalizeRuntimeDependencyReadiness(opts),
 		})
+	}
+}
+
+func normalizeSTTLLMAudioRuntimeConfig(in STTLLMAudioRuntimeConfig) STTLLMAudioRuntimeConfig {
+	return STTLLMAudioRuntimeConfig{
+		LLMRef:         strings.TrimSpace(in.LLMRef),
+		Model:          strings.TrimSpace(in.Model),
+		EndpointPath:   strings.TrimSpace(in.EndpointPath),
+		Prompt:         strings.TrimSpace(in.Prompt),
+		ResponseFormat: strings.TrimSpace(in.ResponseFormat),
 	}
 }
 
@@ -274,6 +298,8 @@ func fetchLocalLLMLiveModels(ctx context.Context, cfg LocalLLMRuntimeConfig) map
 		{key: "chat", role: "Chat", alias: cfg.ChatModel, base: cfg.ChatBaseURL},
 		{key: "worker", role: "Worker", alias: cfg.WorkerModel, base: cfg.WorkerBaseURL},
 		{key: "chatworker", role: "ChatWorker", alias: cfg.ChatWorkerModel, base: cfg.WorkerBaseURL},
+		{key: "heavy", role: "Heavy", alias: cfg.HeavyModel, base: cfg.HeavyBaseURL},
+		{key: "wild", role: "Wild", alias: cfg.WildModel, base: cfg.WildBaseURL},
 	}
 	out := make(map[string]LocalLLMLiveModel, len(roles))
 	client := &http.Client{Timeout: 1500 * time.Millisecond}

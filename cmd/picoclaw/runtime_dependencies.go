@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
@@ -207,16 +209,21 @@ type Dependencies struct {
 	localTransports                map[string]*transport.LocalTransport        // v4 local transports
 	idleChatOrch                   *idlechat.IdleChatOrchestrator              // v4 idle chat
 	idleChatStartGate              idleChatStartGate                           // IdleChat 起動前の LLM Ops ガード
-	sshTransports                  map[string]domaintransport.Transport        // v4 SSH transports
-	heartbeatSvc                   *heartbeat.HeartbeatService                 // heartbeat service
-	toolRegistry                   capdomain.ToolRegistry                      // Phase 4: Shiro ツール共有用 ToolRegistry
-	moduleChatService              chatModuleService                           // module contract view of Chat service
-	moduleLLMProviders             map[string]modulellm.Provider               // module contract view of LLM providers
-	moduleTTSProvider              moduletts.Provider                          // module contract view of primary TTS provider
-	moduleTTSPlayback              moduletts.PlaybackStateObserver             // module contract view of Viewer playback state
-	moduleSTTViewerInput           modulestt.ViewerInputObserver               // module contract view of Viewer STT input state
-	moduleWorkerExecutor           moduleworker.Executor                       // module contract view of Worker executor
-	moduleHealth                   http.HandlerFunc                            // module boundary health API
+	idleChatStartupMu              sync.Mutex
+	idleChatStartupDelay           time.Duration
+	idleChatStartupTimer           *time.Timer
+	idleChatStartupStarted         bool
+	idleChatStartupStart           func()
+	sshTransports                  map[string]domaintransport.Transport // v4 SSH transports
+	heartbeatSvc                   *heartbeat.HeartbeatService          // heartbeat service
+	toolRegistry                   capdomain.ToolRegistry               // Phase 4: Shiro ツール共有用 ToolRegistry
+	moduleChatService              chatModuleService                    // module contract view of Chat service
+	moduleLLMProviders             map[string]modulellm.Provider        // module contract view of LLM providers
+	moduleTTSProvider              moduletts.Provider                   // module contract view of primary TTS provider
+	moduleTTSPlayback              moduletts.PlaybackStateObserver      // module contract view of Viewer playback state
+	moduleSTTViewerInput           modulestt.ViewerInputObserver        // module contract view of Viewer STT input state
+	moduleWorkerExecutor           moduleworker.Executor                // module contract view of Worker executor
+	moduleHealth                   http.HandlerFunc                     // module boundary health API
 }
 
 type idleChatStartGate interface {
@@ -234,6 +241,7 @@ func (d *Dependencies) Shutdown() {
 	if d.heartbeatSvc != nil {
 		d.heartbeatSvc.Stop()
 	}
+	d.stopIdleChatStartupTimer()
 	if d.idleChatOrch != nil {
 		d.idleChatOrch.Stop()
 	}
