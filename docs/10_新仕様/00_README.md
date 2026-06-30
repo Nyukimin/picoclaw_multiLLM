@@ -22,38 +22,39 @@
 
 1. `01_新仕様_概要.md`
 2. `02_モジュール構成仕様.md`
-3. `03_モジュール関係図.html`
-4. `04_Chat_Worker_Coder仕様.md`
-5. `05_Viewer仕様.md`
-6. `06_IdleChat仕様.md`
-7. `07_STT_TTS仕様.md`
-8. `08_LLM_provider仕様.md`
-9. `09_Memory_SourceRegistry仕様.md`
-10. `89_RenCrow_Knowledge_Wiki運用仕様.md`
-11. `10_検証仕様.md`
-12. `11_分割再設計候補.md`
-13. `12_新規リポジトリ移行方針.md`
-14. `13_実装項目インベントリ.md`
-15. `18_知識記憶システム構想.md`
-16. `19_DCI_直接コーパス探索仕様.md`
-17. `20_Tool_Harness_Contract_Mediation仕様.md`
-18. `21_AI_Native_Engineering_Workflow仕様.md`
-19. `22_Revenue_Operating_Principles仕様.md`
-20. `23_Workstream_Operating_Loop仕様.md`
-21. `24_Agent_Skill_Governance仕様.md`
-22. `25_Codebase_Complexity_Hotspot_Skill仕様.md`
-23. `26_Persona_Lore_and_Mutual_Observation仕様.md`
-24. `27_Browser_Trace_to_API_Discovery仕様.md`
-25. `28_SuperAgent_Harness_Reference_DeerFlow仕様.md`
-26. `29_Sandbox_Promotion_Gate仕様.md`
-27. `30_未実装項目実装仕様作成プロンプト.md`
-28. `31_未実装項目実装仕様.md`
-29. `32_E2E_runtime確認チェックリスト.md`
-30. `33_現状残課題整理作業手順書.md`
-31. `34_現状残課題クリア実装手順書.md`
-32. `49_Movie_Graph_Mio_Topic仕様.md`
-33. `50_Hobby_Graph_Mio_Topic仕様.md`
-34. `51_Movie_Watch_Event実装仕様.md`
+3. `90_Runtime_Topology_Config仕様.md`
+4. `03_モジュール関係図.html`
+5. `04_Chat_Worker_Coder仕様.md`
+6. `05_Viewer仕様.md`
+7. `06_IdleChat仕様.md`
+8. `07_STT_TTS仕様.md`
+9. `08_LLM_provider仕様.md`
+10. `09_Memory_SourceRegistry仕様.md`
+11. `89_RenCrow_Knowledge_Wiki運用仕様.md`
+12. `10_検証仕様.md`
+13. `11_分割再設計候補.md`
+14. `12_新規リポジトリ移行方針.md`
+15. `13_実装項目インベントリ.md`
+16. `18_知識記憶システム構想.md`
+17. `19_DCI_直接コーパス探索仕様.md`
+18. `20_Tool_Harness_Contract_Mediation仕様.md`
+19. `21_AI_Native_Engineering_Workflow仕様.md`
+20. `22_Revenue_Operating_Principles仕様.md`
+21. `23_Workstream_Operating_Loop仕様.md`
+22. `24_Agent_Skill_Governance仕様.md`
+23. `25_Codebase_Complexity_Hotspot_Skill仕様.md`
+24. `26_Persona_Lore_and_Mutual_Observation仕様.md`
+25. `27_Browser_Trace_to_API_Discovery仕様.md`
+26. `28_SuperAgent_Harness_Reference_DeerFlow仕様.md`
+27. `29_Sandbox_Promotion_Gate仕様.md`
+28. `30_未実装項目実装仕様作成プロンプト.md`
+29. `31_未実装項目実装仕様.md`
+30. `32_E2E_runtime確認チェックリスト.md`
+31. `33_現状残課題整理作業手順書.md`
+32. `34_現状残課題クリア実装手順書.md`
+33. `49_Movie_Graph_Mio_Topic仕様.md`
+34. `50_Hobby_Graph_Mio_Topic仕様.md`
+35. `51_Movie_Watch_Event実装仕様.md`
 
 ## 文書一覧
 
@@ -62,6 +63,7 @@
 | `00_README.md` | 新仕様セットの入口、読み順、各文書の役割 |
 | `01_新仕様_概要.md` | RenCrow の目的、原則、主要コンポーネントの位置づけ |
 | `02_モジュール構成仕様.md` | Clean Architecture 風の層、主要実装箇所、仕様変更時に触る場所 |
+| `90_Runtime_Topology_Config仕様.md` | `~/.picoclaw/config.yaml` を module 配置と接続先の設計図として扱い、IP / host から endpoint を導出する runtime topology 仕様 |
 | `03_モジュール関係図.html` | モジュールの意味とつながりを概要図から詳細図まで示す HTML 図解 |
 | `04_Chat_Worker_Coder仕様.md` | Chat / Worker / Coder の責務、route chain、plan / patch / execution 境界 |
 | `05_Viewer仕様.md` | Viewer 表示、SSE event、log、history、audio trigger の契約 |
