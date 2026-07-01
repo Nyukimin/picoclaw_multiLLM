@@ -10,7 +10,10 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
+	knowledgefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/knowledge"
+	memoryfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/memory"
 	opsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/ops"
+	sourcefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/source"
 	sttfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/stt"
 	ttsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/tts"
 	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
@@ -188,6 +191,41 @@ func registerWebRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	}})
 }
 
+func registerKnowledgeMemorySourceRoutes(mux *http.ServeMux, dependencies *Dependencies) {
+	knowledgefeature.RegisterRoutes(mux, knowledgefeature.Dependencies{Routes: knowledgefeature.Routes{
+		GlossaryRecent:             dependencies.glossaryRecent,
+		KnowledgeMemoryStatus:      dependencies.knowledgeMemoryStatus,
+		PersonalArchiveCreate:      dependencies.personalArchiveCreate,
+		CreativeKnowledgeCreate:    dependencies.creativeKnowledgeCreate,
+		NewsKnowledgeCreate:        dependencies.newsKnowledgeCreate,
+		DailyIntakeRuleCreate:      dependencies.dailyIntakeRuleCreate,
+		TemporalMemoryCreate:       dependencies.temporalMemoryCreate,
+		KnowledgeMemoryReview:      dependencies.knowledgeMemoryReview,
+		DreamConsolidationCreate:   dependencies.dreamConsolidationCreate,
+		DreamConsolidationProposal: dependencies.dreamConsolidationProposal,
+		DreamConsolidationReview:   dependencies.dreamConsolidationReview,
+	}})
+	memoryfeature.RegisterRoutes(mux, memoryfeature.Dependencies{Routes: memoryfeature.Routes{
+		Snapshot:      dependencies.viewerMemorySnapshot,
+		Layers:        dependencies.viewerMemoryLayers,
+		Events:        dependencies.viewerMemoryEvents,
+		State:         dependencies.viewerMemoryState,
+		Promote:       dependencies.viewerMemoryPromote,
+		User:          dependencies.viewerMemoryUser,
+		UserState:     dependencies.viewerMemoryUserState,
+		UserForget:    dependencies.viewerMemoryUserForget,
+		UserSupersede: dependencies.viewerMemoryUserSupersede,
+		RecallPack:    dependencies.viewerMemoryRecallPack,
+		RecallTraces:  dependencies.viewerRecallTraces,
+	}})
+	sourcefeature.RegisterRoutes(mux, sourcefeature.Dependencies{Routes: sourcefeature.Routes{
+		Registry:              dependencies.viewerSourceRegistry,
+		DomainGraphAssertions: dependencies.viewerDomainGraphAssertions,
+		MovieDomainGraphSync:  dependencies.viewerMovieDomainGraphSync,
+		HobbyDomainGraphSync:  dependencies.viewerHobbyDomainGraphSync,
+	}})
+}
+
 func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
@@ -200,54 +238,6 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	}
 	if dependencies.evidenceSummary != nil {
 		mux.HandleFunc("/viewer/evidence/summary", dependencies.evidenceSummary)
-	}
-	if dependencies.glossaryRecent != nil {
-		mux.HandleFunc("/viewer/glossary/recent", dependencies.glossaryRecent)
-	}
-	if dependencies.viewerMemorySnapshot != nil {
-		mux.HandleFunc("/viewer/memory/snapshot", dependencies.viewerMemorySnapshot)
-	}
-	if dependencies.viewerMemoryLayers != nil {
-		mux.HandleFunc("/viewer/memory/layers", dependencies.viewerMemoryLayers)
-	}
-	if dependencies.viewerMemoryEvents != nil {
-		mux.HandleFunc("/viewer/memory/events", dependencies.viewerMemoryEvents)
-	}
-	if dependencies.viewerMemoryState != nil {
-		mux.HandleFunc("/viewer/memory/state", dependencies.viewerMemoryState)
-	}
-	if dependencies.viewerMemoryPromote != nil {
-		mux.HandleFunc("/viewer/memory/promote", dependencies.viewerMemoryPromote)
-	}
-	if dependencies.viewerMemoryUser != nil {
-		mux.HandleFunc("/viewer/memory/user", dependencies.viewerMemoryUser)
-	}
-	if dependencies.viewerMemoryUserState != nil {
-		mux.HandleFunc("/viewer/memory/user/state", dependencies.viewerMemoryUserState)
-	}
-	if dependencies.viewerMemoryUserForget != nil {
-		mux.HandleFunc("/viewer/memory/user/forget", dependencies.viewerMemoryUserForget)
-	}
-	if dependencies.viewerMemoryUserSupersede != nil {
-		mux.HandleFunc("/viewer/memory/user/supersede", dependencies.viewerMemoryUserSupersede)
-	}
-	if dependencies.viewerMemoryRecallPack != nil {
-		mux.HandleFunc("/viewer/memory/recall-pack", dependencies.viewerMemoryRecallPack)
-	}
-	if dependencies.viewerRecallTraces != nil {
-		mux.HandleFunc("/viewer/recall/traces", dependencies.viewerRecallTraces)
-	}
-	if dependencies.viewerSourceRegistry != nil {
-		mux.HandleFunc("/viewer/source-registry", dependencies.viewerSourceRegistry)
-	}
-	if dependencies.viewerDomainGraphAssertions != nil {
-		mux.HandleFunc("/viewer/domain-graph/assertions", dependencies.viewerDomainGraphAssertions)
-	}
-	if dependencies.viewerMovieDomainGraphSync != nil {
-		mux.HandleFunc("/viewer/movie-catalog/domain-graph-sync", dependencies.viewerMovieDomainGraphSync)
-	}
-	if dependencies.viewerHobbyDomainGraphSync != nil {
-		mux.HandleFunc("/viewer/hobby-graph/domain-graph-sync", dependencies.viewerHobbyDomainGraphSync)
 	}
 	if dependencies.verificationRecent != nil {
 		mux.HandleFunc("/viewer/verification/recent", dependencies.verificationRecent)
@@ -410,36 +400,6 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	}
 	if dependencies.aiWorkflowWorktreeClose != nil {
 		mux.HandleFunc("/viewer/ai-workflow/worktrees/close", dependencies.aiWorkflowWorktreeClose)
-	}
-	if dependencies.knowledgeMemoryStatus != nil {
-		mux.HandleFunc("/viewer/knowledge-memory", dependencies.knowledgeMemoryStatus)
-	}
-	if dependencies.personalArchiveCreate != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/personal-archive", dependencies.personalArchiveCreate)
-	}
-	if dependencies.creativeKnowledgeCreate != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/creative-knowledge", dependencies.creativeKnowledgeCreate)
-	}
-	if dependencies.newsKnowledgeCreate != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/news-knowledge", dependencies.newsKnowledgeCreate)
-	}
-	if dependencies.dailyIntakeRuleCreate != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/daily-intake-rules", dependencies.dailyIntakeRuleCreate)
-	}
-	if dependencies.temporalMemoryCreate != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/temporal-markers", dependencies.temporalMemoryCreate)
-	}
-	if dependencies.knowledgeMemoryReview != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/review", dependencies.knowledgeMemoryReview)
-	}
-	if dependencies.dreamConsolidationCreate != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/dream-runs", dependencies.dreamConsolidationCreate)
-	}
-	if dependencies.dreamConsolidationProposal != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/dream-runs/propose", dependencies.dreamConsolidationProposal)
-	}
-	if dependencies.dreamConsolidationReview != nil {
-		mux.HandleFunc("/viewer/knowledge-memory/dream-runs/review", dependencies.dreamConsolidationReview)
 	}
 }
 

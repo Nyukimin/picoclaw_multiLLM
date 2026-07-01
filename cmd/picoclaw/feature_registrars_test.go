@@ -43,6 +43,15 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		complexityHotspotStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 		}),
+		viewerMemorySnapshot: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		viewerSourceRegistry: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusPartialContent)
+		}),
+		knowledgeMemoryStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+		}),
 		entryHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 		}),
@@ -83,6 +92,9 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		{name: "voice chat alias", method: http.MethodGet, path: "/voice-chat-ws", want: http.StatusIMUsed},
 		{name: "browser trace api", method: http.MethodGet, path: "/viewer/browser-trace-api", want: http.StatusOK},
 		{name: "complexity hotspots", method: http.MethodGet, path: "/viewer/complexity-hotspots", want: http.StatusAccepted},
+		{name: "memory snapshot", method: http.MethodGet, path: "/viewer/memory/snapshot", want: http.StatusNoContent},
+		{name: "source registry", method: http.MethodGet, path: "/viewer/source-registry", want: http.StatusPartialContent},
+		{name: "knowledge memory", method: http.MethodGet, path: "/viewer/knowledge-memory", want: http.StatusCreated},
 		{name: "entry", method: http.MethodGet, path: "/entry", want: http.StatusAccepted},
 	}
 
