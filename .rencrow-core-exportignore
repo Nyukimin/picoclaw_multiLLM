@@ -36,6 +36,14 @@ baseline_*.patch
 samba_*.conf
 samba_protocol_patch.py
 test_patch.json
+.agents/
+.aidesigner/
+.claude/
+.codex/
+.cursor/
+.serena/
+.github/workflows/
+.mcp.json
 docs/archive/
 docs/refs/
 docs/調査/

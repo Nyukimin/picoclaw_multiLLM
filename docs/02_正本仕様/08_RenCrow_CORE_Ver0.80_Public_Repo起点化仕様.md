@@ -130,4 +130,6 @@ Public repo 作成時は、repo root の `.rencrow-core-exportignore` を export
 
 `docs/archive/`、`docs/refs/`、`docs/調査/`、`docs/05_運用/`、旧 staging 正本である `docs/02_正本仕様/01_仕様.md`、`02_実装仕様.md`、`03_Runtime_Config.md` は、private / reference / investigation / machine-local operational history を含みうるため Public seed から除外する。Public seed に残す正本は、`05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md`、`06_RenCrow_CORE_Ver0.80_モジュール化実装仕様.md`、`07_RenCrow_CORE_Ver0.80_組み換え実装作業資料.md`、`08_RenCrow_CORE_Ver0.80_Public_Repo起点化仕様.md` を中心とする。
 
+`.agents/`、`.aidesigner/`、`.claude/`、`.codex/`、`.cursor/`、`.serena/`、`.mcp.json` は local agent / IDE / MCP / memory metadata であり、Public seed には含めない。`.github/workflows/` は staging repo 側の CI / scheduled job 定義であり、Ver0.80 Public seed の初期投入対象から外す。Public repo の CI は、公開範囲が確定した後に別 commit で明示的に追加する。
+
 Ver0.80 seed では Go module path は `github.com/Nyukimin/picoclaw_multiLLM` のまま保持する。Public repository 名を `RenCrow_CORE` に変えることと、Go module path を変更することは別作業である。module path rename は全 import path と downstream 利用者に影響するため、Ver0.80 初期投入では行わない。
