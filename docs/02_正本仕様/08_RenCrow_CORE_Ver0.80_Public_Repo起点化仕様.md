@@ -128,4 +128,6 @@ Public repo 作成時は、repo root の `.rencrow-core-exportignore` を export
 
 `config.yaml`、`kb-admin`、`go1.25.0.linux-amd64.tar.gz`、`tmp/`、generated understand-anything artifact、`baseline_*.patch`、`samba_*.conf`、`samba_protocol_patch.py`、`test_patch.json` は、Public seed では除外対象である。
 
+`docs/archive/`、`docs/refs/`、`docs/調査/`、`docs/05_運用/`、旧 staging 正本である `docs/02_正本仕様/01_仕様.md`、`02_実装仕様.md`、`03_Runtime_Config.md` は、private / reference / investigation / machine-local operational history を含みうるため Public seed から除外する。Public seed に残す正本は、`05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md`、`06_RenCrow_CORE_Ver0.80_モジュール化実装仕様.md`、`07_RenCrow_CORE_Ver0.80_組み換え実装作業資料.md`、`08_RenCrow_CORE_Ver0.80_Public_Repo起点化仕様.md` を中心とする。
+
 Ver0.80 seed では Go module path は `github.com/Nyukimin/picoclaw_multiLLM` のまま保持する。Public repository 名を `RenCrow_CORE` に変えることと、Go module path を変更することは別作業である。module path rename は全 import path と downstream 利用者に影響するため、Ver0.80 初期投入では行わない。

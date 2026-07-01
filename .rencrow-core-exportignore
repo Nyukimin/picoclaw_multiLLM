@@ -36,6 +36,13 @@ baseline_*.patch
 samba_*.conf
 samba_protocol_patch.py
 test_patch.json
+docs/archive/
+docs/refs/
+docs/調査/
+docs/05_運用/
+docs/02_正本仕様/01_仕様.md
+docs/02_正本仕様/02_実装仕様.md
+docs/02_正本仕様/03_Runtime_Config.md
 *.exe
 *.dll
 *.so
