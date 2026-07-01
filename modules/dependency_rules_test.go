@@ -13,16 +13,20 @@ import (
 const moduleImportPrefix = "github.com/Nyukimin/picoclaw_multiLLM/modules/"
 
 var allowedModuleImports = map[string]map[string]bool{
-	"core":   {},
-	"llm":    {"core": true},
-	"tts":    {"core": true},
-	"stt":    {"core": true},
-	"worker": {"core": true, "llm": true},
-	"chat":   {"core": true, "llm": true, "tts": true, "stt": true, "worker": true},
+	"browseractor": {},
+	"core":         {},
+	"llm":          {"core": true},
+	"tts":          {"core": true},
+	"stt":          {"core": true},
+	"voicechat":    {},
+	"webgather":    {},
+	"worker":       {"core": true, "llm": true},
+	"chat":         {"core": true, "llm": true, "tts": true, "stt": true, "worker": true},
 }
 
 func TestModuleDependencyRules(t *testing.T) {
-	for module, allowed := range allowedModuleImports {
+	for _, module := range currentModulePackageNames(t) {
+		allowed := allowedModuleImports[module]
 		dir := filepath.Join(module)
 		err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -47,6 +51,14 @@ func TestModuleDependencyRules(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatalf("walk %s: %v", dir, err)
+		}
+	}
+}
+
+func TestModuleDependencyRulesCoverCurrentModuleDirectories(t *testing.T) {
+	for _, module := range currentModulePackageNames(t) {
+		if _, ok := allowedModuleImports[module]; !ok {
+			t.Fatalf("module %s is missing from allowedModuleImports", module)
 		}
 	}
 }
@@ -82,11 +94,31 @@ func parseImports(path string) ([]string, error) {
 }
 
 func TestModulePackagesAreDocumented(t *testing.T) {
-	for module := range allowedModuleImports {
+	for _, module := range currentModulePackageNames(t) {
 		if _, err := os.Stat(filepath.Join(module, "README.md")); err != nil {
 			t.Fatalf("module %s README missing: %v", module, err)
 		}
 	}
+}
+
+func currentModulePackageNames(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read modules dir: %v", err)
+	}
+	var modules []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, ok := allowedModuleImports[entry.Name()]; !ok {
+			modules = append(modules, entry.Name())
+			continue
+		}
+		modules = append(modules, entry.Name())
+	}
+	return modules
 }
 
 func TestNoImplementationUnderGitWorktrees(t *testing.T) {

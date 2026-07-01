@@ -103,5 +103,26 @@ func CurrentModuleDescriptors() []ModuleDescriptor {
 			},
 			Description: "Viewer microphone and transcript injection boundary, separated from STT provider state",
 		},
+		{
+			Name:        "voicechat",
+			Owner:       StateOwnerVoice,
+			Kind:        "contract",
+			Contracts:   []string{"BridgePlan", "WebSocketRoutePaths", "VoiceInputMode", "RuntimeURLPlan"},
+			Description: "Viewer voice-direct route, VDS bridge, runtime URL, and WebSocket planning contracts",
+		},
+		{
+			Name:        "browseractor",
+			Owner:       StateOwnerWeb,
+			Kind:        "contract",
+			Contracts:   []string{"RunRequest", "RunResponse", "RiskDecision", "DoctorResponse"},
+			Description: "browser automation request/response, safety risk classification, and artifact contract",
+		},
+		{
+			Name:        "webgather",
+			Owner:       StateOwnerWeb,
+			Kind:        "contract",
+			Contracts:   []string{"FetchRequest", "FetchResponse", "SearchRequest", "SearchResponse", "FetchPolicy"},
+			Description: "web discovery, fetch, extraction, staging, and search contract boundary",
+		},
 	}
 }

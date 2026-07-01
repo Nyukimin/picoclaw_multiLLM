@@ -8,6 +8,9 @@ These rules define the target dependency graph for future module migration.
 core
   no module imports
 
+browseractor
+  no module imports
+
 llm
   -> core
 
@@ -16,6 +19,12 @@ tts
 
 stt
   -> core
+
+voicechat
+  no module imports
+
+webgather
+  no module imports
 
 worker
   -> core
@@ -35,9 +44,12 @@ cmd / adapter
 ## Forbidden Dependencies
 
 - `core` importing any other module.
+- `browseractor` importing runtime, provider, or feature modules.
 - `llm` importing `tts`, `stt`, `chat`, or `worker`.
 - `tts` importing `llm`, `stt`, `chat`, or `worker`.
 - `stt` importing `llm`, `tts`, `chat`, or `worker`.
+- `voicechat` importing `stt`, `tts`, `chat`, `llm`, or runtime implementations.
+- `webgather` importing `browseractor`, `knowledge`, `memory`, or runtime implementations.
 - `worker` importing `tts` or `stt`.
 - Provider packages owning Viewer display state, playback ACK, or IdleChat pending state.
 

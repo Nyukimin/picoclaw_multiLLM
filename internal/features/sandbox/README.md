@@ -1,0 +1,37 @@
+# Sandbox Feature
+
+## Owner
+
+Sandbox
+
+## Inputs
+
+applied change, verification request, promotion candidate
+
+## Outputs
+
+verification result, promotion gate decision, rollback recommendation
+
+## Side Effects
+
+verification commands and artifact writes through existing sandbox service
+
+## Persistence
+
+verification report artifacts and existing sandbox records
+
+## Logs
+
+job_id, artifact_id, gate, status, error kind
+
+## Error Contract
+
+failed verification must block promotion until reviewed
+
+## Current Primary Files
+
+internal/application/sandbox, internal/adapter/viewer/sandbox_handler.go
+
+## Migration Boundary
+
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.

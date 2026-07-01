@@ -6,22 +6,28 @@ This directory defines the local module boundaries for RenCrow inside this workt
 
 ```text
 modules/
+  browseractor/
   core/
   chat/
   worker/
   llm/
   tts/
   stt/
+  voicechat/
+  webgather/
 ```
 
 ## Boundaries
 
+- `browseractor`: browser automation request/response contracts, safety risk classification, and artifact metadata.
 - `core`: shared contracts, orchestration glue, lifecycle rules, and cross-module state ownership.
 - `chat`: user-facing dialogue, intent handling, routing decisions, and response presentation.
 - `worker`: command execution, file operations, test/build execution, and operational jobs.
 - `llm`: language model clients, provider routing, local/external model contracts, and prompt-facing adapters.
 - `tts`: text-to-speech contracts, synthesis clients, voice/emotion mapping, playback-facing payload rules.
 - `stt`: speech-to-text contracts, transcription clients, microphone/audio ingestion boundaries.
+- `voicechat`: Viewer voice-direct route, VDS bridge, runtime URL, and WebSocket planning contracts.
+- `webgather`: web discovery, source fetch, extraction, staging, and search contract boundaries.
 
 Module-specific health report builders belong inside each module. Adapter packages provide only current runtime provider/service availability and must not construct module health literals directly.
 
@@ -36,7 +42,7 @@ Do not place source under `.git/worktrees/*`; that path is Git metadata, not a t
 
 ## Implementation Status
 
-This directory now contains module contract packages for `core`, `chat`, `worker`, `llm`, `tts`, and `stt`.
+This directory now contains module contract packages for `core`, `chat`, `worker`, `llm`, `tts`, `stt`, `voicechat`, `browseractor`, and `webgather`.
 The first compatibility adapters live in `internal/adapter/modulebridge` so existing Chat orchestration, providers, and Worker execution can be exercised through the module contracts without a big-bang move.
 Runtime module metadata is exposed at `/viewer/modules/manifest`.
 Runtime module health is exposed at `/viewer/modules/health` and includes a core aggregate `status`/`ready` result plus per-module reports.

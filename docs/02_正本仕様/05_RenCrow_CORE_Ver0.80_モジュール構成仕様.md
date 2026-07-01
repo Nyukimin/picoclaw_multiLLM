@@ -128,6 +128,132 @@ internal/
   infrastructure/
 ```
 
+## モジュールTree図
+
+Ver0.80 の構成変更は、既存機能を削らず、次の tree に沿って入口と owner を明確にする。
+
+凡例:
+
+- `[process]`: 起動、設定読込、依存注入、HTTP server 起動を担当する process 境界。
+- `[contract]`: 公開 contract、DTO、event、純粋 policy、state ownership を置く境界。
+- `[feature]`: feature facade、ports、registrar、legacy 実装の束ねを置く境界。
+- `[adapter]`: HTTP、Viewer、channel、module bridge など外部接続や互換接続を置く境界。
+- `[legacy-body]`: 段階移行中の既存実装本体。削除せず、feature / contract 経由へ順に寄せる。
+
+```text
+RenCrow_CORE Ver0.80
+├── cmd/picoclaw [process]
+│   ├── main.go
+│   ├── runtime_*.go
+│   ├── routes.go
+│   └── feature_registrars.go
+│       └── internal/features/* の RegisterRoutes / StartBackground を呼ぶ
+│
+├── modules [contract]
+│   ├── core
+│   │   ├── manifest
+│   │   ├── health
+│   │   └── state ownership
+│   ├── agent
+│   │   └── Agent ID / role / capability / display name
+│   ├── chat
+│   │   ├── Viewer to=mio|shiro|kuro|midori contract
+│   │   ├── route decision
+│   │   └── final response contract
+│   ├── worker
+│   │   ├── proposal / patch
+│   │   ├── execution result
+│   │   └── failure classification
+│   ├── llm
+│   │   ├── role provider
+│   │   ├── health / diagnostics
+│   │   └── runtime selection plan
+│   ├── tts
+│   │   ├── synthesis contract
+│   │   ├── playback state / ACK
+│   │   └── chunking / audio event contract
+│   ├── stt
+│   │   ├── transcription contract
+│   │   ├── viewer input observer
+│   │   └── websocket plan
+│   ├── voicechat
+│   │   ├── VDS bridge plan
+│   │   ├── runtime URL plan
+│   │   └── voice websocket contract
+│   ├── browseractor
+│   │   ├── browser run request / response
+│   │   ├── risk classification
+│   │   └── artifact / doctor contract
+│   ├── webgather
+│   │   ├── discovery / search
+│   │   ├── source fetch / extraction
+│   │   └── staging contract
+│   ├── ops
+│   │   └── status / cleanup result / visible-state error
+│   ├── knowledge
+│   │   └── source registry / import / wiki index contract
+│   ├── security
+│   │   └── policy result / promotion gate / rollback contract
+│   └── distributed
+│       └── transport / remote agent availability / delivery contract
+│
+└── internal
+    ├── features [feature]
+    │   ├── core
+    │   ├── agent
+    │   ├── chat
+    │   ├── worker
+    │   ├── idlechat
+    │   ├── viewer
+    │   ├── llm
+    │   ├── tts
+    │   ├── stt
+    │   ├── voice
+    │   ├── avatar
+    │   ├── backlog
+    │   ├── heartbeat
+    │   ├── scheduler
+    │   ├── workstream
+    │   ├── revenue
+    │   ├── repair
+    │   ├── web
+    │   ├── source
+    │   ├── knowledge
+    │   ├── memory
+    │   ├── reports
+    │   ├── security
+    │   ├── sandbox
+    │   ├── governance
+    │   ├── superagent
+    │   ├── aiworkflow
+    │   ├── distributed
+    │   ├── channels
+    │   └── ops
+    │
+    ├── adapter [adapter]
+    │   ├── modulebridge
+    │   │   └── 既存実装と modules/* contract の互換接続
+    │   ├── viewer
+    │   │   └── shell / SSE / common adapter / static asset
+    │   ├── channels
+    │   │   └── Slack / Discord / Telegram など
+    │   ├── line
+    │   │   └── LINE webhook / media / sender
+    │   ├── config
+    │   ├── health
+    │   ├── chrome
+    │   └── entry
+    │
+    ├── domain [legacy-body]
+    │   └── 外部技術に依存しない値、契約、validation
+    ├── application [legacy-body]
+    │   └── 既存 usecase / orchestration / background job
+    └── infrastructure [legacy-body]
+        └── provider / persistence / transport / tool runner / external integration
+```
+
+この tree は配置目標であり、即時の削除・移動指示ではない。実体移動は `06_RenCrow_CORE_Ver0.80_モジュール化実装仕様.md` の Phase 9 条件を満たした feature だけで行う。
+
 `internal/features/*` は新しい巨大 service 置き場ではない。各 feature の ports、facade、registrar、feature-local DTO、application glue を置く。既存 `internal/domain`、`internal/application`、`internal/infrastructure` は段階移行中の実体として残してよい。
 
 ## フォルダ責務

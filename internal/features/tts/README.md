@@ -1,0 +1,37 @@
+# Tts Feature
+
+## Owner
+
+TTS
+
+## Inputs
+
+speech text, voice profile, synthesis options, playback ACK
+
+## Outputs
+
+audio result, chunk event, playback state snapshot, visible TTS diagnostics
+
+## Side Effects
+
+provider HTTP calls, audio file writes, playback event emission through existing runtime code
+
+## Persistence
+
+audio artifacts, pending playback state, public session route state
+
+## Logs
+
+session_id, response_id, provider, voice, status, error kind
+
+## Error Contract
+
+provider timeout, invalid audio, and playback timeout are distinct errors
+
+## Current Primary Files
+
+modules/tts, internal/infrastructure/tts, cmd/picoclaw/tts_*.go, cmd/picoclaw/idlechat_tts_*.go
+
+## Migration Boundary
+
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.

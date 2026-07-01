@@ -126,6 +126,8 @@ const (
 	StateOwnerLLM    StateOwner = "llm"
 	StateOwnerTTS    StateOwner = "tts"
 	StateOwnerSTT    StateOwner = "stt"
+	StateOwnerVoice  StateOwner = "voice"
+	StateOwnerWeb    StateOwner = "web"
 )
 
 type OwnedState struct {

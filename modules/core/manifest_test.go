@@ -34,7 +34,7 @@ func TestCurrentModuleDescriptorsDescribeAllRuntimeModules(t *testing.T) {
 			t.Fatalf("descriptor is missing required metadata: %+v", descriptor)
 		}
 	}
-	for _, name := range []string{"core", "llm", "chat", "worker", "tts", "tts.playback", "stt", "stt.viewer_input"} {
+	for _, name := range []string{"core", "llm", "chat", "worker", "tts", "tts.playback", "stt", "stt.viewer_input", "voicechat", "browseractor", "webgather"} {
 		if _, ok := seen[name]; !ok {
 			t.Fatalf("module descriptor missing: %s in %+v", name, descriptors)
 		}

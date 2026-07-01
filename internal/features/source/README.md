@@ -1,0 +1,37 @@
+# Source Feature
+
+## Owner
+
+Source Registry
+
+## Inputs
+
+source registry entry, source run request, staging validation or promotion request
+
+## Outputs
+
+staging item, validation status, promotion candidate, source registry status
+
+## Side Effects
+
+source fetches, staging writes, validation/promotion writes through existing stores
+
+## Persistence
+
+L1 source registry and staging tables
+
+## Logs
+
+source_id, staging_id, validation status, promotion target, error kind
+
+## Error Contract
+
+search result alone is not a source read and must not be promoted automatically
+
+## Current Primary Files
+
+internal/application/sourcefetcher, internal/adapter/viewer/source_registry_handler.go, cmd/picoclaw/cli_source_registry.go
+
+## Migration Boundary
+
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
