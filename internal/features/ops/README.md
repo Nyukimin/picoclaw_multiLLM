@@ -34,4 +34,4 @@ cmd/picoclaw/health_*.go, cmd/picoclaw/cli_operations.go, internal/adapter/viewe
 
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Ops/job, repair, backlog, scheduler, workstream, and revenue route registration is owned by `internal/features/ops/registrar.go`; existing handler, store, and runtime implementations stay in the listed current files until contract tests and caller handoff are added for the relevant phase.

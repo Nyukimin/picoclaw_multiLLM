@@ -49,9 +49,6 @@ type BaseRoutes struct {
 	ExtensionHealth              http.HandlerFunc
 	OTELExport                   http.HandlerFunc
 	ArtifactCleanup              http.HandlerFunc
-	RepairRun                    http.HandlerFunc
-	Backlog                      http.HandlerFunc
-	Scheduler                    http.HandlerFunc
 	AssetsGitStatus              http.HandlerFunc
 	MovieCatalog                 http.HandlerFunc
 	MovieCatalogFetch            http.HandlerFunc
@@ -110,9 +107,6 @@ func RegisterBaseRoutes(mux *http.ServeMux, deps Dependencies) {
 	registerRoute(mux, "/viewer/extensions/health", base.ExtensionHealth)
 	registerRoute(mux, "/viewer/otel/export", base.OTELExport)
 	registerRoute(mux, "/viewer/artifact-cleanup", base.ArtifactCleanup)
-	registerRoute(mux, "/viewer/repair/run", base.RepairRun)
-	registerRoute(mux, "/viewer/backlog", base.Backlog)
-	registerRoute(mux, "/viewer/scheduler", base.Scheduler)
 	registerRoute(mux, "/viewer/assets-git/status", base.AssetsGitStatus)
 	registerRoute(mux, "/viewer/movie-catalog", base.MovieCatalog)
 	registerRoute(mux, "/viewer/movie-catalog/fetch", base.MovieCatalogFetch)

@@ -13,8 +13,6 @@ func TestRegisterBaseRoutesRegistersViewerBasePaths(t *testing.T) {
 		Asset:         statusHandler(http.StatusCreated),
 		RuntimeConfig: statusHandler(http.StatusAccepted),
 		Events:        statusHandler(http.StatusNoContent),
-		Backlog:       statusHandler(http.StatusPartialContent),
-		Scheduler:     statusHandler(http.StatusResetContent),
 	}})
 
 	tests := []struct {
@@ -25,8 +23,6 @@ func TestRegisterBaseRoutesRegistersViewerBasePaths(t *testing.T) {
 		{path: "/viewer/assets/js/viewer.js", want: http.StatusCreated},
 		{path: "/viewer/runtime-config", want: http.StatusAccepted},
 		{path: "/viewer/events", want: http.StatusNoContent},
-		{path: "/viewer/backlog", want: http.StatusPartialContent},
-		{path: "/viewer/scheduler", want: http.StatusResetContent},
 	}
 
 	for _, tt := range tests {

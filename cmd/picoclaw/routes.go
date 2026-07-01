@@ -10,6 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
+	opsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/ops"
 	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
@@ -28,9 +29,6 @@ func registerChannelRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 }
 
 func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts viewer.DebugSystemOptions) {
-	if dependencies.backlogStore == nil {
-		dependencies.backlogStore = viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))
-	}
 	viewerfeature.RegisterBaseRoutes(mux, viewerfeature.Dependencies{Base: viewerfeature.BaseRoutes{
 		Page:                         viewer.HandlePage,
 		Asset:                        viewer.HandleAsset,
@@ -66,9 +64,6 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 		ExtensionHealth:              dependencies.extensionHealth,
 		OTELExport:                   dependencies.otelExport,
 		ArtifactCleanup:              dependencies.artifactCleanup,
-		RepairRun:                    viewer.HandleRepairRunWithRunner(dependencies.eventRelay, dependencies.repairRunner),
-		Backlog:                      viewer.HandleBacklog(dependencies.backlogStore),
-		Scheduler:                    dependencies.schedulerStatus,
 		AssetsGitStatus:              viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()),
 		MovieCatalog:                 viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}),
 		MovieCatalogFetch:            viewer.HandleMovieCatalogFetch(viewer.MovieCatalogOptions{}),
@@ -81,6 +76,47 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 		HobbyTopicCandidatesGenerate: viewer.HandleHobbyTopicCandidatesGenerate(viewer.HobbyGraphOptions{}),
 		InvestmentStatus:             viewer.HandleInvestmentStatus(defaultInvestmentDBPath()),
 		InvestmentNotify:             viewer.HandleInvestmentNotify(dependencies.eventHub),
+	}})
+}
+
+func registerOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies) {
+	if dependencies.backlogStore == nil {
+		dependencies.backlogStore = viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))
+	}
+	opsfeature.RegisterRoutes(mux, opsfeature.Dependencies{Routes: opsfeature.Routes{
+		Status:                 dependencies.viewerStatus,
+		Agents:                 dependencies.viewerAgents,
+		AgentDetail:            dependencies.viewerAgentDetail,
+		Jobs:                   dependencies.viewerJobs,
+		ParallelJobs:           dependencies.parallelJobs,
+		ParallelJobDetail:      dependencies.parallelJobDetail,
+		JobNotifications:       dependencies.jobNotifications,
+		Logs:                   dependencies.viewerLogs,
+		AuditSummary:           dependencies.viewerAuditSummary,
+		JobDetail:              dependencies.viewerJobDetail,
+		RepairRun:              viewer.HandleRepairRunWithRunner(dependencies.eventRelay, dependencies.repairRunner),
+		Backlog:                viewer.HandleBacklog(dependencies.backlogStore),
+		Scheduler:              dependencies.schedulerStatus,
+		Workstreams:            dependencies.workstreamStatus,
+		WorkstreamGoals:        dependencies.workstreamGoal,
+		WorkstreamArtifacts:    dependencies.workstreamArtifact,
+		WorkstreamAnnotations:  dependencies.workstreamAnnotation,
+		WorkstreamSteering:     dependencies.workstreamSteering,
+		WorkstreamHeartbeats:   dependencies.workstreamHeartbeat,
+		WorkstreamVaultUpdates: dependencies.workstreamVaultUpdate,
+		WorkstreamVaultReview:  dependencies.workstreamVaultReview,
+		WorkstreamVaultPreview: dependencies.workstreamVaultPreview,
+		Revenue:                dependencies.revenueStatus,
+		RevenueMarketResearch:  dependencies.revenueMarket,
+		RevenueSNSPosts:        dependencies.revenueSNSPost,
+		RevenueProducts:        dependencies.revenueProduct,
+		RevenueCustomerVoices:  dependencies.revenueCustomerVoice,
+		RevenueEvents:          dependencies.revenueEvent,
+		RevenueDecisionGate:    dependencies.revenueHumanDecisionGate,
+		RevenueDecisionReview:  dependencies.revenueHumanDecisionReview,
+		RevenueDailyRoutine:    dependencies.revenueDailyRoutine,
+		RevenueChannelDrafts:   dependencies.revenueChannelDraft,
+		RevenueExternalSend:    dependencies.revenueExternalSendApply,
 	}})
 }
 
@@ -128,36 +164,6 @@ func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, voiceC
 }
 
 func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies) {
-	if dependencies.viewerStatus != nil {
-		mux.HandleFunc("/viewer/status", dependencies.viewerStatus)
-	}
-	if dependencies.viewerAgents != nil {
-		mux.HandleFunc("/viewer/agents", dependencies.viewerAgents)
-	}
-	if dependencies.viewerAgentDetail != nil {
-		mux.HandleFunc("/viewer/agent/detail", dependencies.viewerAgentDetail)
-	}
-	if dependencies.viewerJobs != nil {
-		mux.HandleFunc("/viewer/jobs", dependencies.viewerJobs)
-	}
-	if dependencies.parallelJobs != nil {
-		mux.HandleFunc("/viewer/parallel-jobs", dependencies.parallelJobs)
-	}
-	if dependencies.parallelJobDetail != nil {
-		mux.HandleFunc("/viewer/parallel-job/detail", dependencies.parallelJobDetail)
-	}
-	if dependencies.jobNotifications != nil {
-		mux.HandleFunc("/viewer/job-notifications", dependencies.jobNotifications)
-	}
-	if dependencies.viewerLogs != nil {
-		mux.HandleFunc("/viewer/logs", dependencies.viewerLogs)
-	}
-	if dependencies.viewerAuditSummary != nil {
-		mux.HandleFunc("/viewer/audit/summary", dependencies.viewerAuditSummary)
-	}
-	if dependencies.viewerJobDetail != nil {
-		mux.HandleFunc("/viewer/job/detail", dependencies.viewerJobDetail)
-	}
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
 	}
@@ -277,66 +283,6 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	}
 	if dependencies.skillExternalPRSubmit != nil {
 		mux.HandleFunc("/viewer/skill-governance/external-pr-submit", dependencies.skillExternalPRSubmit)
-	}
-	if dependencies.workstreamStatus != nil {
-		mux.HandleFunc("/viewer/workstreams", dependencies.workstreamStatus)
-	}
-	if dependencies.workstreamGoal != nil {
-		mux.HandleFunc("/viewer/workstreams/goals", dependencies.workstreamGoal)
-	}
-	if dependencies.workstreamArtifact != nil {
-		mux.HandleFunc("/viewer/workstreams/artifacts", dependencies.workstreamArtifact)
-	}
-	if dependencies.workstreamAnnotation != nil {
-		mux.HandleFunc("/viewer/workstreams/annotations", dependencies.workstreamAnnotation)
-	}
-	if dependencies.workstreamSteering != nil {
-		mux.HandleFunc("/viewer/workstreams/steering", dependencies.workstreamSteering)
-	}
-	if dependencies.workstreamHeartbeat != nil {
-		mux.HandleFunc("/viewer/workstreams/heartbeats", dependencies.workstreamHeartbeat)
-	}
-	if dependencies.workstreamVaultUpdate != nil {
-		mux.HandleFunc("/viewer/workstreams/vault-updates", dependencies.workstreamVaultUpdate)
-	}
-	if dependencies.workstreamVaultReview != nil {
-		mux.HandleFunc("/viewer/workstreams/vault-updates/review", dependencies.workstreamVaultReview)
-	}
-	if dependencies.workstreamVaultPreview != nil {
-		mux.HandleFunc("/viewer/workstreams/vault-updates/preview", dependencies.workstreamVaultPreview)
-	}
-	if dependencies.revenueStatus != nil {
-		mux.HandleFunc("/viewer/revenue", dependencies.revenueStatus)
-	}
-	if dependencies.revenueMarket != nil {
-		mux.HandleFunc("/viewer/revenue/market-research", dependencies.revenueMarket)
-	}
-	if dependencies.revenueSNSPost != nil {
-		mux.HandleFunc("/viewer/revenue/sns-posts", dependencies.revenueSNSPost)
-	}
-	if dependencies.revenueProduct != nil {
-		mux.HandleFunc("/viewer/revenue/products", dependencies.revenueProduct)
-	}
-	if dependencies.revenueCustomerVoice != nil {
-		mux.HandleFunc("/viewer/revenue/customer-voices", dependencies.revenueCustomerVoice)
-	}
-	if dependencies.revenueEvent != nil {
-		mux.HandleFunc("/viewer/revenue/events", dependencies.revenueEvent)
-	}
-	if dependencies.revenueHumanDecisionGate != nil {
-		mux.HandleFunc("/viewer/revenue/human-decision-gate", dependencies.revenueHumanDecisionGate)
-	}
-	if dependencies.revenueHumanDecisionReview != nil {
-		mux.HandleFunc("/viewer/revenue/human-decision-gate/review", dependencies.revenueHumanDecisionReview)
-	}
-	if dependencies.revenueDailyRoutine != nil {
-		mux.HandleFunc("/viewer/revenue/daily-routine", dependencies.revenueDailyRoutine)
-	}
-	if dependencies.revenueChannelDraft != nil {
-		mux.HandleFunc("/viewer/revenue/channel-drafts", dependencies.revenueChannelDraft)
-	}
-	if dependencies.revenueExternalSendApply != nil {
-		mux.HandleFunc("/viewer/revenue/channel-drafts/external-send-apply", dependencies.revenueExternalSendApply)
 	}
 	if dependencies.personaObservation != nil {
 		mux.HandleFunc("/viewer/persona-observation", dependencies.personaObservation)
