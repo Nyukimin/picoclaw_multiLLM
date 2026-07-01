@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
@@ -26,72 +27,60 @@ func registerChannelRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 }
 
 func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts viewer.DebugSystemOptions) {
-	mux.HandleFunc("/viewer", viewer.HandlePage)
-	mux.HandleFunc("/viewer/assets/", viewer.HandleAsset)
-	mux.HandleFunc("/viewer/runtime-config", viewer.HandleRuntimeConfig(debugSystemOpts))
-	mux.HandleFunc("/viewer/logo.png", viewer.HandleLogo)
-	mux.HandleFunc("/viewer/mio-lipsync-closed.svg", viewer.HandleMioLipSyncClosed)
-	mux.HandleFunc("/viewer/mio-lipsync-open.svg", viewer.HandleMioLipSyncOpen)
-	mux.HandleFunc("/viewer/mio-portrait.png", viewer.HandleMioPortrait)
-	mux.HandleFunc("/viewer/shiro-portrait.png", viewer.HandleShiroPortrait)
-	mux.HandleFunc("/viewer/shiro-lipsync-closed.svg", viewer.HandleShiroLipSyncClosed)
-	mux.HandleFunc("/viewer/shiro-lipsync-open.svg", viewer.HandleShiroLipSyncOpen)
-	mux.HandleFunc("/viewer/character/state", viewer.HandleCharacterState)
-	mux.HandleFunc("/viewer/character/manifest", viewer.HandleCharacterManifest)
-	mux.HandleFunc("/viewer/character/layered/state", viewer.HandleLayeredCharacterState)
-	mux.HandleFunc("/viewer/character/layered/mouth", viewer.HandleLayeredCharacterMouth)
-	mux.HandleFunc("/viewer/character/layered/manifest", viewer.HandleLayeredCharacterManifest)
-	mux.HandleFunc("/viewer/live2d/character", viewer.HandleLive2DCharacter)
-	mux.HandleFunc("/viewer/live2d/embed", viewer.HandleLive2DCharacterEmbed)
-	mux.HandleFunc("/viewer/live2d/asset", viewer.HandleLive2DAsset)
-	mux.HandleFunc("/viewer/live2d/chat", viewer.HandleLive2DChat)
-	mux.HandleFunc("/viewer/live2d/emotion", viewer.HandleLive2DEmotionControl)
-	mux.HandleFunc("/viewer/api/chat", viewer.HandleLive2DChatAPIWithResponder(newLive2DOrchestratorResponder(dependencies)))
-	mux.HandleFunc("/viewer/tts/audio", handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL))
-	mux.HandleFunc("/viewer/tts/playback-ack", handleTTSPlaybackAck())
-	mux.HandleFunc("/viewer/active-control", handleViewerActiveClaim(dependencies.eventHub.OnEvent))
-	mux.HandleFunc("/viewer/events", dependencies.eventHub.HandleSSE)
-	mux.HandleFunc("/viewer/debug/system", viewer.HandleDebugSystemSnapshot(debugSystemOpts))
-	mux.HandleFunc("/viewer/docs/search", viewer.HandleDocsSearch())
-	mux.HandleFunc("/viewer/docs/detail", viewer.HandleDocsDetail())
-	if dependencies.historyRepairJSONL != nil {
-		mux.HandleFunc("/viewer/history-repair/jsonl", dependencies.historyRepairJSONL)
-	}
-	if dependencies.packageValidation != nil {
-		mux.HandleFunc("/viewer/package-validation", dependencies.packageValidation)
-	}
-	if dependencies.characterRuntime != nil {
-		mux.HandleFunc("/viewer/character-runtime", dependencies.characterRuntime)
-	}
-	if dependencies.extensionHealth != nil {
-		mux.HandleFunc("/viewer/extensions/health", dependencies.extensionHealth)
-	}
-	if dependencies.otelExport != nil {
-		mux.HandleFunc("/viewer/otel/export", dependencies.otelExport)
-	}
-	if dependencies.artifactCleanup != nil {
-		mux.HandleFunc("/viewer/artifact-cleanup", dependencies.artifactCleanup)
-	}
-	mux.HandleFunc("/viewer/repair/run", viewer.HandleRepairRunWithRunner(dependencies.eventRelay, dependencies.repairRunner))
 	if dependencies.backlogStore == nil {
 		dependencies.backlogStore = viewer.NewBacklogStore(filepath.Join(cfg.WorkspaceDir, "logs", "backlog.jsonl"))
 	}
-	mux.HandleFunc("/viewer/backlog", viewer.HandleBacklog(dependencies.backlogStore))
-	if dependencies.schedulerStatus != nil {
-		mux.HandleFunc("/viewer/scheduler", dependencies.schedulerStatus)
-	}
-	mux.HandleFunc("/viewer/assets-git/status", viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()))
-	mux.HandleFunc("/viewer/movie-catalog", viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}))
-	mux.HandleFunc("/viewer/movie-catalog/fetch", viewer.HandleMovieCatalogFetch(viewer.MovieCatalogOptions{}))
-	mux.HandleFunc("/viewer/movie-catalog/preference", viewer.HandleMovieCatalogPreference(viewer.MovieCatalogOptions{}))
-	mux.HandleFunc("/viewer/movie-catalog/topic-candidates/generate", viewer.HandleMovieTopicCandidatesGenerate(viewer.MovieCatalogOptions{}))
-	mux.HandleFunc("/viewer/hobby-graph", viewer.HandleHobbyGraph(viewer.HobbyGraphOptions{}))
-	mux.HandleFunc("/viewer/hobby-graph/bootstrap", viewer.HandleHobbyGraphBootstrap(viewer.HobbyGraphOptions{}))
-	mux.HandleFunc("/viewer/hobby-graph/interaction", viewer.HandleHobbyGraphInteraction(viewer.HobbyGraphOptions{}))
-	mux.HandleFunc("/viewer/hobby-graph/relation", viewer.HandleHobbyGraphRelation(viewer.HobbyGraphOptions{}))
-	mux.HandleFunc("/viewer/hobby-graph/topic-candidates/generate", viewer.HandleHobbyTopicCandidatesGenerate(viewer.HobbyGraphOptions{}))
-	mux.HandleFunc("/viewer/investment/status", viewer.HandleInvestmentStatus(defaultInvestmentDBPath()))
-	mux.HandleFunc("/viewer/investment/notify", viewer.HandleInvestmentNotify(dependencies.eventHub))
+	viewerfeature.RegisterBaseRoutes(mux, viewerfeature.Dependencies{Base: viewerfeature.BaseRoutes{
+		Page:                         viewer.HandlePage,
+		Asset:                        viewer.HandleAsset,
+		RuntimeConfig:                viewer.HandleRuntimeConfig(debugSystemOpts),
+		Logo:                         viewer.HandleLogo,
+		MioLipSyncClosed:             viewer.HandleMioLipSyncClosed,
+		MioLipSyncOpen:               viewer.HandleMioLipSyncOpen,
+		MioPortrait:                  viewer.HandleMioPortrait,
+		ShiroPortrait:                viewer.HandleShiroPortrait,
+		ShiroLipSyncClosed:           viewer.HandleShiroLipSyncClosed,
+		ShiroLipSyncOpen:             viewer.HandleShiroLipSyncOpen,
+		CharacterState:               viewer.HandleCharacterState,
+		CharacterManifest:            viewer.HandleCharacterManifest,
+		LayeredCharacterState:        viewer.HandleLayeredCharacterState,
+		LayeredCharacterMouth:        viewer.HandleLayeredCharacterMouth,
+		LayeredCharacterManifest:     viewer.HandleLayeredCharacterManifest,
+		Live2DCharacter:              viewer.HandleLive2DCharacter,
+		Live2DCharacterEmbed:         viewer.HandleLive2DCharacterEmbed,
+		Live2DAsset:                  viewer.HandleLive2DAsset,
+		Live2DChat:                   viewer.HandleLive2DChat,
+		Live2DEmotionControl:         viewer.HandleLive2DEmotionControl,
+		Live2DChatAPI:                viewer.HandleLive2DChatAPIWithResponder(newLive2DOrchestratorResponder(dependencies)),
+		TTSAudio:                     handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL),
+		TTSPlaybackAck:               handleTTSPlaybackAck(),
+		ActiveControl:                handleViewerActiveClaim(dependencies.eventHub.OnEvent),
+		Events:                       dependencies.eventHub.HandleSSE,
+		DebugSystem:                  viewer.HandleDebugSystemSnapshot(debugSystemOpts),
+		DocsSearch:                   viewer.HandleDocsSearch(),
+		DocsDetail:                   viewer.HandleDocsDetail(),
+		HistoryRepairJSONL:           dependencies.historyRepairJSONL,
+		PackageValidation:            dependencies.packageValidation,
+		CharacterRuntime:             dependencies.characterRuntime,
+		ExtensionHealth:              dependencies.extensionHealth,
+		OTELExport:                   dependencies.otelExport,
+		ArtifactCleanup:              dependencies.artifactCleanup,
+		RepairRun:                    viewer.HandleRepairRunWithRunner(dependencies.eventRelay, dependencies.repairRunner),
+		Backlog:                      viewer.HandleBacklog(dependencies.backlogStore),
+		Scheduler:                    dependencies.schedulerStatus,
+		AssetsGitStatus:              viewer.HandleAssetsGitStatus(defaultAssetsGitRepoPath()),
+		MovieCatalog:                 viewer.HandleMovieCatalog(viewer.MovieCatalogOptions{}),
+		MovieCatalogFetch:            viewer.HandleMovieCatalogFetch(viewer.MovieCatalogOptions{}),
+		MovieCatalogPreference:       viewer.HandleMovieCatalogPreference(viewer.MovieCatalogOptions{}),
+		MovieTopicCandidatesGenerate: viewer.HandleMovieTopicCandidatesGenerate(viewer.MovieCatalogOptions{}),
+		HobbyGraph:                   viewer.HandleHobbyGraph(viewer.HobbyGraphOptions{}),
+		HobbyGraphBootstrap:          viewer.HandleHobbyGraphBootstrap(viewer.HobbyGraphOptions{}),
+		HobbyGraphInteraction:        viewer.HandleHobbyGraphInteraction(viewer.HobbyGraphOptions{}),
+		HobbyGraphRelation:           viewer.HandleHobbyGraphRelation(viewer.HobbyGraphOptions{}),
+		HobbyTopicCandidatesGenerate: viewer.HandleHobbyTopicCandidatesGenerate(viewer.HobbyGraphOptions{}),
+		InvestmentStatus:             viewer.HandleInvestmentStatus(defaultInvestmentDBPath()),
+		InvestmentNotify:             viewer.HandleInvestmentNotify(dependencies.eventHub),
+	}})
 }
 
 func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts *viewer.DebugSystemOptions) {

@@ -34,4 +34,4 @@ internal/adapter/viewer, cmd/picoclaw/routes.go, cmd/picoclaw/runtime_viewer_han
 
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Viewer base/static route registration is owned by `internal/features/viewer/registrar.go`; existing handler implementations stay in the listed current files until contract tests and caller handoff are added for the relevant phase.
