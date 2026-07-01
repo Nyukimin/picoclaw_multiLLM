@@ -92,3 +92,15 @@ func TestTaskWithUserMessageAndAttachmentsAreImmutable(t *testing.T) {
 		t.Fatalf("Attachments returned mutable backing slice: %v", gotAgain)
 	}
 }
+
+func TestTaskWithViewerRecipientIsImmutable(t *testing.T) {
+	original := NewTask(NewJobID(), "hello", "viewer", "viewer-user")
+	updated := original.WithViewerRecipient("kuro")
+
+	if original.ViewerRecipient() != "" {
+		t.Fatalf("original recipient mutated: %q", original.ViewerRecipient())
+	}
+	if updated.ViewerRecipient() != "kuro" {
+		t.Fatalf("updated recipient = %q, want kuro", updated.ViewerRecipient())
+	}
+}

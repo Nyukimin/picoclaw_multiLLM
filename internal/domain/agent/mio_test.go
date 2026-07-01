@@ -329,6 +329,53 @@ func TestMioAgentChat_UsesSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestMioAgentChat_UsesViewerRecipientSystemPromptWithoutChangingUserMessage(t *testing.T) {
+	var gotReq llm.GenerateRequest
+	llmProvider := &mockLLMProvider{
+		generateFunc: func(ctx context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+			gotReq = req
+			return llm.GenerateResponse{Content: "了解しました"}, nil
+		},
+	}
+	mio := NewMioAgent(
+		llmProvider,
+		&mockClassifier{},
+		&mockRuleDictionary{},
+		&mockToolRunner{},
+		&mockMCPClient{},
+		nil,
+	)
+
+	task := task.NewTask(task.NewJobID(), "合言葉 RC_kuro_current で返答して", "viewer", "viewer-user").WithViewerRecipient("kuro")
+	if _, err := mio.Chat(context.Background(), task); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	foundRecipientPrompt := false
+	foundTokenGuard := false
+	if len(gotReq.Messages) == 0 {
+		t.Fatal("expected messages")
+	}
+	for _, msg := range gotReq.Messages {
+		if msg.Role == "system" && strings.Contains(msg.Content, "requested_to=kuro") {
+			foundRecipientPrompt = true
+		}
+		if msg.Role == "system" && strings.Contains(msg.Content, "Token contract") {
+			foundTokenGuard = true
+		}
+	}
+	if !foundRecipientPrompt {
+		t.Fatalf("missing recipient prompt in messages: %#v", gotReq.Messages)
+	}
+	if !foundTokenGuard {
+		t.Fatalf("missing token guard prompt in messages: %#v", gotReq.Messages)
+	}
+	last := gotReq.Messages[len(gotReq.Messages)-1]
+	if last.Role != "user" || last.Content != "合言葉 RC_kuro_current で返答して" {
+		t.Fatalf("user message changed: %#v", last)
+	}
+}
+
 // === mockConversationEngine ===
 
 type mockConversationEngine struct {

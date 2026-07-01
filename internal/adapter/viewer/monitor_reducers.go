@@ -39,7 +39,13 @@ func (s *MonitorStore) reduceAgents(ev orchestrator.OrchestratorEvent) {
 	}
 
 	if ev.Type == "message.received" || ev.Type == "routing.decision" {
-		s.patchAgent("mio", AgentSnapshot{
+		target := "mio"
+		if ev.Type == "message.received" {
+			target = monitorAgentOrDefault(ev.To, "mio")
+		} else if job := s.jobs[jid]; job != nil {
+			target = monitorAgentOrDefault(job.Owner, "mio")
+		}
+		s.patchAgent(target, AgentSnapshot{
 			State:     "running",
 			Route:     route,
 			JobID:     jid,
@@ -102,6 +108,9 @@ func (s *MonitorStore) reduceAgents(ev orchestrator.OrchestratorEvent) {
 			Reason:    "",
 			UpdatedAt: ts,
 		})
+	}
+	if isUserFacingFinalResponse(ev) {
+		s.clearActiveAgentsForJob(ev)
 	}
 }
 
@@ -188,9 +197,9 @@ func (s *MonitorStore) reduceJobs(ev orchestrator.OrchestratorEvent) {
 		}
 	}
 	if ev.Type == "agent.response" {
-		if strings.EqualFold(ev.From, "mio") && strings.EqualFold(ev.To, "user") {
+		if isUserFacingFinalResponse(ev) {
 			job.FinalUserReport = ev.Content
-			job.MioReported = true
+			job.MioReported = strings.EqualFold(ev.From, "mio")
 			if responseLooksLikeFailure(ev.Content) {
 				job.Status = "error"
 				job.TerminalOutcome = "failed"
@@ -210,6 +219,39 @@ func (s *MonitorStore) reduceJobs(ev orchestrator.OrchestratorEvent) {
 	}
 }
 
+func isUserFacingFinalResponse(ev orchestrator.OrchestratorEvent) bool {
+	return ev.Type == "agent.response" &&
+		strings.EqualFold(strings.TrimSpace(ev.To), "user") &&
+		isMonitorAgent(strings.ToLower(strings.TrimSpace(ev.From)))
+}
+
+func (s *MonitorStore) clearActiveAgentsForJob(ev orchestrator.OrchestratorEvent) {
+	jid := strings.TrimSpace(ev.JobID)
+	if jid == "" {
+		return
+	}
+	speaker := monitorAgentOrDefault(ev.From, "agent")
+	preview := shortText("cleared by final response from "+speaker, 80)
+	for id, agent := range s.agents {
+		if strings.TrimSpace(agent.JobID) != jid {
+			continue
+		}
+		if agent.State != "running" && agent.State != "thinking" {
+			continue
+		}
+		s.patchAgent(id, AgentSnapshot{
+			State:     "idle",
+			Route:     ev.Route,
+			JobID:     jid,
+			SessionID: ev.SessionID,
+			LastEvent: ev.Type,
+			Preview:   preview,
+			Reason:    "",
+			UpdatedAt: ev.Timestamp,
+		})
+	}
+}
+
 func clearsJobFailure(ev orchestrator.OrchestratorEvent) bool {
 	from := strings.ToLower(strings.TrimSpace(ev.From))
 	to := strings.ToLower(strings.TrimSpace(ev.To))
@@ -217,7 +259,7 @@ func clearsJobFailure(ev orchestrator.OrchestratorEvent) bool {
 	case "mailbox.received":
 		return strings.Contains(strings.ToLower(ev.Content), "type=result")
 	case "agent.response":
-		if from == "mio" && to == "user" {
+		if to == "user" && isMonitorAgent(from) {
 			return !responseLooksLikeFailure(ev.Content)
 		}
 		return (strings.HasPrefix(from, "coder") && to == "shiro") || (from == "shiro" && to == "mio")

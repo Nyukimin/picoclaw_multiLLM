@@ -22,7 +22,13 @@ func newMessageTaskContextBuilder(emit messageEventEmitter, ttsEnabled ttsEnable
 
 func (b *messageTaskContextBuilder) Build(req ProcessMessageRequest) (task.Task, task.JobID, string) {
 	jobID := task.NewJobID()
-	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID).WithAttachments(req.Attachments)
+	return b.BuildWithJobID(req, jobID)
+}
+
+func (b *messageTaskContextBuilder) BuildWithJobID(req ProcessMessageRequest, jobID task.JobID) (task.Task, task.JobID, string) {
+	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID).
+		WithAttachments(req.Attachments).
+		WithViewerRecipient(normalizeProcessViewerRecipient(req.To))
 	if len(req.Attachments) > 0 {
 		b.emit("viewer.attachment.received", "viewer", "mio",
 			fmt.Sprintf("%d attachment(s)", len(req.Attachments)),

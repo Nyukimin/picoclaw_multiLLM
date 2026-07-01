@@ -32,12 +32,9 @@ func (p *messageEventPort) Emit(eventType, from, to, content, route, jobID, sess
 	p.listener.OnEvent(ev)
 }
 
-func (p *messageEventPort) EmitMessageReceived(req ProcessMessageRequest) {
-	recipient, err := modulechat.NormalizeViewerRecipient(req.To)
-	if err != nil {
-		recipient = modulechat.DefaultViewerRecipient
-	}
-	p.Emit("message.received", "user", string(recipient), req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+func (p *messageEventPort) EmitMessageReceived(req ProcessMessageRequest, jobID string) {
+	recipient := normalizeProcessViewerRecipient(req.To)
+	p.Emit("message.received", "user", recipient, req.UserMessage, "", jobID, req.SessionID, req.Channel, req.ChatID)
 }
 
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {
@@ -45,7 +42,7 @@ func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, s
 }
 
 func (o *MessageOrchestrator) emitMessageReceived(req ProcessMessageRequest) {
-	o.events.EmitMessageReceived(req)
+	o.events.EmitMessageReceived(req, "")
 }
 
 func (p *messageEventPort) assignConversationIdentity(ev *OrchestratorEvent) {
@@ -58,4 +55,12 @@ func (p *messageEventPort) assignConversationIdentity(ev *OrchestratorEvent) {
 	p.turns[sessionID]++
 	ev.TurnIndex = p.turns[sessionID]
 	ev.MessageID = conversationMessageID(sessionID, ev.TurnIndex)
+}
+
+func normalizeProcessViewerRecipient(raw string) string {
+	recipient, err := modulechat.NormalizeViewerRecipient(raw)
+	if err != nil {
+		recipient = modulechat.DefaultViewerRecipient
+	}
+	return string(recipient)
 }

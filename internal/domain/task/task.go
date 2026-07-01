@@ -12,6 +12,7 @@ type Task struct {
 	channel     string
 	chatID      string
 	attachments []attachment.Attachment
+	recipient   string
 	forcedRoute routing.Route // 明示的なルート指定（オプション）
 	route       routing.Route // 決定されたルート
 }
@@ -53,6 +54,11 @@ func (t Task) Attachments() []attachment.Attachment {
 	return append([]attachment.Attachment(nil), t.attachments...)
 }
 
+// ViewerRecipient returns the requested Viewer chat recipient / speaker.
+func (t Task) ViewerRecipient() string {
+	return t.recipient
+}
+
 // ForcedRoute は強制ルートを返す
 func (t Task) ForcedRoute() routing.Route {
 	return t.forcedRoute
@@ -84,6 +90,12 @@ func (t Task) WithUserMessage(message string) Task {
 // WithAttachments returns a new task with user attachments.
 func (t Task) WithAttachments(attachments []attachment.Attachment) Task {
 	t.attachments = append([]attachment.Attachment(nil), attachments...)
+	return t
+}
+
+// WithViewerRecipient returns a new task with the requested Viewer chat speaker.
+func (t Task) WithViewerRecipient(recipient string) Task {
+	t.recipient = recipient
 	return t
 }
 

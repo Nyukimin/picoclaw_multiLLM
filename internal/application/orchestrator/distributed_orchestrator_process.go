@@ -32,7 +32,9 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 		return ProcessMessageResponse{}, fmt.Errorf("failed to load or create session: %w", err)
 	}
 
-	o.emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+	jobID := task.NewJobID()
+	recipient := normalizeProcessViewerRecipient(req.To)
+	o.emit("message.received", "user", recipient, req.UserMessage, "", jobID.String(), req.SessionID, req.Channel, req.ChatID)
 	if expandedReq, handled, err := o.expandRegisteredSlashCommand(ctx, req); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {
@@ -40,8 +42,7 @@ func (o *DistributedOrchestrator) ProcessMessage(ctx context.Context, req Proces
 	}
 
 	// 2. タスクを作成
-	jobID := task.NewJobID()
-	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID)
+	t := task.NewTask(jobID, req.UserMessage, req.Channel, req.ChatID).WithViewerRecipient(normalizeProcessViewerRecipient(req.To))
 	if resp, handled, err := o.handleExplicitDCI(ctx, req, sess, t, jobID); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {

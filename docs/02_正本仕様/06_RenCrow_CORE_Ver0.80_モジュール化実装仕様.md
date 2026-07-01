@@ -77,6 +77,98 @@ Ver0.80 の実装は、機能を落とさず、挙動変更と構造変更を混
 
 この表が埋まらない feature は、実体移動に入らず、先に調査を行う。
 
+## Viewer / LLM 実テストにおける状態・シーケンス・ログの区別
+
+Viewer、通常 Chat、LLM、agent 切り替え、background job を実テストする場合は、`現在状態`、`シーケンス`、`ログ` を混同してはいけない。
+
+特に `/viewer/send` の 200、`/viewer/jobs` の `running`、`/viewer/logs` の履歴、`/viewer/status` の agent state は、それぞれ意味が異なる。
+
+| 区分 | 意味 | 正本 endpoint / record | 完了判定に使えるか |
+| --- | --- | --- | --- |
+| 受付結果 | HTTP request を Viewer が受け取ったか | `/viewer/send` response | 単独では不可 |
+| 現在状態 | 今 agent / worker / coder が動いているか | `/viewer/status`, `/viewer/agents` | runtime busy / idle 判定に使う |
+| シーケンス | 1 つの依頼が受付、分類、dispatch、応答、完了まで進んだか | `/viewer/jobs` の job 単位 `events`, `status`, `terminal_outcome` | 依頼単位の成否判定に使う |
+| 応答結果 | LLM が実際に本文を返したか | job events の `agent.response` | 応答確認に使う |
+| ログ | 過去に発生した event 履歴 | `/viewer/logs` | 追跡、原因調査、証跡に使う |
+
+### 判定順序
+
+実テストでは次の順に判断する。
+
+1. `/viewer/status` と `/viewer/agents` で現在状態を見る。
+2. 対象 request の識別子、合言葉、または `job_id` を決める。
+3. `/viewer/send` の HTTP status で受付を確認する。
+4. `/viewer/jobs` で対象 job のシーケンスを追う。
+5. job が `done` / `error` / `failed` / `terminal_outcome` へ進んだかを見る。
+6. `agent.response` の `from`、`to`、本文、`route`、`owner`、`job_id` を確認する。
+7. 原因調査が必要な場合だけ `/viewer/logs` を見る。
+
+`/viewer/logs` は現在状態の正本ではない。現在 agent が動いているかをログだけで判断してはいけない。
+
+### `running` の扱い
+
+`/viewer/jobs` に `status=running` が残っていても、ただちに「今も実行中」と報告してはいけない。
+
+`running` を見つけた場合は、必ず次を分けて報告する。
+
+| 観点 | 見る場所 | 判断 |
+| --- | --- | --- |
+| 現在実行中か | `/viewer/status`, `/viewer/agents` | agent state が `running` / `busy` か |
+| シーケンス未終端か | `/viewer/jobs` | job が terminal state へ進んでいないか |
+| 履歴上の失敗か | `/viewer/logs` | timeout、queue failure、viewer.error があるか |
+
+現在状態が `offline` / `idle` で、job だけ `running` の場合は、次のように報告する。
+
+```text
+現在 agent は実行中ではない。
+ただし対象 job sequence が terminal state へ進んでいない。
+これは runtime 実行中ではなく、job lifecycle / jobs store の不整合として扱う。
+```
+
+### `to=mio|shiro|kuro|midori` 実テストの報告契約
+
+Viewer 通常 Chat の recipient contract を実テストする場合は、少なくとも次を分けて報告する。
+
+| 項目 | 必須確認 |
+| --- | --- |
+| request | `/viewer/send` payload の `to` と本文 |
+| 受付 | HTTP status と response body |
+| sequence | job `route`, `owner`, `status`, `terminal_outcome` |
+| response | `agent.response` の `from`, `to`, 本文 |
+| persona / character | 応答本文が `to` の persona と一致するか |
+| identity | `owner` / `from` が `to` と一致する契約か、Mio 経由 persona 切替契約か |
+
+`to=shiro|kuro|midori` が受け付けられても、job `owner` または `agent.response.from` が常に `mio` になる場合は、仕様上の意図を確認せずに正常扱いしない。
+
+Ver0.80 の Viewer 通常 Chat では、`to=mio|shiro|kuro|midori` は route alias ではなく recipient / character selection contract として扱う。したがって、次のどちらであるかを実装と test で固定する必要がある。
+
+| 方式 | 必須条件 |
+| --- | --- |
+| identity 切替 | job `owner`、`agent.response.from`、Viewer 表示上の speaker が `to` と一致する |
+| Mio 経由 persona 切替 | job `owner` / `from` は `mio` のままでもよいが、sequence record に `requested_to` / `resolved_character` / `speaker` を明示する |
+
+どちらの方式でも、黙って `mio` へ fallback して成功扱いしてはいけない。
+
+### 短文・長文応答テストの追加ルール
+
+短文と長文の応答確認では、各 request に一意な合言葉を入れる。
+
+合言葉は次の確認に使う。
+
+- request payload と job sequence の対応確認
+- `message.received` と `agent.response` の対応確認
+- 履歴混入、prompt 混線、古い context の混入検出
+
+長文で合言葉が一致しない場合は、まずパラメータ確認として扱い、次の順に切り分ける。
+
+1. `/viewer/send` に送った payload の `to` と本文。
+2. `/viewer/jobs` の対象 job に `message.received` が残っているか。
+3. route decision 後の resolved recipient / character。
+4. prompt / context に過去の合言葉が混入していないか。
+5. `agent.response` の本文が対象 request と一致するか。
+
+この段階では「LLM 応答失敗」と断定しない。
+
 ## 作業時の判断補足
 
 Ver0.80 の仕様は、`05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md` が構造上の正本であり、この文書が実装手順の正本である。

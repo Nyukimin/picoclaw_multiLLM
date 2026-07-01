@@ -210,6 +210,12 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 			Content: userMemoryPrompt,
 		})
 	}
+	if prompt := viewerRecipientSystemPrompt(t.ViewerRecipient(), userMessage); prompt != "" {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: prompt,
+		})
+	}
 
 	// ペルソナ調整意図を検出 → 自己編集
 	if m.personaEditor != nil && detectPersonaEditIntent(userMessage) {
@@ -311,4 +317,34 @@ func (m *MioAgent) Chat(ctx context.Context, t task.Task) (string, error) {
 	}
 
 	return response, nil
+}
+
+func viewerRecipientSystemPrompt(recipient, userMessage string) string {
+	recipient = strings.ToLower(strings.TrimSpace(recipient))
+	if recipient == "" || recipient == "mio" {
+		return tokenEchoGuardPrompt(userMessage)
+	}
+	var role string
+	switch recipient {
+	case "shiro":
+		role = "Shiro. Reply directly to the user in a calm, practical style. This is normal CHAT, not an OPS execution route."
+	case "kuro":
+		role = "Kuro. Reply directly to the user in a logical and analytical style."
+	case "midori":
+		role = "Midori. Reply directly to the user in a creative, idea-expanding style."
+	default:
+		return tokenEchoGuardPrompt(userMessage)
+	}
+	prompt := "Viewer recipient contract: requested_to=" + recipient + ". You are not replying as Mio; reply as " + role + " Treat your speaker identity as " + recipient + "."
+	if guard := tokenEchoGuardPrompt(userMessage); guard != "" {
+		prompt += "\n" + guard
+	}
+	return prompt
+}
+
+func tokenEchoGuardPrompt(userMessage string) string {
+	if !strings.Contains(userMessage, "合言葉") && !strings.Contains(userMessage, "RC_") {
+		return ""
+	}
+	return "Token contract: if the current user message contains a passphrase or RC_ token, include exactly the current input token once. Do not reuse older tokens from conversation context."
 }

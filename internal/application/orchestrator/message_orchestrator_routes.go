@@ -6,6 +6,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type messageStreamHook func(ctx context.Context, route routing.Route, jid, sessionID, channel, chatID, ttsSessionID string) (context.Context, *streamBundle)
@@ -91,14 +92,23 @@ func (d *messageRouteDispatcher) ExecuteDirect(ctx context.Context, t task.Task,
 
 func (d *messageRouteDispatcher) executeChatRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {
 	jid := t.JobID().String()
-	d.emit("agent.start", "mio", "user", "考え中...", "CHAT", jid, sessionID, channel, chatID)
+	speaker := chatSpeakerForTask(t)
+	d.emit("agent.start", speaker, "user", "考え中...", "CHAT", jid, sessionID, channel, chatID)
 	streamCtx, ttsStream := d.withStreamHooks(ctx, routing.RouteCHAT, jid, sessionID, channel, chatID, ttsSessionID)
 	resp, err := d.mio.Chat(streamCtx, t)
 	if err == nil {
-		d.emit("agent.response", "mio", "user", resp, "CHAT", jid, sessionID, channel, chatID)
+		d.emit("agent.response", speaker, "user", resp, "CHAT", jid, sessionID, channel, chatID)
 		ttsStream.Finalize(ctx, resp)
 	}
 	return resp, err
+}
+
+func chatSpeakerForTask(t task.Task) string {
+	recipient := normalizeProcessViewerRecipient(t.ViewerRecipient())
+	if recipient == "" {
+		return string(modulechat.DefaultViewerRecipient)
+	}
+	return recipient
 }
 
 func (d *messageRouteDispatcher) executeOPSRoute(ctx context.Context, t task.Task, sessionID, channel, chatID, ttsSessionID string) (string, error) {

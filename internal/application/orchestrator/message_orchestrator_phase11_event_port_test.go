@@ -18,7 +18,7 @@ func TestPhase11EventPortNilListenerIsNoop(t *testing.T) {
 		Channel:     "line",
 		ChatID:      "U123",
 		UserMessage: "こんにちは",
-	})
+	}, "job-1")
 }
 
 func TestPhase11EventPortUsesUpdatedListener(t *testing.T) {
@@ -40,7 +40,7 @@ func TestPhase11EventPortUsesUpdatedListener(t *testing.T) {
 		Channel:     "discord",
 		ChatID:      "C123",
 		UserMessage: "hello",
-	})
+	}, "job-2")
 	if len(listener.events) != 2 {
 		t.Fatalf("expected two events, got %d", len(listener.events))
 	}
@@ -48,8 +48,8 @@ func TestPhase11EventPortUsesUpdatedListener(t *testing.T) {
 	if received.Type != "message.received" || received.From != "user" || received.To != "mio" {
 		t.Fatalf("unexpected message received event: %#v", received)
 	}
-	if received.Route != "" || received.JobID != "" {
-		t.Fatalf("message.received should not include route/job before decision: %#v", received)
+	if received.Route != "" || received.JobID != "job-2" {
+		t.Fatalf("message.received should include job but not route before decision: %#v", received)
 	}
 	if received.MessageID != "sess-2:chat:msg:0001" || received.TurnIndex != 1 {
 		t.Fatalf("message.received should include stable conversation identity: %#v", received)
@@ -66,7 +66,7 @@ func TestPhase11EventPortUsesViewerRecipientWithoutExecutionRoute(t *testing.T) 
 		ChatID:      "viewer-user",
 		UserMessage: "作業手順を相談したい",
 		To:          "shiro",
-	})
+	}, "job-shiro")
 
 	if len(listener.events) != 1 {
 		t.Fatalf("expected one event, got %d", len(listener.events))
@@ -75,8 +75,8 @@ func TestPhase11EventPortUsesViewerRecipientWithoutExecutionRoute(t *testing.T) 
 	if got.Type != "message.received" || got.From != "user" || got.To != "shiro" {
 		t.Fatalf("unexpected message received event: %#v", got)
 	}
-	if got.Route != "" || got.JobID != "" {
-		t.Fatalf("viewer recipient must not imply execution route: %#v", got)
+	if got.Route != "" || got.JobID != "job-shiro" {
+		t.Fatalf("viewer recipient must include job without implying execution route: %#v", got)
 	}
 }
 

@@ -51,6 +51,55 @@ func TestMessageOrchestrator_RouteChainContract_RoutingDecisionBeforeDispatch(t 
 	}
 }
 
+func TestMessageOrchestrator_RouteChainContract_ViewerRecipientBecomesChatSpeaker(t *testing.T) {
+	repo := newMockSessionRepository()
+	mio := &mockMioAgent{
+		decision: routing.NewDecisionWithEvidence(routing.RouteCHAT, 0.91, "chat", routing.DecisionEvidence{
+			Source:     routing.EvidenceSourceRuleDictionary,
+			Matched:    true,
+			Route:      routing.RouteCHAT,
+			Confidence: 0.91,
+			Reason:     "test rule",
+		}),
+		chatFunc: func(ctx context.Context, t task.Task) (string, error) {
+			if t.ViewerRecipient() != "kuro" {
+				return "", errors.New("missing viewer recipient")
+			}
+			if t.UserMessage() != "合言葉 RC_kuro_contract で返答して" {
+				return "", errors.New("user message was changed")
+			}
+			return "RC_kuro_contract、分析完了です。", nil
+		},
+	}
+	orch := NewMessageOrchestrator(repo, mio, &mockShiroAgent{}, nil, nil, nil, nil, nil)
+	rec := &recordingEventListener{}
+	orch.SetEventListener(rec)
+	req := defaultReq()
+	req.To = "kuro"
+	req.UserMessage = "合言葉 RC_kuro_contract で返答して"
+
+	resp, err := orch.ProcessMessage(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Response != "RC_kuro_contract、分析完了です。" {
+		t.Fatalf("response = %q", resp.Response)
+	}
+
+	messageIdx := indexOfEvent(rec.events, "message.received", "user", "kuro", "")
+	startIdx := indexOfEvent(rec.events, "agent.start", "kuro", "user", "CHAT")
+	responseIdx := indexOfEvent(rec.events, "agent.response", "kuro", "user", "CHAT")
+	if messageIdx < 0 || startIdx < 0 || responseIdx < 0 {
+		t.Fatalf("missing recipient speaker events: %#v", rec.events)
+	}
+	if indexOfEvent(rec.events, "agent.response", "mio", "user", "CHAT") >= 0 {
+		t.Fatalf("recipient response must not be emitted as mio->user: %#v", rec.events)
+	}
+	if rec.events[messageIdx].JobID == "" {
+		t.Fatalf("message.received must carry job_id for sequence tracking: %#v", rec.events[messageIdx])
+	}
+}
+
 func TestMessageOrchestrator_RouteChainContract_EmitsLatencyMetrics(t *testing.T) {
 	repo := newMockSessionRepository()
 	mio := &mockMioAgent{

@@ -13,7 +13,7 @@ const (
 	monitorMaxJobEvents = 200
 )
 
-var monitorAgents = []string{"mio", "shiro", "coder1", "coder2", "coder3", "coder4"}
+var monitorAgents = []string{"mio", "shiro", "kuro", "midori", "coder1", "coder2", "coder3", "coder4"}
 
 type MonitorStore struct {
 	mu       sync.RWMutex

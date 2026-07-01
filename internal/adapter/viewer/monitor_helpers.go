@@ -13,7 +13,7 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 	content := ev.Content
 	switch ev.Type {
 	case "message.received":
-		return "received", "mio"
+		return "received", monitorAgentOrDefault(to, "mio")
 	case "routing.decision":
 		return "routing", valueOr(current.Owner, "mio")
 	case "agent.delegate":
@@ -67,11 +67,11 @@ func classifyJobPhase(ev orchestrator.OrchestratorEvent, current *JobSnapshot) (
 			return "reporting", "mio"
 		}
 	case "agent.response":
-		if from == "mio" && to == "user" {
+		if to == "user" && isMonitorAgent(from) {
 			if responseLooksLikeFailure(content) {
-				return "error", "mio"
+				return "error", from
 			}
-			return "done", "mio"
+			return "done", from
 		}
 		if from == "shiro" && to == "mio" {
 			return "reporting", "mio"
@@ -176,7 +176,7 @@ func isMonitorAgent(id string) bool {
 
 func agentRole(id string) string {
 	switch id {
-	case "mio":
+	case "mio", "kuro", "midori":
 		return "chat"
 	case "shiro":
 		return "worker"
@@ -193,6 +193,14 @@ func valueOr(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func monitorAgentOrDefault(id, fallback string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if isMonitorAgent(id) {
+		return id
+	}
+	return fallback
 }
 
 func (d JobDetail) MarshalJSON() ([]byte, error) {

@@ -40,11 +40,12 @@ func distIndexOfEvent(events []OrchestratorEvent, eventType, from, to, route str
 
 // distMockMioAgent はDistributedOrchestrator テスト用のMioAgent
 type distMockMioAgent struct {
-	chatResponse  string
-	routeResponse string // "CHAT", "OPS", etc.
-	lastChatInput string
-	decideCalls   int
-	chatFunc      func(ctx context.Context, t task.Task) (string, error)
+	chatResponse        string
+	routeResponse       string // "CHAT", "OPS", etc.
+	lastChatInput       string
+	lastViewerRecipient string
+	decideCalls         int
+	chatFunc            func(ctx context.Context, t task.Task) (string, error)
 }
 
 func (m *distMockMioAgent) DecideAction(ctx context.Context, t task.Task) (routing.Decision, error) {
@@ -64,6 +65,7 @@ func (m *distMockMioAgent) Chat(ctx context.Context, t task.Task) (string, error
 		return m.chatFunc(ctx, t)
 	}
 	m.lastChatInput = t.UserMessage()
+	m.lastViewerRecipient = t.ViewerRecipient()
 	return m.chatResponse, nil
 }
 
@@ -186,6 +188,46 @@ func TestDistributedOrchestrator_ProcessMessage_LocalRoute(t *testing.T) {
 
 	if resp.Response != "Hello from Mio!" {
 		t.Errorf("Expected 'Hello from Mio!', got '%s'", resp.Response)
+	}
+}
+
+func TestDistributedOrchestrator_ProcessMessage_ViewerRecipientBecomesChatSpeaker(t *testing.T) {
+	mockMio := &distMockMioAgent{chatResponse: "RC_midori_contract、発想を広げたよ。"}
+	mockRepo := &distMockSessionRepo{}
+	router := transport.NewMessageRouter()
+	defer router.Stop()
+	memory := session.NewCentralMemory()
+	orch := NewDistributedOrchestrator(mockRepo, mockMio, router, memory, nil)
+	rec := &distRecordingEventListener{}
+	orch.SetEventListener(rec)
+
+	resp, err := orch.ProcessMessage(context.Background(), ProcessMessageRequest{
+		SessionID:   "test-session",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "合言葉 RC_midori_contract で返答して",
+		To:          "midori",
+	})
+	if err != nil {
+		t.Fatalf("ProcessMessage failed: %v", err)
+	}
+	if resp.Response != "RC_midori_contract、発想を広げたよ。" {
+		t.Fatalf("response = %q", resp.Response)
+	}
+	if mockMio.lastViewerRecipient != "midori" {
+		t.Fatalf("viewer recipient = %q, want midori", mockMio.lastViewerRecipient)
+	}
+	if mockMio.lastChatInput != "合言葉 RC_midori_contract で返答して" {
+		t.Fatalf("chat input changed: %q", mockMio.lastChatInput)
+	}
+	if distIndexOfEvent(rec.events, "message.received", "user", "midori", "") < 0 {
+		t.Fatalf("missing user->midori message.received: %#v", rec.events)
+	}
+	if distIndexOfEvent(rec.events, "agent.response", "midori", "user", "CHAT") < 0 {
+		t.Fatalf("missing midori->user response: %#v", rec.events)
+	}
+	if distIndexOfEvent(rec.events, "agent.response", "mio", "user", "CHAT") >= 0 {
+		t.Fatalf("recipient response must not be emitted as mio->user: %#v", rec.events)
 	}
 }
 

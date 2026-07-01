@@ -436,7 +436,6 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		return ProcessMessageResponse{}, err
 	}
 
-	o.events.EmitMessageReceived(req)
 	emitLatencyMetric(o.events.Emit, "network", "server_received", latencyStartedAt, "", "", req.SessionID, req.Channel, req.ChatID, "")
 	if o.sessionTurnLogger != nil {
 		o.sessionTurnLogger.WriteUser(req.SessionID, req.Channel, req.UserMessage)
@@ -455,7 +454,9 @@ func (o *MessageOrchestrator) ProcessMessage(ctx context.Context, req ProcessMes
 		req = expandedReq
 	}
 
-	t, jobID, ttsSessionID := o.taskContexts.Build(req)
+	jobID := task.NewJobID()
+	o.events.EmitMessageReceived(req, jobID.String())
+	t, jobID, ttsSessionID := o.taskContexts.BuildWithJobID(req, jobID)
 	if resp, handled, err := o.handleExplicitDCI(ctx, req, sess, t.WithRoute(routing.RouteRESEARCH), jobID); err != nil {
 		return ProcessMessageResponse{}, err
 	} else if handled {

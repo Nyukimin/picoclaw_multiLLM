@@ -134,20 +134,21 @@ func (d *distributedRouteDispatcher) ExecuteDirect(ctx context.Context, t task.T
 }
 
 func (d *distributedRouteDispatcher) executeLocalRoute(ctx context.Context, t task.Task, route routing.Route, sessionID, ttsSessionID, jid string) (string, error) {
+	speaker := chatSpeakerForTask(t)
 	guardedTask := d.withAttribution(t, "mio", sessionID)
-	userMsg := domaintransport.NewMessage("user", "mio", sessionID, jid, t.UserMessage())
+	userMsg := domaintransport.NewMessage("user", speaker, sessionID, jid, t.UserMessage())
 	userMsg.Type = domaintransport.MessageTypeTask
 	d.memory.RecordMessage(userMsg)
 
-	d.emit("agent.start", "mio", "user", "考え中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
+	d.emit("agent.start", speaker, "user", "考え中...", string(route), jid, sessionID, t.Channel(), t.ChatID())
 	streamCtx, ttsStream := d.withStreamHooks(ctx, route, jid, sessionID, t.Channel(), t.ChatID(), ttsSessionID)
 	resp, err := d.mio.Chat(streamCtx, guardedTask)
 	if err == nil {
-		respMsg := domaintransport.NewMessage("mio", "user", sessionID, jid, resp)
+		respMsg := domaintransport.NewMessage(speaker, "user", sessionID, jid, resp)
 		respMsg.Type = domaintransport.MessageTypeResult
 		d.memory.RecordMessage(respMsg)
-		d.emit("agent.response", "mio", "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
-		d.emitNote("mio", "user", "会話処理が終わったよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
+		d.emit("agent.response", speaker, "user", resp, string(route), jid, sessionID, t.Channel(), t.ChatID())
+		d.emitNote(speaker, "user", "会話処理が終わったよ。", string(route), jid, sessionID, t.Channel(), t.ChatID())
 		ttsStream.Finalize(ctx, resp)
 	}
 	return resp, err

@@ -129,11 +129,139 @@ func TestMonitorStoreIncludesCoder4InStatusAndAgents(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(resp.Agents) != 6 {
-		t.Fatalf("agents len = %d, want 6", len(resp.Agents))
+	if len(resp.Agents) != 8 {
+		t.Fatalf("agents len = %d, want 8", len(resp.Agents))
 	}
-	if resp.Agents[5].ID != "coder4" {
-		t.Fatalf("last agent id = %q, want coder4", resp.Agents[5].ID)
+	if resp.Agents[7].ID != "coder4" {
+		t.Fatalf("last agent id = %q, want coder4", resp.Agents[7].ID)
+	}
+}
+
+func TestMonitorStoreTracksViewerRecipientAsJobOwnerAndFinalSpeaker(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+	jobID := "job-kuro"
+	now := time.Now().Format(time.RFC3339)
+
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "message.received",
+		From:      "user",
+		To:        "kuro",
+		Content:   "合言葉 RC_kuro_current",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "routing.decision",
+		From:      "mio",
+		Route:     "CHAT",
+		Content:   "confidence 90%",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "agent.response",
+		From:      "kuro",
+		To:        "user",
+		Content:   "RC_kuro_current、分析完了です。",
+		Route:     "CHAT",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+
+	agents := store.Agents()
+	var kuro AgentSnapshot
+	for _, agent := range agents {
+		if agent.ID == "kuro" {
+			kuro = agent
+			break
+		}
+	}
+	if kuro.State != "idle" || kuro.LastEvent != "agent.response" {
+		t.Fatalf("kuro snapshot = %+v, want idle agent.response", kuro)
+	}
+	jobs := store.Jobs(JobFilter{})
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].Owner != "kuro" || jobs[0].Status != "done" || jobs[0].TerminalOutcome != "ok" {
+		t.Fatalf("job snapshot = %+v, want owner=kuro done/ok", jobs[0])
+	}
+	if jobs[0].MioReported {
+		t.Fatalf("kuro final response must not be marked as MioReported: %+v", jobs[0])
+	}
+}
+
+func TestMonitorStoreClearsActiveAgentsForCompletedViewerRecipientJob(t *testing.T) {
+	store := NewMonitorStore(nil, nil)
+	jobID := "job-midori"
+	now := time.Now().Format(time.RFC3339)
+
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "message.received",
+		From:      "user",
+		To:        "midori",
+		Content:   "合言葉 RC_midori_current",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "routing.decision",
+		From:      "mio",
+		Route:     "CHAT",
+		Content:   "confidence 90%",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "agent.thinking",
+		From:      "mio",
+		To:        "user",
+		Content:   "midoriで取り組むね！",
+		Route:     "CHAT",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+	store.OnEvent(orchestrator.OrchestratorEvent{
+		Type:      "agent.response",
+		From:      "midori",
+		To:        "user",
+		Content:   "RC_midori_current、発想を広げました。",
+		Route:     "CHAT",
+		JobID:     jobID,
+		SessionID: "viewer",
+		Timestamp: now,
+	})
+
+	agents := store.Agents()
+	var mio AgentSnapshot
+	var midori AgentSnapshot
+	for _, agent := range agents {
+		switch agent.ID {
+		case "mio":
+			mio = agent
+		case "midori":
+			midori = agent
+		}
+	}
+	if mio.State != "idle" || mio.LastEvent != "agent.response" {
+		t.Fatalf("mio snapshot = %+v, want idle agent.response after terminal response", mio)
+	}
+	if midori.State != "idle" || midori.LastEvent != "agent.response" {
+		t.Fatalf("midori snapshot = %+v, want idle agent.response", midori)
+	}
+
+	jobs := store.Jobs(JobFilter{})
+	if len(jobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(jobs))
+	}
+	if jobs[0].Owner != "midori" || jobs[0].Status != "done" || jobs[0].TerminalOutcome != "ok" {
+		t.Fatalf("job snapshot = %+v, want owner=midori done/ok", jobs[0])
 	}
 }
 
