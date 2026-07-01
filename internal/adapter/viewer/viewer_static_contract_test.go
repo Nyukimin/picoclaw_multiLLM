@@ -132,6 +132,27 @@ func TestViewerStaticContractChatAndIdleChatDeskRedesign(t *testing.T) {
 	}
 }
 
+func TestViewerStaticContractLabLiveModeHidesTopGuidancePanels(t *testing.T) {
+	data, err := os.ReadFile("assets/css/viewer.css")
+	if err != nil {
+		t.Fatalf("read viewer.css: %v", err)
+	}
+	css := string(data)
+	required := []string{
+		`body.lab-mode.live-mode .chat-intent-strip{display:none !important}`,
+		`body.lab-mode.live-mode .lab-datetime-panel{`,
+		`background:transparent !important;`,
+		`border:0 !important;`,
+		`box-shadow:none !important;`,
+		`backdrop-filter:none !important;`,
+	}
+	for _, needle := range required {
+		if !strings.Contains(css, needle) {
+			t.Fatalf("Lab live mode top guidance cleanup missing %q", needle)
+		}
+	}
+}
+
 func TestViewerStaticContractMovieDatabaseTabSwitchMapping(t *testing.T) {
 	data, err := os.ReadFile("assets/js/viewer.js")
 	if err != nil {
