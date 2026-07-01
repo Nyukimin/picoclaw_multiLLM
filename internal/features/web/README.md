@@ -32,6 +32,18 @@ discovery, source read, browser evidence, and promotion errors stay separate
 
 modules/browseractor, modules/webgather, internal/application/webgather, internal/application/browsertrace, internal/infrastructure/webgather
 
+## Current Route Boundary
+
+- `/viewer/browser-trace-api`
+- `/viewer/browser-trace-api/discover`
+- `/viewer/browser-trace-api/validations`
+- `/viewer/browser-trace-api/fetcher-proposals`
+- `/viewer/complexity-hotspots`
+- `/viewer/complexity-hotspots/scan`
+- `/viewer/complexity-hotspots/proposals`
+- `/viewer/complexity-hotspots/concrete-diffs`
+- `/viewer/complexity-hotspots/coder-diffs`
+
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase. The registrar owns route registration and dependency handoff only.

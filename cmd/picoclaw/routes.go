@@ -15,6 +15,7 @@ import (
 	ttsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/tts"
 	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
 	voicefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/voice"
+	webfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/web"
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
@@ -173,6 +174,20 @@ func registerSTTAndAudioRoutes(mux *http.ServeMux, cfg *config.Config, sttRuntim
 	registerModuleRoutes(mux, dependencies, sttRuntime)
 }
 
+func registerWebRoutes(mux *http.ServeMux, dependencies *Dependencies) {
+	webfeature.RegisterRoutes(mux, webfeature.Dependencies{Routes: webfeature.Routes{
+		BrowserTraceAPIStatus:          dependencies.browserTraceAPIStatus,
+		BrowserTraceAPIDiscover:        dependencies.browserTraceAPIDiscover,
+		BrowserTraceAPIValidation:      dependencies.browserTraceAPIValidation,
+		BrowserTraceAPIFetcherProposal: dependencies.browserTraceAPIFetcherProposal,
+		ComplexityHotspotStatus:        dependencies.complexityHotspotStatus,
+		ComplexityHotspotScan:          dependencies.complexityHotspotScan,
+		ComplexityHotspotProposal:      dependencies.complexityHotspotProposal,
+		ComplexityHotspotConcreteDiff:  dependencies.complexityHotspotConcreteDiff,
+		ComplexityHotspotCoderDiff:     dependencies.complexityHotspotCoderDiff,
+	}})
+}
+
 func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
@@ -320,33 +335,6 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 	}
 	if dependencies.personaSession != nil {
 		mux.HandleFunc("/viewer/persona-observation/sessions", dependencies.personaSession)
-	}
-	if dependencies.browserTraceAPIStatus != nil {
-		mux.HandleFunc("/viewer/browser-trace-api", dependencies.browserTraceAPIStatus)
-	}
-	if dependencies.browserTraceAPIDiscover != nil {
-		mux.HandleFunc("/viewer/browser-trace-api/discover", dependencies.browserTraceAPIDiscover)
-	}
-	if dependencies.browserTraceAPIValidation != nil {
-		mux.HandleFunc("/viewer/browser-trace-api/validations", dependencies.browserTraceAPIValidation)
-	}
-	if dependencies.browserTraceAPIFetcherProposal != nil {
-		mux.HandleFunc("/viewer/browser-trace-api/fetcher-proposals", dependencies.browserTraceAPIFetcherProposal)
-	}
-	if dependencies.complexityHotspotStatus != nil {
-		mux.HandleFunc("/viewer/complexity-hotspots", dependencies.complexityHotspotStatus)
-	}
-	if dependencies.complexityHotspotScan != nil {
-		mux.HandleFunc("/viewer/complexity-hotspots/scan", dependencies.complexityHotspotScan)
-	}
-	if dependencies.complexityHotspotProposal != nil {
-		mux.HandleFunc("/viewer/complexity-hotspots/proposals", dependencies.complexityHotspotProposal)
-	}
-	if dependencies.complexityHotspotConcreteDiff != nil {
-		mux.HandleFunc("/viewer/complexity-hotspots/concrete-diffs", dependencies.complexityHotspotConcreteDiff)
-	}
-	if dependencies.complexityHotspotCoderDiff != nil {
-		mux.HandleFunc("/viewer/complexity-hotspots/coder-diffs", dependencies.complexityHotspotCoderDiff)
 	}
 	if dependencies.superAgentStatus != nil {
 		mux.HandleFunc("/viewer/superagent", dependencies.superAgentStatus)

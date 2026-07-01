@@ -20,6 +20,7 @@ func registerFeatureRoutes(
 	registerLLMOpsRoutes(mux, cfg, dependencies, &debugSystemOpts)
 	registerOpsRoutes(mux, cfg, dependencies)
 	registerSTTAndAudioRoutes(mux, cfg, sttRuntime, voiceChatRuntime, dependencies)
+	registerWebRoutes(mux, dependencies)
 	registerViewerDynamicRoutes(mux, dependencies)
 	registerEntryAndChromeRoutes(mux, dependencies)
 	registerIdleChatRoutes(mux, dependencies)

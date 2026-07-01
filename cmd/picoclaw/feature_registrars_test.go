@@ -37,6 +37,12 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		schedulerStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusResetContent)
 		}),
+		browserTraceAPIStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		complexityHotspotStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+		}),
 		entryHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 		}),
@@ -75,6 +81,8 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		{name: "stt chat input", method: http.MethodGet, path: "/stt/chat-input", want: http.StatusMethodNotAllowed},
 		{name: "voice chat primary", method: http.MethodGet, path: "/voice-chat", want: http.StatusIMUsed},
 		{name: "voice chat alias", method: http.MethodGet, path: "/voice-chat-ws", want: http.StatusIMUsed},
+		{name: "browser trace api", method: http.MethodGet, path: "/viewer/browser-trace-api", want: http.StatusOK},
+		{name: "complexity hotspots", method: http.MethodGet, path: "/viewer/complexity-hotspots", want: http.StatusAccepted},
 		{name: "entry", method: http.MethodGet, path: "/entry", want: http.StatusAccepted},
 	}
 
