@@ -113,6 +113,8 @@ Viewer normal chat uses `to=mio|shiro|kuro|midori` as the recipient / character 
 
 ## Build and Test
 
+The Ver0.80 seed intentionally keeps the legacy Go module path `github.com/Nyukimin/picoclaw_multiLLM`. Renaming the Go module path to `RenCrow_CORE` is a later compatibility migration, not part of the initial Public seed.
+
 ```bash
 # Module contracts
 GOCACHE=/tmp/picoclaw-gocache go test ./modules/...

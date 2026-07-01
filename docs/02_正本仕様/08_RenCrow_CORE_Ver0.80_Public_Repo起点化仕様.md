@@ -126,4 +126,6 @@ Public repo 作成時は、repo root の `.rencrow-core-exportignore` を export
 
 このファイルは削除指示ではない。`picoclaw_multiLLM` staging repo では既存 fixture、runtime 設定、検証 artifact、local tool binary が残っていてもよいが、新規 Public repository `RenCrow_CORE` へ投入する snapshot からは除外する。
 
-`config.yaml`、`kb-admin`、`go1.25.0.linux-amd64.tar.gz`、`tmp/`、generated understand-anything artifact は、Public seed では除外対象である。
+`config.yaml`、`kb-admin`、`go1.25.0.linux-amd64.tar.gz`、`tmp/`、generated understand-anything artifact、`baseline_*.patch`、`samba_*.conf`、`samba_protocol_patch.py`、`test_patch.json` は、Public seed では除外対象である。
+
+Ver0.80 seed では Go module path は `github.com/Nyukimin/picoclaw_multiLLM` のまま保持する。Public repository 名を `RenCrow_CORE` に変えることと、Go module path を変更することは別作業である。module path rename は全 import path と downstream 利用者に影響するため、Ver0.80 初期投入では行わない。

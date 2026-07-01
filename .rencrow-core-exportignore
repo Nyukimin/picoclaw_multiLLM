@@ -32,6 +32,10 @@ picoclaw
 picoclaw-agent
 kb-admin
 go1.25.0.linux-amd64.tar.gz
+baseline_*.patch
+samba_*.conf
+samba_protocol_patch.py
+test_patch.json
 *.exe
 *.dll
 *.so
