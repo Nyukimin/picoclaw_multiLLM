@@ -103,7 +103,6 @@ func cmdRun() {
 
 	mux := http.NewServeMux()
 	registerLocalPprofRoutes(mux)
-	registerChannelRoutes(mux, dependencies)
 
 	// Live Viewer
 	sttRuntime := buildSTTRuntime(cfg)
@@ -174,13 +173,7 @@ func cmdRun() {
 	if cfg.LLMOps.Enabled && strings.TrimSpace(cfg.LLMOps.BaseURL) != "" && llmOpsToken == "" {
 		log.Printf("WARN: llm_ops is enabled in config but LLM_OPS_TOKEN is empty; Viewer MLX control API disabled")
 	}
-	registerViewerBaseRoutes(mux, cfg, dependencies, debugSystemOpts)
-	registerLLMOpsRoutes(mux, cfg, dependencies, &debugSystemOpts)
-	registerSTTAndAudioRoutes(mux, sttRuntime, voiceChatRuntime, dependencies)
-	registerViewerDynamicRoutes(mux, dependencies)
-	registerEntryAndChromeRoutes(mux, dependencies)
-	registerIdleChatRoutes(mux, dependencies)
-	registerHealthRoutes(mux, dependencies, cfg)
+	registerFeatureRoutes(mux, cfg, dependencies, sttRuntime, voiceChatRuntime, debugSystemOpts)
 
 	server := &http.Server{
 		Addr:    addr,
