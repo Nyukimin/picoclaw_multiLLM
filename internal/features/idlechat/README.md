@@ -34,4 +34,4 @@ internal/application/idlechat, cmd/picoclaw/runtime_idlechat*.go, cmd/picoclaw/i
 
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. IdleChat Viewer route registration and background start handoff are owned by `internal/features/idlechat/registrar.go`; existing handler and orchestrator implementations stay in the listed current files until contract tests and caller handoff are added for the relevant phase.

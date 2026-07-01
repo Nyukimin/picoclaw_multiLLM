@@ -11,6 +11,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	domainsession "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/session"
+	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
 	llmfactory "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/llm/factory"
 	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
@@ -134,7 +135,9 @@ func buildIdleChatRuntime(
 	if deps.eventRelay != nil {
 		deps.eventRelay.SetIdleChat(idleChatOrch)
 	}
-	idleChatOrch.Start()
+	if err := idlechatfeature.StartBackground(context.Background(), idlechatfeature.Dependencies{Background: idleChatOrch}); err != nil {
+		log.Printf("WARN: idlechat background start failed: %v", err)
+	}
 	deps.idleChatOrch = idleChatOrch
 	log.Printf("IdleChat enabled (participants=%v)", cfg.IdleChat.Participants)
 }

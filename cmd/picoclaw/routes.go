@@ -9,6 +9,7 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
 	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
@@ -524,14 +525,16 @@ func registerIdleChatRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	if dependencies.idleChatOrch == nil {
 		return
 	}
-	mux.HandleFunc("/viewer/idlechat/start", dependencies.handleIdleChatStart())
-	mux.HandleFunc("/viewer/idlechat/stop", dependencies.handleIdleChatStop())
-	mux.HandleFunc("/viewer/idlechat/interrupt", dependencies.handleIdleChatInterrupt())
-	mux.HandleFunc("/viewer/idlechat/status", dependencies.handleIdleChatStatus())
-	mux.HandleFunc("/viewer/idlechat/logs", dependencies.handleIdleChatLogs())
-	mux.HandleFunc("/viewer/idlechat/forecast", dependencies.handleIdleChatForecast())
-	mux.HandleFunc("/viewer/idlechat/story", dependencies.handleIdleChatStory())
-	mux.HandleFunc("/viewer/idlechat/story-simple", dependencies.handleIdleChatStorySimple())
+	idlechatfeature.RegisterRoutes(mux, idlechatfeature.Dependencies{Routes: idlechatfeature.Routes{
+		Start:       dependencies.handleIdleChatStart(),
+		Stop:        dependencies.handleIdleChatStop(),
+		Interrupt:   dependencies.handleIdleChatInterrupt(),
+		Status:      dependencies.handleIdleChatStatus(),
+		Logs:        dependencies.handleIdleChatLogs(),
+		Forecast:    dependencies.handleIdleChatForecast(),
+		Story:       dependencies.handleIdleChatStory(),
+		StorySimple: dependencies.handleIdleChatStorySimple(),
+	}})
 }
 
 func registerHealthRoutes(mux *http.ServeMux, dependencies *Dependencies, cfg *config.Config) {
