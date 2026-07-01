@@ -12,23 +12,39 @@ import (
 	skillbootstrap "github.com/Nyukimin/picoclaw_multiLLM/internal/application/skillgovernance"
 	domainbacklog "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/backlog"
 	domainrevenue "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/revenue"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domainworkstream "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/workstream"
 )
 
-// mockChatAgent はテスト用のChatAgentモック
-type mockChatAgent struct {
-	response string
-	err      error
-	called   bool
-	lastMsg  string
+// mockWorkerAgent はテスト用のHeartbeat workerモック。
+type mockWorkerAgent struct {
+	response   string
+	err        error
+	called     bool
+	chatCalled bool
+	executed   bool
+	lastMsg    string
+	lastTask   task.Task
 }
 
-func (m *mockChatAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+func (m *mockWorkerAgent) Chat(ctx context.Context, t task.Task) (string, error) {
+	m.chatCalled = true
+	m.recordCall(t)
+	return m.response, m.err
+}
+
+func (m *mockWorkerAgent) Execute(ctx context.Context, t task.Task) (string, error) {
+	m.executed = true
+	m.recordCall(t)
+	return m.response, m.err
+}
+
+func (m *mockWorkerAgent) recordCall(t task.Task) {
 	m.called = true
 	m.lastMsg = t.UserMessage()
-	return m.response, m.err
+	m.lastTask = t
 }
 
 // mockSender はテスト用のNotificationSenderモック
@@ -238,7 +254,7 @@ func TestRunIdleChatSequenceCheckEmitsRecoveredEvent(t *testing.T) {
 			Action:     "interrupt_idlechat_and_clear_active_state_and_reset_tts_queue",
 		},
 	}
-	svc := NewHeartbeatService(&mockChatAgent{response: "HEARTBEAT_OK"}, &mockSender{}, dir, 30).
+	svc := NewHeartbeatService(&mockWorkerAgent{response: "HEARTBEAT_OK"}, &mockSender{}, dir, 30).
 		WithEventListener(listener).
 		WithIdleChatSequenceMonitor(monitor)
 
@@ -262,14 +278,14 @@ func TestRunIdleChatSequenceCheckEmitsRecoveredEvent(t *testing.T) {
 
 func TestNewHeartbeatService(t *testing.T) {
 	t.Run("minimum interval is 5 minutes", func(t *testing.T) {
-		svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, "/tmp", 1)
+		svc := NewHeartbeatService(&mockWorkerAgent{}, &mockSender{}, "/tmp", 1)
 		if svc.interval != 5*time.Minute {
 			t.Errorf("expected 5m, got %v", svc.interval)
 		}
 	})
 
 	t.Run("normal interval", func(t *testing.T) {
-		svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, "/tmp", 30)
+		svc := NewHeartbeatService(&mockWorkerAgent{}, &mockSender{}, "/tmp", 30)
 		if svc.interval != 30*time.Minute {
 			t.Errorf("expected 30m, got %v", svc.interval)
 		}
@@ -281,7 +297,7 @@ func TestTick_HeartbeatOKEmitsViewerEvent(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check system status"), 0644)
 
 	listener := &recordingEventListener{}
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30).WithEventListener(listener)
 
 	if err := svc.tick(context.Background()); err != nil {
@@ -304,7 +320,7 @@ func TestTick_NotificationEmitsViewerEvent(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check alerts"), 0644)
 
 	listener := &recordingEventListener{}
-	agent := &mockChatAgent{response: "Disk usage is 95%"}
+	agent := &mockWorkerAgent{response: "Disk usage is 95%"}
 	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30).WithEventListener(listener)
 
 	if err := svc.tick(context.Background()); err != nil {
@@ -325,7 +341,7 @@ func TestTick_NotificationEmitsViewerEvent(t *testing.T) {
 func TestTick_MissingFileEmitsViewerSkipEvent(t *testing.T) {
 	dir := t.TempDir()
 	listener := &recordingEventListener{}
-	svc := NewHeartbeatService(&mockChatAgent{response: "HEARTBEAT_OK"}, &mockSender{}, dir, 30).WithEventListener(listener)
+	svc := NewHeartbeatService(&mockWorkerAgent{response: "HEARTBEAT_OK"}, &mockSender{}, dir, 30).WithEventListener(listener)
 
 	if err := svc.tick(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -377,7 +393,7 @@ func TestRunBacklogIntakePromotesOpenItemToWorkstream(t *testing.T) {
 	}}
 	workstreamStore := &memoryWorkstreamHeartbeatStore{}
 	listener := &recordingEventListener{}
-	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, t.TempDir(), 30).
+	svc := NewHeartbeatService(&mockWorkerAgent{}, &mockSender{}, t.TempDir(), 30).
 		WithBacklogStore(backlogStore).
 		WithWorkstreamStore(workstreamStore).
 		WithEventListener(listener)
@@ -415,7 +431,7 @@ func TestRunBacklogIntakeSkipsWithoutRunnableItems(t *testing.T) {
 		{ItemID: "done", Title: "完了", Status: "ok", Priority: "urgent", CheckOK: true},
 	}}
 	workstreamStore := &memoryWorkstreamHeartbeatStore{}
-	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, t.TempDir(), 30).
+	svc := NewHeartbeatService(&mockWorkerAgent{}, &mockSender{}, t.TempDir(), 30).
 		WithBacklogStore(backlogStore).
 		WithWorkstreamStore(workstreamStore)
 
@@ -450,7 +466,7 @@ func TestRunBacklogIntakeDoesNotPromoteNextItemWhileActiveItemExists(t *testing.
 	}}
 	workstreamStore := &memoryWorkstreamHeartbeatStore{}
 	listener := &recordingEventListener{}
-	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, t.TempDir(), 30).
+	svc := NewHeartbeatService(&mockWorkerAgent{}, &mockSender{}, t.TempDir(), 30).
 		WithBacklogStore(backlogStore).
 		WithWorkstreamStore(workstreamStore).
 		WithEventListener(listener)
@@ -486,7 +502,7 @@ func TestRunBacklogRunnerStartsActiveItemOnce(t *testing.T) {
 			Priority: "high",
 		},
 	}}
-	agent := &mockChatAgent{response: "accepted"}
+	agent := &mockWorkerAgent{response: "accepted"}
 	listener := &recordingEventListener{}
 	svc := NewHeartbeatService(agent, &mockSender{}, t.TempDir(), 30).
 		WithBacklogStore(backlogStore).
@@ -545,16 +561,16 @@ func TestBacklogActiveItemsKeepsStartedRunnerFirst(t *testing.T) {
 	}
 }
 
-func TestRunBacklogRunnerBlocksItemWhenChatStartFails(t *testing.T) {
+func TestRunBacklogRunnerBlocksItemWhenWorkerStartFails(t *testing.T) {
 	backlogStore := &memoryBacklogStore{items: []domainbacklog.Item{
 		{ItemID: "active", Title: "実装中", Status: "implementing", Priority: "high"},
 	}}
-	agent := &mockChatAgent{err: context.Canceled}
+	agent := &mockWorkerAgent{err: context.Canceled}
 	svc := NewHeartbeatService(agent, &mockSender{}, t.TempDir(), 30).WithBacklogStore(backlogStore)
 
 	report, err := svc.RunBacklogRunner(context.Background(), time.Date(2026, 6, 22, 5, 0, 0, 0, time.UTC))
 	if err == nil {
-		t.Fatal("expected chat start error")
+		t.Fatal("expected worker start error")
 	}
 	if report.Failed != 1 || report.ItemID != "active" {
 		t.Fatalf("unexpected report: %+v", report)
@@ -572,7 +588,7 @@ func TestTick_HeartbeatOK(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check system status"), 0644)
 
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, dir, 30)
 
@@ -582,7 +598,7 @@ func TestTick_HeartbeatOK(t *testing.T) {
 	}
 
 	if !agent.called {
-		t.Error("expected agent.Chat to be called")
+		t.Error("expected heartbeat worker to be called")
 	}
 	if len(sender.messages) != 0 {
 		t.Errorf("expected no notification, got %d", len(sender.messages))
@@ -594,11 +610,37 @@ func TestTick_HeartbeatOK(t *testing.T) {
 	}
 }
 
+func TestTick_HeartbeatUsesShiroWorkerRoute(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "persona"), 0755)
+	os.WriteFile(filepath.Join(dir, "persona", "mio.md"), []byte("Mio persona"), 0644)
+	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check system status"), 0644)
+
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
+	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30)
+
+	if err := svc.tick(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !agent.executed {
+		t.Fatal("expected Heartbeat to execute through Shiro/worker")
+	}
+	if agent.chatCalled {
+		t.Fatal("Heartbeat must not use the Mio/chat path")
+	}
+	if agent.lastTask.Route() != routing.RouteOPS || agent.lastTask.ForcedRoute() != routing.RouteOPS {
+		t.Fatalf("expected OPS route task, got route=%q forced=%q", agent.lastTask.Route(), agent.lastTask.ForcedRoute())
+	}
+	if strings.Contains(agent.lastMsg, "Mio persona") {
+		t.Fatalf("Heartbeat OPS prompt must not include Mio chat persona: %q", agent.lastMsg)
+	}
+}
+
 func TestTick_Notification(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check alerts"), 0644)
 
-	agent := &mockChatAgent{response: "Disk usage is 95%"}
+	agent := &mockWorkerAgent{response: "Disk usage is 95%"}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, dir, 30)
 
@@ -618,7 +660,7 @@ func TestTick_Notification(t *testing.T) {
 func TestTick_NoFile(t *testing.T) {
 	dir := t.TempDir()
 
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, dir, 30)
 
@@ -628,7 +670,7 @@ func TestTick_NoFile(t *testing.T) {
 	}
 
 	if agent.called {
-		t.Error("expected agent.Chat NOT to be called when file is missing")
+		t.Error("expected heartbeat worker NOT to be called when file is missing")
 	}
 }
 
@@ -636,7 +678,7 @@ func TestTick_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("   \n  "), 0644)
 
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, dir, 30)
 
@@ -646,15 +688,15 @@ func TestTick_EmptyFile(t *testing.T) {
 	}
 
 	if agent.called {
-		t.Error("expected agent.Chat NOT to be called for empty file")
+		t.Error("expected heartbeat worker NOT to be called for empty file")
 	}
 }
 
-func TestTick_ChatError(t *testing.T) {
+func TestTick_WorkerError(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check"), 0644)
 
-	agent := &mockChatAgent{err: context.DeadlineExceeded}
+	agent := &mockWorkerAgent{err: context.DeadlineExceeded}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, dir, 30)
 
@@ -662,8 +704,8 @@ func TestTick_ChatError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "chat failed") {
-		t.Errorf("expected 'chat failed' error, got: %v", err)
+	if !strings.Contains(err.Error(), "worker failed") {
+		t.Errorf("expected 'worker failed' error, got: %v", err)
 	}
 }
 
@@ -682,7 +724,7 @@ func TestRunDueWorkstreamHeartbeatsCreatesDraftReportAndPendingVaultUpdate(t *te
 		}},
 	}
 	listener := &recordingEventListener{}
-	agent := &mockChatAgent{response: "draft report body"}
+	agent := &mockWorkerAgent{response: "draft report body"}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, dir, 30).
 		WithWorkstreamStore(store).
@@ -714,8 +756,14 @@ func TestRunDueWorkstreamHeartbeatsCreatesDraftReportAndPendingVaultUpdate(t *te
 	if len(store.saved) != 1 || store.saved[0].LastRunAt.IsZero() || !store.saved[0].NextRunAt.After(now) {
 		t.Fatalf("expected updated schedule with next run, got %#v", store.saved)
 	}
-	if !agent.called || !strings.Contains(agent.lastMsg, "draft report only") {
-		t.Fatalf("expected draft-only task sent to chat agent, got called=%v msg=%q", agent.called, agent.lastMsg)
+	if !agent.executed || !strings.Contains(agent.lastMsg, "draft report only") {
+		t.Fatalf("expected draft-only task sent to worker agent, got executed=%v msg=%q", agent.executed, agent.lastMsg)
+	}
+	if agent.chatCalled {
+		t.Fatal("workstream heartbeat must not use the Mio/chat path")
+	}
+	if agent.lastTask.Route() != routing.RouteOPS || agent.lastTask.ForcedRoute() != routing.RouteOPS {
+		t.Fatalf("expected OPS route task, got route=%q forced=%q", agent.lastTask.Route(), agent.lastTask.ForcedRoute())
 	}
 }
 
@@ -746,7 +794,7 @@ func TestRunDueWorkstreamHeartbeatsCreatesRevenueDailyRoutineDraftReport(t *test
 		decisions: []domainrevenue.HumanDecisionGateRecord{{DecisionID: "dec_1", DecisionType: "external_publish", ApprovalStatus: "pending", GateStatus: "needs_review"}},
 	}
 	sender := &mockSender{}
-	svc := NewHeartbeatService(&mockChatAgent{response: "revenue draft"}, sender, dir, 30).
+	svc := NewHeartbeatService(&mockWorkerAgent{response: "revenue draft"}, sender, dir, 30).
 		WithWorkstreamStore(workstreamStore).
 		WithRevenueDailyRoutineStore(revenueStore)
 
@@ -794,7 +842,7 @@ func TestRunDueWorkstreamHeartbeatsRecordsSkillBootstrap(t *testing.T) {
 		}},
 	}
 	skills := skillbootstrap.NewBootstrapService(skillStore).WithNow(func() time.Time { return now })
-	svc := NewHeartbeatService(&mockChatAgent{response: "draft"}, &mockSender{}, dir, 30).
+	svc := NewHeartbeatService(&mockWorkerAgent{response: "draft"}, &mockSender{}, dir, 30).
 		WithWorkstreamStore(workstreamStore).
 		WithSkillBootstrap(skills)
 
@@ -843,7 +891,7 @@ func TestRunDueWorkstreamHeartbeatsAppliesPendingSteeringAtSafeCheckpoint(t *tes
 			},
 		},
 	}
-	agent := &mockChatAgent{response: "draft"}
+	agent := &mockWorkerAgent{response: "draft"}
 	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30).WithWorkstreamStore(store)
 
 	if _, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now); err != nil {
@@ -888,7 +936,7 @@ func TestRunDueWorkstreamHeartbeatsSkipsInactiveOrFutureSchedules(t *testing.T) 
 			},
 		},
 	}
-	agent := &mockChatAgent{response: "should not run"}
+	agent := &mockWorkerAgent{response: "should not run"}
 	svc := NewHeartbeatService(agent, &mockSender{}, t.TempDir(), 30).WithWorkstreamStore(store)
 
 	report, err := svc.RunDueWorkstreamHeartbeats(context.Background(), now)
@@ -899,7 +947,7 @@ func TestRunDueWorkstreamHeartbeatsSkipsInactiveOrFutureSchedules(t *testing.T) 
 		t.Fatalf("unexpected report: %+v", report)
 	}
 	if agent.called {
-		t.Fatal("expected no chat call for skipped schedules")
+		t.Fatal("expected no worker call for skipped schedules")
 	}
 }
 
@@ -907,7 +955,7 @@ func TestTick_NilSender(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check"), 0644)
 
-	agent := &mockChatAgent{response: "Alert: something is wrong"}
+	agent := &mockWorkerAgent{response: "Alert: something is wrong"}
 	svc := NewHeartbeatService(agent, nil, dir, 30)
 
 	err := svc.tick(context.Background())
@@ -917,7 +965,7 @@ func TestTick_NilSender(t *testing.T) {
 }
 
 func TestStartStop(t *testing.T) {
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	sender := &mockSender{}
 	svc := NewHeartbeatService(agent, sender, t.TempDir(), 5)
 
@@ -937,17 +985,18 @@ func TestContextBuilder_WithWorkspaceFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "SOUL.md"), []byte("Soul values here"), 0644)
 	os.WriteFile(filepath.Join(dir, "IDENTITY.md"), []byte("Identity info"), 0644)
 	os.WriteFile(filepath.Join(dir, "USER.md"), []byte("User prefs"), 0644)
-	os.WriteFile(filepath.Join(dir, "CHAT_PERSONA.md"), []byte("Mio persona"), 0644)
+	os.MkdirAll(filepath.Join(dir, "persona"), 0755)
+	os.WriteFile(filepath.Join(dir, "persona", "mio.md"), []byte("Mio persona"), 0644)
 
 	// skills
 	os.MkdirAll(filepath.Join(dir, "skills", "weather"), 0755)
 	os.WriteFile(filepath.Join(dir, "skills", "weather", "SKILL.md"), []byte("# Weather lookup"), 0644)
 
-	svc := NewHeartbeatService(&mockChatAgent{}, &mockSender{}, dir, 30)
+	svc := NewHeartbeatService(&mockWorkerAgent{}, &mockSender{}, dir, 30)
 
 	// tick 経由で ContextBuilder が使われることを確認
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check system status"), 0644)
-	agent := svc.chatAgent.(*mockChatAgent)
+	agent := svc.workerAgent.(*mockWorkerAgent)
 	agent.response = "HEARTBEAT_OK"
 
 	err := svc.tick(context.Background())
@@ -957,12 +1006,12 @@ func TestContextBuilder_WithWorkspaceFiles(t *testing.T) {
 
 	msg := agent.lastMsg
 
-	// workspace コンテキストが含まれること（ContextBuilder は CHAT ルートで ChatOnly も含む）
+	// workspace コンテキストが含まれること（Heartbeat は OPS ルートなので ChatOnly は含まない）
 	if !strings.Contains(msg, "# AGENT\nAgent rules here") {
 		t.Error("expected AGENT.md content")
 	}
-	if !strings.Contains(msg, "# SOUL\nSoul values here") {
-		t.Error("expected SOUL.md content")
+	if strings.Contains(msg, "Mio persona") || strings.Contains(msg, "# SOUL\nSoul values here") {
+		t.Fatal("expected Heartbeat OPS context to exclude Mio chat persona/SOUL")
 	}
 	if !strings.Contains(msg, "# IDENTITY\nIdentity info") {
 		t.Error("expected IDENTITY.md content")
@@ -987,7 +1036,7 @@ func TestContextBuilder_NoWorkspaceFiles(t *testing.T) {
 
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check system status"), 0644)
 
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30)
 
 	err := svc.tick(context.Background())
@@ -1008,7 +1057,7 @@ func TestTick_WithWorkspaceContext(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "AGENT.md"), []byte("Be concise"), 0644)
 	os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte("Check alerts"), 0644)
 
-	agent := &mockChatAgent{response: "HEARTBEAT_OK"}
+	agent := &mockWorkerAgent{response: "HEARTBEAT_OK"}
 	svc := NewHeartbeatService(agent, &mockSender{}, dir, 30)
 
 	err := svc.tick(context.Background())
@@ -1016,7 +1065,7 @@ func TestTick_WithWorkspaceContext(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// MioAgentに送信されたメッセージにworkspaceコンテキストが含まれること
+	// Shiro workerに送信されたメッセージにworkspaceコンテキストが含まれること
 	if !strings.Contains(agent.lastMsg, "# AGENT\nBe concise") {
 		t.Error("expected workspace context in message sent to agent")
 	}

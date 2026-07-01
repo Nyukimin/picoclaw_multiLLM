@@ -17,14 +17,15 @@ import (
 	domainbacklog "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/backlog"
 	ctxbuilder "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/context"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	domainskill "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/skillgovernance"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 	domainworkstream "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/workstream"
 )
 
-// ChatAgent はHeartbeatが会話処理を委譲するインターフェース
-type ChatAgent interface {
-	Chat(ctx context.Context, t task.Task) (string, error)
+// WorkerAgent はHeartbeatが作業処理を委譲するインターフェース。
+type WorkerAgent interface {
+	Execute(ctx context.Context, t task.Task) (string, error)
 }
 
 // NotificationSender はユーザーへの通知を送信するインターフェース
@@ -70,7 +71,7 @@ type IdleChatSequenceCheck struct {
 
 // HeartbeatService はHEARTBEAT.mdを定期的に読み込み、エージェントに処理させるサービス
 type HeartbeatService struct {
-	chatAgent        ChatAgent
+	workerAgent      WorkerAgent
 	sender           NotificationSender
 	workspaceDir     string
 	contextBuilder   *ctxbuilder.Builder
@@ -91,7 +92,7 @@ type HeartbeatService struct {
 
 // NewHeartbeatService は新しいHeartbeatServiceを作成
 func NewHeartbeatService(
-	chatAgent ChatAgent,
+	workerAgent WorkerAgent,
 	sender NotificationSender,
 	workspaceDir string,
 	intervalMinutes int,
@@ -100,7 +101,7 @@ func NewHeartbeatService(
 		intervalMinutes = 5
 	}
 	return &HeartbeatService{
-		chatAgent:        chatAgent,
+		workerAgent:      workerAgent,
 		sender:           sender,
 		workspaceDir:     workspaceDir,
 		contextBuilder:   ctxbuilder.NewBuilder(workspaceDir),
@@ -109,6 +110,12 @@ func NewHeartbeatService(
 		stopCh:           make(chan struct{}),
 		done:             make(chan struct{}),
 	}
+}
+
+func newHeartbeatWorkerTask(jobID task.JobID, message, channel, chatID string) task.Task {
+	return task.NewTask(jobID, message, channel, chatID).
+		WithRoute(routing.RouteOPS).
+		WithForcedRoute(routing.RouteOPS)
 }
 
 // WithMemoryStore はメモリストアを設定する（オプション）
@@ -278,18 +285,18 @@ func (s *HeartbeatService) tick(ctx context.Context) error {
 		return nil
 	}
 
-	// ContextBuilder でコンテキスト + HEARTBEAT.md を組み立て
-	message := s.contextBuilder.BuildMessageWithTask("CHAT", "HEARTBEAT TASKS", heartbeatContent)
+	// ContextBuilder でShiro向けコンテキスト + HEARTBEAT.md を組み立て
+	message := s.contextBuilder.BuildMessageWithTask(routing.RouteOPS.String(), "HEARTBEAT TASKS", heartbeatContent)
 
-	// タスクを作成してMioに処理させる
+	// タスクを作成してShiroに処理させる
 	jobID := task.NewJobID()
-	t := task.NewTask(jobID, message, "heartbeat", "heartbeat")
+	t := newHeartbeatWorkerTask(jobID, message, "heartbeat", "heartbeat")
 
-	response, err := s.chatAgent.Chat(ctx, t)
+	response, err := s.workerAgent.Execute(ctx, t)
 	if err != nil {
-		s.logHeartbeat("ERROR", fmt.Sprintf("chat failed: %v", err))
-		s.emitEvent("heartbeat.error", fmt.Sprintf("chat failed: %v", err))
-		return fmt.Errorf("chat failed: %w", err)
+		s.logHeartbeat("ERROR", fmt.Sprintf("worker failed: %v", err))
+		s.emitEvent("heartbeat.error", fmt.Sprintf("worker failed: %v", err))
+		return fmt.Errorf("worker failed: %w", err)
 	}
 
 	// HEARTBEAT_OK なら正常終了（サイレント）
@@ -622,7 +629,7 @@ func (s *HeartbeatService) RunBacklogIntake(ctx context.Context, now time.Time) 
 
 func (s *HeartbeatService) RunBacklogRunner(ctx context.Context, now time.Time) (BacklogRunnerReport, error) {
 	var report BacklogRunnerReport
-	if s.backlogStore == nil || s.chatAgent == nil {
+	if s.backlogStore == nil || s.workerAgent == nil {
 		return report, nil
 	}
 	if now.IsZero() {
@@ -658,9 +665,9 @@ func (s *HeartbeatService) RunBacklogRunner(ctx context.Context, now time.Time) 
 	}
 
 	jobID := task.NewJobID()
-	t := task.NewTask(jobID, backlogRunnerMessage(item), "backlog-runner", "heartbeat")
+	t := newHeartbeatWorkerTask(jobID, backlogRunnerMessage(item), "backlog-runner", "heartbeat")
 	s.emitEvent("backlog.runner.started", fmt.Sprintf("%s job_id=%s", item.ItemID, jobID.String()))
-	if _, err := s.chatAgent.Chat(ctx, t); err != nil {
+	if _, err := s.workerAgent.Execute(ctx, t); err != nil {
 		item.Status = "blocked"
 		item.TestResult = fmt.Sprintf("Backlog Runner failed to start job_id=%s: %v", jobID.String(), err)
 		item.Implementation = appendBacklogImplementation(item.Implementation, item.TestResult)
@@ -727,7 +734,7 @@ func (s *HeartbeatService) runWorkstreamHeartbeat(ctx context.Context, schedule 
 		return fmt.Errorf("workstream heartbeat %s steering checkpoint failed: %w", schedule.HeartbeatID, err)
 	}
 	message := s.contextBuilder.BuildMessageWithTask(
-		"CHAT",
+		routing.RouteOPS.String(),
 		"WORKSTREAM HEARTBEAT DRAFT",
 		fmt.Sprintf("workstream_id: %s\nheartbeat_id: %s\nschedule: %s\ntask: %s\n\nsafe_checkpoint_steering:\n%s\n\n制約: draft report only。投稿、送信、販売、外部書き込みは行わない。",
 			schedule.WorkstreamID,
@@ -738,10 +745,10 @@ func (s *HeartbeatService) runWorkstreamHeartbeat(ctx context.Context, schedule 
 		),
 	)
 	jobID := task.NewJobID()
-	t := task.NewTask(jobID, message, "workstream-heartbeat", "heartbeat")
-	response, err := s.chatAgent.Chat(ctx, t)
+	t := newHeartbeatWorkerTask(jobID, message, "workstream-heartbeat", "heartbeat")
+	response, err := s.workerAgent.Execute(ctx, t)
 	if err != nil {
-		return fmt.Errorf("workstream heartbeat %s chat failed: %w", schedule.HeartbeatID, err)
+		return fmt.Errorf("workstream heartbeat %s worker failed: %w", schedule.HeartbeatID, err)
 	}
 	reportPath, err := s.writeWorkstreamHeartbeatReport(schedule, now, response)
 	if err != nil {

@@ -97,14 +97,14 @@ func (m idleChatSequenceMonitorAdapter) CheckIdleChatSequence(ctx context.Contex
 func buildHeartbeatRuntime(
 	cfg *config.Config,
 	deps *Dependencies,
-	mioAgent *agent.MioAgent,
+	shiroAgent *agent.ShiroAgent,
 	memStore *memorypersistence.FileStore,
 ) {
 	if !cfg.Heartbeat.Enabled {
 		return
 	}
 	heartbeatSvc := heartbeat.NewHeartbeatService(
-		mioAgent,
+		shiroAgent,
 		buildHeartbeatNotificationSender(cfg),
 		cfg.WorkspaceDir,
 		cfg.Heartbeat.Interval,

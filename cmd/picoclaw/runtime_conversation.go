@@ -139,11 +139,6 @@ func buildConversationRuntime(
 		workerToolRunnerV2.WithWebGatherSearcher(webGatherSearchUseCase)
 		workerToolRunnerV2.WithWebGatherSearchAndFetcher(webGatherSearchAndFetchUseCase)
 		log.Printf("ToolRunner web_gather.fetch/search/search_and_fetch enabled via Conversation L1")
-		startSourceRegistrySweeper(l1Store)
-		startMemoryLifecycleJob(l1Store)
-	}
-	if realMgr != nil {
-		startParquetExportJob(realMgr)
 	}
 	return conversationRuntime{
 		Engine:  convEngine,

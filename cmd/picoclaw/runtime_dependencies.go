@@ -358,6 +358,9 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		cfg.WorkspaceDir,
 		filepath.Join(cfg.WorkspaceDir, "logs", "artifact_cleanup.jsonl"),
 	))
+	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
+	buildViewerRuntimeHandlers(cfg, deps, conversationRuntime.L1Store, conversationRuntime.Manager, reportPath)
+	startConversationBackgroundJobs(conversationRuntime, deps.eventRelay)
 	if toolRuntime.ToolMediationRecorder != nil {
 		deps.toolHarnessRecent = viewer.HandleToolHarnessRecent(toolRuntime.ToolMediationRecorder)
 	}
@@ -715,7 +718,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		}
 		knowledgeMemoryStore = knowledgememorypersistence.WithL1Connection(knowledgeMemoryStore, conversationRuntime.L1Store)
 		if dailyRules, ok := knowledgeMemoryStore.(knowledgememoryapp.DailyIntakeRuleStore); ok && conversationRuntime.L1Store != nil {
-			startDailyIntakeSweeper(dailyRules, conversationRuntime.L1Store)
+			startDailyIntakeSweeper(dailyRules, conversationRuntime.L1Store, newBackgroundJobFailureReporter(deps.eventRelay))
 		}
 		deps.knowledgeMemoryStatus = viewer.HandleKnowledgeMemoryStatus(knowledgeMemoryStore)
 		deps.personalArchiveCreate = viewer.HandlePersonalArchiveCreate(knowledgeMemoryStore)
@@ -728,8 +731,6 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		deps.dreamConsolidationProposal = viewer.HandleDreamConsolidationProposalCreate(knowledgeMemoryStore)
 		deps.dreamConsolidationReview = viewer.HandleDreamConsolidationReview(knowledgeMemoryStore)
 	}
-	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
-	buildViewerRuntimeHandlers(cfg, deps, conversationRuntime.L1Store, conversationRuntime.Manager, reportPath)
 	deps.recallTraceStore = conversationRuntime.L1Store
 	verificationRuntime := buildVerificationRuntime(cfg, deps, conversationRuntime.L1Store)
 
@@ -779,7 +780,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		glossaryRuntime.RecentTopics,
 		ttsBridge,
 	)
-	startMovieCatalogBackfillJob(cfg)
+	startMovieCatalogBackfillJob(cfg, newBackgroundJobFailureReporter(deps.eventRelay))
 	buildOrchestratorRuntime(
 		cfg,
 		deps,
@@ -794,7 +795,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		bridges,
 		verificationRuntime,
 	)
-	buildHeartbeatRuntime(cfg, deps, agents.Mio, sessionRuntime.MemoryStore)
+	buildHeartbeatRuntime(cfg, deps, agents.Shiro, sessionRuntime.MemoryStore)
 	deps.extensionHealth = buildExtensionHealthHandler(cfg, deps)
 
 	log.Println("Dependency injection complete")

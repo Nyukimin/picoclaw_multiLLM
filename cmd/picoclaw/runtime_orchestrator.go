@@ -56,7 +56,7 @@ func buildOrchestratorRuntime(
 		deps.repairRunner = newAsyncRepairJobRunner(deps.distOrch, deps.eventRelay)
 		deps.entryHandler = bridges.EntryFromOrch(deps.distOrch)
 		deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = bridges.ChromeBridgeFromOrch(deps.distOrch)
-		startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, deps.distOrch)
+		startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, deps.distOrch, newBackgroundJobFailureReporter(deps.eventRelay))
 		return
 	}
 
@@ -154,7 +154,7 @@ func buildOrchestratorRuntime(
 	deps.entryHandler = bridges.EntryFromOrch(orch)
 	deps.chromeBridge, deps.chromeBridgeStatus, deps.chromeBridgeEvents = bridges.ChromeBridgeFromOrch(orch)
 	deps.voiceDirectHandler = orch
-	startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, orch)
+	startSuperAgentRunQueueScheduler(cfg, deps.superAgentStore, orch, newBackgroundJobFailureReporter(deps.eventRelay))
 }
 
 // injectSelfContext は RenCrow 自身のソースディレクトリに関する自己認識コンテキストを

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -21,7 +22,104 @@ import (
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
-func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
+type backgroundJobFailureReporter struct {
+	listener orchestrator.EventListener
+}
+
+func newBackgroundJobFailureReporter(listener orchestrator.EventListener) backgroundJobFailureReporter {
+	return backgroundJobFailureReporter{listener: listener}
+}
+
+func (r backgroundJobFailureReporter) Failed(job string, err error, detail string) {
+	if r.listener == nil || err == nil {
+		return
+	}
+	job = normalizeBackgroundJobName(job)
+	errorText := compactBackgroundJobText(err.Error(), 600)
+	detail = compactBackgroundJobText(detail, 600)
+	jobKey := sanitizeBackgroundJobKey(job)
+	jobID := fmt.Sprintf("background-%s-%d", jobKey, time.Now().UnixNano())
+	sessionID := "background:" + jobKey
+	payload := map[string]string{
+		"job_id":         jobID,
+		"job":            job,
+		"status":         "failed",
+		"error":          errorText,
+		"llm_policy":     "no_llm_until_failure",
+		"shiro_action":   "investigate",
+		"mio_action":     "report_if_user_visible",
+		"background_job": "true",
+	}
+	if detail != "" {
+		payload["detail"] = detail
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	r.listener.OnEvent(orchestrator.NewEvent("background_job.failed", "background_job", "shiro", string(payloadJSON), "OPS", jobID, sessionID, "background", job))
+	r.listener.OnEvent(orchestrator.NewEvent("job.notification", "shiro", "mio", backgroundJobFailureNotification(job, errorText, detail), "OPS", jobID, sessionID, "background", job))
+}
+
+func normalizeBackgroundJobName(job string) string {
+	job = strings.TrimSpace(job)
+	if job == "" {
+		return "background_job"
+	}
+	return job
+}
+
+func sanitizeBackgroundJobKey(job string) string {
+	job = strings.ToLower(normalizeBackgroundJobName(job))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range job {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	key := strings.Trim(b.String(), "-")
+	if key == "" {
+		return "background-job"
+	}
+	return key
+}
+
+func compactBackgroundJobText(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if limit <= 0 || text == "" {
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "..."
+}
+
+func backgroundJobFailureNotification(job string, errorText string, detail string) string {
+	content := fmt.Sprintf("background job failed: job=%s error=%s. Shiro investigation requested; Mio should report only if this affects the user.", job, errorText)
+	if detail != "" {
+		content += " detail=" + detail
+	}
+	return content
+}
+
+func startConversationBackgroundJobs(runtime conversationRuntime, listener orchestrator.EventListener) {
+	reporter := newBackgroundJobFailureReporter(listener)
+	if runtime.L1Store != nil {
+		startSourceRegistrySweeper(runtime.L1Store, reporter)
+		startMemoryLifecycleJob(runtime.L1Store, reporter)
+	}
+	if runtime.Manager != nil {
+		startParquetExportJob(runtime.Manager, reporter)
+	}
+}
+
+func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore, reporter backgroundJobFailureReporter) {
 	sweep := func() {
 		result, err := sourcefetcher.SweepDueSources(context.Background(), store, time.Now().UTC(), sourcefetcher.SweepOptions{
 			LimitPerSource:    10,
@@ -29,6 +127,7 @@ func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
 		})
 		if err != nil {
 			log.Printf("WARN: source registry sweep failed: %v", err)
+			reporter.Failed("source_registry_sweep", err, "limit_per_source=10 minimum_trust_score=0.5")
 			return
 		}
 		if result.Sources > 0 || result.Staged > 0 || result.Failed > 0 {
@@ -46,8 +145,8 @@ func startSourceRegistrySweeper(store *conversationpersistence.L1SQLiteStore) {
 	}()
 }
 
-func startMemoryLifecycleJob(store *conversationpersistence.L1SQLiteStore) {
-	startMemoryLifecycleJobWithConfig(store, memoryLifecycleJobConfigFromEnv(time.Now))
+func startMemoryLifecycleJob(store *conversationpersistence.L1SQLiteStore, reporter backgroundJobFailureReporter) {
+	startMemoryLifecycleJobWithConfig(store, memoryLifecycleJobConfigFromEnv(time.Now), reporter)
 }
 
 type memoryLifecycleJobConfig struct {
@@ -127,19 +226,19 @@ func memoryLifecycleDurationFromEnv(msKey string, secKey string) (time.Duration,
 	return 0, false
 }
 
-func startMemoryLifecycleJobWithConfig(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig) {
-	startMemoryLifecycleJobRunner(store, cfg, nil)
+func startMemoryLifecycleJobWithConfig(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig, reporter backgroundJobFailureReporter) {
+	startMemoryLifecycleJobRunner(store, cfg, nil, reporter)
 }
 
-func startMemoryLifecycleJobWithStop(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig, stop <-chan struct{}) {
-	startMemoryLifecycleJobRunner(store, cfg, stop)
+func startMemoryLifecycleJobWithStop(store *conversationpersistence.L1SQLiteStore, cfg memoryLifecycleJobConfig, stop <-chan struct{}, reporter backgroundJobFailureReporter) {
+	startMemoryLifecycleJobRunner(store, cfg, stop, reporter)
 }
 
 type memoryLifecycleMaintenanceRunner interface {
 	RunMemoryLifecycleMaintenance(ctx context.Context, opts conversationpersistence.MemoryLifecycleOptions) (*conversationpersistence.MemoryLifecycleResult, error)
 }
 
-func startMemoryLifecycleJobRunner(store memoryLifecycleMaintenanceRunner, cfg memoryLifecycleJobConfig, stop <-chan struct{}) {
+func startMemoryLifecycleJobRunner(store memoryLifecycleMaintenanceRunner, cfg memoryLifecycleJobConfig, stop <-chan struct{}, reporter backgroundJobFailureReporter) {
 	if store == nil {
 		return
 	}
@@ -158,6 +257,7 @@ func startMemoryLifecycleJobRunner(store memoryLifecycleMaintenanceRunner, cfg m
 		result, err := store.RunMemoryLifecycleMaintenance(context.Background(), opts)
 		if err != nil {
 			log.Printf("WARN: memory lifecycle maintenance failed: %v", err)
+			reporter.Failed("memory_lifecycle", err, "label="+cfg.Label)
 			return
 		}
 		if result.RawCompacted > 0 || result.CandidatesQueued > 0 || result.MonthlyHighlightsBuilt > 0 || result.ThreadSummarySeedsQueued > 0 || result.Decayed > 0 || result.VectorCleanupQueued > 0 || result.VectorCleanupExecuted > 0 {
@@ -180,7 +280,7 @@ func startMemoryLifecycleJobRunner(store memoryLifecycleMaintenanceRunner, cfg m
 	}()
 }
 
-func startDailyIntakeSweeper(rules knowledgememoryapp.DailyIntakeRuleStore, registry knowledgememoryapp.DailyIntakeRegistryStore) {
+func startDailyIntakeSweeper(rules knowledgememoryapp.DailyIntakeRuleStore, registry knowledgememoryapp.DailyIntakeRegistryStore, reporter backgroundJobFailureReporter) {
 	if rules == nil || registry == nil {
 		return
 	}
@@ -192,6 +292,7 @@ func startDailyIntakeSweeper(rules knowledgememoryapp.DailyIntakeRuleStore, regi
 		})
 		if err != nil {
 			log.Printf("WARN: daily intake sweep failed: %v", err)
+			reporter.Failed("daily_intake_sweep", err, "rule_limit=100 source_limit=10 minimum_trust_score=0.5")
 			return
 		}
 		if result.SourcesEnabled > 0 || result.RegistrySweep.Staged > 0 || result.RegistrySweep.Failed > 0 {
@@ -209,7 +310,7 @@ func startDailyIntakeSweeper(rules knowledgememoryapp.DailyIntakeRuleStore, regi
 	}()
 }
 
-func startParquetExportJob(store archiveapp.ParquetExportStore) {
+func startParquetExportJob(store archiveapp.ParquetExportStore, reporter backgroundJobFailureReporter) {
 	outputDir := strings.TrimSpace(os.Getenv("RENCROW_PARQUET_EXPORT_DIR"))
 	if outputDir == "" {
 		return
@@ -231,12 +332,14 @@ func startParquetExportJob(store archiveapp.ParquetExportStore) {
 		result, err := job.RunOnce(context.Background())
 		if err != nil {
 			log.Printf("WARN: parquet export failed: %v", err)
+			reporter.Failed("parquet_export", err, "output_dir="+outputDir)
 		} else {
 			log.Printf("Parquet export complete: thread=%s l1_archives=%d", result.ThreadSummariesPath, len(result.L1ArchivePaths))
 		}
 		for result := range job.Start(context.Background()) {
 			if result.Error != nil {
 				log.Printf("WARN: parquet export failed: %v", result.Error)
+				reporter.Failed("parquet_export", result.Error, "output_dir="+outputDir)
 				continue
 			}
 			log.Printf("Parquet export complete: thread=%s l1_archives=%d", result.ThreadSummariesPath, len(result.L1ArchivePaths))
@@ -245,7 +348,7 @@ func startParquetExportJob(store archiveapp.ParquetExportStore) {
 	log.Printf("Parquet export job enabled: dir=%s interval=%s", outputDir, interval)
 }
 
-func startMovieCatalogBackfillJob(cfg *config.Config) {
+func startMovieCatalogBackfillJob(cfg *config.Config, reporter backgroundJobFailureReporter) {
 	if cfg == nil {
 		return
 	}
@@ -279,6 +382,14 @@ func startMovieCatalogBackfillJob(cfg *config.Config) {
 				continue
 			}
 			moviecatalogapp.LogBackfillResult("[MovieCatalogBackfill]", result)
+			if result.Status == "error" {
+				detail := fmt.Sprintf("kind=%s id=%s title=%q url=%s", result.Target.Kind, result.Target.ID, result.Target.Title, result.Target.URL)
+				errText := strings.TrimSpace(result.Output)
+				if errText == "" {
+					errText = "movie catalog backfill failed"
+				}
+				reporter.Failed("movie_catalog_backfill", fmt.Errorf("%s", errText), detail)
+			}
 		}
 	}()
 	log.Printf("[MovieCatalogBackfill] enabled: db=%s interval=%s initial_delay=%s timeout=%s max_pages=%d crawler_delay=%s",
@@ -357,17 +468,19 @@ type superAgentRunQueueMessageProcessor interface {
 	ProcessMessage(context.Context, orchestrator.ProcessMessageRequest) (orchestrator.ProcessMessageResponse, error)
 }
 
-func startSuperAgentRunQueueScheduler(cfg *config.Config, store superagentapp.RunQueueStore, processor superAgentRunQueueMessageProcessor) {
+func startSuperAgentRunQueueScheduler(cfg *config.Config, store superagentapp.RunQueueStore, processor superAgentRunQueueMessageProcessor, reporter backgroundJobFailureReporter) {
 	if cfg == nil || !cfg.SuperAgentHarness.RunQueueSchedulerEnabled {
 		return
 	}
 	if store == nil || processor == nil {
-		log.Printf("WARN: superagent run queue scheduler requested but store or processor is unavailable")
+		err := fmt.Errorf("superagent run queue scheduler requested but store or processor is unavailable")
+		log.Printf("WARN: %v", err)
+		reporter.Failed("superagent_run_queue", err, "")
 		return
 	}
 	interval := time.Duration(cfg.SuperAgentHarness.RunQueueSchedulerIntervalSec) * time.Second
 	claimLimit := cfg.SuperAgentHarness.RunQueueSchedulerClaimLimit
-	scheduler := superagentapp.NewRunQueueScheduler(store, newSuperAgentRunQueueProcessor(processor), superagentapp.RunQueueSchedulerOptions{
+	scheduler := superagentapp.NewRunQueueScheduler(store, newSuperAgentRunQueueProcessor(processor, reporter), superagentapp.RunQueueSchedulerOptions{
 		Interval:   interval,
 		ClaimLimit: claimLimit,
 	})
@@ -375,11 +488,16 @@ func startSuperAgentRunQueueScheduler(cfg *config.Config, store superagentapp.Ru
 	log.Printf("SuperAgent run queue scheduler enabled: interval=%s claim_limit=%d", interval, claimLimit)
 }
 
-func newSuperAgentRunQueueProcessor(processor superAgentRunQueueMessageProcessor) superagentapp.RunQueueProcessorFunc {
+func newSuperAgentRunQueueProcessor(processor superAgentRunQueueMessageProcessor, reporter backgroundJobFailureReporter) superagentapp.RunQueueProcessorFunc {
 	return superagentapp.RunQueueProcessorFunc(func(ctx context.Context, item domainsuperagent.RunQueueItem) (string, error) {
+		fail := func(err error) (string, error) {
+			detail := fmt.Sprintf("queue_id=%s run_id=%s workstream_id=%s action=%s", strings.TrimSpace(item.QueueID), strings.TrimSpace(item.RunID), strings.TrimSpace(item.WorkstreamID), strings.TrimSpace(item.Action))
+			reporter.Failed("superagent_run_queue", err, detail)
+			return "", err
+		}
 		action := strings.TrimSpace(item.Action)
 		if action != "resume" && action != "process_message" && action != "chat" {
-			return "", fmt.Errorf("unsupported run queue action: %s", action)
+			return fail(fmt.Errorf("unsupported run queue action: %s", action))
 		}
 		sessionID := strings.TrimSpace(item.WorkstreamID)
 		if sessionID == "" {
@@ -395,16 +513,16 @@ func newSuperAgentRunQueueProcessor(processor superAgentRunQueueMessageProcessor
 			UserMessage: strings.TrimSpace(item.Goal),
 		})
 		if err != nil {
-			return "", err
+			return fail(err)
 		}
 		if resp.Route == "" {
-			return "", fmt.Errorf("run queue item did not produce a route")
+			return fail(fmt.Errorf("run queue item did not produce a route"))
 		}
 		if action != "chat" && resp.Route == "CHAT" {
-			return "", fmt.Errorf("run queue item fell back to CHAT route")
+			return fail(fmt.Errorf("run queue item fell back to CHAT route"))
 		}
 		if strings.TrimSpace(resp.JobID) == "" {
-			return "", fmt.Errorf("run queue item did not produce a job_id")
+			return fail(fmt.Errorf("run queue item did not produce a job_id"))
 		}
 		return fmt.Sprintf("route=%s job_id=%s", resp.Route, resp.JobID), nil
 	})
