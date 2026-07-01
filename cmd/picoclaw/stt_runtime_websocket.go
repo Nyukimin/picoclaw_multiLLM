@@ -34,13 +34,6 @@ func resolveSTTWebSocketHandlerWithProvider(provider sttinfra.Provider, sttProvi
 	}
 }
 
-func registerSTTRoutes(mux *http.ServeMux, sttWSHandler http.Handler) {
-	// Primary endpoint is /stt. Keep /stt-ws and /ws for backward compatibility.
-	for _, path := range modulestt.WebSocketRoutePaths {
-		mux.Handle(path, sttWSHandler)
-	}
-}
-
 // handleSTTWebSocketBridge は /stt で Viewer と RenCrow_STT を中継する。
 // STT_GATEWAY_URL または RENCROW_STT_URL に RenCrow_STT の WebSocket URL を設定すると有効になる。
 // 例: RENCROW_STT_URL=ws://192.168.1.36:8090/stt

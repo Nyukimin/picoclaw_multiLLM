@@ -36,9 +36,6 @@ type BaseRoutes struct {
 	Live2DChat                   http.HandlerFunc
 	Live2DEmotionControl         http.HandlerFunc
 	Live2DChatAPI                http.HandlerFunc
-	TTSAudio                     http.HandlerFunc
-	TTSPlaybackAck               http.HandlerFunc
-	ActiveControl                http.HandlerFunc
 	Events                       http.HandlerFunc
 	DebugSystem                  http.HandlerFunc
 	DocsSearch                   http.HandlerFunc
@@ -94,9 +91,6 @@ func RegisterBaseRoutes(mux *http.ServeMux, deps Dependencies) {
 	registerRoute(mux, "/viewer/live2d/chat", base.Live2DChat)
 	registerRoute(mux, "/viewer/live2d/emotion", base.Live2DEmotionControl)
 	registerRoute(mux, "/viewer/api/chat", base.Live2DChatAPI)
-	registerRoute(mux, "/viewer/tts/audio", base.TTSAudio)
-	registerRoute(mux, "/viewer/tts/playback-ack", base.TTSPlaybackAck)
-	registerRoute(mux, "/viewer/active-control", base.ActiveControl)
 	registerRoute(mux, "/viewer/events", base.Events)
 	registerRoute(mux, "/viewer/debug/system", base.DebugSystem)
 	registerRoute(mux, "/viewer/docs/search", base.DocsSearch)

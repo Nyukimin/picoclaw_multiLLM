@@ -48,7 +48,9 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		cfg,
 		deps,
 		sttRuntime{WSHandler: http.NotFoundHandler()},
-		voiceChatRuntime{WSHandler: http.NotFoundHandler()},
+		voiceChatRuntime{WSHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusIMUsed)
+		})},
 		viewer.DebugSystemOptions{},
 	)
 
@@ -71,6 +73,8 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		{name: "viewer dynamic send", method: http.MethodGet, path: "/viewer/send", want: http.StatusAccepted},
 		{name: "module manifest", method: http.MethodGet, path: moduleManifestPath, want: http.StatusOK},
 		{name: "stt chat input", method: http.MethodGet, path: "/stt/chat-input", want: http.StatusMethodNotAllowed},
+		{name: "voice chat primary", method: http.MethodGet, path: "/voice-chat", want: http.StatusIMUsed},
+		{name: "voice chat alias", method: http.MethodGet, path: "/voice-chat-ws", want: http.StatusIMUsed},
 		{name: "entry", method: http.MethodGet, path: "/entry", want: http.StatusAccepted},
 	}
 

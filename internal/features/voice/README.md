@@ -6,7 +6,7 @@ Voice
 
 ## Inputs
 
-voice websocket request, VDS gateway config, audio route event, voice input mode
+voice websocket request, VDS gateway config, audio route event, active audio control, voice input mode
 
 ## Outputs
 
@@ -30,8 +30,17 @@ voice disabled, session mismatch, LLM busy, and provider failure are explicit
 
 ## Current Primary Files
 
-modules/voicechat, cmd/picoclaw/voice_chat_runtime_*.go, internal/adapter/viewer/audio_router_sse.go
+modules/voicechat, modules/stt, modules/tts, cmd/picoclaw/voice_chat_runtime_*.go, cmd/picoclaw/stt_runtime_*.go, cmd/picoclaw/tts_*.go, internal/adapter/viewer/audio_router_sse.go
+
+## Current Route Boundary
+
+- `/voice-chat`
+- `/voice-chat-ws`
+- `/audio-router/events`
+- `/viewer/active-control`
+- STT routes delegated to `internal/features/stt`
+- TTS routes delegated to `internal/features/tts`
 
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase. Voice currently acts as the Voice / STT / TTS composite registrar for the Ver0.80 audio feature group.

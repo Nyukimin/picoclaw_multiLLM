@@ -11,7 +11,10 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
 	opsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/ops"
+	sttfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/stt"
+	ttsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/tts"
 	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
+	voicefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/voice"
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
 
@@ -51,9 +54,6 @@ func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependenci
 		Live2DChat:                   viewer.HandleLive2DChat,
 		Live2DEmotionControl:         viewer.HandleLive2DEmotionControl,
 		Live2DChatAPI:                viewer.HandleLive2DChatAPIWithResponder(newLive2DOrchestratorResponder(dependencies)),
-		TTSAudio:                     handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL),
-		TTSPlaybackAck:               handleTTSPlaybackAck(),
-		ActiveControl:                handleViewerActiveClaim(dependencies.eventHub.OnEvent),
 		Events:                       dependencies.eventHub.HandleSSE,
 		DebugSystem:                  viewer.HandleDebugSystemSnapshot(debugSystemOpts),
 		DocsSearch:                   viewer.HandleDocsSearch(),
@@ -150,17 +150,27 @@ func registerLLMOpsRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *
 	log.Printf("Viewer: MLX llm-ops proxy -> %s", strings.TrimRight(strings.TrimSpace(cfg.LLMOps.BaseURL), "/"))
 }
 
-func registerSTTAndAudioRoutes(mux *http.ServeMux, sttRuntime sttRuntime, voiceChatRuntime voiceChatRuntime, dependencies *Dependencies) {
-	mux.HandleFunc("/viewer/stt/log", viewer.HandleSTTClientLogSave(modulestt.DefaultViewerClientLogPath))
-	mux.HandleFunc("/viewer/stt/wav", viewer.HandleSTTInputWAVSave(modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerArchiveDir))
-	mux.HandleFunc("/viewer/stt/wav/raw", viewer.HandleSTTInputRawWAVSave(modulestt.DefaultViewerLatestRawWAVPath, modulestt.DefaultViewerArchiveDir))
-	mux.HandleFunc("/viewer/stt/autotest", viewer.HandleSTTAutoTest(modulestt.DefaultViewerAutoTestScriptPath, modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerAutoTestOutputPath))
-	mux.HandleFunc("/viewer/stt/admin/restart", viewer.HandleSTTRestart(viewer.STTAdminOptions{BaseURL: sttRuntime.DebugOptions.STTBaseURL}))
+func registerSTTAndAudioRoutes(mux *http.ServeMux, cfg *config.Config, sttRuntime sttRuntime, voiceChatRuntime voiceChatRuntime, dependencies *Dependencies) {
+	sttRoutes := sttRuntimeRoutes(sttRuntime)
+	sttRoutes.ClientLog = viewer.HandleSTTClientLogSave(modulestt.DefaultViewerClientLogPath)
+	sttRoutes.WAV = viewer.HandleSTTInputWAVSave(modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerArchiveDir)
+	sttRoutes.RawWAV = viewer.HandleSTTInputRawWAVSave(modulestt.DefaultViewerLatestRawWAVPath, modulestt.DefaultViewerArchiveDir)
+	sttRoutes.AutoTest = viewer.HandleSTTAutoTest(modulestt.DefaultViewerAutoTestScriptPath, modulestt.DefaultViewerLatestWAVPath, modulestt.DefaultViewerAutoTestOutputPath)
+	sttRoutes.AdminRestart = viewer.HandleSTTRestart(viewer.STTAdminOptions{BaseURL: sttRuntime.DebugOptions.STTBaseURL})
 	dependencies.moduleSTTViewerInput = newSTTViewerInputObserver(sttRuntime)
-	registerSTTRuntimeRoutes(mux, sttRuntime)
-	registerVoiceChatRuntimeRoutes(mux, voiceChatRuntime)
+	voicefeature.RegisterRoutes(mux, voicefeature.Dependencies{
+		Routes: voicefeature.Routes{
+			VoiceChat:         voiceChatRuntime.WSHandler,
+			AudioRouterEvents: viewer.HandleAudioRouterSSE(dependencies.eventHub),
+			ActiveControl:     handleViewerActiveClaim(dependencies.eventHub.OnEvent),
+		},
+		STT: sttfeature.Dependencies{Routes: sttRoutes},
+		TTS: ttsfeature.Dependencies{Routes: ttsfeature.Routes{
+			Audio:       handleTTSAudio(cfg.TTS.OutputDir, cfg.TTS.HTTPBaseURL),
+			PlaybackAck: handleTTSPlaybackAck(),
+		}},
+	})
 	registerModuleRoutes(mux, dependencies, sttRuntime)
-	mux.HandleFunc("/audio-router/events", viewer.HandleAudioRouterSSE(dependencies.eventHub))
 }
 
 func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies) {

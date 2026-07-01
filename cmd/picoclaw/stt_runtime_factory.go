@@ -7,6 +7,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/modulebridge"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	sttfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/stt"
 	sttinfra "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/stt"
 	modulestt "github.com/Nyukimin/picoclaw_multiLLM/modules/stt"
 )
@@ -46,15 +47,26 @@ func buildSTTRuntime(cfg *config.Config) sttRuntime {
 }
 
 func registerSTTRuntimeRoutes(mux *http.ServeMux, rt sttRuntime) {
-	if mux == nil {
-		return
-	}
+	sttfeature.RegisterRoutes(mux, sttfeature.Dependencies{Routes: sttRuntimeRoutes(rt)})
+}
+
+func sttRuntimeRoutes(rt sttRuntime) sttfeature.Routes {
+	routes := sttfeature.Routes{WebSocket: rt.WSHandler}
 	handler := rt.Handler
 	if handler == nil {
 		handler = sttinfra.NewHandler(nil)
 	}
-	mux.HandleFunc("/stt/health", handler.Health)
-	mux.HandleFunc("/stt/file", handler.File)
-	mux.HandleFunc("/stt/chat-input", handler.ChatInput)
-	registerSTTRoutes(mux, rt.WSHandler)
+	routes.Health = handler.Health
+	routes.File = handler.File
+	routes.ChatInput = handler.ChatInput
+	return routes
+}
+
+func registerSTTRoutes(mux *http.ServeMux, sttWSHandler http.Handler) {
+	if mux == nil {
+		return
+	}
+	for _, path := range modulestt.WebSocketRoutePaths {
+		mux.Handle(path, sttWSHandler)
+	}
 }

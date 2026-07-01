@@ -32,6 +32,20 @@ empty audio, timeout, busy, provider error, and viewer input failure remain dist
 
 modules/stt, internal/infrastructure/stt, cmd/picoclaw/stt_runtime_*.go
 
+## Current Route Boundary
+
+- `/viewer/stt/log`
+- `/viewer/stt/wav`
+- `/viewer/stt/wav/raw`
+- `/viewer/stt/autotest`
+- `/viewer/stt/admin/restart`
+- `/stt/health`
+- `/stt/file`
+- `/stt/chat-input`
+- `/stt`
+- `/stt-ws`
+- `/ws`
+
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase. The registrar owns route registration and dependency handoff only.

@@ -32,6 +32,11 @@ provider timeout, invalid audio, and playback timeout are distinct errors
 
 modules/tts, internal/infrastructure/tts, cmd/picoclaw/tts_*.go, cmd/picoclaw/idlechat_tts_*.go
 
+## Current Route Boundary
+
+- `/viewer/tts/audio`
+- `/viewer/tts/playback-ack`
+
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase. The registrar owns route registration and dependency handoff only.
