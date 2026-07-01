@@ -51,5 +51,7 @@ Worker execution contract diagnostics are exposed at `/viewer/modules/worker/dia
 TTS provider diagnostics are exposed at `/viewer/modules/tts/diagnostics` without executing synthesis.
 STT provider diagnostics are exposed at `/viewer/modules/stt/diagnostics` without executing transcription.
 
+Feature HTTP route registration now enters through `internal/features/*/registrar.go` for the Ver0.80 feature groups. This registrar layer is a dependency-handoff boundary only; the existing module contracts, adapter bridges, handler bodies, providers, CLI commands, and runtime jobs are not moved by that handoff.
+
 This does not mean every implementation file has moved into module-named packages.
 Implementation migration remains incremental so behavior, logs, Viewer/TTS/STT state, and tests can remain stable.

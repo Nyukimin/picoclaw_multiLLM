@@ -260,6 +260,8 @@ Viewer を触る場合は、最低 1 セッションで送信、応答、Timelin
 6. `knowledge` / `memory` / `source` を知識 feature group として分ける。
 7. `governance` / `sandbox` / `security` / `reports` / `superagent` / `aiworkflow` を運用 feature group として分ける。
 
+現ブランチの Ver0.80 seed では、Phase 4 の HTTP route registrar handoff は完了状態として扱う。`cmd/picoclaw` は feature group ごとの wrapper を残すが、実 route 登録は `internal/features/*/registrar.go` が所有する。`security` と `distributed` は直接 HTTP route を持たないため、README で所有境界を記録する。
+
 ルール:
 
 - 1 作業単位 / 1 feature group にする。

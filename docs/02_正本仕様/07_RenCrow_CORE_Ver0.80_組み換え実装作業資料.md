@@ -152,6 +152,24 @@ Viewer JS を触る場合は、最低 1 セッションで `/viewer/send`、Time
 | Web / browser | `/viewer/browser-trace-api`, `/viewer/browser-trace-api/discover`, `/viewer/complexity-hotspots` |
 | SuperAgent / AI workflow | `/viewer/superagent`, `/viewer/superagent/runs`, `/viewer/ai-workflow`, `/viewer/ai-workflow/events` |
 
+### Ver0.80 registrar 実装反映
+
+2026-07-01 時点の現ブランチでは、HTTP route 登録の handoff は次の状態である。
+
+| Feature group | 状態 | 備考 |
+| --- | --- | --- |
+| Viewer base | `adapter経由` | `internal/features/viewer` が base/static route 登録を所有する。 |
+| IdleChat | `adapter経由` | `internal/features/idlechat` が Viewer route 登録と background start handoff を所有する。 |
+| Ops / jobs / workstream / revenue | `adapter経由` | `internal/features/ops` が route 登録を所有する。 |
+| Voice / STT / TTS | `adapter経由` | `internal/features/voice` が composite registrar、`stt` と `tts` が各 route 群を所有する。 |
+| Web / browser | `adapter経由` | `internal/features/web` が BrowserTrace / Complexity route 登録を所有する。 |
+| Source / Knowledge / Memory | `adapter経由` | `internal/features/source`、`knowledge`、`memory` が route 登録を所有する。 |
+| Reports / Governance / Sandbox / SuperAgent / AIWorkflow | `adapter経由` | 各 feature registrar が route 登録を所有する。`security` は直接 route なし。 |
+| Channels / Entry / Chrome bridge | `adapter経由` | `internal/features/channels` が inbound route と entry / chrome bridge route を所有する。 |
+| Distributed | `保持` | 直接 HTTP route はなく、transport / remote-agent wiring は legacy-body に保持する。 |
+
+この表は「既存機能を削った」ことを意味しない。handler 本体、provider 実装、CLI、background job、module endpoint は削除せず、必要なものは legacy-body として保持する。
+
 確認コマンド:
 
 ```bash

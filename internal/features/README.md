@@ -4,6 +4,12 @@ This directory is the Ver0.80 feature registrar inventory. It does not move exis
 
 Each feature keeps only README, ports, and registrar scaffolding until a later phase moves route registration or runtime wiring behind the feature facade.
 
+## Ver0.80 Registrar Status
+
+HTTP route registration has been handed off from `cmd/picoclaw/routes.go` to feature registrars for Viewer base, IdleChat, Ops, Voice/STT/TTS, Web/browser, Knowledge/Memory/Source, Reports/Governance/Sandbox/SuperAgent/AIWorkflow, and Channels.
+
+Handler bodies, providers, stores, runtime background jobs, and CLI implementations remain in their existing legacy-body files unless a later phase explicitly moves them. `security` and `distributed` currently record ownership boundaries but do not own direct HTTP route registration in this pass.
+
 ## Inventory
 
 - `agent`: Agent identity, role, capability, display name, and persona-facing contracts.

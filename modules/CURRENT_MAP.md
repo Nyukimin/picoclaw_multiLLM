@@ -59,6 +59,7 @@ Current module implementation status:
 - `cmd/picoclaw` exposes TTS provider diagnostics through `/viewer/modules/tts/diagnostics` without synthesizing audio.
 - `cmd/picoclaw` exposes STT provider diagnostics through `/viewer/modules/stt/diagnostics` without transcribing audio.
 - `/viewer/modules/health` returns both aggregate `status`/`ready` from `modules/core.BuildRuntimeHealthSnapshot` and per-module reports.
+- `cmd/picoclaw` now delegates feature HTTP route registration to `internal/features/*/registrar.go` for Viewer base, IdleChat, Ops, Voice/STT/TTS, Web/browser, Knowledge/Memory/Source, Reports/Governance/Sandbox/SuperAgent/AIWorkflow, and Channels. Handler bodies and provider/runtime implementations remain in the current legacy-body files.
 - `modules/tts` separates synthesis provider contracts from `PlaybackStateObserver`.
 - `modules/tts` owns pending playback snapshot construction, including deterministic ID ordering and copy semantics.
 - `modules/tts` owns the pending playback store, including wait channels, response lookup, topic gates, and completion/clear action contracts.

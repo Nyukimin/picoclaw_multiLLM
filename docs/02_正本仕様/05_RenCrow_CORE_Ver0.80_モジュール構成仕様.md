@@ -396,6 +396,8 @@ func StartBackground(ctx context.Context, deps Dependencies) error
 
 `cmd/picoclaw` は `Dependencies` を構築し、`RegisterRoutes` と `StartBackground` を呼ぶだけに寄せる。feature 固有の policy、DTO、store state transition は `cmd/picoclaw` に置かない。
 
+現ブランチの Ver0.80 seed では、HTTP route 登録は `internal/features/*/registrar.go` へ寄せた状態を正とする。ただし handler 本体、provider、store、CLI、background job、module endpoint は既存位置に残る legacy-body であり、削除対象ではない。
+
 ## 完了条件
 
 Ver0.80 のモジュール構成は、次を満たした時点で完了とする。
