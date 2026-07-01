@@ -388,7 +388,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /Worker/);
   assert.match(html, /Wild/);
   assert.ok(rolesJs.includes("return '/ops ' + trimmed"));
-  assert.ok(rolesJs.includes("return '/wild ' + trimmed"));
+  assert.ok(rolesJs.includes("return '/code1 ' + trimmed"));
   assert.ok(rolesJs.includes("return '/code2 ' + trimmed"));
   assert.ok(rolesJs.includes("return '/code3 ' + trimmed"));
   assert.ok(rolesJs.includes("return '/code4 ' + trimmed"));

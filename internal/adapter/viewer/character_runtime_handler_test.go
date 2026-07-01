@@ -43,7 +43,7 @@ func TestHandleCharacterRuntimeRunRoundEmitsSixTurns(t *testing.T) {
 	if len(body.Result.Turns) != 6 || len(events.events) != 6 {
 		t.Fatalf("turns=%d events=%d body=%s", len(body.Result.Turns), len(events.events), rec.Body.String())
 	}
-	if body.Result.Turns[0].CharacterID != "mio" || body.Result.Turns[5].CharacterID != "kin" {
+	if body.Result.Turns[0].CharacterID != "mio" || body.Result.Turns[5].CharacterID != "gin" {
 		t.Fatalf("unexpected turn order: %#v", body.Result.Turns)
 	}
 	if events.events[0].Type != "character_runtime.turn" || events.events[0].Route != "CHARACTER_RUNTIME" {

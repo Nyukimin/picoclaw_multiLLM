@@ -96,10 +96,10 @@ func DefaultCharacters() []Character {
 	return []Character{
 		{ID: "mio", Name: "Mio", Role: "chat_facilitator", Alias: "進行と返答整理", Enabled: true},
 		{ID: "shiro", Name: "Shiro", Role: "coder_executor", Alias: "実装と検証", Enabled: true},
+		{ID: "ao", Name: "AO", Role: "researcher", Alias: "調査と根拠", Enabled: true},
 		{ID: "aka", Name: "Aka", Role: "risk_reviewer", Alias: "リスクと反証", Enabled: true},
-		{ID: "ao", Name: "Ao", Role: "researcher", Alias: "調査と根拠", Enabled: true},
-		{ID: "gin", Name: "Gin", Role: "operator", Alias: "運用と監視", Enabled: true},
 		{ID: "kin", Name: "Kin", Role: "product_judge", Alias: "価値と優先度", Enabled: true},
+		{ID: "gin", Name: "Gin", Role: "operator", Alias: "運用と監視", Enabled: true},
 	}
 }
 

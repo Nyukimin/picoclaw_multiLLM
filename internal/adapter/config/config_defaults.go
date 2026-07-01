@@ -776,10 +776,10 @@ func (c *Config) setDefaults() {
 		c.Coder1.Model = "deepseek-coder"
 	}
 	if c.Coder1.Name == "" {
-		c.Coder1.Name = "aka"
+		c.Coder1.Name = "ao"
 	}
 	if c.Coder1.DisplayName == "" {
-		c.Coder1.DisplayName = "赤"
+		c.Coder1.DisplayName = "青"
 	}
 	if c.Coder1.LightMemory.MaxTurns == 0 {
 		c.Coder1.LightMemory.MaxTurns = 3
@@ -792,10 +792,10 @@ func (c *Config) setDefaults() {
 		c.Coder2.Model = "gpt-4-turbo"
 	}
 	if c.Coder2.Name == "" {
-		c.Coder2.Name = "ao"
+		c.Coder2.Name = "aka"
 	}
 	if c.Coder2.DisplayName == "" {
-		c.Coder2.DisplayName = "青"
+		c.Coder2.DisplayName = "赤"
 	}
 	if c.Coder2.LightMemory.MaxTurns == 0 {
 		c.Coder2.LightMemory.MaxTurns = 3
@@ -808,10 +808,10 @@ func (c *Config) setDefaults() {
 		c.Coder3.Model = "claude-sonnet-4"
 	}
 	if c.Coder3.Name == "" {
-		c.Coder3.Name = "gin"
+		c.Coder3.Name = "kin"
 	}
 	if c.Coder3.DisplayName == "" {
-		c.Coder3.DisplayName = "銀"
+		c.Coder3.DisplayName = "金"
 	}
 	if c.Coder3.LightMemory.MaxTurns == 0 {
 		c.Coder3.LightMemory.MaxTurns = 3
@@ -824,10 +824,10 @@ func (c *Config) setDefaults() {
 		c.Coder4.Model = "gemini-2.0-flash-exp"
 	}
 	if c.Coder4.Name == "" {
-		c.Coder4.Name = "kin"
+		c.Coder4.Name = "gin"
 	}
 	if c.Coder4.DisplayName == "" {
-		c.Coder4.DisplayName = "金"
+		c.Coder4.DisplayName = "銀"
 	}
 	if c.Coder4.LightMemory.MaxTurns == 0 {
 		c.Coder4.LightMemory.MaxTurns = 3

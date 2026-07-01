@@ -5,17 +5,17 @@ const A = {
   mio:    {c:'#f472b6', l:'みお',  en:'Mio',   e:'\u{1f338}'},
   shiro:  {c:'#22d3ee', l:'しろ',  en:'Shiro', e:'\u26a1'},
   worker: {c:'#38bdf8', l:'Worker', en:'Worker', e:'W'},
-  coder1: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
-  coder2: {c:'#818cf8', l:'あお',  en:'Ao',    e:'\u{1f535}'},
-  coder3: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
-  coder4: {c:'#facc15', l:'きん',  en:'Kin',   e:'\u{1f7e1}'},
+  coder1: {c:'#818cf8', l:'あお',  en:'AO',    e:'\u{1f535}'},
+  coder2: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
+  coder3: {c:'#facc15', l:'きん',  en:'Kin',   e:'\u{1f7e1}'},
+  coder4: {c:'#a78bfa', l:'ぎん',  en:'Gin',   e:'\u{1f7e3}'},
   gemma4: {c:'#34d399', l:'Gemma4', en:'Gemma4', e:'G4'},
   gamma4: {c:'#34d399', l:'Gemma4', en:'Gemma4', e:'G4'},
   system: {c:'#475569', l:'System', en:'System', e:'\u2699\ufe0f'},
 };
 const RC = {
-  CHAT:'#f472b6', OPS:'#22d3ee', CODE:'#fb923c',
-  CODE1:'#fb923c', CODE2:'#818cf8', CODE3:'#a78bfa', CODE4:'#facc15',
+  CHAT:'#f472b6', OPS:'#22d3ee', CODE:'#818cf8',
+  CODE1:'#818cf8', CODE2:'#fb923c', CODE3:'#facc15', CODE4:'#a78bfa',
   PLAN:'#4ade80', ANALYZE:'#fbbf24', RESEARCH:'#34d399',
   IDLECHAT:'#a78bfa',
 };
@@ -23,10 +23,10 @@ const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3', 'coder4'];
 const ROLE_TARGETS = [
   {id:'mio', role:'Chat', alias:'Chat', use:'会話テンポ / ルミナ人格 / 音声UI'},
   {id:'shiro', role:'Worker', alias:'Worker', use:'実務処理 / 要約 / RAG'},
-  {id:'coder1', role:'Wild', alias:'Wild', use:'画像解析 / 画像生成 / ComfyUI / 雰囲気抽出'},
-  {id:'coder2', role:'Coder', alias:'Worker', use:'実装 / 検証 / 差分整理'},
-  {id:'coder3', role:'Coder', alias:'Worker', use:'実装 / 調査 / テスト補助'},
-  {id:'coder4', role:'Coder', alias:'Worker', use:'実装 / レビュー / 仕上げ'},
+  {id:'coder1', role:'Coder', alias:'Coder1', use:'仕様設計 / 構成整理 / 提案'},
+  {id:'coder2', role:'Coder', alias:'Coder2', use:'実装 / 検証 / 差分整理'},
+  {id:'coder3', role:'Coder', alias:'Coder3', use:'実装 / 調査 / テスト補助'},
+  {id:'coder4', role:'Coder', alias:'Coder4', use:'実装 / レビュー / 仕上げ'},
 ];
 const OFFLINE_MS = 120000;
 const MAX_LOGS = 500;
@@ -3737,11 +3737,10 @@ function jobNotificationKey(n) {
 function normalizeJobNotificationAssignee(n) {
   const raw = String((n && n.assignee) || '').trim().toLowerCase();
   if (!raw || raw === 'worker' || raw === 'heavy') return 'shiro';
-  if (raw === 'wild') return 'coder1';
-  if (raw === 'aka') return 'coder1';
-  if (raw === 'ao') return 'coder2';
-  if (raw === 'gin') return 'coder3';
-  if (raw === 'kin') return 'coder4';
+  if (raw === 'ao') return 'coder1';
+  if (raw === 'aka') return 'coder2';
+  if (raw === 'kin') return 'coder3';
+  if (raw === 'gin') return 'coder4';
   return raw;
 }
 

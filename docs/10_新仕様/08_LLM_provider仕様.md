@@ -14,7 +14,7 @@ Application / Domain は provider 固有の HTTP request、stream、response par
 | Worker | Shiro | 実行判断、tool calling、summary、ops |
 | Heavy | 重い推論 | 必要時の高負荷推論 |
 | Wild | 補助推論 | 用途別補助 |
-| Coder | Aka / Ao / Gin | plan / patch / proposal 生成 |
+| Coder | AO / Aka / Kin / Gin | plan / patch / proposal 生成 |
 
 ## 主な実装箇所
 

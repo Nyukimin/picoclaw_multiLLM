@@ -22,7 +22,7 @@ RenCrow の現行仕様では、キャラクターは単なる口調設定では
 | --- | --- | --- |
 | Chat | Mio | ユーザー対話、ルーティング判断、結果返却 |
 | Worker | Shiro | 実行、ツール呼び出し、patch / command 適用、ログ記録 |
-| Coder | Aka / Ao / Gin / Kin | plan / patch / proposal 生成 |
+| Coder | AO / Aka / Kin / Gin | plan / patch / proposal 生成 |
 
 補助的に、深い分析用の Heavy と創作探索用の Wild がある。
 
@@ -35,7 +35,7 @@ RenCrow の現行仕様では、キャラクターは単なる口調設定では
 
 - Coder は破壊的操作を直接実行しない。Coder が返すのは plan / patch / proposal / risk / cost hint である。
 - 実行、採用、ログ記録、安全確認は Worker が担当する。
-- `Mio / Shiro / Aka / Ao / Gin / Kin` の表示・選択と persona / observation 基盤はある。
+- `Mio / Shiro / AO / Aka / Kin / Gin` の表示・選択と persona / observation 基盤はある。
 - ただし、全人格が常時会話参加する「完全なキャラ会話 runtime」は現行では未実装 / 将来実装扱いである。
 - 旧キャラ体系である `ルミナ / クラリス / ノクス` は削除済み / 移行済みで、現行残課題にはしない。
 
@@ -43,10 +43,9 @@ RenCrow の現行仕様では、キャラクターは単なる口調設定では
 
 - [Mio](./mio.md)
 - [Shiro](./shiro.md)
+- [AO](./ao.md)
 - [Aka](./aka.md)
-- [Ao](./ao.md)
-- [Gin](./gin.md)
 - [Kin](./kin.md)
+- [Gin](./gin.md)
 - [Kuro](./kuro.md)
 - [Midori](./midori.md)
-

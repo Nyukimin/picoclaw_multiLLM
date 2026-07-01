@@ -24,10 +24,10 @@ RenCrow の Coder は、コード生成・レビュー・提案を行う 4 つ�
 
 | Coder | デフォルト名 | LLM プロバイダー | 得意分野 | デフォルト状態 |
 |-------|-------------|-----------------|---------|---------------|
-| **Coder1** | Aka (赤) | DeepSeek | 仕様設計、アーキテクチャ検討 | 有効 |
-| **Coder2** | Ao (青) | OpenAI | 実装、コード生成 | 有効 |
-| **Coder3** | Gin (銀) | Anthropic Claude | 高品質コーディング、推論 | 有効 |
-| **Coder4** | Kin (金) | 設定可能 | 高速プロトタイピング、実験 | **無効** |
+| **Coder1** | AO (青) | DeepSeek | 仕様設計、アーキテクチャ検討 | 有効 |
+| **Coder2** | Aka (赤) | OpenAI | 実装、コード生成 | 有効 |
+| **Coder3** | Kin (金) | Anthropic Claude | 高品質コーディング、推論 | 有効 |
+| **Coder4** | Gin (銀) | 設定可能 | 高速プロトタイピング、実験 | **無効** |
 
 ### 使い分け
 
@@ -53,8 +53,8 @@ RenCrow の Coder は、コード生成・レビュー・提案を行う 4 つ�
 ```yaml
 coder1:
   enabled: true
-  name: "aka"
-  display_name: "赤"
+  name: "ao"
+  display_name: "青"
   provider: "deepseek"
   model: "deepseek-chat"
   api_key: "${DEEPSEEK_API_KEY}"
@@ -80,8 +80,8 @@ coder4:
 ```yaml
 coder1:
   enabled: true
-  name: "aka"
-  display_name: "赤"
+  name: "ao"
+  display_name: "青"
   provider: "deepseek"
   model: "deepseek-chat"
   api_key: "${DEEPSEEK_API_KEY}"
@@ -93,8 +93,8 @@ coder1:
 
 coder2:
   enabled: true
-  name: "ao"
-  display_name: "青"
+  name: "aka"
+  display_name: "赤"
   provider: "openai"
   model: "gpt-4o-mini"
   api_key: "${OPENAI_API_KEY}"
@@ -106,8 +106,8 @@ coder2:
 
 coder3:
   enabled: true
-  name: "gin"
-  display_name: "銀"
+  name: "kin"
+  display_name: "金"
   provider: "claude"
   model: "claude-sonnet-4-20250514"
   api_key: "${ANTHROPIC_API_KEY}"

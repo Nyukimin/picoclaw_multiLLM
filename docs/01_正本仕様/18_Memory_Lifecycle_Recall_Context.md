@@ -301,7 +301,7 @@ RenCrow の現行仕様では、キャラクターは単なる口調設定では
 |---|---|---|
 | Chat | Mio | ユーザー対話、ルーティング判断、結果返却、進捗報告、記憶統合 |
 | Worker | Shiro | 実行、ツール呼び出し、patch / command 適用、ログ記録 |
-| Coder | Aka / Ao / Gin / Kin | plan / patch / proposal / risk / cost hint 生成 |
+| Coder | AO / Aka / Kin / Gin | plan / patch / proposal / risk / cost hint 生成 |
 | Heavy | Kuro | 深い分析、根本原因調査、リスク確認 |
 | Wild | Midori | 創作、画像プロンプト、雰囲気抽出、横方向探索 |
 
@@ -966,7 +966,7 @@ L1 / L2 / L3 / L4 の scheduled job を実装する。
 
 - Mio: Chat recall
 - Shiro: Ops / execution recall
-- Aka / Ao / Gin / Kin: Code / design recall
+- AO / Aka / Kin / Gin: Code / design recall
 - Kuro: Heavy review recall
 - Midori: Creative recall
 
@@ -1329,7 +1329,7 @@ go test -v ./internal/infrastructure/persistence/conversation -run TestL1SQLiteS
 
 ## 10.6 Phase 6: Role-specific recall
 
-目的: Mio / Shiro / Aka / Ao / Gin / Kin / Kuro / Midori ごとに RecallPack の利用範囲を分ける。
+目的: Mio / Shiro / AO / Aka / Kin / Gin / Kuro / Midori ごとに RecallPack の利用範囲を分ける。
 
 初期 policy:
 
@@ -1337,7 +1337,7 @@ go test -v ./internal/infrastructure/persistence/conversation -run TestL1SQLiteS
 |---|---|
 | Mio / Chat | conversation memory + explicit local-first freshness KB/SearchCache |
 | Shiro / Worker | conversation memory + Knowledge + SearchCache |
-| Aka / Ao / Gin / Kin / Coder | conversation memory + Knowledge + SearchCache |
+| AO / Aka / Kin / Gin / Coder | conversation memory + Knowledge + SearchCache |
 | Kuro / Heavy | conversation memory + Knowledge |
 | Midori / Creative | conversation memory + Knowledge |
 

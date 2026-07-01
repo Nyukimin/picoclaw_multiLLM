@@ -2184,10 +2184,10 @@ func TestConfig_Validate(t *testing.T) {
 					RetentionDays:     14,
 					GCIntervalMinutes: 60,
 				},
-				Coder1: CoderConfig{Name: "aka"},
-				Coder2: CoderConfig{Name: "ao"},
-				Coder3: CoderConfig{Name: "gin"},
-				Coder4: CoderConfig{Name: "kin"},
+				Coder1: CoderConfig{Name: "ao"},
+				Coder2: CoderConfig{Name: "aka"},
+				Coder3: CoderConfig{Name: "kin"},
+				Coder4: CoderConfig{Name: "gin"},
 			},
 			wantErr: false,
 		},
@@ -2223,10 +2223,10 @@ func TestConfig_Validate(t *testing.T) {
 						Path:    "logs/execution_audit.jsonl",
 					},
 				},
-				Coder1: CoderConfig{Name: "aka"},
-				Coder2: CoderConfig{Name: "ao"},
-				Coder3: CoderConfig{Name: "gin"},
-				Coder4: CoderConfig{Name: "kin"},
+				Coder1: CoderConfig{Name: "ao"},
+				Coder2: CoderConfig{Name: "aka"},
+				Coder3: CoderConfig{Name: "kin"},
+				Coder4: CoderConfig{Name: "gin"},
 			},
 			wantErr: false,
 		},
@@ -2321,10 +2321,10 @@ func TestConfig_Validate(t *testing.T) {
 					ModelConcurrency:  1,
 				},
 				Session: SessionConfig{StorageDir: "./data/sessions"},
-				Coder1:  CoderConfig{Name: "aka"},
-				Coder2:  CoderConfig{Name: "ao"},
-				Coder3:  CoderConfig{Name: "gin"},
-				Coder4:  CoderConfig{Name: "kin"},
+				Coder1:  CoderConfig{Name: "ao"},
+				Coder2:  CoderConfig{Name: "aka"},
+				Coder3:  CoderConfig{Name: "kin"},
+				Coder4:  CoderConfig{Name: "gin"},
 			},
 			wantErr: false,
 		},
@@ -2367,10 +2367,10 @@ func TestConfig_Validate_Distributed(t *testing.T) {
 			Session: SessionConfig{StorageDir: "./data"},
 		}
 		// Coder1-4 の最小限の設定（バリデーションを通すため）
-		cfg.Coder1.Name = "aka"
-		cfg.Coder2.Name = "ao"
-		cfg.Coder3.Name = "gin"
-		cfg.Coder4.Name = "kin"
+		cfg.Coder1.Name = "ao"
+		cfg.Coder2.Name = "aka"
+		cfg.Coder3.Name = "kin"
+		cfg.Coder4.Name = "gin"
 		return cfg
 	}
 
@@ -2425,10 +2425,10 @@ func TestConfig_Validate_IdleChat(t *testing.T) {
 			Session: SessionConfig{StorageDir: "./data"},
 		}
 		// Coder1-4 の最小限の設定（バリデーションを通すため）
-		cfg.Coder1.Name = "aka"
-		cfg.Coder2.Name = "ao"
-		cfg.Coder3.Name = "gin"
-		cfg.Coder4.Name = "kin"
+		cfg.Coder1.Name = "ao"
+		cfg.Coder2.Name = "aka"
+		cfg.Coder3.Name = "kin"
+		cfg.Coder4.Name = "gin"
 		return cfg
 	}
 
@@ -2817,11 +2817,11 @@ session:
 	if cfg.Coder1.Model != "deepseek-coder" {
 		t.Errorf("Coder1.Model: expected 'deepseek-coder', got '%s'", cfg.Coder1.Model)
 	}
-	if cfg.Coder1.Name != "aka" {
-		t.Errorf("Coder1.Name: expected 'aka', got '%s'", cfg.Coder1.Name)
+	if cfg.Coder1.Name != "ao" {
+		t.Errorf("Coder1.Name: expected 'ao', got '%s'", cfg.Coder1.Name)
 	}
-	if cfg.Coder1.DisplayName != "赤" {
-		t.Errorf("Coder1.DisplayName: expected '赤', got '%s'", cfg.Coder1.DisplayName)
+	if cfg.Coder1.DisplayName != "青" {
+		t.Errorf("Coder1.DisplayName: expected '青', got '%s'", cfg.Coder1.DisplayName)
 	}
 	if cfg.Coder1.LightMemory.MaxTurns != 3 {
 		t.Errorf("Coder1.LightMemory.MaxTurns: expected 3, got %d", cfg.Coder1.LightMemory.MaxTurns)
@@ -2834,11 +2834,11 @@ session:
 	if cfg.Coder2.Model != "gpt-4-turbo" {
 		t.Errorf("Coder2.Model: expected 'gpt-4-turbo', got '%s'", cfg.Coder2.Model)
 	}
-	if cfg.Coder2.Name != "ao" {
-		t.Errorf("Coder2.Name: expected 'ao', got '%s'", cfg.Coder2.Name)
+	if cfg.Coder2.Name != "aka" {
+		t.Errorf("Coder2.Name: expected 'aka', got '%s'", cfg.Coder2.Name)
 	}
-	if cfg.Coder2.DisplayName != "青" {
-		t.Errorf("Coder2.DisplayName: expected '青', got '%s'", cfg.Coder2.DisplayName)
+	if cfg.Coder2.DisplayName != "赤" {
+		t.Errorf("Coder2.DisplayName: expected '赤', got '%s'", cfg.Coder2.DisplayName)
 	}
 
 	// Coder3 デフォルト値検証
@@ -2848,11 +2848,11 @@ session:
 	if cfg.Coder3.Model != "claude-sonnet-4" {
 		t.Errorf("Coder3.Model: expected 'claude-sonnet-4', got '%s'", cfg.Coder3.Model)
 	}
-	if cfg.Coder3.Name != "gin" {
-		t.Errorf("Coder3.Name: expected 'gin', got '%s'", cfg.Coder3.Name)
+	if cfg.Coder3.Name != "kin" {
+		t.Errorf("Coder3.Name: expected 'kin', got '%s'", cfg.Coder3.Name)
 	}
-	if cfg.Coder3.DisplayName != "銀" {
-		t.Errorf("Coder3.DisplayName: expected '銀', got '%s'", cfg.Coder3.DisplayName)
+	if cfg.Coder3.DisplayName != "金" {
+		t.Errorf("Coder3.DisplayName: expected '金', got '%s'", cfg.Coder3.DisplayName)
 	}
 
 	// Coder4 デフォルト値検証
@@ -2862,11 +2862,11 @@ session:
 	if cfg.Coder4.Model != "gemini-2.0-flash-exp" {
 		t.Errorf("Coder4.Model: expected 'gemini-2.0-flash-exp', got '%s'", cfg.Coder4.Model)
 	}
-	if cfg.Coder4.Name != "kin" {
-		t.Errorf("Coder4.Name: expected 'kin', got '%s'", cfg.Coder4.Name)
+	if cfg.Coder4.Name != "gin" {
+		t.Errorf("Coder4.Name: expected 'gin', got '%s'", cfg.Coder4.Name)
 	}
-	if cfg.Coder4.DisplayName != "金" {
-		t.Errorf("Coder4.DisplayName: expected '金', got '%s'", cfg.Coder4.DisplayName)
+	if cfg.Coder4.DisplayName != "銀" {
+		t.Errorf("Coder4.DisplayName: expected '銀', got '%s'", cfg.Coder4.DisplayName)
 	}
 }
 
@@ -2887,12 +2887,12 @@ session:
   storage_dir: "./data/sessions"
 
 coder1:
-  name: "custom_aka"
-  display_name: "カスタム赤"
+  name: "custom_ao"
+  display_name: "カスタム青"
   provider: "deepseek"
   model: "deepseek-custom"
   api_key: "test-key-1"
-  personality: "あなたはカスタム赤。設計思考が得意。"
+  personality: "あなたはカスタム青。設計思考が得意。"
   tone: "analytical"
   light_memory:
     enabled: true
@@ -2900,12 +2900,12 @@ coder1:
   enabled: true
 
 coder4:
-  name: "custom_kin"
-  display_name: "カスタム金"
+  name: "custom_gin"
+  display_name: "カスタム銀"
   provider: "gemini"
   model: "gemini-pro"
   api_key: "test-key-4"
-  personality: "あなたはカスタム金。"
+  personality: "あなたはカスタム銀。"
   tone: "fast"
   light_memory:
     enabled: true
@@ -2924,11 +2924,11 @@ coder4:
 	}
 
 	// Coder1 カスタム値検証
-	if cfg.Coder1.Name != "custom_aka" {
-		t.Errorf("Coder1.Name: expected 'custom_aka', got '%s'", cfg.Coder1.Name)
+	if cfg.Coder1.Name != "custom_ao" {
+		t.Errorf("Coder1.Name: expected 'custom_ao', got '%s'", cfg.Coder1.Name)
 	}
-	if cfg.Coder1.DisplayName != "カスタム赤" {
-		t.Errorf("Coder1.DisplayName: expected 'カスタム赤', got '%s'", cfg.Coder1.DisplayName)
+	if cfg.Coder1.DisplayName != "カスタム青" {
+		t.Errorf("Coder1.DisplayName: expected 'カスタム青', got '%s'", cfg.Coder1.DisplayName)
 	}
 	if cfg.Coder1.Model != "deepseek-custom" {
 		t.Errorf("Coder1.Model: expected 'deepseek-custom', got '%s'", cfg.Coder1.Model)
@@ -2936,7 +2936,7 @@ coder4:
 	if cfg.Coder1.APIKey != "test-key-1" {
 		t.Errorf("Coder1.APIKey: expected 'test-key-1', got '%s'", cfg.Coder1.APIKey)
 	}
-	if cfg.Coder1.Personality != "あなたはカスタム赤。設計思考が得意。" {
+	if cfg.Coder1.Personality != "あなたはカスタム青。設計思考が得意。" {
 		t.Errorf("Coder1.Personality: unexpected value '%s'", cfg.Coder1.Personality)
 	}
 	if cfg.Coder1.Tone != "analytical" {
@@ -2953,11 +2953,11 @@ coder4:
 	}
 
 	// Coder4 カスタム値検証
-	if cfg.Coder4.Name != "custom_kin" {
-		t.Errorf("Coder4.Name: expected 'custom_kin', got '%s'", cfg.Coder4.Name)
+	if cfg.Coder4.Name != "custom_gin" {
+		t.Errorf("Coder4.Name: expected 'custom_gin', got '%s'", cfg.Coder4.Name)
 	}
-	if cfg.Coder4.DisplayName != "カスタム金" {
-		t.Errorf("Coder4.DisplayName: expected 'カスタム金', got '%s'", cfg.Coder4.DisplayName)
+	if cfg.Coder4.DisplayName != "カスタム銀" {
+		t.Errorf("Coder4.DisplayName: expected 'カスタム銀', got '%s'", cfg.Coder4.DisplayName)
 	}
 	if cfg.Coder4.Provider != "gemini" {
 		t.Errorf("Coder4.Provider: expected 'gemini', got '%s'", cfg.Coder4.Provider)
@@ -3121,10 +3121,10 @@ func TestConfig_Validate_LLMOps(t *testing.T) {
 			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
 			Session: SessionConfig{StorageDir: "./data"},
 		}
-		cfg.Coder1.Name = "aka"
-		cfg.Coder2.Name = "ao"
-		cfg.Coder3.Name = "gin"
-		cfg.Coder4.Name = "kin"
+		cfg.Coder1.Name = "ao"
+		cfg.Coder2.Name = "aka"
+		cfg.Coder3.Name = "kin"
+		cfg.Coder4.Name = "gin"
 		return cfg
 	}
 	t.Run("enabled without base_url", func(t *testing.T) {
@@ -3151,10 +3151,10 @@ func TestConfig_Validate_BrowserActor(t *testing.T) {
 			Ollama:  OllamaConfig{BaseURL: "http://localhost:11434", Model: "picoclaw-v1"},
 			Session: SessionConfig{StorageDir: "./data"},
 		}
-		cfg.Coder1.Name = "aka"
-		cfg.Coder2.Name = "ao"
-		cfg.Coder3.Name = "gin"
-		cfg.Coder4.Name = "kin"
+		cfg.Coder1.Name = "ao"
+		cfg.Coder2.Name = "aka"
+		cfg.Coder3.Name = "kin"
+		cfg.Coder4.Name = "gin"
 		cfg.setDefaults()
 		return cfg
 	}

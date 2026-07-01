@@ -15,7 +15,7 @@ function applyRoleTargetToMessage(message) {
   const selected = ROLE_TARGETS.find((target) => target.id === selectedRoleTargetID());
   if (!selected || selected.id === 'mio') return trimmed;
   if (selected.id === 'shiro') return '/ops ' + trimmed;
-  if (selected.id === 'coder1') return '/wild ' + trimmed;
+  if (selected.id === 'coder1') return '/code1 ' + trimmed;
   if (selected.id === 'coder2') return '/code2 ' + trimmed;
   if (selected.id === 'coder3') return '/code3 ' + trimmed;
   if (selected.id === 'coder4') return '/code4 ' + trimmed;

@@ -31,9 +31,10 @@ RenCrowは、**Chat（Mio）**、**Worker（Shiro）**、**Coder（Aka/Ao/Gin）
 |------|------|-----|------|
 | **Chat** | Mio（澪） | Ollama (Chat) | 全体オーケストレーター、ユーザー窓口 |
 | **Worker** | Shiro（白） | Ollama (Worker) | Coderオーケストレーター、実行担当 |
-| **Coder1** | Aka（赤） | DeepSeek | 仕様設計、アーキテクチャ検討 |
-| **Coder2** | Ao（青） | OpenAI | 実装、コード生成 |
-| **Coder3** | Gin（銀） | Anthropic Claude | 高品質コーディング、推論 |
+| **Coder1** | AO（青） | DeepSeek | 仕様設計、アーキテクチャ検討 |
+| **Coder2** | Aka（赤） | OpenAI | 実装、コード生成 |
+| **Coder3** | Kin（金） | Anthropic Claude | 高品質コーディング、推論 |
+| **Coder4** | Gin（銀） | Gemini | 高速プロトタイピング、実験 |
 
 ---
 
@@ -249,7 +250,7 @@ ollama:
 3. **Coder 達のオーケストレーター（自分自身も含む）**
    - Mio からの委譲を受ける
    - どの Coder を使うか決定
-   - Coder1（Aka）、Coder2（Ao）、Coder3（Gin）を統括
+   - Coder1（AO）、Coder2（Aka）、Coder3（Kin）、Coder4（Gin）を統括
    - Coder 達との会話・調整
    - **自分自身もコーディング能力を持つ**
 
@@ -269,9 +270,10 @@ ollama:
 
 #### Worker が指示を出す相手
 
-- ✅ **Coder1（Aka）**
-- ✅ **Coder2（Ao）**
-- ✅ **Coder3（Gin）**
+- ✅ **Coder1（AO）**
+- ✅ **Coder2（Aka）**
+- ✅ **Coder3（Kin）**
+- ✅ **Coder4（Gin）**
 
 #### Worker と Coder の会話例
 
@@ -353,9 +355,10 @@ worker:
 
 | Coder | 愛称 | LLM | 得意分野 | Temperature |
 |-------|------|-----|----------|-------------|
-| **Coder1** | Aka（赤） | DeepSeek | 仕様設計、アーキテクチャ検討 | 0.5 |
-| **Coder2** | Ao（青） | OpenAI | 実装、標準的なコード生成 | 0.4 |
-| **Coder3** | Gin（銀） | Claude | 高品質コーディング、複雑な推論 | 0.3 |
+| **Coder1** | AO（青） | DeepSeek | 仕様設計、アーキテクチャ検討 | 0.5 |
+| **Coder2** | Aka（赤） | OpenAI | 実装、標準的なコード生成 | 0.4 |
+| **Coder3** | Kin（金） | Claude | 高品質コーディング、複雑な推論 | 0.3 |
+| **Coder4** | Gin（銀） | Gemini | 高速プロトタイピング、実験 | 0.3 |
 
 #### Proposal フォーマット
 

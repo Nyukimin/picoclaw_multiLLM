@@ -12,7 +12,7 @@ RenCrow は Chat / Worker / Coder の三分割を最重要境界として扱う�
 | --- | --- | --- | --- |
 | Chat | Mio | ユーザー対話、ルーティング判断、結果返却、全体モニタリング | 破壊的操作、patch 適用、file / shell / git 実行 |
 | Worker | Shiro / Worker Core | 実行可否判断、Coder 選定、patch / command 実行、ログ記録、安全境界管理 | ユーザー向け自然対話の最終表現、Coder の提案生成 |
-| Coder | Aka / Ao / Gin / Kin | plan / patch / proposal 生成、設計説明、複数案提示 | 採用決定、正本ブランチ管理、破壊的操作の直接実行 |
+| Coder | AO / Aka / Kin / Gin | plan / patch / proposal 生成、設計説明、複数案提示 | 採用決定、正本ブランチ管理、破壊的操作の直接実行 |
 
 ## LLM alias 境界
 
@@ -65,10 +65,10 @@ adapter input
 | `OPS` | 運用 | Worker が安全境界内で実行する |
 | `RESEARCH` | 調査 | 外部検索や情報収集を行う |
 | `CODE` | Coder 自動選択 | Worker が Coder を選ぶ |
-| `CODE1` | Aka / DeepSeek | 仕様設計寄り |
-| `CODE2` | Ao / OpenAI | 実装寄り |
-| `CODE3` | Gin / Claude | 高品質推論・複雑作業 |
-| `CODE4` | Kin / Gemini | 補助 Coder 枠 |
+| `CODE1` | AO / DeepSeek | 仕様設計寄り |
+| `CODE2` | Aka / OpenAI | 実装寄り |
+| `CODE3` | Kin / Claude | 高品質推論・複雑作業 |
+| `CODE4` | Gin / Gemini | 補助 Coder 枠 |
 
 明示コマンド、ルール辞書、分類器、安全側 fallback の順で route を決める。
 
