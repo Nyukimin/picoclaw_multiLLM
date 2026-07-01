@@ -289,3 +289,58 @@ GOCACHE=/tmp/picoclaw-gocache go test ./modules/core ./cmd/picoclaw
 | module endpoint 非削除 | `/viewer/modules/*` endpoint が消えていない |
 | テスト | 代表テストコマンドが通る |
 | push | 日本語 commit message で push し、remote HEAD を RenCrow_CORE Ver0.80 起点として説明できる |
+
+## RenCrow_CORE Public repo 起点化準備チェック
+
+このチェックは、新規 Public repository `RenCrow_CORE` を作成する前の準備であり、この資料だけで公開 repo への投入を実行しない。
+
+### 起点
+
+- `picoclaw_multiLLM` 現ブランチの push 済み HEAD を Ver0.80 seed / staging source とする。
+- registrar handoff、代表テスト、非削除チェック、docs 同期が push 済みであることを前提にする。
+- PR 作成ではなく、新規 Public repo 初期投入の source snapshot として扱う。
+
+### 除外候補
+
+Public repo へ投入する前に、次を除外または公開可否確認する。
+
+- secret / token / API key / private key
+- local config / machine-local path / user-local setting
+- runtime cache / generated artifact / binary / large file
+- logs / session dump / test evidence artifact
+- private-only docs / private prompt / private dataset
+- `.env`、`.pem`、`.key`、`config.yaml` 実体、`logs/`、`tmp/`、runtime DB
+
+### 事前確認コマンド
+
+```bash
+git status --short --branch
+GOCACHE=/tmp/picoclaw-gocache go test ./cmd/picoclaw ./internal/features/... ./internal/adapter/viewer ./modules/...
+git diff --check
+git ls-files | rg '(^|/)(\\.env|config\\.yaml|.*\\.pem|.*\\.key|logs/|tmp/|cache|artifact|\\.db$)'
+rg -n '(api[_-]?key|secret|token|password|sk-[A-Za-z0-9]|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY)' --glob '!vendor/**' --glob '!node_modules/**' --glob '!logs/**' --glob '!tmp/**'
+```
+
+### 現ブランチで確認済みの公開前レビュー候補
+
+2026-07-01 の tracked file 名ベース確認では、次が RenCrow_CORE Public repo 投入前のレビュー候補として出ている。これは削除指示ではなく、公開範囲制御または公開可否判断の対象である。
+
+- `config.yaml`
+- `.env.example`
+- `config.yaml.example`
+- `config/config.yaml.example`
+- `tmp/stt_inputs/*`
+- `tmp/stt_test_*`
+- `tmp/viewer_test_recording_script*.md`
+- `docs/archive/unreferenced_20260701/STT_TTS/tmp/*`
+- `docs/refs/STT_TTS/tmp/*`
+- `artifact` / `cache` を名前に含む source or docs
+
+Public repo 投入前に、上記が sample / fixture / docs として公開可能か、または export から除外すべきかを決める。
+
+### 起点化完了条件
+
+- remote HEAD が Ver0.80 seed として説明できる。
+- 既存機能非削除チェック表にある route / CLI / Viewer tab / background job / module endpoint が落ちていない。
+- `modules/README.md`、`modules/CURRENT_MAP.md`、`internal/features/README.md` が HEAD の状態と矛盾しない。
+- Public repo 投入時に除外するものが、削除ではなく公開範囲の制御として説明できる。
