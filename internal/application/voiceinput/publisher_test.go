@@ -1,6 +1,7 @@
 package voiceinput
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -69,6 +70,41 @@ func TestPublisherPublishesUserTextAndReplyOnly(t *testing.T) {
 	if logger.user != "Mioさんいますか" || logger.assistant != "はい、います。" {
 		t.Fatalf("unexpected session log content: user=%q assistant=%q", logger.user, logger.assistant)
 	}
+}
+
+func TestPublisherMarksVoiceInputAsVoiceChatSurface(t *testing.T) {
+	emitter := &recordingEmitter{}
+	publisher := Publisher{
+		Events:   emitter,
+		NewJobID: func() string { return "job-1" },
+	}
+	_, err := publisher.Publish(Result{
+		Mode:        ModeLLM,
+		UtteranceID: "utt-1",
+		SessionID:   "viewer",
+		Channel:     "viewer",
+		ChatID:      "default",
+		Reply:       "はい。",
+		RawFinal:    "はい。",
+		Source:      "RenCrow_LLM llm.final",
+		Timings:     Timings{StartedAt: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
+	for _, ev := range emitter.events {
+		if ev.Type != "routing.decision" {
+			continue
+		}
+		if !strings.Contains(ev.Content, "surface=voice_chat") || !strings.Contains(ev.Content, "target_agent=mio") || !strings.Contains(ev.Content, "provider_alias=Chat") {
+			t.Fatalf("routing decision should preserve voice_chat surface and target/provider: %#v", ev)
+		}
+		if !strings.Contains(ev.Content, "evidence=voice_direct") {
+			t.Fatalf("routing decision should preserve voice_direct transport evidence: %#v", ev)
+		}
+		return
+	}
+	t.Fatalf("missing routing.decision event: %#v", emitter.events)
 }
 
 func TestPublisherDoesNotPublishRawJSONAsChatContent(t *testing.T) {

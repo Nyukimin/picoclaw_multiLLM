@@ -59,7 +59,12 @@ test('viewer sends STT start control before streaming audio chunks', () => {
 test('viewer voice chat sends final text only in normal timeline chat without stopping capture on idle view', () => {
   const js = fs.readFileSync('internal/adapter/viewer/assets/js/viewer.js', 'utf8');
   assert.match(js, /let activeViewerTab = 'home'/);
-  assert.match(js, /function isVoiceChatAllowed\(\) \{\s*return activeViewerTab === 'timeline' && !document\.body\.classList\.contains\('live-mode'\);/);
+  const allowedStart = js.indexOf('function isVoiceChatAllowed()');
+  const allowedEnd = js.indexOf('function normalizeVoiceInputMode', allowedStart);
+  assert.ok(allowedStart >= 0 && allowedEnd > allowedStart, 'isVoiceChatAllowed block not found');
+  const allowedSource = js.slice(allowedStart, allowedEnd);
+  assert.match(allowedSource, /if \(isLabInputSurfaceActive\(\)\) return true/);
+  assert.match(allowedSource, /return activeViewerTab === 'timeline' && !document\.body\.classList\.contains\('live-mode'\)/);
   assert.match(js, /function ensureVoiceChatForMobileControl\(\) \{/);
   assert.match(js, /switchTab\('timeline'\);/);
   const switchTabStart = js.indexOf('function switchTab(tab) {');
@@ -67,7 +72,7 @@ test('viewer voice chat sends final text only in normal timeline chat without st
   assert.ok(switchTabStart >= 0 && switchTabEnd > switchTabStart, 'switchTab block not found');
   const switchTabSource = js.slice(switchTabStart, switchTabEnd);
   assert.doesNotMatch(switchTabSource, /stopSTT\(\)/);
-  assert.match(js, /micBtn\.disabled = \(!!microphoneUnavailable && !sttState\.isRecording\) \|\| isSTTTestRecording\(\)/);
+  assert.match(js, /btn\.disabled = \(!!microphoneUnavailable && !sttState\.isRecording\) \|\| isSTTTestRecording\(\)/);
   assert.match(js, /if \(!ensureVoiceChatForMobileControl\(\)\) \{\s*showToast\('音声入力は通常チャットでのみ有効です', 'error'\);/);
   assert.match(js, /if \(!isVoiceChatAllowed\(\)\) \{\s*console\.warn\('\[STT\] Final ignored outside normal chat:', finalText\);/);
 });
@@ -79,7 +84,7 @@ test('viewer marks microphone unavailable on insecure origins before getUserMedi
   assert.match(js, /window\.isSecureContext === false/);
   assert.match(js, /HTTPSまたはlocalhostでViewerを開いてください/);
   assert.match(js, /typeof navigator === 'undefined' \|\| !navigator\.mediaDevices \|\| typeof navigator\.mediaDevices\.getUserMedia !== 'function'/);
-  assert.match(js, /micBtn\.disabled = \(!!microphoneUnavailable && !sttState\.isRecording\) \|\| isSTTTestRecording\(\)/);
+  assert.match(js, /btn\.disabled = \(!!microphoneUnavailable && !sttState\.isRecording\) \|\| isSTTTestRecording\(\)/);
   assert.match(js, /Mic: unavailable/);
   assert.match(js, /describeSTTActionError\('STT microphone start unavailable', microphoneUnavailable\)/);
   assert.match(css, /\.stt-state\.mic-unavailable/);
@@ -334,7 +339,7 @@ test('viewer renders live microphone input level on the mic button', () => {
   assert.match(js, /const level = calculateSTTInputLevel\(pcm16\)/);
   assert.match(js, /updateSTTInputLevel\(level\)/);
   assert.match(js, /handleSTTVADFrame\(pcm16, level\)/);
-  assert.match(js, /micBtn\.style\.setProperty\('--mic-level-pct'/);
+  assert.match(js, /btn\.style\.setProperty\('--mic-level-pct'/);
   assert.match(js, /updateSTTInputLevel\(0\);/);
   assert.match(css, /#micBtn\.has-level/);
   assert.match(css, /var\(--mic-level-pct\)/);

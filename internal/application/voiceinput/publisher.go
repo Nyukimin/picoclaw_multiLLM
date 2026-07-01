@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+const (
+	SurfaceVoiceChat       = "voice_chat"
+	VoiceDirectEvidenceKey = "voice_direct"
+)
+
 type EventEmitter interface {
 	Emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string)
 }
@@ -48,7 +53,12 @@ func (p Publisher) Publish(result Result) (PublishResult, error) {
 			"routing.decision",
 			"mio",
 			"",
-			fmt.Sprintf("confidence 100%% evidence=voice_direct:matched:CHAT utterance_id=%s", result.UtteranceID),
+			fmt.Sprintf(
+				"confidence 100%% surface=%s target_agent=mio provider_alias=Chat evidence=%s:matched:CHAT utterance_id=%s",
+				SurfaceVoiceChat,
+				VoiceDirectEvidenceKey,
+				result.UtteranceID,
+			),
 			"CHAT",
 			jobID,
 			result.SessionID,
@@ -56,8 +66,9 @@ func (p Publisher) Publish(result Result) (PublishResult, error) {
 			result.ChatID,
 		)
 		if p.EmitMetric != nil {
-			p.EmitMetric("llm", "route_decision", result.Timings.StartedAt, "CHAT", jobID, result.SessionID, result.Channel, result.ChatID, "voice_direct")
-			p.EmitMetric("llm", "dispatch_start", result.Timings.StartedAt, "CHAT", jobID, result.SessionID, result.Channel, result.ChatID, "voice_direct")
+			detail := fmt.Sprintf("surface=%s source=%s", SurfaceVoiceChat, VoiceDirectEvidenceKey)
+			p.EmitMetric("llm", "route_decision", result.Timings.StartedAt, "CHAT", jobID, result.SessionID, result.Channel, result.ChatID, detail)
+			p.EmitMetric("llm", "dispatch_start", result.Timings.StartedAt, "CHAT", jobID, result.SessionID, result.Channel, result.ChatID, detail)
 		}
 		p.Events.Emit("agent.response", "mio", "user", result.Reply, "CHAT", jobID, result.SessionID, result.Channel, result.ChatID)
 		if p.EmitMetric != nil {

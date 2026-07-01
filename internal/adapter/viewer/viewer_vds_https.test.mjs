@@ -194,7 +194,13 @@ test('viewer vds_sub does not abort while waiting for final', () => {
 test('viewer mic button routes through voice input mode dispatcher', () => {
   assert.match(js, /function toggleVoiceInput\(\)/);
   assert.match(js, /if \(isVDSSubMode\(\)\)/);
-  assert.match(js, /micBtn\.addEventListener\('click', \(\) => \{\s*interruptIdleChatForUserInput\('stt_button'\);\s*toggleVoiceInput\(\);/s);
+  const clickStart = js.indexOf('function handleMicButtonClick()');
+  const clickEnd = js.indexOf('if (micBtn) micBtn.addEventListener', clickStart);
+  assert.ok(clickStart >= 0 && clickEnd > clickStart, 'handleMicButtonClick block not found');
+  const clickSource = js.slice(clickStart, clickEnd);
+  assert.match(clickSource, /interruptIdleChatForUserInput\('stt_button'\)/);
+  assert.match(clickSource, /toggleVoiceInput\(\)/);
+  assert.match(js, /if \(micBtn\) micBtn\.addEventListener\('click', handleMicButtonClick\)/);
 });
 
 test('viewer stt_primary keeps STT start control unchanged', () => {

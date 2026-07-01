@@ -13,10 +13,10 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/task"
 )
 
-const voiceDirectReason = "voice_direct"
+const voiceChatSurfaceReason = voiceinput.SurfaceVoiceChat
 
-// ProcessVoiceDirectRequest は VDS 確定後の orchestrator 連携入力。
-// Phase 1 では RenCrow_LLM WS が推論し、picoclaw は FinalText を受け取って SSE を出す。
+// ProcessVoiceDirectRequest は voice_chat surface の input_audio/VDS 確定後の orchestrator 連携入力。
+// Phase 1 では RenCrow_LLM WS が推論し、picoclaw は FinalText を受け取って Chat SSE を出す。
 type ProcessVoiceDirectRequest struct {
 	UtteranceID   string
 	SessionID     string
@@ -75,8 +75,8 @@ func validateProcessVoiceDirectRequest(req ProcessVoiceDirectRequest) error {
 	return nil
 }
 
-// ProcessVoiceDirect は LLM WS 推論完了後に Chat SSE イベントを発行する。
-// STT / Mio.Chat / IdleChat には触れない。
+// ProcessVoiceDirect は LLM WS 推論完了後に voice_chat surface の Chat SSE イベントを発行する。
+// 追加の Mio.Chat LLM 呼び出しはせず、target_agent=Mio / route=CHAT の会話イベントへ正規化する。
 func (o *MessageOrchestrator) ProcessVoiceDirect(ctx context.Context, req ProcessVoiceDirectRequest) (ProcessMessageResponse, error) {
 	if o == nil {
 		return ProcessMessageResponse{}, errors.New("message orchestrator is nil")
@@ -108,7 +108,7 @@ func (o *MessageOrchestrator) ProcessVoiceDirect(ctx context.Context, req Proces
 	if err != nil {
 		return ProcessMessageResponse{}, err
 	}
-	decision := routing.NewDecision(routing.RouteCHAT, 1.0, voiceDirectReason)
+	decision := routing.NewDecision(routing.RouteCHAT, 1.0, voiceChatSurfaceReason)
 
 	published, err := voiceinput.Publisher{
 		Events:     o.events,

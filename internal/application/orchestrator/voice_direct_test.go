@@ -48,8 +48,11 @@ func TestProcessVoiceDirect_EmitsRoutingDecisionAndAgentResponse(t *testing.T) {
 	if decisionIdx >= responseIdx {
 		t.Fatalf("routing.decision should precede agent.response: decision=%d response=%d", decisionIdx, responseIdx)
 	}
-	if !strings.Contains(rec.events[decisionIdx].Content, "voice_direct") {
-		t.Fatalf("routing.decision should mention voice_direct: %#v", rec.events[decisionIdx])
+	if !strings.Contains(rec.events[decisionIdx].Content, "surface=voice_chat") {
+		t.Fatalf("routing.decision should mention voice_chat surface: %#v", rec.events[decisionIdx])
+	}
+	if !strings.Contains(rec.events[decisionIdx].Content, "evidence=voice_direct") {
+		t.Fatalf("routing.decision should preserve voice_direct evidence: %#v", rec.events[decisionIdx])
 	}
 }
 

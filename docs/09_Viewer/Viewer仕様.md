@@ -246,6 +246,8 @@ TTS読み上げの現在発話表示は、最終的に `tts.audio_chunk` のchun
 ## 12. STT UI
 
 Viewer はSTT補助UIを持つ。
+通常の音声入力は `voice_chat` surface として扱い、STT final は Viewer のテキスト入力と同じ Chat surface へ送る。
+つまり、入口は音声でも target agent / provider alias の規則は `viewer_chat` と同じである。
 
 主な機能:
 
@@ -254,6 +256,27 @@ Viewer はSTT補助UIを持つ。
 - STTログ送信
 - 入力WAV保存
 - STT自動テスト起動
+
+通常会話の経路:
+
+```text
+Viewer mic
+  -> /stt
+  -> STT final
+  -> /viewer/send
+  -> target agent conversation
+```
+
+Voice Direct / input_audio 経路:
+
+```text
+Viewer mic
+  -> /voice-chat
+  -> ProcessVoiceDirect
+  -> Chat SSE event
+```
+
+`/stt-ws` と `/voice-chat-ws` は互換 alias であり、Viewer の正本経路は `/stt` と `/voice-chat` である。
 
 ### 12.1 Ops テスト録音（ゴールデンサンプル作成）
 
