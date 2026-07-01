@@ -1,0 +1,32 @@
+﻿parameter_id,min,max,default,description
+ParamAngleX,-30,30,0,Face horizontal turn
+ParamAngleY,-30,30,0,Face vertical turn
+ParamAngleZ,-30,30,0,Head tilt
+ParamBodyAngleX,-15,15,0,Body horizontal turn
+ParamBodyAngleY,-10,10,0,Body vertical movement
+ParamBodyAngleZ,-10,10,0,Body tilt
+ParamEyeLOpen,0,1,1,Left eye open/close
+ParamEyeROpen,0,1,1,Right eye open/close
+ParamEyeBallX,-1,1,0,Eye gaze X
+ParamEyeBallY,-1,1,0,Eye gaze Y
+ParamBrowLY,-1,1,0,Left brow Y
+ParamBrowRY,-1,1,0,Right brow Y
+ParamBrowLForm,-1,1,0,Left brow form
+ParamBrowRForm,-1,1,0,Right brow form
+ParamMouthOpenY,0,1,0,Mouth open / lip sync
+ParamMouthForm,-1,1,0,Mouth smile-pout form
+ParamCheek,0,1,0,Blush strength
+ParamBreath,0,1,0,Breathing loop
+ParamArmL,-1,1,0,Left arm pose blend
+ParamArmR,-1,1,0,Right arm pose blend
+ParamHandL,0,1,0,Left hand V-sign emphasis
+ParamHandR,0,1,0,Right hand open emphasis
+ParamLegL,-1,1,0,Left leg slight pose
+ParamLegR,-1,1,0,Right leg slight pose
+ParamHairFront,-1,1,0,Front hair sway
+ParamHairSideL,-1,1,0,Left side hair sway
+ParamHairSideR,-1,1,0,Right side hair sway
+ParamAhoge,-1,1,0,Ahoge bounce
+ParamSkirt,-1,1,0,Skirt sway
+ParamCharm,-1,1,0,Charms swing
+ParamBag,-1,1,0,Bag swing

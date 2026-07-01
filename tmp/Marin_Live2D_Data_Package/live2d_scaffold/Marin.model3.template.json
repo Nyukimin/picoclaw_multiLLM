@@ -1,0 +1,84 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "Marin.moc3",
+    "Textures": [
+      "Marin.4096/texture_00.png"
+    ],
+    "Physics": "Marin.physics3.json",
+    "Expressions": [
+      {
+        "Name": "normal_genki",
+        "File": "expressions/normal_genki.exp3.json"
+      },
+      {
+        "Name": "wink",
+        "File": "expressions/wink.exp3.json"
+      },
+      {
+        "Name": "surprise",
+        "File": "expressions/surprise.exp3.json"
+      },
+      {
+        "Name": "pout",
+        "File": "expressions/pout.exp3.json"
+      },
+      {
+        "Name": "smile_niconico",
+        "File": "expressions/smile_niconico.exp3.json"
+      },
+      {
+        "Name": "thinking",
+        "File": "expressions/thinking.exp3.json"
+      },
+      {
+        "Name": "trouble",
+        "File": "expressions/trouble.exp3.json"
+      },
+      {
+        "Name": "max_energy",
+        "File": "expressions/max_energy.exp3.json"
+      }
+    ],
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/idle_01.motion3.json"
+        }
+      ],
+      "TapBody": [
+        {
+          "File": "motions/pop_react_01.motion3.json"
+        }
+      ]
+    },
+    "DisplayInfo": "Marin.cdi3.json"
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthOpenY"
+      ]
+    }
+  ],
+  "HitAreas": [
+    {
+      "Id": "HitAreaHead",
+      "Name": "Head"
+    },
+    {
+      "Id": "HitAreaBody",
+      "Name": "Body"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+﻿expression_id,target_parameters,description
+normal_genki,"ParamEyeLOpen=1, ParamEyeROpen=1, ParamMouthForm=0.4, ParamMouthOpenY=0.35, ParamBrowLY=0.1, ParamBrowRY=0.1",元気な通常顔
+wink,"ParamEyeLOpen=1, ParamEyeROpen=0, ParamMouthForm=0.7, ParamMouthOpenY=0.45",片目ウインク
+surprise,"ParamEyeLOpen=1, ParamEyeROpen=1, ParamMouthForm=0.0, ParamMouthOpenY=0.55, ParamBrowLY=0.5, ParamBrowRY=0.5",驚き
+pout,"ParamEyeLOpen=0.75, ParamEyeROpen=0.75, ParamMouthForm=-0.8, ParamMouthOpenY=0.05, ParamBrowLForm=-0.3, ParamBrowRForm=-0.3",むすっ
+smile_niconico,"ParamEyeLOpen=0.15, ParamEyeROpen=0.15, ParamMouthForm=1, ParamMouthOpenY=0.45, ParamCheek=0.8",ニコニコ
+thinking,"ParamEyeLOpen=0.9, ParamEyeROpen=0.9, ParamMouthForm=-0.1, ParamMouthOpenY=0.05, ParamBrowLY=-0.2, ParamBrowRY=-0.2",考え中
+trouble,"ParamEyeLOpen=0.85, ParamEyeROpen=0.85, ParamMouthForm=-0.4, ParamMouthOpenY=0.18, ParamBrowLY=-0.45, ParamBrowRY=-0.45",困る
+max_energy,"ParamEyeLOpen=1, ParamEyeROpen=1, ParamMouthForm=0.8, ParamMouthOpenY=0.65, ParamArmR=0.8, ParamCheek=0.6",やる気MAX

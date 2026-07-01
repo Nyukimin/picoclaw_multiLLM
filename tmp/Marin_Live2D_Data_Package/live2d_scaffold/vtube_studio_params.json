@@ -1,0 +1,16 @@
+{
+  "tracking_target": "VTube Studio generic Live2D parameters",
+  "recommended_mapping": {
+    "FaceAngleX": "ParamAngleX",
+    "FaceAngleY": "ParamAngleY",
+    "FaceAngleZ": "ParamAngleZ",
+    "EyeOpenLeft": "ParamEyeLOpen",
+    "EyeOpenRight": "ParamEyeROpen",
+    "EyeX": "ParamEyeBallX",
+    "EyeY": "ParamEyeBallY",
+    "MouthOpen": "ParamMouthOpenY",
+    "MouthSmile": "ParamMouthForm",
+    "BrowLeftY": "ParamBrowLY",
+    "BrowRightY": "ParamBrowRY"
+  }
+}

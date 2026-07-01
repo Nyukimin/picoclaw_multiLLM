@@ -1,0 +1,41 @@
+{
+  "Version": 3,
+  "Meta": {
+    "PhysicsSettingCount": 5,
+    "TotalInputCount": 10,
+    "TotalOutputCount": 8,
+    "VertexCount": 0,
+    "EffectiveForces": {
+      "Gravity": {
+        "X": 0,
+        "Y": -1
+      },
+      "Wind": {
+        "X": 0,
+        "Y": 0
+      }
+    }
+  },
+  "PhysicsSettings": [
+    {
+      "Id": "Physics_HairFront",
+      "Note": "Template only. Configure in Cubism after rigging."
+    },
+    {
+      "Id": "Physics_SideHair",
+      "Note": "Template only. Configure in Cubism after rigging."
+    },
+    {
+      "Id": "Physics_Ahoge",
+      "Note": "Template only. Configure in Cubism after rigging."
+    },
+    {
+      "Id": "Physics_Skirt",
+      "Note": "Template only. Configure in Cubism after rigging."
+    },
+    {
+      "Id": "Physics_Charms",
+      "Note": "Template only. Configure in Cubism after rigging."
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+﻿group,layer_name,part,blend_mode,main_parameters,draw_order,notes
+root,00_Guide_FullBody,Reference only,Hidden in PSD export,-,-,Keep locked; do not import as art mesh
+root,00_Guide_CutLines,Reference only,Hidden in PSD export,-,-,Use guide for redraw and separation
+head,Head_Base,face base / skin,Normal,ParamAngleX/Y/Z,300,Include hidden cheeks under hair
+head,Neck,neck skin,Normal,ParamBodyAngleX/Y,260,Separate from torso
+hair,Hair_Back,back hair mass,Multiply/Normal,"ParamHairBack, physics",120,Behind head and body
+hair,Hair_Side_L,left side hair,Normal,"ParamHairSideL, physics",390,Add hidden root under bangs
+hair,Hair_Side_R,right side hair,Normal,"ParamHairSideR, physics",390,Add hidden root under bangs
+hair,Hair_Front,front bangs,Normal,"ParamHairFront, physics",620,Covers forehead and glasses partly
+hair,Ahoge,top hair loop,Normal,"ParamAhoge, physics",650,Independent physics recommended
+face,Ear_L,left ear,Normal,ParamAngleX,310,Behind side hair
+face,Ear_R,right ear,Normal,ParamAngleX,310,Behind side hair
+face,EyeWhite_L,left eye white,Normal,"ParamEyeLOpen, ParamEyeBallX/Y",710,
+face,Iris_L,left iris,Normal,ParamEyeBallX/Y,720,
+face,EyeHighlight_L,left eye highlight,Screen/Normal,ParamEyeBallX/Y,730,
+face,Eyelid_Upper_L,left upper lid,Normal,ParamEyeLOpen,740,
+face,Eyelid_Lower_L,left lower lid,Normal,ParamEyeLOpen,735,
+face,EyeWhite_R,right eye white,Normal,"ParamEyeROpen, ParamEyeBallX/Y",710,
+face,Iris_R,right iris,Normal,ParamEyeBallX/Y,720,
+face,EyeHighlight_R,right eye highlight,Screen/Normal,ParamEyeBallX/Y,730,
+face,Eyelid_Upper_R,right upper lid,Normal,ParamEyeROpen,740,
+face,Eyelid_Lower_R,right lower lid,Normal,ParamEyeROpen,735,
+face,Eyebrow_L,left brow,Normal,ParamBrowLY/R/A,760,
+face,Eyebrow_R,right brow,Normal,ParamBrowRY/R/A,760,
+face,Nose,nose,Normal,ParamAngleX/Y,765,Small shadow layer optional
+mouth,Mouth_Line,mouth line,Normal,ParamMouthOpenY/Form,780,
+mouth,Mouth_Inside,mouth inside,Normal,ParamMouthOpenY,770,
+mouth,Tongue_Teeth,tongue / teeth,Normal,ParamMouthOpenY/Form,775,Separate if detailed lip-sync
+accessory,Glasses_Frame,red glasses frame,Normal,ParamAngleX/Y/Z,820,Separate L/R temples if high quality
+accessory,HairPins_Stars,star hairpins,Normal,"ParamAngleZ, hair physics follow",830,
+accessory,Ribbon_Bow,purple-pink bow,Normal,ParamHairAccessory,850,Star charm separate optional
+body,Torso_Base,body base,Normal,"ParamBodyAngleX/Y/Z, Breath",250,Skin under cropped top should exist
+clothes,Shirt_POP,black/pink POP shirt,Normal,ParamBodyAngleX/Y/Z,430,
+clothes,Jacket_Back,hoodie back,Normal,ParamBodyAngleX/Y/Z,300,
+clothes,Jacket_Left,left jacket side,Normal,ParamBodyAngleX/Y/Z,520,
+clothes,Jacket_Right,right jacket side,Normal,ParamBodyAngleX/Y/Z,520,
+arms,UpperArm_L,left upper arm,Normal,ParamArmL,460,2 arms total
+arms,ForeArm_L,left forearm,Normal,ParamArmL,470,
+arms,Hand_L_Vsign,left hand V-sign,Normal,ParamHandL,790,5 fingers total; V-sign index/middle visible
+arms,UpperArm_R,right upper arm,Normal,ParamArmR,460,2 arms total
+arms,ForeArm_R,right forearm,Normal,ParamArmR,470,
+arms,Hand_R_Open,right open hand,Normal,ParamHandR,790,5 fingers visible / implied
+clothes,Skirt_Back,skirt rear frills,Normal,"ParamBodyAngleZ, physics",330,
+clothes,Skirt_Front,pink check skirt front,Normal,"ParamBodyAngleZ, physics",610,
+clothes,Belt,black belt,Normal,ParamBodyAngleZ,640,
+clothes,Chain_Charms,chain / star charm,Normal,"ParamCharm, physics",850,Independent swinging physics
+legs,Thigh_L,left thigh,Normal,ParamLegL,210,2 legs total
+legs,Knee_L,left knee,Normal,ParamLegL,220,
+legs,Calf_L,left calf / sock,Normal,ParamLegL,230,
+legs,Shoe_L,left sneaker,Normal,ParamLegL,310,
+legs,Thigh_R,right thigh,Normal,ParamLegR,210,2 legs total
+legs,Knee_R,right knee,Normal,ParamLegR,220,
+legs,Calf_R,right calf / sock,Normal,ParamLegR,230,
+legs,Shoe_R,right sneaker,Normal,ParamLegR,310,
+accessory,Bag_Base,small shoulder bag,Normal,"ParamBag, physics",700,Connected to strap
+accessory,Bag_Strap,bag strap,Normal,"ParamBodyAngleZ, physics",690,
+accessory,Bag_Charms,bag charms,Normal,"ParamCharm, physics",860,

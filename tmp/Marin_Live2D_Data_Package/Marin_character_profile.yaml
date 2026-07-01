@@ -1,0 +1,39 @@
+# Marin Live2D character profile
+character:
+  id: marin_pop_wild_chibi
+  display_name: Marin / マリン
+  style: 3頭身 chibi pop-idol / creator-agent
+  age_look: 16
+  height_setting: 148cm
+  role: Wild（創造・ビジュアル・横展開）
+  catchphrase: 「ひらめきは、いつだってPOPに生きてるよ☆」
+  base_pose: front, energetic, left hand V-sign, right hand open
+  anatomy_constraints:
+    legs: 2
+    arms: 2
+    fingers_per_hand: 5
+    notes: "Live2D化では手足を追加しない。隠れ指は形として implied で処理する。"
+visual:
+  hair: silver short bob with ahoge
+  eyes: warm brown / large chibi eyes
+  glasses: red round glasses
+  outfit: white pop jacket, black/pink POP shirt, pink check skirt, platform sneakers
+  main_colors:
+    hot_pink: "#FF40A6"
+    purple: "#8A3FFC"
+    mint: "#6FE7D5"
+    yellow: "#FFD940"
+    white: "#FFFFFF"
+    black: "#1A1A1A"
+rigging:
+  target: Live2D Cubism 5 compatible layered PSD
+  recommended_canvas: 3000x4500 px
+  recommended_texture_atlas: 4096x4096 or 8192x8192
+  tracking_target: VTube Studio / generic face tracking
+  physics_targets:
+    - hair_front
+    - side_hair
+    - ahoge
+    - skirt
+    - chain_charms
+    - bag_charms

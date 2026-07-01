@@ -1,0 +1,25 @@
+{
+  "package": "Marin_Live2D_Data_Package",
+  "created_at": "2026-07-01T04:13:45.179665",
+  "source_image": "references/Marin_sheet_source.png",
+  "status": "production_spec_and_reference_package",
+  "important_note": "This is not a finished .moc3 Live2D model. It is a Live2D production handoff package for layered PSD creation and rigging.",
+  "anatomy": {
+    "arms": 2,
+    "legs": 2,
+    "fingers_per_hand": 5
+  },
+  "required_next_assets": [
+    "Layered PSD redrawn/separated from the reference",
+    "Cubism .cmo3 working file",
+    "Exported .moc3 + .model3.json + textures"
+  ],
+  "files": {
+    "parts_list": "tables/parts_layer_list.csv",
+    "parameters": "tables/parameter_table.csv",
+    "expressions": "tables/expression_table.csv",
+    "draw_order": "tables/draw_order_table.csv",
+    "profile": "Marin_character_profile.yaml",
+    "model3_template": "live2d_scaffold/Marin.model3.template.json"
+  }
+}

@@ -1,0 +1,59 @@
+Marin_Live2D.psd layer tree proposal
+
+00_Guide
+  00_Guide_FullBody [hidden]
+  00_Guide_CutLines [hidden]
+
+10_Back
+  Hair_Back
+  Jacket_Back
+  Skirt_Back
+
+20_Body
+  Neck
+  Torso_Base
+  Thigh_L / Knee_L / Calf_L / Shoe_L
+  Thigh_R / Knee_R / Calf_R / Shoe_R
+
+30_Clothes
+  Shirt_POP
+  Jacket_Left
+  Jacket_Right
+  Skirt_Front
+  Belt
+  Chain_Charms
+  Bag_Strap
+  Bag_Base
+  Bag_Charms
+
+40_Arms
+  UpperArm_L
+  ForeArm_L
+  Hand_L_Vsign
+  UpperArm_R
+  ForeArm_R
+  Hand_R_Open
+
+50_Head
+  Ear_L
+  Ear_R
+  Head_Base
+  EyeWhite_L / Iris_L / EyeHighlight_L / Eyelid_Upper_L / Eyelid_Lower_L
+  EyeWhite_R / Iris_R / EyeHighlight_R / Eyelid_Upper_R / Eyelid_Lower_R
+  Eyebrow_L
+  Eyebrow_R
+  Nose
+  Mouth_Inside
+  Tongue_Teeth
+  Mouth_Line
+
+60_Hair_Front
+  Hair_Side_L
+  Hair_Side_R
+  Hair_Front
+  Ahoge
+
+70_Accessories
+  Glasses_Frame
+  HairPins_Stars
+  Ribbon_Bow
