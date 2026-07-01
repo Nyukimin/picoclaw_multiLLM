@@ -4,6 +4,21 @@
 対象: `picoclaw_multiLLM`
 位置づけ: RenCrow_CORE Ver0.80 の機能モジュール構成に関する正本仕様
 
+## RenCrow_CORE Public repo 起点化の前提
+
+この仕様は、`picoclaw_multiLLM` 現ブランチを RenCrow_CORE Ver0.80 の seed / staging source として扱う。
+
+`picoclaw_multiLLM` で既存機能を削らずにモジュール境界を整理し、すべて push した HEAD を、新規 Public repository `RenCrow_CORE` の Ver0.80 起点にする。
+
+したがって、この仕様でいう構成変更は、既存機能を捨てるための整理ではない。未整理の実装も、次のいずれかに必ず配置して扱う。
+
+- `modules/*` の contract / DTO / event / pure policy。
+- `internal/features/*` の facade / ports / registrar / feature-local glue。
+- `internal/adapter/*` の external adapter / compatibility adapter。
+- `internal/domain`、`internal/application`、`internal/infrastructure` の段階移行中 `legacy-body`。
+
+`legacy-body` は削除予定物ではなく、RenCrow_CORE Ver0.80 の初期状態で既存機能を保持するための段階移行中実体である。
+
 ## 目的
 
 RenCrow_CORE Ver0.80 では、既存機能を落とさず、Chat、IdleChat、Viewer、Agent、Voice、Ops などを機能単位で閉じ込める。
@@ -252,7 +267,7 @@ RenCrow_CORE Ver0.80
         └── provider / persistence / transport / tool runner / external integration
 ```
 
-この tree は配置目標であり、即時の削除・移動指示ではない。実体移動は `06_RenCrow_CORE_Ver0.80_モジュール化実装仕様.md` の Phase 9 条件を満たした feature だけで行う。
+この tree は配置目標であり、即時の削除・移動指示ではない。実体移動は `06_RenCrow_CORE_Ver0.80_モジュール化実装仕様.md` の Phase 9 条件を満たした feature だけで行う。RenCrow_CORE Public repo 起点化でも、`legacy-body` に残る既存機能は削除せず、feature catalog から落とさない。
 
 `internal/features/*` は新しい巨大 service 置き場ではない。各 feature の ports、facade、registrar、feature-local DTO、application glue を置く。既存 `internal/domain`、`internal/application`、`internal/infrastructure` は段階移行中の実体として残してよい。
 

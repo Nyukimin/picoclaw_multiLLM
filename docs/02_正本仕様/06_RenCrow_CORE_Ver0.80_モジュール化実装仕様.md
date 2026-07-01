@@ -4,6 +4,24 @@
 対象: `picoclaw_multiLLM`
 位置づけ: `05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md` を実装へ移すための正本実装仕様
 
+## RenCrow_CORE Public repo 起点化の前提
+
+この実装仕様は、`picoclaw_multiLLM` 現ブランチを RenCrow_CORE Ver0.80 の seed / staging source として整えるための手順である。
+
+作業は既存 repository 内で行うが、完了時点で push 済み HEAD を新規 Public repository `RenCrow_CORE` の Ver0.80 起点として使う。
+
+そのため、本文中の `PR` は、今回の作業では次のように読み替える。
+
+| 既存表現 | 今回の読み替え |
+| --- | --- |
+| PR | 作業単位 / commit / push 済み HEAD |
+| PR 説明 | 作業メモ / commit message / export log |
+| 1 PR / 1 feature group | 1 作業単位 / 1 feature group |
+
+RenCrow_CORE 起点化では、既存機能を削って軽くするのではなく、未整理機能も `modules/*`、`internal/features/*`、`internal/adapter/*`、または `legacy-body` として保持する。Public repo 化のための除外は、secret、local config、cache、artifact、private-only docs など公開不能物に限る。
+
+実装に入る直前の作業資料は `docs/02_正本仕様/07_RenCrow_CORE_Ver0.80_組み換え実装作業資料.md` を参照する。特に `cmd/picoclaw` registrar 起点追加、Viewer Chat contract 固定、既存機能非削除チェックは同資料を使う。
+
 ## 実装方針
 
 Ver0.80 の実装は、機能を落とさず、挙動変更と構造変更を混ぜず、段階的に進める。
@@ -40,7 +58,7 @@ Ver0.80 の実装は、機能を落とさず、挙動変更と構造変更を混
 
 ## 事前チェックリスト
 
-各 feature の着手前に、作業メモまたは PR 説明へ次を記載する。
+各 feature の着手前に、作業メモ、commit message、export log、または PR 説明へ次を記載する。
 
 | 項目 | 必須内容 |
 | --- | --- |
@@ -144,23 +162,36 @@ GOCACHE=/tmp/picoclaw-gocache go test ./modules/...
 
 1. `internal/features/` を作成する。
 2. 最初は実装を移動せず、以下の feature に空でない `README.md` と `ports.go` / `registrar.go` の雛形を置く。
+   - `core`
+   - `agent`
    - `chat`
+   - `worker`
    - `idlechat`
    - `viewer`
+   - `llm`
+   - `tts`
+   - `stt`
+   - `voice`
+   - `avatar`
    - `backlog`
    - `heartbeat`
    - `scheduler`
    - `workstream`
    - `revenue`
    - `repair`
-   - `voice`
    - `web`
+   - `source`
    - `knowledge`
    - `memory`
    - `reports`
+   - `security`
+   - `sandbox`
    - `governance`
+   - `superagent`
+   - `aiworkflow`
    - `distributed`
    - `channels`
+   - `ops`
 3. 各 README に、入力、出力、副作用、永続化、ログ、エラー契約、現在の主ファイルを書く。
 4. `cmd/picoclaw` へ feature 固有 policy を追加しないため、既存 route / dependency を feature 別に分類する。
 
@@ -231,7 +262,7 @@ Viewer を触る場合は、最低 1 セッションで送信、応答、Timelin
 
 ルール:
 
-- 1 PR / 1 feature group にする。
+- 1 作業単位 / 1 feature group にする。
 - `cmd/picoclaw` から削った policy を別の巨大 `manager` へ移さない。
 - registrar は route 登録と dependency handoff だけを行う。
 
@@ -393,6 +424,59 @@ GOCACHE=/tmp/picoclaw-gocache go vet ./...
 ```
 
 Viewer / runtime が関係する場合は、対象 route の API response と最低 1 つの実フローを確認する。
+
+## Phase 10: RenCrow_CORE Public repo 起点化
+
+目的:
+
+- push 済み HEAD を、新規 Public repository `RenCrow_CORE` の Ver0.80 起点として使える状態にする。
+- 既存機能を削らず、公開不能物だけを除外する。
+- Ver0.80 の module tree、feature catalog、実行手順、未移行領域を初期 README から辿れるようにする。
+
+作業:
+
+1. `picoclaw_multiLLM` 現ブランチで Ver0.80 の構成変更、検証、commit、push を完了する。
+2. `docs/02_正本仕様/05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md` とこの文書が HEAD と矛盾していないことを確認する。
+3. `modules/README.md`、`modules/CURRENT_MAP.md`、`internal/features/README.md` が現状の module / feature 一覧を説明していることを確認する。
+4. 公開除外候補を洗い出す。
+   - secret / token / API key
+   - local config
+   - runtime cache
+   - generated artifact
+   - private-only docs
+   - user-specific logs
+5. `RenCrow_CORE` 初期 README に次を置く。
+   - Ver0.80 の目的
+   - module tree
+   - Feature Module Catalog
+   - build / test / run の最小手順
+   - 既存機能を削らず `legacy-body` として保持している領域
+   - 未移行 feature と次の移行順
+6. 公開 repository に投入する前に、secret scan、large artifact check、license / attribution check を行う。
+7. 新規 Public repository `RenCrow_CORE` に Ver0.80 初期状態として投入する。
+8. 投入後、clone した公開 repo で最低限の module contract test と build/test 手順の再現性を確認する。
+
+検証:
+
+```bash
+GOCACHE=/tmp/picoclaw-gocache go test ./modules/...
+GOCACHE=/tmp/picoclaw-gocache go test ./cmd/picoclaw ./internal/features/... ./internal/adapter/viewer ./modules/...
+git diff --check
+```
+
+公開 repo 投入前に追加で確認する。
+
+```bash
+git status --short
+git log -1 --oneline
+```
+
+完了条件:
+
+- `picoclaw_multiLLM` の push 済み HEAD が `RenCrow_CORE` Ver0.80 の起点として説明できる。
+- Feature Module Catalog にある既存機能が削除されていない。
+- 公開不能物が `RenCrow_CORE` に入らない。
+- `RenCrow_CORE` の初期 README から module tree、実装仕様、未移行領域、代表テストへ辿れる。
 
 ## 新規 feature 追加時のテンプレート
 
