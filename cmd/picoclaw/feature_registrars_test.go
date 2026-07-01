@@ -52,6 +52,21 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		knowledgeMemoryStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusCreated)
 		}),
+		evidenceHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		skillGovernanceRecent: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		sandboxStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusPartialContent)
+		}),
+		superAgentStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusResetContent)
+		}),
+		aiWorkflowStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAlreadyReported)
+		}),
 		entryHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 		}),
@@ -95,6 +110,11 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		{name: "memory snapshot", method: http.MethodGet, path: "/viewer/memory/snapshot", want: http.StatusNoContent},
 		{name: "source registry", method: http.MethodGet, path: "/viewer/source-registry", want: http.StatusPartialContent},
 		{name: "knowledge memory", method: http.MethodGet, path: "/viewer/knowledge-memory", want: http.StatusCreated},
+		{name: "evidence recent", method: http.MethodGet, path: "/viewer/evidence/recent", want: http.StatusOK},
+		{name: "skill governance", method: http.MethodGet, path: "/viewer/skill-governance/recent", want: http.StatusNoContent},
+		{name: "sandbox status", method: http.MethodGet, path: "/viewer/sandbox", want: http.StatusPartialContent},
+		{name: "superagent status", method: http.MethodGet, path: "/viewer/superagent", want: http.StatusResetContent},
+		{name: "ai workflow status", method: http.MethodGet, path: "/viewer/ai-workflow", want: http.StatusAlreadyReported},
 		{name: "entry", method: http.MethodGet, path: "/entry", want: http.StatusAccepted},
 	}
 

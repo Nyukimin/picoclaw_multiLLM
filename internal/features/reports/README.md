@@ -32,6 +32,15 @@ search and unverified evidence remain distinct from browser/source evidence
 
 internal/application/verification, internal/domain/verification, internal/infrastructure/persistence/verification, internal/adapter/viewer/verification_handler.go
 
+## Current Route Boundary
+
+- `/viewer/evidence/recent`
+- `/viewer/evidence/detail`
+- `/viewer/evidence/summary`
+- `/viewer/verification/recent`
+- `/viewer/verification/detail`
+- `/viewer/verification/summary`
+
 ## Migration Boundary
 
-This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.
+This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase. The registrar owns route registration and dependency handoff only.

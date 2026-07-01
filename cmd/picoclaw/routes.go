@@ -9,12 +9,17 @@ import (
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
+	aiworkflowfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/aiworkflow"
+	governancefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/governance"
 	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
 	knowledgefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/knowledge"
 	memoryfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/memory"
 	opsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/ops"
+	reportsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/reports"
+	sandboxfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/sandbox"
 	sourcefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/source"
 	sttfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/stt"
+	superagentfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/superagent"
 	ttsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/tts"
 	viewerfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/viewer"
 	voicefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/voice"
@@ -226,180 +231,79 @@ func registerKnowledgeMemorySourceRoutes(mux *http.ServeMux, dependencies *Depen
 	}})
 }
 
+func registerGovernanceSecurityReportRoutes(mux *http.ServeMux, dependencies *Dependencies) {
+	reportsfeature.RegisterRoutes(mux, reportsfeature.Dependencies{Routes: reportsfeature.Routes{
+		EvidenceRecent:      dependencies.evidenceHandler,
+		EvidenceDetail:      dependencies.evidenceDetail,
+		EvidenceSummary:     dependencies.evidenceSummary,
+		VerificationRecent:  dependencies.verificationRecent,
+		VerificationDetail:  dependencies.verificationDetail,
+		VerificationSummary: dependencies.verificationSummary,
+	}})
+	governancefeature.RegisterRoutes(mux, governancefeature.Dependencies{Routes: governancefeature.Routes{
+		ToolHarnessRecent:           dependencies.toolHarnessRecent,
+		DCIRecent:                   dependencies.dciRecent,
+		DCISearch:                   dependencies.dciSearch,
+		SkillGovernanceRecent:       dependencies.skillGovernanceRecent,
+		SkillGovernanceBoot:         dependencies.skillGovernanceBoot,
+		SkillContributionGate:       dependencies.skillContributionGate,
+		SkillChangeGate:             dependencies.skillChangeGate,
+		SkillChangeEval:             dependencies.skillChangeEval,
+		SkillExternalPRSubmit:       dependencies.skillExternalPRSubmit,
+		PersonaObservation:          dependencies.personaObservation,
+		PersonaDiscomfort:           dependencies.personaDiscomfort,
+		PersonaTrigger:              dependencies.personaTrigger,
+		PersonaCanonical:            dependencies.personaCanonical,
+		PersonaObservationLog:       dependencies.personaObservationLog,
+		PersonaObservationAggregate: dependencies.personaObservationAggregate,
+		PersonaMetaUpdate:           dependencies.personaMetaUpdate,
+		PersonaMetaUpdateReview:     dependencies.personaMetaUpdateReview,
+		PersonaSession:              dependencies.personaSession,
+	}})
+	sandboxfeature.RegisterRoutes(mux, sandboxfeature.Dependencies{Routes: sandboxfeature.Routes{
+		Status:                dependencies.sandboxStatus,
+		Promotion:             dependencies.sandboxPromotion,
+		PromotionApply:        dependencies.sandboxPromotionApply,
+		PromotionRollback:     dependencies.sandboxPromotionRollback,
+		PromotionPreview:      dependencies.sandboxPromotionPreview,
+		PromotionManualReview: dependencies.sandboxPromotionManualReview,
+		WorktreeCreate:        dependencies.sandboxWorktreeCreate,
+		WorktreeClose:         dependencies.sandboxWorktreeClose,
+	}})
+	superagentfeature.RegisterRoutes(mux, superagentfeature.Dependencies{Routes: superagentfeature.Routes{
+		Status:           dependencies.superAgentStatus,
+		Run:              dependencies.superAgentRun,
+		RunPause:         dependencies.superAgentRunPause,
+		RunResume:        dependencies.superAgentRunResume,
+		RunQueue:         dependencies.superAgentRunQueue,
+		RunQueueClaim:    dependencies.superAgentRunQueueClaim,
+		RunQueueComplete: dependencies.superAgentRunQueueComplete,
+		SubagentTask:     dependencies.superAgentSubagentTask,
+		ContextPack:      dependencies.superAgentContextPack,
+		MessageChannel:   dependencies.superAgentMessageChannel,
+		TraceEvent:       dependencies.superAgentTraceEvent,
+	}})
+	aiworkflowfeature.RegisterRoutes(mux, aiworkflowfeature.Dependencies{Routes: aiworkflowfeature.Routes{
+		Status:                  dependencies.aiWorkflowStatus,
+		Event:                   dependencies.aiWorkflowEvent,
+		ProjectMemory:           dependencies.aiWorkflowProjectMemory,
+		Worktree:                dependencies.aiWorkflowWorktree,
+		Command:                 dependencies.aiWorkflowCommand,
+		CommandRun:              dependencies.aiWorkflowCommandRun,
+		ContextUsage:            dependencies.aiWorkflowContextUsage,
+		ContextBudget:           dependencies.aiWorkflowContextBudget,
+		ExternalControl:         dependencies.aiWorkflowExternalControl,
+		HeavyWorker:             dependencies.aiWorkflowHeavyWorker,
+		HeavyRuntimeDiagnostics: dependencies.aiWorkflowHeavyRuntime,
+		ProjectInit:             dependencies.aiWorkflowProjectInit,
+		WorktreeCreate:          dependencies.aiWorkflowWorktreeCreate,
+		WorktreeClose:           dependencies.aiWorkflowWorktreeClose,
+	}})
+}
+
 func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies) {
 	if dependencies.viewerSend != nil {
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
-	}
-	if dependencies.evidenceHandler != nil {
-		mux.HandleFunc("/viewer/evidence/recent", dependencies.evidenceHandler)
-	}
-	if dependencies.evidenceDetail != nil {
-		mux.HandleFunc("/viewer/evidence/detail", dependencies.evidenceDetail)
-	}
-	if dependencies.evidenceSummary != nil {
-		mux.HandleFunc("/viewer/evidence/summary", dependencies.evidenceSummary)
-	}
-	if dependencies.verificationRecent != nil {
-		mux.HandleFunc("/viewer/verification/recent", dependencies.verificationRecent)
-	}
-	if dependencies.verificationDetail != nil {
-		mux.HandleFunc("/viewer/verification/detail", dependencies.verificationDetail)
-	}
-	if dependencies.verificationSummary != nil {
-		mux.HandleFunc("/viewer/verification/summary", dependencies.verificationSummary)
-	}
-	if dependencies.toolHarnessRecent != nil {
-		mux.HandleFunc("/viewer/tool-harness/recent", dependencies.toolHarnessRecent)
-	}
-	if dependencies.dciRecent != nil {
-		mux.HandleFunc("/viewer/dci/recent", dependencies.dciRecent)
-	}
-	if dependencies.dciSearch != nil {
-		mux.HandleFunc("/viewer/dci/search", dependencies.dciSearch)
-	}
-	if dependencies.sandboxStatus != nil {
-		mux.HandleFunc("/viewer/sandbox", dependencies.sandboxStatus)
-	}
-	if dependencies.sandboxPromotion != nil {
-		mux.HandleFunc("/viewer/sandbox/promotions", dependencies.sandboxPromotion)
-	}
-	if dependencies.sandboxPromotionApply != nil {
-		mux.HandleFunc("/viewer/sandbox/promotions/apply", dependencies.sandboxPromotionApply)
-	}
-	if dependencies.sandboxPromotionRollback != nil {
-		mux.HandleFunc("/viewer/sandbox/promotions/rollback", dependencies.sandboxPromotionRollback)
-	}
-	if dependencies.sandboxPromotionPreview != nil {
-		mux.HandleFunc("/viewer/sandbox/promotions/preview", dependencies.sandboxPromotionPreview)
-	}
-	if dependencies.sandboxPromotionManualReview != nil {
-		mux.HandleFunc("/viewer/sandbox/promotions/manual-review", dependencies.sandboxPromotionManualReview)
-	}
-	if dependencies.sandboxWorktreeCreate != nil {
-		mux.HandleFunc("/viewer/sandbox/worktrees/create", dependencies.sandboxWorktreeCreate)
-	}
-	if dependencies.sandboxWorktreeClose != nil {
-		mux.HandleFunc("/viewer/sandbox/worktrees/close", dependencies.sandboxWorktreeClose)
-	}
-	if dependencies.skillGovernanceRecent != nil {
-		mux.HandleFunc("/viewer/skill-governance/recent", dependencies.skillGovernanceRecent)
-	}
-	if dependencies.skillGovernanceBoot != nil {
-		mux.HandleFunc("/viewer/skill-governance/bootstrap", dependencies.skillGovernanceBoot)
-	}
-	if dependencies.skillContributionGate != nil {
-		mux.HandleFunc("/viewer/skill-governance/contribution-gate", dependencies.skillContributionGate)
-	}
-	if dependencies.skillChangeGate != nil {
-		mux.HandleFunc("/viewer/skill-governance/skill-changes", dependencies.skillChangeGate)
-	}
-	if dependencies.skillChangeEval != nil {
-		mux.HandleFunc("/viewer/skill-governance/skill-change-evals", dependencies.skillChangeEval)
-	}
-	if dependencies.skillExternalPRSubmit != nil {
-		mux.HandleFunc("/viewer/skill-governance/external-pr-submit", dependencies.skillExternalPRSubmit)
-	}
-	if dependencies.personaObservation != nil {
-		mux.HandleFunc("/viewer/persona-observation", dependencies.personaObservation)
-	}
-	if dependencies.personaDiscomfort != nil {
-		mux.HandleFunc("/viewer/persona-observation/discomforts", dependencies.personaDiscomfort)
-	}
-	if dependencies.personaTrigger != nil {
-		mux.HandleFunc("/viewer/persona-observation/triggers", dependencies.personaTrigger)
-	}
-	if dependencies.personaCanonical != nil {
-		mux.HandleFunc("/viewer/persona-observation/canonical-responses", dependencies.personaCanonical)
-	}
-	if dependencies.personaObservationLog != nil {
-		mux.HandleFunc("/viewer/persona-observation/observations", dependencies.personaObservationLog)
-	}
-	if dependencies.personaObservationAggregate != nil {
-		mux.HandleFunc("/viewer/persona-observation/aggregate", dependencies.personaObservationAggregate)
-	}
-	if dependencies.personaMetaUpdate != nil {
-		mux.HandleFunc("/viewer/persona-observation/meta-updates", dependencies.personaMetaUpdate)
-	}
-	if dependencies.personaMetaUpdateReview != nil {
-		mux.HandleFunc("/viewer/persona-observation/meta-updates/review", dependencies.personaMetaUpdateReview)
-	}
-	if dependencies.personaSession != nil {
-		mux.HandleFunc("/viewer/persona-observation/sessions", dependencies.personaSession)
-	}
-	if dependencies.superAgentStatus != nil {
-		mux.HandleFunc("/viewer/superagent", dependencies.superAgentStatus)
-	}
-	if dependencies.superAgentRun != nil {
-		mux.HandleFunc("/viewer/superagent/runs", dependencies.superAgentRun)
-	}
-	if dependencies.superAgentRunPause != nil {
-		mux.HandleFunc("/viewer/superagent/runs/pause", dependencies.superAgentRunPause)
-	}
-	if dependencies.superAgentRunResume != nil {
-		mux.HandleFunc("/viewer/superagent/runs/resume", dependencies.superAgentRunResume)
-	}
-	if dependencies.superAgentRunQueue != nil {
-		mux.HandleFunc("/viewer/superagent/run-queue", dependencies.superAgentRunQueue)
-	}
-	if dependencies.superAgentRunQueueClaim != nil {
-		mux.HandleFunc("/viewer/superagent/run-queue/claim", dependencies.superAgentRunQueueClaim)
-	}
-	if dependencies.superAgentRunQueueComplete != nil {
-		mux.HandleFunc("/viewer/superagent/run-queue/complete", dependencies.superAgentRunQueueComplete)
-	}
-	if dependencies.superAgentSubagentTask != nil {
-		mux.HandleFunc("/viewer/superagent/subagent-tasks", dependencies.superAgentSubagentTask)
-	}
-	if dependencies.superAgentContextPack != nil {
-		mux.HandleFunc("/viewer/superagent/context-packs", dependencies.superAgentContextPack)
-	}
-	if dependencies.superAgentMessageChannel != nil {
-		mux.HandleFunc("/viewer/superagent/message-channels", dependencies.superAgentMessageChannel)
-	}
-	if dependencies.superAgentTraceEvent != nil {
-		mux.HandleFunc("/viewer/superagent/trace-events", dependencies.superAgentTraceEvent)
-	}
-	if dependencies.aiWorkflowStatus != nil {
-		mux.HandleFunc("/viewer/ai-workflow", dependencies.aiWorkflowStatus)
-	}
-	if dependencies.aiWorkflowEvent != nil {
-		mux.HandleFunc("/viewer/ai-workflow/events", dependencies.aiWorkflowEvent)
-	}
-	if dependencies.aiWorkflowProjectMemory != nil {
-		mux.HandleFunc("/viewer/ai-workflow/project-memory", dependencies.aiWorkflowProjectMemory)
-	}
-	if dependencies.aiWorkflowWorktree != nil {
-		mux.HandleFunc("/viewer/ai-workflow/worktrees", dependencies.aiWorkflowWorktree)
-	}
-	if dependencies.aiWorkflowCommand != nil {
-		mux.HandleFunc("/viewer/ai-workflow/commands", dependencies.aiWorkflowCommand)
-	}
-	if dependencies.aiWorkflowCommandRun != nil {
-		mux.HandleFunc("/viewer/ai-workflow/commands/run", dependencies.aiWorkflowCommandRun)
-	}
-	if dependencies.aiWorkflowContextUsage != nil {
-		mux.HandleFunc("/viewer/ai-workflow/context-usages", dependencies.aiWorkflowContextUsage)
-	}
-	if dependencies.aiWorkflowContextBudget != nil {
-		mux.HandleFunc("/viewer/ai-workflow/context-budget/check", dependencies.aiWorkflowContextBudget)
-	}
-	if dependencies.aiWorkflowExternalControl != nil {
-		mux.HandleFunc("/viewer/ai-workflow/external-control/check", dependencies.aiWorkflowExternalControl)
-	}
-	if dependencies.aiWorkflowHeavyWorker != nil {
-		mux.HandleFunc("/viewer/ai-workflow/heavy-worker/evaluate", dependencies.aiWorkflowHeavyWorker)
-	}
-	if dependencies.aiWorkflowHeavyRuntime != nil {
-		mux.HandleFunc("/viewer/ai-workflow/heavy-worker/runtime-diagnostics", dependencies.aiWorkflowHeavyRuntime)
-	}
-	if dependencies.aiWorkflowProjectInit != nil {
-		mux.HandleFunc("/viewer/ai-workflow/project-init", dependencies.aiWorkflowProjectInit)
-	}
-	if dependencies.aiWorkflowWorktreeCreate != nil {
-		mux.HandleFunc("/viewer/ai-workflow/worktrees/create", dependencies.aiWorkflowWorktreeCreate)
-	}
-	if dependencies.aiWorkflowWorktreeClose != nil {
-		mux.HandleFunc("/viewer/ai-workflow/worktrees/close", dependencies.aiWorkflowWorktreeClose)
 	}
 }
 

@@ -32,6 +32,10 @@ denied and blocked decisions must remain explicit
 
 internal/domain/security, internal/application/sandbox, internal/adapter/viewer/sandbox_handler.go
 
+## Current Route Boundary
+
+Security owns policy and gate semantics, but it has no direct Viewer route registrar in this step. Current security-facing Viewer routes are exposed through `internal/features/sandbox` and retain their existing handler bodies.
+
 ## Migration Boundary
 
 This feature package is a registrar/facade entry point only. Existing implementation stays in the listed current files until contract tests and caller handoff are added for the relevant phase.

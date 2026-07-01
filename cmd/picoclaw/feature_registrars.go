@@ -22,6 +22,7 @@ func registerFeatureRoutes(
 	registerSTTAndAudioRoutes(mux, cfg, sttRuntime, voiceChatRuntime, dependencies)
 	registerWebRoutes(mux, dependencies)
 	registerKnowledgeMemorySourceRoutes(mux, dependencies)
+	registerGovernanceSecurityReportRoutes(mux, dependencies)
 	registerViewerDynamicRoutes(mux, dependencies)
 	registerEntryAndChromeRoutes(mux, dependencies)
 	registerIdleChatRoutes(mux, dependencies)
