@@ -13,6 +13,7 @@ import (
 
 	appattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/application/attachment"
 	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type MessageHandler func(ctx context.Context, req SendRequest) (string, error)
@@ -27,11 +28,13 @@ type AttachmentSaver interface {
 
 type SendRequest struct {
 	Message     string
+	To          modulechat.ViewerRecipient
 	Attachments []domainattachment.Attachment
 }
 
 type viewerSendRequest struct {
 	Message     string `json:"message"`
+	To          string `json:"to,omitempty"`
 	ModelAlias  string `json:"model_alias,omitempty"`
 	BaseURL     string `json:"base_url,omitempty"`
 	Model       string `json:"model,omitempty"`
@@ -158,6 +161,13 @@ func HandleSendWithAttachments(handler MessageHandler, onError func(error), save
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
+		recipient, err := modulechat.NormalizeViewerRecipient(req.To)
+		if err != nil {
+			log.Printf("[Viewer] HandleSend: invalid recipient: %q", req.To)
+			http.Error(w, "invalid recipient", http.StatusBadRequest)
+			return
+		}
+		req.To = string(recipient)
 
 		effectiveMessage, aliasSpec, aliasApplied := viewerEffectiveMessage(req)
 		if strings.TrimSpace(effectiveMessage) == "" && len(attachments) > 0 {
@@ -175,7 +185,7 @@ func HandleSendWithAttachments(handler MessageHandler, onError func(error), save
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			log.Printf("[Viewer] HandleSend: starting async handler for message: %q", effectiveMessage)
-			response, err := handler(ctx, SendRequest{Message: effectiveMessage, Attachments: attachments})
+			response, err := handler(ctx, SendRequest{Message: effectiveMessage, To: recipient, Attachments: attachments})
 			if err != nil {
 				log.Printf("[Viewer] HandleSend: handler error: %v", err)
 				if onError != nil {
@@ -254,6 +264,7 @@ func parseViewerMultipartSendRequest(r *http.Request, saver AttachmentSaver) (vi
 	}
 	req := viewerSendRequest{
 		Message:     r.FormValue("message"),
+		To:          r.FormValue("to"),
 		ModelAlias:  r.FormValue("model_alias"),
 		BaseURL:     r.FormValue("base_url"),
 		Model:       r.FormValue("model"),

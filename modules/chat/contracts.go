@@ -12,11 +12,12 @@ import (
 )
 
 type Input struct {
-	SessionID core.SessionID `json:"session_id,omitempty"`
-	Channel   string         `json:"channel,omitempty"`
-	UserID    string         `json:"user_id,omitempty"`
-	Text      string         `json:"text,omitempty"`
-	Audio     []byte         `json:"-"`
+	SessionID core.SessionID  `json:"session_id,omitempty"`
+	Channel   string          `json:"channel,omitempty"`
+	UserID    string          `json:"user_id,omitempty"`
+	To        ViewerRecipient `json:"to,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Audio     []byte          `json:"-"`
 }
 
 type Route string

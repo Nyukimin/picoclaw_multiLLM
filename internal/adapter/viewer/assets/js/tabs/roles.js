@@ -8,13 +8,26 @@ function selectRoleTarget(id) {
   renderRoleSelector();
 }
 
+const VIEWER_CHAT_RECIPIENT_TARGETS = ['mio', 'shiro', 'kuro', 'midori'];
+
+function viewerChatRecipientForTarget(id) {
+  const normalized = String(id || '').trim().toLowerCase();
+  if (!normalized) return 'mio';
+  return VIEWER_CHAT_RECIPIENT_TARGETS.includes(normalized) ? normalized : '';
+}
+
+function selectedViewerChatRecipient() {
+  return viewerChatRecipientForTarget(selectedRoleTargetID());
+}
+
 function applyRoleTargetToMessage(message) {
   const trimmed = String(message || '').trim();
   if (!trimmed) return '';
   if (/^\/(ops|wild|code|code1|code2|code3|code4)(\s|$)/.test(trimmed)) return trimmed;
-  const selected = ROLE_TARGETS.find((target) => target.id === selectedRoleTargetID());
+  const selectedID = selectedRoleTargetID();
+  if (viewerChatRecipientForTarget(selectedID)) return trimmed;
+  const selected = ROLE_TARGETS.find((target) => target.id === selectedID);
   if (!selected || selected.id === 'mio') return trimmed;
-  if (selected.id === 'shiro') return '/ops ' + trimmed;
   if (selected.id === 'coder1') return '/code1 ' + trimmed;
   if (selected.id === 'coder2') return '/code2 ' + trimmed;
   if (selected.id === 'coder3') return '/code3 ' + trimmed;

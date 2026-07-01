@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"log"
 	"sync"
+
+	modulechat "github.com/Nyukimin/picoclaw_multiLLM/modules/chat"
 )
 
 type messageEventPort struct {
@@ -31,7 +33,11 @@ func (p *messageEventPort) Emit(eventType, from, to, content, route, jobID, sess
 }
 
 func (p *messageEventPort) EmitMessageReceived(req ProcessMessageRequest) {
-	p.Emit("message.received", "user", "mio", req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
+	recipient, err := modulechat.NormalizeViewerRecipient(req.To)
+	if err != nil {
+		recipient = modulechat.DefaultViewerRecipient
+	}
+	p.Emit("message.received", "user", string(recipient), req.UserMessage, "", "", req.SessionID, req.Channel, req.ChatID)
 }
 
 func (o *MessageOrchestrator) emit(eventType, from, to, content, route, jobID, sessionID, channel, chatID string) {

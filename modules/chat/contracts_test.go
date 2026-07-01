@@ -34,7 +34,18 @@ func TestInputJSONContractForModuleRoute(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"session_id":"s1","channel":"viewer","user_id":"u1","text":"実装して"}`), &input); err != nil {
 		t.Fatalf("unmarshal input: %v", err)
 	}
-	if input.SessionID != "s1" || input.Channel != "viewer" || input.UserID != "u1" || input.Text != "実装して" {
+	if input.SessionID != "s1" || input.Channel != "viewer" || input.UserID != "u1" || input.Text != "実装して" || input.To != "" {
 		t.Fatalf("unexpected input: %+v", input)
+	}
+}
+
+func TestInputJSONContractIncludesViewerRecipient(t *testing.T) {
+	var input Input
+	if err := json.Unmarshal([]byte(`{"session_id":"s1","channel":"viewer","user_id":"u1","to":"shiro","text":"相談して"}`), &input); err != nil {
+		t.Fatalf("unmarshal input: %v", err)
+	}
+	normalized := NormalizeInput(input)
+	if normalized.To != ViewerRecipientShiro {
+		t.Fatalf("recipient = %q, want %q", normalized.To, ViewerRecipientShiro)
 	}
 }

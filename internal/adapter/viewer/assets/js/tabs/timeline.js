@@ -75,6 +75,8 @@ function buildViewerSendRequest(message) {
   if (!trimmed) return {message: ''};
   if (isExplicitRouteMessage(trimmed)) return {message: trimmed};
 
+  const recipient = typeof selectedViewerChatRecipient === 'function' ? selectedViewerChatRecipient() : 'mio';
+  if (recipient) return {message: trimmed, to: recipient};
   return {message: applyRoleTargetToMessage(trimmed)};
 }
 

@@ -387,7 +387,7 @@ test('viewer exposes memory inspector and news pack UI hooks', () => {
   assert.match(html, /Chat/);
   assert.match(html, /Worker/);
   assert.match(html, /Wild/);
-  assert.ok(rolesJs.includes("return '/ops ' + trimmed"));
+  assert.ok(rolesJs.includes("if (viewerChatRecipientForTarget(selectedID)) return trimmed"));
   assert.ok(rolesJs.includes("return '/code1 ' + trimmed"));
   assert.ok(rolesJs.includes("return '/code2 ' + trimmed"));
   assert.ok(rolesJs.includes("return '/code3 ' + trimmed"));
@@ -5286,7 +5286,7 @@ test('viewer chat send ignores stale route alias and leaves routing to orchestra
 
   vm.runInContext("localStorage.setItem('chatRouteAlias.selected', 'heavy')", context);
   const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
-  assert.deepEqual(heavyReq, {message: '原因を調べて'});
+  assert.deepEqual(heavyReq, {message: '原因を調べて', to: 'mio'});
   assert.equal(store.has('chatRouteAlias.selected'), false);
 
   const explicitReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('/wild 物語にして'))", context));
@@ -5318,8 +5318,56 @@ test('viewer chat send ignores runtime route aliases and leaves routing to orche
   })`, context);
   vm.runInContext("localStorage.setItem('chatRouteAlias.selected', 'heavy')", context);
   const heavyReq = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('原因を調べて'))", context));
-  assert.deepEqual(heavyReq, {message: '原因を調べて'});
+  assert.deepEqual(heavyReq, {message: '原因を調べて', to: 'mio'});
   assert.equal(store.has('chatRouteAlias.selected'), false);
+});
+
+test('viewer chat send uses recipient contract instead of Shiro execution route', () => {
+  const rolesJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/roles.js', 'utf8');
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const store = new Map([['roleSelector.selectedTarget', 'shiro']]);
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {
+      getItem: (key) => store.get(key) || null,
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+    },
+    renderRoleSelector: () => {},
+    ROLE_TARGETS: [{id: 'mio'}, {id: 'shiro'}, {id: 'coder1'}],
+  });
+  vm.runInContext(rolesJs, context);
+  vm.runInContext(timelineJs, context);
+
+  const req = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('作業手順を相談したい'))", context));
+  assert.deepEqual(req, {message: '作業手順を相談したい', to: 'shiro'});
+  assert.equal(Object.hasOwn(req, 'model_alias'), false);
+  assert.equal(Object.hasOwn(req, 'route_prefix'), false);
+  assert.equal(req.message.startsWith('/ops '), false);
+});
+
+test('viewer chat legacy coder role target remains explicit route command', () => {
+  const rolesJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/roles.js', 'utf8');
+  const timelineJs = fs.readFileSync('internal/adapter/viewer/assets/js/tabs/timeline.js', 'utf8');
+  const store = new Map([['roleSelector.selectedTarget', 'coder1']]);
+  const context = vm.createContext({
+    document: {querySelectorAll: () => []},
+    localStorage: {
+      getItem: (key) => store.get(key) || null,
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+    },
+    renderRoleSelector: () => {},
+    ROLE_TARGETS: [{id: 'mio'}, {id: 'shiro'}, {id: 'coder1'}],
+  });
+  vm.runInContext(rolesJs, context);
+  vm.runInContext(timelineJs, context);
+
+  const req = JSON.parse(vm.runInContext("JSON.stringify(buildViewerSendRequest('実装方針を出して'))", context));
+  assert.deepEqual(req, {message: '/code1 実装方針を出して'});
+  assert.equal(Object.hasOwn(req, 'to'), false);
+  assert.equal(Object.hasOwn(req, 'model_alias'), false);
+  assert.equal(Object.hasOwn(req, 'route_prefix'), false);
 });
 
 test('viewer starts selected llm before sending alias request', async () => {

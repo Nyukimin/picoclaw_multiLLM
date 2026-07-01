@@ -15,7 +15,73 @@ import (
 	domainattachment "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/attachment"
 )
 
-func TestHandleSendAppliesViewerLLMAlias(t *testing.T) {
+func TestHandleSendUsesViewerRecipientContract(t *testing.T) {
+	received := make(chan SendRequest, 1)
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req
+		return "ok", nil
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/send", strings.NewReader(`{
+		"message":"作業手順を相談したい",
+		"to":"shiro"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	for _, key := range []string{"model_alias", "base_url", "model", "route_prefix"} {
+		if _, ok := body[key]; ok {
+			t.Fatalf("normal viewer send response must not include legacy %s: %#v", key, body)
+		}
+	}
+
+	select {
+	case got := <-received:
+		if got.Message != "作業手順を相談したい" {
+			t.Fatalf("unexpected handler message: %q", got.Message)
+		}
+		if got.To != "shiro" {
+			t.Fatalf("recipient = %q, want shiro", got.To)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handler was not called")
+	}
+}
+
+func TestHandleSendRejectsUnknownViewerRecipient(t *testing.T) {
+	received := make(chan SendRequest, 1)
+	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
+		received <- req
+		return "ok", nil
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/viewer/send", strings.NewReader(`{
+		"message":"作業して",
+		"to":"worker"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case got := <-received:
+		t.Fatalf("handler should not be called, got %#v", got)
+	default:
+	}
+}
+
+func TestHandleSendAppliesLegacyViewerLLMAlias(t *testing.T) {
 	received := make(chan string, 1)
 	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
 		received <- req.Message
@@ -88,7 +154,7 @@ func TestHandleSendExplicitRouteWinsOverAlias(t *testing.T) {
 	}
 }
 
-func TestHandleSendUsesRuntimeAliasFields(t *testing.T) {
+func TestHandleSendUsesLegacyRuntimeAliasFields(t *testing.T) {
 	received := make(chan string, 1)
 	h := HandleSend(func(_ context.Context, req SendRequest) (string, error) {
 		received <- req.Message
@@ -179,6 +245,9 @@ func TestHandleSendAcceptsMultipartAttachments(t *testing.T) {
 	case got := <-received:
 		if got.Message != "画像を見て" {
 			t.Fatalf("Message = %q, want %q", got.Message, "画像を見て")
+		}
+		if got.To != "mio" {
+			t.Fatalf("To = %q, want mio", got.To)
 		}
 		if len(got.Attachments) != 1 || got.Attachments[0].ID != "att-1" {
 			t.Fatalf("Attachments = %#v", got.Attachments)

@@ -56,6 +56,30 @@ func TestPhase11EventPortUsesUpdatedListener(t *testing.T) {
 	}
 }
 
+func TestPhase11EventPortUsesViewerRecipientWithoutExecutionRoute(t *testing.T) {
+	listener := &phase11RecordingEventListener{}
+	port := newMessageEventPort(listener)
+
+	port.EmitMessageReceived(ProcessMessageRequest{
+		SessionID:   "viewer",
+		Channel:     "viewer",
+		ChatID:      "viewer-user",
+		UserMessage: "作業手順を相談したい",
+		To:          "shiro",
+	})
+
+	if len(listener.events) != 1 {
+		t.Fatalf("expected one event, got %d", len(listener.events))
+	}
+	got := listener.events[0]
+	if got.Type != "message.received" || got.From != "user" || got.To != "shiro" {
+		t.Fatalf("unexpected message received event: %#v", got)
+	}
+	if got.Route != "" || got.JobID != "" {
+		t.Fatalf("viewer recipient must not imply execution route: %#v", got)
+	}
+}
+
 func TestPhase11EventPortAssignsStableConversationIdentity(t *testing.T) {
 	listener := &phase11RecordingEventListener{}
 	port := newMessageEventPort(listener)

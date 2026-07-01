@@ -32,6 +32,7 @@ type ProcessMessageRequest struct {
 	Channel     string
 	ChatID      string
 	UserMessage string
+	To          string
 	Attachments []attachment.Attachment
 }
 

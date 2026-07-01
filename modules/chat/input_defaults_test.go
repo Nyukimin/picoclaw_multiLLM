@@ -4,7 +4,7 @@ import "testing"
 
 func TestNormalizeInputAppliesViewerDefaults(t *testing.T) {
 	got := NormalizeInput(Input{Text: "hi"})
-	if got.Channel != DefaultViewerChannel || got.UserID != DefaultViewerUserID {
+	if got.Channel != DefaultViewerChannel || got.UserID != DefaultViewerUserID || got.To != DefaultViewerRecipient {
 		t.Fatalf("viewer defaults were not applied: %+v", got)
 	}
 }
