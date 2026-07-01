@@ -10,7 +10,7 @@ Mio は Chat 担当のキャラクターである。
 | 役割 | Chat |
 | 主な route | `CHAT`, `PLAN` |
 | 主な実体 | `MioAgent` |
-| 主な参照 | `docs/01_正本仕様/実装仕様.md`, `prompts/mio.md`, `workspace/persona/mio.md`, `internal/domain/agent/mio.go` |
+| 主な参照 | `docs/01_理解/02_キャラクター・エージェント仕様.md`, `docs/02_正本仕様/02_実装仕様.md`, `prompts/mio.md`, `workspace/persona/mio.md`, `internal/domain/agent/mio.go` |
 
 ## 責務
 
@@ -38,4 +38,3 @@ Mio は Chat 担当のキャラクターである。
 
 LINE 入口は CHAT 固定で、Mio が委譲判断を行う。
 通常会話では外部検索ツールを利用可能だが、IdleChat では外部検索を禁止し、内部文脈のみで会話する。
-

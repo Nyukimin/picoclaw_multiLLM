@@ -10,7 +10,7 @@ Shiro は Worker 担当のキャラクターである。
 | 役割 | Worker |
 | 主な route | `ANALYZE`, `OPS`, `RESEARCH` |
 | 主な実体 | `ShiroAgent` |
-| 主な参照 | `docs/01_正本仕様/実装仕様.md`, `workspace/persona/shiro.md`, `internal/domain/agent/shiro.go` |
+| 主な参照 | `docs/01_理解/02_キャラクター・エージェント仕様.md`, `docs/02_正本仕様/02_実装仕様.md`, `workspace/persona/shiro.md`, `internal/domain/agent/shiro.go` |
 
 ## 責務
 
@@ -39,4 +39,3 @@ Shiro は Worker 担当のキャラクターである。
 
 Worker は実行主体なので、失敗時も原因を切り分け、追跡可能な形で報告する。
 再起動やビルドが絡む場合は、既存 service / process / port / health の停止確認を含める。
-

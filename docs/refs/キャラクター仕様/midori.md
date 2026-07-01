@@ -10,7 +10,7 @@ Midori は Wild 枠に対応するキャラクターである。
 | 実行枠 | Wild |
 | 主な実体 | `WildAgent` |
 | 主な用途 | 創作、画像プロンプト、雰囲気抽出、視覚解釈、横方向の探索 |
-| 主な参照 | `docs/10_新仕様/26_Persona_Lore_and_Mutual_Observation仕様.md`, `internal/domain/agent/wild.go` |
+| 主な参照 | `docs/01_理解/02_キャラクター・エージェント仕様.md`, `docs/refs/10_新仕様/26_Persona_Lore_and_Mutual_Observation仕様.md`, `internal/domain/agent/wild.go` |
 
 ## 責務
 
@@ -35,4 +35,3 @@ Persona Lore 仕様では、Midori は次の方向性で例示されている。
 
 IdleChat 開始前、LLM Ops が有効な場合は Wild が稼働中でないことを確認する。
 稼働中なら IdleChat は割り込まず、開始を拒否する。
-
