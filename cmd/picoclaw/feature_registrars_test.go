@@ -70,6 +70,9 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		entryHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 		}),
+		chromeBridgeStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+		}),
 	}
 	cfg := &config.Config{WorkspaceDir: t.TempDir()}
 
@@ -116,6 +119,7 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		{name: "superagent status", method: http.MethodGet, path: "/viewer/superagent", want: http.StatusResetContent},
 		{name: "ai workflow status", method: http.MethodGet, path: "/viewer/ai-workflow", want: http.StatusAlreadyReported},
 		{name: "entry", method: http.MethodGet, path: "/entry", want: http.StatusAccepted},
+		{name: "chrome bridge status", method: http.MethodGet, path: "/chrome/bridge/status", want: http.StatusCreated},
 	}
 
 	for _, tt := range tests {

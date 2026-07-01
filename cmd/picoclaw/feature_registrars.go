@@ -24,7 +24,6 @@ func registerFeatureRoutes(
 	registerKnowledgeMemorySourceRoutes(mux, dependencies)
 	registerGovernanceSecurityReportRoutes(mux, dependencies)
 	registerViewerDynamicRoutes(mux, dependencies)
-	registerEntryAndChromeRoutes(mux, dependencies)
 	registerIdleChatRoutes(mux, dependencies)
 	registerHealthRoutes(mux, dependencies, cfg)
 }

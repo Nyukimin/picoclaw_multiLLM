@@ -10,6 +10,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	aiworkflowfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/aiworkflow"
+	channelsfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/channels"
 	governancefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/governance"
 	idlechatfeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/idlechat"
 	knowledgefeature "github.com/Nyukimin/picoclaw_multiLLM/internal/features/knowledge"
@@ -28,16 +29,16 @@ import (
 )
 
 func registerChannelRoutes(mux *http.ServeMux, dependencies *Dependencies) {
-	mux.Handle("/webhook", dependencies.lineHandler)
-	if dependencies.telegramHandler != nil {
-		mux.Handle("/webhook/telegram", dependencies.telegramHandler)
-	}
-	if dependencies.discordHandler != nil {
-		mux.Handle("/webhook/discord", dependencies.discordHandler)
-	}
-	if dependencies.slackHandler != nil {
-		mux.Handle("/webhook/slack", dependencies.slackHandler)
-	}
+	channelsfeature.RegisterRoutes(mux, channelsfeature.Dependencies{Routes: channelsfeature.Routes{
+		Webhook:            dependencies.lineHandler,
+		TelegramWebhook:    dependencies.telegramHandler,
+		DiscordWebhook:     dependencies.discordHandler,
+		SlackWebhook:       dependencies.slackHandler,
+		Entry:              dependencies.entryHandler,
+		ChromeBridge:       dependencies.chromeBridge,
+		ChromeBridgeStatus: dependencies.chromeBridgeStatus,
+		ChromeBridgeEvents: dependencies.chromeBridgeEvents,
+	}})
 }
 
 func registerViewerBaseRoutes(mux *http.ServeMux, cfg *config.Config, dependencies *Dependencies, debugSystemOpts viewer.DebugSystemOptions) {
@@ -312,21 +313,6 @@ func defaultInvestmentDBPath() string {
 		return env
 	}
 	return filepath.Join("rencrow-data", "data", "rencrow.db")
-}
-
-func registerEntryAndChromeRoutes(mux *http.ServeMux, dependencies *Dependencies) {
-	if dependencies.entryHandler != nil {
-		mux.HandleFunc("/entry", dependencies.entryHandler)
-	}
-	if dependencies.chromeBridge != nil {
-		mux.HandleFunc("/chrome/bridge", dependencies.chromeBridge)
-	}
-	if dependencies.chromeBridgeStatus != nil {
-		mux.HandleFunc("/chrome/bridge/status", dependencies.chromeBridgeStatus)
-	}
-	if dependencies.chromeBridgeEvents != nil {
-		mux.HandleFunc("/chrome/bridge/events", dependencies.chromeBridgeEvents)
-	}
 }
 
 func registerIdleChatRoutes(mux *http.ServeMux, dependencies *Dependencies) {
