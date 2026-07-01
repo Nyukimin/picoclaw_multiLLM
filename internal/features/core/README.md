@@ -28,7 +28,7 @@ runtime status, health, readiness, and startup logs from existing cmd/picoclaw c
 
 visible health/readiness errors; no silent fallback from repo-local config
 
-## Current Primary Files
+## Current Main Files
 
 modules/core, cmd/picoclaw/module_*.go, cmd/picoclaw/runtime_*.go
 

@@ -28,7 +28,7 @@ job_id, due_at, trigger, status, error kind
 
 background job failure is recorded and must not be hidden by Viewer display
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/heartbeat, cmd/picoclaw/runtime_heartbeat.go, cmd/picoclaw/main_heartbeat_test.go
 

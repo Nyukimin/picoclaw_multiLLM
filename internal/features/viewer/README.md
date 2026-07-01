@@ -28,7 +28,7 @@ request path, session_id where present, status, visible error
 
 status API failure must be visible and must not be rendered as stale success
 
-## Current Primary Files
+## Current Main Files
 
 internal/adapter/viewer, cmd/picoclaw/routes.go, cmd/picoclaw/runtime_viewer_handlers.go
 

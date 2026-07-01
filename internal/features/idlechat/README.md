@@ -28,7 +28,7 @@ session_id, topic_id, speaker, route, status, error kind
 
 fallback and invalid response must not be treated as success
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/idlechat, cmd/picoclaw/runtime_idlechat*.go, cmd/picoclaw/idlechat_tts*.go
 

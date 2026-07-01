@@ -28,7 +28,7 @@ job_id, item_id, runner, status, error kind
 
 runner unavailable and item failure remain visible state errors
 
-## Current Primary Files
+## Current Main Files
 
 internal/domain/backlog, internal/adapter/viewer/backlog_handler.go, cmd/picoclaw/runtime_dependencies.go
 

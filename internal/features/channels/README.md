@@ -28,7 +28,7 @@ channel, user_id, request_id, status, error kind
 
 signature failure, unsupported payload, and send failure remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 internal/adapter/line, internal/adapter/channels, internal/application/channel, cmd/picoclaw/runtime_channels.go
 

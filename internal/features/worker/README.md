@@ -28,7 +28,7 @@ job_id, session_id, route, command, status, error kind
 
 denied, failed, unavailable, and retryable classifications remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 modules/worker, internal/application/service/worker_execution_*, internal/infrastructure/tools
 

@@ -44,14 +44,18 @@ func TestRegisterRoutesRegistersChannelAndEntryPaths(t *testing.T) {
 	}
 }
 
-func TestRegisterRoutesSkipsNilHandlers(t *testing.T) {
+func TestRegisterRoutesKeepsUnavailableWebhookRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, Dependencies{})
 
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/webhook", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status=%d want=%d", rec.Code, http.StatusNotFound)
+	for _, path := range []string{"/webhook", "/webhook/telegram", "/webhook/discord", "/webhook/slack"} {
+		t.Run(path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
+			}
+		})
 	}
 }
 

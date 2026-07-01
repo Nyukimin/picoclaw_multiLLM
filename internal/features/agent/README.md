@@ -28,7 +28,7 @@ agent setup and runtime provider selection logs
 
 unknown agent ID and missing persona must be explicit setup errors
 
-## Current Primary Files
+## Current Main Files
 
 internal/domain/agent, workspace/persona, cmd/picoclaw/runtime_agents.go
 

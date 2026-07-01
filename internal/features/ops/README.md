@@ -28,7 +28,7 @@ job_id, operation, status, error kind
 
 maintenance failure must be visible and must not mask runtime feature health
 
-## Current Primary Files
+## Current Main Files
 
 cmd/picoclaw/health_*.go, cmd/picoclaw/cli_operations.go, internal/adapter/viewer/*_handler.go
 

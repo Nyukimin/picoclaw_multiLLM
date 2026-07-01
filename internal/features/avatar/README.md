@@ -28,7 +28,7 @@ character_id, emotion, event type, status, error kind
 
 avatar/bridge failure must not rewrite Chat display text
 
-## Current Primary Files
+## Current Main Files
 
 internal/infrastructure/vtuber, cmd/picoclaw/vtuber_bridge.go, internal/adapter/viewer/live2d_*.go
 

@@ -28,7 +28,7 @@ session_id, response_id, provider, voice, status, error kind
 
 provider timeout, invalid audio, and playback timeout are distinct errors
 
-## Current Primary Files
+## Current Main Files
 
 modules/tts, internal/infrastructure/tts, cmd/picoclaw/tts_*.go, cmd/picoclaw/idlechat_tts_*.go
 

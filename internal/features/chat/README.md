@@ -28,7 +28,7 @@ session_id, route, to, status, error kind
 
 invalid recipient and runtime-unavailable errors must not silently fall back to Mio
 
-## Current Primary Files
+## Current Main Files
 
 modules/chat, internal/application/orchestrator, internal/adapter/viewer/handler_send.go
 

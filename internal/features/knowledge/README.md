@@ -28,7 +28,7 @@ source_id, item_id, domain, import status, error kind
 
 unreviewed discovery must not be treated as confirmed knowledge
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/knowledge, internal/application/knowledgememory, internal/adapter/viewer/knowledge_memory_handler.go, cmd/picoclaw/cli_knowledge.go
 

@@ -28,7 +28,7 @@ routine_id, draft_id, decision, status, error kind
 
 human gate denial and routine failure remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/revenue, internal/domain/revenue, internal/infrastructure/persistence/revenue, internal/adapter/viewer/revenue_handler.go
 

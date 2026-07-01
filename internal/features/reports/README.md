@@ -28,7 +28,7 @@ report_id, claim_id, evidence_id, status, error kind
 
 search and unverified evidence remain distinct from browser/source evidence
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/verification, internal/domain/verification, internal/infrastructure/persistence/verification, internal/adapter/viewer/verification_handler.go
 

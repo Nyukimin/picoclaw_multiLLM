@@ -1,748 +1,172 @@
-# RenCrow - 超軽量AIアシスタント（v3 Clean Architecture）
+# RenCrow_CORE Ver0.80
 
-[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go&logoColor=white)](https://go.dev/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/coverage-83.6%25-brightgreen)](https://github.com/Nyukimin/picoclaw_multiLLM)
-[![Architecture](https://img.shields.io/badge/architecture-Clean%20Architecture-blue)](docs/01_正本仕様/実装仕様.md)
+RenCrow_CORE is the public-ready core runtime for RenCrow, staged from `picoclaw_multiLLM` as the Ver0.80 seed.
 
-> **メモリ使用量 <10MB で動作する、マルチLLMルーティング対応の超軽量AIアシスタント**
+Ver0.80 focuses on preserving existing behavior while making module and feature ownership explicit. It is not a feature-removal branch. Existing implementations that are not yet moved remain as `legacy-body` under `internal/domain`, `internal/application`, `internal/infrastructure`, `internal/adapter`, or `cmd/picoclaw` until their feature contracts and registrars are ready.
 
----
+## Goals
 
-## 📋 目次
+- Keep existing Chat, Worker, Coder, Viewer, Voice, Ops, Web, Knowledge, Memory, Governance, Distributed, and Channel behavior intact.
+- Define stable `modules/*` contracts for reusable DTOs, events, pure policy, and state ownership.
+- Define `internal/features/*` registrar/facade boundaries for feature-group route registration and dependency handoff.
+- Keep `cmd/picoclaw` as the process composition root: config load, dependency assembly, feature registrar calls, and server startup.
+- Prepare this pushed HEAD as the initial source for the new Public repository `RenCrow_CORE`.
 
-- [概要](#-概要)
-- [主要機能](#-主要機能)
-- [アーキテクチャ](#-アーキテクチャ)
-- [実装状況](#-実装状況)
-- [クイックスタート](#-クイックスタート)
-- [設定](#-設定)
-- [開発](#-開発)
-- [ドキュメント](#-ドキュメント)
-- [貢献](#-貢献)
-- [ライセンス](#-ライセンス)
+## Architecture Tree
 
----
-
-## 🎯 概要
-
-**RenCrow** は、Go言語で実装された超軽量なパーソナルAIアシスタントです。
-
-### 特徴
-
-- **超軽量**: メモリ使用量 <10MB、$10デバイスでも動作
-- **マルチLLM対応**: Ollama、Claude、DeepSeek、OpenAI等を統合
-- **インテリジェントルーティング**: Chat（会話）/ Worker（実行）/ Coder（設計・実装）の自動振り分け
-- **Worker即時実行**: Coderが生成したpatchをWorkerが自動実行（Worker即時実行化）
-- **Clean Architecture**: v3.0クリーンアーキテクチャで保守性向上
-- **高テストカバレッジ**: internal/配下 83.6%（Domain層 93.5%）
-
-### 技術スタック
-
-- **言語**: Go 1.23
-- **アーキテクチャ**: Clean Architecture（4層構造）
-- **LLMプロバイダー**: Ollama, Anthropic Claude, DeepSeek, OpenAI
-- **チャネル**: LINE, Slack, Telegram, Discord等（計画）
-- **ツール**: Web検索、ファイル操作、シェル実行、MCP統合
-
----
-
-## ✨ 主要機能
-
-### 1. マルチLLMルーティング
-
-RenCrowは、タスクの種類に応じて最適なLLMを自動選択します：
-
-| 役割 | 愛称 | LLM | 責務 |
-|------|------|-----|------|
-| **Chat** | Mio | Ollama (Chat) | 会話、意思決定、ルーティング判定 |
-| **Worker** | Shiro | Ollama (Worker) | ファイル操作、コマンド実行、差分適用 |
-| **Coder1** | Aka | DeepSeek | 仕様設計、アーキテクチャ検討 |
-| **Coder2** | Ao | OpenAI | 実装、コード生成 |
-| **Coder3** | Gin | Anthropic Claude | 高品質コーディング、推論 |
-| **Coder4** | Kin | 設定可能 | 高速プロトタイピング、実験 |
-
-**ルーティングカテゴリ**:
-- `CHAT` - 会話・意思決定
-- `PLAN` - 計画策定
-- `ANALYZE` - 分析
-- `OPS` - 運用操作
-- `RESEARCH` - 調査
-- `CODE` / `CODE1` / `CODE2` / `CODE3` / `CODE4` - コーディング（自動振り分け or 明示指定）
-
-**明示コマンド**:
-- `/code` - 汎用コーディング（coder1→2→3→4 の順で自動フォールバック）
-- `/code1` - Coder1 明示指定（仕様設計特化）
-- `/code2` - Coder2 明示指定（実装特化）
-- `/code3` - Coder3 明示指定（レビュー・推論特化）
-- `/code4` - Coder4 明示指定（高速プロトタイピング・実験）
-- `/plan`, `/analyze`, `/ops`, `/research`, `/chat` - 各ルート明示指定
-
-### 2. Worker即時実行（v3.0新機能）
-
-Coder3（Claude）が生成したProposal（plan + patch）をWorkerが即座に実行します：
-
-```
-ユーザー指示 → ルーティング → Coder3がProposal生成
-  → WorkerExecutionService.ExecuteProposal()
-  → Git auto-commit（オプション）
-  → 実行結果返却
+```text
+RenCrow_CORE Ver0.80
+├── cmd/picoclaw                 # process composition root
+│   ├── main.go
+│   ├── routes.go                # legacy route grouping retained during migration
+│   └── feature_registrars.go    # calls feature-group registrars
+├── modules                      # public contracts and pure policy
+│   ├── core
+│   ├── chat
+│   ├── worker
+│   ├── llm
+│   ├── tts
+│   ├── stt
+│   ├── voicechat
+│   ├── browseractor
+│   └── webgather
+├── internal/features            # feature facades, ports, registrars
+│   ├── core
+│   ├── agent
+│   ├── chat
+│   ├── worker
+│   ├── idlechat
+│   ├── viewer
+│   ├── llm
+│   ├── tts
+│   ├── stt
+│   ├── voice
+│   ├── avatar
+│   ├── backlog
+│   ├── heartbeat
+│   ├── scheduler
+│   ├── workstream
+│   ├── revenue
+│   ├── repair
+│   ├── web
+│   ├── source
+│   ├── knowledge
+│   ├── memory
+│   ├── reports
+│   ├── security
+│   ├── sandbox
+│   ├── governance
+│   ├── superagent
+│   ├── aiworkflow
+│   ├── distributed
+│   ├── channels
+│   └── ops
+├── internal/adapter             # external adapters and compatibility adapters
+├── internal/domain              # legacy-body plus domain values and validation
+├── internal/application         # legacy-body use cases and orchestration
+└── internal/infrastructure      # legacy-body providers, persistence, transport, tools
 ```
 
-**セーフガード機能**:
-- ✅ Git auto-commit（変更を自動コミット、ロールバック可能）
-- ✅ 保護ファイルパターン（.env*, *credentials*, *.key, *.pem）
-- ✅ 実行前サマリ表示（コマンド数・種別を表示）
-- ✅ Workspace制限（workspace外への書き込み禁止）
-- ✅ エラーハンドリング（StopOnError/ContinueOnError）
+## Module Contracts
 
-**サポートする操作**:
-- ファイル操作: create, update, delete, append, mkdir, rename, copy
-- シェルコマンド実行（タイムアウト・Env対応）
-- Git操作（commit, push等）
+Current module packages:
 
-### 3. ヘルスチェックと自動復旧
+| Module | Owns |
+| --- | --- |
+| `modules/core` | module descriptors, health aggregation, state ownership metadata, module endpoint constants |
+| `modules/chat` | Viewer recipient contract, route policy, final response and IdleChat topic policy |
+| `modules/worker` | proposal / patch / execution result / failure classification contracts |
+| `modules/llm` | role provider contracts, runtime provider planning, diagnostics, health policy |
+| `modules/tts` | synthesis, provider planning, playback state, audio chunk and ACK contracts |
+| `modules/stt` | transcription, viewer input observer, busy policy, websocket planning contracts |
+| `modules/voicechat` | VoiceChat / VDS bridge / websocket route planning contracts |
+| `modules/browseractor` | browser automation request / response, risk classification, artifact contract |
+| `modules/webgather` | discovery, fetch, extraction, staging, and search contract boundary |
 
-- Ollama常駐監視（`keep_alive: -1`）
-- ヘルスチェックによる自動再起動
-- MaxContext制約チェック（8192）
+See `modules/README.md`, `modules/CURRENT_MAP.md`, and `modules/DEPENDENCY_RULES.md` for the current ownership map and dependency rules.
 
-### 4. セッション管理
+## Feature Catalog
 
-- 日次カットオーバー
-- メモリ管理
-- ログ保存（構造化ログ、Obsidian連携）
+Feature registrars live under `internal/features/*`. They own route registration and dependency handoff only. Handler bodies, providers, stores, background jobs, and CLI implementations remain in their existing legacy-body files unless a later migration phase explicitly moves them.
 
-### 5. 分散実行（v4.0）
+Current feature inventory:
 
-複数のPC/マシンでエージェントを分散実行できます：
-
-> **⚠️ 前提条件**: 分散実行を使用する場合、Worker マシンから Remote マシンへの **SSH 接続が確立されている必要があります**。詳細は [分散実行セットアップガイド](docs/運用ガイド/分散実行_前提条件とセットアップ.md) を参照してください。
-
-**アーキテクチャ**:
-```
-メインPC: Chat + Worker + ルーティング
-  ↓ SSH通信（JSON）
-エージェントPC: Coder3専用プロセス
-  ↓ Claude API
-結果返却 → メインPC → ユーザー
+```text
+core, agent, chat, worker, idlechat, viewer, llm, tts, stt, voice, avatar,
+backlog, heartbeat, scheduler, workstream, revenue, repair, web, source,
+knowledge, memory, reports, security, sandbox, governance, superagent,
+aiworkflow, distributed, channels, ops
 ```
 
-**特徴**:
-- ✅ **専用バイナリ**: `picoclaw`（サーバー）/ `picoclaw-agent`（エージェント）の明確な役割分離
-- ✅ **SSH通信**: セキュアなJSON通信（stdin/stdout）
-- ✅ **負荷分散**: LLM呼び出しを複数マシンに分散
-- ✅ **透明性**: すべての通信がログに記録
-- ✅ **簡単セットアップ**: `install-agent.sh` / `install-agent.ps1` で1コマンドインストール
-- ✅ **Windows対応**: PowerShell インストーラー、タスクスケジューラ統合
+See `internal/features/README.md` and each feature README for inputs, outputs, side effects, persistence, logs, error contract, and current main files.
 
-**使い方**:
-```bash
-# エージェントPC側
-./install-agent.sh coder3
+## Viewer Chat Contract
 
-# メインPC側（config.yaml）
-distributed:
-  enabled: true
-  transport: ssh
-  ssh:
-    host: "agent-pc.local"
-    user: "username"
-    key_path: "~/.ssh/picoclaw_agent"
-```
+Viewer normal chat uses `to=mio|shiro|kuro|midori` as the recipient / character selection contract.
 
-詳細: [docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md](docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md)
+- `to=mio`: normal Mio chat.
+- `to=shiro`: Shiro as the visible recipient / speaker; this is not an OPS or Worker execution route.
+- `to=kuro`: Kuro analysis-oriented chat.
+- `to=midori`: Midori creative / exploratory chat.
 
----
+`model_alias`, `route_prefix`, and old route aliases are legacy compatibility paths and must not become the primary normal Chat contract.
 
-## 株式・ETF 学習基盤
-
-RenCrow には、株式・ETF 向けの学習基盤を `rencrow-data/` として組み込み済みです。
-
-### 目的
-
-- 価格、出来高、分割、配当、為替、マクロ、イベント、ETF holdings を週次判断用に再現可能な形で保存する
-- raw を破壊せず、snapshot を毎週固定する
-- そのまま paper trade 前段までつなげる
-
-### 使い方
+## Build and Test
 
 ```bash
-make rencrow-data-check
-```
+# Module contracts
+GOCACHE=/tmp/picoclaw-gocache go test ./modules/...
 
-個別実行もできます。
+# Composition root, feature registrars, Viewer adapter, module contracts
+GOCACHE=/tmp/picoclaw-gocache go test ./cmd/picoclaw ./internal/features/... ./internal/adapter/viewer ./modules/...
 
-```bash
-make rencrow-data-init
-make rencrow-data-market
-make rencrow-data-macro
-make rencrow-data-features
-make rencrow-data-events
-make rencrow-data-snapshot SNAPSHOT_DATE=2026-05-16
-```
+# Full repository
+GOCACHE=/tmp/picoclaw-gocache go test ./...
+GOCACHE=/tmp/picoclaw-gocache go vet ./...
 
-### 参照
-
-- [学習基盤_実装仕様書.md](docs/株式/学習基盤_実装仕様書.md)
-- [株式_学習基盤.md](docs/株式/株式_学習基盤.md)
-- [株式_アルゴリズム評価.md](docs/株式/株式_アルゴリズム評価.md)
-
----
-
-## 🏗️ アーキテクチャ
-
-### v3.0 Clean Architecture（現在のブランチ: proposal/clean-architecture）
-
-```
-入力（LINE/Slack/etc.）
-  ↓
-┌─────────────────────────────────────────────┐
-│ Adapter層（LINE Handler等）                 │
-│ - config/, line/                            │
-└─────────────────────────────────────────────┘
-  ↓
-┌─────────────────────────────────────────────┐
-│ Application層（MessageOrchestrator）        │
-│ - orchestrator/, service/                   │
-│ - WorkerExecutionService（Worker即時実行）  │
-└─────────────────────────────────────────────┘
-  ↓
-┌─────────────────────────────────────────────┐
-│ Domain層（Mio/Shiro/CoderAgent等）          │
-│ - agent/, routing/, patch/, proposal/      │
-│ - session/, task/                           │
-└─────────────────────────────────────────────┘
-  ↓
-┌─────────────────────────────────────────────┐
-│ Infrastructure層（LLM/MCP/Tools）           │
-│ - llm/ (claude, deepseek, ollama, openai)  │
-│ - mcp/, tools/, routing/, persistence/     │
-└─────────────────────────────────────────────┘
-  ↓
-結果返却
-```
-
-**パッケージ構成**:
-```
-picoclaw/
-├── cmd/
-│   ├── picoclaw/              # サーバー用バイナリ
-│   │   └── main.go            # HTTPサーバー、ルーティング、Chat/Worker
-│   └── picoclaw-agent/        # エージェント用バイナリ
-│       └── main.go            # stdin/stdout JSON通信、Coder専用
-├── internal/                  # v3クリーンアーキテクチャ実装
-│   ├── adapter/               # 外部I/F（config, line）
-│   ├── application/           # ユースケース（orchestrator, service）
-│   ├── domain/                # ドメインロジック（agent, routing等）
-│   └── infrastructure/        # 外部システム（llm, mcp, tools）
-├── pkg/                       # レガシー実装（v2以前、削除候補）
-├── docs/                      # ドキュメント
-│   ├── 仕様.md                # 要件定義
-│   ├── 実装仕様_v3.md         # v3実装仕様（3,067行）
-│   ├── 実装仕様_分散実行_v4.md # v4分散実行対応
-│   ├── LLM運用/               # LLM運用仕様
-│   └── archive/               # アーカイブ
-├── install.sh                 # メインPC用インストーラー（Linux/macOS）
-├── install-agent.sh           # エージェントPC用インストーラー（Linux/macOS）
-├── install-agent.ps1          # エージェントPC用インストーラー（Windows）
-└── config.yaml.example        # 設定例
-```
-
----
-
-## 📊 実装状況
-
-**ブランチ**: `proposal/clean-architecture`（v3.0実装中）
-
-| カテゴリ | 完成度 | 詳細 |
-|---------|--------|------|
-| **Worker即時実行** | ✅ 100% | WorkerExecutionService実装完了 |
-| **Coder→Worker統合** | ✅ 100% | MessageOrchestrator統合完成 |
-| **Infrastructure層** | ✅ 95% | LLM/MCP/Tools/Config/Session |
-| **Domain層** | ✅ 90% | Agent/Routing/Patch定義 |
-| **Adapter層** | ✅ 85% | LINE統合、設定管理 |
-| **Application層** | ✅ 70% | Orchestrator、Worker実行ロジック |
-| **分散実行（v4.0）** | ✅ 100% | SSH Transport、統合バイナリ、エージェントモード |
-| **全体** | ✅ 90% | 核心機能100%完成、分散実行対応完了 |
-
-**テストカバレッジ**:
-- **internal/全体**: 83.6% ✅
-- Config: 94.6%
-- Domain層: 平均93.5%
-- Infrastructure層: 平均87.2%
-- LINE Adapter: 85.9%
-- Orchestrator: 70.0%
-- Service: 65.4%
-
-**最近の主要実装**:
-- ✅ **v4.0 分散実行対応**（2026-03-05完了）
-  - Transport抽象化（Local/SSH切り替え）
-  - 統合バイナリ（サーバー + エージェントモード）
-  - install-agent.sh（1コマンドセットアップ）
-  - SSH通信（JSON over stdin/stdout）
-- ✅ **v3.0 Worker即時実行化**（2026-03-02完了）
-  - Worker即時実行（WorkerExecutionService、390行 + テスト651行）
-  - Coder3統合（CODE3ルート、Proposal → Worker自動連携）
-  - セーフガード実装（保護ファイル、workspace制限等）
-  - Git auto-commit対応
-
----
-
-## 🚀 クイックスタート
-
-### 前提条件
-
-- Go 1.23以降
-- Ollama（Chat、Workerモデル）
-- API キー（Anthropic/DeepSeek/OpenAI等、オプション）
-
-### 1. インストール
-
-```bash
-# リポジトリクローン
-git clone https://github.com/Nyukimin/picoclaw_multiLLM.git
-cd picoclaw_multiLLM
-
-# ブランチ切り替え（v3クリーンアーキテクチャ版）
-git checkout proposal/clean-architecture
-
-# 依存関係インストール
-make deps
-
-# ビルド
+# Build / install local runtime
 make build
-
-# または直接ビルド
-go build -o picoclaw ./cmd/picoclaw
-```
-
-### 2. Ollama モデル準備
-
-```bash
-# Ollamaインストール（未インストールの場合）
-curl -fsSL https://ollama.com/install.sh | sh
-
-# モデルダウンロード
-ollama pull Chat       # Chat（Mio）用
-ollama pull Worker     # Worker（Shiro）用
-
-# 常駐化（keep_alive: -1）
-ollama run Chat --keep-alive -1
-ollama run Worker --keep-alive -1
-```
-
-### 3. 設定ファイル作成
-
-```bash
-# 設定例をコピー
-cp config.yaml.example config.yaml
-
-# API キーを環境変数に設定
-export ANTHROPIC_API_KEY="your-claude-api-key"    # Coder3用（オプション）
-export DEEPSEEK_API_KEY="your-deepseek-api-key"  # Coder1用（オプション）
-export OPENAI_API_KEY="your-openai-api-key"      # Coder2用（オプション）
-```
-
-### 4. 実行
-
-```bash
-# サーバー起動
-./picoclaw
-
-# または
-go run ./cmd/picoclaw
-```
-
-サーバーは `http://0.0.0.0:8080` で起動します。
-
-**エージェントモード（分散実行用）**:
-```bash
-# エージェント専用バイナリを使用
-./picoclaw-agent -standalone -agent coder3 -config ~/.picoclaw/config.yaml
-```
-
-### 5. インストールスクリプト（推奨）
-
-**メインPC（1コマンドインストール）**:
-```bash
-./install.sh
-systemctl --user start picoclaw
-```
-
-**エージェントPC（分散実行用）**:
-
-Linux/macOS:
-```bash
-./install-agent.sh coder3
-# メインPCから SSH 経由で起動（自動）
-```
-
-Windows:
-```powershell
-.\install-agent.ps1 -AgentType coder3
-# メインPCから SSH 経由で起動（自動）
-```
-
-install.sh / install-agent.* は依存パッケージの自動インストール、systemd/タスクスケジューラ設定、API キー設定を対話的に実行します。
-
----
-
-## ⚙️ 設定
-
-### config.yaml 基本設定
-
-```yaml
-server:
-  port: 8080
-  host: "0.0.0.0"
-
-ollama:
-  base_url: "http://localhost:11434"
-  chat_model: "Chat"
-  worker_model: "Worker"
-
-claude:
-  # API Key は環境変数 ANTHROPIC_API_KEY から読み込み
-  model: "claude-sonnet-4-20250514"
-
-deepseek:
-  # API Key は環境変数 DEEPSEEK_API_KEY から読み込み
-  model: "deepseek-chat"
-
-openai:
-  # API Key は環境変数 OPENAI_API_KEY から読み込み
-  model: "gpt-4o-mini"
-
-session:
-  storage_dir: "./data/sessions"
-
-log:
-  level: "info"
-  format: "json"
-```
-
-### Worker実行設定（重要）
-
-```yaml
-worker:
-  # Git auto-commit（実行前後に自動コミット）
-  auto_commit: false
-  commit_message_prefix: "[Worker Auto-Commit]"
-
-  # タイムアウト設定（秒）
-  command_timeout: 300  # シェルコマンド実行タイムアウト（5分）
-  git_timeout: 30       # Git操作タイムアウト（30秒）
-
-  # エラーハンドリング
-  stop_on_error: false  # false=継続モード、true=中断モード
-
-  # ワークスペース設定
-  workspace: "."  # Patch実行のルートディレクトリ
-
-  # 保護ファイルパターン（機密情報保護）
-  protected_patterns:
-    - ".env*"
-    - "*credentials*"
-    - "*.key"
-    - "*.pem"
-
-  # 保護ファイル検出時の動作
-  action_on_protected: "error"  # "error"=エラー停止、"skip"=スキップ、"log"=警告ログのみ
-
-  # 実行前サマリ表示
-  show_execution_summary: true  # 実行前にコマンド数・種別を表示
-```
-
-### API キー設定
-
-**環境変数で設定（推奨）**:
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-export DEEPSEEK_API_KEY="sk-..."
-export OPENAI_API_KEY="sk-..."
-```
-
----
-
-## 💻 開発
-
-### ビルド
-
-```bash
-# 開発ビルド
-make build
-
-# 全プラットフォーム向けビルド
-make build-all
-
-# インストール
 make install
 ```
 
-### テスト
+## Run
+
+The local service is normally installed as `~/.local/bin/picoclaw` and run through the user service `picoclaw.service`.
 
 ```bash
-# 全テスト実行
-make test
-
-# Go 全体テスト（Phase リファクタリング後の標準確認）
-GOCACHE=/tmp/picoclaw-gocache go test ./...
-
-# E2E テスト（外部 API / Ollama 未設定のケースは skip として明示）
-GOCACHE=/tmp/picoclaw-gocache go test -tags=e2e ./test/e2e
-
-# カバレッジ確認
-go test ./internal/... -coverprofile=coverage.out
-go tool cover -html=coverage.out
+make install
+systemctl --user start picoclaw.service
+curl http://127.0.0.1:18790/health
 ```
 
-### ディレクトリ構成
-
-```
-picoclaw/
-├── cmd/picoclaw/                      # メインアプリケーション
-│   ├── main.go                        # composition root（起動、config load、server startup）
-│   ├── routes.go                      # HTTP route registration
-│   ├── runtime_dependencies.go         # runtime dependency assembly
-│   ├── runtime_options.go              # debug / display / runtime option assembly
-│   └── health_runtime.go               # health / runtime helper
-├── internal/                          # v3クリーンアーキテクチャ
-│   ├── adapter/                       # Adapter層
-│   │   ├── config/                    # 設定管理
-│   │   ├── health/                    # health adapter
-│   │   └── line/                      # LINE統合
-│   ├── application/                   # Application層
-│   │   ├── orchestrator/              # Message / Code / Distributed orchestration
-│   │   └── service/                   # Worker実行サービス
-│   ├── domain/                        # Domain層
-│   │   ├── agent/                     # エージェント（Mio/Shiro/Coder）
-│   │   ├── llm/                       # LLMインターフェース
-│   │   ├── patch/                     # Patch定義（7種の操作）
-│   │   ├── proposal/                  # Proposal定義（plan/patch/risk）
-│   │   ├── routing/                   # ルーティング
-│   │   ├── session/                   # セッション
-│   │   └── task/                      # タスク
-│   └── infrastructure/                # Infrastructure層
-│       ├── llm/                       # LLMプロバイダー実装
-│       │   ├── claude/
-│       │   ├── deepseek/
-│       │   ├── ollama/
-│       │   └── openai/
-│       ├── mcp/                       # MCP統合
-│       ├── persistence/               # 永続化
-│       ├── routing/                   # ルーティング実装
-│       └── tools/                     # ツール実装
-├── pkg/                               # レガシー実装（v2以前）
-├── docs/                              # ドキュメント
-│   ├── 01_正本仕様/                  # 実装判断の一次参照
-│   ├── refactor/                     # リファクタリング方針、Phase仕様、完了判定
-│   ├── codebase-map/                 # ソースコード一次解析資料
-│   ├── LLM運用/                       # LLM運用仕様
-│   │   ├── README.md
-│   │   ├── 最新情報/
-│   │   ├── サーバとクライアント/
-│   │   └── LLM/
-│   └── archive/                       # アーカイブ
-├── config/config.yaml.example         # 設定例
-├── Makefile                           # ビルドファイル
-└── README.md                          # このファイル
-```
-
-### リファクタリング後の主要境界
-
-- `cmd/picoclaw/main.go` は composition root として残し、route 登録、runtime dependency、runtime option、health helper は別ファイルへ分離しています。
-- `internal/application/orchestrator/message_orchestrator*.go` は route dispatch、routing decision、response assembly、session、task context、TTS lifecycle、event emitter を責務別に分割しています。
-- `internal/application/orchestrator/code_executor*.go` は coder selection、proposal path、generate path、event helper、response helper を分割しています。
-- `internal/application/orchestrator/distributed_orchestrator*.go` は event、evidence、TTS lifecycle、session lifecycle、autonomous coordinator、route dispatcher、transport executor、code execution、coder selection、attribution guard を分割しています。
-- リファクタリング判断の履歴は `docs/refactor/` に集約しています。正本仕様は引き続き `docs/01_正本仕様/実装仕様.md` です。
-
----
-
-## 📚 ドキュメント
-
-### 正本仕様（実装の一次参照）
-
-- **[docs/03_設計文書/仕様.md](docs/03_設計文書/仕様.md)** - 要件定義
-- **[docs/01_正本仕様/実装仕様.md](docs/01_正本仕様/実装仕様.md)** - 正本仕様（Clean Architecture実装の一次参照）
-- **[docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md](docs/04_実装仕様_機能拡張/実装仕様_分散実行_v4.md)** - v4分散実行対応版（SSH Transport、統合バイナリ）
-- **[docs/04_実装仕様_機能拡張/実装仕様_OpenClaw移植_v1.md](docs/04_実装仕様_機能拡張/実装仕様_OpenClaw移植_v1.md)** - OpenClaw移植仕様（実装実行能力）
-
-### 運用ガイド（ユーザー向け）
-
-- **[docs/運用ガイド/Coder設定ガイド.md](docs/運用ガイド/Coder設定ガイド.md)** - ★Coder1-4 の設定方法（初回セットアップ必読）
-- **[docs/運用ガイド/分散実行_前提条件とセットアップ.md](docs/運用ガイド/分散実行_前提条件とセットアップ.md)** - SSH 分散実行セットアップ
-
-### LLM運用（技術詳細）
-
-- **[docs/LLM運用/README.md](docs/LLM運用/README.md)** - LLM運用仕様の入口
-- **[docs/LLM運用/最新情報/README.md](docs/LLM運用/最新情報/README.md)** - 現行構成と参照先
-- **[docs/LLM運用/LLM/LLM仕様.md](docs/LLM運用/LLM/LLM仕様.md)** - LLM role / model / API 概要
-- **[docs/LLM運用/サーバとクライアント/](docs/LLM運用/サーバとクライアント/)** - OpenAI互換API、管理API、Viewer連携
-
-### プロジェクトルール
-
-- **[CLAUDE.md](CLAUDE.md)** - AI開発ルール、プロジェクト固有ルール
-
-### その他
-
-- **[docs/README.md](docs/README.md)** - ドキュメント一覧
-- **[docs/06_実装ガイド進行管理/20260309_OpenClaw移植_runbook.md](docs/06_実装ガイド進行管理/20260309_OpenClaw移植_runbook.md)** - OpenClaw移植 実機検証Runbook
-
----
-
-## 🤝 貢献
-
-プルリクエスト歓迎！以下のガイドラインに従ってください：
-
-### 開発フロー
-
-1. **仕様確認**: `docs/01_正本仕様/実装仕様.md` を読む
-2. **ブランチ作成**: `feature/xxx` または `fix/xxx`
-3. **実装**: コーディング規約に従う
-4. **テスト**: ユニットテスト・統合テストを追加
-5. **ドキュメント更新**: 必要に応じて `docs/01_正本仕様/実装仕様.md` を更新
-6. **プルリクエスト**: `main` ブランチへ
-
-### コーディング規約
-
-- Go標準のコーディングスタイル（`gofmt`, `go vet`）
-- Clean Architectureの原則を尊重
-- テストカバレッジ: 新規コードは70%以上
-- コミットメッセージ: [Conventional Commits](https://www.conventionalcommits.org/)
-
-### テスト
+Before restarting an existing local runtime, stop it cleanly:
 
 ```bash
-# 全テスト実行
-GOCACHE=/tmp/picoclaw-gocache go test ./...
-
-# E2E テスト
-GOCACHE=/tmp/picoclaw-gocache go test -tags=e2e ./test/e2e
-
-# カバレッジ確認
-go test ./internal/... -coverprofile=coverage.out
-go tool cover -func=coverage.out
+systemctl --user stop picoclaw.service
+pgrep -a picoclaw || true
+ss -ltnp | rg ':18790' || true
+curl -fsS -m 2 http://127.0.0.1:18790/health || true
 ```
 
-`test/e2e` は `//go:build e2e` 付きです。外部 API key、Google Search、Ollama endpoint が未設定または到達不能なケースは環境未準備として skip されます。httptest で完結する Viewer model switch と route rule の E2E は通常環境でも実行されます。
+## Configuration and Secrets
 
----
+Do not commit local secrets or machine-local configuration.
 
-## 📄 ライセンス
+Use environment variables or local files outside the public repository for API keys and private runtime settings. `.env`, private keys, runtime DBs, logs, caches, generated artifacts, and local `config.yaml` files are not part of the Public repo seed.
 
-MIT License
+When exporting from this staging repository into a new Public `RenCrow_CORE` repository, use `.rencrow-core-exportignore` as the export exclusion manifest. It is not a deletion list for this staging repo.
 
----
+## Public Repo Seed Docs
 
-## 🎯 次のマイルストーン
+Canonical Ver0.80 docs:
 
-### Phase 6: mainブランチへのマージ（計画中）
+- `docs/02_正本仕様/05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md`
+- `docs/02_正本仕様/06_RenCrow_CORE_Ver0.80_モジュール化実装仕様.md`
+- `docs/02_正本仕様/07_RenCrow_CORE_Ver0.80_組み換え実装作業資料.md`
+- `docs/02_正本仕様/08_RenCrow_CORE_Ver0.80_Public_Repo起点化仕様.md`
 
-- [ ] プルリクエスト作成
-- [ ] コードレビュー
-- [ ] 統合テスト
-- [ ] mainブランチへのマージ
+## License and Attribution
 
-### Phase 7: リリース準備（計画中）
+RenCrow_CORE is distributed under the MIT License. See `LICENSE`.
 
-- [ ] リリースノート作成
-- [ ] タグ作成（v3.0.0）
-- [ ] バイナリビルド
-- [ ] ドキュメント最終確認
-
-### 将来の計画
-
-- [ ] Slack統合
-- [ ] Telegram統合
-- [ ] Discord統合
-- [ ] MCP統合の拡張
-- [ ] スキル管理機能
-- [ ] Web UI
-
----
-
-## 💡 使用例
-
-### LINEから実行
-
-```
-ユーザー: /code3 pkg/test/hello.go に Hello World を出力する関数を追加して
-```
-
-**期待される動作**:
-1. Coder3（Claude）がProposal生成（plan/patch/risk）
-2. WorkerがPatch即時実行
-3. （auto_commit=trueの場合）Git自動コミット
-4. 実行結果返信
-
----
-
-## 🐛 トラブルシューティング
-
-### Ollamaモデルが見つからない
-
-```bash
-# モデル一覧確認
-ollama list
-
-# モデルダウンロード
-ollama pull Chat
-ollama pull Worker
-```
-
-### Worker実行が失敗する
-
-1. Git auto-commit設定確認: `config.yaml` の `worker.auto_commit`
-2. Workspace設定確認: `worker.workspace`
-3. ログ確認: 標準出力の `[Worker]` プレフィックス行
-
-### ロールバックが必要な場合
-
-```bash
-# 最新のコミットを確認
-git log --oneline -5 | grep "Worker Auto-Commit"
-
-# ロールバック
-git reset --hard HEAD~1
-
-# 特定のコミットに戻る
-git reset --hard <commit-hash>
-```
-
-### エージェントモードのトラブルシューティング
-
-**エージェントが起動しない**:
-```bash
-# ログ確認
-journalctl --user -u picoclaw-agent-coder3 -f
-
-# API キー確認
-cat ~/.picoclaw/.env
-
-# 手動起動テスト
-picoclaw agent coder3
-```
-
-**SSH通信が失敗する**:
-```bash
-# SSH接続テスト
-ssh -i ~/.ssh/picoclaw_agent user@agent-pc "picoclaw agent coder3"
-
-# config.yaml の distributed.enabled 確認
-grep -A 10 "distributed:" config.yaml
-```
-
-詳細なトラブルシューティングは [分散実行セットアップガイド](docs/運用ガイド/分散実行_前提条件とセットアップ.md#5-トラブルシューティング) を参照してください。
-
----
-
-## 📞 サポート
-
-- **Issue**: [GitHub Issues](https://github.com/Nyukimin/picoclaw_multiLLM/issues)
-- **ドキュメント**: [docs/](docs/)
-- **仕様**: [docs/01_正本仕様/実装仕様.md](docs/01_正本仕様/実装仕様.md)
-
----
-
-**RenCrow v3.0** - Clean Architecture for Ultra-Lightweight AI Assistant
+PicoClaw / RenCrow work is heavily inspired by and based on `nanobot` by HKUDS. The existing attribution is retained in `LICENSE`.

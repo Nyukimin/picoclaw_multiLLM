@@ -28,7 +28,7 @@ job_id, target route, target agent, status, error kind
 
 runner unavailable and start failure are visible repair errors
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/autonomous, internal/adapter/viewer/repair_handler.go, cmd/picoclaw/runtime_repair.go
 

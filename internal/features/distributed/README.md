@@ -28,7 +28,7 @@ agent_id, route, transport, status, error kind
 
 remote unavailable and delivery failure remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 internal/domain/transport, internal/infrastructure/transport, cmd/picoclaw/runtime_distributed_mode.go, cmd/picoclaw-agent
 

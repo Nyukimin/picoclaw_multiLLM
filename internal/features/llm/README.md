@@ -28,7 +28,7 @@ role, provider, model, status, latency, error kind
 
 missing credentials, disabled provider, and health failure remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 modules/llm, internal/infrastructure/llm, cmd/picoclaw/runtime_llm_*.go
 

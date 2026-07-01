@@ -28,7 +28,7 @@ workstream_id, artifact_id, action, status, error kind
 
 heartbeat may trigger workstream but must not own workstream state
 
-## Current Primary Files
+## Current Main Files
 
 internal/domain/workstream, internal/infrastructure/persistence/workstream, internal/adapter/viewer/workstream_handler.go
 

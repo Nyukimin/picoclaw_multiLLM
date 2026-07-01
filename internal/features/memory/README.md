@@ -28,7 +28,7 @@ memory_id, user_id, state, transition, status, error kind
 
 confirmed/pinned promotion requires explicit review boundary
 
-## Current Primary Files
+## Current Main Files
 
 internal/domain/memory, internal/domain/conversation, internal/infrastructure/persistence/memory, internal/adapter/viewer/memory_*.go
 

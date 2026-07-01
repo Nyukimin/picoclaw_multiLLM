@@ -2,6 +2,8 @@
 
 This directory defines the local module boundaries for RenCrow inside this worktree.
 
+For RenCrow_CORE Ver0.80, `modules/*` contains public contracts, DTOs, events, pure policy, and state ownership metadata. It does not require every implementation body to live under `modules/*` yet. Existing runtime implementations may remain in `cmd/picoclaw`, `internal/application`, `internal/infrastructure`, or `internal/adapter` as `legacy-body` while the contract boundary is made explicit.
+
 ## Layout
 
 ```text
@@ -43,6 +45,7 @@ Do not place source under `.git/worktrees/*`; that path is Git metadata, not a t
 ## Implementation Status
 
 This directory now contains module contract packages for `core`, `chat`, `worker`, `llm`, `tts`, `stt`, `voicechat`, `browseractor`, and `webgather`.
+`modules/core.CurrentModuleDescriptors()` also exposes virtual state-observer descriptors such as `tts.playback` and `stt.viewer_input`; those are manifest entries, not separate source directories.
 The first compatibility adapters live in `internal/adapter/modulebridge` so existing Chat orchestration, providers, and Worker execution can be exercised through the module contracts without a big-bang move.
 Runtime module metadata is exposed at `/viewer/modules/manifest`.
 Runtime module health is exposed at `/viewer/modules/health` and includes a core aggregate `status`/`ready` result plus per-module reports.
@@ -55,3 +58,7 @@ Feature HTTP route registration now enters through `internal/features/*/registra
 
 This does not mean every implementation file has moved into module-named packages.
 Implementation migration remains incremental so behavior, logs, Viewer/TTS/STT state, and tests can remain stable.
+
+## RenCrow_CORE Ver0.80 Public Seed Notes
+
+The Public repo seed must keep this README, `CURRENT_MAP.md`, and `DEPENDENCY_RULES.md` aligned with the actual module directory set. If a feature is not represented as a `modules/<id>` package yet, it must remain visible in `internal/features/<id>` and in the Feature Module Catalog rather than being silently omitted.

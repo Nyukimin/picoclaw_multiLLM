@@ -28,7 +28,7 @@ source_id, staging_id, validation status, promotion target, error kind
 
 search result alone is not a source read and must not be promoted automatically
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/sourcefetcher, internal/adapter/viewer/source_registry_handler.go, cmd/picoclaw/cli_source_registry.go
 

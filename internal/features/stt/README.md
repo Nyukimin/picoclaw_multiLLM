@@ -28,7 +28,7 @@ session_id, request_id, provider, status, timing, error kind
 
 empty audio, timeout, busy, provider error, and viewer input failure remain distinct
 
-## Current Primary Files
+## Current Main Files
 
 modules/stt, internal/infrastructure/stt, cmd/picoclaw/stt_runtime_*.go
 

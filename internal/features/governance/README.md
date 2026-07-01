@@ -28,7 +28,7 @@ skill_id, change_id, gate, status, error kind
 
 unreviewed external contributions must not bypass governance gates
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/skillgovernance, internal/domain/skillgovernance, internal/infrastructure/persistence/skillgovernance, internal/adapter/viewer/skill_governance_handler.go
 

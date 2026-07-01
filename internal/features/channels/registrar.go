@@ -29,10 +29,10 @@ type Routes struct {
 // their legacy packages until a phase migrates them through this registrar.
 func RegisterRoutes(mux *http.ServeMux, deps Dependencies) {
 	routes := deps.Routes
-	registerHandler(mux, "/webhook", routes.Webhook)
-	registerHandler(mux, "/webhook/telegram", routes.TelegramWebhook)
-	registerHandler(mux, "/webhook/discord", routes.DiscordWebhook)
-	registerHandler(mux, "/webhook/slack", routes.SlackWebhook)
+	registerHandlerOrUnavailable(mux, "/webhook", routes.Webhook, "line webhook unavailable")
+	registerHandlerOrUnavailable(mux, "/webhook/telegram", routes.TelegramWebhook, "telegram webhook unavailable")
+	registerHandlerOrUnavailable(mux, "/webhook/discord", routes.DiscordWebhook, "discord webhook unavailable")
+	registerHandlerOrUnavailable(mux, "/webhook/slack", routes.SlackWebhook, "slack webhook unavailable")
 	registerRoute(mux, "/entry", routes.Entry)
 	registerRoute(mux, "/chrome/bridge", routes.ChromeBridge)
 	registerRoute(mux, "/chrome/bridge/status", routes.ChromeBridgeStatus)
@@ -51,6 +51,19 @@ func registerHandler(mux *http.ServeMux, pattern string, handler http.Handler) {
 		return
 	}
 	mux.Handle(pattern, handler)
+}
+
+func registerHandlerOrUnavailable(mux *http.ServeMux, pattern string, handler http.Handler, message string) {
+	if mux == nil || pattern == "" {
+		return
+	}
+	if handler != nil {
+		mux.Handle(pattern, handler)
+		return
+	}
+	mux.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, message, http.StatusServiceUnavailable)
+	}))
 }
 
 func registerRoute(mux *http.ServeMux, pattern string, handler http.HandlerFunc) {

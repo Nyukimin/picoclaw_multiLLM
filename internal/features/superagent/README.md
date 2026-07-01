@@ -28,7 +28,7 @@ queue_id, run_id, workstream_id, action, status, error kind
 
 queue processor unavailable and run failure remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/superagent, internal/adapter/viewer/superagent_handler.go, cmd/picoclaw/runtime_background_jobs.go
 

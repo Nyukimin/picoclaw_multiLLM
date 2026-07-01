@@ -28,7 +28,7 @@ job_id, artifact_id, gate, status, error kind
 
 failed verification must block promotion until reviewed
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/sandbox, internal/adapter/viewer/sandbox_handler.go
 

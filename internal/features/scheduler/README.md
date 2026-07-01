@@ -28,7 +28,7 @@ job_id, schedule_id, due_at, status, error kind
 
 invalid schedule and run failure remain explicit status values
 
-## Current Primary Files
+## Current Main Files
 
 internal/application/scheduler, internal/domain/scheduler, internal/infrastructure/persistence/scheduler, internal/adapter/viewer/scheduler_handler.go
 

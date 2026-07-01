@@ -28,7 +28,7 @@ policy, actor, target, decision, error kind
 
 denied and blocked decisions must remain explicit
 
-## Current Primary Files
+## Current Main Files
 
 internal/domain/security, internal/application/sandbox, internal/adapter/viewer/sandbox_handler.go
 

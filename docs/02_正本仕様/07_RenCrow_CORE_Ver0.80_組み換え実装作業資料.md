@@ -152,6 +152,8 @@ Viewer JS を触る場合は、最低 1 セッションで `/viewer/send`、Time
 | Web / browser | `/viewer/browser-trace-api`, `/viewer/browser-trace-api/discover`, `/viewer/complexity-hotspots` |
 | SuperAgent / AI workflow | `/viewer/superagent`, `/viewer/superagent/runs`, `/viewer/ai-workflow`, `/viewer/ai-workflow/events` |
 
+未設定の optional channel、disabled verification、disabled sandbox などは 503 `unavailable` を返してよい。これは route が存在し、現在状態として利用不可を明示している状態であり、404 route 欠落とは区別する。
+
 ### Ver0.80 registrar 実装反映
 
 2026-07-01 時点の現ブランチでは、HTTP route 登録の handoff は次の状態である。

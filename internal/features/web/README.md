@@ -28,7 +28,7 @@ run_id, source_id, URL, provider, status, error kind
 
 discovery, source read, browser evidence, and promotion errors stay separate
 
-## Current Primary Files
+## Current Main Files
 
 modules/browseractor, modules/webgather, internal/application/webgather, internal/application/browsertrace, internal/infrastructure/webgather
 

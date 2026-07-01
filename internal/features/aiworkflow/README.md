@@ -28,7 +28,7 @@ workflow_id, action, status, error kind
 
 workflow failure must be visible and must not be shown as stale success
 
-## Current Primary Files
+## Current Main Files
 
 internal/adapter/viewer/ai_workflow_handler.go, internal/application/superagent
 

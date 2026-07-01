@@ -22,6 +22,8 @@ RenCrow_CORE 起点化では、既存機能を削って軽くするのではな�
 
 実装に入る直前の作業資料は `docs/02_正本仕様/07_RenCrow_CORE_Ver0.80_組み換え実装作業資料.md` を参照する。特に `cmd/picoclaw` registrar 起点追加、Viewer Chat contract 固定、既存機能非削除チェックは同資料を使う。
 
+Public repository `RenCrow_CORE` の初期投入条件、公開範囲、root README 要件、secret / artifact / local config 除外条件は `docs/02_正本仕様/08_RenCrow_CORE_Ver0.80_Public_Repo起点化仕様.md` を正本とする。
+
 ## 実装方針
 
 Ver0.80 の実装は、機能を落とさず、挙動変更と構造変更を混ぜず、段階的に進める。
@@ -532,23 +534,24 @@ Viewer / runtime が関係する場合は、対象 route の API response と最
 1. `picoclaw_multiLLM` 現ブランチで Ver0.80 の構成変更、検証、commit、push を完了する。
 2. `docs/02_正本仕様/05_RenCrow_CORE_Ver0.80_モジュール構成仕様.md` とこの文書が HEAD と矛盾していないことを確認する。
 3. `modules/README.md`、`modules/CURRENT_MAP.md`、`internal/features/README.md` が現状の module / feature 一覧を説明していることを確認する。
-4. 公開除外候補を洗い出す。
+4. `docs/02_正本仕様/08_RenCrow_CORE_Ver0.80_Public_Repo起点化仕様.md` に従い、root `README.md`、公開範囲、license / attribution、未移行領域の説明を確認する。
+5. 公開除外候補を洗い出す。
    - secret / token / API key
    - local config
    - runtime cache
    - generated artifact
    - private-only docs
    - user-specific logs
-5. `RenCrow_CORE` 初期 README に次を置く。
+6. `RenCrow_CORE` 初期 README に次を置く。
    - Ver0.80 の目的
    - module tree
    - Feature Module Catalog
    - build / test / run の最小手順
    - 既存機能を削らず `legacy-body` として保持している領域
    - 未移行 feature と次の移行順
-6. 公開 repository に投入する前に、secret scan、large artifact check、license / attribution check を行う。
-7. 新規 Public repository `RenCrow_CORE` に Ver0.80 初期状態として投入する。
-8. 投入後、clone した公開 repo で最低限の module contract test と build/test 手順の再現性を確認する。
+7. 公開 repository に投入する前に、secret scan、large artifact check、license / attribution check を行う。
+8. 新規 Public repository `RenCrow_CORE` に Ver0.80 初期状態として投入する。
+9. 投入後、clone した公開 repo で最低限の module contract test と build/test 手順の再現性を確認する。
 
 検証:
 
