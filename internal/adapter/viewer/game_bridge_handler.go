@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -49,6 +50,34 @@ type GameBrainDecision struct {
 	ActionPlan []GameActionStep `json:"action_plan"`
 	MemoryRefs []string         `json:"memory_refs"`
 	Confidence float64          `json:"confidence"`
+}
+
+// GameBridgeDecisionOptions configures how /viewer/games/decision gathers
+// recall context and produces the decision.
+type GameBridgeDecisionOptions struct {
+	RecallReader GameBridgeRecallReader
+	Generator    GameDecisionGenerator
+}
+
+// GameDecisionGenerator produces a BrainDecision from a validated game request.
+type GameDecisionGenerator interface {
+	GenerateGameDecision(r *http.Request, req GameObservationRequest, recentEvents []GameBridgeEvent) (GameBrainDecision, error)
+}
+
+type GameDecisionGenerationError struct {
+	StatusCode int
+	Err        error
+}
+
+func (e GameDecisionGenerationError) Error() string {
+	if e.Err == nil {
+		return "game decision generation failed"
+	}
+	return e.Err.Error()
+}
+
+func (e GameDecisionGenerationError) Unwrap() error {
+	return e.Err
 }
 
 // GameResultRequest reports the executed game turn back to picoclaw.
@@ -108,10 +137,10 @@ func HandleGameBridgeStatus(opts GameBridgeStatusOptions) http.HandlerFunc {
 
 // HandleGameBridgeDecision returns a synchronous Phase 1 decision. It is
 // intentionally deterministic until the bridge is wired into recall/LLM.
-func HandleGameBridgeDecision(readers ...GameBridgeRecallReader) http.HandlerFunc {
-	var reader GameBridgeRecallReader
-	if len(readers) > 0 {
-		reader = readers[0]
+func HandleGameBridgeDecision(options ...GameBridgeDecisionOptions) http.HandlerFunc {
+	var opts GameBridgeDecisionOptions
+	if len(options) > 0 {
+		opts = options[0]
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -127,14 +156,18 @@ func HandleGameBridgeDecision(readers ...GameBridgeRecallReader) http.HandlerFun
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		recentEvents, err := recentGameBridgeEvents(r, reader, req)
+		recentEvents, err := recentGameBridgeEvents(r, opts.RecallReader, req)
 		if err != nil {
 			http.Error(w, "game bridge recall unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		decision := deterministicGameDecision(req, recentEvents)
+		decision, err := generateGameBridgeDecision(r, opts.Generator, req, recentEvents)
+		if err != nil {
+			http.Error(w, "game bridge decision unavailable", gameDecisionHTTPStatus(err))
+			return
+		}
 		if err := validateGameDecision(decision, req.AvailableActions); err != nil {
-			http.Error(w, "invalid bridge decision", http.StatusInternalServerError)
+			http.Error(w, "invalid bridge decision", http.StatusBadGateway)
 			return
 		}
 		writeJSON(w, http.StatusOK, decision)
@@ -188,6 +221,26 @@ func recentGameBridgeEvents(r *http.Request, reader GameBridgeRecallReader, req 
 		return nil, nil
 	}
 	return reader.RecentGameBridgeEvents(r.Context(), req.GameID, req.SessionID, 3)
+}
+
+func generateGameBridgeDecision(r *http.Request, generator GameDecisionGenerator, req GameObservationRequest, recentEvents []GameBridgeEvent) (GameBrainDecision, error) {
+	if generator == nil {
+		return deterministicGameDecision(req, recentEvents), nil
+	}
+	decision, err := generator.GenerateGameDecision(r, req, recentEvents)
+	if err != nil {
+		return GameBrainDecision{}, err
+	}
+	decision.MemoryRefs = mergeGameBridgeMemoryRefs(decision.MemoryRefs, gameBridgeMemoryRefs(recentEvents))
+	return decision, nil
+}
+
+func gameDecisionHTTPStatus(err error) int {
+	var decisionErr GameDecisionGenerationError
+	if errors.As(err, &decisionErr) && decisionErr.StatusCode != 0 {
+		return decisionErr.StatusCode
+	}
+	return http.StatusBadGateway
 }
 
 func decodeGameBridgeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
@@ -317,6 +370,23 @@ func gameBridgeMemoryRefs(events []GameBridgeEvent) []string {
 	return refs
 }
 
+func mergeGameBridgeMemoryRefs(primary []string, appended []string) []string {
+	if len(primary) == 0 && len(appended) == 0 {
+		return []string{}
+	}
+	refs := make([]string, 0, len(primary)+len(appended))
+	seen := map[string]bool{}
+	for _, ref := range append(primary, appended...) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
 func validateGameDecision(decision GameBrainDecision, availableActions []string) error {
 	actions := gameActionSet(availableActions)
 	if strings.TrimSpace(decision.Persona) == "" {
@@ -332,6 +402,9 @@ func validateGameDecision(decision GameBrainDecision, availableActions []string)
 		if !actions[strings.TrimSpace(step.Action)] {
 			return fmt.Errorf("action_plan includes unavailable action")
 		}
+	}
+	if decision.Confidence < 0 || decision.Confidence > 1 {
+		return fmt.Errorf("confidence must be between 0 and 1")
 	}
 	return nil
 }

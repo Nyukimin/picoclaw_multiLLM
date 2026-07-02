@@ -7,6 +7,7 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/config"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/adapter/viewer"
 	characterruntimeapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/characterruntime"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/llm"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 	executionpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/execution"
 	jobpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/job"
@@ -18,6 +19,7 @@ func buildViewerRuntimeHandlers(
 	l1Store *conversationpersistence.L1SQLiteStore,
 	realMgr *conversationpersistence.RealConversationManager,
 	reportPath string,
+	gameDecisionProvider llm.LLMProvider,
 ) {
 	if l1Store == nil {
 		deps.viewerMemoryLayers = viewer.HandleMemoryLayers(nil, nil)
@@ -45,19 +47,30 @@ func buildViewerRuntimeHandlers(
 	}
 	gameBridgeStorePath := defaultGameBridgeStorePath(cfg.WorkspaceDir)
 	var gameBridgeStore *viewer.GameBridgeStore
+	var gameDecisionGenerator viewer.GameDecisionGenerator
 	gameBridgeResultMode := "candidate_ack"
+	gameBridgeDecisionMode := "deterministic_stub"
 	if gameBridgeStorePath != "" {
 		gameBridgeStore = viewer.NewGameBridgeStore(gameBridgeStorePath)
 		gameBridgeResultMode = "persisted_candidate"
 		log.Printf("Viewer game bridge candidate store enabled: %s", gameBridgeStorePath)
 	}
+	if gameDecisionProvider != nil {
+		gameDecisionGenerator = viewer.NewLLMGameDecisionGenerator(gameDecisionProvider)
+		gameBridgeDecisionMode = "llm"
+		log.Printf("Viewer game bridge LLM decision enabled: provider=%s", gameDecisionProvider.Name())
+	}
 	deps.viewerGamesStatus = viewer.HandleGameBridgeStatus(viewer.GameBridgeStatusOptions{
 		ConversationEngineEnabled: realMgr != nil,
 		L1StoreEnabled:            l1Store != nil,
-		LLMRouterEnabled:          false,
+		LLMRouterEnabled:          gameDecisionGenerator != nil,
+		DecisionMode:              gameBridgeDecisionMode,
 		ResultMode:                gameBridgeResultMode,
 	})
-	deps.viewerGamesDecision = viewer.HandleGameBridgeDecision(gameBridgeStore)
+	deps.viewerGamesDecision = viewer.HandleGameBridgeDecision(viewer.GameBridgeDecisionOptions{
+		RecallReader: gameBridgeStore,
+		Generator:    gameDecisionGenerator,
+	})
 	deps.viewerGamesResult = viewer.HandleGameBridgeResult(gameBridgeStore)
 
 	hub := viewer.NewEventHub(200)

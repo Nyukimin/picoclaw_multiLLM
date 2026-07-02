@@ -362,7 +362,8 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		filepath.Join(cfg.WorkspaceDir, "logs", "artifact_cleanup.jsonl"),
 	))
 	reportPath := defaultExecutionReportPath(cfg.WorkspaceDir)
-	buildViewerRuntimeHandlers(cfg, deps, conversationRuntime.L1Store, conversationRuntime.Manager, reportPath)
+	gameDecisionProvider := selectChatConversationProvider(llmRuntime.ChatWorker, llmRuntime.Chat)
+	buildViewerRuntimeHandlers(cfg, deps, conversationRuntime.L1Store, conversationRuntime.Manager, reportPath, gameDecisionProvider)
 	startConversationBackgroundJobs(conversationRuntime, deps.eventRelay)
 	if toolRuntime.ToolMediationRecorder != nil {
 		deps.toolHarnessRecent = viewer.HandleToolHarnessRecent(toolRuntime.ToolMediationRecorder)

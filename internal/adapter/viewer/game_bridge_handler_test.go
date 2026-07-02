@@ -194,7 +194,7 @@ func TestHandleGameBridgeDecisionIncludesRecentCandidateMemoryRefs(t *testing.T)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/viewer/games/decision", bytes.NewReader(payload))
 
-	HandleGameBridgeDecision(store).ServeHTTP(rec, req)
+	HandleGameBridgeDecision(GameBridgeDecisionOptions{RecallReader: store}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -209,4 +209,111 @@ func TestHandleGameBridgeDecisionIncludesRecentCandidateMemoryRefs(t *testing.T)
 	if got.MemoryRefs[0] != "game:survival_garden:sg_test:turn_1:candidate" {
 		t.Fatalf("memory_refs=%v", got.MemoryRefs)
 	}
+}
+
+func TestHandleGameBridgeDecisionUsesGeneratorAndMergesRecallRefs(t *testing.T) {
+	store := NewGameBridgeStore(filepath.Join(t.TempDir(), "game_bridge_events.jsonl"))
+	_, err := store.SaveGameBridgeResult(context.Background(), GameResultRequest{
+		GameID:          "survival_garden",
+		SessionID:       "sg_test",
+		Turn:            1,
+		Persona:         "mio",
+		ExecutedActions: []string{"drink"},
+		Result:          map[string]any{"success": true, "event": "drank_water"},
+	})
+	if err != nil {
+		t.Fatalf("SaveGameBridgeResult returned error: %v", err)
+	}
+	generator := gameDecisionGeneratorFunc(func(_ *http.Request, req GameObservationRequest, recent []GameBridgeEvent) (GameBrainDecision, error) {
+		if req.SessionID != "sg_test" {
+			t.Fatalf("SessionID=%q", req.SessionID)
+		}
+		if len(recent) != 1 {
+			t.Fatalf("recent events=%d want 1", len(recent))
+		}
+		return GameBrainDecision{
+			Persona:    "mio",
+			Intent:     "drink",
+			Reason:     "water is useful",
+			ActionPlan: []GameActionStep{{Action: "drink"}},
+			MemoryRefs: []string{"custom_ref"},
+			Confidence: 0.8,
+		}, nil
+	})
+	body := map[string]any{
+		"game_id":           "survival_garden",
+		"session_id":        "sg_test",
+		"turn":              2,
+		"persona":           "mio",
+		"observation":       map[string]any{"status": map[string]any{"thirst": 10}},
+		"available_actions": []string{"drink", "rest"},
+		"request":           "choose_next_action",
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/games/decision", bytes.NewReader(payload))
+
+	HandleGameBridgeDecision(GameBridgeDecisionOptions{
+		RecallReader: store,
+		Generator:    generator,
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var got GameBrainDecision
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	wantRefs := []string{"custom_ref", "game:survival_garden:sg_test:turn_1:candidate"}
+	if len(got.MemoryRefs) != len(wantRefs) {
+		t.Fatalf("memory_refs=%v want %v", got.MemoryRefs, wantRefs)
+	}
+	for i, want := range wantRefs {
+		if got.MemoryRefs[i] != want {
+			t.Fatalf("memory_refs=%v want %v", got.MemoryRefs, wantRefs)
+		}
+	}
+}
+
+func TestHandleGameBridgeDecisionRejectsInvalidGeneratedAction(t *testing.T) {
+	generator := gameDecisionGeneratorFunc(func(_ *http.Request, _ GameObservationRequest, _ []GameBridgeEvent) (GameBrainDecision, error) {
+		return GameBrainDecision{
+			Persona:    "mio",
+			Intent:     "fly",
+			Reason:     "invalid action",
+			ActionPlan: []GameActionStep{{Action: "fly"}},
+			Confidence: 0.7,
+		}, nil
+	})
+	body := map[string]any{
+		"game_id":           "survival_garden",
+		"session_id":        "sg_test",
+		"turn":              2,
+		"persona":           "mio",
+		"observation":       map[string]any{"status": map[string]any{"thirst": 10}},
+		"available_actions": []string{"drink", "rest"},
+		"request":           "choose_next_action",
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/games/decision", bytes.NewReader(payload))
+
+	HandleGameBridgeDecision(GameBridgeDecisionOptions{Generator: generator}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
+}
+
+type gameDecisionGeneratorFunc func(*http.Request, GameObservationRequest, []GameBridgeEvent) (GameBrainDecision, error)
+
+func (f gameDecisionGeneratorFunc) GenerateGameDecision(r *http.Request, req GameObservationRequest, recentEvents []GameBridgeEvent) (GameBrainDecision, error) {
+	return f(r, req, recentEvents)
 }
