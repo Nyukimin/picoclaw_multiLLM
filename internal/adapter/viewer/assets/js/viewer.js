@@ -252,6 +252,12 @@ const state = {
     dciTraces: [],
     dciFetchError: '',
     dciLastResult: null,
+    gameBridgeStatus: null,
+    gameBridgeSessions: [],
+    gameBridgeEvents: [],
+    gameBridgeStatusFetchError: '',
+    gameBridgeSourceFetchError: '',
+    gameBridgeSkippedCount: 0,
     sandboxes: [],
     sandboxArtifacts: [],
     sandboxPromotions: [],
@@ -2402,6 +2408,76 @@ function refreshDCIData() {
     });
 }
 
+function fetchGameBridgeJSON(path) {
+  return fetch(path, {cache: 'no-store'})
+    .then((r) => r.text().then((body) => {
+      let data = null;
+      if (body) {
+        try {
+          data = JSON.parse(body);
+        } catch (err) {
+          throw new Error('HTTP ' + String(r.status) + ': invalid JSON from ' + path);
+        }
+      }
+      if (!r.ok || (data && data.ok === false)) {
+        const message = data && (data.message || data.error)
+          ? String(data.message || data.error)
+          : (body || r.statusText || 'game bridge unavailable');
+        throw new Error('HTTP ' + String(r.status) + ': ' + message);
+      }
+      return data || {};
+    }));
+}
+
+function refreshGameBridgeData() {
+  fetchGameBridgeJSON('/viewer/games/status')
+    .then((status) => Promise.allSettled([
+      fetchGameBridgeJSON('/viewer/games/sessions?limit=5'),
+      fetchGameBridgeJSON('/viewer/games/events?limit=5'),
+    ]).then((results) => ({status, results})))
+    .then(({status, results}) => {
+      const sessionResult = results[0];
+      const eventResult = results[1];
+      const sourceErrors = [];
+      let skippedCount = 0;
+
+      state.ops.gameBridgeStatusFetchError = '';
+      state.ops.gameBridgeStatus = status || null;
+
+      if (sessionResult && sessionResult.status === 'fulfilled') {
+        const payload = sessionResult.value || {};
+        state.ops.gameBridgeSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+        skippedCount += Number(payload.skipped_count || 0);
+      } else {
+        state.ops.gameBridgeSessions = [];
+        sourceErrors.push('sessions: ' + String(sessionResult && sessionResult.reason && sessionResult.reason.message ? sessionResult.reason.message : 'unavailable'));
+      }
+
+      if (eventResult && eventResult.status === 'fulfilled') {
+        const payload = eventResult.value || {};
+        state.ops.gameBridgeEvents = Array.isArray(payload.events) ? payload.events : [];
+        skippedCount += Number(payload.skipped_count || 0);
+      } else {
+        state.ops.gameBridgeEvents = [];
+        sourceErrors.push('events: ' + String(eventResult && eventResult.reason && eventResult.reason.message ? eventResult.reason.message : 'unavailable'));
+      }
+
+      state.ops.gameBridgeSourceFetchError = sourceErrors.join('\n');
+      state.ops.gameBridgeSkippedCount = skippedCount;
+      renderOps();
+    })
+    .catch((err) => {
+      state.ops.gameBridgeStatusFetchError = String(err && err.message ? err.message : err);
+      state.ops.gameBridgeStatus = null;
+      state.ops.gameBridgeSessions = [];
+      state.ops.gameBridgeEvents = [];
+      state.ops.gameBridgeSourceFetchError = '';
+      state.ops.gameBridgeSkippedCount = 0;
+      renderOps();
+      console.error(err);
+    });
+}
+
 function refreshSandboxData() {
   fetch('/viewer/sandbox?limit=20&viewer_optional=1')
     .then((r) => {
@@ -3510,6 +3586,7 @@ function refreshOptionalPanelData() {
   refreshOpsData();
   refreshToolHarnessData();
   refreshDCIData();
+  if (typeof refreshGameBridgeData === 'function') refreshGameBridgeData();
   refreshSkillGovernanceData();
   refreshWorkstreamData();
   refreshRevenueData();
@@ -3541,6 +3618,7 @@ function setOptionalPanelRefreshIntervals() {
   setInterval(refreshOpsData, 5000);
   setInterval(refreshToolHarnessData, 5000);
   setInterval(refreshDCIData, 5000);
+  setInterval(() => { if (typeof refreshGameBridgeData === 'function') refreshGameBridgeData(); }, 5000);
   setInterval(() => { if (shouldRefreshOpsPanelDiagnostics()) refreshSandboxData(); }, 5000);
   setInterval(refreshSkillGovernanceData, 5000);
   setInterval(refreshWorkstreamData, 5000);

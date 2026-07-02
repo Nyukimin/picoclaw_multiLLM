@@ -268,3 +268,48 @@ func TestViewerStaticContractHobbyGraphOpsOverview(t *testing.T) {
 		t.Fatal("ops.js missing Hobby Graph Ops card registration")
 	}
 }
+
+func TestViewerStaticContractGameBridgeOpsCard(t *testing.T) {
+	viewerJS, err := os.ReadFile("assets/js/viewer.js")
+	if err != nil {
+		t.Fatalf("read viewer.js: %v", err)
+	}
+	opsJS, err := os.ReadFile("assets/js/tabs/ops.js")
+	if err != nil {
+		t.Fatalf("read ops.js: %v", err)
+	}
+	html, err := os.ReadFile("viewer.html")
+	if err != nil {
+		t.Fatalf("read viewer.html: %v", err)
+	}
+	viewer := string(viewerJS)
+	ops := string(opsJS)
+	page := string(html)
+
+	for _, required := range []string{
+		"function refreshGameBridgeData()",
+		"/viewer/games/status",
+		"/viewer/games/sessions?limit=5",
+		"/viewer/games/events?limit=5",
+	} {
+		if !strings.Contains(viewer, required) {
+			t.Fatalf("viewer.js missing Game Bridge refresh contract: %s", required)
+		}
+	}
+	for _, required := range []string{
+		"function gameBridgeOpsCard()",
+		"title: 'Game Bridge'",
+		"candidate-only: not confirmed",
+		"gameBridgeOpsCard()",
+	} {
+		if !strings.Contains(ops, required) {
+			t.Fatalf("ops.js missing Game Bridge Ops card contract: %s", required)
+		}
+	}
+	if !strings.Contains(page, "ops.js?v=20260702-game-bridge-card") {
+		t.Fatal("viewer.html missing Game Bridge Ops cache buster")
+	}
+	if !strings.Contains(page, "viewer.js?v=20260702-game-bridge-card") {
+		t.Fatal("viewer.html missing Game Bridge viewer cache buster")
+	}
+}
