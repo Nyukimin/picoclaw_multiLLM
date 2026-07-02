@@ -43,6 +43,13 @@ func buildViewerRuntimeHandlers(
 		deps.viewerMovieDomainGraphSync = viewer.HandleMovieDomainGraphSync(viewer.MovieCatalogOptions{}, l1Store)
 		deps.viewerHobbyDomainGraphSync = viewer.HandleHobbyDomainGraphSync(viewer.HobbyGraphOptions{}, l1Store)
 	}
+	deps.viewerGamesStatus = viewer.HandleGameBridgeStatus(viewer.GameBridgeStatusOptions{
+		ConversationEngineEnabled: realMgr != nil,
+		L1StoreEnabled:            l1Store != nil,
+		LLMRouterEnabled:          false,
+	})
+	deps.viewerGamesDecision = viewer.HandleGameBridgeDecision()
+	deps.viewerGamesResult = viewer.HandleGameBridgeResult()
 
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub
