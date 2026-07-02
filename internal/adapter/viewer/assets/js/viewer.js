@@ -1207,6 +1207,7 @@ const panels = {
   backlog: document.getElementById('panel-backlog'),
   reports: document.getElementById('panel-reports'),
   ops: document.getElementById('panel-ops'),
+  games: document.getElementById('panel-games'),
   overview: document.getElementById('panel-overview'),
   roles: document.getElementById('panel-roles'),
   progress: document.getElementById('panel-progress'),
@@ -1311,6 +1312,9 @@ function switchTab(tab) {
   if (tab === 'ops') {
     refreshSandboxData();
     refreshRuntimeBlockedRouteData();
+  }
+  if (tab === 'games' && typeof refreshGameBridgeData === 'function') {
+    refreshGameBridgeData();
   }
   if (tab === 'jobs') {
     refreshVerification();
@@ -2319,6 +2323,7 @@ function renderDeskViews() {
   if (typeof renderBacklogDesk === 'function') renderBacklogDesk();
   if (typeof renderReportsDesk === 'function') renderReportsDesk();
   if (typeof renderInvestmentDesk === 'function') renderInvestmentDesk();
+  if (typeof renderGamesDesk === 'function') renderGamesDesk();
 }
 
 function refreshOpsData() {
@@ -2465,6 +2470,7 @@ function refreshGameBridgeData() {
       state.ops.gameBridgeSourceFetchError = sourceErrors.join('\n');
       state.ops.gameBridgeSkippedCount = skippedCount;
       renderOps();
+      if (typeof renderGamesDesk === 'function') renderGamesDesk();
     })
     .catch((err) => {
       state.ops.gameBridgeStatusFetchError = String(err && err.message ? err.message : err);
@@ -2474,6 +2480,7 @@ function refreshGameBridgeData() {
       state.ops.gameBridgeSourceFetchError = '';
       state.ops.gameBridgeSkippedCount = 0;
       renderOps();
+      if (typeof renderGamesDesk === 'function') renderGamesDesk();
       console.error(err);
     });
 }

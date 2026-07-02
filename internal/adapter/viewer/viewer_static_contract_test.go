@@ -69,12 +69,15 @@ func TestViewerStaticContractDailyDeskTabs(t *testing.T) {
 		`data-tab="reports"`:                     "Reports tab",
 		`data-tab="movie-db"`:                    "Movie Database tab",
 		`data-tab="investment"`:                  "Investment tab",
+		`data-tab="games"`:                       "Games tab",
 		`id="panel-home" class="panel active"`:   "Home is the initial active panel",
 		`id="panel-develop"`:                     "Develop panel",
 		`id="panel-instructions"`:                "Instructions panel",
 		`id="panel-reports"`:                     "Reports panel",
 		`id="panel-movie-db"`:                    "Movie Database panel",
 		`id="panel-investment"`:                  "Investment panel",
+		`id="panel-games"`:                       "Games panel",
+		`id="gamesBridgeStatusCard"`:             "Games bridge status card",
 		`id="investmentRefreshBtn"`:              "Investment refresh action",
 		`id="movieDbFetchKind"`:                  "Movie Database fetch kind selector",
 		`id="movieDbFetchQuery"`:                 "Movie Database fetch query input",
@@ -86,6 +89,7 @@ func TestViewerStaticContractDailyDeskTabs(t *testing.T) {
 		`/viewer/assets/js/tabs/reports.js`:      "Reports tab JavaScript",
 		`/viewer/assets/js/tabs/movie-db.js`:     "Movie Database tab JavaScript",
 		`/viewer/assets/js/tabs/investment.js`:   "Investment tab JavaScript",
+		`/viewer/assets/js/tabs/games.js`:        "Games tab JavaScript",
 	}
 	for needle, purpose := range required {
 		if !strings.Contains(html, needle) {
@@ -278,12 +282,17 @@ func TestViewerStaticContractGameBridgeOpsCard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read ops.js: %v", err)
 	}
+	gamesJS, err := os.ReadFile("assets/js/tabs/games.js")
+	if err != nil {
+		t.Fatalf("read games.js: %v", err)
+	}
 	html, err := os.ReadFile("viewer.html")
 	if err != nil {
 		t.Fatalf("read viewer.html: %v", err)
 	}
 	viewer := string(viewerJS)
 	ops := string(opsJS)
+	games := string(gamesJS)
 	page := string(html)
 
 	for _, required := range []string{
@@ -306,10 +315,34 @@ func TestViewerStaticContractGameBridgeOpsCard(t *testing.T) {
 			t.Fatalf("ops.js missing Game Bridge Ops card contract: %s", required)
 		}
 	}
+	for _, required := range []string{
+		"function renderGamesDesk()",
+		"gamesBridgeState()",
+		"gamesBridgeStatusCard",
+		"gamesLatestSessionCard",
+		"gamesEventsCard",
+		"candidate-only: not confirmed",
+	} {
+		if !strings.Contains(games, required) {
+			t.Fatalf("games.js missing Game Bridge Games tab contract: %s", required)
+		}
+	}
+	for _, required := range []string{
+		"games: document.getElementById('panel-games')",
+		"tab === 'games'",
+		"renderGamesDesk",
+	} {
+		if !strings.Contains(viewer, required) {
+			t.Fatalf("viewer.js missing Games tab wiring: %s", required)
+		}
+	}
 	if !strings.Contains(page, "ops.js?v=20260702-game-bridge-card") {
 		t.Fatal("viewer.html missing Game Bridge Ops cache buster")
 	}
-	if !strings.Contains(page, "viewer.js?v=20260702-viewer-residuals") {
+	if !strings.Contains(page, "games.js?v=20260702-games-tab") {
+		t.Fatal("viewer.html missing Games tab cache buster")
+	}
+	if !strings.Contains(page, "viewer.js?v=20260702-games-tab") {
 		t.Fatal("viewer.html missing Game Bridge viewer cache buster")
 	}
 }
