@@ -309,7 +309,7 @@ func TestViewerStaticContractGameBridgeOpsCard(t *testing.T) {
 	if !strings.Contains(page, "ops.js?v=20260702-game-bridge-card") {
 		t.Fatal("viewer.html missing Game Bridge Ops cache buster")
 	}
-	if !strings.Contains(page, "viewer.js?v=20260702-game-bridge-card") {
+	if !strings.Contains(page, "viewer.js?v=20260702-viewer-residuals") {
 		t.Fatal("viewer.html missing Game Bridge viewer cache buster")
 	}
 }

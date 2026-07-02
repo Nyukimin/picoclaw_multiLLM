@@ -5647,12 +5647,12 @@ function send() {
   sendBtn.disabled = true;
   inp.disabled = true;
   if (typeof labInp !== 'undefined' && labInp) labInp.disabled = true;
-  if (attachBtn) attachBtn.disabled = true;
-  if (screenBtn) screenBtn.disabled = true;
-  if (cameraBtn) cameraBtn.disabled = true;
-  if (labAttachBtn) labAttachBtn.disabled = true;
-  if (labScreenBtn) labScreenBtn.disabled = true;
-  if (labCameraBtn) labCameraBtn.disabled = true;
+  if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = true;
+  if (typeof screenBtn !== 'undefined' && screenBtn) screenBtn.disabled = true;
+  if (typeof cameraBtn !== 'undefined' && cameraBtn) cameraBtn.disabled = true;
+  if (typeof labAttachBtn !== 'undefined' && labAttachBtn) labAttachBtn.disabled = true;
+  if (typeof labScreenBtn !== 'undefined' && labScreenBtn) labScreenBtn.disabled = true;
+  if (typeof labCameraBtn !== 'undefined' && labCameraBtn) labCameraBtn.disabled = true;
 
   const sendPromise = attachments.length > 0 ? sendViewerMessage(message, attachments) : sendViewerMessage(message);
   sendPromise
@@ -5679,12 +5679,12 @@ function send() {
     sendBtn.disabled = false;
     inp.disabled = false;
     if (typeof labInp !== 'undefined' && labInp) labInp.disabled = false;
-    if (attachBtn) attachBtn.disabled = false;
-    if (screenBtn) screenBtn.disabled = false;
-    if (cameraBtn) cameraBtn.disabled = false;
-    if (labAttachBtn) labAttachBtn.disabled = false;
-    if (labScreenBtn) labScreenBtn.disabled = false;
-    if (labCameraBtn) labCameraBtn.disabled = false;
+    if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
+    if (typeof screenBtn !== 'undefined' && screenBtn) screenBtn.disabled = false;
+    if (typeof cameraBtn !== 'undefined' && cameraBtn) cameraBtn.disabled = false;
+    if (typeof labAttachBtn !== 'undefined' && labAttachBtn) labAttachBtn.disabled = false;
+    if (typeof labScreenBtn !== 'undefined' && labScreenBtn) labScreenBtn.disabled = false;
+    if (typeof labCameraBtn !== 'undefined' && labCameraBtn) labCameraBtn.disabled = false;
     const isLabMode = typeof document !== 'undefined' && document.body && document.body.classList.contains('lab-mode');
     const focusTarget = typeof labInp !== 'undefined' && isLabMode && labInp ? labInp : inp;
     focusTarget.focus();
@@ -7392,7 +7392,7 @@ async function startSTT() {
     showToast('音声入力は通常チャットでのみ有効です', 'error');
     return;
   }
-  const externalAudioStream = getSTTExternalAudioStream();
+  const externalAudioStream = typeof getSTTExternalAudioStream === 'function' ? getSTTExternalAudioStream() : null;
   const microphoneUnavailable = externalAudioStream ? '' : getSTTMicrophoneUnavailableReason();
   if (microphoneUnavailable) {
     sttState.isStarting = false;
