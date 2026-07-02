@@ -41,6 +41,14 @@ http://<RenCrowホスト>:18790/viewer?mode=live
 
 Live Mode は配信用の表示モードであり、入力欄や一部操作UIを隠し、表示密度と視認性を優先する。
 
+Live2D Mode:
+
+```text
+http://<RenCrowホスト>:18790/viewer?mode=live2d
+```
+
+Live2D Mode はキャラクター全画面表示モードであり、Viewer UI を隠して疑似Live2Dステージのみを表示する（詳細は「10.1 Live2D Mode」）。
+
 ## 3. 全体構成
 
 ```text
@@ -216,6 +224,42 @@ Live Mode の方針:
 - Topicバーに重ねない
 - 中央Chatに重ねない
 - 安全な余白が確保できない画面幅では、重ねるより非表示を優先する
+
+## 10.1 Live2D Mode
+
+Live2D Mode はキャラクターの疑似Live2Dステージを全画面表示する。
+
+URL:
+
+```text
+/viewer?mode=live2d
+/viewer?mode=live2d&character=marin
+/viewer?mode=live2d&expression=smile_niconico
+/viewer?mode=live2d&ui=0
+```
+
+クエリパラメータ:
+
+| パラメータ | 既定値 | 用途 |
+|---|---|---|
+| `character` | `marin` | 表示キャラクター（`assets/live2d/<character>/` を参照） |
+| `expression` | `normal_genki` | 初期表情 |
+| `ui` | 表示 | `0` で操作パネル（表情・自動モーション切替）を隠す |
+
+実装:
+
+- `viewer.js` の `initLive2DMode()` が body に `live2d-mode` クラスを付与し、`#live2dStage` の iframe に `/viewer/assets/live2d/<character>/index.html` をロードする
+- キャラクター一式は `internal/adapter/viewer/assets/live2d/<character>/` に配置する（`index.html` + `model.json` + `images/`）
+
+Marin 疑似リグの方針:
+
+- `.moc3` 未収録のため、Cubism ランタイムではなく「ベース + パーツ重ね合わせ」で表示する
+- ベース画像（`base.png`）は目・口を肌埋め、アホ毛を背景埋めした静止画で、**背景を含むベースは一切動かさない**
+- 動くのはパーツのみ: 目（開き/閉じ/ニコニコ）、口（開き/閉じ、口パク）、アホ毛（振り子）、サイド髪・リボン（clip-path 切り出しの微回転）
+- まばたき・口パク・髪揺れは自動モーションとして動作し、パネルで個別にON/OFFできる
+- 表情8種は `model.json` の `rig_state`（目・口パーツの組合せ）にマッピングされる
+- パーツ画像は `tools/marin_parts_gen/gen_marin_patches.py` で `fullbody.png` から生成する（生成物の直接編集禁止）
+- `.moc3` 完成後は `model.json` の `model3` フィールドで Cubism ランタイム読み込みへ差し替える
 
 ## 11. IdleChat 連携
 

@@ -3220,10 +3220,30 @@ function initTabFromQuery() {
   } catch (_) {}
 }
 
+// Live2D モード: Viewer の UI を隠し、疑似 Live2D ステージを全画面表示する。
+// 対応キャラクターは assets/live2d/<character>/ 配下にビュワー一式を置いて追加する。
+function initLive2DMode(u) {
+  const stage = document.getElementById('live2dStage');
+  const frame = document.getElementById('live2dStageFrame');
+  if (!stage || !frame) return false;
+  const character = String(u.searchParams.get('character') || 'marin').trim().toLowerCase();
+  if (!/^[a-z0-9_-]+$/.test(character)) return false;
+  document.body.classList.add('live2d-mode');
+  const params = new URLSearchParams();
+  const expression = String(u.searchParams.get('expression') || '').trim();
+  if (expression) params.set('expression', expression);
+  if (u.searchParams.get('ui') === '0') params.set('ui', '0');
+  const query = params.toString();
+  frame.src = '/viewer/assets/live2d/' + character + '/index.html' + (query ? '?' + query : '');
+  stage.hidden = false;
+  return true;
+}
+
 function initLiveMode() {
   try {
     const u = new URL(window.location.href);
     const mode = String(u.searchParams.get('mode') || '').trim().toLowerCase();
+    if (mode === 'live2d') return initLive2DMode(u);
     if (mode !== 'live' && mode !== 'lab') return false;
     const isLabMode = mode === 'lab';
     document.body.classList.add('live-mode');

@@ -1428,6 +1428,11 @@
 </button>
 <div class="toast" id="toast"></div>
 
+<!-- mode=live2d 用の全画面ステージ。src は initLive2DMode() が設定する -->
+<div id="live2dStage" hidden>
+  <iframe id="live2dStageFrame" title="Live2D Viewer"></iframe>
+</div>
+
 <script src="/viewer/assets/js/tabs/ops.js?v=20260510-tabs-ops" defer></script>
 <script src="/viewer/assets/js/tabs/home.js?v=20260517-desk-regenerated" defer></script>
 <script src="/viewer/assets/js/tabs/develop.js?v=20260517-desk-regenerated" defer></script>
@@ -1447,7 +1452,7 @@
 <script src="/viewer/assets/js/tabs/sessions.js?v=20260510-tabs-sessions" defer></script>
 <script src="/viewer/assets/js/tabs/jobs.js?v=20260510-tabs-jobs" defer></script>
 <script src="/viewer/assets/js/stt_test_record_utils.js?v=20260609-stt-test-record" defer></script>
-<script src="/viewer/assets/js/viewer.js?v=20260630-character-init" defer></script>
+<script src="/viewer/assets/js/viewer.js?v=20260702-live2d-mode" defer></script>
 <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 </body>
 </html>

@@ -890,6 +890,12 @@ body.theme-compact .input-wrap textarea{min-height:38px;max-height:86px}
   .input-wrap textarea{max-height:76px}
 }
 
+/* === Live2D Mode (mode=live2d: 全画面キャラクターステージ) === */
+body.live2d-mode > :not(#live2dStage){display:none !important}
+#live2dStage{position:fixed;inset:0;z-index:1000;background:#12101c}
+#live2dStage[hidden]{display:none}
+#live2dStageFrame{width:100%;height:100%;border:0;display:block}
+
 /* === Live Mode (配信用 1920x1080) === */
 body.live-mode header{display:none}
 body.live-mode .logo{font-size:26px;gap:14px}
