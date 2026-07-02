@@ -108,7 +108,11 @@ func HandleGameBridgeStatus(opts GameBridgeStatusOptions) http.HandlerFunc {
 
 // HandleGameBridgeDecision returns a synchronous Phase 1 decision. It is
 // intentionally deterministic until the bridge is wired into recall/LLM.
-func HandleGameBridgeDecision() http.HandlerFunc {
+func HandleGameBridgeDecision(readers ...GameBridgeRecallReader) http.HandlerFunc {
+	var reader GameBridgeRecallReader
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -123,7 +127,12 @@ func HandleGameBridgeDecision() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		decision := deterministicGameDecision(req)
+		recentEvents, err := recentGameBridgeEvents(r, reader, req)
+		if err != nil {
+			http.Error(w, "game bridge recall unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		decision := deterministicGameDecision(req, recentEvents)
 		if err := validateGameDecision(decision, req.AvailableActions); err != nil {
 			http.Error(w, "invalid bridge decision", http.StatusInternalServerError)
 			return
@@ -134,7 +143,11 @@ func HandleGameBridgeDecision() http.HandlerFunc {
 
 // HandleGameBridgeResult accepts the post-execution result as a candidate
 // memory event. Phase 1 acknowledges the event without promoting memory.
-func HandleGameBridgeResult() http.HandlerFunc {
+func HandleGameBridgeResult(writers ...GameBridgeResultWriter) http.HandlerFunc {
+	var writer GameBridgeResultWriter
+	if len(writers) > 0 {
+		writer = writers[0]
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -150,14 +163,31 @@ func HandleGameBridgeResult() http.HandlerFunc {
 			return
 		}
 		eventID := gameBridgeEventID(req.GameID, req.SessionID, req.Turn)
+		candidateMemoryIDs := []string{eventID + ":candidate"}
+		if writer != nil {
+			event, err := writer.SaveGameBridgeResult(r.Context(), req)
+			if err != nil {
+				http.Error(w, "failed to persist game result", http.StatusServiceUnavailable)
+				return
+			}
+			eventID = event.EventID
+			candidateMemoryIDs = []string{event.CandidateMemoryID}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":                   true,
 			"event_id":             eventID,
-			"candidate_memory_ids": []string{eventID + ":candidate"},
+			"candidate_memory_ids": candidateMemoryIDs,
 			"memory_state":         "candidate",
 			"promoted":             false,
 		})
 	}
+}
+
+func recentGameBridgeEvents(r *http.Request, reader GameBridgeRecallReader, req GameObservationRequest) ([]GameBridgeEvent, error) {
+	if reader == nil {
+		return nil, nil
+	}
+	return reader.RecentGameBridgeEvents(r.Context(), req.GameID, req.SessionID, 3)
 }
 
 func decodeGameBridgeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
@@ -219,7 +249,7 @@ func validateGameResultRequest(req GameResultRequest) error {
 	return nil
 }
 
-func deterministicGameDecision(req GameObservationRequest) GameBrainDecision {
+func deterministicGameDecision(req GameObservationRequest, recentEvents []GameBridgeEvent) GameBrainDecision {
 	actions := gameActionSet(req.AvailableActions)
 	fatigue, _ := gameNestedNumber(req.Observation, "status", "fatigue")
 	thirst, _ := gameNestedNumber(req.Observation, "status", "thirst")
@@ -253,14 +283,38 @@ func deterministicGameDecision(req GameObservationRequest) GameBrainDecision {
 	if intent == "return_to_camp" && actions["rest"] && fatigue >= 70 {
 		plan = append(plan, GameActionStep{Action: "rest"})
 	}
+	memoryRefs := gameBridgeMemoryRefs(recentEvents)
+	if len(memoryRefs) > 0 {
+		reason += "; recent candidate game context is available"
+	}
 	return GameBrainDecision{
 		Persona:    strings.TrimSpace(req.Persona),
 		Intent:     intent,
 		Reason:     reason,
 		ActionPlan: plan,
-		MemoryRefs: []string{},
+		MemoryRefs: memoryRefs,
 		Confidence: 0.52,
 	}
+}
+
+func gameBridgeMemoryRefs(events []GameBridgeEvent) []string {
+	if len(events) == 0 {
+		return []string{}
+	}
+	refs := make([]string, 0, len(events))
+	seen := map[string]bool{}
+	for _, event := range events {
+		ref := strings.TrimSpace(event.CandidateMemoryID)
+		if ref == "" {
+			ref = strings.TrimSpace(event.EventID) + ":candidate"
+		}
+		if ref == ":candidate" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	return refs
 }
 
 func validateGameDecision(decision GameBrainDecision, availableActions []string) error {

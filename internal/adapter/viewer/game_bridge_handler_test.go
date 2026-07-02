@@ -2,9 +2,11 @@ package viewer
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 )
 
@@ -112,6 +114,7 @@ func TestGameActionStepUsesCommonArgsKey(t *testing.T) {
 }
 
 func TestHandleGameBridgeResultAcceptsCandidateResult(t *testing.T) {
+	store := NewGameBridgeStore(filepath.Join(t.TempDir(), "game_bridge_events.jsonl"))
 	body := map[string]any{
 		"game_id":          "survival_garden",
 		"session_id":       "sg_test",
@@ -130,7 +133,7 @@ func TestHandleGameBridgeResultAcceptsCandidateResult(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/viewer/games/result", bytes.NewReader(payload))
 
-	HandleGameBridgeResult().ServeHTTP(rec, req)
+	HandleGameBridgeResult(store).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -144,5 +147,66 @@ func TestHandleGameBridgeResultAcceptsCandidateResult(t *testing.T) {
 	}
 	if got["event_id"] == "" {
 		t.Fatalf("event_id is empty")
+	}
+	events, err := store.RecentGameBridgeEvents(context.Background(), "survival_garden", "sg_test", 10)
+	if err != nil {
+		t.Fatalf("RecentGameBridgeEvents returned error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events=%d want 1", len(events))
+	}
+	if events[0].MemoryState != "candidate" || events[0].Promoted {
+		t.Fatalf("unexpected persisted event: %+v", events[0])
+	}
+}
+
+func TestHandleGameBridgeDecisionIncludesRecentCandidateMemoryRefs(t *testing.T) {
+	store := NewGameBridgeStore(filepath.Join(t.TempDir(), "game_bridge_events.jsonl"))
+	_, err := store.SaveGameBridgeResult(context.Background(), GameResultRequest{
+		GameID:          "survival_garden",
+		SessionID:       "sg_test",
+		Turn:            1,
+		Persona:         "mio",
+		ExecutedActions: []string{"drink"},
+		Result:          map[string]any{"success": true, "event": "drank_water"},
+	})
+	if err != nil {
+		t.Fatalf("SaveGameBridgeResult returned error: %v", err)
+	}
+
+	body := map[string]any{
+		"game_id":    "survival_garden",
+		"session_id": "sg_test",
+		"turn":       2,
+		"persona":    "mio",
+		"observation": map[string]any{
+			"time":           "day_1_day",
+			"status":         map[string]any{"hunger": 10, "thirst": 10, "fatigue": 10},
+			"visible_events": []string{},
+		},
+		"available_actions": []string{"drink", "rest"},
+		"request":           "choose_next_action",
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/viewer/games/decision", bytes.NewReader(payload))
+
+	HandleGameBridgeDecision(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var got GameBrainDecision
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.MemoryRefs) != 1 {
+		t.Fatalf("memory_refs=%v want one candidate ref", got.MemoryRefs)
+	}
+	if got.MemoryRefs[0] != "game:survival_garden:sg_test:turn_1:candidate" {
+		t.Fatalf("memory_refs=%v", got.MemoryRefs)
 	}
 }

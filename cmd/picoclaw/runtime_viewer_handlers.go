@@ -43,13 +43,22 @@ func buildViewerRuntimeHandlers(
 		deps.viewerMovieDomainGraphSync = viewer.HandleMovieDomainGraphSync(viewer.MovieCatalogOptions{}, l1Store)
 		deps.viewerHobbyDomainGraphSync = viewer.HandleHobbyDomainGraphSync(viewer.HobbyGraphOptions{}, l1Store)
 	}
+	gameBridgeStorePath := defaultGameBridgeStorePath(cfg.WorkspaceDir)
+	var gameBridgeStore *viewer.GameBridgeStore
+	gameBridgeResultMode := "candidate_ack"
+	if gameBridgeStorePath != "" {
+		gameBridgeStore = viewer.NewGameBridgeStore(gameBridgeStorePath)
+		gameBridgeResultMode = "persisted_candidate"
+		log.Printf("Viewer game bridge candidate store enabled: %s", gameBridgeStorePath)
+	}
 	deps.viewerGamesStatus = viewer.HandleGameBridgeStatus(viewer.GameBridgeStatusOptions{
 		ConversationEngineEnabled: realMgr != nil,
 		L1StoreEnabled:            l1Store != nil,
 		LLMRouterEnabled:          false,
+		ResultMode:                gameBridgeResultMode,
 	})
-	deps.viewerGamesDecision = viewer.HandleGameBridgeDecision()
-	deps.viewerGamesResult = viewer.HandleGameBridgeResult()
+	deps.viewerGamesDecision = viewer.HandleGameBridgeDecision(gameBridgeStore)
+	deps.viewerGamesResult = viewer.HandleGameBridgeResult(gameBridgeStore)
 
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub
@@ -111,4 +120,11 @@ func buildViewerRuntimeHandlers(
 		deps.jobNotifications = viewer.HandleJobNotifications(jobStore)
 		log.Printf("Viewer parallel job API enabled: %s", jobStorePath)
 	}
+}
+
+func defaultGameBridgeStorePath(workspaceDir string) string {
+	if workspaceDir == "" {
+		return ""
+	}
+	return filepath.Join(workspaceDir, "logs", "game_bridge_events.jsonl")
 }
