@@ -83,6 +83,8 @@ type Dependencies struct {
 	viewerGamesStatus              http.HandlerFunc                            // RenCrow_GAMES bridge status API
 	viewerGamesDecision            http.HandlerFunc                            // RenCrow_GAMES synchronous decision API
 	viewerGamesResult              http.HandlerFunc                            // RenCrow_GAMES result callback API
+	viewerGamesSessions            http.HandlerFunc                            // RenCrow_GAMES recent session observer API
+	viewerGamesEvents              http.HandlerFunc                            // RenCrow_GAMES candidate event observer API
 	live2DChatResponder            viewer.Live2DChatResponder                  // viewer Live2D chat -> orchestrator adapter
 	historyRepairJSONL             http.HandlerFunc                            // viewer JSONL history repair API
 	packageValidation              http.HandlerFunc                            // viewer package/update validation API

@@ -15,6 +15,8 @@ type Routes struct {
 	Status   http.HandlerFunc
 	Decision http.HandlerFunc
 	Result   http.HandlerFunc
+	Sessions http.HandlerFunc
+	Events   http.HandlerFunc
 }
 
 // RegisterRoutes reserves the RenCrow_GAMES bridge route boundary.
@@ -23,6 +25,8 @@ func RegisterRoutes(mux *http.ServeMux, deps Dependencies) {
 	registerRoute(mux, "/viewer/games/status", routes.Status)
 	registerRoute(mux, "/viewer/games/decision", routes.Decision)
 	registerRoute(mux, "/viewer/games/result", routes.Result)
+	registerRoute(mux, "/viewer/games/sessions", routes.Sessions)
+	registerRoute(mux, "/viewer/games/events", routes.Events)
 }
 
 func registerRoute(mux *http.ServeMux, pattern string, handler http.HandlerFunc) {

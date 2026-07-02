@@ -60,18 +60,21 @@ func buildViewerRuntimeHandlers(
 		gameBridgeDecisionMode = "llm"
 		log.Printf("Viewer game bridge LLM decision enabled: provider=%s", gameDecisionProvider.Name())
 	}
-	deps.viewerGamesStatus = viewer.HandleGameBridgeStatus(viewer.GameBridgeStatusOptions{
+	gameBridgeStatusOptions := viewer.GameBridgeStatusOptions{
 		ConversationEngineEnabled: realMgr != nil,
 		L1StoreEnabled:            l1Store != nil,
 		LLMRouterEnabled:          gameDecisionGenerator != nil,
 		DecisionMode:              gameBridgeDecisionMode,
 		ResultMode:                gameBridgeResultMode,
-	})
+	}
+	deps.viewerGamesStatus = viewer.HandleGameBridgeStatus(gameBridgeStatusOptions)
 	deps.viewerGamesDecision = viewer.HandleGameBridgeDecision(viewer.GameBridgeDecisionOptions{
 		RecallReader: gameBridgeStore,
 		Generator:    gameDecisionGenerator,
 	})
 	deps.viewerGamesResult = viewer.HandleGameBridgeResult(gameBridgeStore)
+	deps.viewerGamesSessions = viewer.HandleGameBridgeSessions(gameBridgeStore, gameBridgeStatusOptions)
+	deps.viewerGamesEvents = viewer.HandleGameBridgeEvents(gameBridgeStore)
 
 	hub := viewer.NewEventHub(200)
 	deps.eventHub = hub

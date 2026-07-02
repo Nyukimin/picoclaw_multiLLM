@@ -130,6 +130,8 @@ func HandleGameBridgeStatus(opts GameBridgeStatusOptions) http.HandlerFunc {
 				"/viewer/games/status",
 				"/viewer/games/decision",
 				"/viewer/games/result",
+				"/viewer/games/sessions",
+				"/viewer/games/events",
 			},
 		})
 	}
