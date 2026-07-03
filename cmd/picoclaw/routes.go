@@ -311,11 +311,13 @@ func registerViewerDynamicRoutes(mux *http.ServeMux, dependencies *Dependencies)
 		mux.HandleFunc("/viewer/send", dependencies.viewerSend)
 	}
 	gamesfeature.RegisterRoutes(mux, gamesfeature.Dependencies{Routes: gamesfeature.Routes{
-		Status:   dependencies.viewerGamesStatus,
-		Decision: dependencies.viewerGamesDecision,
-		Result:   dependencies.viewerGamesResult,
-		Sessions: dependencies.viewerGamesSessions,
-		Events:   dependencies.viewerGamesEvents,
+		Status:        dependencies.viewerGamesStatus,
+		Decision:      dependencies.viewerGamesDecision,
+		Result:        dependencies.viewerGamesResult,
+		Sessions:      dependencies.viewerGamesSessions,
+		Events:        dependencies.viewerGamesEvents,
+		ObserverPage:  dependencies.viewerGamesObserverPage,
+		ObserverProxy: dependencies.viewerGamesObserverProxy,
 	}})
 }
 

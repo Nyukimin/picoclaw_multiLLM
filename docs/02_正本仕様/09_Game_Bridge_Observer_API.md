@@ -65,6 +65,23 @@ GET /viewer/games/sessions?limit=20
 GET /viewer/games/events?game_id=<id>&session_id=<id>&limit=50
 ```
 
+Live RenCrow_GAMES observer passthrough:
+
+```text
+GET /viewer/games/observer
+GET /viewer/games/observer-api/games/status
+GET /viewer/games/observer-api/games/sessions
+GET /viewer/games/observer-api/games/sessions/{session_id}/frames
+GET /viewer/games/observer-api/games/events
+```
+
+`/viewer/games/observer` は browser Observer UI を PicoClaw Viewer と同じ
+origin から配信するための薄い proxy page である。title world state の正本、
+描画ロジック、replay 仕様は RenCrow_GAMES 側に残す。
+`/viewer/games/observer-api/*` は local RenCrow_GAMES observer
+server への read-only proxy であり、ブラウザが `18790` 以外の port を直接
+開けなくても live observer を読めるようにする。
+
 v0.1 では write API を追加しない。
 
 ## 5. Session Summary Response

@@ -34,6 +34,12 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		viewerGamesEvents: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusResetContent)
 		}),
+		viewerGamesObserverPage: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		}),
+		viewerGamesObserverProxy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		}),
 		viewerStatus: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}),
@@ -124,6 +130,8 @@ func TestRegisterFeatureRoutesKeepsExistingRouteGroups(t *testing.T) {
 		{name: "viewer games result", method: http.MethodGet, path: "/viewer/games/result", want: http.StatusNoContent},
 		{name: "viewer games sessions", method: http.MethodGet, path: "/viewer/games/sessions", want: http.StatusPartialContent},
 		{name: "viewer games events", method: http.MethodGet, path: "/viewer/games/events", want: http.StatusResetContent},
+		{name: "viewer games observer", method: http.MethodGet, path: "/viewer/games/observer", want: http.StatusTeapot},
+		{name: "viewer games observer proxy", method: http.MethodGet, path: "/viewer/games/observer-api/games/status", want: http.StatusBadGateway},
 		{name: "module manifest", method: http.MethodGet, path: moduleManifestPath, want: http.StatusOK},
 		{name: "stt chat input", method: http.MethodGet, path: "/stt/chat-input", want: http.StatusMethodNotAllowed},
 		{name: "voice chat primary", method: http.MethodGet, path: "/voice-chat", want: http.StatusIMUsed},
