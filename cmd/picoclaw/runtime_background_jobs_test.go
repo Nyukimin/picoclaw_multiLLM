@@ -15,7 +15,6 @@ import (
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/orchestrator"
 	domainrouting "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/routing"
 	domainsuperagent "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/superagent"
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 func TestNewSuperAgentRunQueueProcessorSendsQueueItemToOrchestrator(t *testing.T) {
