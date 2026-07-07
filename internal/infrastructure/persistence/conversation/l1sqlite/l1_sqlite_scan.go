@@ -207,7 +207,7 @@ func scanL1DailyDigests(rows *sql.Rows) ([]L1DailyDigest, error) {
 	return digests, nil
 }
 
-func scanL1KnowledgeItems(rows *sql.Rows) ([]L1KnowledgeItem, error) {
+func ScanL1KnowledgeItems(rows *sql.Rows) ([]L1KnowledgeItem, error) {
 	var items []L1KnowledgeItem
 	for rows.Next() {
 		var item L1KnowledgeItem

@@ -2,7 +2,10 @@ package conversation
 
 import (
 	"context"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/duckdb"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
+	redisstore "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/redis"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/vectordb"
 	"time"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
@@ -44,7 +47,7 @@ type vectordbStoreIface interface {
 	// KB管理メソッド (kb-admin用)
 	ListKBDocuments(ctx context.Context, domain string, limit int) ([]*conversation.Document, error)
 	GetKBCollections(ctx context.Context) ([]string, error)
-	GetKBStats(ctx context.Context, domain string) (*KBStats, error)
+	GetKBStats(ctx context.Context, domain string) (*vectordb.KBStats, error)
 	DeleteOldKBDocuments(ctx context.Context, domain string, before time.Time) (int, error)
 	CleanupMemoryVectors(ctx context.Context, items []l1sqlite.L1VectorCleanupItem) (*l1sqlite.L1VectorCleanupResult, error)
 	Close() error
@@ -74,7 +77,7 @@ type l1StoreIface interface {
 const noveltyThreshold = float32(0.85)
 
 // _ はコンパイル時のインターフェース適合チェック
-var _ redisStoreIface = (*RedisStore)(nil)
-var _ duckdbStoreIface = (*DuckDBStore)(nil)
-var _ vectordbStoreIface = (*VectorDBStore)(nil)
+var _ redisStoreIface = (*redisstore.RedisStore)(nil)
+var _ duckdbStoreIface = (*duckdb.DuckDBStore)(nil)
+var _ vectordbStoreIface = (*vectordb.VectorDBStore)(nil)
 var _ l1StoreIface = (*l1sqlite.L1SQLiteStore)(nil)

@@ -1,9 +1,10 @@
 //go:build linux && amd64
 
-package l1sqlite
+package duckdb
 
 import (
 	"context"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,9 +12,9 @@ import (
 
 func TestL1SQLiteStore_SaveStagingItemArchivesToDuckDB(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	store, err := l1sqlite.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
 	if err != nil {
-		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+		t.Fatalf("l1sqlite.NewL1SQLiteStore failed: %v", err)
 	}
 	defer store.Close()
 	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
@@ -23,8 +24,8 @@ func TestL1SQLiteStore_SaveStagingItemArchivesToDuckDB(t *testing.T) {
 	defer archive.Close()
 	store.WithArchiveStore(archive)
 
-	item, err := store.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindExternalFetch,
+	item, err := store.SaveStagingItem(ctx, l1sqlite.L1StagingItem{
+		Kind:         l1sqlite.L1StagingKindExternalFetch,
 		Namespace:    "kb:news",
 		EventID:      "stage-archive-1",
 		SourceID:     "rss:archive",
@@ -49,9 +50,9 @@ func TestL1SQLiteStore_SaveStagingItemArchivesToDuckDB(t *testing.T) {
 
 func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 	ctx := context.Background()
-	l1, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	l1, err := l1sqlite.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
 	if err != nil {
-		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+		t.Fatalf("l1sqlite.NewL1SQLiteStore failed: %v", err)
 	}
 	defer l1.Close()
 	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
@@ -61,8 +62,8 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 	defer archive.Close()
 	l1.WithArchiveStore(archive)
 
-	memoryItem, err := l1.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindMemoryCandidate,
+	memoryItem, err := l1.SaveStagingItem(ctx, l1sqlite.L1StagingItem{
+		Kind:         l1sqlite.L1StagingKindMemoryCandidate,
 		Namespace:    "conv:archive",
 		EventID:      "evt-archive-memory",
 		SourceID:     "conversation",
@@ -77,7 +78,7 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveStagingItem memory failed: %v", err)
 	}
-	if _, err := l1.ValidateStagingItem(ctx, memoryItem.ID, L1StagingValidationPolicy{
+	if _, err := l1.ValidateStagingItem(ctx, memoryItem.ID, l1sqlite.L1StagingValidationPolicy{
 		SourceTrustScores: map[string]float64{"conversation": 1.0},
 		MinimumTrustScore: 0.5,
 		Now:               time.Date(2026, 5, 5, 12, 10, 0, 0, time.UTC),
@@ -88,8 +89,8 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 		t.Fatalf("PromoteValidatedStagingItemToMemory failed: %v", err)
 	}
 
-	newsItem, err := l1.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindExternalFetch,
+	newsItem, err := l1.SaveStagingItem(ctx, l1sqlite.L1StagingItem{
+		Kind:         l1sqlite.L1StagingKindExternalFetch,
 		Namespace:    "kb:news",
 		EventID:      "evt-archive-news",
 		SourceID:     "rss:archive",
@@ -104,7 +105,7 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveStagingItem news failed: %v", err)
 	}
-	if _, err := l1.ValidateStagingItem(ctx, newsItem.ID, L1StagingValidationPolicy{
+	if _, err := l1.ValidateStagingItem(ctx, newsItem.ID, l1sqlite.L1StagingValidationPolicy{
 		SourceTrustScores: map[string]float64{"rss:archive": 1.0},
 		MinimumTrustScore: 0.5,
 		Now:               time.Date(2026, 5, 5, 8, 10, 0, 0, time.UTC),
@@ -115,8 +116,8 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 		t.Fatalf("PromoteValidatedStagingItemToNews failed: %v", err)
 	}
 
-	kbItem, err := l1.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindExternalFetch,
+	kbItem, err := l1.SaveStagingItem(ctx, l1sqlite.L1StagingItem{
+		Kind:         l1sqlite.L1StagingKindExternalFetch,
 		Namespace:    "kb:movie",
 		EventID:      "evt-archive-kb",
 		SourceID:     "api:archive",
@@ -131,7 +132,7 @@ func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveStagingItem knowledge failed: %v", err)
 	}
-	if _, err := l1.ValidateStagingItem(ctx, kbItem.ID, L1StagingValidationPolicy{
+	if _, err := l1.ValidateStagingItem(ctx, kbItem.ID, l1sqlite.L1StagingValidationPolicy{
 		SourceTrustScores: map[string]float64{"api:archive": 1.0},
 		MinimumTrustScore: 0.5,
 		Now:               time.Date(2026, 5, 5, 10, 10, 0, 0, time.UTC),

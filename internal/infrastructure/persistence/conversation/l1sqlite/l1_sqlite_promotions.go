@@ -109,7 +109,7 @@ INSERT INTO l1_memory_event (
 
 func (s *L1SQLiteStore) PromoteValidatedStagingItemToNews(ctx context.Context, id string, category string) (*L1NewsItem, error) {
 	id = strings.TrimSpace(id)
-	category = normalizeNewsCategory(category)
+	category = NormalizeNewsCategory(category)
 	if id == "" {
 		return nil, errors.New("l1 staging item id is required")
 	}
@@ -220,10 +220,10 @@ ON CONFLICT(staging_id) DO UPDATE SET
 
 func (s *L1SQLiteStore) PromoteValidatedStagingItemToKnowledge(ctx context.Context, id string, domain string) (*L1KnowledgeItem, error) {
 	id = strings.TrimSpace(id)
-	if err := validateKnowledgeDomain(domain); err != nil {
+	if err := ValidateKnowledgeDomain(domain); err != nil {
 		return nil, err
 	}
-	domain = normalizeNewsCategory(domain)
+	domain = NormalizeNewsCategory(domain)
 	if id == "" {
 		return nil, errors.New("l1 staging item id is required")
 	}

@@ -86,7 +86,7 @@ WHERE (
   AND w.status NOT IN (?, ?)
 ORDER BY w.updated_at DESC
 LIMIT ?
-`, likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query),
+`, LikeQuery(query), LikeQuery(query), LikeQuery(query), LikeQuery(query), LikeQuery(query), LikeQuery(query),
 		WikiPageStatusArchived, WikiPageStatusDeprecated, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search wiki page index: %w", err)
@@ -108,7 +108,7 @@ func (s *L1SQLiteStore) searchWikiPageIndexByTerms(ctx context.Context, query st
 	args := make([]interface{}, 0, len(terms)*6+3)
 	for _, term := range terms {
 		clauses = append(clauses, `(f.title LIKE ? OR f.path LIKE ? OR f.canonical_source LIKE ? OR f.summary LIKE ? OR f.source_text LIKE ? OR f.related_text LIKE ?)`)
-		like := likeQuery(term)
+		like := LikeQuery(term)
 		args = append(args, like, like, like, like, like, like)
 	}
 	args = append(args, WikiPageStatusArchived, WikiPageStatusDeprecated, limit)

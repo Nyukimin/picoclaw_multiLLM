@@ -1,6 +1,6 @@
 //go:build !linux || !amd64
 
-package conversation
+package duckdb
 
 import (
 	"context"

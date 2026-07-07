@@ -12,7 +12,7 @@ import (
 )
 
 func (s *L1SQLiteStore) RecentNewsItems(ctx context.Context, category string, limit int) ([]L1NewsItem, error) {
-	category = normalizeNewsCategory(category)
+	category = NormalizeNewsCategory(category)
 	if limit <= 0 {
 		limit = 20
 	}
@@ -42,7 +42,7 @@ func (s *L1SQLiteStore) BuildDailyDigest(ctx context.Context, digestDate time.Ti
 }
 
 func (s *L1SQLiteStore) BuildDailyDigestForSlot(ctx context.Context, digestDate time.Time, category string, digestSlot string, limit int) (*L1DailyDigest, error) {
-	category = normalizeNewsCategory(category)
+	category = NormalizeNewsCategory(category)
 	if category == "" {
 		return nil, errors.New("l1 daily digest category is required")
 	}
@@ -153,7 +153,7 @@ ON CONFLICT(digest_date, category, digest_slot) DO UPDATE SET
 }
 
 func (s *L1SQLiteStore) RecentDailyDigests(ctx context.Context, category string, limit int) ([]L1DailyDigest, error) {
-	category = normalizeNewsCategory(category)
+	category = NormalizeNewsCategory(category)
 	if limit <= 0 {
 		limit = 20
 	}
@@ -176,7 +176,7 @@ FROM l1_daily_digest
 	return scanL1DailyDigests(rows)
 }
 
-func normalizeNewsCategory(category string) string {
+func NormalizeNewsCategory(category string) string {
 	return strings.Join(strings.Fields(strings.ToLower(category)), "-")
 }
 

@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/duckdb"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type memoryVectorHarness struct {
@@ -40,7 +40,7 @@ func TestE2E_MemorySystemDailyConversationL0ToL3RecallPack(t *testing.T) {
 	}
 	defer l1.Close()
 
-	l2, err := conversationpersistence.NewDuckDBStore(filepath.Join(tmp, "l2.duckdb"))
+	l2, err := duckdb.NewDuckDBStore(filepath.Join(tmp, "l2.duckdb"))
 	if err != nil {
 		t.Skipf("DuckDB unavailable for memory E2E: %v", err)
 	}

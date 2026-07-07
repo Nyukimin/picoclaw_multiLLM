@@ -1,4 +1,4 @@
-package conversation
+package redisstore
 
 import (
 	"context"
@@ -191,4 +191,3 @@ func (r *RedisStore) GetCacheHitRate() (sessionHitRate, threadHitRate float64) {
 
 	return sessionHitRate, threadHitRate
 }
-

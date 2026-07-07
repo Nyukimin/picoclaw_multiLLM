@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/vectordb"
 	"strings"
 	"testing"
 	"time"
@@ -132,8 +133,8 @@ func (m *mockVectorDBStore) ListKBDocuments(_ context.Context, _ string, _ int) 
 func (m *mockVectorDBStore) GetKBCollections(_ context.Context) ([]string, error) {
 	return []string{}, nil
 }
-func (m *mockVectorDBStore) GetKBStats(_ context.Context, _ string) (*KBStats, error) {
-	return &KBStats{Domain: "test", DocumentCount: 0, VectorSize: 768}, nil
+func (m *mockVectorDBStore) GetKBStats(_ context.Context, _ string) (*vectordb.KBStats, error) {
+	return &vectordb.KBStats{Domain: "test", DocumentCount: 0, VectorSize: 768}, nil
 }
 func (m *mockVectorDBStore) DeleteOldKBDocuments(_ context.Context, _ string, _ time.Time) (int, error) {
 	return 0, nil

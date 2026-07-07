@@ -19,14 +19,14 @@ const (
 
 func (s *L1SQLiteStore) PromoteValidatedStagingItemToDomainGraph(ctx context.Context, id string, domain string, entityType string, entityID string, relationType string, confidence float64) (*L1DomainGraphAssertion, error) {
 	id = strings.TrimSpace(id)
-	domain = normalizeNewsCategory(domain)
+	domain = NormalizeNewsCategory(domain)
 	entityType = normalizeDomainGraphToken(entityType)
 	entityID = strings.TrimSpace(entityID)
 	relationType = normalizeDomainGraphToken(relationType)
 	if id == "" {
 		return nil, errors.New("l1 staging item id is required")
 	}
-	if err := validateKnowledgeDomain(domain); err != nil {
+	if err := ValidateKnowledgeDomain(domain); err != nil {
 		return nil, err
 	}
 	if entityType == "" {

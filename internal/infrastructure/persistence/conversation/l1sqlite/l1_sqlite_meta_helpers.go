@@ -73,7 +73,7 @@ func mergeStringAnyMaps(base, overlay map[string]interface{}) map[string]interfa
 	return merged
 }
 
-func likeQuery(query string) string {
+func LikeQuery(query string) string {
 	query = strings.TrimSpace(query)
 	query = strings.ReplaceAll(query, `%`, `\%`)
 	query = strings.ReplaceAll(query, `_`, `\_`)

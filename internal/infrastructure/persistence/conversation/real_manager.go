@@ -2,7 +2,10 @@ package conversation
 
 import (
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/duckdb"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
+	redisstore "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/redis"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/vectordb"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -24,12 +27,12 @@ func NewRealConversationManager(redisURL, duckdbPath, vectordbURL string) (*Real
 }
 
 func NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbURL string, vectorCollection string, vectorDimension uint64) (*RealConversationManager, error) {
-	redisStore, err := NewRedisStore(redisURL)
+	redisStore, err := redisstore.NewRedisStore(redisURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create redis store: %w", err)
 	}
 
-	duckdbStore, err := NewDuckDBStore(duckdbPath)
+	duckdbStore, err := duckdb.NewDuckDBStore(duckdbPath)
 	if err != nil {
 		redisStore.Close()
 		return nil, fmt.Errorf("failed to create duckdb store: %w", err)
@@ -38,7 +41,7 @@ func NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbU
 	if vectorCollection == "" {
 		vectorCollection = "picoclaw_memory"
 	}
-	vectordbStore, err := NewVectorDBStoreWithDimension(vectordbURL, vectorCollection, vectorDimension)
+	vectordbStore, err := vectordb.NewVectorDBStoreWithDimension(vectordbURL, vectorCollection, vectorDimension)
 	if err != nil {
 		redisStore.Close()
 		duckdbStore.Close()

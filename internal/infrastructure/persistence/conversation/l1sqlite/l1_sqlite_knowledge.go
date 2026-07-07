@@ -11,10 +11,10 @@ import (
 )
 
 func (s *L1SQLiteStore) RecentKnowledgeItems(ctx context.Context, domain string, limit int) ([]L1KnowledgeItem, error) {
-	if err := validateKnowledgeDomain(domain); err != nil {
+	if err := ValidateKnowledgeDomain(domain); err != nil {
 		return nil, err
 	}
-	domain = normalizeNewsCategory(domain)
+	domain = NormalizeNewsCategory(domain)
 	if err := ValidateL1Namespace("kb:" + domain); err != nil {
 		return nil, err
 	}
@@ -33,14 +33,14 @@ LIMIT ?
 		return nil, fmt.Errorf("failed to query l1 knowledge items: %w", err)
 	}
 	defer rows.Close()
-	return scanL1KnowledgeItems(rows)
+	return ScanL1KnowledgeItems(rows)
 }
 
 func (s *L1SQLiteStore) SearchKnowledgeItemsFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error) {
-	if err := validateKnowledgeDomain(domain); err != nil {
+	if err := ValidateKnowledgeDomain(domain); err != nil {
 		return nil, err
 	}
-	domain = normalizeNewsCategory(domain)
+	domain = NormalizeNewsCategory(domain)
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, errors.New("l1 knowledge fts query is required")
@@ -62,12 +62,12 @@ WHERE (
   AND f.domain = ?
 ORDER BY k.updated_at DESC
 LIMIT ?
-`, likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), domain, limit)
+`, LikeQuery(query), LikeQuery(query), LikeQuery(query), LikeQuery(query), domain, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search l1 knowledge fts: %w", err)
 	}
 	defer rows.Close()
-	items, err := scanL1KnowledgeItems(rows)
+	items, err := ScanL1KnowledgeItems(rows)
 	if err != nil || len(items) > 0 {
 		return items, err
 	}
@@ -83,7 +83,7 @@ func (s *L1SQLiteStore) searchKnowledgeItemsByTerms(ctx context.Context, domain 
 	args := make([]interface{}, 0, len(terms)*4+2)
 	for _, term := range terms {
 		clauses = append(clauses, `(f.title LIKE ? OR f.raw_text LIKE ? OR f.summary_draft LIKE ? OR f.keywords_text LIKE ?)`)
-		like := likeQuery(term)
+		like := LikeQuery(term)
 		args = append(args, like, like, like, like)
 	}
 	args = append(args, domain, limit)
@@ -101,7 +101,7 @@ LIMIT ?
 		return nil, fmt.Errorf("failed to search l1 knowledge fts by terms: %w", err)
 	}
 	defer rows.Close()
-	return scanL1KnowledgeItems(rows)
+	return ScanL1KnowledgeItems(rows)
 }
 
 func knowledgeSearchTerms(query string) []string {
@@ -139,7 +139,7 @@ VALUES (?, ?, ?, ?, ?, ?)
 	return nil
 }
 
-func validateKnowledgeDomain(domain string) error {
+func ValidateKnowledgeDomain(domain string) error {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
 		return errors.New("l1 knowledge domain is required")
