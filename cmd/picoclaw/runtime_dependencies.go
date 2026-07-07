@@ -726,7 +726,7 @@ func buildDependencies(cfg *config.Config) *Dependencies {
 		}
 		knowledgeMemoryStore = knowledgememorypersistence.WithL1Connection(knowledgeMemoryStore, conversationRuntime.L1Store)
 		if dailyRules, ok := knowledgeMemoryStore.(knowledgememoryapp.DailyIntakeRuleStore); ok && conversationRuntime.L1Store != nil {
-			startDailyIntakeSweeper(dailyRules, conversationRuntime.L1Store, newBackgroundJobFailureReporter(deps.eventRelay))
+			startDailyIntakeSweeper(dailyRules, knowledgememorypersistence.NewDailyIntakeRegistryAdapter(conversationRuntime.L1Store), newBackgroundJobFailureReporter(deps.eventRelay))
 		}
 		deps.knowledgeMemoryStatus = viewer.HandleKnowledgeMemoryStatus(knowledgeMemoryStore)
 		deps.personalArchiveCreate = viewer.HandlePersonalArchiveCreate(knowledgeMemoryStore)

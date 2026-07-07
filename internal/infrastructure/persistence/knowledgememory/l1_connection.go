@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	kmapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/knowledgememory"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/application/sourcefetcher"
 	domainkm "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/knowledgememory"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
@@ -35,6 +37,53 @@ type L1SourceRegistryStore interface {
 	SaveSourceRegistryEntry(ctx context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error)
 }
 
+type DailyIntakeL1Store interface {
+	L1SourceRegistryStore
+	sourcefetcher.RegistryStore
+}
+
+type DailyIntakeRegistryAdapter struct {
+	store DailyIntakeL1Store
+}
+
+func NewDailyIntakeRegistryAdapter(store DailyIntakeL1Store) *DailyIntakeRegistryAdapter {
+	if store == nil {
+		return nil
+	}
+	return &DailyIntakeRegistryAdapter{store: store}
+}
+
+func (a *DailyIntakeRegistryAdapter) SaveSourceRegistryEntry(ctx context.Context, entry kmapp.SourceRegistryEntry) (*kmapp.SourceRegistryEntry, error) {
+	if a == nil || a.store == nil {
+		return nil, fmt.Errorf("daily intake L1 store is nil")
+	}
+	saved, err := a.store.SaveSourceRegistryEntry(ctx, toL1SourceRegistryEntry(entry))
+	if err != nil {
+		return nil, err
+	}
+	out := fromL1SourceRegistryEntry(*saved)
+	return &out, nil
+}
+
+func (a *DailyIntakeRegistryAdapter) SweepDueSources(ctx context.Context, now time.Time, opts kmapp.SourceRegistrySweepOptions) (kmapp.SourceRegistrySweepResult, error) {
+	if a == nil || a.store == nil {
+		return kmapp.SourceRegistrySweepResult{}, fmt.Errorf("daily intake L1 store is nil")
+	}
+	result, err := sourcefetcher.SweepDueSources(ctx, a.store, now, sourcefetcher.SweepOptions{
+		LimitPerSource:    opts.LimitPerSource,
+		MinimumTrustScore: opts.MinimumTrustScore,
+	})
+	return kmapp.SourceRegistrySweepResult{
+		Sources:           result.Sources,
+		Staged:            result.Staged,
+		Warnings:          result.Warnings,
+		Validated:         result.Validated,
+		PromotedNews:      result.PromotedNews,
+		PromotedKnowledge: result.PromotedKnowledge,
+		Failed:            result.Failed,
+	}, err
+}
+
 type L1ConnectedStore struct {
 	base     Store
 	staging  L1StagingStore
@@ -56,6 +105,32 @@ func WithL1Connection(base Store, l1 any) Store {
 		staging:  staging,
 		registry: registry,
 		now:      time.Now,
+	}
+}
+
+func toL1SourceRegistryEntry(entry kmapp.SourceRegistryEntry) conversationpersistence.L1SourceRegistryEntry {
+	return conversationpersistence.L1SourceRegistryEntry{
+		SourceID:      entry.SourceID,
+		URL:           entry.URL,
+		Kind:          entry.Kind,
+		TrustScore:    entry.TrustScore,
+		FetchInterval: entry.FetchInterval,
+		LicenseNote:   entry.LicenseNote,
+		Enabled:       entry.Enabled,
+		Meta:          entry.Meta,
+	}
+}
+
+func fromL1SourceRegistryEntry(entry conversationpersistence.L1SourceRegistryEntry) kmapp.SourceRegistryEntry {
+	return kmapp.SourceRegistryEntry{
+		SourceID:      entry.SourceID,
+		URL:           entry.URL,
+		Kind:          entry.Kind,
+		TrustScore:    entry.TrustScore,
+		FetchInterval: entry.FetchInterval,
+		LicenseNote:   entry.LicenseNote,
+		Enabled:       entry.Enabled,
+		Meta:          entry.Meta,
 	}
 }
 

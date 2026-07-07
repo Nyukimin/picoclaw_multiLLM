@@ -2,9 +2,11 @@ package knowledgememory
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
+	kmapp "github.com/Nyukimin/picoclaw_multiLLM/internal/application/knowledgememory"
 	domainkm "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/knowledgememory"
 	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
@@ -22,6 +24,37 @@ func (s *fakeL1KnowledgeMemoryStore) SaveStagingItem(_ context.Context, item con
 func (s *fakeL1KnowledgeMemoryStore) SaveSourceRegistryEntry(_ context.Context, entry conversationpersistence.L1SourceRegistryEntry) (*conversationpersistence.L1SourceRegistryEntry, error) {
 	s.registry = append(s.registry, entry)
 	return &entry, nil
+}
+
+func TestDailyIntakeRegistryAdapterConvertsSourceRegistryEntry(t *testing.T) {
+	l1, err := conversationpersistence.NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	adapter := NewDailyIntakeRegistryAdapter(l1)
+	saved, err := adapter.SaveSourceRegistryEntry(context.Background(), kmapp.SourceRegistryEntry{
+		SourceID:      "knowledge_memory:daily_intake_rule:rule_1",
+		URL:           "https://example.com/feed.xml",
+		Kind:          kmapp.SourceKindSearchFallback,
+		TrustScore:    0.55,
+		FetchInterval: 24 * time.Hour,
+		LicenseNote:   "daily intake rule reviewed source; fetch to staging before promote",
+		Enabled:       true,
+		Meta:          map[string]interface{}{"daily_intake_enabled": true},
+	})
+	if err != nil {
+		t.Fatalf("SaveSourceRegistryEntry failed: %v", err)
+	}
+	if saved == nil || saved.SourceID != "knowledge_memory:daily_intake_rule:rule_1" || !saved.Enabled {
+		t.Fatalf("saved entry = %#v", saved)
+	}
+	entries, err := l1.ListSourceRegistryEntries(context.Background(), true)
+	if err != nil {
+		t.Fatalf("ListSourceRegistryEntries failed: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Kind != conversationpersistence.L1SourceKindSearchFallback || entries[0].Meta["daily_intake_enabled"] != true {
+		t.Fatalf("entries = %#v", entries)
+	}
 }
 
 func TestWithL1ConnectionIgnoresTypedNilL1Store(t *testing.T) {
