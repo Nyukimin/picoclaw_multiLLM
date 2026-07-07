@@ -488,6 +488,32 @@ func TestL1SQLiteStore_SaveMessageAppendsEventLog(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_SaveMessageRollsBackWhenEventLogInsertFails(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE l1_event_log`); err != nil {
+		t.Fatalf("drop l1_event_log failed: %v", err)
+	}
+
+	msg := domconv.Message{
+		Speaker:   domconv.SpeakerUser,
+		Msg:       "ロールバック対象",
+		Timestamp: time.Date(2026, 5, 5, 14, 30, 0, 0, time.UTC),
+	}
+	err = store.SaveMessage(ctx, "session-rollback", 123, "conv:rollback", msg, MemoryStateObserved)
+	if err == nil || !strings.Contains(err.Error(), "failed to append l1 message event log") {
+		t.Fatalf("SaveMessage error = %v, want event log failure", err)
+	}
+	if got := countL1Rows(t, ctx, store, `SELECT count(*) FROM l1_memory_event WHERE namespace = ?`, "conv:rollback"); got != 0 {
+		t.Fatalf("expected message insert to rollback, got %d rows", got)
+	}
+}
+
 func TestL1SQLiteStore_SaveSearchCacheAppendsEventLog(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
@@ -695,44 +721,6 @@ func TestL1SQLiteStore_SaveStagingItemAndRecentByStatus(t *testing.T) {
 	}
 	if events[0].Payload["staging_id"] != item.ID || events[0].Payload["raw_hash"] != item.RawHash {
 		t.Fatalf("unexpected staging event payload: %+v", events[0].Payload)
-	}
-}
-
-func TestL1SQLiteStore_SaveStagingItemArchivesToDuckDB(t *testing.T) {
-	ctx := context.Background()
-	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
-	if err != nil {
-		t.Fatalf("NewL1SQLiteStore failed: %v", err)
-	}
-	defer store.Close()
-	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer archive.Close()
-	store.WithArchiveStore(archive)
-
-	item, err := store.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindExternalFetch,
-		Namespace:    "kb:news",
-		EventID:      "stage-archive-1",
-		SourceID:     "rss:archive",
-		SourceURL:    "https://example.com/archive",
-		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
-		RawText:      "staging raw",
-		SummaryDraft: "staging summary",
-		Keywords:     []string{"archive"},
-		LicenseNote:  "official rss excerpt",
-	})
-	if err != nil {
-		t.Fatalf("SaveStagingItem failed: %v", err)
-	}
-	var count int
-	if err := archive.db.QueryRowContext(ctx, `SELECT count(*) FROM l1_staging_item_archive WHERE id = ?`, item.ID).Scan(&count); err != nil {
-		t.Fatalf("archive staging count failed: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("expected staging archive row, got %d", count)
 	}
 }
 
@@ -1126,113 +1114,46 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToMemory(t *testing.T) {
 	}
 }
 
-func TestL1SQLiteStore_PromoterArchivesPromotedItemsToDuckDB(t *testing.T) {
+func TestL1SQLiteStore_PromoteValidatedStagingItemToMemoryRollsBackWhenEventLogInsertFails(t *testing.T) {
 	ctx := context.Background()
-	l1, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
 	if err != nil {
 		t.Fatalf("NewL1SQLiteStore failed: %v", err)
 	}
-	defer l1.Close()
-	archive, err := NewDuckDBStore(filepath.Join(t.TempDir(), "archive.duckdb"))
-	if err != nil {
-		t.Fatalf("NewDuckDBStore failed: %v", err)
-	}
-	defer archive.Close()
-	l1.WithArchiveStore(archive)
+	defer store.Close()
 
-	memoryItem, err := l1.SaveStagingItem(ctx, L1StagingItem{
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
 		Kind:         L1StagingKindMemoryCandidate,
-		Namespace:    "conv:archive",
-		EventID:      "evt-archive-memory",
+		Namespace:    "conv:rollback-memory",
+		EventID:      "evt-rollback-memory",
 		SourceID:     "conversation",
-		SourceURL:    "https://example.com/conversation/archive",
+		SourceURL:    "https://example.com/conversation/rollback-memory",
 		FetchedAt:    time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC),
-		RawText:      "ユーザーは短い返答を好む",
-		SummaryDraft: "短い返答を好む",
-		Keywords:     []string{"preference"},
+		RawText:      "ロールバックされる記憶",
+		SummaryDraft: "記憶要約",
 		LicenseNote:  "user provided",
-		Meta:         map[string]interface{}{"type": "preference", "session_id": "sess-archive", "thread_id": float64(10)},
+		Meta:         map[string]interface{}{"type": "preference", "session_id": "session-rollback-memory", "thread_id": float64(500)},
 	})
 	if err != nil {
-		t.Fatalf("SaveStagingItem memory failed: %v", err)
+		t.Fatalf("SaveStagingItem failed: %v", err)
 	}
-	if _, err := l1.ValidateStagingItem(ctx, memoryItem.ID, L1StagingValidationPolicy{
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
 		SourceTrustScores: map[string]float64{"conversation": 1.0},
 		MinimumTrustScore: 0.5,
 		Now:               time.Date(2026, 5, 5, 12, 10, 0, 0, time.UTC),
 	}); err != nil {
-		t.Fatalf("ValidateStagingItem memory failed: %v", err)
+		t.Fatalf("ValidateStagingItem failed: %v", err)
 	}
-	if _, err := l1.PromoteValidatedStagingItemToMemory(ctx, memoryItem.ID, "user:archive", "validator"); err != nil {
-		t.Fatalf("PromoteValidatedStagingItemToMemory failed: %v", err)
-	}
-
-	newsItem, err := l1.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindExternalFetch,
-		Namespace:    "kb:news",
-		EventID:      "evt-archive-news",
-		SourceID:     "rss:archive",
-		SourceURL:    "https://example.com/news/archive",
-		FetchedAt:    time.Date(2026, 5, 5, 8, 0, 0, 0, time.UTC),
-		PublishedAt:  time.Date(2026, 5, 5, 7, 0, 0, 0, time.UTC),
-		RawText:      "ニュース本文",
-		SummaryDraft: "ニュース要約",
-		Keywords:     []string{"ai"},
-		LicenseNote:  "official rss excerpt",
-	})
-	if err != nil {
-		t.Fatalf("SaveStagingItem news failed: %v", err)
-	}
-	if _, err := l1.ValidateStagingItem(ctx, newsItem.ID, L1StagingValidationPolicy{
-		SourceTrustScores: map[string]float64{"rss:archive": 1.0},
-		MinimumTrustScore: 0.5,
-		Now:               time.Date(2026, 5, 5, 8, 10, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatalf("ValidateStagingItem news failed: %v", err)
-	}
-	if _, err := l1.PromoteValidatedStagingItemToNews(ctx, newsItem.ID, "ai"); err != nil {
-		t.Fatalf("PromoteValidatedStagingItemToNews failed: %v", err)
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE l1_event_log`); err != nil {
+		t.Fatalf("drop l1_event_log failed: %v", err)
 	}
 
-	kbItem, err := l1.SaveStagingItem(ctx, L1StagingItem{
-		Kind:         L1StagingKindExternalFetch,
-		Namespace:    "kb:movie",
-		EventID:      "evt-archive-kb",
-		SourceID:     "api:archive",
-		SourceURL:    "https://example.com/kb/archive",
-		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
-		RawText:      "作品本文",
-		SummaryDraft: "作品要約",
-		Keywords:     []string{"movie"},
-		LicenseNote:  "official api",
-		Meta:         map[string]interface{}{"title": "Archive Movie"},
-	})
-	if err != nil {
-		t.Fatalf("SaveStagingItem knowledge failed: %v", err)
+	_, err = store.PromoteValidatedStagingItemToMemory(ctx, item.ID, "user:rollback-memory", "validator")
+	if err == nil || !strings.Contains(err.Error(), "failed to append l1 staging promoted event log") {
+		t.Fatalf("PromoteValidatedStagingItemToMemory error = %v, want event log failure", err)
 	}
-	if _, err := l1.ValidateStagingItem(ctx, kbItem.ID, L1StagingValidationPolicy{
-		SourceTrustScores: map[string]float64{"api:archive": 1.0},
-		MinimumTrustScore: 0.5,
-		Now:               time.Date(2026, 5, 5, 10, 10, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatalf("ValidateStagingItem knowledge failed: %v", err)
-	}
-	if _, err := l1.PromoteValidatedStagingItemToKnowledge(ctx, kbItem.ID, "movie"); err != nil {
-		t.Fatalf("PromoteValidatedStagingItemToKnowledge failed: %v", err)
-	}
-
-	for table, want := range map[string]int{
-		"l1_memory_event_archive":   1,
-		"l1_news_item_archive":      1,
-		"l1_knowledge_item_archive": 1,
-	} {
-		var got int
-		if err := archive.db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&got); err != nil {
-			t.Fatalf("archive count failed for %s: %v", table, err)
-		}
-		if got != want {
-			t.Fatalf("archive count for %s: want %d, got %d", table, want, got)
-		}
+	if got := countL1Rows(t, ctx, store, `SELECT count(*) FROM l1_memory_event WHERE namespace = ?`, "user:rollback-memory"); got != 0 {
+		t.Fatalf("expected promoted memory insert to rollback, got %d rows", got)
 	}
 }
 
@@ -1613,6 +1534,49 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToNews(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_PromoteValidatedStagingItemToNewsRollsBackWhenEventLogInsertFails(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:news",
+		EventID:      "news-rollback",
+		SourceID:     "rss:rollback",
+		SourceURL:    "https://example.com/news/rollback",
+		FetchedAt:    time.Date(2026, 5, 5, 8, 0, 0, 0, time.UTC),
+		PublishedAt:  time.Date(2026, 5, 5, 7, 0, 0, 0, time.UTC),
+		RawText:      "ロールバックニュース本文",
+		SummaryDraft: "ロールバックニュース要約",
+		LicenseNote:  "official rss excerpt",
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"rss:rollback": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 8, 10, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE l1_event_log`); err != nil {
+		t.Fatalf("drop l1_event_log failed: %v", err)
+	}
+
+	_, err = store.PromoteValidatedStagingItemToNews(ctx, item.ID, "ai")
+	if err == nil || !strings.Contains(err.Error(), "failed to append l1 news promoted event log") {
+		t.Fatalf("PromoteValidatedStagingItemToNews error = %v, want event log failure", err)
+	}
+	if got := countL1Rows(t, ctx, store, `SELECT count(*) FROM l1_news_item WHERE staging_id = ?`, item.ID); got != 0 {
+		t.Fatalf("expected promoted news insert to rollback, got %d rows", got)
+	}
+}
+
 func TestL1SQLiteStore_PromoteNewsRequiresValidatedExternalItem(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
@@ -1980,6 +1944,53 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToKnowledge(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_PromoteValidatedStagingItemToKnowledgeRollsBackWhenEventLogInsertFails(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindExternalFetch,
+		Namespace:    "kb:movie",
+		EventID:      "movie-rollback",
+		SourceID:     "api:rollback",
+		SourceURL:    "https://example.com/movie/rollback",
+		FetchedAt:    time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+		RawText:      "ロールバック映画本文",
+		SummaryDraft: "ロールバック映画要約",
+		Keywords:     []string{"movie"},
+		LicenseNote:  "official api",
+		Meta:         map[string]interface{}{"title": "Rollback Movie"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"api:rollback": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 10, 10, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE l1_event_log`); err != nil {
+		t.Fatalf("drop l1_event_log failed: %v", err)
+	}
+
+	_, err = store.PromoteValidatedStagingItemToKnowledge(ctx, item.ID, "movie")
+	if err == nil || !strings.Contains(err.Error(), "failed to append l1 knowledge promoted event log") {
+		t.Fatalf("PromoteValidatedStagingItemToKnowledge error = %v, want event log failure", err)
+	}
+	if got := countL1Rows(t, ctx, store, `SELECT count(*) FROM l1_knowledge_item WHERE staging_id = ?`, item.ID); got != 0 {
+		t.Fatalf("expected promoted knowledge insert to rollback, got %d rows", got)
+	}
+	if got := countL1Rows(t, ctx, store, `SELECT count(*) FROM l1_knowledge_item_fts WHERE id LIKE ?`, "kb:movie:movie-rollback:%"); got != 0 {
+		t.Fatalf("expected promoted knowledge fts insert to rollback, got %d rows", got)
+	}
+}
+
 func TestL1SQLiteStore_SearchKnowledgeItemsFTS(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
@@ -2204,4 +2215,13 @@ func TestL1SQLiteStore_ExportAndImportStagingItemsJSONL(t *testing.T) {
 	if len(items) != 1 || items[0].RawText != "JSONL raw" || items[0].SummaryDraft != "JSONL summary" {
 		t.Fatalf("unexpected imported items: %+v", items)
 	}
+}
+
+func countL1Rows(t *testing.T, ctx context.Context, store *L1SQLiteStore, query string, args ...interface{}) int {
+	t.Helper()
+	var got int
+	if err := store.db.QueryRowContext(ctx, query, args...).Scan(&got); err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	return got
 }

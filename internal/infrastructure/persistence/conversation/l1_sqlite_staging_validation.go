@@ -40,15 +40,15 @@ func (s *L1SQLiteStore) ValidateStagingItem(ctx context.Context, id string, poli
 	}
 	meta["validation_issues"] = result.Issues
 	meta["validated_at"] = now.Format(time.RFC3339)
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal l1 staging validation meta")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal l1 staging validation meta: %w", err)
+		return nil, err
 	}
 	update, err := s.db.ExecContext(ctx, `
 UPDATE l1_staging_item
 SET validation_status = ?, meta_json = ?, updated_at = ?
 WHERE id = ?
-`, result.Status, string(metaJSON), now, id)
+`, result.Status, metaJSON, now, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update l1 staging validation status: %w", err)
 	}

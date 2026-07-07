@@ -49,9 +49,9 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToMemory(ctx context.Context,
 	meta["license_note"] = item.LicenseNote
 	meta["promoted_by"] = promotedBy
 	meta["validation_status"] = item.ValidationStatus
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal l1 staging promoted memory meta")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal l1 staging promoted memory meta: %w", err)
+		return nil, err
 	}
 	sessionID := metaString(item.Meta, "session_id")
 	threadID := metaInt64(item.Meta, "thread_id")
@@ -72,24 +72,34 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToMemory(ctx context.Context,
 	if err := validateL1MemoryEvent(*promoted); err != nil {
 		return nil, err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	// SQLite is the source of truth for promotion. The promoted row and event log
+	// commit atomically; DuckDB archive sync follows the commit and keeps the
+	// existing error-return semantics as a best-effort downstream follower.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO l1_memory_event (
 	id, namespace, session_id, thread_id, speaker, message, meta_json,
 	memory_state, layer, source, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, promoted.ID, promoted.Namespace, promoted.SessionID, promoted.ThreadID, string(promoted.Speaker), promoted.Message, string(metaJSON),
+`, promoted.ID, promoted.Namespace, promoted.SessionID, promoted.ThreadID, string(promoted.Speaker), promoted.Message, metaJSON,
 		promoted.MemoryState, promoted.Layer, promoted.Source, promoted.CreatedAt, promoted.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to promote l1 staging item to memory: %w", err)
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to promote l1 staging item to memory: %w", err))
 	}
-	if _, err := s.AppendEvent(ctx, "memory.promoted_from_staging", targetNamespace, sessionID, threadID, map[string]interface{}{
+	if _, err := appendL1EventLog(ctx, tx, "memory.promoted_from_staging", targetNamespace, sessionID, threadID, map[string]interface{}{
 		"staging_id":         item.ID,
 		"promoted_memory_id": promoted.ID,
 		"promoted_by":        promotedBy,
 		"source_namespace":   item.Namespace,
 		"memory_state":       promoted.MemoryState,
 	}, "promoter"); err != nil {
-		return nil, fmt.Errorf("failed to append l1 staging promoted event log: %w", err)
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to append l1 staging promoted event log: %w", err))
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to commit l1 staging memory promotion transaction: %w", err))
 	}
 	if err := s.archivePromotedMemory(ctx, *promoted); err != nil {
 		return nil, err
@@ -125,9 +135,9 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToNews(ctx context.Context, i
 	meta["staging_namespace"] = item.Namespace
 	meta["event_id"] = item.EventID
 	meta["validation_status"] = item.ValidationStatus
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal l1 news meta")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal l1 news meta: %w", err)
+		return nil, err
 	}
 	keywordsJSON, err := json.Marshal(item.Keywords)
 	if err != nil {
@@ -154,7 +164,18 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToNews(ctx context.Context, i
 	if !news.PublishedAt.IsZero() {
 		publishedAt = news.PublishedAt
 	}
-	_, err = s.db.ExecContext(ctx, `
+	newsNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, "news")
+	if err != nil {
+		return nil, err
+	}
+	// SQLite is the source of truth for promotion. The news row and event log
+	// commit atomically; DuckDB archive sync follows the commit and keeps the
+	// existing error-return semantics as a best-effort downstream follower.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO l1_news_item (
 	id, staging_id, category, source_id, source_url, published_at, fetched_at,
 	raw_text, raw_hash, summary_draft, keywords_json, license_note, meta_json,
@@ -174,23 +195,22 @@ ON CONFLICT(staging_id) DO UPDATE SET
 	meta_json = excluded.meta_json,
 	updated_at = excluded.updated_at
 `, news.ID, news.StagingID, news.Category, news.SourceID, news.SourceURL, publishedAt, news.FetchedAt,
-		news.RawText, news.RawHash, news.SummaryDraft, string(keywordsJSON), news.LicenseNote, string(metaJSON),
+		news.RawText, news.RawHash, news.SummaryDraft, string(keywordsJSON), news.LicenseNote, metaJSON,
 		news.CreatedAt, news.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to promote l1 staging item to news: %w", err)
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to promote l1 staging item to news: %w", err))
 	}
-	newsNamespace, err := BuildL1Namespace(NamespaceKindKnowledge, "news")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := s.AppendEvent(ctx, "news.promoted_from_staging", newsNamespace, "", 0, map[string]interface{}{
+	if _, err := appendL1EventLog(ctx, tx, "news.promoted_from_staging", newsNamespace, "", 0, map[string]interface{}{
 		"news_id":    news.ID,
 		"staging_id": item.ID,
 		"category":   news.Category,
 		"source_id":  news.SourceID,
 		"raw_hash":   news.RawHash,
 	}, "promoter"); err != nil {
-		return nil, fmt.Errorf("failed to append l1 news promoted event log: %w", err)
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to append l1 news promoted event log: %w", err))
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to commit l1 staging news promotion transaction: %w", err))
 	}
 	if err := s.archivePromotedNews(ctx, *news); err != nil {
 		return nil, err
@@ -230,9 +250,9 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToKnowledge(ctx context.Conte
 	meta["staging_namespace"] = item.Namespace
 	meta["event_id"] = item.EventID
 	meta["validation_status"] = item.ValidationStatus
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal l1 knowledge meta")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal l1 knowledge meta: %w", err)
+		return nil, err
 	}
 	keywordsJSON, err := json.Marshal(item.Keywords)
 	if err != nil {
@@ -254,7 +274,18 @@ func (s *L1SQLiteStore) PromoteValidatedStagingItemToKnowledge(ctx context.Conte
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	_, err = s.db.ExecContext(ctx, `
+	namespace, err := BuildL1Namespace(NamespaceKindKnowledge, domain)
+	if err != nil {
+		return nil, err
+	}
+	// SQLite is the source of truth for promotion. The knowledge row, FTS row,
+	// and event log commit atomically; DuckDB archive and vector sync follow the
+	// commit and keep the existing error-return semantics as best-effort followers.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO l1_knowledge_item (
 	id, staging_id, domain, title, source_id, source_url, raw_text, raw_hash,
 	summary_draft, keywords_json, license_note, meta_json, created_at, updated_at
@@ -272,25 +303,24 @@ ON CONFLICT(staging_id) DO UPDATE SET
 	meta_json = excluded.meta_json,
 	updated_at = excluded.updated_at
 `, kb.ID, kb.StagingID, kb.Domain, kb.Title, kb.SourceID, kb.SourceURL, kb.RawText, kb.RawHash,
-		kb.SummaryDraft, string(keywordsJSON), kb.LicenseNote, string(metaJSON), kb.CreatedAt, kb.UpdatedAt)
+		kb.SummaryDraft, string(keywordsJSON), kb.LicenseNote, metaJSON, kb.CreatedAt, kb.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to promote l1 staging item to knowledge: %w", err)
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to promote l1 staging item to knowledge: %w", err))
 	}
-	if err := s.upsertKnowledgeFTS(ctx, kb); err != nil {
-		return nil, err
+	if err := upsertKnowledgeFTS(ctx, tx, kb); err != nil {
+		return nil, rollbackL1Tx(tx, err)
 	}
-	namespace, err := BuildL1Namespace(NamespaceKindKnowledge, domain)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := s.AppendEvent(ctx, "knowledge.promoted_from_staging", namespace, "", 0, map[string]interface{}{
+	if _, err := appendL1EventLog(ctx, tx, "knowledge.promoted_from_staging", namespace, "", 0, map[string]interface{}{
 		"knowledge_id": kb.ID,
 		"staging_id":   item.ID,
 		"domain":       kb.Domain,
 		"title":        kb.Title,
 		"source_id":    kb.SourceID,
 	}, "promoter"); err != nil {
-		return nil, fmt.Errorf("failed to append l1 knowledge promoted event log: %w", err)
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to append l1 knowledge promoted event log: %w", err))
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, rollbackL1Tx(tx, fmt.Errorf("failed to commit l1 staging knowledge promotion transaction: %w", err))
 	}
 	if err := s.archivePromotedKnowledge(ctx, *kb); err != nil {
 		return nil, err

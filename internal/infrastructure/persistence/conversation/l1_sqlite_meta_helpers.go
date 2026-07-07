@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -77,4 +78,12 @@ func likeQuery(query string) string {
 	query = strings.ReplaceAll(query, `%`, `\%`)
 	query = strings.ReplaceAll(query, `_`, `\_`)
 	return "%" + query + "%"
+}
+
+func marshalL1MetaJSON(meta map[string]interface{}, message string) (string, error) {
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", message, err)
+	}
+	return string(metaJSON), nil
 }

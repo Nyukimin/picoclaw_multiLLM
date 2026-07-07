@@ -3,7 +3,6 @@ package conversation
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,9 +43,9 @@ func (s *L1SQLiteStore) SaveMessage(ctx context.Context, sessionID string, threa
 	if meta == nil {
 		meta = map[string]interface{}{}
 	}
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal l1 memory meta")
 	if err != nil {
-		return fmt.Errorf("failed to marshal l1 memory meta: %w", err)
+		return err
 	}
 	id := fmt.Sprintf("%s:%d:%d:%s", sessionID, threadID, createdAt.UnixNano(), msg.Speaker)
 	event := L1MemoryEvent{
@@ -66,7 +65,11 @@ func (s *L1SQLiteStore) SaveMessage(ctx context.Context, sessionID string, threa
 	if err := validateL1MemoryEvent(event); err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO l1_memory_event (
 	id, namespace, session_id, thread_id, speaker, message, meta_json,
 	memory_state, layer, source, created_at, updated_at
@@ -76,18 +79,21 @@ ON CONFLICT(id) DO UPDATE SET
 	meta_json = excluded.meta_json,
 	memory_state = excluded.memory_state,
 	updated_at = excluded.updated_at
-`, event.ID, event.Namespace, event.SessionID, event.ThreadID, string(event.Speaker), event.Message, string(metaJSON),
+`, event.ID, event.Namespace, event.SessionID, event.ThreadID, string(event.Speaker), event.Message, metaJSON,
 		event.MemoryState, event.Layer, event.Source, event.CreatedAt, event.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("failed to save l1 memory event: %w", err)
+		return rollbackL1Tx(tx, fmt.Errorf("failed to save l1 memory event: %w", err))
 	}
-	if _, err := s.AppendEvent(ctx, "memory.message_saved", namespace, sessionID, threadID, map[string]interface{}{
+	if _, err := appendL1EventLog(ctx, tx, "memory.message_saved", namespace, sessionID, threadID, map[string]interface{}{
 		"memory_id":    id,
 		"speaker":      string(msg.Speaker),
 		"memory_state": memoryState,
 		"layer":        layer,
 	}, "conversation"); err != nil {
-		return fmt.Errorf("failed to append l1 message event log: %w", err)
+		return rollbackL1Tx(tx, fmt.Errorf("failed to append l1 message event log: %w", err))
+	}
+	if err := tx.Commit(); err != nil {
+		return rollbackL1Tx(tx, fmt.Errorf("failed to commit l1 message transaction: %w", err))
 	}
 	return nil
 }
@@ -156,9 +162,9 @@ func (s *L1SQLiteStore) PromoteMemoryToNamespace(ctx context.Context, id string,
 	}
 	meta["promoted_from"] = source.ID
 	meta["promoted_by"] = promotedBy
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal promoted l1 memory meta")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal promoted l1 memory meta: %w", err)
+		return nil, err
 	}
 	promoted := &L1MemoryEvent{
 		ID:          fmt.Sprintf("%s:%s:%d", targetNamespace, source.ID, now.UnixNano()),
@@ -182,7 +188,7 @@ INSERT INTO l1_memory_event (
 	id, namespace, session_id, thread_id, speaker, message, meta_json,
 	memory_state, layer, source, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, promoted.ID, promoted.Namespace, promoted.SessionID, promoted.ThreadID, string(promoted.Speaker), promoted.Message, string(metaJSON),
+`, promoted.ID, promoted.Namespace, promoted.SessionID, promoted.ThreadID, string(promoted.Speaker), promoted.Message, metaJSON,
 		promoted.MemoryState, promoted.Layer, promoted.Source, promoted.CreatedAt, promoted.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to promote l1 memory: %w", err)
@@ -205,22 +211,7 @@ func (s *L1SQLiteStore) RecentByNamespace(ctx context.Context, namespace string,
 	if err := ValidateL1Namespace(namespace); err != nil {
 		return nil, err
 	}
-	if limit <= 0 {
-		limit = 20
-	}
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, namespace, session_id, thread_id, speaker, message, meta_json,
-       memory_state, layer, source, created_at, updated_at
-FROM l1_memory_event
-WHERE namespace = ?
-ORDER BY created_at DESC
-LIMIT ?
-`, namespace, limit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query l1 memory events: %w", err)
-	}
-	defer rows.Close()
-	return scanL1Events(rows)
+	return s.recentL1MemoryEvents(ctx, "namespace = ?", "failed to query l1 memory events", limit, namespace)
 }
 
 func (s *L1SQLiteStore) memoryByID(ctx context.Context, id string) (*L1MemoryEvent, error) {
@@ -241,38 +232,28 @@ func (s *L1SQLiteStore) RecentByState(ctx context.Context, memoryState string, l
 	if err := validateMemoryState(memoryState); err != nil {
 		return nil, err
 	}
-	if limit <= 0 {
-		limit = 20
-	}
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, namespace, session_id, thread_id, speaker, message, meta_json,
-       memory_state, layer, source, created_at, updated_at
-FROM l1_memory_event
-WHERE memory_state = ?
-ORDER BY created_at DESC
-LIMIT ?
-`, memoryState, limit)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query l1 memory events by state: %w", err)
-	}
-	defer rows.Close()
-	return scanL1Events(rows)
+	return s.recentL1MemoryEvents(ctx, "memory_state = ?", "failed to query l1 memory events by state", limit, memoryState)
 }
 
 func (s *L1SQLiteStore) RecentBySession(ctx context.Context, sessionID string, limit int) ([]L1MemoryEvent, error) {
+	return s.recentL1MemoryEvents(ctx, "session_id = ?", "failed to query l1 memory events by session", limit, sessionID)
+}
+
+func (s *L1SQLiteStore) recentL1MemoryEvents(ctx context.Context, whereClause string, queryErr string, limit int, args ...interface{}) ([]L1MemoryEvent, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	queryArgs := append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, namespace, session_id, thread_id, speaker, message, meta_json,
        memory_state, layer, source, created_at, updated_at
 FROM l1_memory_event
-WHERE session_id = ?
+WHERE `+whereClause+`
 ORDER BY created_at DESC
 LIMIT ?
-`, sessionID, limit)
+`, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query l1 memory events by session: %w", err)
+		return nil, fmt.Errorf("%s: %w", queryErr, err)
 	}
 	defer rows.Close()
 	return scanL1Events(rows)

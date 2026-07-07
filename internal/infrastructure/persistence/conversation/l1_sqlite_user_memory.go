@@ -67,9 +67,9 @@ func (s *L1SQLiteStore) CreateUserMemory(ctx context.Context, input domainmemory
 		"scope":              scope,
 		"active":             true,
 	}
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal user memory meta")
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal user memory meta: %w", err)
+		return nil, err
 	}
 	id := fmt.Sprintf("%s:user_memory:%d", namespace, now.UnixNano())
 	_, err = s.db.ExecContext(ctx, `
@@ -77,7 +77,7 @@ INSERT INTO l1_memory_event (
 	id, namespace, session_id, thread_id, speaker, message, meta_json,
 	memory_state, layer, source, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, id, namespace, "", 0, string(domconv.SpeakerMemory), statement, string(metaJSON), state, MemoryLayerL1, source, now, now)
+`, id, namespace, "", 0, string(domconv.SpeakerMemory), statement, metaJSON, state, MemoryLayerL1, source, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user memory: %w", err)
 	}
@@ -278,15 +278,15 @@ func (s *L1SQLiteStore) SupersedeUserMemory(ctx context.Context, oldID string, n
 }
 
 func (s *L1SQLiteStore) updateMemoryMeta(ctx context.Context, id string, meta map[string]interface{}) error {
-	metaJSON, err := json.Marshal(meta)
+	metaJSON, err := marshalL1MetaJSON(meta, "failed to marshal memory meta")
 	if err != nil {
-		return fmt.Errorf("failed to marshal memory meta: %w", err)
+		return err
 	}
 	result, err := s.db.ExecContext(ctx, `
 UPDATE l1_memory_event
 SET meta_json = ?, updated_at = ?
 WHERE id = ?
-`, string(metaJSON), time.Now().UTC(), id)
+`, metaJSON, time.Now().UTC(), id)
 	if err != nil {
 		return fmt.Errorf("failed to update memory meta: %w", err)
 	}

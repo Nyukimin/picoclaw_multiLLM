@@ -11,6 +11,23 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+func nullTimeValue(value sql.NullTime) time.Time {
+	if value.Valid {
+		return value.Time
+	}
+	return time.Time{}
+}
+
+func unmarshalL1JSON(raw string, fallback string, dest interface{}, message string) error {
+	if raw == "" {
+		raw = fallback
+	}
+	if err := json.Unmarshal([]byte(raw), dest); err != nil {
+		return fmt.Errorf("%s: %w", message, err)
+	}
+	return nil
+}
+
 func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {
 	var events []L1EventLogEntry
 	for rows.Next() {
@@ -28,11 +45,8 @@ func scanL1EventLogEntries(rows *sql.Rows) ([]L1EventLogEntry, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan l1 event log: %w", err)
 		}
-		if payloadJSON == "" {
-			payloadJSON = "{}"
-		}
-		if err := json.Unmarshal([]byte(payloadJSON), &ev.Payload); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 event payload: %w", err)
+		if err := unmarshalL1JSON(payloadJSON, "{}", &ev.Payload, "failed to unmarshal l1 event payload"); err != nil {
+			return nil, err
 		}
 		events = append(events, ev)
 	}
@@ -70,20 +84,12 @@ func scanL1StagingItems(rows *sql.Rows) ([]L1StagingItem, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan l1 staging item: %w", err)
 		}
-		if publishedAt.Valid {
-			item.PublishedAt = publishedAt.Time
+		item.PublishedAt = nullTimeValue(publishedAt)
+		if err := unmarshalL1JSON(keywordsJSON, "[]", &item.Keywords, "failed to unmarshal l1 staging keywords"); err != nil {
+			return nil, err
 		}
-		if keywordsJSON == "" {
-			keywordsJSON = "[]"
-		}
-		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 staging keywords: %w", err)
-		}
-		if metaJSON == "" {
-			metaJSON = "{}"
-		}
-		if err := json.Unmarshal([]byte(metaJSON), &item.Meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 staging meta: %w", err)
+		if err := unmarshalL1JSON(metaJSON, "{}", &item.Meta, "failed to unmarshal l1 staging meta"); err != nil {
+			return nil, err
 		}
 		items = append(items, item)
 	}
@@ -120,14 +126,9 @@ func scanL1SourceRegistryEntries(rows *sql.Rows) ([]L1SourceRegistryEntry, error
 		}
 		entry.FetchInterval = time.Duration(fetchIntervalSec) * time.Second
 		entry.Enabled = enabled != 0
-		if lastFetchedAt.Valid {
-			entry.LastFetchedAt = lastFetchedAt.Time
-		}
-		if metaJSON == "" {
-			metaJSON = "{}"
-		}
-		if err := json.Unmarshal([]byte(metaJSON), &entry.Meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 source registry meta: %w", err)
+		entry.LastFetchedAt = nullTimeValue(lastFetchedAt)
+		if err := unmarshalL1JSON(metaJSON, "{}", &entry.Meta, "failed to unmarshal l1 source registry meta"); err != nil {
+			return nil, err
 		}
 		entries = append(entries, entry)
 	}
@@ -163,20 +164,12 @@ func scanL1NewsItems(rows *sql.Rows) ([]L1NewsItem, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan l1 news item: %w", err)
 		}
-		if publishedAt.Valid {
-			item.PublishedAt = publishedAt.Time
+		item.PublishedAt = nullTimeValue(publishedAt)
+		if err := unmarshalL1JSON(keywordsJSON, "[]", &item.Keywords, "failed to unmarshal l1 news keywords"); err != nil {
+			return nil, err
 		}
-		if keywordsJSON == "" {
-			keywordsJSON = "[]"
-		}
-		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 news keywords: %w", err)
-		}
-		if metaJSON == "" {
-			metaJSON = "{}"
-		}
-		if err := json.Unmarshal([]byte(metaJSON), &item.Meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 news meta: %w", err)
+		if err := unmarshalL1JSON(metaJSON, "{}", &item.Meta, "failed to unmarshal l1 news meta"); err != nil {
+			return nil, err
 		}
 		items = append(items, item)
 	}
@@ -203,11 +196,8 @@ func scanL1DailyDigests(rows *sql.Rows) ([]L1DailyDigest, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan l1 daily digest: %w", err)
 		}
-		if newsIDsJSON == "" {
-			newsIDsJSON = "[]"
-		}
-		if err := json.Unmarshal([]byte(newsIDsJSON), &digest.NewsIDs); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 daily digest news ids: %w", err)
+		if err := unmarshalL1JSON(newsIDsJSON, "[]", &digest.NewsIDs, "failed to unmarshal l1 daily digest news ids"); err != nil {
+			return nil, err
 		}
 		digests = append(digests, digest)
 	}
@@ -241,17 +231,11 @@ func scanL1KnowledgeItems(rows *sql.Rows) ([]L1KnowledgeItem, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan l1 knowledge item: %w", err)
 		}
-		if keywordsJSON == "" {
-			keywordsJSON = "[]"
+		if err := unmarshalL1JSON(keywordsJSON, "[]", &item.Keywords, "failed to unmarshal l1 knowledge keywords"); err != nil {
+			return nil, err
 		}
-		if err := json.Unmarshal([]byte(keywordsJSON), &item.Keywords); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 knowledge keywords: %w", err)
-		}
-		if metaJSON == "" {
-			metaJSON = "{}"
-		}
-		if err := json.Unmarshal([]byte(metaJSON), &item.Meta); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal l1 knowledge meta: %w", err)
+		if err := unmarshalL1JSON(metaJSON, "{}", &item.Meta, "failed to unmarshal l1 knowledge meta"); err != nil {
+			return nil, err
 		}
 		items = append(items, item)
 	}
@@ -304,11 +288,8 @@ func scanL1EventRows(row l1MemoryRow) ([]L1MemoryEvent, error) {
 		return nil, fmt.Errorf("failed to scan l1 memory event: %w", err)
 	}
 	ev.Speaker = domconv.Speaker(speaker)
-	if metaJSON == "" {
-		metaJSON = "{}"
-	}
-	if err := json.Unmarshal([]byte(metaJSON), &ev.Meta); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal l1 memory meta: %w", err)
+	if err := unmarshalL1JSON(metaJSON, "{}", &ev.Meta, "failed to unmarshal l1 memory meta"); err != nil {
+		return nil, err
 	}
 	if err := validateL1MemoryEvent(ev); err != nil {
 		return nil, err

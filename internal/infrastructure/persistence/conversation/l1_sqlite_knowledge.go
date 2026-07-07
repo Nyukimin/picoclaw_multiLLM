@@ -123,14 +123,14 @@ func knowledgeSearchTerms(query string) []string {
 	return out
 }
 
-func (s *L1SQLiteStore) upsertKnowledgeFTS(ctx context.Context, item *L1KnowledgeItem) error {
+func upsertKnowledgeFTS(ctx context.Context, execer l1SQLExecer, item *L1KnowledgeItem) error {
 	if item == nil {
 		return errors.New("l1 knowledge fts item is required")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM l1_knowledge_item_fts WHERE id = ?`, item.ID); err != nil {
+	if _, err := execer.ExecContext(ctx, `DELETE FROM l1_knowledge_item_fts WHERE id = ?`, item.ID); err != nil {
 		return fmt.Errorf("failed to delete l1 knowledge fts row: %w", err)
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := execer.ExecContext(ctx, `
 INSERT INTO l1_knowledge_item_fts (id, domain, title, raw_text, summary_draft, keywords_text)
 VALUES (?, ?, ?, ?, ?, ?)
 `, item.ID, item.Domain, item.Title, item.RawText, item.SummaryDraft, strings.Join(item.Keywords, " ")); err != nil {
