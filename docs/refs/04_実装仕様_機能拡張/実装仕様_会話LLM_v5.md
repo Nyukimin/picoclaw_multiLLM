@@ -4,6 +4,7 @@
 **作成日**: 2026-03-04
 **最終更新**: 2026-03-07
 **ステータス**: Phase 1〜4.2 実装完了・KB自動保存有効・本番稼働中
+**ステータス補足**: §5 の LangGraph ベース `ConversationOrchestrator` は現行採用されていない。`refactor_questions.md` Q5 では別途設計フェーズ送り、`実装仕様_会話エンジン_v5.1.md` では Go の `ConversationEngine` を実装済み正本として扱う。
 **前提バージョン**: v4.0（分散実行）
 
 ### 実装状況（2026-03-07）
@@ -563,6 +564,8 @@ func (m *MemoryManager) ShouldMemorize(ctx context.Context, thread Thread) (bool
 ---
 
 ## 5. LangGraph設計
+
+[WARN] 本節の LangGraph ベース `ConversationOrchestrator` は設計候補であり、現行採用ではない。現行の実装正本は `実装仕様_会話エンジン_v5.1.md` の Go `ConversationEngine` である。
 
 ### 5.1 ノード構成
 

@@ -323,6 +323,25 @@ RenCrow の現行仕様では、キャラクターは単なる口調設定では
 | L3 | Validated / Long-term Active Memory | confirmed UserMemory、validated Knowledge、promoted source、Persona 反映候補 | DuckDB / VectorDB / L1 SQLite meta | 条件付き / relevant only | 長期 |
 | L4 | Canonical / Pinned / Archive | pinned UserMemory、Persona 正本、OperationMemory、archive、canonical Knowledge | Markdown / DuckDB / VectorDB / Parquet | pinned / persona は強く寄与。他は条件付き | 無期限または明示削除まで |
 
+## 3.1.1 実装命名・物理ストアとの対応
+
+L番号の正本定義は上記の lifecycle layer である。物理ストア名やコード上の `L1SQLiteStore` などの命名は、実装経緯に由来する互換名であり、L番号の正本定義ではない。
+
+| Lifecycle layer | 主な lifecycle 上の位置 | 代表保存先 / 物理ストア | 主なコード上の命名・入口 |
+|---|---|---|---|
+| L0 | turn 中の prompt context / current input | prompt memory / active thread / optional Redis | `RecallPack.RollingSummary`, `ShortContext`, `RealConversationManager.GetActiveThread` |
+| L1 | thread / hot memory / search cache | L1 SQLite / optional Redis | `L1SQLiteStore`, `MemoryLayerL1`, `L1SearchCacheEntry`, `RecentBySession` |
+| L2 | daily digest / thread summary / candidate / staging | L1 SQLite / DuckDB | `L1DailyDigest`, `L1StagingItem`, `DuckDBStore.SaveThreadSummary`, `ThreadSummary` |
+| L3 | confirmed / validated / promoted active memory | L1 SQLite meta / DuckDB archive / VectorDB | `MemoryStateConfirmed`, `L1KnowledgeItem`, `VectorDBStore`, `RecallPack.LongFacts` |
+| L4 | pinned / canonical / archive | Markdown / Parquet / DuckDB / VectorDB | `MemoryStatePinned`, `WikiSnippet`, `ExportL1ArchivesParquet`, OperationMemory 系 |
+
+互換上の注意:
+
+- `L1SQLiteStore` は名称上 L1 だが、実際には L1 hot memory だけでなく L2 candidate / staging、L3 confirmed metadata、L4 pinned metadata の保存入口も含む。
+- DuckDB は旧文書で L2 と呼ばれることがあるが、本仕様では L2 / L3 / L4 の保存先になり得る。
+- Qdrant / VectorDB は旧文書で L3 と呼ばれることがあるが、本仕様では validated active memory や canonical knowledge の検索 index であり、保存媒体単独で L番号を決めない。
+- Redis は旧文書で L0 と呼ばれることがあるが、本仕様では optional な hot backend であり、L0 は永続記憶ではない turn / prompt context を指す。
+
 ## 3.2 State transition
 
 ```text

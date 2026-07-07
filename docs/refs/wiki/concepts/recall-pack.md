@@ -2,9 +2,9 @@
 type: concept
 status: active
 owner: core
-canonical_source: docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md
+canonical_source: docs/refs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md
 source:
-  - docs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md
+  - docs/refs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md
   - docs/10_新仕様/09_Memory_SourceRegistry仕様.md
   - internal/domain/conversation/recall_pack.go
 related:
@@ -21,11 +21,13 @@ DB 全体や docs 全体を読むのではなく、ターンごとに必要な�
 
 ## 現行 layer
 
-- L0: 現在会話、short context、rolling summary
-- L1: Search Cache、hot store、Wiki index
-- L2: thread summary
-- L3: long facts、Knowledge DB、Vector KB
-- L4: Markdown Wiki / docs map
+L0〜L4 は保存媒体ではなく lifecycle 上の位置で定義する。正本定義と物理ストア / コード命名の対応は `docs/refs/01_正本仕様/18_Memory_Lifecycle_Recall_Context.md#311-実装命名物理ストアとの対応` を参照する。
+
+- L0: 現在 turn の prompt context、short context、rolling summary
+- L1: thread / hot memory、Search Cache
+- L2: thread summary、daily digest、candidate / staging
+- L3: confirmed UserMemory、validated Knowledge、long facts、Vector KB
+- L4: Markdown Wiki / docs map、pinned / canonical / archive
 
 ## 重要ルール
 
