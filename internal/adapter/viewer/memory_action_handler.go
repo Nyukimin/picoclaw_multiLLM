@@ -16,12 +16,10 @@ type MemoryActionStore interface {
 
 func HandleMemoryState(store MemoryActionStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireViewerMethod(w, r, http.MethodPost) {
 			return
 		}
-		if store == nil {
-			http.Error(w, "memory action unavailable", http.StatusServiceUnavailable)
+		if !requireViewerStore(w, store == nil, "memory action unavailable") {
 			return
 		}
 		var req struct {
@@ -42,19 +40,16 @@ func HandleMemoryState(store MemoryActionStore) http.HandlerFunc {
 			http.Error(w, "failed to update memory state", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }
 
 func HandleMemoryPromote(store MemoryActionStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireViewerMethod(w, r, http.MethodPost) {
 			return
 		}
-		if store == nil {
-			http.Error(w, "memory action unavailable", http.StatusServiceUnavailable)
+		if !requireViewerStore(w, store == nil, "memory action unavailable") {
 			return
 		}
 		var req struct {
@@ -97,7 +92,6 @@ func HandleMemoryPromote(store MemoryActionStore) http.HandlerFunc {
 			http.Error(w, "failed to promote memory", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"item": item})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"item": memoryEventDTOFromL1Ptr(item)})
 	}
 }

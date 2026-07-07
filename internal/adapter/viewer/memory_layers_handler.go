@@ -2,7 +2,6 @@ package viewer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,12 +24,10 @@ type MemoryLayerColdStore interface {
 
 func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireViewerMethod(w, r, http.MethodGet) {
 			return
 		}
-		if hot == nil {
-			http.Error(w, "memory layers unavailable", http.StatusServiceUnavailable)
+		if !requireViewerStore(w, hot == nil, "memory layers unavailable") {
 			return
 		}
 		limit, err := parseViewerLimit(r.URL.Query().Get("limit"), 12, 50)
@@ -46,10 +43,10 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 			"session_id": sessionID,
 			"namespace":  namespace,
 			"domain":     domain,
-			"l0":         []conversationpersistence.L1MemoryEvent{},
-			"l1":         []conversationpersistence.L1MemoryEvent{},
+			"l0":         []memoryEventDTO{},
+			"l1":         []memoryEventDTO{},
 			"l2":         []*domconv.ThreadSummary{},
-			"l3":         []conversationpersistence.L1MemoryEvent{},
+			"l3":         []memoryEventDTO{},
 			"l3_qdrant":  []*domconv.Document{},
 		}
 		if sessionID != "" {
@@ -58,7 +55,7 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 				http.Error(w, "failed to load l0 memory", http.StatusInternalServerError)
 				return
 			}
-			out["l0"] = l0
+			out["l0"] = memoryEventDTOsFromL1(l0)
 		}
 		if namespace != "" {
 			l1, err := hot.RecentByNamespace(r.Context(), namespace, limit)
@@ -66,7 +63,7 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 				http.Error(w, "failed to load l1 memory", http.StatusInternalServerError)
 				return
 			}
-			out["l1"] = l1
+			out["l1"] = memoryEventDTOsFromL1(l1)
 		}
 		if cold != nil {
 			var l2 []*domconv.ThreadSummary
@@ -99,20 +96,19 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 			http.Error(w, "failed to load l3 memory", http.StatusInternalServerError)
 			return
 		}
-		out["l3"] = l3
+		out["l3"] = memoryEventDTOsFromL1(l3)
 		if err := validateMemoryLayersSnapshot(out); err != nil {
 			http.Error(w, "invalid memory layers snapshot: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
 func validateMemoryLayersSnapshot(snapshot map[string]any) error {
 	for _, layer := range []string{"l0", "l1", "l3"} {
-		items, ok := snapshot[layer].([]conversationpersistence.L1MemoryEvent)
+		items, ok := snapshot[layer].([]memoryEventDTO)
 		if !ok {
 			return fmt.Errorf("%s memory snapshot has invalid type", layer)
 		}
@@ -164,7 +160,7 @@ func validateMemoryLayersSnapshot(snapshot map[string]any) error {
 	return nil
 }
 
-func validateMemoryLayerEventSnapshot(layer string, item conversationpersistence.L1MemoryEvent) error {
+func validateMemoryLayerEventSnapshot(layer string, item memoryEventDTO) error {
 	if strings.TrimSpace(item.ID) == "" {
 		return fmt.Errorf("%s memory missing id", layer)
 	}

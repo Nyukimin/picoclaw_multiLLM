@@ -2,7 +2,6 @@ package viewer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -20,12 +19,10 @@ type MemorySnapshotStore interface {
 
 func HandleMemorySnapshot(store MemorySnapshotStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireViewerMethod(w, r, http.MethodGet) {
 			return
 		}
-		if store == nil {
-			http.Error(w, "memory snapshot unavailable", http.StatusServiceUnavailable)
+		if !requireViewerStore(w, store == nil, "memory snapshot unavailable") {
 			return
 		}
 		limit, err := parseViewerLimit(r.URL.Query().Get("limit"), 20, 100)
@@ -48,7 +45,7 @@ func HandleMemorySnapshot(store MemorySnapshotStore) http.HandlerFunc {
 				http.Error(w, "failed to load memory", http.StatusInternalServerError)
 				return
 			}
-			out["memory"] = items
+			out["memory"] = memoryEventDTOsFromL1(items)
 		}
 		news, err := store.RecentNewsItems(r.Context(), category, limit)
 		if err != nil {
@@ -60,19 +57,18 @@ func HandleMemorySnapshot(store MemorySnapshotStore) http.HandlerFunc {
 			http.Error(w, "failed to load digests", http.StatusInternalServerError)
 			return
 		}
-		out["news"] = news
-		out["digests"] = digests
+		out["news"] = newsItemDTOsFromL1(news)
+		out["digests"] = dailyDigestDTOsFromL1(digests)
 		if domain != "" {
 			knowledge, err := store.RecentKnowledgeItems(r.Context(), domain, limit)
 			if err != nil {
 				http.Error(w, "failed to load knowledge", http.StatusInternalServerError)
 				return
 			}
-			out["knowledge"] = knowledge
+			out["knowledge"] = knowledgeItemDTOsFromL1(knowledge)
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 

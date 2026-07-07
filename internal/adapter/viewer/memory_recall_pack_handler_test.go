@@ -129,14 +129,14 @@ func TestHandleMemoryRecallPackFiltersUserMemory(t *testing.T) {
 		t.Fatalf("unexpected user memory query: %+v", users)
 	}
 
-	var pack domainmemory.RecallPackView
+	var pack domainmemory.UserMemoryRecallView
 	if err := json.Unmarshal(rec.Body.Bytes(), &pack); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
 	if pack.SessionID != "session-1" || pack.UserID != "ren" {
 		t.Fatalf("unexpected pack identity: %+v", pack)
 	}
-	ids := map[string]domainmemory.RecallPackItem{}
+	ids := map[string]domainmemory.UserMemoryRecallItem{}
 	for _, item := range pack.Items {
 		ids[item.MemoryID] = item
 	}

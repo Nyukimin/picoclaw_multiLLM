@@ -2,7 +2,6 @@ package viewer
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -16,12 +15,10 @@ type MemoryEventsStore interface {
 
 func HandleMemoryEvents(store MemoryEventsStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireViewerMethod(w, r, http.MethodGet) {
 			return
 		}
-		if store == nil {
-			http.Error(w, "memory events unavailable", http.StatusServiceUnavailable)
+		if !requireViewerStore(w, store == nil, "memory events unavailable") {
 			return
 		}
 		limit, err := parseViewerLimit(r.URL.Query().Get("limit"), 20, 100)
@@ -45,11 +42,10 @@ func HandleMemoryEvents(store MemoryEventsStore) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"namespace":    namespace,
-			"events":       events,
-			"search_cache": searchCache,
+			"events":       eventLogEntryDTOsFromL1(events),
+			"search_cache": searchCacheEntryDTOsFromL1(searchCache),
 		})
 	}
 }
