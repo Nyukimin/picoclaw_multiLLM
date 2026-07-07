@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -65,8 +66,8 @@ func (r *RealConversationManager) WithSummarizer(s domconv.ConversationSummarize
 }
 
 func (r *RealConversationManager) WithL1Store(store l1StoreIface) *RealConversationManager {
-	if l1, ok := store.(*L1SQLiteStore); ok {
-		if archiveStore, ok := r.duckdbStore.(L1ArchiveStore); ok {
+	if l1, ok := store.(*l1sqlite.L1SQLiteStore); ok {
+		if archiveStore, ok := r.duckdbStore.(l1sqlite.L1ArchiveStore); ok {
 			l1.WithArchiveStore(archiveStore)
 		}
 		l1.WithKnowledgeVectorSink(r)

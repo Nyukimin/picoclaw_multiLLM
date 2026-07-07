@@ -6,12 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"strings"
 
 	_ "github.com/marcboeker/go-duckdb"
 )
 
-func (d *DuckDBStore) ArchiveL1MemoryEvents(ctx context.Context, items []L1MemoryEvent) error {
+func (d *DuckDBStore) ArchiveL1MemoryEvents(ctx context.Context, items []l1sqlite.L1MemoryEvent) error {
 	for _, item := range items {
 		metaJSON, err := json.Marshal(item.Meta)
 		if err != nil {
@@ -33,7 +34,7 @@ INSERT INTO l1_memory_event_archive (
 	return nil
 }
 
-func (d *DuckDBStore) ArchiveL1NewsItems(ctx context.Context, items []L1NewsItem) error {
+func (d *DuckDBStore) ArchiveL1NewsItems(ctx context.Context, items []l1sqlite.L1NewsItem) error {
 	for _, item := range items {
 		keywordsJSON, metaJSON, err := marshalArchiveJSON(item.Keywords, item.Meta)
 		if err != nil {
@@ -61,7 +62,7 @@ INSERT INTO l1_news_item_archive (
 	return nil
 }
 
-func (d *DuckDBStore) ArchiveL1KnowledgeItems(ctx context.Context, items []L1KnowledgeItem) error {
+func (d *DuckDBStore) ArchiveL1KnowledgeItems(ctx context.Context, items []l1sqlite.L1KnowledgeItem) error {
 	for _, item := range items {
 		keywordsJSON, metaJSON, err := marshalArchiveJSON(item.Keywords, item.Meta)
 		if err != nil {
@@ -92,7 +93,7 @@ VALUES (?, ?, ?, ?, ?, ?)
 	return nil
 }
 
-func (d *DuckDBStore) SearchKnowledgeArchiveFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error) {
+func (d *DuckDBStore) SearchKnowledgeArchiveFTS(ctx context.Context, domain string, query string, limit int) ([]l1sqlite.L1KnowledgeItem, error) {
 	if err := validateKnowledgeDomain(domain); err != nil {
 		return nil, err
 	}
@@ -126,7 +127,7 @@ LIMIT ?
 	return scanL1KnowledgeItems(rows)
 }
 
-func (d *DuckDBStore) ArchiveL1StagingItems(ctx context.Context, items []L1StagingItem) error {
+func (d *DuckDBStore) ArchiveL1StagingItems(ctx context.Context, items []l1sqlite.L1StagingItem) error {
 	for _, item := range items {
 		keywordsJSON, metaJSON, err := marshalArchiveJSON(item.Keywords, item.Meta)
 		if err != nil {

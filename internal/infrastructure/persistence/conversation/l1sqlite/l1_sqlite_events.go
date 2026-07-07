@@ -1,4 +1,4 @@
-package conversation
+package l1sqlite
 
 import (
 	"context"
@@ -49,8 +49,8 @@ func (s *L1SQLiteStore) SaveRecallTrace(ctx context.Context, trace domconv.Recal
 	if trace.CreatedAt.IsZero() {
 		trace.CreatedAt = time.Now().UTC()
 	}
-	traceID := recallTraceID(trace.SessionID, trace.CreatedAt, trace.ResponseID)
-	records := traceItemRecordsFromPack(traceID, trace.Items)
+	traceID := RecallTraceID(trace.SessionID, trace.CreatedAt, trace.ResponseID)
+	records := TraceItemRecordsFromPack(traceID, trace.Items)
 	injectedCount := 0
 	totalTokens := 0
 	for _, item := range records {
@@ -64,8 +64,8 @@ func (s *L1SQLiteStore) SaveRecallTrace(ctx context.Context, trace domconv.Recal
 		TurnID:              trace.ResponseID,
 		ChatID:              trace.SessionID,
 		Persona:             firstNonEmptyString(trace.Role, "mio"),
-		UserMessageHash:     hashRecallText(trace.ResponseID),
-		QueryTextRedacted:   redactedRecallQuery(trace.ResponseID),
+		UserMessageHash:     HashRecallText(trace.ResponseID),
+		QueryTextRedacted:   RedactedRecallQuery(trace.ResponseID),
 		CreatedAt:           trace.CreatedAt,
 		RecallPolicyVersion: "memory-lifecycle-v1",
 		TotalCandidates:     len(records),
@@ -78,7 +78,7 @@ func (s *L1SQLiteStore) SaveRecallTrace(ctx context.Context, trace domconv.Recal
 	if err := s.AddRecallTraceItems(ctx, traceID, records); err != nil {
 		return err
 	}
-	if err := s.AddPromptInjectionEvents(ctx, traceID, promptInjectionEventsFromItems(traceID, records, trace.CreatedAt)); err != nil {
+	if err := s.AddPromptInjectionEvents(ctx, traceID, PromptInjectionEventsFromItems(traceID, records, trace.CreatedAt)); err != nil {
 		return err
 	}
 	payload := map[string]interface{}{

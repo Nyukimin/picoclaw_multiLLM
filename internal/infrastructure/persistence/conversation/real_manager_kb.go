@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"log"
 	"strings"
 	"time"
@@ -80,7 +81,7 @@ func (m *RealConversationManager) SaveWebSearchToKB(ctx context.Context, domain 
 	return nil
 }
 
-func (m *RealConversationManager) SaveL1KnowledgeItem(ctx context.Context, item L1KnowledgeItem) error {
+func (m *RealConversationManager) SaveL1KnowledgeItem(ctx context.Context, item l1sqlite.L1KnowledgeItem) error {
 	if m == nil || m.vectordbStore == nil || m.embedder == nil {
 		return nil
 	}

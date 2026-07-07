@@ -3,18 +3,19 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"strings"
 
 	"github.com/qdrant/go-client/qdrant"
 )
 
-func (v *VectorDBStore) CleanupMemoryVectors(ctx context.Context, items []L1VectorCleanupItem) (*L1VectorCleanupResult, error) {
+func (v *VectorDBStore) CleanupMemoryVectors(ctx context.Context, items []l1sqlite.L1VectorCleanupItem) (*l1sqlite.L1VectorCleanupResult, error) {
 	if v == nil || v.client == nil || len(items) == 0 {
-		return &L1VectorCleanupResult{}, nil
+		return &l1sqlite.L1VectorCleanupResult{}, nil
 	}
 	ids := cleanupMemoryIDs(items)
 	if len(ids) == 0 {
-		return &L1VectorCleanupResult{}, nil
+		return &l1sqlite.L1VectorCleanupResult{}, nil
 	}
 	collections := []string{v.collectionName}
 	if domains, err := v.GetKBCollections(ctx); err == nil {
@@ -39,10 +40,10 @@ func (v *VectorDBStore) CleanupMemoryVectors(ctx context.Context, items []L1Vect
 		}
 		deleted += len(ids)
 	}
-	return &L1VectorCleanupResult{Deleted: deleted}, nil
+	return &l1sqlite.L1VectorCleanupResult{Deleted: deleted}, nil
 }
 
-func cleanupMemoryIDs(items []L1VectorCleanupItem) []string {
+func cleanupMemoryIDs(items []l1sqlite.L1VectorCleanupItem) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(items))
 	for _, item := range items {

@@ -5,6 +5,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 )
@@ -35,23 +36,23 @@ func (d *DuckDBStore) SearchByDomain(context.Context, string, int) ([]*conversat
 	return nil, unsupportedDuckDBArchive()
 }
 
-func (d *DuckDBStore) SearchKnowledgeArchiveFTS(context.Context, string, string, int) ([]L1KnowledgeItem, error) {
+func (d *DuckDBStore) SearchKnowledgeArchiveFTS(context.Context, string, string, int) ([]l1sqlite.L1KnowledgeItem, error) {
 	return nil, unsupportedDuckDBArchive()
 }
 
-func (d *DuckDBStore) ArchiveL1MemoryEvents(context.Context, []L1MemoryEvent) error {
+func (d *DuckDBStore) ArchiveL1MemoryEvents(context.Context, []l1sqlite.L1MemoryEvent) error {
 	return unsupportedDuckDBArchive()
 }
 
-func (d *DuckDBStore) ArchiveL1NewsItems(context.Context, []L1NewsItem) error {
+func (d *DuckDBStore) ArchiveL1NewsItems(context.Context, []l1sqlite.L1NewsItem) error {
 	return unsupportedDuckDBArchive()
 }
 
-func (d *DuckDBStore) ArchiveL1KnowledgeItems(context.Context, []L1KnowledgeItem) error {
+func (d *DuckDBStore) ArchiveL1KnowledgeItems(context.Context, []l1sqlite.L1KnowledgeItem) error {
 	return unsupportedDuckDBArchive()
 }
 
-func (d *DuckDBStore) ArchiveL1StagingItems(context.Context, []L1StagingItem) error {
+func (d *DuckDBStore) ArchiveL1StagingItems(context.Context, []l1sqlite.L1StagingItem) error {
 	return unsupportedDuckDBArchive()
 }
 

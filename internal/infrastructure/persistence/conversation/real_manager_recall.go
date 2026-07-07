@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"log"
 	"sort"
 
@@ -82,7 +83,7 @@ func (r *RealConversationManager) Recall(ctx context.Context, sessionID string, 
 	return messages, nil
 }
 
-func l1EventsToMessages(events []L1MemoryEvent) []domconv.Message {
+func l1EventsToMessages(events []l1sqlite.L1MemoryEvent) []domconv.Message {
 	sort.SliceStable(events, func(i, j int) bool {
 		return events[i].CreatedAt.Before(events[j].CreatedAt)
 	})

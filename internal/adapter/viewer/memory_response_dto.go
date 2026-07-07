@@ -1,10 +1,10 @@
 package viewer
 
 import (
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"time"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type memoryEventDTO struct {
@@ -92,7 +92,7 @@ type knowledgeItemDTO struct {
 	UpdatedAt    time.Time
 }
 
-func memoryEventDTOFromL1(item conversationpersistence.L1MemoryEvent) memoryEventDTO {
+func memoryEventDTOFromL1(item l1sqlite.L1MemoryEvent) memoryEventDTO {
 	return memoryEventDTO{
 		ID:          item.ID,
 		Namespace:   item.Namespace,
@@ -109,7 +109,7 @@ func memoryEventDTOFromL1(item conversationpersistence.L1MemoryEvent) memoryEven
 	}
 }
 
-func memoryEventDTOsFromL1(items []conversationpersistence.L1MemoryEvent) []memoryEventDTO {
+func memoryEventDTOsFromL1(items []l1sqlite.L1MemoryEvent) []memoryEventDTO {
 	if items == nil {
 		return nil
 	}
@@ -120,7 +120,7 @@ func memoryEventDTOsFromL1(items []conversationpersistence.L1MemoryEvent) []memo
 	return out
 }
 
-func memoryEventDTOFromL1Ptr(item *conversationpersistence.L1MemoryEvent) *memoryEventDTO {
+func memoryEventDTOFromL1Ptr(item *l1sqlite.L1MemoryEvent) *memoryEventDTO {
 	if item == nil {
 		return nil
 	}
@@ -128,7 +128,7 @@ func memoryEventDTOFromL1Ptr(item *conversationpersistence.L1MemoryEvent) *memor
 	return &dto
 }
 
-func eventLogEntryDTOsFromL1(items []conversationpersistence.L1EventLogEntry) []eventLogEntryDTO {
+func eventLogEntryDTOsFromL1(items []l1sqlite.L1EventLogEntry) []eventLogEntryDTO {
 	if items == nil {
 		return nil
 	}
@@ -148,7 +148,7 @@ func eventLogEntryDTOsFromL1(items []conversationpersistence.L1EventLogEntry) []
 	return out
 }
 
-func searchCacheEntryDTOsFromL1(items []conversationpersistence.L1SearchCacheEntry) []searchCacheEntryDTO {
+func searchCacheEntryDTOsFromL1(items []l1sqlite.L1SearchCacheEntry) []searchCacheEntryDTO {
 	if items == nil {
 		return nil
 	}
@@ -170,7 +170,7 @@ func searchCacheEntryDTOsFromL1(items []conversationpersistence.L1SearchCacheEnt
 	return out
 }
 
-func newsItemDTOsFromL1(items []conversationpersistence.L1NewsItem) []newsItemDTO {
+func newsItemDTOsFromL1(items []l1sqlite.L1NewsItem) []newsItemDTO {
 	if items == nil {
 		return nil
 	}
@@ -197,7 +197,7 @@ func newsItemDTOsFromL1(items []conversationpersistence.L1NewsItem) []newsItemDT
 	return out
 }
 
-func dailyDigestDTOsFromL1(items []conversationpersistence.L1DailyDigest) []dailyDigestDTO {
+func dailyDigestDTOsFromL1(items []l1sqlite.L1DailyDigest) []dailyDigestDTO {
 	if items == nil {
 		return nil
 	}
@@ -217,7 +217,7 @@ func dailyDigestDTOsFromL1(items []conversationpersistence.L1DailyDigest) []dail
 	return out
 }
 
-func knowledgeItemDTOsFromL1(items []conversationpersistence.L1KnowledgeItem) []knowledgeItemDTO {
+func knowledgeItemDTOsFromL1(items []l1sqlite.L1KnowledgeItem) []knowledgeItemDTO {
 	if items == nil {
 		return nil
 	}

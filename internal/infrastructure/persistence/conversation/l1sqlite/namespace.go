@@ -1,4 +1,4 @@
-package conversation
+package l1sqlite
 
 import (
 	"errors"

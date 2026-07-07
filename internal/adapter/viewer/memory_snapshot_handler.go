@@ -3,18 +3,17 @@ package viewer
 import (
 	"context"
 	"errors"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"net/http"
 	"strconv"
 	"strings"
-
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type MemorySnapshotStore interface {
-	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]conversationpersistence.L1MemoryEvent, error)
-	RecentNewsItems(ctx context.Context, category string, limit int) ([]conversationpersistence.L1NewsItem, error)
-	RecentDailyDigests(ctx context.Context, category string, limit int) ([]conversationpersistence.L1DailyDigest, error)
-	RecentKnowledgeItems(ctx context.Context, domain string, limit int) ([]conversationpersistence.L1KnowledgeItem, error)
+	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]l1sqlite.L1MemoryEvent, error)
+	RecentNewsItems(ctx context.Context, category string, limit int) ([]l1sqlite.L1NewsItem, error)
+	RecentDailyDigests(ctx context.Context, category string, limit int) ([]l1sqlite.L1DailyDigest, error)
+	RecentKnowledgeItems(ctx context.Context, domain string, limit int) ([]l1sqlite.L1KnowledgeItem, error)
 }
 
 func HandleMemorySnapshot(store MemorySnapshotStore) http.HandlerFunc {

@@ -4,6 +4,7 @@ package conversation
 
 import (
 	"context"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,7 +148,7 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 	defer store.Close()
 
 	now := time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC)
-	if err := store.ArchiveL1MemoryEvents(ctx, []L1MemoryEvent{{
+	if err := store.ArchiveL1MemoryEvents(ctx, []l1sqlite.L1MemoryEvent{{
 		ID:          "mem-1",
 		Namespace:   "user:ren",
 		SessionID:   "sess-1",
@@ -155,15 +156,15 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 		Speaker:     "mio",
 		Message:     "confirmed preference",
 		Meta:        map[string]interface{}{"type": "preference"},
-		MemoryState: MemoryStateConfirmed,
-		Layer:       MemoryLayerL1,
+		MemoryState: l1sqlite.MemoryStateConfirmed,
+		Layer:       l1sqlite.MemoryLayerL1,
 		Source:      "test",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}}); err != nil {
 		t.Fatalf("ArchiveL1MemoryEvents failed: %v", err)
 	}
-	if err := store.ArchiveL1NewsItems(ctx, []L1NewsItem{{
+	if err := store.ArchiveL1NewsItems(ctx, []l1sqlite.L1NewsItem{{
 		ID:           "news-1",
 		StagingID:    "stage-news-1",
 		Category:     "ai",
@@ -182,7 +183,7 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ArchiveL1NewsItems failed: %v", err)
 	}
-	if err := store.ArchiveL1KnowledgeItems(ctx, []L1KnowledgeItem{{
+	if err := store.ArchiveL1KnowledgeItems(ctx, []l1sqlite.L1KnowledgeItem{{
 		ID:           "kb-1",
 		StagingID:    "stage-kb-1",
 		Domain:       "movie",
@@ -200,9 +201,9 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ArchiveL1KnowledgeItems failed: %v", err)
 	}
-	if err := store.ArchiveL1StagingItems(ctx, []L1StagingItem{{
+	if err := store.ArchiveL1StagingItems(ctx, []l1sqlite.L1StagingItem{{
 		ID:               "stage-1",
-		Kind:             L1StagingKindMemoryCandidate,
+		Kind:             l1sqlite.L1StagingKindMemoryCandidate,
 		Namespace:        "user:ren",
 		EventID:          "evt-stage-1",
 		SourceID:         "conversation",
@@ -214,7 +215,7 @@ func TestDuckDBStore_ArchiveL1DataParquet(t *testing.T) {
 		SummaryDraft:     "summary staging",
 		Keywords:         []string{"preference"},
 		LicenseNote:      "user provided",
-		ValidationStatus: L1StagingStatusValidated,
+		ValidationStatus: l1sqlite.L1StagingStatusValidated,
 		Meta:             map[string]interface{}{"type": "preference"},
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -258,7 +259,7 @@ func TestDuckDBStore_SearchKnowledgeArchiveFTS(t *testing.T) {
 	defer store.Close()
 
 	now := time.Date(2026, 5, 5, 9, 0, 0, 0, time.UTC)
-	items := []L1KnowledgeItem{
+	items := []l1sqlite.L1KnowledgeItem{
 		{
 			ID:           "kb-space",
 			StagingID:    "stage-kb-space",

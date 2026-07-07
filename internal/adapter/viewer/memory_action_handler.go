@@ -3,15 +3,14 @@ package viewer
 import (
 	"context"
 	"encoding/json"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"net/http"
 	"strings"
-
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type MemoryActionStore interface {
 	UpdateMemoryState(ctx context.Context, id string, memoryState string) error
-	PromoteMemoryToNamespace(ctx context.Context, id string, targetNamespace string, promotedBy string) (*conversationpersistence.L1MemoryEvent, error)
+	PromoteMemoryToNamespace(ctx context.Context, id string, targetNamespace string, promotedBy string) (*l1sqlite.L1MemoryEvent, error)
 }
 
 func HandleMemoryState(store MemoryActionStore) http.HandlerFunc {
@@ -72,7 +71,7 @@ func HandleMemoryPromote(store MemoryActionStore) http.HandlerFunc {
 			req.PromotedBy = "viewer"
 		}
 		if req.TargetNamespace == "" && req.TargetKind != "" && req.TargetID != "" {
-			namespace, err := conversationpersistence.BuildL1Namespace(req.TargetKind, req.TargetID)
+			namespace, err := l1sqlite.BuildL1Namespace(req.TargetKind, req.TargetID)
 			if err != nil {
 				http.Error(w, "invalid target namespace", http.StatusBadRequest)
 				return
@@ -83,7 +82,7 @@ func HandleMemoryPromote(store MemoryActionStore) http.HandlerFunc {
 			http.Error(w, "id and target namespace are required", http.StatusBadRequest)
 			return
 		}
-		if err := conversationpersistence.ValidateL1Namespace(req.TargetNamespace); err != nil {
+		if err := l1sqlite.ValidateL1Namespace(req.TargetNamespace); err != nil {
 			http.Error(w, "invalid target namespace", http.StatusBadRequest)
 			return
 		}

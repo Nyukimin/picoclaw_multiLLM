@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"log"
 	"strings"
 	"time"
@@ -21,9 +22,9 @@ type RealConversationEngine struct {
 }
 
 type conversationEngineExternalRecall interface {
-	GetFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time) (*L1SearchCacheEntry, error)
-	SearchKnowledgeItemsFTS(ctx context.Context, domain string, query string, limit int) ([]L1KnowledgeItem, error)
-	SearchWikiPageIndex(ctx context.Context, query string, limit int) ([]WikiPageIndexItem, error)
+	GetFreshSearchCache(ctx context.Context, provider string, rawQuery string, now time.Time) (*l1sqlite.L1SearchCacheEntry, error)
+	SearchKnowledgeItemsFTS(ctx context.Context, domain string, query string, limit int) ([]l1sqlite.L1KnowledgeItem, error)
+	SearchWikiPageIndex(ctx context.Context, query string, limit int) ([]l1sqlite.WikiPageIndexItem, error)
 	SearchKB(ctx context.Context, domain string, query string, topK int) ([]*domconv.Document, error)
 }
 
@@ -189,8 +190,8 @@ func (e *RealConversationEngine) saveBeginTurnRecallTrace(ctx context.Context, s
 		return
 	}
 	now := timeNowUTC()
-	traceID := recallTraceID(sessionID, now, userMessage)
-	items := traceItemRecordsFromPack(traceID, pack.ToTraceItems())
+	traceID := l1sqlite.RecallTraceID(sessionID, now, userMessage)
+	items := l1sqlite.TraceItemRecordsFromPack(traceID, pack.ToTraceItems())
 	injectedCount := 0
 	totalTokens := 0
 	for _, item := range items {
@@ -205,8 +206,8 @@ func (e *RealConversationEngine) saveBeginTurnRecallTrace(ctx context.Context, s
 		ChatID:              sessionID,
 		Persona:             "mio",
 		Route:               "chat",
-		UserMessageHash:     hashRecallText(userMessage),
-		QueryTextRedacted:   redactedRecallQuery(userMessage),
+		UserMessageHash:     l1sqlite.HashRecallText(userMessage),
+		QueryTextRedacted:   l1sqlite.RedactedRecallQuery(userMessage),
 		CreatedAt:           now,
 		RecallPolicyVersion: "memory-lifecycle-v1",
 		TotalCandidates:     len(items),
@@ -221,7 +222,7 @@ func (e *RealConversationEngine) saveBeginTurnRecallTrace(ctx context.Context, s
 		log.Printf("[ConversationEngine] WARN: AddRecallTraceItems failed: %v", err)
 		return
 	}
-	if err := e.recallTraceStore.AddPromptInjectionEvents(ctx, traceID, promptInjectionEventsFromItems(traceID, items, now)); err != nil {
+	if err := e.recallTraceStore.AddPromptInjectionEvents(ctx, traceID, l1sqlite.PromptInjectionEventsFromItems(traceID, items, now)); err != nil {
 		log.Printf("[ConversationEngine] WARN: AddPromptInjectionEvents failed: %v", err)
 		return
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"log"
 	"path/filepath"
 
@@ -16,7 +17,7 @@ import (
 func buildViewerRuntimeHandlers(
 	cfg *config.Config,
 	deps *Dependencies,
-	l1Store *conversationpersistence.L1SQLiteStore,
+	l1Store *l1sqlite.L1SQLiteStore,
 	realMgr *conversationpersistence.RealConversationManager,
 	reportPath string,
 	gameDecisionProvider llm.LLMProvider,

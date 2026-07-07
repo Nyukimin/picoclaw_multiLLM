@@ -1,4 +1,4 @@
-package conversation
+package l1sqlite
 
 import (
 	"context"
@@ -168,7 +168,7 @@ WHERE trace_id = ?
 	return nil
 }
 
-func recallTraceID(sessionID string, createdAt time.Time, userMessage string) string {
+func RecallTraceID(sessionID string, createdAt time.Time, userMessage string) string {
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
@@ -176,12 +176,12 @@ func recallTraceID(sessionID string, createdAt time.Time, userMessage string) st
 	return "trace:" + safeRecallIDPart(sessionID) + ":" + createdAt.UTC().Format("20060102150405.000000000") + ":" + hex.EncodeToString(sum[:])[:12]
 }
 
-func hashRecallText(text string) string {
+func HashRecallText(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:])
 }
 
-func redactedRecallQuery(text string) string {
+func RedactedRecallQuery(text string) string {
 	text = strings.TrimSpace(text)
 	if len([]rune(text)) <= 160 {
 		return text
@@ -213,7 +213,7 @@ func safeRecallIDPart(raw string) string {
 	return out
 }
 
-func traceItemRecordsFromPack(traceID string, items []domconv.RecallTraceItem) []domconv.RecallTraceItemRecord {
+func TraceItemRecordsFromPack(traceID string, items []domconv.RecallTraceItem) []domconv.RecallTraceItemRecord {
 	out := make([]domconv.RecallTraceItemRecord, 0, len(items))
 	for i, item := range items {
 		status := strings.TrimSpace(item.Status)
@@ -250,7 +250,7 @@ func traceItemRecordsFromPack(traceID string, items []domconv.RecallTraceItem) [
 	return out
 }
 
-func promptInjectionEventsFromItems(traceID string, records []domconv.RecallTraceItemRecord, createdAt time.Time) []domconv.PromptInjectionEventRecord {
+func PromptInjectionEventsFromItems(traceID string, records []domconv.RecallTraceItemRecord, createdAt time.Time) []domconv.PromptInjectionEventRecord {
 	bySection := map[string]*domconv.PromptInjectionEventRecord{}
 	var order []string
 	for _, item := range records {

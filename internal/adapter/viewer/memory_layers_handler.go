@@ -3,17 +3,17 @@ package viewer
 import (
 	"context"
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"net/http"
 	"strings"
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type MemoryLayerHotStore interface {
-	RecentBySession(ctx context.Context, sessionID string, limit int) ([]conversationpersistence.L1MemoryEvent, error)
-	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]conversationpersistence.L1MemoryEvent, error)
-	RecentByState(ctx context.Context, memoryState string, limit int) ([]conversationpersistence.L1MemoryEvent, error)
+	RecentBySession(ctx context.Context, sessionID string, limit int) ([]l1sqlite.L1MemoryEvent, error)
+	RecentByNamespace(ctx context.Context, namespace string, limit int) ([]l1sqlite.L1MemoryEvent, error)
+	RecentByState(ctx context.Context, memoryState string, limit int) ([]l1sqlite.L1MemoryEvent, error)
 }
 
 type MemoryLayerColdStore interface {
@@ -91,7 +91,7 @@ func HandleMemoryLayers(hot MemoryLayerHotStore, cold MemoryLayerColdStore) http
 			}
 			out["l2"] = l2
 		}
-		l3, err := hot.RecentByState(r.Context(), conversationpersistence.MemoryStateConfirmed, limit)
+		l3, err := hot.RecentByState(r.Context(), l1sqlite.MemoryStateConfirmed, limit)
 		if err != nil {
 			http.Error(w, "failed to load l3 memory", http.StatusInternalServerError)
 			return

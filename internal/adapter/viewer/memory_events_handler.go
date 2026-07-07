@@ -2,15 +2,14 @@ package viewer
 
 import (
 	"context"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"net/http"
 	"strings"
-
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type MemoryEventsStore interface {
-	RecentEvents(ctx context.Context, namespace string, limit int) ([]conversationpersistence.L1EventLogEntry, error)
-	RecentSearchCache(ctx context.Context, limit int) ([]conversationpersistence.L1SearchCacheEntry, error)
+	RecentEvents(ctx context.Context, namespace string, limit int) ([]l1sqlite.L1EventLogEntry, error)
+	RecentSearchCache(ctx context.Context, limit int) ([]l1sqlite.L1SearchCacheEntry, error)
 }
 
 func HandleMemoryEvents(store MemoryEventsStore) http.HandlerFunc {

@@ -3,6 +3,7 @@ package viewer
 import (
 	"context"
 	"encoding/json"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,7 +11,6 @@ import (
 
 	domconv "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/conversation"
 	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 type recallPackUserStoreStub struct {
@@ -46,7 +46,7 @@ func (s *recallPackUserStoreStub) SupersedeUserMemory(context.Context, string, s
 func TestHandleMemoryRecallPackFiltersUserMemory(t *testing.T) {
 	now := time.Now().UTC()
 	hot := &memoryLayerHotStoreStub{
-		l0: []conversationpersistence.L1MemoryEvent{{
+		l0: []l1sqlite.L1MemoryEvent{{
 			ID:          "l0-1",
 			SessionID:   "session-1",
 			Namespace:   "conv:session-1",

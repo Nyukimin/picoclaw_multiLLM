@@ -2,12 +2,12 @@ package viewer
 
 import (
 	"fmt"
+	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	"net/http"
 	"strings"
 	"time"
 
 	domainmemory "github.com/Nyukimin/picoclaw_multiLLM/internal/domain/memory"
-	conversationpersistence "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation"
 )
 
 func HandleMemoryRecallPack(hot MemoryLayerHotStore, cold MemoryLayerColdStore, users UserMemoryStore) http.HandlerFunc {
@@ -120,7 +120,7 @@ func HandleMemoryRecallPack(hot MemoryLayerHotStore, cold MemoryLayerColdStore, 
 	}
 }
 
-func recallItemFromL1Event(layer string, kind string, ev conversationpersistence.L1MemoryEvent, score float64) domainmemory.UserMemoryRecallItem {
+func recallItemFromL1Event(layer string, kind string, ev l1sqlite.L1MemoryEvent, score float64) domainmemory.UserMemoryRecallItem {
 	return domainmemory.UserMemoryRecallItem{
 		Layer:       layer,
 		Namespace:   ev.Namespace,
