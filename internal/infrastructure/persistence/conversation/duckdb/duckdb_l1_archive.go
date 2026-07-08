@@ -1,4 +1,4 @@
-//go:build linux && amd64
+//go:build (linux && amd64) || (darwin && arm64)
 
 package duckdb
 
@@ -94,10 +94,10 @@ VALUES (?, ?, ?, ?, ?, ?)
 }
 
 func (d *DuckDBStore) SearchKnowledgeArchiveFTS(ctx context.Context, domain string, query string, limit int) ([]l1sqlite.L1KnowledgeItem, error) {
-	if err := validateKnowledgeDomain(domain); err != nil {
+	if err := l1sqlite.ValidateKnowledgeDomain(domain); err != nil {
 		return nil, err
 	}
-	domain = normalizeNewsCategory(domain)
+	domain = l1sqlite.NormalizeNewsCategory(domain)
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("duckdb knowledge fts query is required")
@@ -119,12 +119,12 @@ WHERE (
   AND f.domain = ?
 ORDER BY k.updated_at DESC
 LIMIT ?
-`, likeQuery(query), likeQuery(query), likeQuery(query), likeQuery(query), domain, limit)
+`, l1sqlite.LikeQuery(query), l1sqlite.LikeQuery(query), l1sqlite.LikeQuery(query), l1sqlite.LikeQuery(query), domain, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search duckdb knowledge fts archive: %w", err)
 	}
 	defer rows.Close()
-	return scanL1KnowledgeItems(rows)
+	return l1sqlite.ScanL1KnowledgeItems(rows)
 }
 
 func (d *DuckDBStore) ArchiveL1StagingItems(ctx context.Context, items []l1sqlite.L1StagingItem) error {

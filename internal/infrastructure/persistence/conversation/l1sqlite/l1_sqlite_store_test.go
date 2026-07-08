@@ -1114,6 +1114,47 @@ func TestL1SQLiteStore_PromoteValidatedStagingItemToMemory(t *testing.T) {
 	}
 }
 
+func TestL1SQLiteStore_PromoteValidatedStagingItemToMemorySkipsMissingArchive(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))
+	if err != nil {
+		t.Fatalf("NewL1SQLiteStore failed: %v", err)
+	}
+	defer store.Close()
+
+	item, err := store.SaveStagingItem(ctx, L1StagingItem{
+		Kind:         L1StagingKindMemoryCandidate,
+		Namespace:    "conv:no-archive",
+		EventID:      "evt-no-archive-memory",
+		SourceID:     "conversation",
+		SourceURL:    "https://example.com/conversation/no-archive",
+		FetchedAt:    time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC),
+		RawText:      "ユーザーは短い返答を好む",
+		SummaryDraft: "短い返答を好む",
+		Keywords:     []string{"preference"},
+		LicenseNote:  "user provided",
+		Meta:         map[string]interface{}{"type": "preference"},
+	})
+	if err != nil {
+		t.Fatalf("SaveStagingItem failed: %v", err)
+	}
+	if _, err := store.ValidateStagingItem(ctx, item.ID, L1StagingValidationPolicy{
+		SourceTrustScores: map[string]float64{"conversation": 1.0},
+		MinimumTrustScore: 0.5,
+		Now:               time.Date(2026, 5, 5, 12, 10, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("ValidateStagingItem failed: %v", err)
+	}
+
+	promoted, err := store.PromoteValidatedStagingItemToMemory(ctx, item.ID, "user:no-archive", "validator")
+	if err != nil {
+		t.Fatalf("PromoteValidatedStagingItemToMemory failed: %v", err)
+	}
+	if promoted == nil || promoted.Namespace != "user:no-archive" {
+		t.Fatalf("unexpected promoted memory: %+v", promoted)
+	}
+}
+
 func TestL1SQLiteStore_PromoteValidatedStagingItemToMemoryRollsBackWhenEventLogInsertFails(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewL1SQLiteStore(filepath.Join(t.TempDir(), "l1.db"))

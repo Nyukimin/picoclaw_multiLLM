@@ -484,6 +484,70 @@ func TestRecall_UsesL1WhenRedisThreadMissing(t *testing.T) {
 	}
 }
 
+func TestRecall_SkipsDuckDBWhenArchiveDisabled(t *testing.T) {
+	embedder := &mockEmbeddingProvider{vec: []float32{0.1, 0.2, 0.3}}
+	vdb := &mockVectorDBStore{mockScore: 0.42}
+	vdb.saved = []*domconv.ThreadSummary{{
+		ThreadID: 301,
+		Summary:  "vector fallback summary",
+	}}
+	mgr := &RealConversationManager{
+		redisStore:    newMockRedisStore(),
+		duckdbStore:   nil,
+		vectordbStore: vdb,
+		embedder:      embedder,
+	}
+	ctx := context.Background()
+
+	messages, err := mgr.Recall(ctx, "sess-duckdb-disabled", "fallback", 3)
+	if err != nil {
+		t.Fatalf("Recall failed: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected vector fallback message, got %d", len(messages))
+	}
+	if !strings.Contains(messages[0].Msg, "[LongTermMemory] vector fallback summary") {
+		t.Fatalf("unexpected recall message: %+v", messages[0])
+	}
+	if messages[0].Meta["score"] != float32(0.42) {
+		t.Fatalf("unexpected score meta: %+v", messages[0].Meta)
+	}
+}
+
+func TestFlushThread_SkipsDuckDBWhenArchiveDisabled(t *testing.T) {
+	embedder := &mockEmbeddingProvider{vec: []float32{0.1, 0.2, 0.3}}
+	vdb := &mockVectorDBStore{mockScore: 0.5}
+	mgr := &RealConversationManager{
+		redisStore:    newMockRedisStore(),
+		duckdbStore:   nil,
+		vectordbStore: vdb,
+		embedder:      embedder,
+		summarizer:    &mockSummarizer{summary: "summary without duckdb", keywords: []string{"memory"}},
+	}
+	ctx := context.Background()
+
+	thread, err := mgr.CreateThread(ctx, "sess-flush-no-duckdb", "memory")
+	if err != nil {
+		t.Fatalf("CreateThread failed: %v", err)
+	}
+	thread.AddMessage(domconv.NewMessage(domconv.SpeakerUser, "DuckDBなしでflush", nil))
+	mgr.redisStore.(*mockRedisStore).threads[thread.ID] = thread
+
+	summary, err := mgr.FlushThread(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("FlushThread failed: %v", err)
+	}
+	if summary.Summary != "summary without duckdb" {
+		t.Fatalf("unexpected summary: %s", summary.Summary)
+	}
+	if len(vdb.saved) != 1 {
+		t.Fatalf("expected vector save to continue, got %d", len(vdb.saved))
+	}
+	if _, err := mgr.redisStore.(*mockRedisStore).GetThread(ctx, thread.ID); err != domconv.ErrThreadNotFound {
+		t.Fatalf("expected flushed thread to be deleted, got err=%v", err)
+	}
+}
+
 func TestRealConversationManager_WebSearchCacheRoundTrip(t *testing.T) {
 	mgr := newTestManager(nil, nil)
 	l1 := &mockL1Store{}

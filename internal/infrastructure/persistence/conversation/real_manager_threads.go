@@ -86,8 +86,10 @@ func (r *RealConversationManager) FlushThread(ctx context.Context, threadID int6
 		IsNovel:   false,
 	}
 
-	if err := r.duckdbStore.SaveThreadSummary(ctx, summary); err != nil {
-		return nil, fmt.Errorf("failed to save summary to duckdb: %w", err)
+	if r.duckdbStore != nil {
+		if err := r.duckdbStore.SaveThreadSummary(ctx, summary); err != nil {
+			return nil, fmt.Errorf("failed to save summary to duckdb: %w", err)
+		}
 	}
 
 	if len(summary.Embedding) > 0 {

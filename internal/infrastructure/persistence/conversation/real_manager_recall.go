@@ -32,18 +32,20 @@ func (r *RealConversationManager) Recall(ctx context.Context, sessionID string, 
 	}
 
 	// 2. 中期記憶（DuckDB: Session履歴）
-	summaries, err := r.duckdbStore.GetSessionHistory(ctx, sessionID, topK)
-	if err == nil && len(summaries) > 0 {
-		messages := make([]domconv.Message, 0, len(summaries))
-		for _, s := range summaries {
-			msg := domconv.NewMessage(
-				domconv.SpeakerSystem,
-				fmt.Sprintf("[Summary] %s (domain: %s)", s.Summary, s.Domain),
-				map[string]interface{}{"thread_id": s.ThreadID, "keywords": s.Keywords},
-			)
-			messages = append(messages, msg)
+	if r.duckdbStore != nil {
+		summaries, err := r.duckdbStore.GetSessionHistory(ctx, sessionID, topK)
+		if err == nil && len(summaries) > 0 {
+			messages := make([]domconv.Message, 0, len(summaries))
+			for _, s := range summaries {
+				msg := domconv.NewMessage(
+					domconv.SpeakerSystem,
+					fmt.Sprintf("[Summary] %s (domain: %s)", s.Summary, s.Domain),
+					map[string]interface{}{"thread_id": s.ThreadID, "keywords": s.Keywords},
+				)
+				messages = append(messages, msg)
+			}
+			return messages, nil
 		}
-		return messages, nil
 	}
 
 	// 3. 長期記憶（VectorDB: 類似度検索）

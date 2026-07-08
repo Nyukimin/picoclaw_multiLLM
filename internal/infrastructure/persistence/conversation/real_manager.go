@@ -2,6 +2,8 @@ package conversation
 
 import (
 	"fmt"
+	"log"
+
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/duckdb"
 	"github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/l1sqlite"
 	redisstore "github.com/Nyukimin/picoclaw_multiLLM/internal/infrastructure/persistence/conversation/redis"
@@ -34,8 +36,8 @@ func NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbU
 
 	duckdbStore, err := duckdb.NewDuckDBStore(duckdbPath)
 	if err != nil {
-		redisStore.Close()
-		return nil, fmt.Errorf("failed to create duckdb store: %w", err)
+		log.Printf("WARN: L2 archive (DuckDB) disabled: failed to create duckdb store: %v", err)
+		duckdbStore = nil
 	}
 
 	if vectorCollection == "" {
@@ -44,7 +46,9 @@ func NewRealConversationManagerWithVectorOptions(redisURL, duckdbPath, vectordbU
 	vectordbStore, err := vectordb.NewVectorDBStoreWithDimension(vectordbURL, vectorCollection, vectorDimension)
 	if err != nil {
 		redisStore.Close()
-		duckdbStore.Close()
+		if duckdbStore != nil {
+			duckdbStore.Close()
+		}
 		return nil, fmt.Errorf("failed to create vectordb store: %w", err)
 	}
 
@@ -86,8 +90,10 @@ func (r *RealConversationManager) Close() error {
 	if err := r.redisStore.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("redis close: %w", err))
 	}
-	if err := r.duckdbStore.Close(); err != nil {
-		errs = append(errs, fmt.Errorf("duckdb close: %w", err))
+	if r.duckdbStore != nil {
+		if err := r.duckdbStore.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("duckdb close: %w", err))
+		}
 	}
 	if err := r.vectordbStore.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("vectordb close: %w", err))
