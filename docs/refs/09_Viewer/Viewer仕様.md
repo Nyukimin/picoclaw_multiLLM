@@ -261,6 +261,30 @@ Marin 疑似リグの方針:
 - パーツ画像は `tools/marin_parts_gen/gen_marin_patches.py` で `fullbody.png` から生成する（生成物の直接編集禁止）
 - `.moc3` 完成後は `model.json` の `model3` フィールドで Cubism ランタイム読み込みへ差し替える
 
+## 10.2 Games Observer
+
+Viewer は RenCrow_GAMES の observer UI を PicoClaw の same-origin route から提供する。
+
+REST API:
+
+| エンドポイント | メソッド | 用途 |
+|---|---|---|
+| `/viewer/games/observer` | `GET` | RenCrow_GAMES observer UI |
+| `/viewer/games/observer-api/games/status` | `GET` | local observer status proxy |
+| `/viewer/games/observer-api/games/sessions` | `GET` | local observer session list proxy |
+| `/viewer/games/observer-api/games/sessions/{session_id}` | `GET` | local observer session summary proxy |
+| `/viewer/games/observer-api/games/sessions/{session_id}/frames` | `GET` | local observer frames proxy |
+| `/viewer/games/observer-api/games/sessions/{session_id}/replay` | `GET` | local observer replay proxy |
+| `/viewer/games/observer-api/games/sessions/{session_id}/retry` | `POST` | SurvivalGarden retry session action proxy |
+| `/viewer/games/observer-api/games/sessions/{session_id}/start_over` | `POST` | SurvivalGarden start-over session action proxy |
+
+Rules:
+
+- `/viewer/games/observer-api/...` は PicoClaw の title logic ではなく、`127.0.0.1:18791` の RenCrow_GAMES local observer server への same-origin proxy として扱う。
+- proxy は observer contract endpoint の HTTP method を保存して upstream へ転送する。session list / frames は `GET`、`retry` / `start_over` は `POST` である。
+- `retry` / `start_over` の受け入れ確認では、`18791` 直の成功だけで完了扱いにしない。必ず Viewer origin の `18790` 経由でも `POST /viewer/games/observer-api/games/sessions/{session_id}/retry` が `200 OK` になることを確認する。
+- GAMES 側の game-local candidate learning は RenCrow の confirmed memory ではない。PicoClaw proxy は memory promotion や title world state reconstruction を行わない。
+
 ## 11. IdleChat 連携
 
 Viewer は IdleChat の状態表示と手動操作を提供する。

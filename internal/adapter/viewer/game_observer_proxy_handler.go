@@ -58,7 +58,7 @@ func HandleGameObserverProxy(opts GameObserverProxyOptions) http.HandlerFunc {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if !isAllowedGameObserverProxyMethod(r.Method) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -74,13 +74,16 @@ func HandleGameObserverProxy(opts GameObserverProxyOptions) http.HandlerFunc {
 		upstream := *baseURL
 		upstream.Path = joinURLPath(baseURL.Path, upstreamPath)
 		upstream.RawQuery = r.URL.RawQuery
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstream.String(), nil)
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, upstream.String(), r.Body)
 		if err != nil {
 			http.Error(w, "game observer upstream unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if accept := strings.TrimSpace(r.Header.Get("Accept")); accept != "" {
 			req.Header.Set("Accept", accept)
+		}
+		if contentType := strings.TrimSpace(r.Header.Get("Content-Type")); contentType != "" {
+			req.Header.Set("Content-Type", contentType)
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -94,6 +97,15 @@ func HandleGameObserverProxy(opts GameObserverProxyOptions) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
+	}
+}
+
+func isAllowedGameObserverProxyMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodOptions:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -150,9 +162,10 @@ func rewriteGameObserverHTML(html string) string {
 		return html
 	}
 	injection := `<script>
+    window.RenCrowGameObserverLiveBase = "` + gameObserverAPIBase + `";
     window.addEventListener("DOMContentLoaded", () => {
       window.setTimeout(() => {
-        document.getElementById("loadLive")?.click();
+        window.dispatchEvent(new Event("rencrow-observer-load-live"));
       }, 50);
     }, { once: true });
     window.rencrowAutoLoadLiveObserver = true;
