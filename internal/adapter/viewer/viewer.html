@@ -62,7 +62,14 @@
     <button class="lab-mode-chip lab-mode-chip-chat" id="labModeChatChip" type="button" data-lab-switch="chat" aria-current="true" aria-pressed="true">Chat</button>
     <button class="lab-mode-chip lab-mode-chip-idle" id="labModeIdleChip" type="button" data-lab-switch="idle" aria-current="false" aria-pressed="false">IdleChat</button>
     <button class="lab-mode-chip lab-mode-chip-mio" id="labModeMioChip" type="button" data-lab-switch="mio" aria-current="true" aria-pressed="true">Mio</button>
-    <button class="lab-mode-chip lab-mode-chip-shiro" id="labModeShiroChip" type="button" data-lab-switch="shiro" aria-current="false" aria-pressed="false">Shiro</button>
+    <div class="lab-partner-picker" id="labPartnerPicker">
+      <button class="lab-mode-chip lab-mode-chip-partner" id="labModePartnerChip" type="button" data-lab-partner-toggle aria-current="false" aria-pressed="false" aria-expanded="false">Shiro</button>
+      <div class="lab-partner-options" id="labPartnerOptions" hidden>
+        <button class="lab-mode-chip lab-partner-option" type="button" data-lab-partner-option="shiro">Shiro</button>
+        <button class="lab-mode-chip lab-partner-option" type="button" data-lab-partner-option="kuro">Kuro</button>
+        <button class="lab-mode-chip lab-partner-option" type="button" data-lab-partner-option="midori">Midori</button>
+      </div>
+    </div>
   </section>
   <time class="lab-datetime-panel" id="labDateTimePanel" datetime="" aria-label="現在日時">0000（令和00）00月00日（-）00:00:00</time>
   <section class="lab-camera-live-preview" id="labCameraLivePreview" aria-label="Media live preview">

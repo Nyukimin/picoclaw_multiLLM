@@ -4,6 +4,8 @@ const A = {
   user:   {c:'#94a3b8', l:'れん',  en:'Ren',   e:'\u{1f464}'},
   mio:    {c:'#f472b6', l:'みお',  en:'Mio',   e:'\u{1f338}'},
   shiro:  {c:'#22d3ee', l:'しろ',  en:'Shiro', e:'\u26a1'},
+  kuro:   {c:'#64748b', l:'くろ',  en:'Kuro',  e:'K'},
+  midori: {c:'#34d399', l:'みどり', en:'Midori', e:'M'},
   worker: {c:'#38bdf8', l:'Worker', en:'Worker', e:'W'},
   coder1: {c:'#818cf8', l:'あお',  en:'AO',    e:'\u{1f535}'},
   coder2: {c:'#fb923c', l:'あか',  en:'Aka',   e:'\u{1f534}'},
@@ -19,10 +21,14 @@ const RC = {
   PLAN:'#4ade80', ANALYZE:'#fbbf24', RESEARCH:'#34d399',
   IDLECHAT:'#a78bfa',
 };
-const AGENTS = ['mio', 'shiro', 'coder1', 'coder2', 'coder3', 'coder4'];
+const AGENTS = ['mio', 'shiro', 'kuro', 'midori', 'coder1', 'coder2', 'coder3', 'coder4'];
+const LAB_CHAT_PARTNERS = ['shiro', 'kuro', 'midori'];
+const LAB_CHAT_PARTNER_LABELS = {shiro: 'Shiro', kuro: 'Kuro', midori: 'Midori'};
 const ROLE_TARGETS = [
   {id:'mio', role:'Chat', alias:'Chat', use:'会話テンポ / ルミナ人格 / 音声UI'},
   {id:'shiro', role:'Worker', alias:'Worker', use:'実務処理 / 要約 / RAG'},
+  {id:'kuro', role:'Heavy', alias:'Heavy', use:'深い分析 / 長文推論 / 慎重な判断'},
+  {id:'midori', role:'Wild', alias:'Wild', use:'発想展開 / アイデア生成 / 変化球'},
   {id:'coder1', role:'Coder', alias:'Coder1', use:'仕様設計 / 構成整理 / 提案'},
   {id:'coder2', role:'Coder', alias:'Coder2', use:'実装 / 検証 / 差分整理'},
   {id:'coder3', role:'Coder', alias:'Coder3', use:'実装 / 調査 / テスト補助'},
@@ -3364,6 +3370,14 @@ function initLiveMode() {
 
 const LAB_PARTNER_STORAGE_KEY = 'labConversation.selectedPartner';
 
+function isLabChatPartner(actor) {
+  return LAB_CHAT_PARTNERS.indexOf(String(actor || '').toLowerCase()) >= 0;
+}
+
+function labPartnerLabel(actor) {
+  return LAB_CHAT_PARTNER_LABELS[String(actor || '').toLowerCase()] || 'Shiro';
+}
+
 function normalizeLabActor(value) {
   if (value === null || value === undefined) return '';
   if (Array.isArray(value)) {
@@ -3382,8 +3396,10 @@ function normalizeLabActor(value) {
     return '';
   }
   const text = String(value).trim().toLowerCase();
-  if (text.includes('shiro')) return 'shiro';
-  if (text.includes('mio')) return 'mio';
+  if (text.includes('midori') || text.includes('みどり')) return 'midori';
+  if (text.includes('shiro') || text.includes('しろ')) return 'shiro';
+  if (text.includes('kuro') || text.includes('くろ')) return 'kuro';
+  if (text.includes('mio') || text.includes('みお')) return 'mio';
   return '';
 }
 
@@ -3404,17 +3420,17 @@ function deriveLabConversationMode(status) {
 function getLabSelectedPartner() {
   try {
     const stored = normalizeLabActor(localStorage.getItem(LAB_PARTNER_STORAGE_KEY));
-    if (stored) return stored;
+    if (isLabChatPartner(stored)) return stored;
     if (typeof selectedRoleTargetID === 'function') {
       const selected = normalizeLabActor(selectedRoleTargetID());
-      if (selected) return selected;
+      if (isLabChatPartner(selected)) return selected;
     }
   } catch (_) {}
-  return 'mio';
+  return 'shiro';
 }
 
 function syncLabRoleTarget(partner) {
-  const actor = normalizeLabActor(partner) || 'mio';
+  const actor = normalizeLabActor(partner) || 'shiro';
   try {
     const current = typeof selectedRoleTargetID === 'function'
       ? normalizeLabActor(selectedRoleTargetID())
@@ -3430,7 +3446,8 @@ function syncLabRoleTarget(partner) {
 }
 
 function setLabSelectedPartner(partner, syncRoleTarget) {
-  const actor = normalizeLabActor(partner) || 'mio';
+  const normalized = normalizeLabActor(partner);
+  const actor = normalized === 'mio' || isLabChatPartner(normalized) ? normalized : 'shiro';
   try { localStorage.setItem(LAB_PARTNER_STORAGE_KEY, actor); } catch (_) {}
   if (syncRoleTarget !== false) syncLabRoleTarget(actor);
   return actor;
@@ -3481,6 +3498,41 @@ function setLabChipState(id, enabled) {
   if (el.classList && typeof el.classList.toggle === 'function') el.classList.toggle('is-active', !!enabled);
 }
 
+function setLabPartnerMenuOpen(open) {
+  const chip = document.getElementById('labModePartnerChip');
+  const menu = document.getElementById('labPartnerOptions');
+  const body = document && document.body;
+  const isChat = !!(body && body.classList && body.classList.contains('lab-chat-mode'));
+  const shouldOpen = !!open && isChat && !!menu && !!chip && !chip.disabled;
+  if (menu) menu.hidden = !shouldOpen;
+  if (chip && typeof chip.setAttribute === 'function') chip.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+}
+
+function syncLabPartnerPicker(partner, isIdle) {
+  const actor = normalizeLabActor(partner) || getLabSelectedPartner();
+  const selectedPartner = isLabChatPartner(actor) ? actor : getLabSelectedPartner();
+  const isActivePartner = !isIdle && isLabChatPartner(actor);
+  const chip = document.getElementById('labModePartnerChip');
+  if (chip) {
+    chip.textContent = labPartnerLabel(selectedPartner);
+    chip.disabled = !!isIdle;
+    chip.title = '';
+    if (typeof chip.setAttribute === 'function') chip.setAttribute('aria-current', isActivePartner ? 'true' : 'false');
+    if (typeof chip.setAttribute === 'function') chip.setAttribute('aria-pressed', isActivePartner ? 'true' : 'false');
+    if (typeof chip.setAttribute === 'function') chip.setAttribute('aria-disabled', chip.disabled ? 'true' : 'false');
+    if (chip.classList && typeof chip.classList.toggle === 'function') chip.classList.toggle('is-active', isActivePartner);
+  }
+  document.querySelectorAll('[data-lab-partner-option]').forEach((btn) => {
+    const option = normalizeLabActor(btn.dataset.labPartnerOption);
+    btn.hidden = option === selectedPartner;
+    btn.textContent = labPartnerLabel(option);
+    btn.disabled = false;
+    btn.title = '';
+    if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-disabled', 'false');
+  });
+  if (isIdle || !isActivePartner) setLabPartnerMenuOpen(false);
+}
+
 function applyLabConversationStatus(status) {
   const body = document && document.body;
   if (!body) return;
@@ -3489,11 +3541,13 @@ function applyLabConversationStatus(status) {
   const partner = isIdle
     ? getLabSelectedPartner()
     : setLabSelectedPartner(deriveLabConversationPartner(status || {}), true);
-  const isShiro = partner === 'shiro';
+  const isMio = partner === 'mio';
   setLabBodyClass('lab-idle-mode', isIdle);
   setLabBodyClass('lab-chat-mode', !isIdle);
-  setLabBodyClass('lab-partner-mio', isIdle || !isShiro);
-  setLabBodyClass('lab-partner-shiro', isIdle || isShiro);
+  setLabBodyClass('lab-partner-mio', isIdle || isMio);
+  setLabBodyClass('lab-partner-shiro', isIdle || !isMio);
+  setLabBodyClass('lab-partner-kuro', !isIdle && partner === 'kuro');
+  setLabBodyClass('lab-partner-midori', !isIdle && partner === 'midori');
   if (body.dataset) {
     body.dataset.labConversationMode = conversationMode;
     body.dataset.labPartner = isIdle ? 'both' : partner;
@@ -3502,13 +3556,14 @@ function applyLabConversationStatus(status) {
   setLabChipState('labModeChatChip', !isIdle);
   setLabChipState('labModeIdleChip', isIdle);
   setLabChipState('labModeMioChip', isIdle || partner === 'mio');
-  setLabChipState('labModeShiroChip', isIdle || partner === 'shiro');
+  syncLabPartnerPicker(partner, isIdle);
 }
 
 function setLabModeSwitcherBusy(enabled) {
-  document.querySelectorAll('[data-lab-switch]').forEach((btn) => {
+  document.querySelectorAll('[data-lab-switch], [data-lab-partner-toggle], [data-lab-partner-option]').forEach((btn) => {
     btn.disabled = !!enabled;
   });
+  if (enabled) setLabPartnerMenuOpen(false);
 }
 
 async function runLabIdleControl(path) {
@@ -3562,12 +3617,35 @@ function bindLabModeSwitcher() {
         switchLabConversation('idle');
         return;
       }
-      if (action === 'mio' || action === 'shiro') {
+      if (action === 'mio') {
         switchLabConversation('chat', action);
         return;
       }
       switchLabConversation('chat');
     });
+  });
+  const partnerChip = document.querySelector('[data-lab-partner-toggle]');
+  if (partnerChip) {
+    partnerChip.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const body = document && document.body;
+      if (!body || !body.classList || !body.classList.contains('lab-chat-mode')) return;
+      const menu = document.getElementById('labPartnerOptions');
+      setLabPartnerMenuOpen(menu ? menu.hidden : true);
+    });
+  }
+  document.querySelectorAll('[data-lab-partner-option]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const actor = normalizeLabActor(btn.dataset.labPartnerOption);
+      if (!isLabChatPartner(actor)) return;
+      setLabPartnerMenuOpen(false);
+      switchLabConversation('chat', actor);
+    });
+  });
+  document.addEventListener('click', (ev) => {
+    const picker = document.getElementById('labPartnerPicker');
+    if (picker && typeof picker.contains === 'function' && picker.contains(ev.target)) return;
+    setLabPartnerMenuOpen(false);
   });
 }
 

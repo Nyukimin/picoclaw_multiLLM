@@ -2242,6 +2242,48 @@ body.lab-mode.live-mode .lab-mode-chip:disabled{
   transform:none;
 }
 
+body.lab-mode.live-mode .lab-mode-chip.is-active:disabled,
+body.lab-mode.live-mode .lab-mode-chip[aria-current="true"]:disabled{
+  opacity:.82;
+}
+
+body.lab-mode.live-mode .lab-partner-picker{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+}
+
+body.lab-mode.live-mode .lab-mode-chip-partner{
+  min-width:72px;
+}
+
+body.lab-mode.live-mode .lab-partner-options{
+  position:absolute;
+  left:0;
+  top:calc(100% + 10px);
+  z-index:4;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:72px;
+}
+
+body.lab-mode.live-mode .lab-partner-options[hidden]{
+  display:none !important;
+}
+
+body.lab-mode.live-mode .lab-partner-option{
+  width:100%;
+  min-width:72px;
+  background:rgba(255,255,255,.82);
+  border-color:rgba(92,126,205,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 10px 24px rgba(70,109,183,.14);
+}
+
+body.lab-mode.live-mode .lab-partner-option[hidden]{
+  display:none !important;
+}
+
 body.lab-mode.live-mode .lab-camera-live-preview{
   position:fixed;
   right:calc(var(--lab-edge) + 8px);
