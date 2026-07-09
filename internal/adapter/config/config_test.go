@@ -920,6 +920,111 @@ webwright_fetch:
 	}
 }
 
+func TestLoadConfig_RuntimeTopologyModuleReferences(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "runtime_topology_refs.yaml")
+
+	content := `
+server:
+  port: 8080
+session:
+  storage_dir: "./data/sessions"
+runtime_topology:
+  modules:
+    RenCraw_LLM:
+      roles:
+        mgmt:
+          url: http://192.168.1.6:8079
+        chat:
+          url: http://192.168.1.6:8081
+        worker:
+          url: http://192.168.1.6:8082
+        chatworker:
+          url: http://192.168.1.6:8082
+        coder1:
+          url: http://192.168.1.6:8082
+        coder2:
+          url: http://192.168.1.72:18082
+        coder3:
+          url: http://192.168.1.6:8082
+        coder4:
+          url: http://192.168.1.6:8082
+local_llm:
+  enabled: true
+  provider: local_openai
+  base_url: ${module:RenCraw_LLM.endpoints.chat}
+  chat_base_url: ${module:RenCraw_LLM.endpoints.chat}
+  worker_base_url: ${module:RenCraw_LLM.endpoints.worker}
+  chat_worker_base_url: ${module:RenCraw_LLM.endpoints.chatworker}
+webwright_fetch:
+  enabled: true
+  responses_endpoint: ${module:RenCraw_LLM.endpoints.worker}/v1/responses
+llm_ops:
+  enabled: true
+  base_url: ${module:RenCraw_LLM.endpoints.mgmt}
+coder1:
+  enabled: true
+  name: aka
+  provider: local_openai
+  model: Coder1
+  base_url: ${module:RenCraw_LLM.endpoints.coder1}
+coder2:
+  enabled: true
+  name: ao
+  provider: local_openai
+  model: Coder2
+  base_url: ${module:RenCraw_LLM.endpoints.coder2}
+coder3:
+  enabled: true
+  name: gin
+  provider: local_openai
+  model: Coder3
+  base_url: ${module:RenCraw_LLM.endpoints.coder3}
+coder4:
+  enabled: true
+  name: kin
+  provider: local_openai
+  model: Coder4
+  base_url: ${module:RenCraw_LLM.endpoints.coder4}
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if cfg.LocalLLM.ChatBaseURL != "http://192.168.1.6:8081" {
+		t.Fatalf("unexpected chat base URL: %s", cfg.LocalLLM.ChatBaseURL)
+	}
+	if cfg.LocalLLM.WorkerBaseURL != "http://192.168.1.6:8082" {
+		t.Fatalf("unexpected worker base URL: %s", cfg.LocalLLM.WorkerBaseURL)
+	}
+	if cfg.LocalLLM.ChatWorkerBaseURL != "http://192.168.1.6:8082" {
+		t.Fatalf("unexpected chatworker base URL: %s", cfg.LocalLLM.ChatWorkerBaseURL)
+	}
+	if cfg.LLMOps.BaseURL != "http://192.168.1.6:8079" {
+		t.Fatalf("unexpected llm_ops base URL: %s", cfg.LLMOps.BaseURL)
+	}
+	if cfg.WebwrightFetch.ResponsesEndpoint != "http://192.168.1.6:8082/v1/responses" {
+		t.Fatalf("unexpected webwright responses endpoint: %s", cfg.WebwrightFetch.ResponsesEndpoint)
+	}
+	for name, got := range map[string]string{
+		"coder1": cfg.Coder1.BaseURL,
+		"coder3": cfg.Coder3.BaseURL,
+		"coder4": cfg.Coder4.BaseURL,
+	} {
+		if got != "http://192.168.1.6:8082" {
+			t.Fatalf("%s base URL = %s", name, got)
+		}
+	}
+	if cfg.Coder2.BaseURL != "http://192.168.1.72:18082" {
+		t.Fatalf("coder2 role override was not applied: %s", cfg.Coder2.BaseURL)
+	}
+}
+
 func TestLoadConfig_WebwrightFetchKeepsExplicitUvxFrom(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "webwright_fetch_uvx.yaml")

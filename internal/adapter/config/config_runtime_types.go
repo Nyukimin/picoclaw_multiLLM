@@ -48,6 +48,7 @@ type LocalLLMConfig struct {
 	BaseURL           string `yaml:"base_url"`
 	ChatBaseURL       string `yaml:"chat_base_url"`
 	WorkerBaseURL     string `yaml:"worker_base_url"`
+	ChatWorkerBaseURL string `yaml:"chat_worker_base_url"`
 	HeavyBaseURL      string `yaml:"heavy_base_url"`
 	WildBaseURL       string `yaml:"wild_base_url"`
 	APIKey            string `yaml:"api_key"`

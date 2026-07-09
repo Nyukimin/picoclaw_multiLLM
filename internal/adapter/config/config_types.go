@@ -27,6 +27,9 @@ type Config struct {
 	// === MLX / local OpenAI-compatible LLM runtime ===
 	LocalLLM LocalLLMConfig `yaml:"local_llm"`
 
+	// === Runtime module placement source of truth ===
+	RuntimeTopology RuntimeTopologyConfig `yaml:"runtime_topology"`
+
 	// === Optional Webwright browser-backed fetch bridge ===
 	WebwrightFetch WebwrightFetchConfig `yaml:"webwright_fetch"`
 
